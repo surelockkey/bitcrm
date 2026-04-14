@@ -1,0 +1,12 @@
+{
+  "name": "bitcrm",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "npm@10.9.3",
+  "workspaces": [
+    "packages/*",
+    "backend",
+    "backend/services/*",
+    "backend/packages/*"
+  ]
+}

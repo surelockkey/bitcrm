@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <title>BitCRM API Docs</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  <script>
+    const baseUrl = window.location.origin;
+    Scalar.createApiReference('#app', {
+      sources: [
+        { url: `${baseUrl}/api/users/openapi-json`, title: 'User Service', slug: 'users' },
+        { url: `${baseUrl}/api/crm/openapi-json`, title: 'CRM Service', slug: 'crm' },
+        { url: `${baseUrl}/api/deals/openapi-json`, title: 'Deal Service', slug: 'deals' },
+        { url: `${baseUrl}/api/inventory/openapi-json`, title: 'Inventory Service', slug: 'inventory' },
+      ],
+      theme: 'default',
+    })
+  </script>
+</body>
+</html>

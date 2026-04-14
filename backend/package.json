@@ -1,0 +1,38 @@
+{
+  "name": "bitcrm-backend",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "npm@10.9.3",
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@bitcrm/types": "*"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:user": "turbo run dev --filter=user-service",
+    "dev:crm": "turbo run dev --filter=crm-service",
+    "dev:deal": "turbo run dev --filter=deal-service",
+    "dev:inventory": "turbo run dev --filter=inventory-service",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "bash scripts/test.sh unit",
+    "test:unit": "bash scripts/test.sh unit",
+    "test:unit:cov": "bash scripts/test.sh unit --coverage",
+    "test:integration": "bash scripts/test.sh integration",
+    "test:e2e": "bash scripts/test.sh e2e",
+    "test:all": "bash scripts/test.sh all",
+    "test:all:cov": "bash scripts/test.sh all --coverage",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "setup": "npm run docker:up"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "typescript": "^5.7.0",
+    "prettier": "^3.4.0",
+    "eslint": "^9.17.0"
+  }
+}
