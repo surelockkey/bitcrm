@@ -44,3 +44,31 @@ export { LoggerModule, LoggerModuleConfig } from './logger/logger.module';
 export { CorrelationMiddleware } from './logger/correlation.middleware';
 export { getTraceId, storage as traceStorage } from './logger/trace-storage';
 export { TRACE_ID_HEADER, TRACE_ID_ATTRIBUTE } from './logger/logger.constants';
+
+// Metrics
+export { MetricsModule, MetricsModuleConfig } from './metrics/metrics.module';
+export { MetricsService } from './metrics/metrics.service';
+export { BusinessMetricsService } from './metrics/business-metrics.service';
+export { HttpMetricsInterceptor } from './metrics/http-metrics.interceptor';
+
+// Health
+export { HealthModule } from './health/health.module';
+export { DynamoDbHealthIndicator } from './health/dynamodb.health-indicator';
+export { RedisHealthIndicator } from './health/redis.health-indicator';
+
+// Tracing
+export { initTracing, shutdownTracing } from './tracing/tracing';
+
+// Connectivity
+export { ConnectivityModule } from './connectivity/connectivity.module';
+export { ConnectivityCheckService } from './connectivity/connectivity-check.service';
+export { DependencyMetricsService } from './connectivity/dependency-metrics.service';
+export {
+  ConnectivityOptions,
+  Probe,
+  ProbeKind,
+  ProbeOutcome,
+  ProbeResult,
+  ProbeResourceStatus,
+  HttpServiceTarget,
+} from './connectivity/connectivity.types';

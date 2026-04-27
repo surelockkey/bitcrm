@@ -2,6 +2,9 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../.env') });
 
+import { initTracing, shutdownTracing } from '@bitcrm/shared';
+initTracing('user-service');
+
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
@@ -37,5 +40,13 @@ async function bootstrap() {
   const port = process.env.USER_SERVICE_PORT || 4001;
   await app.listen(port);
   app.get(Logger).log(`User service running on http://localhost:${port}`);
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, async () => {
+      await app.close();
+      await shutdownTracing();
+      process.exit(0);
+    });
+  }
 }
 bootstrap();

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { BusinessMetricsService } from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
 import {
   type JwtUser,
@@ -23,6 +24,7 @@ export class TransfersService {
   constructor(
     private readonly repository: TransfersRepository,
     private readonly stockService: StockService,
+    @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
 
   async createTransfer(dto: CreateTransferDto, user: JwtUser) {
@@ -53,11 +55,13 @@ export class TransfersService {
     };
 
     await this.repository.create(transfer);
+    this.businessMetrics?.stockTransfers.inc({ type: 'transfer' });
     return transfer;
   }
 
   async deductStock(dto: DeductStockDto) {
     await this.stockService.deduct(`CONTAINER#${dto.containerId}`, dto.items);
+    this.businessMetrics?.stockDeductions.inc();
 
     await this.repository.create({
       id: randomUUID(),
@@ -76,6 +80,7 @@ export class TransfersService {
 
   async restoreStock(dto: RestoreStockDto) {
     await this.stockService.receive(`CONTAINER#${dto.containerId}`, dto.items);
+    this.businessMetrics?.stockTransfers.inc({ type: 'restore' });
 
     await this.repository.create({
       id: randomUUID(),

@@ -1,3 +1,10 @@
+import { config } from 'dotenv';
+import { resolve } from 'path';
+config({ path: resolve(__dirname, '../../../.env') });
+
+import { initTracing, shutdownTracing } from '@bitcrm/shared';
+initTracing('deal-service');
+
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
@@ -28,5 +35,13 @@ async function bootstrap() {
   const port = process.env.DEAL_SERVICE_PORT || 4003;
   await app.listen(port);
   app.get(Logger).log(`Deal service running on http://localhost:${port}`);
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, async () => {
+      await app.close();
+      await shutdownTracing();
+      process.exit(0);
+    });
+  }
 }
 bootstrap();

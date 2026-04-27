@@ -2,6 +2,9 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../.env') });
 
+import { initTracing, shutdownTracing } from '@bitcrm/shared';
+initTracing('inventory-service');
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -34,5 +37,13 @@ async function bootstrap() {
   const port = process.env.INVENTORY_SERVICE_PORT || 4004;
   await app.listen(port);
   app.get(Logger).log(`Inventory service running on http://localhost:${port}`);
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, async () => {
+      await app.close();
+      await shutdownTracing();
+      process.exit(0);
+    });
+  }
 }
 bootstrap();

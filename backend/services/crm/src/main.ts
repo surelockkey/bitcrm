@@ -1,3 +1,10 @@
+import { config } from 'dotenv';
+import { resolve } from 'path';
+config({ path: resolve(__dirname, '../../../.env') });
+
+import { initTracing, shutdownTracing } from '@bitcrm/shared';
+initTracing('crm-service');
+
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
@@ -32,5 +39,13 @@ async function bootstrap() {
   const port = process.env.CRM_SERVICE_PORT || 4002;
   await app.listen(port);
   app.get(Logger).log(`CRM service running on http://localhost:${port}`);
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, async () => {
+      await app.close();
+      await shutdownTracing();
+      process.exit(0);
+    });
+  }
 }
 bootstrap();

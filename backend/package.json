@@ -27,6 +27,9 @@
     "test:all:cov": "bash scripts/test.sh all --coverage",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
+    "docker:monitoring": "docker compose --profile monitoring up -d",
+    "docker:monitoring:down": "docker compose --profile monitoring down",
+    "setup:aws": "bash scripts/setup-aws.sh",
     "setup": "npm run docker:up"
   },
   "devDependencies": {

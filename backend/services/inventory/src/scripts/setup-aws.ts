@@ -26,7 +26,7 @@ const awsConfig = {
   }),
 };
 
-const SNS_TOPICS = ['bitcrm-user-events', 'bitcrm-inventory-events'];
+const SNS_TOPICS = ['bitcrm-inventory-events'];
 
 const SQS_QUEUES = [
   { name: 'inventory-user-events', dlqName: 'inventory-user-events-dlq' },

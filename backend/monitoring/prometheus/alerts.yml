@@ -1,0 +1,95 @@
+groups:
+  - name: bitcrm-alerts
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Service {{ $labels.job }} is down'
+
+      - alert: HighErrorRate
+        expr: >
+          sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_total[5m])) by (service) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High 5xx error rate on {{ $labels.service }}'
+
+      - alert: HighLatencyP99
+        expr: >
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'P99 latency > 2s on {{ $labels.service }}'
+
+      - alert: HighEventLoopLag
+        expr: nodejs_eventloop_lag_seconds > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High event loop lag on {{ $labels.service }}'
+
+      - alert: HighHeapUsage
+        expr: >
+          nodejs_heap_size_used_bytes / nodejs_heap_size_total_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Heap usage above 90% on {{ $labels.service }}'
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Redis is down'
+
+      - alert: HealthCheckFailing
+        expr: probe_success == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Health check failing for {{ $labels.instance }}'
+
+      - alert: SqsProcessingErrors
+        expr: rate(bitcrm_sqs_messages_processed_total{status="error"}[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'SQS processing errors on {{ $labels.service }}'
+
+      - alert: DependencyDown
+        expr: bitcrm_dependency_up == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} cannot reach {{ $labels.kind }}/{{ $labels.name }}'
+          description: 'resource={{ $labels.resource }}'
+
+      - alert: DependencyResourceMissing
+        expr: bitcrm_dependency_up{resource!=""} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} required resource missing: {{ $labels.kind }} {{ $labels.resource }}'
+
+      - alert: ConnectivityCheckStale
+        expr: time() - bitcrm_dependency_last_check_timestamp > 90
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Connectivity check on {{ $labels.service }} has not run in >90s'

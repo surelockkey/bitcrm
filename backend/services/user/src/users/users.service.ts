@@ -7,7 +7,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { CognitoAdminService, PermissionCacheReader, SnsPublisherService } from '@bitcrm/shared';
+import { CognitoAdminService, PermissionCacheReader, SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import {
   type User,
   type JwtUser,
@@ -37,6 +37,7 @@ export class UsersService {
     private readonly rolesCache: RolesCacheService,
     private readonly permissionResolver: PermissionResolverService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
 
   async create(dto: CreateUserDto, caller: JwtUser): Promise<User> {
@@ -101,14 +102,19 @@ export class UsersService {
     }
 
     await this.cache.setUser(user);
+    this.businessMetrics?.entityCreated.inc({ entity_type: 'user' });
     this.publishUserEvent('user.activated', user);
     return user;
   }
 
   async findById(id: string): Promise<User> {
     const cached = await this.cache.getUser(id);
-    if (cached) return cached;
+    if (cached) {
+      this.businessMetrics?.cacheHits.inc({ entity_type: 'user' });
+      return cached;
+    }
 
+    this.businessMetrics?.cacheMisses.inc({ entity_type: 'user' });
     const user = await this.repository.findById(id);
     if (!user) {
       throw new NotFoundException('User not found');

@@ -1,5 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
-import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, SqsConsumerService } from '@bitcrm/shared';
+import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, SqsConsumerService, MetricsModule, HealthModule, ConnectivityModule } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { S3Module } from './common/s3/s3.module';
 import { StockModule } from './stock/stock.module';
@@ -12,6 +12,17 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
 @Module({
   imports: [
     LoggerModule.forRoot({ serviceName: 'inventory-service' }),
+    MetricsModule.forRoot({ serviceName: 'inventory-service' }),
+    HealthModule,
+    ConnectivityModule.forRoot({
+      serviceName: 'inventory-service',
+      failFast: ['dynamodb', 'redis'],
+      dynamodb: { tables: ['BitCRM_Inventory'] },
+      redis: true,
+      s3: { buckets: [process.env.S3_BUCKET ?? 'bitcrm-uploads'] },
+      sns: { topics: ['bitcrm-inventory-events'] },
+      sqs: { queues: ['inventory-user-events'] },
+    }),
     DynamoDbModule,
     RedisModule,
     AuthModule,

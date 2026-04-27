@@ -7,6 +7,9 @@ import {
   CognitoAuthModule,
   EventsModule,
   LoggerModule,
+  MetricsModule,
+  HealthModule,
+  ConnectivityModule,
 } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { UsersModule } from './users/users.module';
@@ -16,6 +19,15 @@ import { RolesModule } from './roles/roles.module';
 @Module({
   imports: [
     LoggerModule.forRoot({ serviceName: 'user-service' }),
+    MetricsModule.forRoot({ serviceName: 'user-service' }),
+    HealthModule,
+    ConnectivityModule.forRoot({
+      serviceName: 'user-service',
+      failFast: ['dynamodb', 'redis'],
+      dynamodb: { tables: ['BitCRM_Users'] },
+      redis: true,
+      sns: { topics: ['bitcrm-user-events'] },
+    }),
     DynamoDbModule,
     RedisModule,
     SharedAuthModule,

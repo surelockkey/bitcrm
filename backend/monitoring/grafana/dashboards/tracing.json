@@ -1,0 +1,148 @@
+{
+  "uid": "bitcrm-tracing",
+  "title": "BitCRM - Tracing",
+  "tags": ["bitcrm", "tracing", "tempo"],
+  "timezone": "browser",
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "Prometheus" },
+        "query": "label_values(http_requests_total, service)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Explore Traces in Tempo",
+      "type": "text",
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "### [Open Tempo Explore -->](/explore?orgId=1&left=%7B%22datasource%22:%22Tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22queryType%22:%22traceqlSearch%22%7D%5D%7D)\n\nUse Tempo Explore to search traces by service, operation, duration, or status. The panels below help identify which requests to investigate."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Request Duration Distribution (P50 / P95 / P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 3 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le, service))",
+          "legendFormat": "{{service}} P50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le, service))",
+          "legendFormat": "{{service}} P95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le, service))",
+          "legendFormat": "{{service}} P99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+    {
+      "id": 3,
+      "title": "Error Rate by Service (5xx)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 15 } } }
+    },
+    {
+      "id": 4,
+      "title": "Slow Endpoints (P99 > 1s)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "topk(20, histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le, service, method, route)) > 1)",
+          "legendFormat": "",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true } } }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Error Endpoints (for trace investigation)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "topk(20, sum(rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[5m])) by (service, method, route, status_code))",
+          "legendFormat": "",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true } } }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Internal Service Call Latency (trace correlation)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(bitcrm_internal_http_duration_seconds_bucket[5m])) by (le, target_service))",
+          "legendFormat": "{{target_service}} P95"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } } }
+    },
+    {
+      "id": 7,
+      "title": "Logs with Trace IDs (Loki)",
+      "type": "text",
+      "gridPos": { "h": 3, "w": 12, "x": 12, "y": 27 },
+      "options": {
+        "mode": "markdown",
+        "content": "### [Search Logs in Loki -->](/explore?orgId=1&left=%7B%22datasource%22:%22Loki%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22expr%22:%22%7Bservice_name%3D~%5C%22.%2B%5C%22%7D%20%7C%20json%20%7C%20traceID%20!%3D%20%5C%22%5C%22%22%7D%5D%7D)\n\nFilter logs by traceID in Loki to correlate logs with distributed traces in Tempo."
+      }
+    },
+    {
+      "id": 8,
+      "title": "Request Volume by Service",
+      "type": "timeseries",
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 30 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{service=~\"$service\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 15 } } }
+    }
+  ]
+}
