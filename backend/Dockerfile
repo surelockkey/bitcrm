@@ -41,6 +41,15 @@ RUN addgroup -S app && adduser -S app -G app
 # Copy entire built monorepo so workspace symlinks resolve at runtime
 COPY --from=builder --chown=app:app /repo/ ./
 
+# npm workspaces hoist deps to multiple levels (/app/node_modules and
+# /app/backend/node_modules). Merge them so dynamic require()s issued from
+# packages at the root level (e.g. @nestjs/core requiring @nestjs/platform-express)
+# can resolve deps that landed under backend/.
+RUN apk add --no-cache --virtual .cp-deps coreutils \
+    && cp -rn /app/backend/node_modules/. /app/node_modules/ \
+    && apk del .cp-deps \
+    && chown -R app:app /app/node_modules
+
 USER app
 WORKDIR /app/backend/services/${SERVICE}
 
