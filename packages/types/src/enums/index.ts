@@ -1,2 +1,11 @@
 export { UserStatus } from './user-status.enum';
 export { DataScope } from './data-scope.enum';
+export { ContactType } from './contact-type.enum';
+export { ContactSource } from './contact-source.enum';
+export { ClientType } from './client-type.enum';
+export { CrmStatus } from './crm-status.enum';
+export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './deal-stage.enum';
+export { DealPriority } from './deal-priority.enum';
+export { DealStatus } from './deal-status.enum';
+export { TimelineEventType } from './timeline-event-type.enum';
+export { JobType } from './job-type.enum';
