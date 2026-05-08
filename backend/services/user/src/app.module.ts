@@ -23,10 +23,10 @@ import { RolesModule } from './roles/roles.module';
     HealthModule,
     ConnectivityModule.forRoot({
       serviceName: 'user-service',
-      failFast: ['dynamodb', 'redis'],
-      dynamodb: { tables: ['BitCRM_Users'] },
+      failFast: [],
+      dynamodb: { tables: [process.env.USERS_TABLE || 'BitCRM_Users'] },
       redis: true,
-      sns: { topics: ['bitcrm-user-events'] },
+      sns: process.env.USER_EVENTS_TOPIC_ARN ? { topics: [process.env.USER_EVENTS_TOPIC_ARN] } : undefined,
     }),
     DynamoDbModule,
     RedisModule,
@@ -38,9 +38,9 @@ import { RolesModule } from './roles/roles.module';
         region: process.env.AWS_REGION,
         endpoint: process.env.AWS_ENDPOINT,
         source: 'user-service',
-        topicArns: {
-          'bitcrm-user-events': `arn:aws:sns:${process.env.AWS_REGION || 'us-east-1'}:000000000000:bitcrm-user-events`,
-        },
+        topicArns: process.env.USER_EVENTS_TOPIC_ARN
+          ? { 'user-events': process.env.USER_EVENTS_TOPIC_ARN }
+          : {},
       },
     }),
     RolesModule,

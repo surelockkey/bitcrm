@@ -24,11 +24,11 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     HealthModule,
     ConnectivityModule.forRoot({
       serviceName: 'deal-service',
-      failFast: ['dynamodb', 'redis'],
-      dynamodb: { tables: ['BitCRM_Deals'] },
+      failFast: [],
+      dynamodb: { tables: [process.env.DEALS_TABLE || 'BitCRM_Deals'] },
       redis: true,
-      sns: { topics: ['bitcrm-deal-events'] },
-      sqs: { queues: ['deal-service-events'] },
+      sns: process.env.DEAL_EVENTS_TOPIC_ARN ? { topics: [process.env.DEAL_EVENTS_TOPIC_ARN] } : undefined,
+      sqs: process.env.DEAL_SERVICE_QUEUE_URL ? { queues: [process.env.DEAL_SERVICE_QUEUE_URL] } : undefined,
       httpServices: [
         { name: 'crm', url: (process.env.CRM_SERVICE_URL ?? 'http://localhost:4002') + '/api/crm/health' },
         { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },
@@ -43,21 +43,19 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
         region: AWS_REGION,
         endpoint: AWS_ENDPOINT,
         source: 'deal-service',
-        topicArns: {
-          'deal-events': AWS_ENDPOINT
-            ? `arn:aws:sns:${AWS_REGION}:000000000000:bitcrm-deal-events`
-            : `arn:aws:sns:${AWS_REGION}:${process.env.AWS_ACCOUNT_ID || '000000000000'}:bitcrm-deal-events`,
-        },
+        topicArns: process.env.DEAL_EVENTS_TOPIC_ARN
+          ? { 'deal-events': process.env.DEAL_EVENTS_TOPIC_ARN }
+          : {},
       },
-      consumer: {
-        region: AWS_REGION,
-        endpoint: AWS_ENDPOINT,
-        queueUrl: AWS_ENDPOINT
-          ? `${AWS_ENDPOINT}/000000000000/deal-service-events`
-          : `https://sqs.${AWS_REGION}.amazonaws.com/${process.env.AWS_ACCOUNT_ID || '000000000000'}/deal-service-events`,
-        waitTimeSeconds: 20,
-        maxMessages: 10,
-      },
+      consumer: process.env.DEAL_SERVICE_QUEUE_URL
+        ? {
+            region: AWS_REGION,
+            endpoint: AWS_ENDPOINT,
+            queueUrl: process.env.DEAL_SERVICE_QUEUE_URL,
+            waitTimeSeconds: 20,
+            maxMessages: 10,
+          }
+        : undefined,
     }),
     DealsModule,
   ],

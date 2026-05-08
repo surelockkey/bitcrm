@@ -1,4 +1,4 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module, OnModuleInit, Optional } from '@nestjs/common';
 import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, SqsConsumerService, MetricsModule, HealthModule, ConnectivityModule } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { S3Module } from './common/s3/s3.module';
@@ -16,26 +16,26 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
     HealthModule,
     ConnectivityModule.forRoot({
       serviceName: 'inventory-service',
-      failFast: ['dynamodb', 'redis'],
-      dynamodb: { tables: ['BitCRM_Inventory'] },
+      failFast: [],
+      dynamodb: { tables: [process.env.INVENTORY_TABLE || 'BitCRM_Inventory'] },
       redis: true,
-      s3: { buckets: [process.env.S3_BUCKET ?? 'bitcrm-uploads'] },
-      sns: { topics: ['bitcrm-inventory-events'] },
-      sqs: { queues: ['inventory-user-events'] },
+      s3: { buckets: [process.env.S3_BUCKET ?? process.env.S3_APP_NAME ?? 'bitcrm-uploads'] },
+      sns: process.env.INVENTORY_EVENTS_TOPIC_ARN ? { topics: [process.env.INVENTORY_EVENTS_TOPIC_ARN] } : undefined,
+      sqs: process.env.INVENTORY_USER_QUEUE_URL ? { queues: [process.env.INVENTORY_USER_QUEUE_URL] } : undefined,
     }),
     DynamoDbModule,
     RedisModule,
     AuthModule,
     EventsModule.forRoot({
-      consumer: {
-        region: process.env.AWS_REGION,
-        endpoint: process.env.AWS_ENDPOINT,
-        queueUrl: process.env.AWS_ENDPOINT
-          ? `${process.env.AWS_ENDPOINT}/000000000000/inventory-user-events`
-          : 'https://sqs.us-east-1.amazonaws.com/000000000000/inventory-user-events',
-        waitTimeSeconds: 20,
-        maxMessages: 10,
-      },
+      consumer: process.env.INVENTORY_USER_QUEUE_URL
+        ? {
+            region: process.env.AWS_REGION,
+            endpoint: process.env.AWS_ENDPOINT,
+            queueUrl: process.env.INVENTORY_USER_QUEUE_URL,
+            waitTimeSeconds: 20,
+            maxMessages: 10,
+          }
+        : undefined,
     }),
     S3Module,
     StockModule,
@@ -48,22 +48,26 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
 })
 export class AppModule implements OnModuleInit {
   constructor(
-    private readonly sqsConsumer: SqsConsumerService,
-    private readonly containersEventHandler: ContainersEventHandler,
+    @Optional() private readonly sqsConsumer?: SqsConsumerService,
+    @Optional() private readonly containersEventHandler?: ContainersEventHandler,
   ) {}
 
   onModuleInit() {
+    if (!this.sqsConsumer || !this.containersEventHandler) return;
+
     // Register event handlers
     this.sqsConsumer.registerHandler(
       'user.activated',
-      (payload) => this.containersEventHandler.handleUserEvent(payload as any),
+      (payload) => this.containersEventHandler!.handleUserEvent(payload as any),
     );
     this.sqsConsumer.registerHandler(
       'user.role-changed',
-      (payload) => this.containersEventHandler.handleUserEvent(payload as any),
+      (payload) => this.containersEventHandler!.handleUserEvent(payload as any),
     );
 
-    // Start polling
-    this.sqsConsumer.start();
+    // Only start polling if explicitly enabled (matches deal service convention)
+    if (process.env.ENABLE_SQS_CONSUMER === 'true') {
+      this.sqsConsumer.start();
+    }
   }
 }

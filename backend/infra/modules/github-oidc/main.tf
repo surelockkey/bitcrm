@@ -125,6 +125,16 @@ data "aws_iam_policy_document" "permissions" {
     actions   = ["logs:DescribeLogGroups"]
     resources = ["*"]
   }
+
+  statement {
+    sid    = "ELBDescribe"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeTargetHealth",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "deploy" {

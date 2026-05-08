@@ -11,10 +11,15 @@ import { CompaniesModule } from './companies/companies.module';
     HealthModule,
     ConnectivityModule.forRoot({
       serviceName: 'crm-service',
-      failFast: ['dynamodb', 'redis'],
-      dynamodb: { tables: ['BitCRM_Contacts', 'BitCRM_Companies'] },
+      failFast: [],
+      dynamodb: {
+        tables: [
+          process.env.CONTACTS_TABLE || 'BitCRM_Contacts',
+          process.env.COMPANIES_TABLE || 'BitCRM_Companies',
+        ],
+      },
       redis: true,
-      sns: { topics: ['bitcrm-crm-events'] },
+      sns: process.env.CRM_EVENTS_TOPIC_ARN ? { topics: [process.env.CRM_EVENTS_TOPIC_ARN] } : undefined,
     }),
     DynamoDbModule,
     RedisModule,
@@ -24,9 +29,9 @@ import { CompaniesModule } from './companies/companies.module';
         region: process.env.AWS_REGION,
         endpoint: process.env.AWS_ENDPOINT,
         source: 'crm-service',
-        topicArns: {
-          crm: `arn:aws:sns:${process.env.AWS_REGION || 'us-east-1'}:000000000000:bitcrm-crm-events`,
-        },
+        topicArns: process.env.CRM_EVENTS_TOPIC_ARN
+          ? { crm: process.env.CRM_EVENTS_TOPIC_ARN }
+          : {},
       },
     }),
     ContactsModule,

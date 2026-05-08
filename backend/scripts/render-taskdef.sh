@@ -53,6 +53,26 @@ SSM_ENV_JSON=$(aws ssm get-parameters-by-path \
   })')
 
 # 2. Static + secret env vars
+# Service-friendly aliases derived from SSM (so service code can do
+# process.env.USERS_TABLE rather than process.env.DYNAMODB_USERS_TABLE_NAME)
+SSM_ALIASES_JSON=$(echo "$SSM_ENV_JSON" | jq '
+  . as $orig |
+  reduce .[] as $e ([]; . +
+    (
+      # DynamoDB table aliases: DYNAMODB_<X>_TABLE_NAME -> <X>_TABLE
+      if ($e.name | test("^DYNAMODB_.*_TABLE_NAME$")) then
+        [{name: ($e.name | sub("^DYNAMODB_"; "") | sub("_TABLE_NAME$"; "_TABLE")), value: $e.value}]
+      # SNS aliases: SNS_<X>_ARN -> <X>_TOPIC_ARN  (- becomes _ already)
+      elif ($e.name | test("^SNS_.*_ARN$")) then
+        [{name: ($e.name | sub("^SNS_"; "") | sub("_ARN$"; "_TOPIC_ARN")), value: $e.value}]
+      # SQS URL aliases: SQS_<X>_URL -> <X>_QUEUE_URL
+      elif ($e.name | test("^SQS_.*_URL$")) then
+        [{name: ($e.name | sub("^SQS_"; "") | sub("_URL$"; "_QUEUE_URL")), value: $e.value}]
+      else [] end
+    )
+  )
+')
+
 EXTRA_ENV_JSON=$(jq -n \
   --arg port "$PORT" \
   --arg port_env "$PORT_ENV" \
@@ -74,8 +94,8 @@ EXTRA_ENV_JSON=$(jq -n \
   + (if $internal_token != "" then [{name: "INTERNAL_SERVICE_TOKEN", value: $internal_token}] else [] end)
   ')
 
-# 3. Merge SSM + extra env
-ALL_ENV_JSON=$(jq -s '.[0] + .[1]' <(echo "$SSM_ENV_JSON") <(echo "$EXTRA_ENV_JSON"))
+# 3. Merge SSM + aliases + extra env
+ALL_ENV_JSON=$(jq -s '.[0] + .[1] + .[2]' <(echo "$SSM_ENV_JSON") <(echo "$SSM_ALIASES_JSON") <(echo "$EXTRA_ENV_JSON"))
 
 # 4. Substitute placeholders in template, inject environment array
 sed \
