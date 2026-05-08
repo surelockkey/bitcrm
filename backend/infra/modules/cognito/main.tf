@@ -82,3 +82,36 @@ resource "aws_cognito_user_pool_client" "api" {
   read_attributes  = ["email", "custom:department", "custom:user_id", "custom:role_id"]
   write_attributes = ["email", "custom:department", "custom:user_id", "custom:role_id"]
 }
+
+# Hosted UI domain — used by ALB authenticate-cognito action
+resource "aws_cognito_user_pool_domain" "main" {
+  domain       = "${var.project}-${var.environment}"
+  user_pool_id = aws_cognito_user_pool.main.id
+}
+
+# Confidential client used by ALB authenticate-cognito action (OAuth code flow)
+resource "aws_cognito_user_pool_client" "alb" {
+  name         = "${var.project}-alb"
+  user_pool_id = aws_cognito_user_pool.main.id
+
+  generate_secret                      = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  callback_urls                        = ["https://${var.domain_name}/oauth2/idpresponse"]
+  logout_urls                          = ["https://${var.domain_name}/"]
+  supported_identity_providers         = ["COGNITO"]
+
+  explicit_auth_flows = ["ALLOW_REFRESH_TOKEN_AUTH"]
+
+  access_token_validity  = 1
+  refresh_token_validity = 30
+
+  token_validity_units {
+    access_token  = "hours"
+    refresh_token = "days"
+  }
+
+  read_attributes  = ["email", "custom:department", "custom:user_id", "custom:role_id"]
+  write_attributes = ["email", "custom:department", "custom:user_id", "custom:role_id"]
+}
