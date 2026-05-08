@@ -73,6 +73,14 @@ SSM_ALIASES_JSON=$(echo "$SSM_ENV_JSON" | jq '
   )
 ')
 
+# Derive API_GATEWAY_URL from the public app domain in SSM so per-service
+# Swagger docs report the right server (not localhost:4000).
+APP_DOMAIN=$(echo "$SSM_ENV_JSON" | jq -r '.[] | select(.name == "APP_DOMAIN") | .value')
+API_GATEWAY_URL=""
+if [[ -n "$APP_DOMAIN" && "$APP_DOMAIN" != "null" ]]; then
+  API_GATEWAY_URL="https://${APP_DOMAIN}"
+fi
+
 EXTRA_ENV_JSON=$(jq -n \
   --arg port "$PORT" \
   --arg port_env "$PORT_ENV" \
@@ -81,6 +89,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg jwt_key "${JWT_SIGNING_KEY:-}" \
   --arg cognito_secret "${COGNITO_CLIENT_SECRET:-}" \
   --arg internal_token "${INTERNAL_SERVICE_TOKEN:-}" \
+  --arg api_gateway_url "$API_GATEWAY_URL" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -89,9 +98,10 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: $port_env,       value: $port},
     {name: "GIT_SHA",       value: $git_sha}
   ]
-  + (if $jwt_key        != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]        else [] end)
-  + (if $cognito_secret != "" then [{name: "COGNITO_CLIENT_SECRET",  value: $cognito_secret}]  else [] end)
-  + (if $internal_token != "" then [{name: "INTERNAL_SERVICE_TOKEN", value: $internal_token}] else [] end)
+  + (if $api_gateway_url != "" then [{name: "API_GATEWAY_URL",        value: $api_gateway_url}] else [] end)
+  + (if $jwt_key         != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]         else [] end)
+  + (if $cognito_secret  != "" then [{name: "COGNITO_CLIENT_SECRET",  value: $cognito_secret}]  else [] end)
+  + (if $internal_token  != "" then [{name: "INTERNAL_SERVICE_TOKEN", value: $internal_token}]  else [] end)
   ')
 
 # 3. Merge SSM + aliases + extra env

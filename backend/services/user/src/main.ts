@@ -37,51 +37,35 @@ async function bootstrap() {
   // Raw OpenAPI JSON
   SwaggerModule.setup("api/users/openapi", app, document);
 
-  // Unified /api/docs — landing page linking to each per-service Scalar UI.
-  // Multi-source mode in @scalar/nestjs-api-reference v0.3 doesn't line up
-  // with the CDN'd @scalar/api-reference v1.x runtime, so we keep this
-  // simple and reliable: each service's own /api/<svc>/docs already has the
-  // full Scalar Try-It-Out experience.
+  // Unified /api/docs — same approach as backend/gateway/docs.html (the local
+  // docker-compose gateway). Uses Scalar.createApiReference() directly against
+  // the CDN-served @scalar/api-reference v1, which supports multi-source mode
+  // out of the box. The browser fetches each /api/<svc>/openapi-json from the
+  // same origin so ALB routes them to the right service.
   app.use("/api/docs", (_req: import("express").Request, res: import("express").Response) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(`<!doctype html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>BitCRM API</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-           max-width: 720px; margin: 4rem auto; padding: 0 1.5rem; line-height: 1.5; }
-    h1 { margin: 0 0 .25rem; font-size: 1.6rem; }
-    p.lead { color: #666; margin-top: 0; }
-    ul { list-style: none; padding: 0; }
-    li { margin: .5rem 0; }
-    a.svc { display: flex; justify-content: space-between; align-items: center;
-            padding: .85rem 1rem; background: #f6f6f6; border: 1px solid #e2e2e2;
-            border-radius: 8px; text-decoration: none; color: inherit; }
-    a.svc:hover { background: #ececec; }
-    a.svc small { color: #888; font-family: ui-monospace, monospace; }
-    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: .9em; }
-    @media (prefers-color-scheme: dark) {
-      body { background: #11131e; color: #eee; }
-      a.svc { background: #1c2132; border-color: #2f354a; }
-      a.svc:hover { background: #242a40; }
-      code { background: #1c2132; }
-    }
-  </style>
+  <title>BitCRM API Docs</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
 <body>
-  <h1>BitCRM API</h1>
-  <p class="lead">Pick a service to view its OpenAPI docs (full Scalar UI with Try-It-Out):</p>
-  <ul>
-    <li><a class="svc" href="/api/users/docs"><span>Users service</span><small>/api/users</small></a></li>
-    <li><a class="svc" href="/api/crm/docs"><span>CRM service</span><small>/api/crm</small></a></li>
-    <li><a class="svc" href="/api/deals/docs"><span>Deal service</span><small>/api/deals</small></a></li>
-    <li><a class="svc" href="/api/inventory/docs"><span>Inventory service</span><small>/api/inventory</small></a></li>
-  </ul>
-  <p>Authenticate with a Cognito JWT in <code>Authorization: Bearer &lt;IdToken&gt;</code>.</p>
+  <div id="app"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  <script>
+    const baseUrl = window.location.origin;
+    Scalar.createApiReference('#app', {
+      sources: [
+        { url: baseUrl + '/api/users/openapi-json',     title: 'User Service',      slug: 'users' },
+        { url: baseUrl + '/api/crm/openapi-json',       title: 'CRM Service',       slug: 'crm' },
+        { url: baseUrl + '/api/deals/openapi-json',     title: 'Deal Service',      slug: 'deals' },
+        { url: baseUrl + '/api/inventory/openapi-json', title: 'Inventory Service', slug: 'inventory' },
+      ],
+      theme: 'default',
+    });
+  </script>
 </body>
 </html>`);
   });
