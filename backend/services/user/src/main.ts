@@ -43,12 +43,14 @@ async function bootstrap() {
   app.use(
     "/api/docs",
     apiReference({
-      sources: [
-        { url: "/api/users/openapi-json",     title: "Users" },
-        { url: "/api/crm/openapi-json",       title: "CRM" },
-        { url: "/api/deals/openapi-json",     title: "Deals" },
-        { url: "/api/inventory/openapi-json", title: "Inventory" },
-      ],
+      spec: {
+        sources: [
+          { url: "/api/users/openapi-json",     title: "Users" },
+          { url: "/api/crm/openapi-json",       title: "CRM" },
+          { url: "/api/deals/openapi-json",     title: "Deals" },
+          { url: "/api/inventory/openapi-json", title: "Inventory" },
+        ],
+      } as any,
     }),
   );
 
