@@ -17,7 +17,6 @@ module "cognito" {
   source      = "../modules/cognito"
   project     = var.project
   environment = var.environment
-  domain_name = var.domain_name
 }
 
 module "github_oidc" {
@@ -45,16 +44,16 @@ locals {
 }
 
 module "alb" {
-  source                = "../modules/alb"
-  project               = var.project
-  environment           = var.environment
-  domain_name           = var.domain_name
-  vpc_id                = module.network.vpc_id
-  subnet_ids            = module.network.public_subnet_ids
-  alb_sg_id             = module.network.alb_sg_id
-  parent_zone_id        = data.aws_route53_zone.parent.zone_id
-  cognito_user_pool_arn = module.cognito.user_pool_arn
-  cognito_alb_client_id = module.cognito.alb_client_id
-  cognito_domain        = module.cognito.domain
-  services              = local.services
+  source         = "../modules/alb"
+  project        = var.project
+  environment    = var.environment
+  domain_name    = var.domain_name
+  vpc_id         = module.network.vpc_id
+  subnet_ids     = module.network.public_subnet_ids
+  alb_sg_id      = module.network.alb_sg_id
+  parent_zone_id = data.aws_route53_zone.parent.zone_id
+  services       = local.services
+  extra_rules = {
+    docs = { priority = 50, path_pattern = "/api/docs*", target_service = "user" }
+  }
 }

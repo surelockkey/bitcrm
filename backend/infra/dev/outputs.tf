@@ -18,22 +18,6 @@ output "deploy_role_arn" {
   value       = module.github_oidc.role_arn
 }
 
-output "cognito_alb_client_id" {
-  description = "Cognito client ID for ALB auth action"
-  value       = module.cognito.alb_client_id
-}
-
-output "cognito_alb_client_secret" {
-  description = "Cognito client secret for ALB auth action — copy into GitHub Environment secret COGNITO_CLIENT_SECRET in Phase 3"
-  value       = module.cognito.alb_client_secret
-  sensitive   = true
-}
-
-output "cognito_hosted_ui_domain" {
-  description = "Full Cognito Hosted UI domain (used by ALB authenticate-cognito action)"
-  value       = module.cognito.domain_full
-}
-
 output "alb_dns_name" {
   description = "ALB DNS name (Route 53 record points at this)"
   value       = module.alb.alb_dns_name

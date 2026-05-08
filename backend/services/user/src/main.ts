@@ -37,6 +37,21 @@ async function bootstrap() {
   // Raw OpenAPI JSON
   SwaggerModule.setup("api/users/openapi", app, document);
 
+  // Unified /api/docs — aggregates all four services in one Scalar UI.
+  // Each source is loaded by the browser from the same domain, so ALB routes
+  // it to the correct service.
+  app.use(
+    "/api/docs",
+    apiReference({
+      sources: [
+        { url: "/api/users/openapi-json",     title: "Users" },
+        { url: "/api/crm/openapi-json",       title: "CRM" },
+        { url: "/api/deals/openapi-json",     title: "Deals" },
+        { url: "/api/inventory/openapi-json", title: "Inventory" },
+      ],
+    }),
+  );
+
   const port = process.env.USER_SERVICE_PORT || 4001;
   await app.listen(port);
   app.get(Logger).log(`User service running on http://localhost:${port}`);

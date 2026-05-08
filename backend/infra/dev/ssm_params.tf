@@ -50,26 +50,10 @@ resource "aws_ssm_parameter" "cognito_client_id" {
   tags = local.data_plane_tags
 }
 
-resource "aws_ssm_parameter" "cognito_alb_client_id" {
-  name  = "${local.ssm_prefix}/cognito/alb-client-id"
-  type  = "String"
-  value = module.cognito.alb_client_id
-
-  tags = local.data_plane_tags
-}
-
 resource "aws_ssm_parameter" "cognito_region" {
   name  = "${local.ssm_prefix}/cognito/region"
   type  = "String"
   value = var.aws_region
-
-  tags = local.data_plane_tags
-}
-
-resource "aws_ssm_parameter" "cognito_domain" {
-  name  = "${local.ssm_prefix}/cognito/domain"
-  type  = "String"
-  value = module.cognito.domain_full
 
   tags = local.data_plane_tags
 }
