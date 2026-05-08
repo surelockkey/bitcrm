@@ -16,7 +16,7 @@
       "image": "${IMAGE}",
       "essential": true,
       "portMappings": [
-        { "name": "deal", "containerPort": 4003, "protocol": "tcp", "appProtocol": "http" }
+        { "name": "deal", "containerPort": 4003, "protocol": "tcp" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

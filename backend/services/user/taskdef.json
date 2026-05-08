@@ -16,7 +16,7 @@
       "image": "${IMAGE}",
       "essential": true,
       "portMappings": [
-        { "name": "user", "containerPort": 4001, "protocol": "tcp", "appProtocol": "http" }
+        { "name": "user", "containerPort": 4001, "protocol": "tcp" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

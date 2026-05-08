@@ -16,7 +16,7 @@
       "image": "${IMAGE}",
       "essential": true,
       "portMappings": [
-        { "name": "crm", "containerPort": 4002, "protocol": "tcp", "appProtocol": "http" }
+        { "name": "crm", "containerPort": 4002, "protocol": "tcp" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

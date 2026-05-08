@@ -16,7 +16,7 @@
       "image": "${IMAGE}",
       "essential": true,
       "portMappings": [
-        { "name": "inventory", "containerPort": 4004, "protocol": "tcp", "appProtocol": "http" }
+        { "name": "inventory", "containerPort": 4004, "protocol": "tcp" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
