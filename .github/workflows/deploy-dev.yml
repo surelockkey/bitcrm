@@ -1,0 +1,221 @@
+name: Deploy (dev)
+
+on:
+  push:
+    branches: [main, cicd]
+    paths:
+      - 'backend/services/**'
+      - 'backend/packages/**'
+      - 'packages/**'
+      - 'backend/Dockerfile'
+      - 'backend/scripts/render-taskdef.sh'
+      - '.github/workflows/deploy-dev.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy (or "all")'
+        type: choice
+        options: [all, user, crm, deal, inventory]
+        default: all
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 066206850539.dkr.ecr.us-east-1.amazonaws.com
+  ECS_CLUSTER: bitcrm-dev
+
+jobs:
+  detect:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            shared:
+              - 'backend/Dockerfile'
+              - 'backend/scripts/render-taskdef.sh'
+              - 'backend/packages/**'
+              - 'packages/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/deploy-dev.yml'
+            user:
+              - 'backend/services/user/**'
+            crm:
+              - 'backend/services/crm/**'
+            deal:
+              - 'backend/services/deal/**'
+            inventory:
+              - 'backend/services/inventory/**'
+
+      - name: Decide service matrix
+        id: set
+        env:
+          DISPATCH_INPUT: ${{ inputs.service }}
+          SHARED:    ${{ steps.filter.outputs.shared }}
+          USER:      ${{ steps.filter.outputs.user }}
+          CRM:       ${{ steps.filter.outputs.crm }}
+          DEAL:      ${{ steps.filter.outputs.deal }}
+          INVENTORY: ${{ steps.filter.outputs.inventory }}
+        run: |
+          set -euo pipefail
+          ALL='["user","crm","deal","inventory"]'
+
+          # Manual dispatch overrides path filtering
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "$DISPATCH_INPUT" == "all" ]]; then
+              echo "services=$ALL" >> "$GITHUB_OUTPUT"
+            else
+              echo "services=[\"$DISPATCH_INPUT\"]" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # Shared change -> redeploy everything
+          if [[ "$SHARED" == "true" ]]; then
+            echo "services=$ALL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Otherwise: only changed services
+          changed=()
+          [[ "$USER"      == "true" ]] && changed+=("user")
+          [[ "$CRM"       == "true" ]] && changed+=("crm")
+          [[ "$DEAL"      == "true" ]] && changed+=("deal")
+          [[ "$INVENTORY" == "true" ]] && changed+=("inventory")
+
+          if [[ ${#changed[@]} -eq 0 ]]; then
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+          else
+            json=$(printf '%s\n' "${changed[@]}" | jq -R . | jq -s -c .)
+            echo "services=$json" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Deploy ${{ matrix.service }}
+    needs: detect
+    if: needs.detect.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect.outputs.services) }}
+    concurrency:
+      group: deploy-dev-${{ matrix.service }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN_DEV }}
+          role-session-name: gh-deploy-${{ matrix.service }}-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          REPO="bitcrm-${{ matrix.service }}"
+          IMAGE_SHA="${ECR_REGISTRY}/${REPO}:sha-${SHORT_SHA}"
+          IMAGE_LATEST="${ECR_REGISTRY}/${REPO}:dev-latest"
+          {
+            echo "short_sha=${SHORT_SHA}"
+            echo "image_sha=${IMAGE_SHA}"
+            echo "image_latest=${IMAGE_LATEST}"
+            echo "repo=${REPO}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build & push image
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -f backend/Dockerfile \
+            -t ${{ steps.tags.outputs.image_sha }} \
+            -t ${{ steps.tags.outputs.image_latest }} \
+            .
+          docker push ${{ steps.tags.outputs.image_sha }}
+          docker push ${{ steps.tags.outputs.image_latest }}
+
+      - name: Render task definition
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE: ${{ steps.tags.outputs.image_sha }}
+          EXECUTION_ROLE_ARN: arn:aws:iam::066206850539:role/bitcrm-dev-${{ matrix.service }}-exec
+          TASK_ROLE_ARN:      arn:aws:iam::066206850539:role/bitcrm-dev-${{ matrix.service }}-task
+          GIT_SHA: ${{ steps.tags.outputs.short_sha }}
+          JWT_SIGNING_KEY:        ${{ secrets.JWT_SIGNING_KEY }}
+          COGNITO_CLIENT_SECRET:  ${{ secrets.COGNITO_CLIENT_SECRET }}
+          INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash backend/scripts/render-taskdef.sh > /tmp/taskdef.json
+          # sanity-check (don't echo - contains secrets)
+          jq '.family, (.containerDefinitions[0].environment | length)' /tmp/taskdef.json
+
+      - name: Register task definition
+        id: register
+        run: |
+          set -euo pipefail
+          NEW_TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/taskdef.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "task_def_arn=${NEW_TD_ARN}" >> "$GITHUB_OUTPUT"
+          echo "Registered: ${NEW_TD_ARN}"
+
+      - name: Update ECS service
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service bitcrm-dev-${{ matrix.service }} \
+            --task-definition ${{ steps.register.outputs.task_def_arn }} \
+            --force-new-deployment \
+            --no-cli-pager \
+            --query 'service.deployments[0].{status:status,desiredCount:desiredCount,runningCount:runningCount,rolloutState:rolloutState}'
+
+      - name: Wait for service stable
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services bitcrm-dev-${{ matrix.service }}
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Deploy: ${{ matrix.service }}"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| Image | \`${{ steps.tags.outputs.image_sha }}\` |"
+            echo "| Task def | \`${{ steps.register.outputs.task_def_arn }}\` |"
+            echo "| Cluster | \`${{ env.ECS_CLUSTER }}\` |"
+            echo "| Service | \`bitcrm-dev-${{ matrix.service }}\` |"
+            echo ""
+            echo "### Target group health"
+            TG_ARN=$(aws elbv2 describe-target-groups --names bitcrm-dev-${{ matrix.service }} --query 'TargetGroups[0].TargetGroupArn' --output text)
+            aws elbv2 describe-target-health --target-group-arn "$TG_ARN" \
+              --query 'TargetHealthDescriptions[].{target:Target.Id,port:Target.Port,state:TargetHealth.State,reason:TargetHealth.Reason}' \
+              --output table
+          } >> "$GITHUB_STEP_SUMMARY"

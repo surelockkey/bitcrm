@@ -110,7 +110,7 @@ resource "aws_lb_target_group" "svc" {
 
   health_check {
     enabled             = true
-    path                = "/health"
+    path                = "${trimsuffix(each.value.path_pattern, "/*")}/health/live"
     matcher             = "200"
     interval            = 30
     timeout             = 5
