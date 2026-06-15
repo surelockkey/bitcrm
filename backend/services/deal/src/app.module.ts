@@ -21,7 +21,9 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
   imports: [
     LoggerModule.forRoot({ serviceName: 'deal-service' }),
     MetricsModule.forRoot({ serviceName: 'deal-service' }),
-    HealthModule,
+    HealthModule.forRoot({
+      dynamoTables: [process.env.DEALS_TABLE || 'BitCRM_Deals'],
+    }),
     ConnectivityModule.forRoot({
       serviceName: 'deal-service',
       failFast: [],

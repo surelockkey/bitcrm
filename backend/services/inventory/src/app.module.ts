@@ -13,7 +13,9 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
   imports: [
     LoggerModule.forRoot({ serviceName: 'inventory-service' }),
     MetricsModule.forRoot({ serviceName: 'inventory-service' }),
-    HealthModule,
+    HealthModule.forRoot({
+      dynamoTables: [process.env.INVENTORY_TABLE || 'BitCRM_Inventory'],
+    }),
     ConnectivityModule.forRoot({
       serviceName: 'inventory-service',
       failFast: [],

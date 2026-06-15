@@ -20,7 +20,9 @@ import { RolesModule } from './roles/roles.module';
   imports: [
     LoggerModule.forRoot({ serviceName: 'user-service' }),
     MetricsModule.forRoot({ serviceName: 'user-service' }),
-    HealthModule,
+    HealthModule.forRoot({
+      dynamoTables: [process.env.USERS_TABLE || 'BitCRM_Users'],
+    }),
     ConnectivityModule.forRoot({
       serviceName: 'user-service',
       failFast: [],

@@ -25,6 +25,38 @@ module "ddb" {
   tags = local.data_plane_tags
 }
 
+# inventory-svc uses a single-table design (PK/SK + 4 GSIs), so it can't be
+# expressed via the generic hash_key=id loop above.
+module "ddb_inventory" {
+  source = "../modules/ddb-table"
+
+  name      = "${var.project}-${var.environment}-inventory"
+  hash_key  = "PK"
+  range_key = "SK"
+
+  attributes = [
+    { name = "PK", type = "S" },
+    { name = "SK", type = "S" },
+    { name = "GSI1PK", type = "S" },
+    { name = "GSI1SK", type = "S" },
+    { name = "GSI2PK", type = "S" },
+    { name = "GSI2SK", type = "S" },
+    { name = "GSI3PK", type = "S" },
+    { name = "GSI3SK", type = "S" },
+    { name = "GSI4PK", type = "S" },
+    { name = "GSI4SK", type = "S" },
+  ]
+
+  gsis = [
+    { name = "CategoryIndex", hash_key = "GSI1PK", range_key = "GSI1SK", projection_type = "ALL" },
+    { name = "TypeIndex", hash_key = "GSI2PK", range_key = "GSI2SK", projection_type = "ALL" },
+    { name = "OwnerIndex", hash_key = "GSI3PK", range_key = "GSI3SK", projection_type = "ALL" },
+    { name = "TransferEntityIndex", hash_key = "GSI4PK", range_key = "GSI4SK", projection_type = "ALL" },
+  ]
+
+  tags = local.data_plane_tags
+}
+
 # ---------- ElastiCache Redis ----------
 
 module "redis" {

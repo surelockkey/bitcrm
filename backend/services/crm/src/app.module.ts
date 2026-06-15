@@ -8,7 +8,12 @@ import { CompaniesModule } from './companies/companies.module';
   imports: [
     LoggerModule.forRoot({ serviceName: 'crm-service' }),
     MetricsModule.forRoot({ serviceName: 'crm-service' }),
-    HealthModule,
+    HealthModule.forRoot({
+      dynamoTables: [
+        process.env.CONTACTS_TABLE || 'BitCRM_Contacts',
+        process.env.COMPANIES_TABLE || 'BitCRM_Companies',
+      ],
+    }),
     ConnectivityModule.forRoot({
       serviceName: 'crm-service',
       failFast: [],

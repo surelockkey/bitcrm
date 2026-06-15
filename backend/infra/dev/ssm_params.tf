@@ -14,6 +14,15 @@ resource "aws_ssm_parameter" "ddb_table_name" {
   tags = local.data_plane_tags
 }
 
+# Rendered into the task env as INVENTORY_TABLE (DYNAMODB_INVENTORY_TABLE_NAME)
+resource "aws_ssm_parameter" "ddb_inventory_table_name" {
+  name  = "${local.ssm_prefix}/dynamodb/inventory/table-name"
+  type  = "String"
+  value = module.ddb_inventory.name
+
+  tags = local.data_plane_tags
+}
+
 # ---------- Redis ----------
 
 resource "aws_ssm_parameter" "redis_endpoint" {
