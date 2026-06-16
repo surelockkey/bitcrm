@@ -96,7 +96,12 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: "AWS_REGION",    value: "us-east-1"},
     {name: "SERVICE_NAME",  value: ($service + "-service")},
     {name: $port_env,       value: $port},
-    {name: "GIT_SHA",       value: $git_sha}
+    {name: "GIT_SHA",       value: $git_sha},
+    # Inter-service base URLs via ECS Service Connect (dns_name = service, port = app port)
+    {name: "USER_SERVICE_URL",      value: "http://user:4001"},
+    {name: "CRM_SERVICE_URL",       value: "http://crm:4002"},
+    {name: "DEAL_SERVICE_URL",      value: "http://deal:4003"},
+    {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"}
   ]
   + (if $api_gateway_url != "" then [{name: "API_GATEWAY_URL",        value: $api_gateway_url}] else [] end)
   + (if $jwt_key         != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]         else [] end)

@@ -139,7 +139,7 @@ data "aws_iam_policy_document" "task_crm" {
   statement {
     sid       = "PublishContactEvents"
     effect    = "Allow"
-    actions   = ["sns:Publish"]
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["contact-events"]]
   }
 }
@@ -173,7 +173,7 @@ data "aws_iam_policy_document" "task_deal" {
   statement {
     sid       = "PublishDealEvents"
     effect    = "Allow"
-    actions   = ["sns:Publish"]
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["deal-events"]]
   }
 }

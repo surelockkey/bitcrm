@@ -113,6 +113,17 @@ resource "aws_vpc_security_group_ingress_rule" "service_from_alb" {
   referenced_security_group_id = aws_security_group.alb.id
 }
 
+# Allow service-to-service (ECS Service Connect) traffic within the service SG.
+# Without this, inter-service HTTP calls are blocked (only ALB ingress exists).
+resource "aws_vpc_security_group_ingress_rule" "service_self" {
+  security_group_id            = aws_security_group.service.id
+  description                  = "Inter-service traffic within the service SG"
+  ip_protocol                  = "tcp"
+  from_port                    = var.service_port_range_start
+  to_port                      = var.service_port_range_end
+  referenced_security_group_id = aws_security_group.service.id
+}
+
 resource "aws_vpc_security_group_egress_rule" "service_all" {
   security_group_id = aws_security_group.service.id
   description       = "All egress for AWS API calls (DDB, Cognito, SSM, ECR, etc.)"
