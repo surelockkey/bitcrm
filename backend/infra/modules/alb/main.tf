@@ -138,7 +138,13 @@ resource "aws_lb_listener_rule" "svc" {
 
   condition {
     path_pattern {
-      values = [each.value.path_pattern]
+      # Match both the bare collection path and everything beneath it, so e.g.
+      # GET /api/users (list) routes to the service instead of the ALB default
+      # 404. "/api/users/*" alone does not match the slashless "/api/users".
+      values = distinct([
+        trimsuffix(each.value.path_pattern, "/*"),
+        each.value.path_pattern,
+      ])
     }
   }
 
