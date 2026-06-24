@@ -14,6 +14,15 @@ resource "aws_ssm_parameter" "ddb_table_name" {
   tags = local.data_plane_tags
 }
 
+# Rendered into the task env as INVENTORY_TABLE (DYNAMODB_INVENTORY_TABLE_NAME)
+resource "aws_ssm_parameter" "ddb_inventory_table_name" {
+  name  = "${local.ssm_prefix}/dynamodb/inventory/table-name"
+  type  = "String"
+  value = module.ddb_inventory.name
+
+  tags = local.data_plane_tags
+}
+
 # ---------- Redis ----------
 
 resource "aws_ssm_parameter" "redis_endpoint" {
@@ -50,26 +59,10 @@ resource "aws_ssm_parameter" "cognito_client_id" {
   tags = local.data_plane_tags
 }
 
-resource "aws_ssm_parameter" "cognito_alb_client_id" {
-  name  = "${local.ssm_prefix}/cognito/alb-client-id"
-  type  = "String"
-  value = module.cognito.alb_client_id
-
-  tags = local.data_plane_tags
-}
-
 resource "aws_ssm_parameter" "cognito_region" {
   name  = "${local.ssm_prefix}/cognito/region"
   type  = "String"
   value = var.aws_region
-
-  tags = local.data_plane_tags
-}
-
-resource "aws_ssm_parameter" "cognito_domain" {
-  name  = "${local.ssm_prefix}/cognito/domain"
-  type  = "String"
-  value = module.cognito.domain_full
 
   tags = local.data_plane_tags
 }

@@ -110,7 +110,7 @@ resource "aws_lb_target_group" "svc" {
 
   health_check {
     enabled             = true
-    path                = "/health"
+    path                = "${trimsuffix(each.value.path_pattern, "/*")}/health/live"
     matcher             = "200"
     interval            = 30
     timeout             = 5
@@ -132,23 +132,38 @@ resource "aws_lb_listener_rule" "svc" {
   priority     = each.value.priority
 
   action {
-    type  = "authenticate-cognito"
-    order = 1
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.svc[each.key].arn
+  }
 
-    authenticate_cognito {
-      user_pool_arn       = var.cognito_user_pool_arn
-      user_pool_client_id = var.cognito_alb_client_id
-      user_pool_domain    = var.cognito_domain
-      scope               = "openid email profile"
-      session_timeout     = 3600
-      on_unauthenticated_request = "authenticate"
+  condition {
+    path_pattern {
+      # Match both the bare collection path and everything beneath it, so e.g.
+      # GET /api/users (list) routes to the service instead of the ALB default
+      # 404. "/api/users/*" alone does not match the slashless "/api/users".
+      values = distinct([
+        trimsuffix(each.value.path_pattern, "/*"),
+        each.value.path_pattern,
+      ])
     }
   }
 
+  tags = merge(local.common_tags, {
+    Service = each.key
+  })
+}
+
+# ---------- Extra rules forwarding to existing service target groups ----------
+
+resource "aws_lb_listener_rule" "extra" {
+  for_each = var.extra_rules
+
+  listener_arn = aws_lb_listener.https.arn
+  priority     = each.value.priority
+
   action {
     type             = "forward"
-    order            = 2
-    target_group_arn = aws_lb_target_group.svc[each.key].arn
+    target_group_arn = aws_lb_target_group.svc[each.value.target_service].arn
   }
 
   condition {
@@ -158,7 +173,7 @@ resource "aws_lb_listener_rule" "svc" {
   }
 
   tags = merge(local.common_tags, {
-    Service = each.key
+    ExtraRule = each.key
   })
 }
 

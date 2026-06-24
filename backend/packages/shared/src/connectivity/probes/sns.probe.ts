@@ -1,4 +1,4 @@
-import { SNSClient, ListTopicsCommand } from '@aws-sdk/client-sns';
+import { SNSClient, GetTopicAttributesCommand } from '@aws-sdk/client-sns';
 import {
   Probe,
   ProbeKind,
@@ -16,35 +16,29 @@ export class SnsProbe implements Probe {
   ) {}
 
   async run(): Promise<ProbeOutcome> {
-    const all: string[] = [];
-    let token: string | undefined;
-    do {
-      const res = await this.client.send(
-        new ListTopicsCommand({ NextToken: token }),
-      );
-      if (res.Topics) {
-        all.push(
-          ...res.Topics.map((t) => t.TopicArn ?? '').filter(Boolean),
-        );
-      }
-      token = res.NextToken;
-    } while (token);
-
-    const resources: ProbeResourceStatus[] = this.requiredTopics.map(
-      (topic) => ({
-        resource: topic,
-        present: all.some((arn) => arn.endsWith(`:${topic}`)),
+    // GetTopicAttributes on each known topic ARN rather than ListTopics: the
+    // latter needs account-wide sns:ListTopics on resource "*", which breaks
+    // per-service least-privilege. Scoped to the topic the service publishes
+    // to (mirrors S3/SQS probes).
+    const resources: ProbeResourceStatus[] = await Promise.all(
+      this.requiredTopics.map(async (topic) => {
+        try {
+          await this.client.send(
+            new GetTopicAttributesCommand({ TopicArn: topic }),
+          );
+          return { resource: topic, present: true };
+        } catch (err) {
+          const detail =
+            (err as { name?: string; message?: string })?.name ??
+            (err as Error)?.message;
+          return { resource: topic, present: false, details: detail };
+        }
       }),
     );
     const present = resources.filter((r) => r.present).length;
-    const ok = resources.length === 0 ? true : present === resources.length;
-
     return {
-      ok,
-      message:
-        resources.length === 0
-          ? `${all.length} topics`
-          : `${all.length} topics, ${present}/${resources.length} required present`,
+      ok: resources.length === 0 ? true : present === resources.length,
+      message: `${present}/${resources.length} topics accessible`,
       resources,
     };
   }

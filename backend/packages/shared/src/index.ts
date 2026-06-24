@@ -53,6 +53,8 @@ export { HttpMetricsInterceptor } from './metrics/http-metrics.interceptor';
 
 // Health
 export { HealthModule } from './health/health.module';
+export type { HealthModuleOptions } from './health/health.module';
+export { HEALTH_DYNAMO_TABLES } from './health/health.constants';
 export { DynamoDbHealthIndicator } from './health/dynamodb.health-indicator';
 export { RedisHealthIndicator } from './health/redis.health-indicator';
 

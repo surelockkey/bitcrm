@@ -66,6 +66,7 @@ data "aws_iam_policy_document" "task_user" {
     sid    = "DDBUsers"
     effect = "Allow"
     actions = [
+      "dynamodb:DescribeTable",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
@@ -117,6 +118,7 @@ data "aws_iam_policy_document" "task_crm" {
     sid    = "DDBContactsCompaniesAddresses"
     effect = "Allow"
     actions = [
+      "dynamodb:DescribeTable",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
@@ -137,7 +139,7 @@ data "aws_iam_policy_document" "task_crm" {
   statement {
     sid       = "PublishContactEvents"
     effect    = "Allow"
-    actions   = ["sns:Publish"]
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["contact-events"]]
   }
 }
@@ -150,6 +152,7 @@ data "aws_iam_policy_document" "task_deal" {
     sid    = "DDBDeals"
     effect = "Allow"
     actions = [
+      "dynamodb:DescribeTable",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
@@ -170,14 +173,34 @@ data "aws_iam_policy_document" "task_deal" {
   statement {
     sid       = "PublishDealEvents"
     effect    = "Allow"
-    actions   = ["sns:Publish"]
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["deal-events"]]
   }
 }
 
-# inventory-svc: S3 app bucket + SQS consume deal-events-to-inventory
+# inventory-svc: DDB single-table + S3 app bucket + SQS consume deal-events-to-inventory
 data "aws_iam_policy_document" "task_inventory" {
   source_policy_documents = [data.aws_iam_policy_document.ssm_read_dev.json]
+
+  statement {
+    sid    = "DDBInventory"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [
+      module.ddb_inventory.arn,
+      "${module.ddb_inventory.arn}/index/*",
+    ]
+  }
 
   statement {
     sid     = "S3App"

@@ -30,21 +30,6 @@ variable "parent_zone_id" {
   type        = string
 }
 
-variable "cognito_user_pool_arn" {
-  description = "Cognito User Pool ARN for authenticate-cognito action"
-  type        = string
-}
-
-variable "cognito_alb_client_id" {
-  description = "Cognito User Pool Client ID (the ALB-flow client with secret)"
-  type        = string
-}
-
-variable "cognito_domain" {
-  description = "Cognito Hosted UI domain prefix (just the prefix, e.g. 'bitcrm-dev', NOT the full FQDN)"
-  type        = string
-}
-
 variable "services" {
   description = "Map of service name -> { port, priority, path_pattern } for target group + listener rule creation"
   type = map(object({
@@ -52,4 +37,14 @@ variable "services" {
     priority     = number
     path_pattern = string
   }))
+}
+
+variable "extra_rules" {
+  description = "Extra path-based listener rules that forward to an EXISTING target group (referenced by service key in var.services). Use for cross-service routes like /api/docs."
+  type = map(object({
+    priority       = number
+    path_pattern   = string
+    target_service = string
+  }))
+  default = {}
 }
