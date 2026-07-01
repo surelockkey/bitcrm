@@ -21,6 +21,10 @@ export const RESOURCE_REGISTRY = {
   roles: ['view', 'create', 'edit', 'delete'],
   reports: ['view', 'create', 'edit', 'delete'],
   settings: ['view', 'edit'],
+  technicians: ['view', 'create', 'edit', 'delete'],
+  skills: ['view', 'propose', 'approve', 'revoke'],
+  commission: ['view', 'edit'],
+  documents: ['view', 'upload', 'delete'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

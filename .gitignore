@@ -63,3 +63,6 @@ project-info/
 
 # Claude Code local config
 .claude/
+
+# Claude planning docs (local only)
+claude-plans/

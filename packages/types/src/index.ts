@@ -28,6 +28,42 @@ export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
+export {
+  TechnicianProfile,
+  TechnicianProfileStatus,
+  TechnicianHomeAddress,
+  OnboardingStatus,
+} from './entities/technician-profile.entity';
+export {
+  TechnicianSkill,
+  SkillType,
+  SkillStatus,
+} from './entities/technician-skill.entity';
+export {
+  CommissionConfig,
+  CommissionBreakdown,
+} from './entities/commission-config.entity';
+export {
+  TechnicianDocument,
+  DocumentType,
+} from './entities/technician-document.entity';
+
+// Event contract (user-events topic)
+export {
+  USER_EVENT_TOPIC,
+  UserEventType,
+} from './events/user-events';
+export type {
+  UserActivatedEvent,
+  UserRoleChangedEvent,
+  UserInviteResentEvent,
+  TechUpdatedEvent,
+  TechApprovedEvent,
+  SkillProposedEvent,
+  CommissionUpdatedEvent,
+  DocumentEvent,
+  SensitiveAccessedEvent,
+} from './events/user-events';
 
 // Permissions
 export {
