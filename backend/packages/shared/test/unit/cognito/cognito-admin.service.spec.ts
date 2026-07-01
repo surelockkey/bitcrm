@@ -114,4 +114,18 @@ describe('CognitoAdminService', () => {
       });
     });
   });
+
+  describe('resendInvite', () => {
+    it('re-sends the invitation email via AdminCreateUser MessageAction=RESEND', async () => {
+      mockSend.mockResolvedValue({});
+      await service.resendInvite('user@test.com');
+      const command = mockSend.mock.calls[0][0];
+      expect(command.input).toMatchObject({
+        UserPoolId: 'test-pool-id',
+        Username: 'user@test.com',
+        MessageAction: 'RESEND',
+        DesiredDeliveryMediums: ['EMAIL'],
+      });
+    });
+  });
 });

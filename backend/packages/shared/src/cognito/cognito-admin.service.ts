@@ -95,4 +95,21 @@ export class CognitoAdminService {
       }),
     );
   }
+
+  /**
+   * Re-send the email invitation for a user who hasn't accepted yet. Cognito has
+   * no dedicated "resend" API — re-running AdminCreateUser with
+   * MessageAction=RESEND re-delivers the original invite without recreating the
+   * user.
+   */
+  async resendInvite(email: string): Promise<void> {
+    await this.client.send(
+      new AdminCreateUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: email,
+        MessageAction: 'RESEND',
+        DesiredDeliveryMediums: ['EMAIL'],
+      }),
+    );
+  }
 }

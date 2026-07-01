@@ -206,19 +206,19 @@ describe('RolesService', () => {
   });
 
   describe('seedDefaults', () => {
-    it('should seed 5 default roles if they do not exist (idempotent)', async () => {
+    it('should seed all default roles if they do not exist (idempotent)', async () => {
       rolesRepository.findByName.mockResolvedValue(null);
 
       await service.seedDefaults();
 
-      expect(rolesRepository.create).toHaveBeenCalledTimes(5);
+      expect(rolesRepository.create).toHaveBeenCalledTimes(6);
 
-      // Verify all 5 default role names were seeded
       const createdNames = rolesRepository.create.mock.calls.map(
         (call: unknown[]) => (call[0] as { name: string }).name,
       );
       expect(createdNames).toContain('Super Admin');
       expect(createdNames).toContain('Admin');
+      expect(createdNames).toContain('Department Manager');
       expect(createdNames).toContain('Dispatcher');
       expect(createdNames).toContain('Technician');
       expect(createdNames).toContain('Read Only');
@@ -231,6 +231,55 @@ describe('RolesService', () => {
       await service.seedDefaults();
 
       expect(rolesRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('backfills newly-added permission resources into existing roles', async () => {
+      // Existing Super Admin seeded BEFORE technicians/skills/commission existed.
+      const stale = createMockRole({
+        id: 'role-super-admin',
+        name: 'Super Admin',
+        isSystem: true,
+        priority: 100,
+        permissions: { deals: { view: true, create: true, edit: true, delete: true } },
+        dataScope: { deals: 'all' as never },
+      });
+      rolesRepository.findByName.mockImplementation((name: string) =>
+        name === 'Super Admin' ? Promise.resolve(stale) : Promise.resolve(null),
+      );
+
+      await service.seedDefaults();
+
+      const updateCall = rolesRepository.update.mock.calls.find(
+        (c: unknown[]) => c[0] === 'role-super-admin',
+      );
+      expect(updateCall).toBeDefined();
+      const attrs = updateCall![1] as { permissions: Record<string, unknown> };
+      expect(attrs.permissions.technicians).toBeDefined();
+      expect(attrs.permissions.skills).toBeDefined();
+      expect(attrs.permissions.commission).toBeDefined();
+      // cache invalidated so resolved permissions recompute for affected users
+      expect(rolesCache.invalidateRole).toHaveBeenCalledWith('role-super-admin');
+      expect(rolesCache.invalidateAllUsersWithRole).toHaveBeenCalledWith(
+        'role-super-admin',
+        expect.any(Array),
+      );
+    });
+
+    it('does not update an existing role that is already complete', async () => {
+      const { DEFAULT_ROLES } = await import('../../../src/roles/constants/default-roles');
+      const complete = DEFAULT_ROLES.find((r) => r.name === 'Admin')!;
+      rolesRepository.findByName.mockImplementation((name: string) =>
+        name === 'Admin'
+          ? Promise.resolve({ ...complete, createdAt: 'x', updatedAt: 'x' })
+          : Promise.resolve(null),
+      );
+
+      await service.seedDefaults();
+
+      const updatedAdmin = rolesRepository.update.mock.calls.find(
+        (c: unknown[]) => c[0] === 'role-admin',
+      );
+      expect(updatedAdmin).toBeUndefined();
     });
   });
 });

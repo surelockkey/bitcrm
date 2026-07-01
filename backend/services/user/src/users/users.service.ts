@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { CognitoAdminService, PermissionCacheReader, SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
@@ -17,6 +18,9 @@ import {
 } from '@bitcrm/types';
 import { UsersRepository } from './users.repository';
 import { UsersCacheService } from './users-cache.service';
+import { TechniciansRepository } from '../technicians/technicians.repository';
+import { CommissionRepository } from '../technicians/commission/commission.repository';
+import { buildDefaultCommission } from '../technicians/commission/commission.defaults';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
@@ -25,7 +29,7 @@ import { RolesCacheService } from '../roles/roles-cache.service';
 import { PermissionResolverService } from '../roles/permission-resolver.service';
 
 @Injectable()
-export class UsersService {
+export class UsersService implements OnModuleInit {
   private readonly logger = new Logger(UsersService.name);
 
   constructor(
@@ -38,7 +42,75 @@ export class UsersService {
     private readonly permissionResolver: PermissionResolverService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly techniciansRepository?: TechniciansRepository,
+    @Optional() private readonly commissionRepository?: CommissionRepository,
   ) {}
+
+  private static readonly TECHNICIAN_ROLE_ID = 'role-technician';
+
+  /**
+   * Self-heal on boot: ensure every existing technician user has a (pending)
+   * technician profile, so legacy technicians created before profiles existed
+   * still appear in technician listings / onboarding tracking — no manual
+   * migration required. Best-effort and idempotent.
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.backfillTechnicianProfiles();
+    } catch (err) {
+      this.logger.warn(
+        `Technician profile backfill on boot failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  private async backfillTechnicianProfiles(): Promise<void> {
+    if (!this.techniciansRepository) return;
+    let cursor: string | undefined;
+    let created = 0;
+    do {
+      const { items, nextCursor } = await this.repository.findByRole(
+        UsersService.TECHNICIAN_ROLE_ID,
+        200,
+        cursor,
+      );
+      for (const user of items) {
+        const existing = await this.techniciansRepository.getProfile(user.id);
+        if (!existing) {
+          await this.ensureTechnicianProfile(user.id, user.roleId);
+          created++;
+        }
+        await this.ensureTechnicianCommission(user.id);
+      }
+      cursor = nextCursor;
+    } while (cursor);
+    if (created > 0) {
+      this.logger.log(`Backfilled ${created} technician profile(s) on boot`);
+    }
+  }
+
+  /**
+   * Ensure a technician has a commission config; create the EPIC-6 default if
+   * not. "No commission yet" is a valid onboarding state for a brand-new
+   * technician, so this only fills the gap — managers override by POSTing a new
+   * version. Best-effort.
+   */
+  private async ensureTechnicianCommission(userId: string): Promise<void> {
+    if (!this.commissionRepository) return;
+    try {
+      const existing = await this.commissionRepository.getLatest(userId);
+      if (existing) return;
+      const now = new Date().toISOString();
+      await this.commissionRepository.create(
+        buildDefaultCommission(userId, 'system-backfill', now),
+      );
+      this.logger.log(`Provisioned default commission for ${userId}`);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to provision commission for ${userId}: ${(err as Error).message}`,
+      );
+    }
+  }
 
   async create(dto: CreateUserDto, caller: JwtUser): Promise<User> {
     // Validate the role exists
@@ -104,6 +176,7 @@ export class UsersService {
     await this.cache.setUser(user);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'user' });
     this.publishUserEvent('user.activated', user);
+    await this.ensureTechnicianProfile(user.id, user.roleId);
     return user;
   }
 
@@ -209,6 +282,13 @@ export class UsersService {
     this.publishUserEvent('user.activated', user);
   }
 
+  async resendInvite(id: string): Promise<void> {
+    const user = await this.findById(id);
+    await this.cognitoAdmin.resendInvite(user.email);
+    this.logger.log(`Re-sent invitation email to ${user.email} (${id})`);
+    this.publishUserEvent('user.invite-resent', user);
+  }
+
   // --- Role Assignment ---
 
   async assignRole(
@@ -265,6 +345,7 @@ export class UsersService {
     await this.rolesCache.invalidateUserPermissions(userId);
 
     this.publishUserEvent('user.role-changed', updatedUser);
+    await this.ensureTechnicianProfile(userId, roleId);
     return updatedUser;
   }
 
@@ -344,10 +425,43 @@ export class UsersService {
     );
   }
 
+  /**
+   * Onboarding step 1: when a user becomes a technician, provision a pending
+   * technician profile so they appear in technician listings / onboarding
+   * tracking immediately, before they self-fill their profile. Best-effort —
+   * never fails the user mutation.
+   */
+  private async ensureTechnicianProfile(
+    userId: string,
+    roleId: string,
+  ): Promise<void> {
+    if (!this.techniciansRepository) return;
+    if (roleId !== UsersService.TECHNICIAN_ROLE_ID) return;
+    try {
+      const existing = await this.techniciansRepository.getProfile(userId);
+      if (existing) return;
+      const now = new Date().toISOString();
+      await this.techniciansRepository.upsertProfile({
+        userId,
+        callMaskingEnabled: false,
+        gpsTrackingEnabled: false,
+        mobileAppInstalled: false,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
+      this.logger.log(`Provisioned pending technician profile for ${userId}`);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to provision technician profile for ${userId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
   private publishUserEvent(eventType: string, user: User): void {
     if (!this.snsPublisher) return;
     this.snsPublisher
-      .publish('bitcrm-user-events', eventType, {
+      .publish('user-events', eventType, {
         userId: user.id,
         roleId: user.roleId,
         department: user.department,

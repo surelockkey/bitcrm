@@ -3,7 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ProductsService } from 'src/products/products.service';
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
-import { S3Service } from 'src/common/s3/s3.service';
+import { S3Service } from '@bitcrm/shared';
 import { InventoryStatus } from '@bitcrm/types';
 import {
   createMockProduct,

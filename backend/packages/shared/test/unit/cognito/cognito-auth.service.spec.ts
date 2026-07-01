@@ -195,4 +195,44 @@ describe('CognitoAuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
   });
+
+  describe('forgotPassword', () => {
+    it('sends a ForgotPasswordCommand for the email', async () => {
+      mockSend.mockResolvedValue({ CodeDeliveryDetails: { Destination: 'a***@x.com' } });
+      const out = await service.forgotPassword('user@test.com');
+      const cmd = mockSend.mock.calls[0][0];
+      expect(cmd.input).toMatchObject({ ClientId: 'test-client-id', Username: 'user@test.com' });
+      expect(out).toEqual({ delivery: { Destination: 'a***@x.com' } });
+    });
+
+    it('does not reveal whether the user exists (swallows UserNotFound)', async () => {
+      const err = new Error('no user');
+      (err as Error).name = 'UserNotFoundException';
+      mockSend.mockRejectedValue(err);
+      await expect(service.forgotPassword('ghost@test.com')).resolves.toEqual({ delivery: null });
+    });
+  });
+
+  describe('confirmForgotPassword', () => {
+    it('sends a ConfirmForgotPasswordCommand with code + new password', async () => {
+      mockSend.mockResolvedValue({});
+      await service.confirmForgotPassword('user@test.com', '123456', 'NewPass!1');
+      const cmd = mockSend.mock.calls[0][0];
+      expect(cmd.input).toMatchObject({
+        ClientId: 'test-client-id',
+        Username: 'user@test.com',
+        ConfirmationCode: '123456',
+        Password: 'NewPass!1',
+      });
+    });
+
+    it('maps a bad/expired code to Unauthorized', async () => {
+      const err = new Error('bad code');
+      (err as Error).name = 'CodeMismatchException';
+      mockSend.mockRejectedValue(err);
+      await expect(
+        service.confirmForgotPassword('user@test.com', '000000', 'x'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
 });

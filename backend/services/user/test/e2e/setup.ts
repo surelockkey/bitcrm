@@ -18,10 +18,14 @@ import {
   PermissionGuard,
   PermissionCacheReader,
   HttpExceptionFilter,
+  StorageModule,
+  S3Service,
+  KmsService,
 } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { UsersModule } from '../../src/users/users.module';
 import { RolesModule } from '../../src/roles/roles.module';
+import { TechniciansModule } from '../../src/technicians/technicians.module';
 import {
   createTestTable,
   deleteTestTable,
@@ -77,11 +81,25 @@ const mockCognitoAdmin = {
   disableUser: jest.fn().mockResolvedValue(undefined),
   enableUser: jest.fn().mockResolvedValue(undefined),
   deleteUser: jest.fn().mockResolvedValue(undefined),
+  resendInvite: jest.fn().mockResolvedValue(undefined),
 };
 
 export function getMockCognitoAdmin() {
   return mockCognitoAdmin;
 }
+
+// Mock S3 (presigned URLs) + KMS (deterministic encrypt/decrypt/mask) for e2e
+const mockS3Service = {
+  getPresignedUploadUrl: jest.fn().mockResolvedValue('https://s3.local/upload'),
+  getPresignedDownloadUrl: jest.fn().mockResolvedValue('https://s3.local/download'),
+  deleteObject: jest.fn().mockResolvedValue(undefined),
+};
+const mockKmsService = {
+  encrypt: jest.fn(async (p: string) => `ENC(${p})`),
+  decrypt: jest.fn(async (c: string) => c.replace(/^ENC\((.*)\)$/, '$1')),
+  mask: (v: string, n = 4) =>
+    !v ? '' : v.length <= n ? '•'.repeat(v.length) : '•'.repeat(v.length - n) + v.slice(-n),
+};
 
 /**
  * Seed a custom role's permissions into Redis so the PermissionGuard can resolve them.
@@ -104,10 +122,11 @@ let redis: Redis;
 export async function setupApp(): Promise<INestApplication> {
   process.env.DYNAMODB_ENDPOINT = 'http://localhost:8001';
   process.env.AWS_REGION = 'us-east-1';
-  process.env.REDIS_URL = 'redis://localhost:6379';
+  process.env.REDIS_URL = 'redis://localhost:6379/15';
+  process.env.INTERNAL_SERVICE_SECRET = 'test-internal-secret';
 
   const moduleRef = await Test.createTestingModule({
-    imports: [DynamoDbModule, RedisModule, CognitoAdminModule, TestPermissionModule, RolesModule, UsersModule],
+    imports: [DynamoDbModule, RedisModule, StorageModule, CognitoAdminModule, TestPermissionModule, TechniciansModule, RolesModule, UsersModule],
     providers: [
       { provide: APP_GUARD, useClass: TestAuthGuard },
       { provide: APP_GUARD, useClass: PermissionGuard },
@@ -115,6 +134,10 @@ export async function setupApp(): Promise<INestApplication> {
   })
     .overrideProvider(CognitoAdminService)
     .useValue(mockCognitoAdmin)
+    .overrideProvider(S3Service)
+    .useValue(mockS3Service)
+    .overrideProvider(KmsService)
+    .useValue(mockKmsService)
     .compile();
 
   app = moduleRef.createNestApplication();
@@ -182,6 +205,7 @@ export async function cleanupData(): Promise<void> {
 const SYSTEM_ROLE_IDS = new Set([
   'role-super-admin',
   'role-admin',
+  'role-dept-manager',
   'role-dispatcher',
   'role-technician',
   'role-read-only',

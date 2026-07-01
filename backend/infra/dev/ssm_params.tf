@@ -77,6 +77,24 @@ resource "aws_ssm_parameter" "s3_app_bucket" {
   tags = local.data_plane_tags
 }
 
+# Documents KMS key alias — path auto-maps to env DOCUMENTS_KMS_KEY_ID (render-taskdef.sh).
+resource "aws_ssm_parameter" "documents_kms_key" {
+  name  = "${local.ssm_prefix}/documents/kms-key-id"
+  type  = "String"
+  value = module.kms_documents.alias_name
+
+  tags = local.data_plane_tags
+}
+
+# Documents bucket — path auto-maps to env DOCUMENTS_BUCKET.
+resource "aws_ssm_parameter" "documents_bucket" {
+  name  = "${local.ssm_prefix}/documents/bucket"
+  type  = "String"
+  value = module.s3_app.name
+
+  tags = local.data_plane_tags
+}
+
 # ---------- SNS topic ARNs ----------
 
 resource "aws_ssm_parameter" "sns_topic_arn" {

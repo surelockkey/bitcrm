@@ -12,6 +12,8 @@ describe('AuthService', () => {
       login: jest.fn(),
       refreshToken: jest.fn(),
       respondToNewPasswordChallenge: jest.fn(),
+      forgotPassword: jest.fn().mockResolvedValue({ delivery: null }),
+      confirmForgotPassword: jest.fn().mockResolvedValue(undefined),
     };
 
     const module = await Test.createTestingModule({
@@ -136,6 +138,30 @@ describe('AuthService', () => {
           session: 'bad-session',
         }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('requestPasswordReset', () => {
+    it('delegates to forgotPassword and returns a non-enumerating message', async () => {
+      const result = await service.requestPasswordReset({ email: 'user@test.com' });
+      expect(cognitoAuth.forgotPassword).toHaveBeenCalledWith('user@test.com');
+      expect(result.message).toMatch(/if the account exists/i);
+    });
+  });
+
+  describe('confirmPasswordReset', () => {
+    it('delegates to confirmForgotPassword with code + new password', async () => {
+      const result = await service.confirmPasswordReset({
+        email: 'user@test.com',
+        code: '123456',
+        newPassword: 'NewPass1!',
+      });
+      expect(cognitoAuth.confirmForgotPassword).toHaveBeenCalledWith(
+        'user@test.com',
+        '123456',
+        'NewPass1!',
+      );
+      expect(result.message).toMatch(/reset/i);
     });
   });
 });

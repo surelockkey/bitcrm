@@ -33,6 +33,10 @@ async function main() {
           { AttributeName: 'GSI1SK', AttributeType: 'S' },
           { AttributeName: 'GSI2PK', AttributeType: 'S' },
           { AttributeName: 'GSI2SK', AttributeType: 'S' },
+          { AttributeName: 'GSI3PK', AttributeType: 'S' },
+          { AttributeName: 'GSI3SK', AttributeType: 'S' },
+          { AttributeName: 'GSI4PK', AttributeType: 'S' },
+          { AttributeName: 'GSI4SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -48,6 +52,22 @@ async function main() {
             KeySchema: [
               { AttributeName: 'GSI2PK', KeyType: 'HASH' },
               { AttributeName: 'GSI2SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            IndexName: 'TechnicianIndex',
+            KeySchema: [
+              { AttributeName: 'GSI3PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI3SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            IndexName: 'SkillStatusIndex',
+            KeySchema: [
+              { AttributeName: 'GSI4PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI4SK', KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },

@@ -102,6 +102,19 @@ export class UsersController {
     return { success: true, data: null };
   }
 
+  @Post(":id/invite")
+  @RequirePermission("users", "create")
+  @ApiOperation({
+    summary: "Resend the email invitation",
+    description:
+      "**Guard:** `users.create` permission required (Admin+). " +
+      "Re-sends the Cognito invitation email to a user who hasn't accepted yet.",
+  })
+  async resendInvite(@Param("id") id: string) {
+    await this.usersService.resendInvite(id);
+    return { success: true, data: null };
+  }
+
   @Post(":id/reactivate")
   @RequirePermission("users", "edit")
   @ApiOperation({

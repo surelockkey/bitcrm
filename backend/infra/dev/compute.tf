@@ -108,6 +108,34 @@ data "aws_iam_policy_document" "task_user" {
     actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
     resources = [module.sns_sqs.queue_arns["contact-events-to-user"]]
   }
+
+  statement {
+    sid       = "PublishUserEvents"
+    effect    = "Allow"
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
+    resources = [module.sns_sqs.topic_arns["user-events"]]
+  }
+
+  # Technician documents: encrypted objects in the app bucket (SSE-KMS).
+  statement {
+    sid       = "S3Documents"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+    resources = [module.s3_app.arn, "${module.s3_app.arn}/*"]
+  }
+
+  # KMS field encryption (SSN/bank) + SSE-KMS for documents.
+  statement {
+    sid    = "KMSDocuments"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:GenerateDataKey",
+      "kms:DescribeKey",
+    ]
+    resources = [module.kms_documents.key_arn]
+  }
 }
 
 # crm-svc: DDB companies, contacts, addresses + SNS contact-events publish
@@ -176,6 +204,14 @@ data "aws_iam_policy_document" "task_deal" {
     actions   = ["sns:Publish", "sns:GetTopicAttributes"]
     resources = [module.sns_sqs.topic_arns["deal-events"]]
   }
+
+  # Consume user-events (tech.approved / tech.updated) for the eligibility projection.
+  statement {
+    sid       = "ConsumeUserEvents"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["user-events-to-deal"]]
+  }
 }
 
 # inventory-svc: DDB single-table + S3 app bucket + SQS consume deal-events-to-inventory
@@ -217,6 +253,14 @@ data "aws_iam_policy_document" "task_inventory" {
     effect    = "Allow"
     actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
     resources = [module.sns_sqs.queue_arns["deal-events-to-inventory"]]
+  }
+
+  # Consume user-events (user.activated / user.role-changed) to provision containers.
+  statement {
+    sid       = "ConsumeUserEvents"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["user-events-to-inventory"]]
   }
 }
 

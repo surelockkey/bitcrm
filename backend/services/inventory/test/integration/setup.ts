@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 
 export const TEST_TABLE = 'BitCRM_Inventory_Test';
 const DYNAMODB_ENDPOINT = 'http://localhost:8001';
-const REDIS_URL = 'redis://localhost:6379';
+const REDIS_URL = 'redis://localhost:6379/15';
 
 const rawClient = new DynamoDBClient({
   region: 'us-east-1',

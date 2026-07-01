@@ -153,8 +153,8 @@ describe('Roles API (e2e)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      // 5 seeded system roles + 2 custom roles = 7
-      expect(res.body.data.length).toBe(7);
+      // 6 seeded system roles + 2 custom roles = 8
+      expect(res.body.data.length).toBe(8);
     });
 
     it('should return only system roles when no custom roles exist', async () => {
@@ -165,8 +165,8 @@ describe('Roles API (e2e)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
-      // 5 seeded system roles exist
-      expect(res.body.data.length).toBe(5);
+      // 6 seeded system roles exist (incl. Department Manager)
+      expect(res.body.data.length).toBe(6);
       expect(res.body.data.every((r: { isSystem: boolean }) => r.isSystem)).toBe(true);
     });
   });

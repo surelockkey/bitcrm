@@ -3,10 +3,13 @@ locals {
   # GSIs named GSI<n>PK (HASH) / GSI<n>SK (RANGE), projecting ALL. The `gsis` map
   # value lists each index's display name and number, matching the repositories.
   ddb_tables = {
-    # users table also holds role items (ROLES_TABLE == USERS_TABLE)
+    # users table also holds role items (ROLES_TABLE == USERS_TABLE) and
+    # technician profile items (indexed by TechnicianIndex / GSI3).
     users = { gsis = [
       { name = "RoleIndex", n = 1 },
       { name = "DepartmentIndex", n = 2 },
+      { name = "TechnicianIndex", n = 3 },
+      { name = "SkillStatusIndex", n = 4 },
     ] }
     companies = { gsis = [
       { name = "ClientTypeIndex", n = 1 },
@@ -117,6 +120,15 @@ module "s3_app" {
   tags   = local.data_plane_tags
 }
 
+# ---------- KMS key for technician documents + sensitive fields ----------
+
+module "kms_documents" {
+  source      = "../modules/kms-key"
+  alias_name  = "${var.project}-${var.environment}-documents"
+  description = "Encrypts technician documents (S3 SSE-KMS) and sensitive fields (SSN/bank)."
+  tags        = local.data_plane_tags
+}
+
 # ---------- SNS / SQS ----------
 
 module "sns_sqs" {
@@ -127,6 +139,7 @@ module "sns_sqs" {
   topics = {
     deal-events    = {}
     contact-events = {}
+    user-events    = {}
   }
 
   queues = {
@@ -135,6 +148,15 @@ module "sns_sqs" {
     }
     contact-events-to-user = {
       topic_subscriptions = ["contact-events"]
+    }
+    # user-events fan-out: inventory provisions technician containers on
+    # user.activated; deal-service projects technician eligibility from
+    # tech.approved / tech.updated.
+    user-events-to-inventory = {
+      topic_subscriptions = ["user-events"]
+    }
+    user-events-to-deal = {
+      topic_subscriptions = ["user-events"]
     }
   }
 }

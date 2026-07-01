@@ -173,9 +173,15 @@ ensure_test_infra() {
       AttributeName=GSI1SK,AttributeType=S \
       AttributeName=GSI2PK,AttributeType=S \
       AttributeName=GSI2SK,AttributeType=S \
+      AttributeName=GSI3PK,AttributeType=S \
+      AttributeName=GSI3SK,AttributeType=S \
+      AttributeName=GSI4PK,AttributeType=S \
+      AttributeName=GSI4SK,AttributeType=S \
     --global-secondary-indexes \
       'IndexName=RoleIndex,KeySchema=[{AttributeName=GSI1PK,KeyType=HASH},{AttributeName=GSI1SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
       'IndexName=DepartmentIndex,KeySchema=[{AttributeName=GSI2PK,KeyType=HASH},{AttributeName=GSI2SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=TechnicianIndex,KeySchema=[{AttributeName=GSI3PK,KeyType=HASH},{AttributeName=GSI3SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=SkillStatusIndex,KeySchema=[{AttributeName=GSI4PK,KeyType=HASH},{AttributeName=GSI4SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
     --billing-mode PAY_PER_REQUEST \
     --endpoint-url http://localhost:8001 --region us-east-1 \
     --no-cli-pager 2>/dev/null || true
@@ -271,7 +277,8 @@ ensure_test_infra() {
     --no-cli-pager 2>/dev/null || true
 
   # Flush Redis test data
-  redis-cli FLUSHDB 2>/dev/null || true
+  # Tests use a dedicated Redis logical DB (15) so they never touch dev data (DB 0)
+  redis-cli -n 15 FLUSHDB 2>/dev/null || true
 }
 
 # ═══════════════════════════════════════

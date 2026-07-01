@@ -43,7 +43,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=sns,sqs,s3
+      - SERVICES=sns,sqs,s3,kms
       - DEFAULT_REGION=us-east-1
     volumes:
       - localstack-data:/var/lib/localstack

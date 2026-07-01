@@ -3,6 +3,8 @@ import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
   RespondToAuthChallengeCommand,
+  ForgotPasswordCommand,
+  ConfirmForgotPasswordCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import type {
   LoginResponse,
@@ -94,6 +96,59 @@ export class CognitoAuthService {
         error.name === 'NotAuthorizedException'
       ) {
         throw new UnauthorizedException('Invalid refresh token');
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Start a self-service password reset — Cognito emails a confirmation code.
+   * Never reveals whether the account exists (returns null delivery on
+   * UserNotFound) to avoid account enumeration.
+   */
+  async forgotPassword(email: string): Promise<{ delivery: unknown | null }> {
+    try {
+      const result = await this.client.send(
+        new ForgotPasswordCommand({ ClientId: this.clientId, Username: email }),
+      );
+      return { delivery: result.CodeDeliveryDetails ?? null };
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.name === 'UserNotFoundException' ||
+          error.name === 'InvalidParameterException')
+      ) {
+        // Don't leak account existence.
+        return { delivery: null };
+      }
+      throw error;
+    }
+  }
+
+  /** Complete a password reset with the emailed code + a new password. */
+  async confirmForgotPassword(
+    email: string,
+    code: string,
+    newPassword: string,
+  ): Promise<void> {
+    try {
+      await this.client.send(
+        new ConfirmForgotPasswordCommand({
+          ClientId: this.clientId,
+          Username: email,
+          ConfirmationCode: code,
+          Password: newPassword,
+        }),
+      );
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.name === 'CodeMismatchException' ||
+          error.name === 'ExpiredCodeException' ||
+          error.name === 'NotAuthorizedException' ||
+          error.name === 'UserNotFoundException')
+      ) {
+        throw new UnauthorizedException('Invalid or expired reset code');
       }
       throw error;
     }

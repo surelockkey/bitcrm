@@ -1,4 +1,11 @@
-import { UserStatus, DataScope, type User, type JwtUser, type Role } from '@bitcrm/types';
+import {
+  UserStatus,
+  DataScope,
+  type User,
+  type JwtUser,
+  type Role,
+  type TechnicianProfile,
+} from '@bitcrm/types';
 import type { CreateUserDto } from '../../src/users/dto/create-user.dto';
 import type { UpdateUserDto } from '../../src/users/dto/update-user.dto';
 
@@ -78,6 +85,7 @@ export function createMockCognitoAdminService() {
     disableUser: jest.fn(),
     enableUser: jest.fn(),
     deleteUser: jest.fn(),
+    resendInvite: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -149,5 +157,160 @@ export function createMockRolesCacheService() {
 export function createMockPermissionResolver() {
   return {
     resolve: jest.fn(),
+  };
+}
+
+// --- Technicians ---
+
+export function createMockTechnicianProfile(
+  overrides?: Partial<TechnicianProfile>,
+): TechnicianProfile {
+  return {
+    userId: 'tech-1',
+    phone: '404-555-0123',
+    callMaskingEnabled: false,
+    gpsTrackingEnabled: false,
+    mobileAppInstalled: false,
+    status: 'pending',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockTechniciansRepository() {
+  return {
+    getProfile: jest.fn(),
+    upsertProfile: jest.fn(),
+    updateProfile: jest.fn(),
+    listAll: jest.fn(),
+    listByStatus: jest.fn(),
+  };
+}
+
+export function createMockTechniciansCacheService() {
+  return {
+    getProfile: jest.fn(),
+    setProfile: jest.fn(),
+    invalidateProfile: jest.fn(),
+  };
+}
+
+export function createMockSnsPublisher() {
+  return {
+    publish: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+export function createMockTechnicianSkill(
+  overrides?: Partial<import('@bitcrm/types').TechnicianSkill>,
+): import('@bitcrm/types').TechnicianSkill {
+  return {
+    skillId: 'sk-1',
+    userId: 'tech-1',
+    type: 'job_type',
+    value: 'Locksmith',
+    status: 'pending',
+    proposedBy: 'tech-1',
+    proposedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockTechnicianSkillsRepository() {
+  return {
+    create: jest.fn(),
+    getById: jest.fn(),
+    listByUser: jest.fn().mockResolvedValue([]),
+    listPendingAcrossTechs: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
+    listAllApproved: jest.fn().mockResolvedValue([]),
+    updateStatus: jest.fn(),
+    delete: jest.fn(),
+  };
+}
+
+export function createMockCommissionRepository() {
+  return {
+    create: jest.fn(),
+    getLatest: jest.fn(),
+    listHistory: jest.fn().mockResolvedValue([]),
+  };
+}
+
+export function createMockS3Service() {
+  return {
+    getPresignedUploadUrl: jest.fn().mockResolvedValue('https://s3/upload'),
+    getPresignedDownloadUrl: jest.fn().mockResolvedValue('https://s3/download'),
+    deleteObject: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+export function createMockKmsService() {
+  return {
+    encrypt: jest.fn(async (p: string) => `ENC(${p})`),
+    decrypt: jest.fn(async (c: string) => c.replace(/^ENC\((.*)\)$/, '$1')),
+    mask: jest.fn((v: string, n = 4) =>
+      !v ? '' : v.length <= n ? '•'.repeat(v.length) : '•'.repeat(v.length - n) + v.slice(-n),
+    ),
+  };
+}
+
+export function createMockDocumentsRepository() {
+  return {
+    upsert: jest.fn(),
+    getByType: jest.fn(),
+    listByUser: jest.fn().mockResolvedValue([]),
+    delete: jest.fn(),
+  };
+}
+
+export function createMockSensitiveRepository() {
+  return {
+    upsert: jest.fn(),
+    get: jest.fn().mockResolvedValue(null),
+  };
+}
+
+export function createMockAuditRepository() {
+  return {
+    record: jest.fn().mockResolvedValue(undefined),
+    listByUser: jest.fn().mockResolvedValue([]),
+  };
+}
+
+export function createMockCommissionConfig(
+  overrides?: Partial<import('@bitcrm/types').CommissionConfig>,
+): import('@bitcrm/types').CommissionConfig {
+  return {
+    userId: 'tech-1',
+    baseRatePct: 40,
+    creditCardFeePct: 3,
+    achFeePct: 0,
+    effectiveDate: '2026-01-01T00:00:00.000Z',
+    createdBy: 'mgr-1',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+/**
+ * RolesService.findById mock seeded with the system roles + their priorities,
+ * so service-layer priority checks can be exercised in unit tests.
+ */
+export function createMockRolesServiceByPriority() {
+  const roles: Record<string, Partial<Role>> = {
+    'role-super-admin': { id: 'role-super-admin', name: 'Super Admin', isSystem: true, priority: 100 },
+    'role-admin': { id: 'role-admin', name: 'Admin', isSystem: true, priority: 80 },
+    'role-dept-manager': { id: 'role-dept-manager', name: 'Department Manager', isSystem: true, priority: 60 },
+    'role-dispatcher': { id: 'role-dispatcher', name: 'Dispatcher', isSystem: true, priority: 40 },
+    'role-technician': { id: 'role-technician', name: 'Technician', isSystem: true, priority: 20 },
+    'role-read-only': { id: 'role-read-only', name: 'Read Only', isSystem: true, priority: 10 },
+  };
+  return {
+    findById: jest.fn(async (id: string) => {
+      const role = roles[id];
+      if (!role) throw new Error(`role ${id} not found`);
+      return role as Role;
+    }),
   };
 }

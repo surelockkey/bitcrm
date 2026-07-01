@@ -62,7 +62,7 @@ async function setupSQS(sqs: SQSClient): Promise<void> {
             ...(dlqArn && {
               RedrivePolicy: JSON.stringify({
                 deadLetterTargetArn: dlqArn,
-                maxReceiveCount: 3,
+                maxReceiveCount: 5,
               }),
             }),
           },

@@ -24,7 +24,7 @@ import { CompaniesModule } from './companies/companies.module';
         ],
       },
       redis: true,
-      sns: process.env.CRM_EVENTS_TOPIC_ARN ? { topics: [process.env.CRM_EVENTS_TOPIC_ARN] } : undefined,
+      sns: process.env.CONTACT_EVENTS_TOPIC_ARN ? { topics: [process.env.CONTACT_EVENTS_TOPIC_ARN] } : undefined,
     }),
     DynamoDbModule,
     RedisModule,
@@ -34,8 +34,8 @@ import { CompaniesModule } from './companies/companies.module';
         region: process.env.AWS_REGION,
         endpoint: process.env.AWS_ENDPOINT,
         source: 'crm-service',
-        topicArns: process.env.CRM_EVENTS_TOPIC_ARN
-          ? { crm: process.env.CRM_EVENTS_TOPIC_ARN }
+        topicArns: process.env.CONTACT_EVENTS_TOPIC_ARN
+          ? { crm: process.env.CONTACT_EVENTS_TOPIC_ARN }
           : {},
       },
     }),

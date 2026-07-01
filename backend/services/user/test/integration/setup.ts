@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 
 export const TEST_TABLE = 'BitCRM_Users_Test';
 const DYNAMODB_ENDPOINT = 'http://localhost:8001';
-const REDIS_URL = 'redis://localhost:6379';
+const REDIS_URL = 'redis://localhost:6379/15';
 
 const rawClient = new DynamoDBClient({
   region: 'us-east-1',
@@ -44,6 +44,10 @@ export async function createTestTable(): Promise<void> {
           { AttributeName: 'GSI1SK', AttributeType: 'S' },
           { AttributeName: 'GSI2PK', AttributeType: 'S' },
           { AttributeName: 'GSI2SK', AttributeType: 'S' },
+          { AttributeName: 'GSI3PK', AttributeType: 'S' },
+          { AttributeName: 'GSI3SK', AttributeType: 'S' },
+          { AttributeName: 'GSI4PK', AttributeType: 'S' },
+          { AttributeName: 'GSI4SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -59,6 +63,22 @@ export async function createTestTable(): Promise<void> {
             KeySchema: [
               { AttributeName: 'GSI2PK', KeyType: 'HASH' },
               { AttributeName: 'GSI2SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            IndexName: 'TechnicianIndex',
+            KeySchema: [
+              { AttributeName: 'GSI3PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI3SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            IndexName: 'SkillStatusIndex',
+            KeySchema: [
+              { AttributeName: 'GSI4PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI4SK', KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },

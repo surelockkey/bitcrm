@@ -10,11 +10,13 @@ import {
   MetricsModule,
   HealthModule,
   ConnectivityModule,
+  StorageModule,
 } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { RolesModule } from './roles/roles.module';
+import { TechniciansModule } from './technicians/technicians.module';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { RolesModule } from './roles/roles.module';
     }),
     DynamoDbModule,
     RedisModule,
+    StorageModule,
     SharedAuthModule,
     CognitoAdminModule,
     CognitoAuthModule,
@@ -45,6 +48,11 @@ import { RolesModule } from './roles/roles.module';
           : {},
       },
     }),
+    // TechniciansModule must be scanned before RolesModule: RolesModule
+    // forwardRef-imports UsersModule, which would otherwise register the
+    // `/api/users/:id` route ahead of the bare `/api/users/technicians` list
+    // route and shadow it.
+    TechniciansModule,
     RolesModule,
     UsersModule,
     AuthModule,

@@ -1,7 +1,6 @@
 import { Module, OnModuleInit, Optional } from '@nestjs/common';
-import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, SqsConsumerService, MetricsModule, HealthModule, ConnectivityModule } from '@bitcrm/shared';
+import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, SqsConsumerService, MetricsModule, HealthModule, ConnectivityModule, StorageModule } from '@bitcrm/shared';
 import { AppController } from './app.controller';
-import { S3Module } from './common/s3/s3.module';
 import { StockModule } from './stock/stock.module';
 import { ProductsModule } from './products/products.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
@@ -22,24 +21,23 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
       dynamodb: { tables: [process.env.INVENTORY_TABLE || 'BitCRM_Inventory'] },
       redis: true,
       s3: { buckets: [process.env.S3_BUCKET ?? process.env.S3_APP_NAME ?? 'bitcrm-uploads'] },
-      sns: process.env.INVENTORY_EVENTS_TOPIC_ARN ? { topics: [process.env.INVENTORY_EVENTS_TOPIC_ARN] } : undefined,
-      sqs: process.env.INVENTORY_USER_QUEUE_URL ? { queues: [process.env.INVENTORY_USER_QUEUE_URL] } : undefined,
+      sqs: process.env.USER_EVENTS_TO_INVENTORY_QUEUE_URL ? { queues: [process.env.USER_EVENTS_TO_INVENTORY_QUEUE_URL] } : undefined,
     }),
     DynamoDbModule,
     RedisModule,
     AuthModule,
     EventsModule.forRoot({
-      consumer: process.env.INVENTORY_USER_QUEUE_URL
+      consumer: process.env.USER_EVENTS_TO_INVENTORY_QUEUE_URL
         ? {
             region: process.env.AWS_REGION,
             endpoint: process.env.AWS_ENDPOINT,
-            queueUrl: process.env.INVENTORY_USER_QUEUE_URL,
+            queueUrl: process.env.USER_EVENTS_TO_INVENTORY_QUEUE_URL,
             waitTimeSeconds: 20,
             maxMessages: 10,
           }
         : undefined,
     }),
-    S3Module,
+    StorageModule,
     StockModule,
     ProductsModule,
     WarehousesModule,

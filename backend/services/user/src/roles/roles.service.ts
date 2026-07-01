@@ -13,6 +13,7 @@ import { RolesRepository } from './roles.repository';
 import { RolesCacheService } from './roles-cache.service';
 import { UsersRepository } from '../users/users.repository';
 import { DEFAULT_ROLES } from './constants/default-roles';
+import { reconcileRolePermissions } from './reconcile-role-permissions';
 
 @Injectable()
 export class RolesService implements OnModuleInit {
@@ -129,16 +130,39 @@ export class RolesService implements OnModuleInit {
   async seedDefaults(): Promise<void> {
     for (const roleDef of DEFAULT_ROLES) {
       const existing = await this.rolesRepository.findByName(roleDef.name);
-      if (existing) continue;
 
-      const now = new Date().toISOString();
-      const role: Role = {
-        ...roleDef,
-        createdAt: now,
-        updatedAt: now,
-      };
+      if (!existing) {
+        const now = new Date().toISOString();
+        const role: Role = {
+          ...roleDef,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await this.rolesRepository.create(role);
+        continue;
+      }
 
-      await this.rolesRepository.create(role);
+      // Self-heal: backfill any registry resources added after this role was
+      // seeded (e.g. technicians/skills/commission), without clobbering edits.
+      const { permissions, dataScope, changed } = reconcileRolePermissions(
+        existing,
+        roleDef,
+      );
+      if (changed) {
+        await this.rolesRepository.update(existing.id, { permissions, dataScope });
+        await this.rolesCache.invalidateRole(existing.id);
+        const { items: users } = await this.usersRepository.findByRole(
+          existing.id,
+          1000,
+        );
+        await this.rolesCache.invalidateAllUsersWithRole(
+          existing.id,
+          users.map((u) => u.id),
+        );
+        this.logger.log(
+          `Reconciled new permission resources into role "${existing.name}"`,
+        );
+      }
     }
   }
 }

@@ -6,6 +6,12 @@ export { DynamoDbService } from './dynamodb/dynamodb.service';
 export { RedisModule } from './redis/redis.module';
 export { RedisService } from './redis/redis.service';
 
+// Storage (S3 documents + KMS field encryption)
+export { StorageModule } from './storage/storage.module';
+export { S3Service } from './storage/s3.service';
+export type { PresignedUploadOptions } from './storage/s3.service';
+export { KmsService } from './storage/kms.service';
+
 // Auth
 export { AuthModule } from './auth/auth.module';
 export { CognitoAuthGuard } from './auth/auth.guard';

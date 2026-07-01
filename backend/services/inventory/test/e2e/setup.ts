@@ -26,8 +26,7 @@ import {
   HttpExceptionFilter,
 } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
-import { S3Module } from 'src/common/s3/s3.module';
-import { S3Service } from 'src/common/s3/s3.service';
+import { StorageModule, S3Service } from '@bitcrm/shared';
 import { StockModule } from 'src/stock/stock.module';
 import { ProductsModule } from 'src/products/products.module';
 import { WarehousesModule } from 'src/warehouses/warehouses.module';
@@ -46,7 +45,7 @@ import type Redis from 'ioredis';
 // ---------------------------------------------------------------------------
 process.env.DYNAMODB_ENDPOINT = 'http://localhost:8001';
 process.env.AWS_REGION = 'us-east-1';
-process.env.REDIS_URL = 'redis://localhost:6379';
+process.env.REDIS_URL = 'redis://localhost:6379/15';
 process.env.INTERNAL_SERVICE_SECRET = 'test-secret';
 
 // ---------------------------------------------------------------------------
@@ -227,7 +226,7 @@ export async function setupApp(): Promise<INestApplication> {
       DynamoDbModule,
       RedisModule,
       TestPermissionModule,
-      S3Module,
+      StorageModule,
       StockModule,
       ProductsModule,
       WarehousesModule,

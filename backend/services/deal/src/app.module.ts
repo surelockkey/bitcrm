@@ -10,9 +10,12 @@ import {
   HealthModule,
   ConnectivityModule,
 } from '@bitcrm/shared';
+import { UserEventType } from '@bitcrm/types';
 import { AppController } from './app.controller';
 import { DealsModule } from './deals/deals.module';
 import { DealsEventHandler } from './deals/deals.event-handler';
+import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
+import { TechnicianEligibilityEventHandler } from './technician-eligibility/technician-eligibility.event-handler';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
@@ -30,7 +33,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
       dynamodb: { tables: [process.env.DEALS_TABLE || 'BitCRM_Deals'] },
       redis: true,
       sns: process.env.DEAL_EVENTS_TOPIC_ARN ? { topics: [process.env.DEAL_EVENTS_TOPIC_ARN] } : undefined,
-      sqs: process.env.DEAL_SERVICE_QUEUE_URL ? { queues: [process.env.DEAL_SERVICE_QUEUE_URL] } : undefined,
+      sqs: process.env.USER_EVENTS_TO_DEAL_QUEUE_URL ? { queues: [process.env.USER_EVENTS_TO_DEAL_QUEUE_URL] } : undefined,
       httpServices: [
         { name: 'crm', url: (process.env.CRM_SERVICE_URL ?? 'http://localhost:4002') + '/api/crm/health' },
         { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },
@@ -49,17 +52,18 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
           ? { 'deal-events': process.env.DEAL_EVENTS_TOPIC_ARN }
           : {},
       },
-      consumer: process.env.DEAL_SERVICE_QUEUE_URL
+      consumer: process.env.USER_EVENTS_TO_DEAL_QUEUE_URL
         ? {
             region: AWS_REGION,
             endpoint: AWS_ENDPOINT,
-            queueUrl: process.env.DEAL_SERVICE_QUEUE_URL,
+            queueUrl: process.env.USER_EVENTS_TO_DEAL_QUEUE_URL,
             waitTimeSeconds: 20,
             maxMessages: 10,
           }
         : undefined,
     }),
     DealsModule,
+    TechnicianEligibilityModule,
   ],
   controllers: [AppController],
 })
@@ -67,19 +71,33 @@ export class AppModule implements OnModuleInit {
   constructor(
     @Optional() private readonly sqsConsumer?: SqsConsumerService,
     @Optional() private readonly dealsEventHandler?: DealsEventHandler,
+    @Optional() private readonly eligibilityHandler?: TechnicianEligibilityEventHandler,
   ) {}
 
   onModuleInit() {
-    if (!this.sqsConsumer || !this.dealsEventHandler) return;
+    if (!this.sqsConsumer) return;
 
-    this.sqsConsumer.registerHandler(
-      'payment.received',
-      (p) => this.dealsEventHandler!.handlePaymentReceived(p),
-    );
-    this.sqsConsumer.registerHandler(
-      'contact.merged',
-      (p) => this.dealsEventHandler!.handleContactMerged(p),
-    );
+    if (this.dealsEventHandler) {
+      this.sqsConsumer.registerHandler(
+        'payment.received',
+        (p) => this.dealsEventHandler!.handlePaymentReceived(p),
+      );
+      this.sqsConsumer.registerHandler(
+        'contact.merged',
+        (p) => this.dealsEventHandler!.handleContactMerged(p),
+      );
+    }
+
+    if (this.eligibilityHandler) {
+      this.sqsConsumer.registerHandler(
+        UserEventType.TECH_APPROVED,
+        (p) => this.eligibilityHandler!.handleTechApproved(p as never),
+      );
+      this.sqsConsumer.registerHandler(
+        UserEventType.TECH_UPDATED,
+        (p) => this.eligibilityHandler!.handleTechUpdated(p as never),
+      );
+    }
 
     // Only start polling if explicitly enabled (e.g. ENABLE_SQS_CONSUMER=true)
     // Prevents noisy errors when LocalStack isn't running in local dev

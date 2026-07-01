@@ -41,7 +41,7 @@ import Redis from 'ioredis';
 // ---------------------------------------------------------------------------
 process.env.DYNAMODB_ENDPOINT = 'http://localhost:8001';
 process.env.AWS_REGION = 'us-east-1';
-process.env.REDIS_URL = 'redis://localhost:6379';
+process.env.REDIS_URL = 'redis://localhost:6379/15';
 process.env.INTERNAL_SERVICE_SECRET = 'test-secret';
 
 // ---------------------------------------------------------------------------

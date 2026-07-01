@@ -4,7 +4,7 @@ import { parse } from 'csv-parse/sync';
 import { type Product, ProductType, InventoryStatus } from '@bitcrm/types';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
-import { S3Service } from '../common/s3/s3.service';
+import { S3Service } from '@bitcrm/shared';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';

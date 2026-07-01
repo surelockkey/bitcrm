@@ -89,6 +89,44 @@ export class InternalHttpService {
     }
   }
 
+  async getTechnicianEligibility(technicianId: string): Promise<{
+    technicianId: string;
+    assignable: boolean;
+    approvedSkills: string[];
+    serviceAreas: string[];
+  }> {
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'getTechnicianEligibility' });
+    try {
+      const response = await this.userClient.get(
+        `/api/users/technicians/internal/${technicianId}/eligibility`,
+      );
+      timer?.();
+      return response.data.data;
+    } catch (error: any) {
+      timer?.();
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'getTechnicianEligibility' });
+      this.logger.warn(`Failed to get eligibility for ${technicianId}: ${error.message}`);
+      // Treat unknown as not assignable.
+      return { technicianId, assignable: false, approvedSkills: [], serviceAreas: [] };
+    }
+  }
+
+  async listAssignableTechnicians(): Promise<
+    Array<{ technicianId: string; approvedSkills: string[]; serviceAreas: string[] }>
+  > {
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'listAssignableTechnicians' });
+    try {
+      const response = await this.userClient.get('/api/users/technicians/internal/assignable');
+      timer?.();
+      return response.data.data || [];
+    } catch (error: any) {
+      timer?.();
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'listAssignableTechnicians' });
+      this.logger.warn(`Failed to list assignable technicians: ${error.message}`);
+      return [];
+    }
+  }
+
   async deductStock(dto: DeductStockDto): Promise<void> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'inventory', operation: 'deductStock' });
     try {

@@ -21,10 +21,12 @@ describe('Auth API (e2e)', () => {
     login: jest.fn(),
     refreshToken: jest.fn(),
     respondToNewPasswordChallenge: jest.fn(),
+    forgotPassword: jest.fn().mockResolvedValue({ delivery: null }),
+    confirmForgotPassword: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeAll(async () => {
-    process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.REDIS_URL = 'redis://localhost:6379/15';
 
     const moduleRef = await Test.createTestingModule({
       imports: [DynamoDbModule, RedisModule, CognitoAuthModule, AuthModule],
@@ -207,6 +209,45 @@ describe('Auth API (e2e)', () => {
         .post('/api/users/auth/change-password')
         .send({ email: 'user@test.com' });
 
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/users/auth/password-reset', () => {
+    it('requests a reset (public) and returns a non-enumerating message', async () => {
+      const res = await request(httpServer)
+        .post('/api/users/auth/password-reset')
+        .send({ email: 'user@test.com' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.message).toMatch(/if the account exists/i);
+      expect(mockCognitoAuth.forgotPassword).toHaveBeenCalledWith('user@test.com');
+    });
+
+    it('returns 400 for an invalid email', async () => {
+      const res = await request(httpServer)
+        .post('/api/users/auth/password-reset')
+        .send({ email: 'not-an-email' });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/users/auth/password-reset/confirm', () => {
+    it('confirms with code + new password (public)', async () => {
+      const res = await request(httpServer)
+        .post('/api/users/auth/password-reset/confirm')
+        .send({ email: 'user@test.com', code: '123456', newPassword: 'NewPass1!' });
+      expect(res.status).toBe(200);
+      expect(mockCognitoAuth.confirmForgotPassword).toHaveBeenCalledWith(
+        'user@test.com',
+        '123456',
+        'NewPass1!',
+      );
+    });
+
+    it('returns 400 for a weak password', async () => {
+      const res = await request(httpServer)
+        .post('/api/users/auth/password-reset/confirm')
+        .send({ email: 'user@test.com', code: '123456', newPassword: 'short' });
       expect(res.status).toBe(400);
     });
   });

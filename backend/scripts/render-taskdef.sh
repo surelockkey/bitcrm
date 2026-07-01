@@ -106,7 +106,13 @@ EXTRA_ENV_JSON=$(jq -n \
   + (if $api_gateway_url != "" then [{name: "API_GATEWAY_URL",        value: $api_gateway_url}] else [] end)
   + (if $jwt_key         != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]         else [] end)
   + (if $cognito_secret  != "" then [{name: "COGNITO_CLIENT_SECRET",  value: $cognito_secret}]  else [] end)
-  + (if $internal_token  != "" then [{name: "INTERNAL_SERVICE_TOKEN", value: $internal_token}]  else [] end)
+  + (if $internal_token  != "" then [
+      {name: "INTERNAL_SERVICE_TOKEN", value: $internal_token},
+      # Guards (deal/inventory/user InternalGuard) read INTERNAL_SERVICE_SECRET — same value.
+      {name: "INTERNAL_SERVICE_SECRET", value: $internal_token}
+    ] else [] end)
+  # SQS consumers only poll when explicitly enabled.
+  + (if ($service == "deal" or $service == "inventory") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   ')
 
 # 3. Merge SSM + aliases + extra env

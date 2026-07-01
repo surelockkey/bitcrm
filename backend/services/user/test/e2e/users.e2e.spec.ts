@@ -366,6 +366,32 @@ describe('Users API (e2e)', () => {
     });
   });
 
+  describe('POST /api/users/:id/invite', () => {
+    it('re-sends the invitation (Admin+)', async () => {
+      const createRes = await createUser();
+      const userId = createRes.body.data.id;
+      getMockCognitoAdmin().resendInvite.mockClear();
+
+      const res = await request(httpServer)
+        .post(`/api/users/${userId}/invite`)
+        .set('x-test-user', createTestUserHeader(adminUser));
+
+      expect(res.status).toBe(201);
+      expect(getMockCognitoAdmin().resendInvite).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 403 when a technician tries to resend an invite', async () => {
+      const createRes = await createUser();
+      const userId = createRes.body.data.id;
+
+      const res = await request(httpServer)
+        .post(`/api/users/${userId}/invite`)
+        .set('x-test-user', createTestUserHeader(techUser));
+
+      expect(res.status).toBe(403);
+    });
+  });
+
   describe('POST /api/users/:id/reactivate', () => {
     it('should reactivate user', async () => {
       const createRes = await createUser();
