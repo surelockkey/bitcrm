@@ -1,0 +1,80 @@
+"use client";
+
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AuthCard } from "@/components/auth/auth-card";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { getApiErrorMessage } from "@/lib/api/errors";
+import { forgotSchema, type ForgotValues } from "@/features/auth/schemas";
+import { useRequestReset } from "@/features/auth/hooks";
+
+export function ForgotForm() {
+  const form = useForm<ForgotValues>({
+    resolver: zodResolver(forgotSchema),
+    defaultValues: { email: "" },
+  });
+  const mutation = useRequestReset();
+
+  return (
+    <AuthCard>
+      <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((values) => mutation.mutate(values.email))}
+            className="grid gap-5"
+            noValidate
+          >
+            {mutation.isError ? (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {getApiErrorMessage(mutation.error)}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="email"
+                      autoComplete="email"
+                      placeholder="you@surelockkey.com"
+                      className="h-11"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <Button
+              type="submit"
+              variant="brand"
+              className="h-11 w-full text-[0.95rem] font-semibold"
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : null}
+              Send reset code
+            </Button>
+          </form>
+      </Form>
+    </AuthCard>
+  );
+}
