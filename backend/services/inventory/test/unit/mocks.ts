@@ -86,7 +86,7 @@ export function createMockCreateTransferDto(overrides?: Partial<CreateTransferDt
 
 // Service/Repository mocks
 export function createMockProductsRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn() };
 }
 
 export function createMockProductsCacheService() {

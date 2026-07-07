@@ -108,6 +108,24 @@ export class ProductsRepository {
     return this.findById(productId);
   }
 
+  async findByBarcode(barcode: string): Promise<Product | null> {
+    // No barcode index — a filtered scan is fine for a low-frequency lookup.
+    const result = await this.dynamoDb.client.send(
+      new ScanCommand({
+        TableName: INVENTORY_TABLE,
+        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND barcode = :b',
+        ExpressionAttributeValues: {
+          ':pk': 'PRODUCT#',
+          ':sk': 'METADATA',
+          ':b': barcode,
+        },
+        Limit: 1,
+      }),
+    );
+    const item = (result.Items || [])[0];
+    return item ? this.toProduct(item) : null;
+  }
+
   async findByCategory(
     category: string,
     limit: number,
