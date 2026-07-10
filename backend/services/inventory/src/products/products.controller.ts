@@ -60,6 +60,14 @@ export class ProductsController {
     return { success: true, data };
   }
 
+  @Get('barcode/:code')
+  @RequirePermission('products', 'view')
+  @ApiOperation({ summary: 'Get product by barcode', description: '**Guard:** `products.view` permission required.' })
+  async findByBarcode(@Param('code') code: string) {
+    const data = await this.productsService.findByBarcode(code);
+    return { success: true, data };
+  }
+
   @Put(':id')
   @RequirePermission('products', 'edit')
   @ApiOperation({ summary: 'Update a product', description: '**Guard:** `products.edit` permission required.' })
@@ -76,15 +84,29 @@ export class ProductsController {
     return { success: true, data };
   }
 
+  @Post(':id/reactivate')
+  @RequirePermission('products', 'edit')
+  @ApiOperation({ summary: 'Restore an archived product', description: '**Guard:** `products.edit` permission required.' })
+  async reactivate(@Param('id') id: string) {
+    const data = await this.productsService.reactivate(id);
+    return { success: true, data };
+  }
+
   @Post('import')
   @RequirePermission('products', 'create')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
   )
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Bulk import products from CSV', description: '**Guard:** `products.create` permission required.' })
-  async importCsv(@UploadedFile() file: Express.Multer.File) {
-    const data = await this.productsService.importFromCsv(file.buffer);
+  @ApiOperation({ summary: 'Bulk import products from CSV', description: '**Guard:** `products.create` permission required. Pass `?dryRun=1` to validate without writing.' })
+  async importCsv(
+    @UploadedFile() file: Express.Multer.File,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    const data = await this.productsService.importFromCsv(
+      file.buffer,
+      dryRun === '1' || dryRun === 'true',
+    );
     return { success: true, data };
   }
 

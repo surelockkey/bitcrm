@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { ProductsPage } from "@/features/inventory/products/components/products-page";
 
 export default function Page() {
-  return <PagePlaceholder title="Products" />;
+  return <ProductsPage />;
 }

@@ -278,5 +278,80 @@ describe('ProductsService', () => {
       // if it does, we expect an error in the result
       expect(result).toBeDefined();
     });
+
+    it('should not write anything when dryRun is true', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(null);
+
+      const result = await service.importFromCsv(csv, true);
+
+      expect(result.created).toBe(1);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reactivate', () => {
+    it('should set status to ACTIVE', async () => {
+      const product = createMockProduct({ status: InventoryStatus.ARCHIVED });
+      const active = createMockProduct({ status: InventoryStatus.ACTIVE });
+      cache.get.mockResolvedValue(product);
+      repository.update.mockResolvedValue(active);
+
+      const result = await service.reactivate('prod-1');
+
+      expect(result.status).toBe(InventoryStatus.ACTIVE);
+      expect(repository.update).toHaveBeenCalledWith(
+        'prod-1',
+        expect.objectContaining({ status: InventoryStatus.ACTIVE }),
+      );
+    });
+  });
+
+  describe('findByBarcode', () => {
+    it('should return the product when found', async () => {
+      const product = createMockProduct({ barcode: '883351050135' });
+      repository.findByBarcode.mockResolvedValue(product);
+
+      const result = await service.findByBarcode('883351050135');
+
+      expect(result).toEqual(product);
+    });
+
+    it('should throw NotFoundException when no product matches', async () => {
+      repository.findByBarcode.mockResolvedValue(null);
+
+      await expect(service.findByBarcode('nope')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('removePhoto', () => {
+    it('should delete the S3 object and clear photoKey', async () => {
+      const product = createMockProduct({ photoKey: 'products/prod-1/photo.png' });
+      const cleared = createMockProduct({ photoKey: undefined });
+      cache.get.mockResolvedValue(product);
+      s3.deleteObject.mockResolvedValue(undefined);
+      repository.update.mockResolvedValue(cleared);
+
+      const result = await service.removePhoto('prod-1');
+
+      expect(s3.deleteObject).toHaveBeenCalledWith('products/prod-1/photo.png');
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { photoKey: undefined });
+      expect(cache.invalidate).toHaveBeenCalledWith('prod-1');
+      expect(result.photoKey).toBeUndefined();
+    });
+
+    it('should skip S3 deletion when there is no photo', async () => {
+      const product = createMockProduct({ photoKey: undefined });
+      cache.get.mockResolvedValue(product);
+      repository.update.mockResolvedValue(product);
+
+      await service.removePhoto('prod-1');
+
+      expect(s3.deleteObject).not.toHaveBeenCalled();
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { photoKey: undefined });
+    });
   });
 });

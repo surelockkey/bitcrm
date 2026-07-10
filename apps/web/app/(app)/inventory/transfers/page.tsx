@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { TransfersPage } from "@/features/inventory/transfers/components/transfers-page";
 
 export default function Page() {
-  return <PagePlaceholder title="Transfers" />;
+  return <TransfersPage />;
 }

@@ -116,7 +116,16 @@ describe('ProductsController', () => {
       const result = await controller.importCsv(file);
 
       expect(result).toEqual({ success: true, data: importResult });
-      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer);
+      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, false);
+    });
+
+    it('should pass dryRun=true through when requested', async () => {
+      service.importFromCsv.mockResolvedValue({ created: 0, updated: 0, errors: [] });
+      const file = { buffer: Buffer.from('csv-data') } as Express.Multer.File;
+
+      await controller.importCsv(file, '1');
+
+      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, true);
     });
   });
 

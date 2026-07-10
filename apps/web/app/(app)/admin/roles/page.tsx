@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { RolesPage } from "@/features/roles/components/roles-page";
 
 export default function Page() {
-  return <PagePlaceholder title="Roles" />;
+  return <RolesPage />;
 }

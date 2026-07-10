@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { ProfilePage } from "@/features/profile/components/profile-page";
 
 export default function Page() {
-  return <PagePlaceholder title="Profile" />;
+  return <ProfilePage />;
 }

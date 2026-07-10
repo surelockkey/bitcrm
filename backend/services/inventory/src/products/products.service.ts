@@ -84,6 +84,31 @@ export class ProductsService {
     return this.update(id, { status: InventoryStatus.ARCHIVED } as any);
   }
 
+  async reactivate(id: string): Promise<Product> {
+    return this.update(id, { status: InventoryStatus.ACTIVE } as any);
+  }
+
+  async findByBarcode(barcode: string): Promise<Product> {
+    const product = await this.repository.findByBarcode(barcode);
+    if (!product) {
+      throw new NotFoundException(`Product with barcode "${barcode}" not found`);
+    }
+    return product;
+  }
+
+  async removePhoto(id: string): Promise<Product> {
+    const product = await this.findById(id);
+    if (product.photoKey) {
+      await this.s3.deleteObject(product.photoKey).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'unknown error';
+        this.logger.warn(`Failed to delete photo object for ${id}: ${msg}`);
+      });
+    }
+    const updated = await this.repository.update(id, { photoKey: undefined });
+    await this.cache.invalidate(id);
+    return updated;
+  }
+
   async getPhotoUploadUrl(
     id: string,
     contentType: string,
@@ -110,7 +135,7 @@ export class ProductsService {
     return { downloadUrl };
   }
 
-  async importFromCsv(buffer: Buffer): Promise<CsvImportResult> {
+  async importFromCsv(buffer: Buffer, dryRun = false): Promise<CsvImportResult> {
     const result: CsvImportResult = { created: 0, updated: 0, errors: [] };
 
     let records: any[];
@@ -140,41 +165,45 @@ export class ProductsService {
         const existing = await this.repository.findBySku(row.sku);
 
         if (existing) {
-          await this.repository.update(existing.id, {
-            name: row.name,
-            category: row.category,
-            type: row.type as ProductType,
-            costCompany: parseFloat(row.costCompany),
-            costTech: parseFloat(row.costTech),
-            priceClient: parseFloat(row.priceClient),
-            serialTracking: row.serialTracking === 'true',
-            minimumStockLevel: parseInt(row.minimumStockLevel, 10),
-            ...(row.supplier && { supplier: row.supplier }),
-            ...(row.barcode && { barcode: row.barcode }),
-            ...(row.description && { description: row.description }),
-          });
-          await this.cache.invalidate(existing.id);
+          if (!dryRun) {
+            await this.repository.update(existing.id, {
+              name: row.name,
+              category: row.category,
+              type: row.type as ProductType,
+              costCompany: parseFloat(row.costCompany),
+              costTech: parseFloat(row.costTech),
+              priceClient: parseFloat(row.priceClient),
+              serialTracking: row.serialTracking === 'true',
+              minimumStockLevel: parseInt(row.minimumStockLevel, 10),
+              ...(row.supplier && { supplier: row.supplier }),
+              ...(row.barcode && { barcode: row.barcode }),
+              ...(row.description && { description: row.description }),
+            });
+            await this.cache.invalidate(existing.id);
+          }
           result.updated++;
         } else {
-          const now = new Date().toISOString();
-          await this.repository.create({
-            id: randomUUID(),
-            sku: row.sku,
-            name: row.name,
-            category: row.category,
-            type: row.type as ProductType,
-            costCompany: parseFloat(row.costCompany),
-            costTech: parseFloat(row.costTech),
-            priceClient: parseFloat(row.priceClient),
-            serialTracking: row.serialTracking === 'true',
-            minimumStockLevel: parseInt(row.minimumStockLevel, 10),
-            supplier: row.supplier || undefined,
-            barcode: row.barcode || undefined,
-            description: row.description || undefined,
-            status: InventoryStatus.ACTIVE,
-            createdAt: now,
-            updatedAt: now,
-          });
+          if (!dryRun) {
+            const now = new Date().toISOString();
+            await this.repository.create({
+              id: randomUUID(),
+              sku: row.sku,
+              name: row.name,
+              category: row.category,
+              type: row.type as ProductType,
+              costCompany: parseFloat(row.costCompany),
+              costTech: parseFloat(row.costTech),
+              priceClient: parseFloat(row.priceClient),
+              serialTracking: row.serialTracking === 'true',
+              minimumStockLevel: parseInt(row.minimumStockLevel, 10),
+              supplier: row.supplier || undefined,
+              barcode: row.barcode || undefined,
+              description: row.description || undefined,
+              status: InventoryStatus.ACTIVE,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
           result.created++;
         }
       } catch (error: unknown) {

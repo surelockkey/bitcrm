@@ -132,6 +132,9 @@
   }
   html {
     @apply font-sans;
+    /* Reserve the scrollbar gutter so the page width never changes when Radix
+       menus/selects lock body scroll. Pairs with the neutralizer below. */
+    scrollbar-gutter: stable;
   }
   /* Interactive elements get a pointer cursor. */
   button:not(:disabled),
@@ -140,4 +143,18 @@
   label[for] {
     cursor: pointer;
   }
+}
+
+/*
+ * Radix (Select / DropdownMenu / Dialog) locks body scroll via react-remove-scroll,
+ * which injects `body[data-scroll-locked] { margin-right: <scrollbar>px !important }`
+ * to compensate for the removed scrollbar. Because `scrollbar-gutter: stable` above
+ * already keeps that space reserved, the extra margin double-compensates and shifts
+ * the whole page sideways every time a menu opens. Neutralize it.
+ *
+ * Left unlayered and with higher specificity than react-remove-scroll's own rule so
+ * this wins the cascade even against its `!important`.
+ */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
 }

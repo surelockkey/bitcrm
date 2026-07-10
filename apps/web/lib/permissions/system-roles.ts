@@ -192,3 +192,18 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
 };
 
 export const TECHNICIAN_ROLE_ID = "role-technician";
+
+/** System-role priorities (higher = more powerful). Fallback for hierarchy
+ *  checks when the live roles list (with priorities) isn't available. */
+export const ROLE_PRIORITY: Record<string, number> = {
+  "role-super-admin": 100,
+  "role-admin": 80,
+  "role-dept-manager": 60,
+  "role-dispatcher": 40,
+  "role-technician": 20,
+  "role-read-only": 10,
+};
+
+export function systemRoleName(roleId: string): string | undefined {
+  return SYSTEM_ROLES[roleId]?.name;
+}

@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { TechniciansPage } from "@/features/technicians/components/technicians-page";
 
 export default function Page() {
-  return <PagePlaceholder title="Technicians" />;
+  return <TechniciansPage />;
 }
