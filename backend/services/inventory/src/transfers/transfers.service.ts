@@ -8,6 +8,7 @@ import {
 } from '@bitcrm/types';
 import { TransfersRepository } from './transfers.repository';
 import { StockService } from '../stock/stock.service';
+import { ContainersRepository } from '../containers/containers.repository';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
@@ -24,8 +25,25 @@ export class TransfersService {
   constructor(
     private readonly repository: TransfersRepository,
     private readonly stockService: StockService,
+    private readonly containersRepository: ContainersRepository,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
+
+  /**
+   * Deal-service callers identify a technician's container by the *technician's*
+   * id, but stock is keyed by the container's own id. Resolve a technician id
+   * to their container id; an id that matches no technician (e.g. a container id
+   * passed directly by the transfers UI) is returned as-is so those callers keep
+   * working unchanged.
+   */
+  private async resolveContainerId(
+    containerOrTechnicianId: string,
+  ): Promise<string> {
+    const container = await this.containersRepository.findByTechnicianId(
+      containerOrTechnicianId,
+    );
+    return container ? container.id : containerOrTechnicianId;
+  }
 
   async createTransfer(dto: CreateTransferDto, user: JwtUser) {
     const route = `${dto.fromType}->${dto.toType}`;
@@ -60,14 +78,15 @@ export class TransfersService {
   }
 
   async deductStock(dto: DeductStockDto) {
-    await this.stockService.deduct(`CONTAINER#${dto.containerId}`, dto.items);
+    const containerId = await this.resolveContainerId(dto.containerId);
+    await this.stockService.deduct(`CONTAINER#${containerId}`, dto.items);
     this.businessMetrics?.stockDeductions.inc();
 
     await this.repository.create({
       id: randomUUID(),
       type: TransferType.DEDUCT,
       fromType: LocationType.CONTAINER,
-      fromId: dto.containerId,
+      fromId: containerId,
       toType: null,
       toId: null,
       items: dto.items,
@@ -79,7 +98,8 @@ export class TransfersService {
   }
 
   async restoreStock(dto: RestoreStockDto) {
-    await this.stockService.receive(`CONTAINER#${dto.containerId}`, dto.items);
+    const containerId = await this.resolveContainerId(dto.containerId);
+    await this.stockService.receive(`CONTAINER#${containerId}`, dto.items);
     this.businessMetrics?.stockTransfers.inc({ type: 'restore' });
 
     await this.repository.create({
@@ -88,7 +108,7 @@ export class TransfersService {
       fromType: null,
       fromId: null,
       toType: LocationType.CONTAINER,
-      toId: dto.containerId,
+      toId: containerId,
       items: dto.items,
       performedBy: dto.performedBy,
       performedByName: dto.performedByName,

@@ -4,6 +4,7 @@ import { TransferType, LocationType } from '@bitcrm/types';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
+import { ContainersRepository } from 'src/containers/containers.repository';
 import {
   createMockTransfer,
   createMockCreateTransferDto,
@@ -16,16 +17,20 @@ describe('TransfersService', () => {
   let service: TransfersService;
   let repository: ReturnType<typeof createMockTransfersRepository>;
   let stockService: ReturnType<typeof createMockStockService>;
+  let containersRepository: { findByTechnicianId: jest.Mock };
 
   beforeEach(async () => {
     repository = createMockTransfersRepository();
     stockService = createMockStockService();
+    // Default: the id is not a technician id, so it's treated as a container id.
+    containersRepository = { findByTechnicianId: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TransfersService,
         { provide: TransfersRepository, useValue: repository },
         { provide: StockService, useValue: stockService },
+        { provide: ContainersRepository, useValue: containersRepository },
       ],
     }).compile();
 
@@ -139,6 +144,29 @@ describe('TransfersService', () => {
           toId: null,
           notes: 'Deal: deal-1',
         }),
+      );
+    });
+
+    it('should resolve a technician id to their container id before deducting', async () => {
+      // The deal service passes the technician's user id; stock lives under the
+      // container's own id.
+      containersRepository.findByTechnicianId.mockResolvedValue({ id: 'container-xyz' });
+      const dto = {
+        containerId: 'tech-user-1',
+        items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 2 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      };
+      stockService.deduct.mockResolvedValue(undefined);
+      repository.create.mockResolvedValue(undefined);
+
+      await service.deductStock(dto as any);
+
+      expect(containersRepository.findByTechnicianId).toHaveBeenCalledWith('tech-user-1');
+      expect(stockService.deduct).toHaveBeenCalledWith('CONTAINER#container-xyz', dto.items);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ fromId: 'container-xyz' }),
       );
     });
   });
