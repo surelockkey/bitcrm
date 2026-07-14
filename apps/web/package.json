@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@bitcrm/types": "*",
+    "@googlemaps/markerclusterer": "^2.6.2",
     "@hookform/resolvers": "^3.10.0",
     "@tanstack/react-query": "^5.66.0",
     "@tanstack/react-table": "^8.21.0",

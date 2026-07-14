@@ -10,14 +10,22 @@ import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./sch
 
 const PAGE = 100;
 
-/** A qualified-tech row: user fields + distance (the endpoint returns [] today). */
+/**
+ * A candidate for a job: identity, what they're approved for, and how far their
+ * home is from the address.
+ *
+ * Mirrors what deal-service actually returns — it has no email and no job count,
+ * whatever the earlier shape claimed. `distanceMiles` is null until both the deal
+ * address and the technician's home carry coordinates.
+ */
 export interface QualifiedTech {
   id: string;
   firstName?: string;
   lastName?: string;
-  email?: string;
-  distanceMiles?: number;
-  jobsToday?: number;
+  department?: string;
+  skills?: string[];
+  serviceAreas?: string[];
+  distanceMiles?: number | null;
 }
 
 /* -------------------------------------------------------------------- list */

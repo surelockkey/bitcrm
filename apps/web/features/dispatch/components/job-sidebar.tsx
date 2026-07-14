@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, MapPinOff, Pencil, X } from "lucide-react";
+import { ArrowUpRight, MapPinOff, Pencil, UserPlus, X } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
 import { jobTypeLabel } from "@/features/deals/lib";
+import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog";
 import { hasCoords } from "@/lib/geo/geo";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -33,6 +35,7 @@ export function JobSidebar({
   onEdit: () => void;
   onClose: () => void;
 }) {
+  const [assigning, setAssigning] = useState(false);
   const address = `${deal.address.street}${deal.address.unit ? ` ${deal.address.unit}` : ""}, ${deal.address.city} ${deal.address.state} ${deal.address.zip}`;
 
   return (
@@ -76,10 +79,29 @@ export function JobSidebar({
         />
         <Row
           label="Technician"
-          value={techName ?? <span className="text-red-600">Unassigned</span>}
+          value={
+            <span className="flex items-center gap-2">
+              {techName ?? <span className="text-red-600">Unassigned</span>}
+              {canEdit ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-7 gap-1.5 px-2 text-xs"
+                  onClick={() => setAssigning(true)}
+                >
+                  <UserPlus className="size-3.5" />
+                  {techName ? "Reassign" : "Assign"}
+                </Button>
+              ) : null}
+            </span>
+          }
         />
         {deal.notes ? <Row label="Notes" value={deal.notes} /> : null}
       </dl>
+
+      {assigning ? (
+        <AssignTechDialog dealId={deal.id} open onOpenChange={setAssigning} />
+      ) : null}
 
       <div className="mt-auto flex gap-2 border-t p-4">
         {canEdit ? (

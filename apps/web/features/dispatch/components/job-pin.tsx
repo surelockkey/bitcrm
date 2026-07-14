@@ -25,6 +25,7 @@ export function JobPin({
   selected,
   onHover,
   onSelect,
+  markerRef,
 }: {
   deal: LocatedDeal;
   label: string;
@@ -32,6 +33,8 @@ export function JobPin({
   selected: boolean;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
+  /** Registers this pin with the clusterer so dense areas fold into one circle. */
+  markerRef?: (marker: google.maps.marker.AdvancedMarkerElement | null) => void;
 }) {
   const unassigned = !deal.assignedTechId;
   const color = unassigned ? "bg-red-600" : TONE_CLASS[stageTone(deal.stage)];
@@ -39,6 +42,7 @@ export function JobPin({
 
   return (
     <AdvancedMarker
+      ref={markerRef}
       position={{ lat: deal.address.lat, lng: deal.address.lng }}
       title={label}
       zIndex={active ? 10 : 1}

@@ -19,6 +19,15 @@ export const env = {
    * Absent → `/dispatch` explains itself instead of rendering a blank map.
    */
   googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "",
+
+  /**
+   * Map ID from Google Cloud Console → Map management (JavaScript, **Vector**).
+   *
+   * Not cosmetic: AdvancedMarker — which draws every job pin — silently renders
+   * nothing without a registered vector Map ID. The map would load and look
+   * empty, which reads as a bug in our code rather than missing configuration.
+   */
+  googleMapsMapId: process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? "",
 } as const;
 
 if (

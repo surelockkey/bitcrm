@@ -27,7 +27,10 @@ import {
 } from "@/components/ui/select";
 import { useContactByPhone, useCreateContact, useCompanyMap } from "@/features/clients/hooks";
 import { clientTypeLabel, contactName } from "@/features/clients/lib";
+import { MapsProvider } from "@/components/maps/maps-provider";
+import { AddressAutocomplete } from "@/components/maps/address-autocomplete";
 import { addressForSubmit } from "@/lib/geo/geo";
+import { applyAddress } from "@/lib/geo/apply-address";
 import { useCreateDeal } from "../hooks";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { jobTypeLabel } from "../lib";
@@ -185,8 +188,11 @@ function JobStep({ client, onBack, onClose }: { client: ResolvedClient; onBack: 
   const jobType = useWatch({ control: form.control, name: "jobType" });
   const priority = useWatch({ control: form.control, name: "priority" });
   const clientType = useWatch({ control: form.control, name: "clientType" });
+  const street = useWatch({ control: form.control, name: "address.street" }) ?? "";
 
   return (
+    // Loads Places only while the wizard is open, not on every page.
+    <MapsProvider>
     <form onSubmit={form.handleSubmit(submit)} className="flex flex-1 flex-col">
       <div className="flex-1 space-y-4 px-5 py-5">
         <div className="grid grid-cols-2 gap-3">
@@ -200,7 +206,21 @@ function JobStep({ client, onBack, onClose }: { client: ResolvedClient; onBack: 
 
         <div className="space-y-1.5">
           <Label>Service address</Label>
-          <Input className="h-9" placeholder="Street" {...form.register("address.street")} />
+          <AddressAutocomplete
+            className="h-9"
+            placeholder="Street"
+            value={street}
+            onChange={(v) => form.setValue("address.street", v, { shouldDirty: true })}
+            onSelect={(address) =>
+              applyAddress(
+                (path, value) =>
+                  form.setValue(path as "address.street", value as never, {
+                    shouldDirty: true,
+                  }),
+                address,
+              )
+            }
+          />
           {err.address?.street ? <p className="text-xs text-destructive">{err.address.street.message}</p> : null}
           <div className="mt-2 grid grid-cols-[1fr_2fr_1fr_1fr] gap-2">
             <Input className="h-9" placeholder="Unit" {...form.register("address.unit")} />
@@ -230,6 +250,7 @@ function JobStep({ client, onBack, onClose }: { client: ResolvedClient; onBack: 
         </Button>
       </div>
     </form>
+    </MapsProvider>
   );
 }
 

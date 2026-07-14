@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 /** Profile edit — self-fill (contact/address) + manager operational fields.
- *  Address is captured as flat fields and reassembled into homeAddress. */
+ *  Address is captured as flat fields and reassembled into homeAddress.
+ *  lat/lng are set by the address autocomplete and carry the technician onto the
+ *  dispatch map; typed-by-hand addresses are geocoded server-side instead. */
 export const profileSchema = z.object({
   phone: z.string().trim().max(30).optional(),
   line1: z.string().trim().max(120).optional(),
@@ -9,6 +11,8 @@ export const profileSchema = z.object({
   city: z.string().trim().max(80).optional(),
   state: z.string().trim().max(40).optional(),
   zip: z.string().trim().max(12).optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
   laborCostPerHour: z.coerce.number().min(0, "Must be 0 or more").optional(),
   callMaskingEnabled: z.boolean(),
   gpsTrackingEnabled: z.boolean(),

@@ -23,10 +23,14 @@ vi.mock("@vis.gl/react-google-maps", () => ({
   useMap: () => null,
 }));
 
-// The page deliberately renders an explanation instead of a map when the key is
-// missing; give it one so the pins mount.
+// The page deliberately renders an explanation instead of a map when the key or
+// the vector Map ID is missing; give it both so the pins mount.
 vi.mock("@/lib/env", () => ({
-  env: { apiBaseUrl: "http://api.test", googleMapsApiKey: "test-key" },
+  env: {
+    apiBaseUrl: "http://api.test",
+    googleMapsApiKey: "test-key",
+    googleMapsMapId: "test-map-id",
+  },
 }));
 
 const permissions = vi.hoisted(() => ({

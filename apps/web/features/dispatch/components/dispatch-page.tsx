@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
-import { useTechnicians } from "@/features/technicians/hooks";
+import { useAllTechnicians } from "@/features/technicians/hooks";
 import { filterDeals, stageLabel, STAGE_ORDER, jobTypeLabel } from "@/features/deals/lib";
 import { contactName } from "@/features/clients/lib";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
@@ -44,9 +44,10 @@ export function DispatchPage() {
   const query = useDeals();
   const { map: contacts } = useContactMap();
   const { map: users } = useUserMap();
-  // Technician markers need home coordinates, which only managers may read.
+  // Technician profiles are manager+ only — firing the query regardless would
+  // 403 on every load for a dispatcher who can see the map but not the roster.
   const canSeeTechs = can("technicians", "view");
-  const techQuery = useTechnicians(undefined);
+  const { profiles } = useAllTechnicians(canSeeTechs);
 
   const deals = useMemo(() => query.data ?? [], [query.data]);
 
@@ -72,11 +73,10 @@ export function DispatchPage() {
 
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
-  const technicians = useMemo(() => {
-    if (!canSeeTechs) return [];
-    const profiles = techQuery.data?.pages.flatMap((p) => p.data) ?? [];
-    return technicianPositions(profiles, deals, todayISO());
-  }, [canSeeTechs, techQuery.data, deals]);
+  const technicians = useMemo(
+    () => technicianPositions(profiles, deals, todayISO()),
+    [profiles, deals],
+  );
 
   const selected = useMemo(
     () => filtered.find((d) => d.id === selectedId) ?? null,
@@ -171,7 +171,7 @@ export function DispatchPage() {
         <div className="flex flex-1 overflow-hidden">
           {showList ? (
             <aside
-              className={view === "list" ? "flex-1 overflow-hidden" : "w-[22rem] shrink-0 border-r"}
+              className={view === "list" ? "flex-1 overflow-hidden" : "w-88 shrink-0 border-r"}
             >
               <JobList
                 mapped={mapped}
@@ -188,7 +188,9 @@ export function DispatchPage() {
 
           {showMap ? (
             <div className="relative flex-1">
-              {env.googleMapsApiKey ? (
+              {/* Both are required: without a vector Map ID the map loads but
+                  draws no pins, which looks like a bug rather than a gap in setup. */}
+              {env.googleMapsApiKey && env.googleMapsMapId ? (
                 <APIProvider apiKey={env.googleMapsApiKey}>
                   <DispatchMap
                     deals={mapped}
@@ -204,7 +206,10 @@ export function DispatchPage() {
                   />
                 </APIProvider>
               ) : (
-                <MissingKey />
+                <MissingConfig
+                  missingKey={!env.googleMapsApiKey}
+                  missingMapId={!env.googleMapsMapId}
+                />
               )}
             </div>
           ) : null}
@@ -229,18 +234,41 @@ export function DispatchPage() {
   );
 }
 
-/** A blank grey rectangle would look like a bug. Say what is actually missing. */
-function MissingKey() {
+/**
+ * A blank grey rectangle would read as a bug. Name exactly what is missing —
+ * especially the Map ID, whose absence looks identical to broken pin code.
+ */
+function MissingConfig({
+  missingKey,
+  missingMapId,
+}: {
+  missingKey: boolean;
+  missingMapId: boolean;
+}) {
   return (
     <div className="flex size-full flex-col items-center justify-center gap-3 bg-muted/30 p-8 text-center">
       <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
         <KeyRound className="size-6" />
       </div>
-      <div className="font-medium">The map needs a Google Maps key</div>
-      <p className="max-w-sm text-sm text-muted-foreground">
-        Set <code className="rounded bg-muted px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in{" "}
-        <code className="rounded bg-muted px-1">apps/web/.env</code> with the Maps JavaScript API
-        enabled. The job list works without it.
+      <div className="font-medium">The map needs Google Maps configuration</div>
+      <ul className="max-w-sm space-y-1.5 text-sm text-muted-foreground">
+        {missingKey ? (
+          <li>
+            <code className="rounded bg-muted px-1">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> — a
+            browser key with the Maps JavaScript and Places APIs enabled.
+          </li>
+        ) : null}
+        {missingMapId ? (
+          <li>
+            <code className="rounded bg-muted px-1">NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID</code> — a{" "}
+            <b>vector</b> Map ID from Map management. Job pins use AdvancedMarker, which draws
+            nothing without one.
+          </li>
+        ) : null}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        Set them in <code className="rounded bg-muted px-1">apps/web/.env</code>. The job list
+        works without either.
       </p>
     </div>
   );
