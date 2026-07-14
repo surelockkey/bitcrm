@@ -10,6 +10,13 @@ export const env = {
    * `${apiBaseUrl}/{users,crm,deals,inventory}/...`.
    */
   apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL,
+
+  /**
+   * Google Maps JavaScript API key (Places library) used for address
+   * autocomplete. Optional — when unset, address fields fall back to plain
+   * manual entry.
+   */
+  googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "",
 } as const;
 
 if (

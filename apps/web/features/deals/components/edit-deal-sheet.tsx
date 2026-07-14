@@ -26,6 +26,7 @@ import {
 import { useUpdateDeal } from "../hooks";
 import { editDealSchema, type EditDealValues } from "../schemas";
 import { jobTypeLabel } from "../lib";
+import { AddressAutocomplete } from "./address-autocomplete";
 
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
@@ -74,6 +75,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const err = form.formState.errors;
   const jobType = useWatch({ control: form.control, name: "jobType" });
   const priority = useWatch({ control: form.control, name: "priority" });
+  const street = useWatch({ control: form.control, name: "address.street" });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -103,7 +105,18 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </div>
             <div className="space-y-1.5">
               <Label>Address</Label>
-              <Input className="h-9" placeholder="Street" {...form.register("address.street")} />
+              <AddressAutocomplete
+                value={street ?? ""}
+                onChange={(val) => form.setValue("address.street", val, { shouldValidate: true })}
+                onSelect={(a) => {
+                  form.setValue("address.street", a.street, { shouldValidate: true });
+                  form.setValue("address.city", a.city, { shouldValidate: true });
+                  form.setValue("address.state", a.state, { shouldValidate: true });
+                  form.setValue("address.zip", a.zip, { shouldValidate: true });
+                  if (a.lat != null) form.setValue("address.lat", a.lat);
+                  if (a.lng != null) form.setValue("address.lng", a.lng);
+                }}
+              />
               {err.address?.street ? <p className="text-xs text-destructive">{err.address.street.message}</p> : null}
               <div className="mt-2 grid grid-cols-[1fr_2fr_1fr_1fr] gap-2">
                 <Input className="h-9" placeholder="Unit" {...form.register("address.unit")} />
