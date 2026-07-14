@@ -21,12 +21,58 @@ export interface PaginatedResult {
   nextCursor?: string;
 }
 
+/** Secondary (non-index) filters applied on top of the primary query/scan. */
+export interface DealFilters {
+  jobType?: string;
+  serviceArea?: string;
+  clientType?: string;
+  priority?: string;
+  tags?: string[];
+  dealNumber?: number;
+}
+
 @Injectable()
 export class DealsRepository {
   private readonly logger = new Logger(DealsRepository.name);
   private tableName = DEALS_TABLE;
 
   constructor(private readonly dynamoDb: DynamoDbService) {}
+
+  /**
+   * Builds the `#status = :active [AND ...]` FilterExpression shared by every
+   * list query, appending equality filters and tag `contains` checks. All
+   * attribute names are aliased to dodge DynamoDB reserved words.
+   */
+  private dealFilterExpression(
+    filters?: DealFilters,
+    statusValue: string = DealStatus.ACTIVE,
+  ): {
+    expression: string;
+    names: Record<string, string>;
+    values: Record<string, unknown>;
+  } {
+    const parts = ['#status = :active'];
+    const names: Record<string, string> = { '#status': 'status' };
+    const values: Record<string, unknown> = { ':active': statusValue };
+    const eq = (attr: string, val: unknown) => {
+      parts.push(`#${attr} = :${attr}`);
+      names[`#${attr}`] = attr;
+      values[`:${attr}`] = val;
+    };
+    if (filters?.jobType) eq('jobType', filters.jobType);
+    if (filters?.serviceArea) eq('serviceArea', filters.serviceArea);
+    if (filters?.clientType) eq('clientType', filters.clientType);
+    if (filters?.priority) eq('priority', filters.priority);
+    if (filters?.dealNumber !== undefined) eq('dealNumber', filters.dealNumber);
+    if (filters?.tags?.length) {
+      names['#tags'] = 'tags';
+      filters.tags.forEach((t, i) => {
+        parts.push(`contains(#tags, :tag${i})`);
+        values[`:tag${i}`] = t;
+      });
+    }
+    return { expression: parts.join(' AND '), names, values };
+  }
 
   async create(deal: Deal): Promise<void> {
     await this.dynamoDb.client.send(
@@ -66,18 +112,17 @@ export class DealsRepository {
     stage: string,
     limit: number,
     cursor?: string,
+    filters?: DealFilters,
   ): Promise<PaginatedResult> {
+    const f = this.dealFilterExpression(filters);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
-        FilterExpression: '#status = :active',
-        ExpressionAttributeValues: {
-          ':pk': `STAGE#${stage}`,
-          ':active': DealStatus.ACTIVE,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
+        FilterExpression: f.expression,
+        ExpressionAttributeValues: { ':pk': `STAGE#${stage}`, ...f.values },
+        ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
@@ -94,18 +139,17 @@ export class DealsRepository {
     techId: string,
     limit: number,
     cursor?: string,
+    filters?: DealFilters,
   ): Promise<PaginatedResult> {
+    const f = this.dealFilterExpression(filters);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI2_NAME,
         KeyConditionExpression: 'GSI2PK = :pk',
-        FilterExpression: '#status = :active',
-        ExpressionAttributeValues: {
-          ':pk': `TECH#${techId}`,
-          ':active': DealStatus.ACTIVE,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
+        FilterExpression: f.expression,
+        ExpressionAttributeValues: { ':pk': `TECH#${techId}`, ...f.values },
+        ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
@@ -122,18 +166,17 @@ export class DealsRepository {
     contactId: string,
     limit: number,
     cursor?: string,
+    filters?: DealFilters,
   ): Promise<PaginatedResult> {
+    const f = this.dealFilterExpression(filters);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI3_NAME,
         KeyConditionExpression: 'GSI3PK = :pk',
-        FilterExpression: '#status = :active',
-        ExpressionAttributeValues: {
-          ':pk': `CONTACT#${contactId}`,
-          ':active': DealStatus.ACTIVE,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
+        FilterExpression: f.expression,
+        ExpressionAttributeValues: { ':pk': `CONTACT#${contactId}`, ...f.values },
+        ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
@@ -150,18 +193,17 @@ export class DealsRepository {
     dispatcherId: string,
     limit: number,
     cursor?: string,
+    filters?: DealFilters,
   ): Promise<PaginatedResult> {
+    const f = this.dealFilterExpression(filters);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI4_NAME,
         KeyConditionExpression: 'GSI4PK = :pk',
-        FilterExpression: '#status = :active',
-        ExpressionAttributeValues: {
-          ':pk': `DISPATCHER#${dispatcherId}`,
-          ':active': DealStatus.ACTIVE,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
+        FilterExpression: f.expression,
+        ExpressionAttributeValues: { ':pk': `DISPATCHER#${dispatcherId}`, ...f.values },
+        ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
@@ -177,21 +219,16 @@ export class DealsRepository {
   async findAll(
     limit: number,
     cursor?: string,
-    filters?: { status?: string },
+    filters?: DealFilters & { status?: string },
   ): Promise<PaginatedResult> {
-    const statusFilter = filters?.status || DealStatus.ACTIVE;
+    const f = this.dealFilterExpression(filters, filters?.status || DealStatus.ACTIVE);
 
     const result = await this.dynamoDb.client.send(
       new ScanCommand({
         TableName: this.tableName,
-        FilterExpression:
-          'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-        ExpressionAttributeValues: {
-          ':pk': 'DEAL#',
-          ':sk': 'METADATA',
-          ':status': statusFilter,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
+        FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND ${f.expression}`,
+        ExpressionAttributeValues: { ':pk': 'DEAL#', ':sk': 'METADATA', ...f.values },
+        ExpressionAttributeNames: f.names,
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
       }),

@@ -19,7 +19,7 @@ import {
   type JwtUser,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
-import { DealsRepository } from './deals.repository';
+import { DealsRepository, type DealFilters } from './deals.repository';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
@@ -124,28 +124,45 @@ export class DealsService {
     caller: JwtUser,
     dataScope?: string,
   ) {
-    const limit = query.limit || 20;
+    // Query params arrive as strings (no global ValidationPipe/transform), so
+    // coerce — a string Limit makes DynamoDB throw SerializationException.
+    const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
 
     // DataScope enforcement
     if (dataScope === 'assigned_only' && !query.techId) {
       query.techId = caller.id;
     }
 
+    // Secondary filters applied on top of whichever index we query.
+    const search = query.search?.trim();
+    const filters: DealFilters = {
+      jobType: query.jobType,
+      serviceArea: query.serviceArea,
+      clientType: query.clientType,
+      priority: query.priority,
+      tags: query.tags
+        ? query.tags.split(',').map((t) => t.trim()).filter(Boolean)
+        : undefined,
+      dealNumber:
+        search && /^#?\d+$/.test(search) ? Number(search.replace('#', '')) : undefined,
+    };
+
     if (query.stage) {
-      return this.repository.findByStage(query.stage, limit, query.cursor);
+      return this.repository.findByStage(query.stage, limit, query.cursor, filters);
     }
     if (query.techId) {
-      return this.repository.findByTech(query.techId, limit, query.cursor);
+      return this.repository.findByTech(query.techId, limit, query.cursor, filters);
     }
     if (query.dispatcherId) {
-      return this.repository.findByDispatcher(query.dispatcherId, limit, query.cursor);
+      return this.repository.findByDispatcher(query.dispatcherId, limit, query.cursor, filters);
     }
     if (query.contactId) {
-      return this.repository.findByContact(query.contactId, limit, query.cursor);
+      return this.repository.findByContact(query.contactId, limit, query.cursor, filters);
     }
 
     return this.repository.findAll(limit, query.cursor, {
       status: query.status,
+      ...filters,
     });
   }
 
