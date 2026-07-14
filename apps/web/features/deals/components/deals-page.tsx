@@ -16,11 +16,11 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
+import Link from "next/link";
 import { useContactMap, useDeals, useUserMap } from "../hooks";
 import { STAGE_ORDER, filterDeals, jobTypeLabel, stageLabel, type DealFilter } from "../lib";
 import { DealsBoard } from "./deals-board";
 import { DealsTable } from "./deals-table";
-import { NewDealSheet } from "./new-deal-sheet";
 
 const ALL = "all";
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
@@ -66,7 +66,11 @@ export function DealsPage() {
             {isTechnician ? "Your assigned jobs." : "The job pipeline — open a deal to move it forward."}
           </p>
         </div>
-        {can("deals", "create") ? <NewDealSheet trigger={<Button variant="brand" className="gap-1.5"><Plus className="size-4" /> New deal</Button>} /> : null}
+        {can("deals", "create") ? (
+          <Button asChild variant="brand" className="gap-1.5">
+            <Link href="/deals/new"><Plus className="size-4" /> New deal</Link>
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">

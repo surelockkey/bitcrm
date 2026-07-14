@@ -33,7 +33,7 @@ export function AppHeader() {
       <div className="ml-auto flex items-center gap-2">
         {can("deals", "create") ? (
           <Button asChild variant="brand" className="h-9 gap-1.5 px-3.5">
-            <Link href="/deals">
+            <Link href="/deals/new">
               <Plus className="size-4" />
               <span className="hidden sm:inline">New Deal</span>
             </Link>
