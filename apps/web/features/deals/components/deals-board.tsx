@@ -32,13 +32,13 @@ export function DealsBoard({
   }, [deals]);
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
+    <div className="flex min-h-full items-stretch gap-3 overflow-x-auto pb-2">
       {GROUP_ORDER.map((group) => {
         const stages = STAGE_ORDER.filter((s) => stageGroup(s) === group);
         const accent = GROUP_ACCENT[GROUP_TONE[group]];
         const groupCount = stages.reduce((n, s) => n + (byStage.get(s)?.length ?? 0), 0);
         return (
-          <div key={group} className="flex w-[240px] flex-none flex-col gap-3 rounded-xl border bg-muted/30 p-2">
+          <div key={group} className="flex min-w-[220px] flex-1 basis-0 flex-col gap-3 rounded-xl border bg-muted/30 p-2">
             {/* Color group header */}
             <div className={cn("flex items-center justify-between border-b-2 px-1 pb-1.5", accent)}>
               <span className="text-xs font-semibold text-foreground">{groupLabel(group)}</span>
