@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { addressForSubmit } from "@/lib/geo/geo";
 import { useUpdateDeal } from "../hooks";
 import { editDealSchema, type EditDealValues } from "../schemas";
 import { jobTypeLabel } from "../lib";
@@ -38,6 +39,9 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
     defaultValues: {
       jobType: deal.jobType,
       serviceArea: deal.serviceArea,
+      // Deliberately no lat/lng: coordinates in the form mean "the user just
+      // picked this place", so `addressForSubmit` can tell a fresh pick apart
+      // from the deal's stored location and settle the two correctly.
       address: {
         street: deal.address.street,
         unit: deal.address.unit ?? "",
@@ -60,6 +64,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
     update.mutate(
       {
         ...v,
+        address: addressForSubmit(v.address, deal.address),
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         source: v.source || undefined,

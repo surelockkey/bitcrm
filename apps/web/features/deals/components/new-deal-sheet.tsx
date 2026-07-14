@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { useContactByPhone, useCreateContact, useCompanyMap } from "@/features/clients/hooks";
 import { clientTypeLabel, contactName } from "@/features/clients/lib";
+import { addressForSubmit } from "@/lib/geo/geo";
 import { useCreateDeal } from "../hooks";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { jobTypeLabel } from "../lib";
@@ -164,6 +165,7 @@ function JobStep({ client, onBack, onClose }: { client: ResolvedClient; onBack: 
         contactId: client.contactId,
         companyId: client.companyId,
         ...v,
+        address: addressForSubmit(v.address),
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         source: v.source || undefined,

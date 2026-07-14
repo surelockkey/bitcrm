@@ -10,6 +10,15 @@ export const env = {
    * `${apiBaseUrl}/{users,crm,deals,inventory}/...`.
    */
   apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL,
+
+  /**
+   * Browser key for the dispatch map (Maps JavaScript + Places). This one is
+   * visible to anyone with devtools — restrict it by HTTP referrer. Server-side
+   * geocoding uses a separate, IP-restricted key held by the backend.
+   *
+   * Absent → `/dispatch` explains itself instead of rendering a blank map.
+   */
+  googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "",
 } as const;
 
 if (
