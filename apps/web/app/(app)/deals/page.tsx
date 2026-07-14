@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { DealsPage } from "@/features/deals/components/deals-page";
 
 export default function Page() {
-  return <PagePlaceholder title="Deals" />;
+  return <DealsPage />;
 }
