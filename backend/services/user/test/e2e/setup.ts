@@ -15,6 +15,8 @@ import {
   DynamoDbModule,
   RedisModule,
   CognitoAdminModule,
+  GeocodingModule,
+  GeocodingService,
   PermissionGuard,
   PermissionCacheReader,
   HttpExceptionFilter,
@@ -126,12 +128,16 @@ export async function setupApp(): Promise<INestApplication> {
   process.env.INTERNAL_SERVICE_SECRET = 'test-internal-secret';
 
   const moduleRef = await Test.createTestingModule({
-    imports: [DynamoDbModule, RedisModule, StorageModule, CognitoAdminModule, TestPermissionModule, TechniciansModule, RolesModule, UsersModule],
+    imports: [DynamoDbModule, RedisModule, StorageModule, CognitoAdminModule, GeocodingModule, TestPermissionModule, TechniciansModule, RolesModule, UsersModule],
     providers: [
       { provide: APP_GUARD, useClass: TestAuthGuard },
       { provide: APP_GUARD, useClass: PermissionGuard },
     ],
   })
+    // e2e must never call Google. Returning null models "address not resolvable":
+    // coordinates the caller supplies are kept, none are invented.
+    .overrideProvider(GeocodingService)
+    .useValue({ geocode: jest.fn().mockResolvedValue(null) })
     .overrideProvider(CognitoAdminService)
     .useValue(mockCognitoAdmin)
     .overrideProvider(S3Service)
