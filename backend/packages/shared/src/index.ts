@@ -6,6 +6,14 @@ export { DynamoDbService } from './dynamodb/dynamodb.service';
 export { RedisModule } from './redis/redis.module';
 export { RedisService } from './redis/redis.service';
 
+// Geocoding (address → coordinates, for the dispatch map + distance ranking)
+export { GeocodingModule } from './geocoding/geocoding.module';
+export { GeocodingService, formatAddress } from './geocoding/geocoding.service';
+export type {
+  Coordinates,
+  GeocodableAddress,
+} from './geocoding/geocoding.service';
+
 // Storage (S3 documents + KMS field encryption)
 export { StorageModule } from './storage/storage.module';
 export { S3Service } from './storage/s3.service';

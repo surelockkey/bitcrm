@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import {
   DynamoDbModule,
   RedisModule,
+  GeocodingModule,
   AuthModule as SharedAuthModule,
   CognitoAdminModule,
   CognitoAuthModule,
@@ -34,6 +35,7 @@ import { TechniciansModule } from './technicians/technicians.module';
     }),
     DynamoDbModule,
     RedisModule,
+    GeocodingModule,
     StorageModule,
     SharedAuthModule,
     CognitoAdminModule,

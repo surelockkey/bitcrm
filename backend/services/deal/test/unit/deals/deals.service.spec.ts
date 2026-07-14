@@ -7,7 +7,7 @@ import { DealsCacheService } from 'src/deals/deals-cache.service';
 import { TimelineRepository } from 'src/timeline/timeline.repository';
 import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
   createMockDeal,
   createMockDealProduct,
@@ -19,6 +19,7 @@ import {
   createMockDealProductsRepository,
   createMockSnsPublisherService,
   createMockInternalHttpService,
+  createMockGeocodingService,
 } from '../mocks';
 
 describe('DealsService', () => {
@@ -47,6 +48,7 @@ describe('DealsService', () => {
         { provide: DealProductsRepository, useValue: products },
         { provide: SnsPublisherService, useValue: sns },
         { provide: InternalHttpService, useValue: http },
+        { provide: GeocodingService, useValue: createMockGeocodingService() },
       ],
     }).compile();
 
@@ -284,8 +286,11 @@ describe('DealsService', () => {
       await service.update('deal-1', { address: addressDto } as any, caller);
 
       const updateCall = repo.update.mock.calls[0][1];
-      expect(updateCall.address).toEqual(addressDto);
       expect(updateCall.address).not.toBe(addressDto); // should be a copy
+      expect(updateCall.address).toMatchObject(addressDto);
+      // A new address is geocoded on the way through — see deals.service.geo.spec.
+      expect(updateCall.address.lat).toEqual(expect.any(Number));
+      expect(updateCall.address.lng).toEqual(expect.any(Number));
     });
 
     it('should skip undefined values in timeline tracking', async () => {

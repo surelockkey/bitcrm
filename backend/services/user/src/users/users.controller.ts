@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, RequirePermission, Public } from "@bitcrm/shared";
 import { type JwtUser } from "@bitcrm/types";
 import { UsersService } from "./users.service";
+import { Internal } from "../common/decorators/internal.decorator";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
 import { ListUsersQueryDto } from "./dto/list-users-query.dto";
@@ -63,6 +64,27 @@ export class UsersController {
   })
   async resolvePermissions(@Param("userId") userId: string) {
     return this.usersService.getResolvedPermissions(userId);
+  }
+
+  // Declared before `:id` — otherwise Nest matches "internal" as a user id.
+  @Get("internal/technicians")
+  @Internal()
+  @ApiOperation({
+    summary: "Internal: technicians for dispatch",
+    description:
+      "**Guard:** Internal only (`x-internal-secret` required). Returns every technician with " +
+      "approved skills, their service areas, and home coordinates. Used by deal-service to rank " +
+      "candidates by distance in `GET /deals/:id/qualified-techs`. Filterable by `serviceArea` and `skill`.",
+  })
+  async listTechniciansForDispatch(
+    @Query("serviceArea") serviceArea?: string,
+    @Query("skill") skill?: string,
+  ) {
+    const data = await this.usersService.listTechniciansForDispatch({
+      serviceArea,
+      skill,
+    });
+    return { success: true, data };
   }
 
   @Get(":id")

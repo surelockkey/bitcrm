@@ -63,6 +63,7 @@ export function createMockUsersRepository() {
     create: jest.fn(),
     findById: jest.fn(),
     findByRole: jest.fn(),
+    findByRoleId: jest.fn().mockResolvedValue([]),
     findByDepartment: jest.fn(),
     findAll: jest.fn(),
     findByStatus: jest.fn(),
