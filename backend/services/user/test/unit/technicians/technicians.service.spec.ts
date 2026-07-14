@@ -18,6 +18,7 @@ describe('TechniciansService (unit)', () => {
   let cache: ReturnType<typeof createMockTechniciansCacheService>;
   let roles: ReturnType<typeof createMockRolesServiceByPriority>;
   let sns: ReturnType<typeof createMockSnsPublisher>;
+  let geocoding: { geocode: jest.Mock };
   let service: TechniciansService;
 
   beforeEach(() => {
@@ -25,10 +26,12 @@ describe('TechniciansService (unit)', () => {
     cache = createMockTechniciansCacheService();
     roles = createMockRolesServiceByPriority();
     sns = createMockSnsPublisher();
+    geocoding = { geocode: jest.fn().mockResolvedValue(null) };
     service = new TechniciansService(
       repo as never,
       cache as never,
       roles as never,
+      geocoding as never,
       sns as never,
     );
   });
@@ -122,7 +125,12 @@ describe('TechniciansService (unit)', () => {
     });
 
     it('does not throw when the SNS publisher is absent', async () => {
-      const noSns = new TechniciansService(repo as never, cache as never, roles as never);
+      const noSns = new TechniciansService(
+        repo as never,
+        cache as never,
+        roles as never,
+        geocoding as never,
+      );
       repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
       repo.updateProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
       await expect(

@@ -5,10 +5,16 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
+import {
+  SnsPublisherService,
+  BusinessMetricsService,
+  GeocodingService,
+  formatAddress,
+} from '@bitcrm/shared';
 import {
   type JwtUser,
   type TechnicianProfile,
+  type TechnicianHomeAddress,
   type OnboardingStatus,
   UserEventType,
 } from '@bitcrm/types';
@@ -32,6 +38,7 @@ export class TechniciansService {
     private readonly repository: TechniciansRepository,
     private readonly cache: TechniciansCacheService,
     private readonly rolesService: RolesService,
+    private readonly geocoding: GeocodingService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly skillsRepository?: TechnicianSkillsRepository,
@@ -54,6 +61,47 @@ export class TechniciansService {
     }
     await this.cache.setProfile(profile);
     return profile;
+  }
+
+  /**
+   * A technician's home anchors two things: their marker on the dispatch map
+   * when they have no jobs that day, and the distance ranking in
+   * `GET /deals/:id/qualified-techs`. Both need coordinates.
+   *
+   * The profile form re-sends the address without lat/lng, and the repository
+   * writes `homeAddress` as one whole map — so the stored coordinates used to be
+   * erased on every save. An unchanged address therefore carries its existing
+   * coordinates over rather than paying to geocode the same string again.
+   */
+  private async resolveHomeAddress(
+    incoming: TechnicianHomeAddress,
+    previous?: TechnicianHomeAddress,
+  ): Promise<TechnicianHomeAddress> {
+    const address = { ...incoming };
+
+    if (address.lat !== undefined && address.lng !== undefined) {
+      return address;
+    }
+
+    // The home address uses line1/line2; the geocoder speaks street/unit.
+    const flatten = (a: TechnicianHomeAddress) => ({
+      street: a.line1,
+      unit: a.line2,
+      city: a.city,
+      state: a.state,
+      zip: a.zip,
+    });
+
+    if (
+      previous?.lat !== undefined &&
+      previous?.lng !== undefined &&
+      formatAddress(flatten(previous)) === formatAddress(flatten(address))
+    ) {
+      return { ...address, lat: previous.lat, lng: previous.lng };
+    }
+
+    const coords = await this.geocoding.geocode(flatten(address));
+    return coords ? { ...address, ...coords } : address;
   }
 
   async updateProfile(
@@ -85,6 +133,13 @@ export class TechniciansService {
     const plain = JSON.parse(JSON.stringify(dto)) as Partial<TechnicianProfile>;
     const changedFields = Object.keys(plain);
     const existing = await this.repository.getProfile(id);
+
+    if (plain.homeAddress) {
+      plain.homeAddress = await this.resolveHomeAddress(
+        plain.homeAddress,
+        existing?.homeAddress,
+      );
+    }
 
     let result: TechnicianProfile;
     if (!existing) {

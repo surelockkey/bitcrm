@@ -7,7 +7,12 @@ import {
   HttpException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
+import {
+  SnsPublisherService,
+  BusinessMetricsService,
+  GeocodingService,
+  formatAddress,
+} from '@bitcrm/shared';
 import {
   DealStage,
   DealStageGroup,
@@ -15,6 +20,7 @@ import {
   DealPriority,
   TimelineEventType,
   STAGE_GROUPS,
+  type Address,
   type Deal,
   type TimelineEntry,
   type JwtUser,
@@ -46,9 +52,42 @@ export class DealsService {
     private readonly timelineRepo: TimelineRepository,
     private readonly productsRepo: DealProductsRepository,
     private readonly internalHttp: InternalHttpService,
+    private readonly geocoding: GeocodingService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
+
+  /**
+   * Attach coordinates to an address so the deal can be plotted on the dispatch
+   * map and ranked by distance in `getQualifiedTechs`.
+   *
+   * DynamoDB writes `address` as one whole map, so any sub-key the caller omits
+   * is destroyed. That is how coordinates used to vanish: the edit form re-sends
+   * the address without lat/lng and the stored ones were overwritten. Hence the
+   * carry-over below — an unchanged address keeps the coordinates it already had
+   * rather than paying to geocode the same string again.
+   */
+  private async resolveAddress(
+    incoming: Address,
+    previous?: Address,
+  ): Promise<Address> {
+    const address = { ...incoming };
+
+    if (address.lat !== undefined && address.lng !== undefined) {
+      return address;
+    }
+
+    if (
+      previous?.lat !== undefined &&
+      previous?.lng !== undefined &&
+      formatAddress(previous) === formatAddress(address)
+    ) {
+      return { ...address, lat: previous.lat, lng: previous.lng };
+    }
+
+    const coords = await this.geocoding.geocode(address);
+    return coords ? { ...address, ...coords } : address;
+  }
 
   async create(dto: CreateDealDto, caller: JwtUser): Promise<Deal> {
     const contactExists = await this.internalHttp.validateContact(dto.contactId);
@@ -60,8 +99,8 @@ export class DealsService {
     const now = new Date().toISOString();
     const id = randomUUID();
 
-    // Convert address class instance to plain object for DynamoDB marshalling
-    const address = { ...dto.address };
+    // Plain object for DynamoDB marshalling, geocoded if the caller sent no coords.
+    const address = await this.resolveAddress(dto.address);
 
     const deal: Deal = {
       id,
@@ -168,12 +207,15 @@ export class DealsService {
   }
 
   async update(id: string, dto: UpdateDealDto, caller: JwtUser): Promise<Deal> {
-    await this.findById(id);
+    const existing = await this.findById(id);
 
     // Convert class instances to plain objects for DynamoDB
     const updates = { ...dto } as any;
     if (updates.address) {
-      updates.address = { ...updates.address };
+      updates.address = await this.resolveAddress(
+        updates.address,
+        existing.address,
+      );
     }
 
     const result = await this.repository.update(id, updates);

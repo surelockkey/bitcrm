@@ -12,6 +12,7 @@
     "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --config test/integration/jest-integration.json",
     "test:e2e": "NODE_OPTIONS='--experimental-vm-modules' jest --config test/e2e/jest-e2e.json --forceExit",
     "setup:db": "ts-node src/scripts/setup-dynamodb.ts",
+    "backfill:geo": "ts-node src/scripts/backfill-geo.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
     "setup": "npm run setup:db && npm run setup:aws"
   },

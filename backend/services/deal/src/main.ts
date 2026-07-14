@@ -6,6 +6,7 @@ import { initTracing, shutdownTracing } from '@bitcrm/shared';
 initTracing('deal-service');
 
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
 import { HttpExceptionFilter } from '@bitcrm/shared';
@@ -18,6 +19,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/deals');
   app.enableCors();
+  // The e2e harness has always registered this; the running service never did,
+  // so every class-validator decorator on the DTOs was inert in production.
+  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
   const config = new DocumentBuilder()

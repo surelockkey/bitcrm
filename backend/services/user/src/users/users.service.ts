@@ -19,6 +19,7 @@ import {
 import { UsersRepository } from './users.repository';
 import { UsersCacheService } from './users-cache.service';
 import { TechniciansRepository } from '../technicians/technicians.repository';
+import { TechnicianSkillsRepository } from '../technicians/skills/technician-skills.repository';
 import { CommissionRepository } from '../technicians/commission/commission.repository';
 import { buildDefaultCommission } from '../technicians/commission/commission.defaults';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -27,6 +28,21 @@ import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { RolesService } from '../roles/roles.service';
 import { RolesCacheService } from '../roles/roles-cache.service';
 import { PermissionResolverService } from '../roles/permission-resolver.service';
+
+/**
+ * The technician shape deal-service consumes for assignment ranking. Mirrors
+ * `TechnicianInfo` in deal-service's `internal-http.service.ts` — the contract
+ * that service has been coding against all along.
+ */
+export interface TechnicianDispatchInfo {
+  id: string;
+  firstName: string;
+  lastName: string;
+  department: string;
+  skills: string[];
+  serviceAreas: string[];
+  homeAddress?: { lat: number; lng: number };
+}
 
 @Injectable()
 export class UsersService implements OnModuleInit {
@@ -44,9 +60,98 @@ export class UsersService implements OnModuleInit {
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly techniciansRepository?: TechniciansRepository,
     @Optional() private readonly commissionRepository?: CommissionRepository,
+    @Optional()
+    private readonly technicianSkillsRepository?: TechnicianSkillsRepository,
   ) {}
 
   private static readonly TECHNICIAN_ROLE_ID = 'role-technician';
+
+  /**
+   * Technicians as deal-service needs them for dispatch: identity, approved
+   * skills and service areas, and home coordinates for distance ranking.
+   *
+   * deal-service has always called this endpoint (`internal-http.service.ts`),
+   * but it was never implemented — the 404 was swallowed into an empty array,
+   * which is why the "qualified technicians" list is blank in the UI.
+   *
+   * A technician needs at least one approved job type AND one approved service
+   * area to be assignable, so anyone without approved skills is left out.
+   */
+  async listTechniciansForDispatch(filters: {
+    serviceArea?: string;
+    skill?: string;
+  }): Promise<TechnicianDispatchInfo[]> {
+    if (!this.techniciansRepository || !this.technicianSkillsRepository) {
+      // Returning [] quietly is how this endpoint's absence went unnoticed for so
+      // long — deal-service swallowed the 404 and dispatch just looked empty. Say so.
+      this.logger.error(
+        'Technician repositories are not wired — dispatch will see no candidates',
+      );
+      return [];
+    }
+
+    const [users, approved, profiles] = await Promise.all([
+      this.repository.findByRoleId(UsersService.TECHNICIAN_ROLE_ID),
+      this.technicianSkillsRepository.listAllApproved(),
+      this.listAllTechnicianProfiles(),
+    ]);
+
+    const skillsByTech = new Map<string, { skills: string[]; areas: string[] }>();
+    for (const skill of approved) {
+      const entry = skillsByTech.get(skill.userId) ?? { skills: [], areas: [] };
+      if (skill.type === 'job_type') entry.skills.push(skill.value);
+      else entry.areas.push(skill.value);
+      skillsByTech.set(skill.userId, entry);
+    }
+
+    const homeByTech = new Map(profiles.map((p) => [p.userId, p.homeAddress]));
+
+    const technicians: TechnicianDispatchInfo[] = [];
+
+    for (const user of users) {
+      const entry = skillsByTech.get(user.id);
+      if (!entry) continue;
+      if (filters.serviceArea && !entry.areas.includes(filters.serviceArea)) continue;
+      if (filters.skill && !entry.skills.includes(filters.skill)) continue;
+
+      const home = homeByTech.get(user.id);
+      const mappable = home?.lat !== undefined && home?.lng !== undefined;
+
+      technicians.push({
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        department: user.department,
+        skills: entry.skills,
+        serviceAreas: entry.areas,
+        homeAddress: mappable
+          ? { lat: home.lat as number, lng: home.lng as number }
+          : undefined,
+      });
+    }
+
+    return technicians;
+  }
+
+  /**
+   * Profiles are cursor-paginated; dispatch needs all of them at once. Bounded so
+   * a repeating cursor can't spin forever — the field team will never approach it.
+   */
+  private async listAllTechnicianProfiles() {
+    const all: Array<{
+      userId: string;
+      homeAddress?: { lat?: number; lng?: number };
+    }> = [];
+    let cursor: string | undefined;
+
+    do {
+      const page = await this.techniciansRepository!.listAll(100, cursor);
+      all.push(...(page.items as typeof all));
+      cursor = page.nextCursor;
+    } while (cursor && all.length < 5000);
+
+    return all;
+  }
 
   /**
    * Self-heal on boot: ensure every existing technician user has a (pending)

@@ -2,6 +2,7 @@ import { Module, OnModuleInit, Optional } from '@nestjs/common';
 import {
   DynamoDbModule,
   RedisModule,
+  GeocodingModule,
   AuthModule,
   LoggerModule,
   EventsModule,
@@ -42,6 +43,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     }),
     DynamoDbModule,
     RedisModule,
+    GeocodingModule,
     AuthModule,
     EventsModule.forRoot({
       publisher: {

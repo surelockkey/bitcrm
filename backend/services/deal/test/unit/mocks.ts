@@ -135,6 +135,10 @@ export function createMockInternalHttpService() {
   };
 }
 
+export function createMockGeocodingService() {
+  return { geocode: jest.fn().mockResolvedValue({ lat: 33.749, lng: -84.388 }) };
+}
+
 export function createMockDynamoDbService() {
   return { client: { send: jest.fn() } };
 }
