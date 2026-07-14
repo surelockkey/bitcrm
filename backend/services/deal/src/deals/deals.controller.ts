@@ -146,7 +146,9 @@ export class DealsController {
     @Query('limit') limit?: number,
     @Query('cursor') cursor?: string,
   ) {
-    const result = await this.dealsService.getTimeline(id, limit || 20, cursor);
+    // Query param arrives as a string; coerce so DynamoDB's Limit is a number.
+    const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const result = await this.dealsService.getTimeline(id, safeLimit, cursor);
     return {
       success: true,
       data: result.items,

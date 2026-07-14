@@ -163,55 +163,100 @@ describe('DealsService', () => {
     it('should query by stage when provided', async () => {
       repo.findByStage.mockResolvedValue(mockResult);
       await service.list({ stage: DealStage.NEW_LEAD } as any, caller);
-      expect(repo.findByStage).toHaveBeenCalledWith(DealStage.NEW_LEAD, 20, undefined);
+      expect(repo.findByStage).toHaveBeenCalledWith(DealStage.NEW_LEAD, 20, undefined, expect.any(Object));
     });
 
     it('should query by techId when provided', async () => {
       repo.findByTech.mockResolvedValue(mockResult);
       await service.list({ techId: 'tech-1' } as any, caller);
-      expect(repo.findByTech).toHaveBeenCalledWith('tech-1', 20, undefined);
+      expect(repo.findByTech).toHaveBeenCalledWith('tech-1', 20, undefined, expect.any(Object));
     });
 
     it('should query by dispatcherId when provided', async () => {
       repo.findByDispatcher.mockResolvedValue(mockResult);
       await service.list({ dispatcherId: 'disp-1' } as any, caller);
-      expect(repo.findByDispatcher).toHaveBeenCalledWith('disp-1', 20, undefined);
+      expect(repo.findByDispatcher).toHaveBeenCalledWith('disp-1', 20, undefined, expect.any(Object));
     });
 
     it('should query by contactId when provided', async () => {
       repo.findByContact.mockResolvedValue(mockResult);
       await service.list({ contactId: 'contact-1' } as any, caller);
-      expect(repo.findByContact).toHaveBeenCalledWith('contact-1', 20, undefined);
+      expect(repo.findByContact).toHaveBeenCalledWith('contact-1', 20, undefined, expect.any(Object));
     });
 
     it('should fall back to findAll when no specific filter', async () => {
       repo.findAll.mockResolvedValue(mockResult);
       await service.list({} as any, caller);
-      expect(repo.findAll).toHaveBeenCalledWith(20, undefined, { status: undefined });
+      expect(repo.findAll).toHaveBeenCalledWith(20, undefined, expect.objectContaining({ status: undefined }));
     });
 
     it('should enforce assigned_only data scope', async () => {
       repo.findByTech.mockResolvedValue(mockResult);
       await service.list({} as any, caller, 'assigned_only');
-      expect(repo.findByTech).toHaveBeenCalledWith('user-1', 20, undefined);
+      expect(repo.findByTech).toHaveBeenCalledWith('user-1', 20, undefined, expect.any(Object));
     });
 
     it('should not override existing techId with assigned_only', async () => {
       repo.findByTech.mockResolvedValue(mockResult);
       await service.list({ techId: 'other-tech' } as any, caller, 'assigned_only');
-      expect(repo.findByTech).toHaveBeenCalledWith('other-tech', 20, undefined);
+      expect(repo.findByTech).toHaveBeenCalledWith('other-tech', 20, undefined, expect.any(Object));
     });
 
     it('should use custom limit', async () => {
       repo.findAll.mockResolvedValue(mockResult);
       await service.list({ limit: 50 } as any, caller);
-      expect(repo.findAll).toHaveBeenCalledWith(50, undefined, { status: undefined });
+      expect(repo.findAll).toHaveBeenCalledWith(50, undefined, expect.objectContaining({ status: undefined }));
+    });
+
+    it('should coerce a string limit (raw query param) to a number', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      // Without a ValidationPipe transform, limit arrives as a string; a string
+      // Limit makes DynamoDB throw SerializationException.
+      await service.list({ limit: '100' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(100, undefined, expect.any(Object));
+    });
+
+    it('should clamp an out-of-range limit into 1..100', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ limit: '9999' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(100, undefined, expect.any(Object));
+    });
+
+    it('should pass secondary filters (jobType, priority) through', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ jobType: 'lockout', priority: 'urgent' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ jobType: 'lockout', priority: 'urgent' }),
+      );
+    });
+
+    it('should split comma-separated tags into an array', async () => {
+      repo.findByStage.mockResolvedValue(mockResult);
+      await service.list({ stage: DealStage.NEW_LEAD, tags: 'rush, repeat' } as any, caller);
+      expect(repo.findByStage).toHaveBeenCalledWith(
+        DealStage.NEW_LEAD,
+        20,
+        undefined,
+        expect.objectContaining({ tags: ['rush', 'repeat'] }),
+      );
+    });
+
+    it('should parse a "#1042" search into a dealNumber filter', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: '#1042' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: 1042 }),
+      );
     });
 
     it('should pass cursor', async () => {
       repo.findAll.mockResolvedValue(mockResult);
       await service.list({ cursor: 'abc123' } as any, caller);
-      expect(repo.findAll).toHaveBeenCalledWith(20, 'abc123', { status: undefined });
+      expect(repo.findAll).toHaveBeenCalledWith(20, 'abc123', expect.objectContaining({ status: undefined }));
     });
   });
 
