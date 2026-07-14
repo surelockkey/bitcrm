@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Optional,
 } from '@nestjs/common';
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
@@ -349,14 +350,29 @@ export class DealsService {
       throw new BadRequestException('Cannot add products without an assigned technician');
     }
 
-    // Deduct from tech's container
-    await this.internalHttp.deductStock({
-      containerId: deal.assignedTechId,
-      items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
-      dealId: id,
-      performedBy: caller.id,
-      performedByName: caller.email,
-    });
+    // Deduct from tech's container. A 4xx here (e.g. the tech doesn't carry
+    // enough of this product) is a client error, not a server fault — surface
+    // it as a clear message referencing the product by name.
+    try {
+      await this.internalHttp.deductStock({
+        containerId: deal.assignedTechId,
+        items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
+        dealId: id,
+        performedBy: caller.id,
+        performedByName: caller.email,
+      });
+    } catch (error) {
+      if (
+        error instanceof HttpException &&
+        error.getStatus() >= 400 &&
+        error.getStatus() < 500
+      ) {
+        throw new BadRequestException(
+          `The assigned technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
+        );
+      }
+      throw error;
+    }
 
     this.businessMetrics?.dealProductsAdded.inc();
     await this.productsRepo.addProduct(id, {

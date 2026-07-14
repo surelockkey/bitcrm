@@ -1,4 +1,10 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadGatewayException,
+  HttpException,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import { BusinessMetricsService } from '@bitcrm/shared';
 import {
@@ -135,7 +141,7 @@ export class InternalHttpService {
     } catch (error) {
       timer?.();
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'deductStock' });
-      throw error;
+      throw this.toHttpError(error, 'Stock deduction');
     }
   }
 
@@ -147,7 +153,33 @@ export class InternalHttpService {
     } catch (error) {
       timer?.();
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'restoreStock' });
-      throw error;
+      throw this.toHttpError(error, 'Stock restore');
     }
+  }
+
+  /**
+   * Translate a failed internal service call into a client-facing
+   * HttpException. A downstream 4xx (e.g. inventory's "Insufficient stock")
+   * is surfaced with its own status + message so callers get a meaningful
+   * error instead of a generic 500; network failures / 5xx become a 502.
+   */
+  private toHttpError(error: unknown, action: string): HttpException {
+    const response = (
+      error as { response?: { status?: number; data?: unknown } } | undefined
+    )?.response;
+    if (response && typeof response.status === 'number') {
+      const data = response.data as
+        | { error?: { message?: string }; message?: string }
+        | undefined;
+      const message =
+        data?.error?.message ??
+        data?.message ??
+        (error instanceof Error ? error.message : 'Request failed');
+      if (response.status >= 400 && response.status < 500) {
+        return new HttpException(message, response.status);
+      }
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    return new BadGatewayException(`${action} failed: ${detail}`);
   }
 }

@@ -1,4 +1,4 @@
-import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DealStage, DealStageGroup, DealStatus, TimelineEventType, DealPriority, ClientType } from '@bitcrm/types';
 import { DealsService } from 'src/deals/deals.service';
@@ -569,6 +569,19 @@ describe('DealsService', () => {
     it('should throw if no tech assigned', async () => {
       mockFindById(createMockDeal({ assignedTechId: undefined }));
       await expect(service.addProduct('deal-1', dto as any, caller)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should turn an insufficient-stock 4xx into a clear BadRequest naming the product', async () => {
+      mockFindById(createMockDeal({ assignedTechId: 'tech-1', stage: DealStage.WORK_IN_PROGRESS }));
+      http.deductStock.mockRejectedValue(
+        new HttpException('Insufficient stock for product product-1', 400),
+      );
+
+      const err = await service.addProduct('deal-1', dto as any, caller).catch((e) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.message).toMatch(/Deadbolt/);
+      // The product must NOT be recorded when the deduction was rejected.
+      expect(products.addProduct).not.toHaveBeenCalled();
     });
   });
 

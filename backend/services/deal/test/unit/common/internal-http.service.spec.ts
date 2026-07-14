@@ -81,6 +81,29 @@ describe('InternalHttpService', () => {
       await service.deductStock(dto);
       expect(inventoryPost).toHaveBeenCalledWith('/api/inventory/transfers/internal/stock/deduct', dto);
     });
+
+    it('should surface a downstream 4xx with its status and message (not a 500)', async () => {
+      inventoryPost.mockRejectedValue({
+        response: { status: 400, data: { error: { message: 'Insufficient stock for product p-1' } } },
+      });
+      const dto = {
+        containerId: 'c-1', items: [{ productId: 'p-1', productName: 'Bolt', quantity: 1 }],
+        dealId: 'd-1', performedBy: 'u-1', performedByName: 'test',
+      };
+      await expect(service.deductStock(dto)).rejects.toMatchObject({
+        status: 400,
+        message: 'Insufficient stock for product p-1',
+      });
+    });
+
+    it('should map a network/5xx failure to a 502', async () => {
+      inventoryPost.mockRejectedValue(new Error('ECONNREFUSED'));
+      const dto = {
+        containerId: 'c-1', items: [{ productId: 'p-1', productName: 'Bolt', quantity: 1 }],
+        dealId: 'd-1', performedBy: 'u-1', performedByName: 'test',
+      };
+      await expect(service.deductStock(dto)).rejects.toMatchObject({ status: 502 });
+    });
   });
 
   describe('restoreStock', () => {
