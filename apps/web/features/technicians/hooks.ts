@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { DocumentType } from "@bitcrm/types";
+import type { DocumentType, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { ApiError } from "@/lib/api/errors";
@@ -31,13 +31,20 @@ export function useTechnicians(status?: string) {
   });
 }
 
+/**
+ * The cache entry is shared with `features/deals` under the same key, so it must
+ * hold the raw User[]; the Map is derived per-observer. Module-level so React
+ * Query can memoize it instead of rebuilding the Map every render.
+ */
+const toUserMap = (users: User[]) => new Map(users.map((u) => [u.id, u] as const));
+
 /** id→User map for the name join (profiles store no name). Cached hard. */
 export function useUserMap() {
   return useQuery({
     queryKey: queryKeys.technicians.userMap(),
-    queryFn: async () =>
-      new Map((await api.fetchAllUsers()).map((u) => [u.id, u] as const)),
+    queryFn: () => api.fetchAllUsers(),
     staleTime: 5 * 60 * 1000,
+    select: toUserMap,
   });
 }
 
