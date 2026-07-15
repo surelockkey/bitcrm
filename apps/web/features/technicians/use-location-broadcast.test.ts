@@ -85,11 +85,13 @@ describe("useLocationBroadcast", () => {
     expect(api.postLocation).toHaveBeenCalledTimes(2);
   });
 
-  it("stops watching and goes offline on unmount", () => {
+  // Stop watching, but do NOT wipe the position — the map must keep showing
+  // where the technician was last seen, with the time, after they go offline.
+  it("stops watching on unmount without clearing the last location", () => {
     const { unmount } = renderHook(() => useLocationBroadcast("tech-1", true));
     unmount();
     expect(geo.clearWatch).toHaveBeenCalledWith(1);
-    expect(api.clearLocation).toHaveBeenCalledWith("tech-1");
+    expect(api.clearLocation).not.toHaveBeenCalled();
   });
 
   it("does not throw where geolocation is unavailable", () => {

@@ -3,7 +3,7 @@
 import { AdvancedMarker } from "@vis.gl/react-google-maps";
 import { Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TechnicianPosition } from "../lib";
+import { formatAge, type TechnicianPosition } from "../lib";
 
 /**
  * A technician marker.
@@ -24,16 +24,14 @@ export function TechMarker({
   hovered: boolean;
   onHover: (id: string | null) => void;
 }) {
-  const detail =
-    position.source === "live"
-      ? position.stale
-        ? "live GPS (stale)"
-        : "live GPS"
-      : position.source === "home"
-        ? "home address (no live GPS)"
-        : "last job today (no live GPS)";
-
   const live = position.source === "live";
+  const seen = live ? formatAge(position.updatedAt, Date.now()) : "";
+
+  const detail = live
+    ? `last seen ${seen}`
+    : position.source === "home"
+      ? "home address (no live GPS)"
+      : "last job today (no live GPS)";
 
   return (
     <AdvancedMarker

@@ -107,6 +107,19 @@ export function todayISO(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+/** "just now" / "3 min ago" / "2 h ago" — how long since a fix, for the map + list. */
+export function formatAge(updatedAt: string | undefined, now: number): string {
+  if (!updatedAt) return "";
+  const seconds = Math.max(0, Math.round((now - Date.parse(updatedAt)) / 1000));
+  if (seconds < 30) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
+
 export type TechStatus = "live" | "stale" | "derived" | "offline";
 
 /**

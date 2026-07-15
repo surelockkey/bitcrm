@@ -33,6 +33,19 @@ function FitToJobs({ deals }: { deals: LocatedDeal[] }) {
   return null;
 }
 
+/** Re-centre the map on the selected job pin or technician, like clicking it would. */
+function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (map && target) map.panTo(target);
+    // Depend on the coordinates, not the object identity, so it only pans on a
+    // real change of selection.
+  }, [map, target?.lat, target?.lng]);
+
+  return null;
+}
+
 /** Split out so the clusterer hook lives inside the map's context. */
 function JobPins({
   deals,
@@ -75,6 +88,7 @@ export function DispatchMap({
   userMap,
   hoveredId,
   selectedId,
+  panTo,
   onHover,
   onSelect,
   label,
@@ -84,6 +98,8 @@ export function DispatchMap({
   userMap: Map<string, User>;
   hoveredId: string | null;
   selectedId: string | null;
+  /** When set, the map re-centres here — the selected job pin or technician. */
+  panTo: { lat: number; lng: number } | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
   label: (deal: LocatedDeal) => string;
@@ -100,6 +116,7 @@ export function DispatchMap({
       className="size-full"
     >
       <FitToJobs deals={deals} />
+      <PanTo target={panTo} />
       <JobPins
         deals={deals}
         label={label}
