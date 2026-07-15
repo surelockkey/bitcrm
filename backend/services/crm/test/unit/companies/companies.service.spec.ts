@@ -104,6 +104,24 @@ describe('CompaniesService', () => {
 
       expect(repository.findByClientType).toHaveBeenCalledWith(ClientType.COMMERCIAL, 20, undefined);
     });
+
+    it('coerces a string limit (raw query param) to a number for DynamoDB', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      // Without a ValidationPipe transform, `limit` arrives as a string; a
+      // string Limit makes DynamoDB throw SerializationException.
+      await service.list({ limit: '100' as unknown as number });
+
+      expect(repository.findAll).toHaveBeenCalledWith(100, undefined);
+    });
+
+    it('clamps an out-of-range limit into 1..100', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: '9999' as unknown as number });
+
+      expect(repository.findAll).toHaveBeenCalledWith(100, undefined);
+    });
   });
 
   describe('update', () => {

@@ -217,7 +217,7 @@ describe('DealsRepository', () => {
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.FilterExpression).toContain('begins_with(PK, :pk)');
-      expect(command.input.ExpressionAttributeValues[':status']).toBe(DealStatus.ACTIVE);
+      expect(command.input.ExpressionAttributeValues[':active']).toBe(DealStatus.ACTIVE);
     });
 
     it('should return mapped deal items', async () => {
@@ -237,7 +237,19 @@ describe('DealsRepository', () => {
       await repository.findAll(20, undefined, { status: DealStatus.DELETED });
 
       const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.ExpressionAttributeValues[':status']).toBe(DealStatus.DELETED);
+      expect(command.input.ExpressionAttributeValues[':active']).toBe(DealStatus.DELETED);
+    });
+
+    it('appends secondary filters (equality + tag contains) to the scan', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20, undefined, { jobType: 'lockout', tags: ['rush'] });
+
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.input.FilterExpression).toContain('#jobType = :jobType');
+      expect(command.input.FilterExpression).toContain('contains(#tags, :tag0)');
+      expect(command.input.ExpressionAttributeValues[':jobType']).toBe('lockout');
+      expect(command.input.ExpressionAttributeValues[':tag0']).toBe('rush');
     });
 
     it('should pass cursor', async () => {
