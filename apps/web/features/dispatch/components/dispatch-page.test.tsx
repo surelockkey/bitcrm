@@ -21,6 +21,7 @@ const fakeMap = vi.hoisted(() => ({
   panTo: vi.fn(),
   fitBounds: vi.fn(),
   setZoom: vi.fn(),
+  getZoom: vi.fn(() => 11),
 }));
 
 vi.mock("@vis.gl/react-google-maps", () => ({
@@ -37,6 +38,8 @@ vi.mock("@vis.gl/react-google-maps", () => ({
     },
   ),
   useMap: () => fakeMap,
+  // The roster reverse-geocodes via this; null → it simply shows no address.
+  useMapsLibrary: () => null,
 }));
 
 // With a non-null map, the clusterer would build a real instance from our fake.
@@ -253,6 +256,14 @@ describe("DispatchPage", () => {
       expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
     });
 
+    // "Both" shows the two lists together, not just the jobs.
+    it("shows technicians and jobs together in 'Both'", async () => {
+      render(<DispatchPage />, { wrapper });
+
+      expect(await screen.findByTestId("job-row-deal-1")).toBeInTheDocument();
+      expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
+    });
+
     // No technician access → the toggle is meaningless and must not appear.
     it("does not render the toggle without technicians.view", async () => {
       permissions.value = {
@@ -289,6 +300,38 @@ describe("DispatchPage", () => {
       await waitFor(() =>
         expect(fakeMap.panTo).toHaveBeenCalledWith({ lat: 33.7, lng: -84.4 }),
       );
+    });
+
+    // Bug: re-picking the same technician (or one already selected) stopped
+    // panning because only a coordinate change re-fired the effect.
+    it("re-centres when the same technician is picked twice", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+
+      await user.click(await screen.findByRole("button", { name: /^techs$/i }));
+      const row = await screen.findByTestId("tech-row-tech-1");
+
+      await user.click(row);
+      await waitFor(() => expect(fakeMap.panTo).toHaveBeenCalledTimes(1));
+      await user.click(row);
+
+      await waitFor(() => expect(fakeMap.panTo).toHaveBeenCalledTimes(2));
+    });
+
+    // Bug: a technician stayed selected after switching to Jobs.
+    it("clears the selection when the layer changes", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+
+      await user.click(await screen.findByRole("button", { name: /^techs$/i }));
+      await user.click(await screen.findByTestId("tech-row-tech-1"));
+      await waitFor(() => expect(fakeMap.panTo).toHaveBeenCalled());
+
+      await user.click(screen.getByRole("button", { name: /^jobs$/i }));
+
+      // Back to jobs: the job row is not marked selected (no lingering pick).
+      const jobRow = await screen.findByTestId("job-row-deal-1");
+      expect(jobRow).toHaveAttribute("data-hovered", "false");
     });
   });
 });

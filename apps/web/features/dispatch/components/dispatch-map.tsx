@@ -33,15 +33,28 @@ function FitToJobs({ deals }: { deals: LocatedDeal[] }) {
   return null;
 }
 
-/** Re-centre the map on the selected job pin or technician, like clicking it would. */
-function PanTo({ target }: { target: { lat: number; lng: number } | null }) {
+/** Zoom level a selection pans to, if the map is further out than this. */
+const SELECT_ZOOM = 15;
+
+/** Re-centre (and zoom in) on the selected job pin or technician. */
+function PanTo({
+  target,
+  nonce,
+}: {
+  target: { lat: number; lng: number } | null;
+  /** Changes on every selection, so clicking the same item re-centres too. */
+  nonce: number;
+}) {
   const map = useMap();
 
   useEffect(() => {
-    if (map && target) map.panTo(target);
-    // Depend on the coordinates, not the object identity, so it only pans on a
-    // real change of selection.
-  }, [map, target?.lat, target?.lng]);
+    if (!map || !target) return;
+    map.panTo(target);
+    // Pull in if we're zoomed out — a centred dot on a metro-wide view is
+    // useless — but don't yank someone who's already zoomed in closer.
+    if ((map.getZoom() ?? 0) < SELECT_ZOOM) map.setZoom(SELECT_ZOOM);
+    // Keyed on the nonce so re-selecting the same marker still re-centres.
+  }, [map, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 }
@@ -89,6 +102,7 @@ export function DispatchMap({
   hoveredId,
   selectedId,
   panTo,
+  panNonce,
   onHover,
   onSelect,
   label,
@@ -100,6 +114,8 @@ export function DispatchMap({
   selectedId: string | null;
   /** When set, the map re-centres here — the selected job pin or technician. */
   panTo: { lat: number; lng: number } | null;
+  /** Increments on every selection, so re-picking the same item re-centres. */
+  panNonce: number;
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
   label: (deal: LocatedDeal) => string;
@@ -116,7 +132,7 @@ export function DispatchMap({
       className="size-full"
     >
       <FitToJobs deals={deals} />
-      <PanTo target={panTo} />
+      <PanTo target={panTo} nonce={panNonce} />
       <JobPins
         deals={deals}
         label={label}

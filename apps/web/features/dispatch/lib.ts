@@ -107,17 +107,19 @@ export function todayISO(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** "just now" / "3 min ago" / "2 h ago" — how long since a fix, for the map + list. */
+/**
+ * "just now" / "3 min ago" / "2 h ago" — how long since a fix, for the map + list.
+ * Minute granularity, deliberately: seconds would tick on every poll and read as
+ * a stopwatch rather than a "last seen" time.
+ */
 export function formatAge(updatedAt: string | undefined, now: number): string {
   if (!updatedAt) return "";
-  const seconds = Math.max(0, Math.round((now - Date.parse(updatedAt)) / 1000));
-  if (seconds < 30) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
+  const minutes = Math.max(0, Math.floor((now - Date.parse(updatedAt)) / 60_000));
+  if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} d ago`;
+  return `${Math.floor(hours / 24)} d ago`;
 }
 
 export type TechStatus = "live" | "stale" | "derived" | "offline";
