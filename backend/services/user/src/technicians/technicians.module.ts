@@ -15,6 +15,8 @@ import { DocumentsRepository } from './documents/documents.repository';
 import { SensitiveService } from './documents/sensitive.service';
 import { SensitiveRepository } from './documents/sensitive.repository';
 import { AuditRepository } from './documents/audit.repository';
+import { TechnicianLocationController } from './location/technician-location.controller';
+import { TechnicianLocationService } from './location/technician-location.service';
 import { RolesModule } from '../roles/roles.module';
 
 @Module({
@@ -23,6 +25,7 @@ import { RolesModule } from '../roles/roles.module';
     TechnicianSkillsController,
     CommissionController,
     DocumentsController,
+    TechnicianLocationController,
     TechniciansController,
   ],
   providers: [
@@ -38,6 +41,7 @@ import { RolesModule } from '../roles/roles.module';
     SensitiveService,
     SensitiveRepository,
     AuditRepository,
+    TechnicianLocationService,
   ],
   exports: [
     TechniciansService,

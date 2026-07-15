@@ -34,6 +34,7 @@ export {
   TechnicianHomeAddress,
   OnboardingStatus,
 } from './entities/technician-profile.entity';
+export { TechnicianLocation } from './entities/technician-location.entity';
 export {
   TechnicianSkill,
   SkillType,
