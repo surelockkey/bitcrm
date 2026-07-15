@@ -22,13 +22,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useContactByPhone, useCreateContact, useCompanyMap } from "@/features/clients/hooks";
 import { clientTypeLabel, contactName } from "@/features/clients/lib";
-import { MapsProvider } from "@/components/maps/maps-provider";
-import { AddressAutocomplete } from "@/components/maps/address-autocomplete";
-import { addressForSubmit } from "@/lib/geo/geo";
-import { applyAddress } from "@/lib/geo/apply-address";
 import { useCreateDeal } from "../hooks";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { formatSchedule, jobTypeLabel } from "../lib";
+import { AddressAutocomplete } from "./address-autocomplete";
 
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 const STEPS = ["Client", "Job", "Schedule", "Review"] as const;
@@ -201,9 +198,6 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
         contactId: client.contactId,
         companyId: client.companyId,
         ...form.getValues(),
-        // Normalises the empty unit and carries autocomplete coordinates through;
-        // a hand-typed address arrives without them and is geocoded server-side.
-        address: addressForSubmit(form.getValues("address")),
         scheduledDate: form.getValues("scheduledDate") || undefined,
         scheduledTimeSlot: form.getValues("scheduledTimeSlot") || undefined,
         source: form.getValues("source") || undefined,
@@ -215,8 +209,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
   };
 
   return (
-    // Loads Places only while the wizard is open, not on every page.
-    <MapsProvider>
+    <div>
       <Steps active={step} />
 
       {step === 1 ? (
@@ -232,19 +225,16 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           <div className="space-y-1.5">
             <Label>Service address</Label>
             <AddressAutocomplete
-              className="h-9"
-              placeholder="Street"
               value={v.address?.street ?? ""}
               onChange={(val) => form.setValue("address.street", val, { shouldValidate: true })}
-              onSelect={(address) =>
-                applyAddress(
-                  (path, value) =>
-                    form.setValue(path as "address.street", value as never, {
-                      shouldValidate: true,
-                    }),
-                  address,
-                )
-              }
+              onSelect={(a) => {
+                form.setValue("address.street", a.street, { shouldValidate: true });
+                form.setValue("address.city", a.city, { shouldValidate: true });
+                form.setValue("address.state", a.state, { shouldValidate: true });
+                form.setValue("address.zip", a.zip, { shouldValidate: true });
+                if (a.lat != null) form.setValue("address.lat", a.lat);
+                if (a.lng != null) form.setValue("address.lng", a.lng);
+              }}
             />
             {err.address?.street ? <p className="text-xs text-destructive">{err.address.street.message}</p> : null}
             <div className="mt-2 grid grid-cols-[1fr_2fr_1fr_1fr] gap-2">
@@ -303,7 +293,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           </Button>
         )}
       </div>
-    </MapsProvider>
+    </div>
   );
 }
 

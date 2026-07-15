@@ -10,8 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile } from "@bitcrm/types";
 import { useProfile, useUpdateProfile } from "@/features/technicians/hooks";
-import { MapsProvider } from "@/components/maps/maps-provider";
-import { AddressAutocomplete } from "@/components/maps/address-autocomplete";
+import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
 
 /** Self-fill only — labor cost, status and the GPS/masking flags are manager-owned. */
 const selfSchema = z.object({
@@ -59,7 +58,6 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
   };
 
   return (
-    <MapsProvider>
     <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-xl space-y-5" noValidate>
       <div className="space-y-1.5">
         <Label>Phone</Label>
@@ -68,18 +66,15 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
       <div className="space-y-1.5">
         <Label>Home address</Label>
         <AddressAutocomplete
-          className="h-10"
-          placeholder="Street"
           value={line1}
           onChange={(v) => form.setValue("line1", v, { shouldDirty: true })}
           onSelect={(address) => {
             form.setValue("line1", address.street, { shouldDirty: true });
-            form.setValue("line2", address.unit ?? "", { shouldDirty: true });
             form.setValue("city", address.city, { shouldDirty: true });
             form.setValue("state", address.state, { shouldDirty: true });
             form.setValue("zip", address.zip, { shouldDirty: true });
-            form.setValue("lat", address.lat, { shouldDirty: true });
-            form.setValue("lng", address.lng, { shouldDirty: true });
+            if (address.lat != null) form.setValue("lat", address.lat, { shouldDirty: true });
+            if (address.lng != null) form.setValue("lng", address.lng, { shouldDirty: true });
           }}
         />
         <Input className="mt-2 h-10" placeholder="Apt, suite (optional)" {...form.register("line2")} />
@@ -97,6 +92,5 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
         </Button>
       </div>
     </form>
-    </MapsProvider>
   );
 }

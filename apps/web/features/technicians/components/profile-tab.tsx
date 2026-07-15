@@ -16,8 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile, TechnicianProfileStatus } from "@bitcrm/types";
-import { MapsProvider } from "@/components/maps/maps-provider";
-import { AddressAutocomplete } from "@/components/maps/address-autocomplete";
+import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
 import { useProfile, useUpdateProfile } from "../hooks";
 import { profileSchema, type ProfileValues } from "../schemas";
 
@@ -91,7 +90,6 @@ function ProfileForm({
   };
 
   return (
-    <MapsProvider>
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-xl space-y-7" noValidate>
       <Group label="Contact (self-filled)">
         <Field label="Phone">
@@ -102,18 +100,15 @@ function ProfileForm({
             <Input className="h-10" disabled {...register("line1")} />
           ) : (
             <AddressAutocomplete
-              className="h-10"
-              placeholder="Street"
               value={line1}
               onChange={(v) => setValue("line1", v, { shouldDirty: true })}
               onSelect={(address) => {
                 setValue("line1", address.street, { shouldDirty: true });
-                setValue("line2", address.unit ?? "", { shouldDirty: true });
                 setValue("city", address.city, { shouldDirty: true });
                 setValue("state", address.state, { shouldDirty: true });
                 setValue("zip", address.zip, { shouldDirty: true });
-                setValue("lat", address.lat, { shouldDirty: true });
-                setValue("lng", address.lng, { shouldDirty: true });
+                if (address.lat != null) setValue("lat", address.lat, { shouldDirty: true });
+                if (address.lng != null) setValue("lng", address.lng, { shouldDirty: true });
               }}
             />
           )}
@@ -158,7 +153,6 @@ function ProfileForm({
         </div>
       ) : null}
     </form>
-    </MapsProvider>
   );
 }
 

@@ -23,13 +23,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { MapsProvider } from "@/components/maps/maps-provider";
-import { AddressAutocomplete } from "@/components/maps/address-autocomplete";
-import { addressForSubmit } from "@/lib/geo/geo";
-import { applyAddress } from "@/lib/geo/apply-address";
 import { useUpdateDeal } from "../hooks";
 import { editDealSchema, type EditDealValues } from "../schemas";
 import { jobTypeLabel } from "../lib";
+import { AddressAutocomplete } from "./address-autocomplete";
 
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
@@ -42,9 +39,6 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
     defaultValues: {
       jobType: deal.jobType,
       serviceArea: deal.serviceArea,
-      // Deliberately no lat/lng: coordinates in the form mean "the user just
-      // picked this place", so `addressForSubmit` can tell a fresh pick apart
-      // from the deal's stored location and settle the two correctly.
       address: {
         street: deal.address.street,
         unit: deal.address.unit ?? "",
@@ -67,7 +61,6 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
     update.mutate(
       {
         ...v,
-        address: addressForSubmit(v.address, deal.address),
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         source: v.source || undefined,
@@ -82,13 +75,11 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const err = form.formState.errors;
   const jobType = useWatch({ control: form.control, name: "jobType" });
   const priority = useWatch({ control: form.control, name: "priority" });
-  const street = useWatch({ control: form.control, name: "address.street" }) ?? "";
+  const street = useWatch({ control: form.control, name: "address.street" });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg">
-      {/* Loads Places only when the sheet is open, not on every page. */}
-      <MapsProvider>
         <SheetHeader className="border-b px-5 py-4"><SheetTitle>Edit deal #{deal.dealNumber}</SheetTitle></SheetHeader>
         <form onSubmit={form.handleSubmit(submit)} className="flex flex-1 flex-col">
           <div className="flex-1 space-y-4 px-5 py-5">
@@ -115,19 +106,16 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             <div className="space-y-1.5">
               <Label>Address</Label>
               <AddressAutocomplete
-                className="h-9"
-                placeholder="Street"
-                value={street}
-                onChange={(v) => form.setValue("address.street", v, { shouldDirty: true })}
-                onSelect={(address) =>
-                  applyAddress(
-                    (path, value) =>
-                      form.setValue(path as "address.street", value as never, {
-                        shouldDirty: true,
-                      }),
-                    address,
-                  )
-                }
+                value={street ?? ""}
+                onChange={(val) => form.setValue("address.street", val, { shouldValidate: true })}
+                onSelect={(a) => {
+                  form.setValue("address.street", a.street, { shouldValidate: true });
+                  form.setValue("address.city", a.city, { shouldValidate: true });
+                  form.setValue("address.state", a.state, { shouldValidate: true });
+                  form.setValue("address.zip", a.zip, { shouldValidate: true });
+                  if (a.lat != null) form.setValue("address.lat", a.lat);
+                  if (a.lng != null) form.setValue("address.lng", a.lng);
+                }}
               />
               {err.address?.street ? <p className="text-xs text-destructive">{err.address.street.message}</p> : null}
               <div className="mt-2 grid grid-cols-[1fr_2fr_1fr_1fr] gap-2">
@@ -155,7 +143,6 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </Button>
           </div>
         </form>
-      </MapsProvider>
       </SheetContent>
     </Sheet>
   );

@@ -79,7 +79,10 @@ export class ContactsService {
   }
 
   async list(query: { companyId?: string; limit?: number; cursor?: string }) {
-    const limit = query.limit || 20;
+    // Query params arrive as strings (no global ValidationPipe/transform), so
+    // coerce to a number — DynamoDB's `Limit` rejects a string with a
+    // SerializationException. Clamp to the DTO's intended 1..100 range.
+    const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
 
     if (query.companyId) {
       return this.repository.findByCompany(query.companyId, limit, query.cursor);
