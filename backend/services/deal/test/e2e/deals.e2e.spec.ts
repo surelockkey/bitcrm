@@ -177,6 +177,26 @@ describe('Deals E2E', () => {
 
       expect(res.body.data.notes).toBe('Updated notes');
     });
+
+    // The ValidationPipe transforms the body into DTO class instances, so the
+    // address arrives as an AddressDto. The deal write succeeds, but the timeline
+    // entry stored the raw class instance, which the DynamoDB marshaller rejected
+    // — a 500 *after* the address had already changed. Guards that regression.
+    it('should update the address without a 500', async () => {
+      const created = await request(app.getHttpServer())
+        .post(BASE)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send(validDealPayload);
+      const id = created.body.data.id;
+
+      const res = await request(app.getHttpServer())
+        .put(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ address: { street: '999 New Rd', city: 'Atlanta', state: 'GA', zip: '30303' } })
+        .expect(200);
+
+      expect(res.body.data.address.street).toBe('999 New Rd');
+    });
   });
 
   describe('DELETE /api/deals/:id', () => {
