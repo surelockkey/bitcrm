@@ -21,6 +21,8 @@ import { Test } from '@nestjs/testing';
 import {
   DynamoDbModule,
   RedisModule,
+  GeocodingModule,
+  GeocodingService,
   PermissionGuard,
   PermissionCacheReader,
   HttpExceptionFilter,
@@ -168,6 +170,7 @@ export async function setupApp(): Promise<INestApplication> {
     imports: [
       DynamoDbModule,
       RedisModule,
+      GeocodingModule,
       TestPermissionModule,
       DealsModule,
     ],
@@ -178,6 +181,10 @@ export async function setupApp(): Promise<INestApplication> {
   })
     .overrideProvider(InternalHttpService)
     .useValue(mockInternalHttpService)
+    // e2e must never call Google. Returning null models "address not resolvable":
+    // coordinates the caller supplies are kept, none are invented.
+    .overrideProvider(GeocodingService)
+    .useValue({ geocode: jest.fn().mockResolvedValue(null) })
     .compile();
 
   app = moduleRef.createNestApplication();
