@@ -32,8 +32,9 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Contacts")).toBeInTheDocument();
     expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Dispatch Map")).toBeInTheDocument();
     // coming-soon, hidden by default:
-    expect(screen.queryByText("Dispatch Map")).not.toBeInTheDocument();
+    expect(screen.queryByText("Schedule")).not.toBeInTheDocument();
     expect(screen.queryByText("Invoices")).not.toBeInTheDocument();
   });
 

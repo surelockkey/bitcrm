@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -22,13 +23,43 @@ import type {
 
 /* ---- Queries ---- */
 
-export function useTechnicians(status?: string) {
+export function useTechnicians(status?: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.technicians.list(status ?? "all"),
     queryFn: ({ pageParam }) => api.listTechnicians(status, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled,
   });
+}
+
+/**
+ * Every technician profile, cursor-drained.
+ *
+ * The dispatch map places technicians by their home coordinates, so it needs all
+ * of them — reading only the first page would silently omit everyone past the
+ * hundredth, and a missing marker looks like a technician with no work rather
+ * than a paging bug. Reuses the same cache entry as `useTechnicians`.
+ */
+export function useAllTechnicians(enabled = true) {
+  const query = useTechnicians(undefined, enabled);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const profiles = useMemo(
+    () => query.data?.pages.flatMap((page) => page.data) ?? [],
+    [query.data],
+  );
+
+  return {
+    profiles,
+    // Still draining — treat a partial list as "not ready" so the map doesn't
+    // flash a half-populated technician layer.
+    isLoading: query.isLoading || hasNextPage === true,
+  };
 }
 
 /**

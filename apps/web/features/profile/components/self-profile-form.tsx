@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile } from "@bitcrm/types";
 import { useProfile, useUpdateProfile } from "@/features/technicians/hooks";
+import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
 
 /** Self-fill only — labor cost, status and the GPS/masking flags are manager-owned. */
 const selfSchema = z.object({
@@ -19,6 +20,9 @@ const selfSchema = z.object({
   city: z.string().trim().max(80).optional(),
   state: z.string().trim().max(40).optional(),
   zip: z.string().trim().max(12).optional(),
+  // Set by the address picker; carries the technician onto the dispatch map.
+  lat: z.number().optional(),
+  lng: z.number().optional(),
 });
 type SelfValues = z.infer<typeof selfSchema>;
 
@@ -43,10 +47,12 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
     },
   });
 
+  const line1 = useWatch({ control: form.control, name: "line1" }) ?? "";
+
   const onSubmit = (v: SelfValues) => {
     const homeAddress =
       v.line1 && v.city && v.state && v.zip
-        ? { line1: v.line1, line2: v.line2 || undefined, city: v.city, state: v.state, zip: v.zip }
+        ? { line1: v.line1, line2: v.line2 || undefined, city: v.city, state: v.state, zip: v.zip, lat: v.lat, lng: v.lng }
         : undefined;
     update.mutate({ id: technicianId, body: { phone: v.phone || undefined, homeAddress } });
   };
@@ -59,7 +65,18 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
       </div>
       <div className="space-y-1.5">
         <Label>Home address</Label>
-        <Input className="h-10" placeholder="Street" {...form.register("line1")} />
+        <AddressAutocomplete
+          value={line1}
+          onChange={(v) => form.setValue("line1", v, { shouldDirty: true })}
+          onSelect={(address) => {
+            form.setValue("line1", address.street, { shouldDirty: true });
+            form.setValue("city", address.city, { shouldDirty: true });
+            form.setValue("state", address.state, { shouldDirty: true });
+            form.setValue("zip", address.zip, { shouldDirty: true });
+            if (address.lat != null) form.setValue("lat", address.lat, { shouldDirty: true });
+            if (address.lng != null) form.setValue("lng", address.lng, { shouldDirty: true });
+          }}
+        />
         <Input className="mt-2 h-10" placeholder="Apt, suite (optional)" {...form.register("line2")} />
         <div className="mt-2 grid grid-cols-3 gap-3">
           <Input className="h-10" placeholder="City" {...form.register("city")} />

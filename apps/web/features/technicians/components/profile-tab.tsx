@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile, TechnicianProfileStatus } from "@bitcrm/types";
+import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
 import { useProfile, useUpdateProfile } from "../hooks";
 import { profileSchema, type ProfileValues } from "../schemas";
 
@@ -51,6 +52,10 @@ function ProfileForm({
       city: a?.city ?? "",
       state: a?.state ?? "",
       zip: a?.zip ?? "",
+      // Carried through so a save that doesn't touch the address keeps the
+      // technician on the dispatch map.
+      lat: a?.lat,
+      lng: a?.lng,
       laborCostPerHour: profile.laborCostPerHour,
       callMaskingEnabled: profile.callMaskingEnabled,
       gpsTrackingEnabled: profile.gpsTrackingEnabled,
@@ -63,11 +68,12 @@ function ProfileForm({
   const callMasking = useWatch({ control, name: "callMaskingEnabled" });
   const gps = useWatch({ control, name: "gpsTrackingEnabled" });
   const mobile = useWatch({ control, name: "mobileAppInstalled" });
+  const line1 = useWatch({ control, name: "line1" }) ?? "";
 
   const onSubmit = (v: ProfileValues) => {
     const homeAddress =
       v.line1 && v.city && v.state && v.zip
-        ? { line1: v.line1, line2: v.line2 || undefined, city: v.city, state: v.state, zip: v.zip }
+        ? { line1: v.line1, line2: v.line2 || undefined, city: v.city, state: v.state, zip: v.zip, lat: v.lat, lng: v.lng }
         : undefined;
     update.mutate({
       id: technicianId,
@@ -90,7 +96,22 @@ function ProfileForm({
           <Input className="h-10" disabled={readOnly} {...register("phone")} />
         </Field>
         <Field label="Address line 1">
-          <Input className="h-10" disabled={readOnly} {...register("line1")} />
+          {readOnly ? (
+            <Input className="h-10" disabled {...register("line1")} />
+          ) : (
+            <AddressAutocomplete
+              value={line1}
+              onChange={(v) => setValue("line1", v, { shouldDirty: true })}
+              onSelect={(address) => {
+                setValue("line1", address.street, { shouldDirty: true });
+                setValue("city", address.city, { shouldDirty: true });
+                setValue("state", address.state, { shouldDirty: true });
+                setValue("zip", address.zip, { shouldDirty: true });
+                if (address.lat != null) setValue("lat", address.lat, { shouldDirty: true });
+                if (address.lng != null) setValue("lng", address.lng, { shouldDirty: true });
+              }}
+            />
+          )}
         </Field>
         <Field label="Address line 2">
           <Input className="h-10" disabled={readOnly} {...register("line2")} />

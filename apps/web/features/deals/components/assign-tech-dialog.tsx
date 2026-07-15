@@ -53,21 +53,32 @@ export function AssignTechDialog({
           <DialogDescription>Ranked by proximity to the job. Pick anyone if the qualified list is empty.</DialogDescription>
         </DialogHeader>
 
-        {/* Qualified list (empty today until tech profiles + wiring land) */}
+        {/*
+          Candidates come from the technician's approved job types and service
+          areas. The list stays empty until those are captured on the profiles —
+          and the distance stays blank until both the job and the technician's
+          home have coordinates.
+        */}
         <div className="space-y-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qualified</div>
           {qualified.isLoading ? (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Finding technicians…</div>
           ) : qualifiedList.length === 0 ? (
             <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              No qualified technicians yet — this needs technician skills, service areas, and home location captured on their profiles. Assign anyone below in the meantime.
+              No qualified technicians for this job type and service area yet — a technician
+              needs approved skills and areas on their profile to appear here. Assign anyone
+              below in the meantime.
             </div>
           ) : (
             qualifiedList.map((t) => (
               <TechRow
                 key={t.id}
-                name={`${t.firstName ?? ""} ${t.lastName ?? ""}`.trim() || t.email || t.id}
-                sub={typeof t.distanceMiles === "number" ? `${t.distanceMiles.toFixed(1)} mi away` : undefined}
+                name={`${t.firstName ?? ""} ${t.lastName ?? ""}`.trim() || t.id}
+                sub={
+                  typeof t.distanceMiles === "number"
+                    ? `${t.distanceMiles.toFixed(1)} mi from home`
+                    : "Distance unknown — no home address on file"
+                }
                 pending={assign.isPending}
                 onAssign={() => doAssign(t.id)}
                 primary
