@@ -3,12 +3,6 @@ import { RedisService } from '@bitcrm/shared';
 import { type TechnicianLocation } from '@bitcrm/types';
 
 const PREFIX = 'tech:location:';
-/**
- * How long a fix stays "live". After this, the key expires and the technician
- * drops off the map back to their derived position — so someone who closed the
- * app doesn't hang frozen on the last spot they were seen.
- */
-const TTL_SECONDS = 120;
 
 export interface LocationInput {
   lat: number;
@@ -17,10 +11,12 @@ export interface LocationInput {
 }
 
 /**
- * Live technician positions, self-reported while online. Ephemeral by design —
- * stored in Redis with a short TTL, never in the durable profile. The dispatch
- * map reads these and falls back to the derived position when a technician has
- * none.
+ * Technician positions, self-reported while online.
+ *
+ * The last known fix is kept indefinitely (until the next one overwrites it), so
+ * the dispatch map always shows where a technician was last seen and how long
+ * ago. "Online" vs "last seen" is a question the reader answers from the
+ * timestamp — the record itself doesn't expire.
  */
 @Injectable()
 export class TechnicianLocationService {
@@ -42,12 +38,8 @@ export class TechnicianLocationService {
       updatedAt: new Date().toISOString(),
     };
 
-    await this.redis.client.set(
-      this.key(userId),
-      JSON.stringify(location),
-      'EX',
-      TTL_SECONDS,
-    );
+    // No expiry — the last location is kept until a newer one replaces it.
+    await this.redis.client.set(this.key(userId), JSON.stringify(location));
 
     return location;
   }

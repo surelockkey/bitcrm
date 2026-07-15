@@ -51,15 +51,15 @@ describe('TechnicianLocationService', () => {
     expect(loc?.updatedAt).toEqual(expect.any(String));
   });
 
-  // A live location is ephemeral — it must expire so a technician who went
-  // offline doesn't sit frozen on the dispatch map forever.
-  it('writes with an expiry', async () => {
+  // The last known location must persist — the dispatch map always shows where a
+  // technician was last seen, and reports how long ago. Freshness (online vs
+  // last-seen) is decided from the timestamp, not by the record expiring.
+  it('persists the location without an expiry', async () => {
     await service.setLocation('tech-1', { lat: 1, lng: 2 });
 
     const call = redis.service.client.set as jest.Mock;
-    const [, , mode, ttl] = call.mock.calls[0];
-    expect(mode).toBe('EX');
-    expect(ttl).toBeGreaterThan(0);
+    // set(key, value) only — no 'EX'/TTL arguments.
+    expect(call.mock.calls[0]).toHaveLength(2);
   });
 
   it('returns null for a technician with no live location', async () => {
