@@ -107,6 +107,19 @@ export function todayISO(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+export type TechStatus = "live" | "stale" | "derived" | "offline";
+
+/**
+ * How a technician reads in the roster list, from their position (if any).
+ * "live" = a fresh GPS fix; "stale" = a live fix aging out; "derived" = only the
+ * inferred home/last-job spot; "offline" = we can't place them at all.
+ */
+export function technicianStatus(position?: TechnicianPosition): TechStatus {
+  if (!position) return "offline";
+  if (position.source !== "live") return "derived";
+  return position.stale ? "stale" : "live";
+}
+
 /**
  * Overlay live locations on the derived ones.
  *

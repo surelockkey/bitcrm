@@ -22,6 +22,7 @@ import { contactName } from "@/features/clients/lib";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
 import { DispatchMap } from "./dispatch-map";
 import { JobList } from "./job-list";
+import { TechList } from "./tech-list";
 import { JobSidebar } from "./job-sidebar";
 import { splitByLocation, technicianPositions, mergeLivePositions, todayISO } from "../lib";
 
@@ -211,16 +212,28 @@ export function DispatchPage() {
             <aside
               className={view === "list" ? "flex-1 overflow-hidden" : "w-88 shrink-0 border-r"}
             >
-              <JobList
-                mapped={mapped}
-                unmapped={unmapped}
-                clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
-                techName={(d) => nameOf(d.assignedTechId)}
-                hoveredId={hoveredId}
-                selectedId={selectedId}
-                onHover={setHoveredId}
-                onSelect={setSelectedId}
-              />
+              {/* The list follows the layer: the technician roster in "Techs",
+                  the job queue otherwise. */}
+              {layer === "techs" ? (
+                <TechList
+                  userIds={profiles.map((p) => p.userId)}
+                  positions={technicians}
+                  userMap={users}
+                  hoveredId={hoveredId}
+                  onHover={setHoveredId}
+                />
+              ) : (
+                <JobList
+                  mapped={mapped}
+                  unmapped={unmapped}
+                  clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
+                  techName={(d) => nameOf(d.assignedTechId)}
+                  hoveredId={hoveredId}
+                  selectedId={selectedId}
+                  onHover={setHoveredId}
+                  onSelect={setSelectedId}
+                />
+              )}
             </aside>
           ) : null}
 

@@ -216,6 +216,18 @@ describe("DispatchPage", () => {
       expect(screen.queryByTestId("job-pin-deal-1")).not.toBeInTheDocument();
     });
 
+    it("swaps the job list for the technician roster in 'Techs'", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-row-deal-1");
+
+      await user.click(screen.getByRole("button", { name: /^techs$/i }));
+
+      // Job rows gone, technician rows in their place.
+      expect(screen.queryByTestId("job-row-deal-1")).not.toBeInTheDocument();
+      expect(await screen.findByTestId("tech-row-tech-1")).toBeInTheDocument();
+    });
+
     // No technician access → the toggle is meaningless and must not appear.
     it("does not render the toggle without technicians.view", async () => {
       permissions.value = {

@@ -7,7 +7,12 @@ import {
   type Deal,
   type TechnicianProfile,
 } from "@bitcrm/types";
-import { splitByLocation, technicianPositions, mergeLivePositions } from "./lib";
+import {
+  splitByLocation,
+  technicianPositions,
+  mergeLivePositions,
+  technicianStatus,
+} from "./lib";
 
 const TODAY = "2026-07-14";
 
@@ -264,5 +269,28 @@ describe("mergeLivePositions", () => {
       accuracy: 7,
       updatedAt: iso(0),
     });
+  });
+});
+
+describe("technicianStatus", () => {
+  const at = (source: "live" | "home" | "last_job", stale = false) => ({
+    userId: "t", lat: 0, lng: 0, source, stale,
+  });
+
+  it("is offline with no position", () => {
+    expect(technicianStatus(undefined)).toBe("offline");
+  });
+
+  it("is live for a fresh GPS fix", () => {
+    expect(technicianStatus(at("live"))).toBe("live");
+  });
+
+  it("is stale for an aging GPS fix", () => {
+    expect(technicianStatus(at("live", true))).toBe("stale");
+  });
+
+  it("is derived for a home or last-job position", () => {
+    expect(technicianStatus(at("home"))).toBe("derived");
+    expect(technicianStatus(at("last_job"))).toBe("derived");
   });
 });
