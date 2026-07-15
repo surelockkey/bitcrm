@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { MapsProvider } from "@/components/maps/maps-provider";
-import { KeyRound, Loader2, TriangleAlert } from "lucide-react";
+import { Briefcase, KeyRound, Layers, Loader2, TriangleAlert, Wrench } from "lucide-react";
 import { DealStage } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,12 +28,21 @@ import { splitByLocation, technicianPositions, mergeLivePositions, todayISO } fr
 const ALL = "all";
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
+const LAYER_OPTIONS = [
+  { value: "both", label: "Both", title: "Show jobs and technicians", icon: Layers },
+  { value: "jobs", label: "Jobs", title: "Show jobs only", icon: Briefcase },
+  { value: "techs", label: "Techs", title: "Show technicians only", icon: Wrench },
+] as const;
+
 type View = "split" | "map" | "list";
+/** Which marker layers the map draws. */
+type Layer = "both" | "jobs" | "techs";
 
 export function DispatchPage() {
   const { can } = usePermissions();
 
   const [view, setView] = useState<View>("split");
+  const [layer, setLayer] = useState<Layer>("both");
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState(ALL);
   const [jobType, setJobType] = useState(ALL);
@@ -80,6 +89,12 @@ export function DispatchPage() {
     // technician is online.
     return mergeLivePositions(derived, liveLocations ?? [], Date.now());
   }, [profiles, deals, liveLocations]);
+
+  // The layer toggle only hides markers; the job list stays as the work queue.
+  const showJobLayer = layer !== "techs";
+  const showTechLayer = layer !== "jobs" && canSeeTechs;
+  const mapJobs = showJobLayer ? mapped : [];
+  const mapTechs = showTechLayer ? technicians : [];
 
   const selected = useMemo(
     () => filtered.find((d) => d.id === selectedId) ?? null,
@@ -145,6 +160,26 @@ export function DispatchPage() {
           </SelectContent>
         </Select>
 
+        {/* Layer toggle — what the map draws. Hidden in list view (no map) and
+            without technician access the "techs"/"both" split is meaningless. */}
+        {showMap && canSeeTechs ? (
+          <div className="flex rounded-md border p-0.5">
+            {LAYER_OPTIONS.map((opt) => (
+              <Button
+                key={opt.value}
+                size="sm"
+                variant={layer === opt.value ? "secondary" : "ghost"}
+                className="h-7 gap-1.5 px-3 text-xs"
+                onClick={() => setLayer(opt.value)}
+                title={opt.title}
+              >
+                <opt.icon className="size-3.5" />
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+
         <div className="flex rounded-md border p-0.5">
           {(["split", "map", "list"] as const).map((v) => (
             <Button
@@ -196,8 +231,8 @@ export function DispatchPage() {
               {env.googleMapsApiKey && env.googleMapsMapId ? (
                 <MapsProvider>
                   <DispatchMap
-                    deals={mapped}
-                    technicians={technicians}
+                    deals={mapJobs}
+                    technicians={mapTechs}
                     userMap={users}
                     hoveredId={hoveredId}
                     selectedId={selectedId}

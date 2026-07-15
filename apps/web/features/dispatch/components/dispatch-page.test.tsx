@@ -103,7 +103,20 @@ function mockApi() {
       HttpResponse.json({ success: true, data: [] }),
     ),
     http.get("*/users/technicians", () =>
-      HttpResponse.json({ success: true, data: [], pagination: { count: 0 } }),
+      HttpResponse.json({
+        success: true,
+        data: [
+          {
+            userId: "tech-1",
+            status: "active",
+            callMaskingEnabled: false,
+            gpsTrackingEnabled: false,
+            mobileAppInstalled: false,
+            homeAddress: { line1: "9 Home Rd", city: "Atlanta", state: "GA", zip: "30310", lat: 33.7, lng: -84.4 },
+          },
+        ],
+        pagination: { count: 1 },
+      }),
     ),
   );
 }
@@ -171,5 +184,48 @@ describe("DispatchPage", () => {
     render(<DispatchPage />, { wrapper });
 
     expect(await screen.findByText(/no access/i)).toBeInTheDocument();
+  });
+
+  describe("layer toggle", () => {
+    it("shows both jobs and technicians by default", async () => {
+      render(<DispatchPage />, { wrapper });
+
+      expect(await screen.findByTestId("job-pin-deal-1")).toBeInTheDocument();
+      expect(await screen.findByTestId("tech-marker-tech-1")).toBeInTheDocument();
+    });
+
+    it("hides technician markers when 'Jobs' is picked", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("tech-marker-tech-1");
+
+      await user.click(screen.getByRole("button", { name: /^jobs$/i }));
+
+      expect(screen.getByTestId("job-pin-deal-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("tech-marker-tech-1")).not.toBeInTheDocument();
+    });
+
+    it("hides job pins when 'Techs' is picked", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-pin-deal-1");
+
+      await user.click(screen.getByRole("button", { name: /^techs$/i }));
+
+      expect(screen.getByTestId("tech-marker-tech-1")).toBeInTheDocument();
+      expect(screen.queryByTestId("job-pin-deal-1")).not.toBeInTheDocument();
+    });
+
+    // No technician access → the toggle is meaningless and must not appear.
+    it("does not render the toggle without technicians.view", async () => {
+      permissions.value = {
+        ...permissions.value,
+        can: (resource: string) => resource !== "technicians",
+      };
+      render(<DispatchPage />, { wrapper });
+      await screen.findByTestId("job-pin-deal-1");
+
+      expect(screen.queryByRole("button", { name: /^techs$/i })).not.toBeInTheDocument();
+    });
   });
 });
