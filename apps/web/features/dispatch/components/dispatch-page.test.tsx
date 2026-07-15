@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
@@ -19,7 +19,16 @@ vi.mock("next/navigation", () => ({
 vi.mock("@vis.gl/react-google-maps", () => ({
   APIProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Map: ({ children }: { children: ReactNode }) => <div data-testid="map">{children}</div>,
-  AdvancedMarker: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  // forwardRef so React actually invokes each pin's ref callback — attach with a
+  // node, detach with null — the way it does in the browser. An unstable ref
+  // callback then loops here ("Maximum update depth exceeded"); a stable one
+  // attaches once. This is what makes the whole suite a guard against the
+  // clusterer regression.
+  AdvancedMarker: forwardRef<HTMLDivElement, { children?: ReactNode }>(
+    function AdvancedMarker({ children }, ref) {
+      return <div ref={ref}>{children}</div>;
+    },
+  ),
   useMap: () => null,
 }));
 
