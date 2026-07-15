@@ -49,7 +49,7 @@ function JobPins({
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
 }) {
-  const { setMarkerRef } = useMarkerClusterer();
+  const { markerRef } = useMarkerClusterer();
 
   return (
     <>
@@ -62,7 +62,7 @@ function JobPins({
           selected={selectedId === deal.id}
           onHover={onHover}
           onSelect={onSelect}
-          markerRef={(marker) => setMarkerRef(marker, deal.id)}
+          markerRef={markerRef(deal.id)}
         />
       ))}
     </>

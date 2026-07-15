@@ -39,7 +39,6 @@ export function useMarkerClusterer() {
     instance.addMarkers(Object.values(markers));
   }, [markers]);
 
-  /** Hand each pin's marker to the clusterer as it mounts, and take it back on unmount. */
   const setMarkerRef = useCallback((marker: Marker | null, id: string) => {
     setMarkers((current) => {
       if (marker) {
@@ -54,5 +53,28 @@ export function useMarkerClusterer() {
     });
   }, []);
 
-  return { setMarkerRef };
+  /**
+   * A *stable* ref callback per pin id.
+   *
+   * An inline `ref={m => setMarkerRef(m, id)}` is a new function every render, so
+   * React detaches (calls with null) and re-attaches it each time — each call
+   * sets state, which re-renders, which makes a new function: an infinite loop
+   * ("Maximum update depth exceeded"). Memoising by id keeps the identity fixed
+   * so React attaches it exactly once.
+   */
+  const refCallbacks = useRef(new Map<string, (marker: Marker | null) => void>());
+  const markerRef = useCallback(
+    (id: string) => {
+      const cache = refCallbacks.current;
+      let cb = cache.get(id);
+      if (!cb) {
+        cb = (marker: Marker | null) => setMarkerRef(marker, id);
+        cache.set(id, cb);
+      }
+      return cb;
+    },
+    [setMarkerRef],
+  );
+
+  return { markerRef };
 }
