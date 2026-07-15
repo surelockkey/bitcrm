@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Briefcase, KanbanSquare, List, Plus, Search } from "lucide-react";
+import { Briefcase, KanbanSquare, List, Plus, Search, TriangleAlert } from "lucide-react";
 import { DealPriority } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,11 +16,11 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
+import Link from "next/link";
 import { useContactMap, useDeals, useUserMap } from "../hooks";
 import { STAGE_ORDER, filterDeals, jobTypeLabel, stageLabel, type DealFilter } from "../lib";
 import { DealsBoard } from "./deals-board";
 import { DealsTable } from "./deals-table";
-import { NewDealSheet } from "./new-deal-sheet";
 
 const ALL = "all";
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
@@ -66,7 +66,11 @@ export function DealsPage() {
             {isTechnician ? "Your assigned jobs." : "The job pipeline — open a deal to move it forward."}
           </p>
         </div>
-        {can("deals", "create") ? <NewDealSheet trigger={<Button variant="brand" className="gap-1.5"><Plus className="size-4" /> New deal</Button>} /> : null}
+        {can("deals", "create") ? (
+          <Button asChild variant="brand" className="gap-1.5">
+            <Link href="/deals/new"><Plus className="size-4" /> New deal</Link>
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
@@ -91,6 +95,11 @@ export function DealsPage() {
       <div className="flex-1 overflow-auto p-6">
         {dealsQuery.isLoading ? (
           <Skeleton className="h-64 w-full" />
+        ) : dealsQuery.isError ? (
+          <DealsError
+            onRetry={() => dealsQuery.refetch()}
+            isRetrying={dealsQuery.isFetching}
+          />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Briefcase className="size-6" />}
@@ -103,6 +112,23 @@ export function DealsPage() {
           <DealsTable deals={filtered} contactMap={contactMap} userMap={userMap} />
         )}
       </div>
+    </div>
+  );
+}
+
+function DealsError({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-center">
+      <div className="flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+        <TriangleAlert className="size-6" />
+      </div>
+      <div className="font-medium">Couldn&apos;t load deals</div>
+      <p className="max-w-xs text-sm text-muted-foreground">
+        Something went wrong fetching the pipeline. Check your connection and try again.
+      </p>
+      <Button variant="outline" size="sm" className="mt-2" onClick={onRetry} disabled={isRetrying}>
+        {isRetrying ? "Retrying…" : "Try again"}
+      </Button>
     </div>
   );
 }

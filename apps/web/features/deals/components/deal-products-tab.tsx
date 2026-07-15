@@ -79,7 +79,7 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
         <span className="font-mono text-sm font-semibold tabular-nums">Total {formatMoney(total)}</span>
       </div>
 
-      <AddProductDialog dealId={deal.id} open={adding} onOpenChange={setAdding} />
+      <AddProductDialog dealId={deal.id} techId={deal.assignedTechId} open={adding} onOpenChange={setAdding} />
     </div>
   );
 }

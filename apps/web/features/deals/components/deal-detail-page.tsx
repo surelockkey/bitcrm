@@ -3,10 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, Package, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,11 +18,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useDeal, useDealProducts, useDeleteDeal } from "../hooks";
+import { useDeal, useDeleteDeal } from "../hooks";
 import { isUrgent } from "../lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
-import { StageMenu } from "./stage-menu";
-import { DealOverviewTab } from "./deal-overview-tab";
+import { DealStageStepper } from "./deal-stage-stepper";
+import { DealSummary } from "./deal-summary";
+import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelineTab } from "./deal-timeline-tab";
 import { EditDealSheet } from "./edit-deal-sheet";
@@ -32,7 +32,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const router = useRouter();
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
-  const { data: products } = useDealProducts(dealId);
   const del = useDeleteDeal();
   const [editing, setEditing] = useState(false);
 
@@ -42,7 +41,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const canDelete = can("deals", "delete");
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b px-5 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ChevronLeft className="size-4" /> Deals
@@ -51,7 +51,6 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         <StageBadge stage={deal.stage} />
         {isUrgent(deal) ? <PriorityFlag /> : null}
         <span className="flex-1" />
-        {canEdit ? <StageMenu dealId={deal.id} /> : null}
         {canEdit ? (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" /> Edit
@@ -81,21 +80,24 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <Tabs defaultValue="overview" className="flex flex-col">
-          <div className="border-b px-5">
-            <TabsList variant="line" className="h-11">
-              <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
-              <TabsTrigger value="products" className="px-2">Products · {products?.length ?? 0}</TabsTrigger>
-              <TabsTrigger value="timeline" className="px-2">Timeline</TabsTrigger>
-            </TabsList>
+      {/* Body: main + activity rail */}
+      <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_360px]">
+        <main className="min-w-0 space-y-5 overflow-y-auto p-5">
+          <DealStageStepper dealId={deal.id} stage={deal.stage} canEdit={canEdit} />
+          <DealSummary deal={deal} canEdit={canEdit} />
+          <section className="rounded-xl border bg-card p-4">
+            <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Package className="size-4" /> Products</h2>
+            <DealProductsTab deal={deal} canEdit={canEdit} />
+          </section>
+          <DealNotesCard deal={deal} />
+        </main>
+
+        <aside className="flex min-h-0 flex-col border-t lg:border-l lg:border-t-0">
+          <div className="border-b px-4 py-3 text-sm font-semibold">Activity</div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <DealTimelineTab dealId={deal.id} canEdit={canEdit} />
           </div>
-          <div className="p-5">
-            <TabsContent value="overview" className="mt-0"><DealOverviewTab deal={deal} canEdit={canEdit} /></TabsContent>
-            <TabsContent value="products" className="mt-0"><DealProductsTab deal={deal} canEdit={canEdit} /></TabsContent>
-            <TabsContent value="timeline" className="mt-0"><DealTimelineTab dealId={deal.id} canEdit={canEdit} /></TabsContent>
-          </div>
-        </Tabs>
+        </aside>
       </div>
 
       {editing ? <EditDealSheet deal={deal} open={editing} onOpenChange={setEditing} /> : null}
