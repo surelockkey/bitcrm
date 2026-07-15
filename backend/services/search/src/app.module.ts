@@ -1,5 +1,6 @@
 import { Module, OnModuleInit, Optional } from '@nestjs/common';
 import {
+  DynamoDbModule,
   RedisModule,
   AuthModule,
   LoggerModule,
@@ -78,6 +79,9 @@ const EVENT_ROUTES: EventRoute[] = [
         { name: 'inventory', url: (process.env.INVENTORY_SERVICE_URL ?? 'http://localhost:4004') + '/api/inventory/health' },
       ],
     }),
+    // search has no DynamoDB of its own, but HealthModule's DynamoDbHealthIndicator
+    // needs DynamoDbService injectable (it's @Global). No tables are checked.
+    DynamoDbModule,
     OpenSearchModule,
     RedisModule,
     AuthModule,
