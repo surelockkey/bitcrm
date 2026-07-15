@@ -41,6 +41,26 @@ resource "aws_ssm_parameter" "redis_url" {
   tags = local.data_plane_tags
 }
 
+# ---------- OpenSearch (rendered into search-service env) ----------
+
+# → OPENSEARCH_ENDPOINT
+resource "aws_ssm_parameter" "opensearch_endpoint" {
+  name  = "${local.ssm_prefix}/opensearch/endpoint"
+  type  = "String"
+  value = module.opensearch.endpoint_url
+
+  tags = local.data_plane_tags
+}
+
+# → OPENSEARCH_SERVERLESS ("false" — managed domain, SigV4 service "es")
+resource "aws_ssm_parameter" "opensearch_serverless" {
+  name  = "${local.ssm_prefix}/opensearch/serverless"
+  type  = "String"
+  value = "false"
+
+  tags = local.data_plane_tags
+}
+
 # ---------- Cognito (non-secret only) ----------
 
 resource "aws_ssm_parameter" "cognito_user_pool_id" {

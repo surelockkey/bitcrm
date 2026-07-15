@@ -264,12 +264,32 @@ data "aws_iam_policy_document" "task_inventory" {
   }
 }
 
+# search-svc: OpenSearch data-plane + consume the search-index queue (all topics)
+data "aws_iam_policy_document" "task_search" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_read_dev.json]
+
+  statement {
+    sid       = "OpenSearchData"
+    effect    = "Allow"
+    actions   = ["es:ESHttpGet", "es:ESHttpPost", "es:ESHttpPut", "es:ESHttpDelete", "es:ESHttpHead"]
+    resources = ["${module.opensearch.domain_arn}/*"]
+  }
+
+  statement {
+    sid       = "ConsumeSearchIndexQueue"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["search-index"]]
+  }
+}
+
 locals {
   task_role_policies = {
     user      = data.aws_iam_policy_document.task_user.json
     crm       = data.aws_iam_policy_document.task_crm.json
     deal      = data.aws_iam_policy_document.task_deal.json
     inventory = data.aws_iam_policy_document.task_inventory.json
+    search    = data.aws_iam_policy_document.task_search.json
   }
 }
 

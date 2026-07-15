@@ -120,6 +120,17 @@ module "s3_app" {
   tags   = local.data_plane_tags
 }
 
+# ---------- OpenSearch (global search CQRS index) ----------
+
+module "opensearch" {
+  source      = "../modules/opensearch"
+  project     = var.project
+  environment = var.environment
+  aws_region  = var.aws_region
+  account_id  = data.aws_caller_identity.current.account_id
+  tags        = local.data_plane_tags
+}
+
 # ---------- KMS key for technician documents + sensitive fields ----------
 
 module "kms_documents" {
@@ -140,6 +151,9 @@ module "sns_sqs" {
     deal-events    = {}
     contact-events = {}
     user-events    = {}
+    # Published by inventory-service (Phase 2); the search indexer subscribes now
+    # so it starts indexing inventory the moment those events go live.
+    inventory-events = {}
   }
 
   queues = {
@@ -157,6 +171,10 @@ module "sns_sqs" {
     }
     user-events-to-deal = {
       topic_subscriptions = ["user-events"]
+    }
+    # Global search CQRS index: one queue fanned out from every domain topic.
+    search-index = {
+      topic_subscriptions = ["deal-events", "contact-events", "user-events", "inventory-events"]
     }
   }
 }

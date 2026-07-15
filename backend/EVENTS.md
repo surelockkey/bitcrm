@@ -29,6 +29,10 @@ Publishers and consumers import these so the wire format can't drift; the
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
 - **inventory-service** ← `user.activated`, `user.role-changed` → `ContainersEventHandler`
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
+- **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
+
+## Topic: `inventory-events` (published by inventory-service — Phase 2)
+Planned: `product.created|updated|deleted`, `warehouse.created|updated`, `container.created|updated`, `transfer.created`. The `inventory-events` topic and the search-index subscription already exist (Terraform); the publishers are the remaining Phase-2 work. Until then, inventory is indexed by the search backfill.
 
 ## Eligibility projection (deal-service)
 `tech.approved` / `tech.updated` build a `TECH_ELIGIBILITY#<id>` read-model in

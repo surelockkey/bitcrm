@@ -40,6 +40,7 @@ locals {
     crm       = { port = 4002, priority = 200, path_pattern = "/api/crm/*" }
     deal      = { port = 4003, priority = 300, path_pattern = "/api/deals/*" }
     inventory = { port = 4004, priority = 400, path_pattern = "/api/inventory/*" }
+    search    = { port = 4005, priority = 500, path_pattern = "/api/search*" }
   }
 }
 

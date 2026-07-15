@@ -37,6 +37,23 @@ services:
     ports:
       - "6379:6379"
 
+  # Global-search index (CQRS read model). Single-node, security off for local dev.
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: opensearch-local
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
   localstack:
     image: localstack/localstack:4.4
     container_name: localstack
@@ -135,6 +152,7 @@ services:
 
 volumes:
   localstack-data:
+  opensearch-data:
   grafana-data:
   tempo-data:
   loki-data:

@@ -17,7 +17,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, user, crm, deal, inventory]
+        options: [all, user, crm, deal, inventory, search]
         default: all
 
 env:
@@ -55,6 +55,8 @@ jobs:
               - 'backend/services/deal/**'
             inventory:
               - 'backend/services/inventory/**'
+            search:
+              - 'backend/services/search/**'
 
       - name: Decide service matrix
         id: set
@@ -65,9 +67,10 @@ jobs:
           CRM:       ${{ steps.filter.outputs.crm }}
           DEAL:      ${{ steps.filter.outputs.deal }}
           INVENTORY: ${{ steps.filter.outputs.inventory }}
+          SEARCH:    ${{ steps.filter.outputs.search }}
         run: |
           set -euo pipefail
-          ALL='["user","crm","deal","inventory"]'
+          ALL='["user","crm","deal","inventory","search"]'
 
           # Manual dispatch overrides path filtering
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -91,6 +94,7 @@ jobs:
           [[ "$CRM"       == "true" ]] && changed+=("crm")
           [[ "$DEAL"      == "true" ]] && changed+=("deal")
           [[ "$INVENTORY" == "true" ]] && changed+=("inventory")
+          [[ "$SEARCH"    == "true" ]] && changed+=("search")
 
           if [[ ${#changed[@]} -eq 0 ]]; then
             echo "services=[]" >> "$GITHUB_OUTPUT"

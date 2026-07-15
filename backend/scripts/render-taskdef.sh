@@ -30,6 +30,7 @@ case "$SERVICE" in
   crm)       PORT=4002; PORT_ENV=CRM_SERVICE_PORT ;;
   deal)      PORT=4003; PORT_ENV=DEAL_SERVICE_PORT ;;
   inventory) PORT=4004; PORT_ENV=INVENTORY_SERVICE_PORT ;;
+  search)    PORT=4005; PORT_ENV=SEARCH_SERVICE_PORT ;;
   *) echo "unknown service: $SERVICE" >&2; exit 1 ;;
 esac
 
@@ -112,7 +113,7 @@ EXTRA_ENV_JSON=$(jq -n \
       {name: "INTERNAL_SERVICE_SECRET", value: $internal_token}
     ] else [] end)
   # SQS consumers only poll when explicitly enabled.
-  + (if ($service == "deal" or $service == "inventory") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
+  + (if ($service == "deal" or $service == "inventory" or $service == "search") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   ')
 
 # 3. Merge SSM + aliases + extra env
