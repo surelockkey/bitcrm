@@ -12,6 +12,7 @@ import {
   technicianPositions,
   mergeLivePositions,
   technicianStatus,
+  formatAge,
 } from "./lib";
 
 const TODAY = "2026-07-14";
@@ -292,5 +293,25 @@ describe("technicianStatus", () => {
   it("is derived for a home or last-job position", () => {
     expect(technicianStatus(at("home"))).toBe("derived");
     expect(technicianStatus(at("last_job"))).toBe("derived");
+  });
+});
+
+describe("formatAge", () => {
+  const now = Date.parse("2026-07-14T12:00:00.000Z");
+  const ago = (ms: number) => new Date(now - ms).toISOString();
+
+  it("is empty without a timestamp", () => {
+    expect(formatAge(undefined, now)).toBe("");
+  });
+
+  it("reads 'just now' for a fresh fix", () => {
+    expect(formatAge(ago(5_000), now)).toBe("just now");
+  });
+
+  it("reads seconds, then minutes, then hours, then days", () => {
+    expect(formatAge(ago(45_000), now)).toBe("45s ago");
+    expect(formatAge(ago(5 * 60_000), now)).toBe("5 min ago");
+    expect(formatAge(ago(3 * 3_600_000), now)).toBe("3 h ago");
+    expect(formatAge(ago(2 * 86_400_000), now)).toBe("2 d ago");
   });
 });

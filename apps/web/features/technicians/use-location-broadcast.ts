@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { postLocation, clearLocation } from "./api";
+import { postLocation } from "./api";
 
 /** Don't re-post more often than this — the backend fix stays live for minutes. */
 const MIN_INTERVAL_MS = 25_000;
@@ -55,9 +55,10 @@ export function useLocationBroadcast(
       GEO_OPTIONS,
     );
 
+    // Stop watching, but keep the last fix — the map shows where the technician
+    // was last seen (with the time) after they go offline.
     return () => {
       geolocation.clearWatch(watchId);
-      void clearLocation(technicianId).catch(() => {});
     };
   }, [technicianId, enabled]);
 }

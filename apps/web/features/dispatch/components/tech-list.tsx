@@ -3,48 +3,75 @@
 import { Wrench } from "lucide-react";
 import type { User } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { technicianStatus, type TechnicianPosition, type TechStatus } from "../lib";
+import {
+  technicianStatus,
+  formatAge,
+  type TechnicianPosition,
+  type TechStatus,
+} from "../lib";
 
-const STATUS_META: Record<TechStatus, { label: string; dot: string }> = {
-  live: { label: "Online", dot: "bg-emerald-500" },
-  stale: { label: "Online · stale", dot: "bg-amber-500" },
-  derived: { label: "No live GPS", dot: "bg-zinc-400" },
-  offline: { label: "Offline · no location", dot: "bg-zinc-300" },
+const DOT: Record<TechStatus, string> = {
+  live: "bg-emerald-500",
+  stale: "bg-amber-500",
+  derived: "bg-zinc-400",
+  offline: "bg-zinc-300",
 };
 
 /** Online first, then by name — the dispatcher cares about who's actually out there. */
 const STATUS_ORDER: Record<TechStatus, number> = { live: 0, stale: 1, derived: 2, offline: 3 };
 
+/** The status line, including how long ago a live fix arrived. */
+function statusLabel(status: TechStatus, position: TechnicianPosition | undefined, now: number): string {
+  const age = formatAge(position?.updatedAt, now);
+  switch (status) {
+    case "live":
+      return `Online · ${age}`;
+    case "stale":
+      return `Last seen ${age}`;
+    case "derived":
+      return "No live GPS";
+    case "offline":
+      return "Offline · no location";
+  }
+}
+
 function TechRow({
   userId,
   name,
   status,
+  label,
   locatable,
+  selected,
   hovered,
   onHover,
+  onSelect,
 }: {
   userId: string;
   name: string;
   status: TechStatus;
+  label: string;
   locatable: boolean;
+  selected: boolean;
   hovered: boolean;
   onHover: (id: string | null) => void;
+  onSelect: (id: string) => void;
 }) {
-  const meta = STATUS_META[status];
   return (
     <button
       type="button"
       data-testid={`tech-row-${userId}`}
       data-hovered={hovered ? "true" : "false"}
-      // Only a technician we can place has a marker to highlight.
+      // Only a technician we can place has a marker to highlight / centre on.
       onMouseEnter={() => locatable && onHover(userId)}
       onMouseLeave={() => onHover(null)}
       onFocus={() => locatable && onHover(userId)}
       onBlur={() => onHover(null)}
+      onClick={() => locatable && onSelect(userId)}
       className={cn(
         "flex w-full items-center gap-2.5 border-b px-4 py-3 text-left transition-colors",
         locatable && "hover:bg-muted/60 focus-visible:bg-muted/60",
-        hovered && "bg-muted",
+        (hovered || selected) && "bg-muted",
+        selected && "ring-1 ring-inset ring-primary/40",
         "focus-visible:outline-none",
       )}
     >
@@ -54,8 +81,8 @@ function TechRow({
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{name}</div>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className={cn("size-2 rounded-full", meta.dot)} />
-          {meta.label}
+          <span className={cn("size-2 rounded-full", DOT[status])} />
+          {label}
         </div>
       </div>
     </button>
@@ -73,16 +100,21 @@ export function TechList({
   positions,
   userMap,
   hoveredId,
+  selectedId,
   onHover,
+  onSelect,
 }: {
   /** Every technician's userId, so offline ones appear too. */
   userIds: string[];
   positions: TechnicianPosition[];
   userMap: Map<string, User>;
   hoveredId: string | null;
+  selectedId: string | null;
   onHover: (id: string | null) => void;
+  onSelect: (id: string) => void;
 }) {
   const byId = new Map(positions.map((p) => [p.userId, p]));
+  const now = Date.now();
 
   const rows = userIds
     .map((userId) => {
@@ -91,7 +123,14 @@ export function TechList({
       const name = user
         ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email
         : "Technician";
-      return { userId, name, status: technicianStatus(position), locatable: Boolean(position) };
+      const status = technicianStatus(position);
+      return {
+        userId,
+        name,
+        status,
+        label: statusLabel(status, position, now),
+        locatable: Boolean(position),
+      };
     })
     .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.name.localeCompare(b.name));
 
@@ -111,9 +150,12 @@ export function TechList({
           userId={row.userId}
           name={row.name}
           status={row.status}
+          label={row.label}
           locatable={row.locatable}
+          selected={selectedId === row.userId}
           hovered={hoveredId === row.userId}
           onHover={onHover}
+          onSelect={onSelect}
         />
       ))}
     </div>

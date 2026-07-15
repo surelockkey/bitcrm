@@ -16,6 +16,13 @@ vi.mock("next/navigation", () => ({
  * boundary. The pins still mount, which is what the hover wiring is about — the
  * map logic itself lives in pure functions and is covered by lib.test.ts.
  */
+// A fake map so PanTo/FitToJobs can run — panTo is spied on to assert centring.
+const fakeMap = vi.hoisted(() => ({
+  panTo: vi.fn(),
+  fitBounds: vi.fn(),
+  setZoom: vi.fn(),
+}));
+
 vi.mock("@vis.gl/react-google-maps", () => ({
   APIProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Map: ({ children }: { children: ReactNode }) => <div data-testid="map">{children}</div>,
@@ -29,8 +36,25 @@ vi.mock("@vis.gl/react-google-maps", () => ({
       return <div ref={ref}>{children}</div>;
     },
   ),
-  useMap: () => null,
+  useMap: () => fakeMap,
 }));
+
+// With a non-null map, the clusterer would build a real instance from our fake.
+vi.mock("@googlemaps/markerclusterer", () => ({
+  MarkerClusterer: class {
+    clearMarkers() {}
+    addMarkers() {}
+  },
+}));
+
+// FitToJobs builds a LatLngBounds; stub the tiny slice it touches.
+vi.stubGlobal("google", {
+  maps: {
+    LatLngBounds: class {
+      extend() {}
+    },
+  },
+});
 
 // The page deliberately renders an explanation instead of a map when the key or
 // the vector Map ID is missing; give it both so the pins mount.
@@ -134,6 +158,7 @@ beforeEach(() => {
     roleName: "Admin",
     me: undefined,
   };
+  fakeMap.panTo.mockClear();
   mockApi();
 });
 
@@ -238,6 +263,32 @@ describe("DispatchPage", () => {
       await screen.findByTestId("job-pin-deal-1");
 
       expect(screen.queryByRole("button", { name: /^techs$/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("centres the map on a selection", () => {
+    it("pans to a job when its row is clicked", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+
+      await user.click(await screen.findByTestId("job-row-deal-1"));
+
+      await waitFor(() =>
+        expect(fakeMap.panTo).toHaveBeenCalledWith({ lat: 33.749, lng: -84.388 }),
+      );
+    });
+
+    it("pans to a technician when their row is clicked", async () => {
+      const user = userEvent.setup();
+      render(<DispatchPage />, { wrapper });
+
+      await user.click(await screen.findByRole("button", { name: /^techs$/i }));
+      await user.click(await screen.findByTestId("tech-row-tech-1"));
+
+      // The mocked technician's derived (home) position.
+      await waitFor(() =>
+        expect(fakeMap.panTo).toHaveBeenCalledWith({ lat: 33.7, lng: -84.4 }),
+      );
     });
   });
 });

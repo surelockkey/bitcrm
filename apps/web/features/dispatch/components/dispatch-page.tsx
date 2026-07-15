@@ -102,6 +102,17 @@ export function DispatchPage() {
     [filtered, selectedId],
   );
 
+  // Where to centre the map when something is selected — a job pin or a
+  // technician marker. Deal ids and technician userIds don't collide.
+  const selectedPosition = useMemo(() => {
+    if (!selectedId) return null;
+    const deal = mapped.find((d) => d.id === selectedId);
+    if (deal) return { lat: deal.address.lat, lng: deal.address.lng };
+    const tech = technicians.find((t) => t.userId === selectedId);
+    if (tech) return { lat: tech.lat, lng: tech.lng };
+    return null;
+  }, [selectedId, mapped, technicians]);
+
   if (!can("deals", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -220,7 +231,9 @@ export function DispatchPage() {
                   positions={technicians}
                   userMap={users}
                   hoveredId={hoveredId}
+                  selectedId={selectedId}
                   onHover={setHoveredId}
+                  onSelect={setSelectedId}
                 />
               ) : (
                 <JobList
@@ -249,6 +262,7 @@ export function DispatchPage() {
                     userMap={users}
                     hoveredId={hoveredId}
                     selectedId={selectedId}
+                    panTo={selectedPosition}
                     onHover={setHoveredId}
                     onSelect={setSelectedId}
                     label={(d) =>
