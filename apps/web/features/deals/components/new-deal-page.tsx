@@ -25,6 +25,7 @@ import { clientTypeLabel, contactName } from "@/features/clients/lib";
 import { useCreateDeal } from "../hooks";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { formatSchedule, jobTypeLabel } from "../lib";
+import { AddressAutocomplete } from "./address-autocomplete";
 
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 const STEPS = ["Client", "Job", "Schedule", "Review"] as const;
@@ -223,7 +224,18 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           </div>
           <div className="space-y-1.5">
             <Label>Service address</Label>
-            <Input className="h-9" placeholder="Street" {...form.register("address.street")} />
+            <AddressAutocomplete
+              value={v.address?.street ?? ""}
+              onChange={(val) => form.setValue("address.street", val, { shouldValidate: true })}
+              onSelect={(a) => {
+                form.setValue("address.street", a.street, { shouldValidate: true });
+                form.setValue("address.city", a.city, { shouldValidate: true });
+                form.setValue("address.state", a.state, { shouldValidate: true });
+                form.setValue("address.zip", a.zip, { shouldValidate: true });
+                if (a.lat != null) form.setValue("address.lat", a.lat);
+                if (a.lng != null) form.setValue("address.lng", a.lng);
+              }}
+            />
             {err.address?.street ? <p className="text-xs text-destructive">{err.address.street.message}</p> : null}
             <div className="mt-2 grid grid-cols-[1fr_2fr_1fr_1fr] gap-2">
               <Input className="h-9" placeholder="Unit" {...form.register("address.unit")} />
