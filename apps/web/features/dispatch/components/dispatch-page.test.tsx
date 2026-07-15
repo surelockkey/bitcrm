@@ -99,6 +99,9 @@ function mockApi() {
     http.get("*/users", () =>
       HttpResponse.json({ success: true, data: [], pagination: { count: 0 } }),
     ),
+    http.get("*/users/technicians/locations", () =>
+      HttpResponse.json({ success: true, data: [] }),
+    ),
     http.get("*/users/technicians", () =>
       HttpResponse.json({ success: true, data: [], pagination: { count: 0 } }),
     ),

@@ -63,6 +63,21 @@ export function useAllTechnicians(enabled = true) {
 }
 
 /**
+ * Live technician locations for the dispatch map. Polled, because a fix is only
+ * good for a couple of minutes — the query refreshes faster than it expires so a
+ * moving technician stays current.
+ */
+export function useTechnicianLocations(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.technicians.locations(),
+    queryFn: () => api.listLocations(),
+    enabled,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+}
+
+/**
  * The cache entry is shared with `features/deals` under the same key, so it must
  * hold the raw User[]; the Map is derived per-observer. Module-level so React
  * Query can memoize it instead of rebuilding the Map every render.
@@ -79,10 +94,11 @@ export function useUserMap() {
   });
 }
 
-export function useProfile(id: string) {
+export function useProfile(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.technicians.profile(id),
     queryFn: () => api.getProfile(id),
+    enabled: enabled && Boolean(id),
   });
 }
 

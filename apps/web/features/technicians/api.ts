@@ -2,6 +2,7 @@ import type {
   TechnicianProfile,
   TechnicianProfileStatus,
   TechnicianHomeAddress,
+  TechnicianLocation,
   OnboardingStatus,
   TechnicianSkill,
   CommissionConfig,
@@ -203,4 +204,27 @@ export async function fetchAllUsers(): Promise<User[]> {
     cursor = page.pagination.nextCursor;
   } while (cursor && all.length < 5000);
   return all;
+}
+
+/* ---- Live location (dispatch map) ---- */
+
+export interface LocationInput {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}
+
+/** A technician reports their own position while online. */
+export function postLocation(id: string, body: LocationInput): Promise<TechnicianLocation> {
+  return http.post<TechnicianLocation>(`${BASE}/${id}/location`, body);
+}
+
+/** Go offline — drop the live position immediately. */
+export function clearLocation(id: string): Promise<void> {
+  return http.delete<void>(`${BASE}/${id}/location`);
+}
+
+/** Every online technician, for the dispatch map. */
+export function listLocations(): Promise<TechnicianLocation[]> {
+  return http.get<TechnicianLocation[]>(`${BASE}/locations`);
 }

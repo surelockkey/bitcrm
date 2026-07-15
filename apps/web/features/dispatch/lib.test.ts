@@ -7,7 +7,7 @@ import {
   type Deal,
   type TechnicianProfile,
 } from "@bitcrm/types";
-import { splitByLocation, technicianPositions } from "./lib";
+import { splitByLocation, technicianPositions, mergeLivePositions } from "./lib";
 
 const TODAY = "2026-07-14";
 
@@ -204,5 +204,65 @@ describe("technicianPositions", () => {
 
   it("omits a technician with no home address at all", () => {
     expect(technicianPositions([tech({ homeAddress: undefined })], [], TODAY)).toEqual([]);
+  });
+});
+
+const NOW = Date.parse("2026-07-14T12:00:00.000Z");
+const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
+
+describe("mergeLivePositions", () => {
+  const derived = [
+    { userId: "tech-1", lat: 10, lng: 10, source: "home" as const },
+    { userId: "tech-2", lat: 20, lng: 20, source: "last_job" as const },
+  ];
+
+  it("prefers a live location over the derived one", () => {
+    const live = [{ userId: "tech-1", lat: 1, lng: 2, updatedAt: iso(1000) }];
+
+    const result = mergeLivePositions(derived, live, NOW);
+
+    const t1 = result.find((p) => p.userId === "tech-1")!;
+    expect(t1).toMatchObject({ lat: 1, lng: 2, source: "live", stale: false });
+  });
+
+  it("keeps the derived position for a technician with no live fix", () => {
+    const result = mergeLivePositions(derived, [], NOW);
+
+    expect(result.find((p) => p.userId === "tech-2")).toMatchObject({
+      lat: 20,
+      source: "last_job",
+    });
+  });
+
+  it("shows a live technician who has no derived position at all", () => {
+    const live = [{ userId: "tech-9", lat: 5, lng: 5, updatedAt: iso(0) }];
+
+    const result = mergeLivePositions([], live, NOW);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ userId: "tech-9", source: "live" });
+  });
+
+  // The fix is real but aging — flag it so the dispatcher knows it may be behind.
+  it("marks an old live fix as stale", () => {
+    const live = [{ userId: "tech-1", lat: 1, lng: 1, updatedAt: iso(120_000) }];
+
+    const result = mergeLivePositions(derived, live, NOW);
+
+    expect(result.find((p) => p.userId === "tech-1")).toMatchObject({
+      source: "live",
+      stale: true,
+    });
+  });
+
+  it("carries the accuracy and timestamp through", () => {
+    const live = [{ userId: "tech-1", lat: 1, lng: 1, accuracy: 7, updatedAt: iso(0) }];
+
+    const result = mergeLivePositions(derived, live, NOW);
+
+    expect(result.find((p) => p.userId === "tech-1")).toMatchObject({
+      accuracy: 7,
+      updatedAt: iso(0),
+    });
   });
 });

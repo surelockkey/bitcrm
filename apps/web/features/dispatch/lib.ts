@@ -1,5 +1,8 @@
-import type { Deal, TechnicianProfile } from "@bitcrm/types";
+import type { Deal, TechnicianProfile, TechnicianLocation } from "@bitcrm/types";
 import { hasCoords } from "@/lib/geo/geo";
+
+/** A live fix older than this is real but aging — flagged so dispatch knows. */
+const STALE_AFTER_MS = 90_000;
 
 /** A deal we know how to plot: its address carries coordinates. */
 export type LocatedDeal = Deal & { address: Deal["address"] & { lat: number; lng: number } };
@@ -8,8 +11,16 @@ export interface TechnicianPosition {
   userId: string;
   lat: number;
   lng: number;
-  /** Where the position came from — the map says so, because it is inferred, not measured. */
-  source: "home" | "last_job";
+  /**
+   * Where the position came from. "live" is a real GPS fix the technician is
+   * sending right now; "home"/"last_job" are inferred. The map says which,
+   * because a guess and a measurement shouldn't look the same.
+   */
+  source: "live" | "home" | "last_job";
+  /** For a live fix: its timestamp, and whether it's aging toward expiry. */
+  updatedAt?: string;
+  stale?: boolean;
+  accuracy?: number;
 }
 
 /**
@@ -94,4 +105,36 @@ export function technicianPositions(
 /** Today as the `YYYY-MM-DD` string deals are scheduled with. */
 export function todayISO(now = new Date()): string {
   return now.toISOString().slice(0, 10);
+}
+
+/**
+ * Overlay live locations on the derived ones.
+ *
+ * A live GPS fix is a real measurement, so it wins over the inferred home/last-job
+ * position. A technician who is online but has no derived position still appears.
+ * Fixes older than the stale threshold are kept (they're the last real position)
+ * but flagged, so the dispatcher knows the dot may be behind.
+ */
+export function mergeLivePositions(
+  derived: TechnicianPosition[],
+  live: TechnicianLocation[],
+  now: number,
+  staleAfterMs = STALE_AFTER_MS,
+): TechnicianPosition[] {
+  const byId = new Map<string, TechnicianPosition>();
+  for (const position of derived) byId.set(position.userId, position);
+
+  for (const fix of live) {
+    byId.set(fix.userId, {
+      userId: fix.userId,
+      lat: fix.lat,
+      lng: fix.lng,
+      accuracy: fix.accuracy,
+      updatedAt: fix.updatedAt,
+      source: "live",
+      stale: now - Date.parse(fix.updatedAt) > staleAfterMs,
+    });
+  }
+
+  return [...byId.values()];
 }
