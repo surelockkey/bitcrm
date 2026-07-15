@@ -4,6 +4,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
 import { AppHeader } from "./app-header";
 import { CommandMenu } from "./command-menu";
+import { LocationBroadcaster } from "@/features/technicians/components/location-broadcaster";
 
 /** Authenticated app chrome: sidebar + header + command palette. */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex flex-1 flex-col">{children}</div>
       </SidebarInset>
       <CommandMenu />
+      {/* Streams a technician's live location while they're online (renders nothing). */}
+      <LocationBroadcaster />
     </SidebarProvider>
   );
 }

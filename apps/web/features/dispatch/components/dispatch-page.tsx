@@ -16,14 +16,14 @@ import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
-import { useAllTechnicians } from "@/features/technicians/hooks";
+import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
 import { filterDeals, stageLabel, STAGE_ORDER, jobTypeLabel } from "@/features/deals/lib";
 import { contactName } from "@/features/clients/lib";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
 import { DispatchMap } from "./dispatch-map";
 import { JobList } from "./job-list";
 import { JobSidebar } from "./job-sidebar";
-import { splitByLocation, technicianPositions, todayISO } from "../lib";
+import { splitByLocation, technicianPositions, mergeLivePositions, todayISO } from "../lib";
 
 const ALL = "all";
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
@@ -48,6 +48,7 @@ export function DispatchPage() {
   // 403 on every load for a dispatcher who can see the map but not the roster.
   const canSeeTechs = can("technicians", "view");
   const { profiles } = useAllTechnicians(canSeeTechs);
+  const { data: liveLocations } = useTechnicianLocations(canSeeTechs);
 
   const deals = useMemo(() => query.data ?? [], [query.data]);
 
@@ -73,10 +74,12 @@ export function DispatchPage() {
 
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
-  const technicians = useMemo(
-    () => technicianPositions(profiles, deals, todayISO()),
-    [profiles, deals],
-  );
+  const technicians = useMemo(() => {
+    const derived = technicianPositions(profiles, deals, todayISO());
+    // A real GPS fix beats the inferred home/last-job position when the
+    // technician is online.
+    return mergeLivePositions(derived, liveLocations ?? [], Date.now());
+  }, [profiles, deals, liveLocations]);
 
   const selected = useMemo(
     () => filtered.find((d) => d.id === selectedId) ?? null,

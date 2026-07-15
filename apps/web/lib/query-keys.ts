@@ -93,5 +93,6 @@ export const queryKeys = {
     sensitive: (id: string) => ["technicians", id, "sensitive"] as const,
     audit: (id: string) => ["technicians", id, "audit"] as const,
     userMap: () => ["users", "all-map"] as const,
+    locations: () => ["technicians", "locations"] as const,
   },
 } as const;

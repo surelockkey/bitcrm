@@ -6,9 +6,12 @@ import { cn } from "@/lib/utils";
 import type { TechnicianPosition } from "../lib";
 
 /**
- * A technician marker. The position is *inferred* — their last job of the day,
- * or their home — because the platform has no GPS. The title says which, so
- * nobody mistakes this for a live location.
+ * A technician marker.
+ *
+ * A "live" position is a real GPS fix the technician is sending now — solid
+ * green. A "home"/"last_job" position is *inferred* (the platform derives it
+ * when there's no live fix), shown dimmer. A live fix gone stale is amber. The
+ * title spells out which, so a guess never reads as a measurement.
  */
 export function TechMarker({
   position,
@@ -21,23 +24,35 @@ export function TechMarker({
   hovered: boolean;
   onHover: (id: string | null) => void;
 }) {
-  const where =
-    position.source === "home" ? "home address" : "last job today";
+  const detail =
+    position.source === "live"
+      ? position.stale
+        ? "live GPS (stale)"
+        : "live GPS"
+      : position.source === "home"
+        ? "home address (no live GPS)"
+        : "last job today (no live GPS)";
+
+  const live = position.source === "live";
 
   return (
     <AdvancedMarker
       position={{ lat: position.lat, lng: position.lng }}
-      title={`${name} — ${where} (no live GPS)`}
-      zIndex={hovered ? 20 : 5}
+      title={`${name} — ${detail}`}
+      zIndex={hovered ? 20 : live ? 8 : 5}
       onMouseEnter={() => onHover(position.userId)}
       onMouseLeave={() => onHover(null)}
     >
       <div
         data-testid={`tech-marker-${position.userId}`}
+        data-source={position.source}
+        data-stale={position.stale ? "true" : "false"}
         className={cn(
-          "flex size-7 items-center justify-center rounded-full border-2 border-white shadow-md transition-transform",
-          "bg-emerald-600 text-white",
-          position.source === "home" && "bg-emerald-600/60",
+          "flex size-7 items-center justify-center rounded-full border-2 border-white text-white shadow-md transition-transform",
+          live && !position.stale && "bg-emerald-600",
+          live && position.stale && "bg-amber-500",
+          // Inferred positions read dimmer — a best guess, not a fix.
+          !live && "bg-emerald-600/50",
           hovered && "scale-125",
         )}
       >
