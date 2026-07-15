@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useMapsLibrary } from "@vis.gl/react-google-maps";
 import { Loader2, MapPin } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import {
-  loadGoogleMaps,
-  parsePlace,
-  type PlacePrediction,
-} from "@/lib/google-maps";
+import { MapsProvider } from "@/components/maps/maps-provider";
+import { env } from "@/lib/env";
+import { parsePlace, type PlacePrediction } from "@/lib/google-maps";
 
 export interface ParsedAddress {
   street: string;
@@ -19,21 +18,7 @@ export interface ParsedAddress {
   lng?: number;
 }
 
-/**
- * Street-address input backed by Google Places autocomplete, rendered with our
- * own dropdown (not the default Google widget). Falls back to a plain input
- * when no API key is configured. On selecting a suggestion, `onSelect` fires
- * with the parsed street/city/state/zip so the caller can fill the rest.
- */
-export function AddressAutocomplete({
-  value,
-  onChange,
-  onSelect,
-  placeholder = "Start typing an address…",
-  country = "us",
-  className,
-  autoFocus,
-}: {
+interface Props {
   value: string;
   onChange: (v: string) => void;
   onSelect: (addr: ParsedAddress) => void;
@@ -41,7 +26,54 @@ export function AddressAutocomplete({
   country?: string;
   className?: string;
   autoFocus?: boolean;
-}) {
+}
+
+/**
+ * Street-address input backed by Google Places autocomplete, rendered with our
+ * own dropdown (not the default Google widget). On selecting a suggestion,
+ * `onSelect` fires with the parsed street/city/state/zip so the caller can fill
+ * the rest.
+ *
+ * Loads Maps through the shared @vis.gl provider so the whole app uses one
+ * loader — a hand-injected script alongside @vis.gl makes Google warn about
+ * loading the API multiple times. With no key it degrades to a plain input.
+ */
+export function AddressAutocomplete(props: Props) {
+  if (!env.googleMapsApiKey) return <PlainInput {...props} />;
+  return (
+    <MapsProvider>
+      <PlacesInput {...props} />
+    </MapsProvider>
+  );
+}
+
+/** Fallback with no key: a normal text field, no suggestions. */
+function PlainInput({ value, onChange, placeholder, className, autoFocus }: Props) {
+  return (
+    <div className="relative">
+      <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        className={cn("h-9 pl-8", className)}
+        placeholder={placeholder ?? "Start typing an address…"}
+        value={value}
+        autoFocus={autoFocus}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+      />
+    </div>
+  );
+}
+
+function PlacesInput({
+  value,
+  onChange,
+  onSelect,
+  placeholder = "Start typing an address…",
+  country = "us",
+  className,
+  autoFocus,
+}: Props) {
+  const placesLib = useMapsLibrary("places");
   const serviceRef = useRef<InstanceType<NonNullable<Window["google"]>["maps"]["places"]["AutocompleteService"]> | null>(null);
   const placesRef = useRef<InstanceType<NonNullable<Window["google"]>["maps"]["places"]["PlacesService"]> | null>(null);
   const sessionRef = useRef<unknown>(null);
@@ -54,19 +86,16 @@ export function AddressAutocomplete({
   const [active, setActive] = useState(0);
 
   useEffect(() => {
-    let alive = true;
-    loadGoogleMaps().then((g) => {
-      if (!alive || !g) return;
-      serviceRef.current = new g.maps.places.AutocompleteService();
-      placesRef.current = new g.maps.places.PlacesService(document.createElement("div"));
-      sessionRef.current = new g.maps.places.AutocompleteSessionToken();
-      setReady(true);
-    });
+    if (!placesLib) return;
+    const lib = placesLib as unknown as NonNullable<Window["google"]>["maps"]["places"];
+    serviceRef.current = new lib.AutocompleteService();
+    placesRef.current = new lib.PlacesService(document.createElement("div"));
+    sessionRef.current = new lib.AutocompleteSessionToken();
+    setReady(true);
     return () => {
-      alive = false;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, []);
+  }, [placesLib]);
 
   const query = (input: string) => {
     if (!serviceRef.current || input.trim().length < 3) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { APIProvider } from "@vis.gl/react-google-maps";
+import { MapsProvider } from "@/components/maps/maps-provider";
 import { KeyRound, Loader2, TriangleAlert } from "lucide-react";
 import { DealStage } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -191,7 +191,7 @@ export function DispatchPage() {
               {/* Both are required: without a vector Map ID the map loads but
                   draws no pins, which looks like a bug rather than a gap in setup. */}
               {env.googleMapsApiKey && env.googleMapsMapId ? (
-                <APIProvider apiKey={env.googleMapsApiKey}>
+                <MapsProvider>
                   <DispatchMap
                     deals={mapped}
                     technicians={technicians}
@@ -204,7 +204,7 @@ export function DispatchPage() {
                       `#${d.dealNumber} · ${contactNames.get(d.contactId) ?? "Unknown client"}`
                     }
                   />
-                </APIProvider>
+                </MapsProvider>
               ) : (
                 <MissingConfig
                   missingKey={!env.googleMapsApiKey}

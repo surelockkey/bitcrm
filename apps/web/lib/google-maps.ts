@@ -1,5 +1,3 @@
-import { env } from "@/lib/env";
-
 /**
  * Minimal typings for the slice of the Google Maps Places API we use, so we
  * don't need the full @types/google.maps dependency.
@@ -48,39 +46,12 @@ interface GoogleMaps {
 declare global {
   interface Window {
     google?: GoogleMaps;
-    __bitcrmGmapsCb?: () => void;
   }
 }
 
-let loader: Promise<GoogleMaps | null> | null = null;
-
-/**
- * Lazily load the Google Maps JS API (Places library). Resolves to the loaded
- * `google` global, or `null` when no API key is configured or loading fails —
- * callers should then fall back to manual entry.
- */
-export function loadGoogleMaps(): Promise<GoogleMaps | null> {
-  if (typeof window === "undefined") return Promise.resolve(null);
-  if (window.google?.maps?.places) return Promise.resolve(window.google);
-  if (!env.googleMapsApiKey) return Promise.resolve(null);
-  if (loader) return loader;
-
-  loader = new Promise((resolve) => {
-    window.__bitcrmGmapsCb = () => resolve(window.google ?? null);
-    const script = document.createElement("script");
-    const params = new URLSearchParams({
-      key: env.googleMapsApiKey,
-      libraries: "places",
-      loading: "async",
-      callback: "__bitcrmGmapsCb",
-    });
-    script.src = `https://maps.googleapis.com/maps/api/js?${params}`;
-    script.async = true;
-    script.onerror = () => resolve(null);
-    document.head.appendChild(script);
-  });
-  return loader;
-}
+// Maps is loaded by the shared @vis.gl provider (see components/maps/maps-provider),
+// not a hand-injected script — a second loader makes Google warn about loading the
+// API multiple times. This module keeps only the typings and the place parser.
 
 /** Pull the fields we care about out of a Places details response. */
 export function parsePlace(place: PlaceDetails): {
