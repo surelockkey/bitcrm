@@ -104,6 +104,10 @@ export const assignTech = (id: string, techId: string): Promise<Deal> =>
 export const unassignTech = (id: string): Promise<Deal> =>
   http.post<Deal>(`/deals/${id}/unassign`, {});
 
+/** Persist a manual job order for a technician (story 4.02). */
+export const reorderDeals = (techId: string, orderedDealIds: string[]): Promise<{ ok: true }> =>
+  http.post<{ ok: true }>(`/deals/reorder`, { techId, orderedDealIds });
+
 /* --------------------------------------------------------------- products */
 
 export const getDealProducts = (id: string): Promise<DealProduct[]> =>

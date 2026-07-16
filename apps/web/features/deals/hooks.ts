@@ -185,6 +185,20 @@ export function useUnassignTech(id: string) {
   });
 }
 
+/** Reorder a technician's jobs, then refresh the board so badges catch up. */
+export function useReorderDeals() {
+  const invalidate = useInvalidateDeal();
+  return useMutation({
+    mutationFn: ({ techId, orderedDealIds }: { techId: string; orderedDealIds: string[] }) =>
+      api.reorderDeals(techId, orderedDealIds),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Job order updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useAddNote(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({

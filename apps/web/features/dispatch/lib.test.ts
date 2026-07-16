@@ -16,6 +16,7 @@ import {
   techJobsToday,
   technicianAvailability,
   techJobProgress,
+  isInTimeOrder,
   type TechnicianPosition,
 } from "./lib";
 
@@ -358,5 +359,22 @@ describe("techJobProgress", () => {
   it("counts completed when nothing is active", () => {
     const jobs = [deal({ stage: DealStage.COMPLETED }), deal({ stage: DealStage.ASSIGNED })];
     expect(techJobProgress(jobs)).toEqual({ current: 1, total: 2 });
+  });
+});
+
+describe("isInTimeOrder", () => {
+  const j = (slot?: string) => deal({ scheduledTimeSlot: slot });
+  it("accepts a chronological order", () => {
+    expect(isInTimeOrder([j("09:00-11:00"), j("13:00-15:00"), j("15:00-18:00")])).toBe(true);
+  });
+  it("rejects an out-of-order sequence", () => {
+    expect(isInTimeOrder([j("13:00-15:00"), j("09:00-11:00")])).toBe(false);
+  });
+  it("treats slotless jobs as last and stays satisfied", () => {
+    expect(isInTimeOrder([j("09:00-11:00"), j(undefined)])).toBe(true);
+  });
+  it("is trivially true for zero or one job", () => {
+    expect(isInTimeOrder([])).toBe(true);
+    expect(isInTimeOrder([j("09:00")])).toBe(true);
   });
 });
