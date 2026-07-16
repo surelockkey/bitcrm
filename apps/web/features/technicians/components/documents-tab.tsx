@@ -52,17 +52,26 @@ export function DocumentsTab({ technicianId }: { technicianId: string }) {
   const canUpload = isSelf && can("documents", "upload");
   const canDelete = can("documents", "delete");
 
-  const view = async (docType: DocumentType) => {
+  const view = (docType: DocumentType) => {
+    // Open the tab synchronously, inside the click gesture. Opening it after the
+    // `await` below would count as a non-user-initiated popup — browsers block
+    // it and you get a blank (black, in dark mode) tab instead of the document.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null; // keep the noopener guarantee we had before
     setViewing(docType);
-    try {
-      const { downloadUrl } = await api.getDocumentDownloadUrl(technicianId, docType);
-      window.open(downloadUrl, "_blank", "noopener,noreferrer");
-      qc.invalidateQueries({ queryKey: queryKeys.technicians.audit(technicianId) });
-    } catch (e) {
-      toast.error(getApiErrorMessage(e));
-    } finally {
-      setViewing(null);
-    }
+    void (async () => {
+      try {
+        const { downloadUrl } = await api.getDocumentDownloadUrl(technicianId, docType);
+        if (tab) tab.location.replace(downloadUrl);
+        else window.open(downloadUrl, "_blank", "noopener,noreferrer"); // popup blocked outright
+        qc.invalidateQueries({ queryKey: queryKeys.technicians.audit(technicianId) });
+      } catch (e) {
+        tab?.close();
+        toast.error(getApiErrorMessage(e));
+      } finally {
+        setViewing(null);
+      }
+    })();
   };
 
   if (isLoading) return <Skeleton className="h-72 w-full" />;
