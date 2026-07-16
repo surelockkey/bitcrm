@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   ChevronDown,
@@ -28,7 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useAuthStore } from "@/stores/auth-store";
+import { useLogout } from "@/features/auth/hooks";
 
 function initials(first?: string, last?: string): string {
   const value = `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
@@ -36,18 +35,13 @@ function initials(first?: string, last?: string): string {
 }
 
 export function NavUser() {
-  const router = useRouter();
   const { me, roleName, can } = usePermissions();
   const { setTheme } = useTheme();
-  const clear = useAuthStore((s) => s.clear);
+  const signOut = useLogout();
 
   if (!me) return <Skeleton className="size-8 rounded-full" />;
 
   const name = `${me.firstName} ${me.lastName}`.trim() || me.email;
-  const signOut = () => {
-    clear();
-    router.replace("/login");
-  };
 
   return (
     <DropdownMenu>
