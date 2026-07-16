@@ -1,0 +1,62 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { MapPin } from "lucide-react";
+import type { Contact, Deal, User } from "@bitcrm/types";
+import { cn } from "@/lib/utils";
+import { contactName, initials } from "@/features/clients/lib";
+import { formatMoney, isUrgent, jobTypeLabel } from "../lib";
+import { PriorityFlag } from "./deal-badges";
+
+export function DealCard({
+  deal,
+  contactMap,
+  userMap,
+}: {
+  deal: Deal;
+  contactMap: Map<string, Contact>;
+  userMap: Map<string, User>;
+}) {
+  const router = useRouter();
+  const contact = contactMap.get(deal.contactId);
+  const tech = deal.assignedTechId ? userMap.get(deal.assignedTechId) : undefined;
+  const client = contact ? contactName(contact) : "—";
+
+  return (
+    <button
+      type="button"
+      onClick={() => router.push(`/deals/${deal.id}`)}
+      className="flex w-full flex-col gap-1.5 rounded-lg border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20 hover:bg-accent/40"
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] text-muted-foreground">#{deal.dealNumber}</span>
+        {isUrgent(deal) ? <PriorityFlag /> : null}
+      </div>
+      <div className="truncate text-sm font-semibold">{client}</div>
+      <div className="flex items-center gap-1 truncate text-[11.5px] text-muted-foreground">
+        <MapPin className="size-3 flex-none" />
+        {deal.serviceArea} · {jobTypeLabel(deal.jobType)}
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+        {tech ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="grid size-4 place-items-center rounded-full bg-muted text-[8px] font-bold">
+              {initials(tech.firstName, tech.lastName)}
+            </span>
+            {tech.firstName}
+          </span>
+        ) : null}
+        {deal.tags.slice(0, 2).map((t) => (
+          <span key={t} className="rounded-full border bg-muted/60 px-1.5 text-[10px] text-muted-foreground">
+            {t}
+          </span>
+        ))}
+        {typeof deal.estimatedTotal === "number" ? (
+          <span className={cn("ml-auto font-mono text-[11px]", deal.actualTotal ? "text-emerald-600" : "text-muted-foreground")}>
+            {formatMoney(deal.actualTotal ?? deal.estimatedTotal)}
+          </span>
+        ) : null}
+      </div>
+    </button>
+  );
+}
