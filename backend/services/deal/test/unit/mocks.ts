@@ -88,7 +88,9 @@ export function createMockDealsRepository() {
     create: jest.fn(),
     findById: jest.fn(),
     findByStage: jest.fn(),
-    findByTech: jest.fn(),
+    // Empty page by default so the assign/unassign renumber step is a no-op
+    // unless a test sets up a schedule explicitly.
+    findByTech: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findByContact: jest.fn(),
     findByDispatcher: jest.fn(),
     findAll: jest.fn(),

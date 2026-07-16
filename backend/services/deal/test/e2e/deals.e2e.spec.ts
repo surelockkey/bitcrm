@@ -383,6 +383,58 @@ describe('Deals E2E', () => {
     });
   });
 
+  describe('job sequencing', () => {
+    const TECH = '550e8400-e29b-41d4-a716-446655440001';
+    const DATE = '2026-07-16';
+
+    const createFor = async (slot: string) => {
+      const res = await request(app.getHttpServer())
+        .post(BASE)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ ...validDealPayload, scheduledDate: DATE, scheduledTimeSlot: slot });
+      return res.body.data.id as string;
+    };
+
+    const assign = (id: string) =>
+      request(app.getHttpServer())
+        .post(`${BASE}/${id}/assign`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ techId: TECH });
+
+    const seqOf = async (id: string) => {
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(adminUser));
+      return res.body.data.sequenceNumber as number;
+    };
+
+    it('numbers a technician’s jobs by scheduled time on assignment', async () => {
+      const pm = await createFor('15:00-18:00');
+      const am = await createFor('09:00-12:00');
+      await assign(pm);
+      await assign(am);
+
+      expect(await seqOf(am)).toBe(1);
+      expect(await seqOf(pm)).toBe(2);
+    });
+
+    it('reorders on demand', async () => {
+      const a = await createFor('09:00-12:00');
+      const b = await createFor('13:00-15:00');
+      await assign(a);
+      await assign(b);
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/reorder`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ techId: TECH, orderedDealIds: [b, a] })
+        .expect(201);
+
+      expect(await seqOf(b)).toBe(1);
+      expect(await seqOf(a)).toBe(2);
+    });
+  });
+
   // ─── INTERNAL ─────────────────────────────────────────
 
   describe('GET /api/deals/internal/by-tech/:techId', () => {

@@ -18,6 +18,7 @@ import { ChangeStageDto } from './dto/change-stage.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { AssignTechDto } from './dto/assign-tech.dto';
+import { ReorderDto } from './dto/reorder.dto';
 import { AddDealProductDto } from './dto/add-deal-product.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { Internal } from '../common/decorators/internal.decorator';
@@ -209,6 +210,20 @@ export class DealsController {
   ) {
     const data = await this.dealsService.unassignTech(id, user);
     return { success: true, data };
+  }
+
+  // Static path — declared before the dynamic ":id" routes can't shadow it.
+  @Post('reorder')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Reorder a technician’s jobs (drag-and-drop)',
+    description:
+      '**Guard:** `deals.edit` permission required. Writes sequenceNumber 1..N in ' +
+      'the given order for the technician’s own jobs; ids that are not theirs are ignored.',
+  })
+  async reorder(@Body() dto: ReorderDto, @CurrentUser() user: JwtUser) {
+    await this.dealsService.reorderSchedule(dto, user);
+    return { success: true };
   }
 
   @Post(':id/products')
