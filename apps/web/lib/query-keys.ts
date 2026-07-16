@@ -9,6 +9,10 @@
 export const queryKeys = {
   me: () => ["me"] as const,
 
+  search: {
+    global: (q: string, mode: string) => ["search", mode, q] as const,
+  },
+
   deals: {
     all: () => ["deals"] as const,
     list: (filters?: unknown) => ["deals", "list", filters] as const,
