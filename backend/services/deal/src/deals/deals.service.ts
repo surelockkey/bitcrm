@@ -20,6 +20,7 @@ import {
   DealPriority,
   TimelineEventType,
   STAGE_GROUPS,
+  TERMINAL_STAGES,
   type Address,
   type Deal,
   type TimelineEntry,
@@ -348,6 +349,9 @@ export class DealsService {
     await this.cache.invalidate(id);
     this.businessMetrics?.dealTechAssignments.inc();
 
+    // Slot the job into the technician's day by scheduled time.
+    await this.renumberTechSchedule(dto.techId, deal.scheduledDate);
+
     await this.addTimelineEntry(id, TimelineEventType.TECH_ASSIGNED, caller, {
       techId: dto.techId,
     });
@@ -372,6 +376,9 @@ export class DealsService {
     const result = await this.repository.update(id, { assignedTechId: '' } as any);
     await this.cache.invalidate(id);
 
+    // Close the gap the removed job left in the technician's sequence.
+    await this.renumberTechSchedule(previousTechId, deal.scheduledDate);
+
     await this.addTimelineEntry(id, TimelineEventType.TECH_UNASSIGNED, caller, {
       previousTechId,
     });
@@ -383,6 +390,71 @@ export class DealsService {
     });
 
     return result;
+  }
+
+  /** Every active deal a technician has, drained across pages. */
+  private async listTechDeals(techId: string): Promise<Deal[]> {
+    const all: Deal[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.repository.findByTech(techId, 100, cursor);
+      all.push(...page.items);
+      cursor = page.nextCursor;
+    } while (cursor && all.length < 500);
+    return all.filter((d) => !TERMINAL_STAGES.has(d.stage));
+  }
+
+  /**
+   * Renumber a technician's schedule for a day: earliest scheduled job is [1].
+   * Jobs are visited in scheduled-time order (EPIC-4's time-based sequencing),
+   * so assigning or removing one keeps the badges contiguous and correct.
+   */
+  private async renumberTechSchedule(
+    techId: string,
+    date?: string,
+  ): Promise<void> {
+    if (!techId) return;
+
+    const deals = (await this.listTechDeals(techId))
+      .filter((d) => !date || d.scheduledDate === date)
+      .sort((a, b) =>
+        (a.scheduledTimeSlot ?? '~').localeCompare(b.scheduledTimeSlot ?? '~'),
+      );
+
+    await this.writeSequence(deals.map((d) => d.id));
+  }
+
+  /** Persist sequenceNumber 1..N for the given deal ids, in order. */
+  private async writeSequence(orderedIds: string[]): Promise<void> {
+    await Promise.all(
+      orderedIds.map((id, index) =>
+        this.repository.update(id, { sequenceNumber: index + 1 } as Partial<Deal>),
+      ),
+    );
+    for (const id of orderedIds) await this.cache.invalidate(id);
+  }
+
+  /**
+   * Manual drag-to-reorder of a technician's day. Writes the sequence in the
+   * given order, ignoring any id that isn't actually this technician's.
+   */
+  async reorderSchedule(
+    dto: { techId: string; orderedDealIds: string[] },
+    caller: JwtUser,
+  ): Promise<void> {
+    const owned = new Set(
+      (await this.listTechDeals(dto.techId)).map((d) => d.id),
+    );
+    const ordered = dto.orderedDealIds.filter((id) => owned.has(id));
+
+    await this.writeSequence(ordered);
+
+    for (const id of ordered) {
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: 'sequenceNumber',
+        newValue: ordered.indexOf(id) + 1,
+      });
+    }
   }
 
   async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
