@@ -24,7 +24,14 @@ import { DispatchMap } from "./dispatch-map";
 import { JobList } from "./job-list";
 import { TechList } from "./tech-list";
 import { JobSidebar } from "./job-sidebar";
-import { splitByLocation, technicianPositions, mergeLivePositions, todayISO } from "../lib";
+import { TechSidebar } from "./tech-sidebar";
+import {
+  splitByLocation,
+  technicianPositions,
+  mergeLivePositions,
+  techJobsToday,
+  todayISO,
+} from "../lib";
 
 const ALL = "all";
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
@@ -114,6 +121,17 @@ export function DispatchPage() {
   const selected = useMemo(
     () => filtered.find((d) => d.id === selectedId) ?? null,
     [filtered, selectedId],
+  );
+
+  // A technician can be selected instead of a job — ids don't collide, so at
+  // most one of `selected`/`selectedTech` is ever set.
+  const selectedTech = useMemo(
+    () => (selectedId ? technicians.find((t) => t.userId === selectedId) ?? null : null),
+    [selectedId, technicians],
+  );
+  const selectedTechJobs = useMemo(
+    () => (selectedTech ? techJobsToday(deals, selectedTech.userId, todayISO()) : []),
+    [selectedTech, deals],
   );
 
   // Where to centre the map when something is selected — a job pin or a
@@ -287,6 +305,7 @@ export function DispatchPage() {
               {env.googleMapsApiKey && env.googleMapsMapId ? (
                 <DispatchMap
                   deals={mapJobs}
+                  allDeals={deals}
                   technicians={mapTechs}
                   userMap={users}
                   hoveredId={hoveredId}
@@ -316,6 +335,15 @@ export function DispatchPage() {
               canEdit={can("deals", "edit")}
               onEdit={() => setEditing(true)}
               onClose={() => setSelectedId(null)}
+            />
+          ) : selectedTech ? (
+            <TechSidebar
+              position={selectedTech}
+              name={nameOf(selectedTech.userId) ?? "Technician"}
+              jobs={selectedTechJobs}
+              clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
+              onClose={() => setSelectedId(null)}
+              onSelectJob={select}
             />
           ) : null}
         </div>

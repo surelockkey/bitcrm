@@ -13,6 +13,10 @@ import {
   mergeLivePositions,
   technicianStatus,
   formatAge,
+  techJobsToday,
+  technicianAvailability,
+  techJobProgress,
+  type TechnicianPosition,
 } from "./lib";
 
 const TODAY = "2026-07-14";
@@ -313,5 +317,46 @@ describe("formatAge", () => {
     expect(formatAge(ago(5 * 60_000), now)).toBe("5 min ago");
     expect(formatAge(ago(3 * 3_600_000), now)).toBe("3 h ago");
     expect(formatAge(ago(2 * 86_400_000), now)).toBe("2 d ago");
+  });
+});
+
+describe("techJobsToday", () => {
+  it("returns only this tech's today jobs, ordered by time slot", () => {
+    const deals = [
+      deal({ id: "b", assignedTechId: "t1", scheduledDate: TODAY, scheduledTimeSlot: "13:00-15:00" }),
+      deal({ id: "a", assignedTechId: "t1", scheduledDate: TODAY, scheduledTimeSlot: "09:00-11:00" }),
+      deal({ id: "other-tech", assignedTechId: "t2", scheduledDate: TODAY, scheduledTimeSlot: "10:00" }),
+      deal({ id: "other-day", assignedTechId: "t1", scheduledDate: "2026-07-13" }),
+    ];
+    expect(techJobsToday(deals, "t1", TODAY).map((d) => d.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("technicianAvailability", () => {
+  const pos: TechnicianPosition = { userId: "t1", lat: 1, lng: 2, source: "home" };
+  it("is offline without a position", () => {
+    expect(technicianAvailability([], undefined)).toBe("offline");
+  });
+  it("is on_job when an active-stage job exists", () => {
+    expect(technicianAvailability([deal({ stage: DealStage.ON_SITE })], pos)).toBe("on_job");
+  });
+  it("is available when placeable but idle", () => {
+    expect(technicianAvailability([deal({ stage: DealStage.ASSIGNED })], pos)).toBe("available");
+    expect(technicianAvailability([], pos)).toBe("available");
+  });
+});
+
+describe("techJobProgress", () => {
+  it("points at the active job's place in the day", () => {
+    const jobs = [
+      deal({ stage: DealStage.COMPLETED }),
+      deal({ stage: DealStage.ON_SITE }),
+      deal({ stage: DealStage.ASSIGNED }),
+    ];
+    expect(techJobProgress(jobs)).toEqual({ current: 2, total: 3 });
+  });
+  it("counts completed when nothing is active", () => {
+    const jobs = [deal({ stage: DealStage.COMPLETED }), deal({ stage: DealStage.ASSIGNED })];
+    expect(techJobProgress(jobs)).toEqual({ current: 1, total: 2 });
   });
 });
