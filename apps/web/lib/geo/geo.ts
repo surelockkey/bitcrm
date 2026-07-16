@@ -37,6 +37,20 @@ export function hasCoords(
   return address?.lat !== undefined && address?.lng !== undefined;
 }
 
+/**
+ * A Google Maps "search" deep link (story v0:245). Prefers coordinates when the
+ * address has them — an exact drop — and falls back to the written address.
+ */
+export function googleMapsLink(address: Address): string {
+  const query =
+    hasCoords(address)
+      ? `${address.lat},${address.lng}`
+      : [address.street, address.unit, address.city, address.state, address.zip]
+          .filter(Boolean)
+          .join(" ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
 const normalize = (value?: string) => (value ?? "").trim().toLowerCase();
 
 /** Do two addresses describe the same place, ignoring case and padding? */

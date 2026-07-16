@@ -21,6 +21,7 @@ import {
   isPriceInBand,
   isTerminal,
   filterDeals,
+  datePresetRange,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -138,5 +139,39 @@ describe("filterDeals", () => {
     expect(filterDeals(list, { search: "1040" }, names).map((d) => d.id)).toEqual(["b"]);
     expect(filterDeals(list, { search: "jane" }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { search: "#1042" }, names).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("filters by service area (exact)", () => {
+    const areas = [
+      deal({ id: "atl", serviceArea: "Atlanta Metro" }),
+      deal({ id: "ngа", serviceArea: "North GA" }),
+    ];
+    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["ngа"]);
+  });
+
+  it("filters by status group", () => {
+    // a = NEW_LEAD (Submitted), b = ASSIGNED (In Progress)
+    expect(
+      filterDeals(list, { statusGroups: [DealStageGroup.SUBMITTED] }, names).map((d) => d.id),
+    ).toEqual(["a"]);
+    expect(filterDeals(list, { statusGroups: [] }, names)).toHaveLength(2);
+  });
+
+  it("datePresetRange maps presets to ranges", () => {
+    expect(datePresetRange("all", "2026-07-16")).toEqual({});
+    expect(datePresetRange("today", "2026-07-16")).toEqual({ from: "2026-07-16", to: "2026-07-16" });
+    // 2026-07-16 is a Thursday → week is Mon 13th … Sun 19th
+    expect(datePresetRange("week", "2026-07-16")).toEqual({ from: "2026-07-13", to: "2026-07-19" });
+  });
+
+  it("filters by scheduled-date range and excludes undated deals", () => {
+    const dated = [
+      deal({ id: "mon", scheduledDate: "2026-07-13" }),
+      deal({ id: "wed", scheduledDate: "2026-07-15" }),
+      deal({ id: "none" }),
+    ];
+    expect(
+      filterDeals(dated, { dateFrom: "2026-07-14", dateTo: "2026-07-16" }, names).map((d) => d.id),
+    ).toEqual(["wed"]);
   });
 });

@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, MapPinOff, Pencil, UserPlus, X } from "lucide-react";
+import { ArrowUpRight, MapPin, MapPinOff, Pencil, UserPlus, X } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
 import { jobTypeLabel } from "@/features/deals/lib";
 import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog";
-import { hasCoords } from "@/lib/geo/geo";
+import { googleMapsLink, hasCoords } from "@/lib/geo/geo";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -66,6 +66,20 @@ export function JobSidebar({
               )}
               <span>{address}</span>
             </span>
+          }
+        />
+        <Row
+          label="Directions"
+          value={
+            <a
+              href={googleMapsLink(deal.address)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            >
+              <MapPin className="size-3.5" /> Open in Google Maps
+              <ArrowUpRight className="size-3" />
+            </a>
           }
         />
         <Row label="Service area" value={deal.serviceArea} />
