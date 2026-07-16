@@ -43,8 +43,10 @@ describe('DocumentsService (unit)', () => {
         caller('role-technician', 'tech-1'),
       );
       expect(res.uploadUrl).toBe('https://s3/upload');
+      // The client is handed the exact headers it must replay on the PUT.
+      expect(res.headers).toEqual({ 'Content-Type': 'image/png' });
       // SSE-KMS enforced
-      expect(s3.getPresignedUploadUrl).toHaveBeenCalledWith(
+      expect(s3.getPresignedUpload).toHaveBeenCalledWith(
         'technicians/tech-1/drivers_license_front',
         expect.objectContaining({ contentType: 'image/jpeg', kmsKeyId: 'alias/test' }),
       );

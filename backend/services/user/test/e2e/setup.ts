@@ -92,6 +92,10 @@ export function getMockCognitoAdmin() {
 
 // Mock S3 (presigned URLs) + KMS (deterministic encrypt/decrypt/mask) for e2e
 const mockS3Service = {
+  getPresignedUpload: jest.fn().mockResolvedValue({
+    url: 'https://s3.local/upload',
+    headers: { 'Content-Type': 'image/png' },
+  }),
   getPresignedUploadUrl: jest.fn().mockResolvedValue('https://s3.local/upload'),
   getPresignedDownloadUrl: jest.fn().mockResolvedValue('https://s3.local/download'),
   deleteObject: jest.fn().mockResolvedValue(undefined),

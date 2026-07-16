@@ -33,12 +33,19 @@ export class DocumentsService {
     userId: string,
     dto: UploadDocumentDto,
     caller: JwtUser,
-  ): Promise<{ uploadUrl: string; s3Key: string }> {
+  ): Promise<{
+    uploadUrl: string;
+    s3Key: string;
+    headers: Record<string, string>;
+  }> {
     if (caller.id !== userId) {
       throw new ForbiddenException('You can only upload your own documents');
     }
     const s3Key = documentS3Key(userId, dto.docType);
-    const uploadUrl = await this.s3.getPresignedUploadUrl(s3Key, {
+    // The SSE-KMS headers are part of the signature — the client MUST send them
+    // back on the PUT, so hand them over rather than leaving the browser to
+    // guess (and 403).
+    const { url: uploadUrl, headers } = await this.s3.getPresignedUpload(s3Key, {
       contentType: dto.contentType,
       kmsKeyId: process.env.DOCUMENTS_KMS_KEY_ID || 'alias/bitcrm-documents',
     });
@@ -56,7 +63,7 @@ export class DocumentsService {
     await this.writeAudit(userId, caller.id, 'document.uploaded', dto.docType);
     this.publish('document.uploaded', { technicianId: userId, docType: dto.docType });
     this.logger.log(`Document upload requested: ${userId}/${dto.docType} by ${caller.id}`);
-    return { uploadUrl, s3Key };
+    return { uploadUrl, s3Key, headers };
   }
 
   async getDownloadUrl(

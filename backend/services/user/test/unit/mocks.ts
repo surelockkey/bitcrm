@@ -240,6 +240,10 @@ export function createMockCommissionRepository() {
 
 export function createMockS3Service() {
   return {
+    getPresignedUpload: jest.fn().mockResolvedValue({
+      url: 'https://s3/upload',
+      headers: { 'Content-Type': 'image/png' },
+    }),
     getPresignedUploadUrl: jest.fn().mockResolvedValue('https://s3/upload'),
     getPresignedDownloadUrl: jest.fn().mockResolvedValue('https://s3/download'),
     deleteObject: jest.fn().mockResolvedValue(undefined),
