@@ -32,15 +32,23 @@ export class S3Service {
     });
   }
 
-  async getPresignedUploadUrl(
+  /**
+   * A presigned PUT URL **plus the exact headers the client must send with it.**
+   *
+   * For an SSE-KMS upload the encryption headers are part of the signature, so a
+   * client that PUTs with only `Content-Type` gets a 403 (SignatureDoesNotMatch).
+   * Returning the headers here means the caller physically can't forget them —
+   * the header set and the signature are produced from the same options.
+   */
+  async getPresignedUpload(
     key: string,
-    contentTypeOrOpts: string | PresignedUploadOptions,
-    expiresIn = 300,
-  ): Promise<string> {
-    const opts: PresignedUploadOptions =
-      typeof contentTypeOrOpts === 'string'
-        ? { contentType: contentTypeOrOpts, expiresIn }
-        : contentTypeOrOpts;
+    opts: PresignedUploadOptions,
+  ): Promise<{ url: string; headers: Record<string, string> }> {
+    const headers: Record<string, string> = { 'Content-Type': opts.contentType };
+    if (opts.kmsKeyId) {
+      headers['x-amz-server-side-encryption'] = 'aws:kms';
+      headers['x-amz-server-side-encryption-aws-kms-key-id'] = opts.kmsKeyId;
+    }
 
     const command = new PutObjectCommand({
       Bucket: this.bucket,
@@ -51,7 +59,7 @@ export class S3Service {
         SSEKMSKeyId: opts.kmsKeyId,
       }),
     });
-    return getSignedUrl(this.client, command, {
+    const url = await getSignedUrl(this.client, command, {
       expiresIn: opts.expiresIn ?? 300,
       ...(opts.kmsKeyId && {
         signableHeaders: new Set([
@@ -60,6 +68,21 @@ export class S3Service {
         ]),
       }),
     });
+    return { url, headers };
+  }
+
+  async getPresignedUploadUrl(
+    key: string,
+    contentTypeOrOpts: string | PresignedUploadOptions,
+    expiresIn = 300,
+  ): Promise<string> {
+    const opts: PresignedUploadOptions =
+      typeof contentTypeOrOpts === 'string'
+        ? { contentType: contentTypeOrOpts, expiresIn }
+        : contentTypeOrOpts;
+
+    const { url } = await this.getPresignedUpload(key, opts);
+    return url;
   }
 
   async getPresignedDownloadUrl(key: string, expiresIn = 3600): Promise<string> {
