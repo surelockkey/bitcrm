@@ -25,6 +25,24 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   }
 }
 
+# Browser uploads/downloads hit S3 directly via presigned URLs, which are
+# cross-origin from the app. Without this the preflight has no CORS response and
+# the browser blocks the PUT, so the object never lands (and a later view 404s).
+resource "aws_s3_bucket_cors_configuration" "this" {
+  count  = length(var.cors_allowed_origins) > 0 ? 1 : 0
+  bucket = aws_s3_bucket.this.id
+
+  cors_rule {
+    allowed_methods = ["GET", "PUT", "HEAD"]
+    allowed_origins = var.cors_allowed_origins
+    # The presigned SSE-KMS PUT carries x-amz-server-side-encryption* and
+    # Content-Type headers, so the preflight must permit them.
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3600
+  }
+}
+
 resource "aws_s3_bucket_versioning" "this" {
   count  = var.enable_versioning ? 1 : 0
   bucket = aws_s3_bucket.this.id
