@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { KeyRound, Loader2, LogOut, Pencil } from "lucide-react";
@@ -25,10 +24,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UserStatus } from "@bitcrm/types";
 import type { User } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/auth-store";
 import { useMe } from "@/features/auth/use-me";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useRequestReset } from "@/features/auth/hooks";
+import { useLogout, useRequestReset } from "@/features/auth/hooks";
 import { initials, formatDate } from "@/features/users/lib";
 import { useUpdateUser } from "@/features/users/hooks";
 import { updateUserSchema, type UpdateUserValues } from "@/features/users/schemas";
@@ -155,15 +153,9 @@ function AccountCard({
 }
 
 function SecurityCard({ email }: { email: string }) {
-  const router = useRouter();
-  const clear = useAuthStore((s) => s.clear);
+  const signOut = useLogout();
   const requestReset = useRequestReset();
   const [confirmReset, setConfirmReset] = useState(false);
-
-  const signOut = () => {
-    clear();
-    router.replace("/login");
-  };
 
   return (
     <section className="rounded-xl border bg-card p-5">

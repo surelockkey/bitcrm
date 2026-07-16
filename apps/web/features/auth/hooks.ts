@@ -1,6 +1,7 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -13,11 +14,32 @@ import {
 import { ApiError } from "@/lib/api/errors";
 import { useAuthStore } from "@/stores/auth-store";
 
+/**
+ * Sign out: drop the session AND wipe the query cache before leaving.
+ *
+ * The cache is keyed by resource, not by user, so without clearing it the next
+ * person to sign in on this browser would see the previous user's `me`,
+ * permissions and data until each query happened to refetch (`me` has a 5-min
+ * staleTime, so effectively the whole previous view).
+ */
+export function useLogout() {
+  const router = useRouter();
+  const clear = useAuthStore((s) => s.clear);
+  const queryClient = useQueryClient();
+
+  return useCallback(() => {
+    clear();
+    queryClient.clear();
+    router.replace("/login");
+  }, [clear, queryClient, router]);
+}
+
 /** Sign in. Tokens → app; NEW_PASSWORD_REQUIRED challenge → /set-password. */
 export function useLogin() {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
   const setChallenge = useAuthStore((s) => s.setChallenge);
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (values: { email: string; password: string }) => login(values),
@@ -28,6 +50,8 @@ export function useLogin() {
         router.replace("/set-password");
         return;
       }
+      // Start the new session on a clean cache — never inherit a prior user's data.
+      queryClient.clear();
       setSession(res);
       router.replace("/");
     },
@@ -43,6 +67,7 @@ export function useSetPassword() {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
   const clear = useAuthStore((s) => s.clear);
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ newPassword }: { newPassword: string }) => {
@@ -57,6 +82,8 @@ export function useSetPassword() {
       });
     },
     onSuccess: (tokens) => {
+      // Fresh session → fresh cache, same as a normal login.
+      queryClient.clear();
       setSession(tokens);
       router.replace("/");
     },
