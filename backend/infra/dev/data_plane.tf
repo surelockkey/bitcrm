@@ -118,9 +118,10 @@ module "s3_app" {
   source = "../modules/s3-bucket"
   name   = "${var.project}-${var.environment}-app-${data.aws_caller_identity.current.account_id}"
   # Presigned document upload/download runs in the browser, cross-origin to the
-  # bucket — allow the deployed app plus local dev.
+  # bucket. Allow the FRONTEND origins (the web app + local dev) — NOT the API
+  # domain (var.domain_name is the ALB/API host, where no browser runs).
   cors_allowed_origins = [
-    "https://${var.domain_name}",
+    "https://bitcrm.tech-slk.com",
     "http://localhost:3000",
     "http://localhost:3002",
   ]
