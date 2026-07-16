@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
+import { useContactMap, useDeals, useReorderDeals, useUserMap } from "@/features/deals/hooks";
 import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
 import {
   filterDeals,
@@ -139,6 +139,7 @@ export function DispatchPage() {
   const canSeeTechs = can("technicians", "view");
   const { profiles } = useAllTechnicians(canSeeTechs);
   const { data: liveLocations } = useTechnicianLocations(canSeeTechs);
+  const reorder = useReorderDeals();
 
   const deals = useMemo(() => query.data ?? [], [query.data]);
 
@@ -456,6 +457,10 @@ export function DispatchPage() {
               name={nameOf(selectedTech.userId) ?? "Technician"}
               jobs={selectedTechJobs}
               clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
+              canReorder={can("deals", "edit")}
+              onReorder={(orderedDealIds) =>
+                reorder.mutate({ techId: selectedTech.userId, orderedDealIds })
+              }
               onClose={() => setSelectedId(null)}
               onSelectJob={select}
             />

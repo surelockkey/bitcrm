@@ -184,6 +184,19 @@ export function techJobsToday(deals: Deal[], techId: string, today: string): Dea
     .sort((a, b) => (a.scheduledTimeSlot ?? "~").localeCompare(b.scheduledTimeSlot ?? "~"));
 }
 
+/**
+ * Is this job order still chronological? A manual drag can put a later-scheduled
+ * job first; dispatch warns when that happens (story 4.02:282). Jobs with no
+ * time slot sort last and never trip the warning on their own.
+ */
+export function isInTimeOrder(jobs: Deal[]): boolean {
+  const slots = jobs.map((d) => d.scheduledTimeSlot ?? "~");
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i] < slots[i - 1]) return false;
+  }
+  return true;
+}
+
 export type TechAvailability = "on_job" | "available" | "offline";
 
 /**

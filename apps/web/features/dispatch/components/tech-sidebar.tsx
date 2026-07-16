@@ -1,6 +1,25 @@
 "use client";
 
-import { MapPin, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical, MapPin, TriangleAlert, X } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
@@ -9,6 +28,7 @@ import { techColor } from "../tech-color";
 import { useReverseGeocode } from "../use-reverse-geocode";
 import {
   formatAge,
+  isInTimeOrder,
   technicianAvailability,
   type TechAvailability,
   type TechnicianPosition,
@@ -34,15 +54,78 @@ function locationLine(position: TechnicianPosition): string {
   return position.source === "home" ? "At home (no live GPS)" : "At last job (no live GPS)";
 }
 
+function JobRow({
+  deal,
+  index,
+  clientName,
+  canReorder,
+  onSelectJob,
+}: {
+  deal: Deal;
+  index: number;
+  clientName: (deal: Deal) => string;
+  canReorder: boolean;
+  onSelectJob: (dealId: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: deal.id,
+    disabled: !canReorder,
+  });
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={isDragging ? "relative z-10 opacity-80" : undefined}
+    >
+      <div className="flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-2">
+        {canReorder ? (
+          <button
+            type="button"
+            className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+            aria-label={`Reorder job #${deal.dealNumber}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-4" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onSelectJob(deal.id)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+            {index + 1}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              #{deal.dealNumber} · {clientName(deal)}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {jobTypeLabel(deal.jobType)}
+              {deal.scheduledTimeSlot ? ` · ${deal.scheduledTimeSlot}` : ""}
+            </span>
+          </span>
+          <StageBadge stage={deal.stage} />
+        </button>
+      </div>
+    </li>
+  );
+}
+
 /**
  * Technician details next to the map — the counterpart to `JobSidebar`. Shows
  * who they are, where they are, and their day's jobs in order (story v0:337).
+ * A manager can drag the jobs to re-sequence them (story 4.02:257).
  */
 export function TechSidebar({
   position,
   name,
   jobs,
   clientName,
+  canReorder,
+  onReorder,
   onClose,
   onSelectJob,
 }: {
@@ -51,6 +134,9 @@ export function TechSidebar({
   /** The technician's jobs today, ordered by time slot. */
   jobs: Deal[];
   clientName: (deal: Deal) => string;
+  /** Whether the viewer may drag to re-sequence (deals.edit). */
+  canReorder: boolean;
+  onReorder: (orderedDealIds: string[]) => void;
   onClose: () => void;
   onSelectJob: (dealId: string) => void;
 }) {
@@ -58,6 +144,31 @@ export function TechSidebar({
   const address = useReverseGeocode([position]).get(position.userId);
   const availability = technicianAvailability(jobs, position);
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${position.lat},${position.lng}`;
+
+  // Local order for optimistic drag; resyncs whenever the server's job set changes.
+  const [items, setItems] = useState<Deal[]>(jobs);
+  useEffect(() => {
+    setItems(jobs);
+  }, [jobs]);
+
+  const sensors = useSensors(
+    // A small drag threshold keeps a plain click on the grip from starting a drag.
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = items.findIndex((d) => d.id === active.id);
+    const newIndex = items.findIndex((d) => d.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(items, oldIndex, newIndex);
+    setItems(next); // optimistic
+    onReorder(next.map((d) => d.id));
+  };
+
+  const outOfOrder = !isInTimeOrder(items);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l">
@@ -97,36 +208,40 @@ export function TechSidebar({
 
       <div className="px-4 py-3">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Today&apos;s jobs · {jobs.length}
+          Today&apos;s jobs · {items.length}
         </div>
-        {jobs.length === 0 ? (
+
+        {outOfOrder ? (
+          <div className="mb-2 flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
+            <TriangleAlert className="size-3.5 shrink-0" />
+            Jobs not in time order
+          </div>
+        ) : null}
+
+        {items.length === 0 ? (
           <p className="text-sm text-muted-foreground">No jobs scheduled today.</p>
         ) : (
-          <ol className="space-y-1.5">
-            {jobs.map((deal, i) => (
-              <li key={deal.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectJob(deal.id)}
-                  className="flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors hover:bg-muted/60"
-                >
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                    {deal.sequenceNumber ?? i + 1}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      #{deal.dealNumber} · {clientName(deal)}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {jobTypeLabel(deal.jobType)}
-                      {deal.scheduledTimeSlot ? ` · ${deal.scheduledTimeSlot}` : ""}
-                    </span>
-                  </span>
-                  <StageBadge stage={deal.stage} />
-                </button>
-              </li>
-            ))}
-          </ol>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={items.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+              <ol className="space-y-1.5">
+                {items.map((deal, i) => (
+                  <JobRow
+                    key={deal.id}
+                    deal={deal}
+                    index={i}
+                    clientName={clientName}
+                    canReorder={canReorder}
+                    onSelectJob={onSelectJob}
+                  />
+                ))}
+              </ol>
+            </SortableContext>
+          </DndContext>
         )}
       </div>
     </aside>
