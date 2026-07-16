@@ -86,6 +86,21 @@ export { CreateRoleRequest } from './dto/create-role.dto';
 export { UpdateRoleRequest } from './dto/update-role.dto';
 export { UpdateUserPermissionsRequest } from './dto/update-user-permissions.dto';
 
+// Search
+export {
+  SearchType,
+  SearchDocStatus,
+  SearchDocument,
+  SEARCH_TYPES,
+  SEARCH_TYPE_TO_RESOURCE,
+} from './search/search-document';
+export {
+  SearchMode,
+  SearchHit,
+  SearchGroup,
+  SearchResponse,
+} from './search/search-response';
+
 // Auth
 export { JwtUser } from './auth/jwt-user';
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Command,
@@ -21,12 +21,24 @@ import {
 } from "@/lib/nav/nav-config";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useUiStore } from "@/stores/ui-store";
+import { useGlobalSearch } from "@/features/search/use-global-search";
+import { SearchResults } from "@/features/search/search-results";
+import type { SearchHit } from "@bitcrm/types";
 
 export function CommandMenu() {
   const router = useRouter();
   const open = useUiStore((s) => s.commandOpen);
   const setOpen = useUiStore((s) => s.setCommandOpen);
   const { can, isTechnician } = usePermissions();
+
+  const [query, setQuery] = useState("");
+  const { data, isSearching } = useGlobalSearch(query, {
+    mode: "typeahead",
+    limit: 5,
+  });
+
+  const showResults = query.trim().length >= 2;
+  const groups = data?.groups ?? [];
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -39,7 +51,7 @@ export function CommandMenu() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [setOpen]);
 
-  const items: NavItem[] = isTechnician
+  const navItems: NavItem[] = isTechnician
     ? TECHNICIAN_NAV
     : [
         OVERVIEW_ITEM,
@@ -47,32 +59,51 @@ export function CommandMenu() {
         ...(can("settings") ? [SETTINGS_ITEM] : []),
       ];
 
-  const go = (href: string) => {
-    setOpen(false);
+  const close = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) setQuery("");
+  };
+
+  const goTo = (href: string) => {
+    close(false);
     router.push(href);
   };
 
+  const goToHit = (hit: SearchHit) => goTo(hit.url ?? "/");
+
   return (
-    <CommandDialog open={open} onOpenChange={setOpen} className="sm:max-w-2xl">
-      <Command>
-        <CommandInput placeholder="Search pages…" />
+    <CommandDialog open={open} onOpenChange={close} className="sm:max-w-2xl">
+      {/* Filtering is server-side (permission-aware + ranked), so disable cmdk's. */}
+      <Command shouldFilter={false}>
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search deals, contacts, products, people…"
+        />
         <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
-          <CommandGroup heading="Navigate">
-            {items.map((item) => {
-              const Icon = item.icon;
-              return (
-                <CommandItem
-                  key={item.href}
-                  value={item.label}
-                  onSelect={() => go(item.href)}
-                >
-                  <Icon />
-                  {item.label}
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
+          <CommandEmpty>
+            {isSearching ? "Searching…" : "No results found."}
+          </CommandEmpty>
+
+          {showResults ? (
+            <SearchResults groups={groups} onSelect={goToHit} />
+          ) : (
+            <CommandGroup heading="Navigate">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <CommandItem
+                    key={item.href}
+                    value={item.label}
+                    onSelect={() => goTo(item.href)}
+                  >
+                    <Icon />
+                    {item.label}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
         </CommandList>
       </Command>
     </CommandDialog>
