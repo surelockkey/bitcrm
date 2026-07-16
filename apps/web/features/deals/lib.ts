@@ -128,12 +128,45 @@ export function formatSchedule(date?: string, slot?: string): string {
   return slot ? `${day} · ${slot}` : day;
 }
 
+export type DatePreset = "all" | "today" | "week";
+
+const isoDate = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+/** Turn a preset into an inclusive `scheduledDate` range. Week = Mon–Sun containing `todayIso`. */
+export function datePresetRange(
+  preset: DatePreset,
+  todayIso: string,
+): { from?: string; to?: string } {
+  if (preset === "today") return { from: todayIso, to: todayIso };
+  if (preset === "week") {
+    const base = new Date(`${todayIso}T00:00:00`);
+    const mondayOffset = (base.getDay() + 6) % 7; // days since Monday (0 = Mon)
+    const start = new Date(base);
+    start.setDate(base.getDate() - mondayOffset);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { from: isoDate(start), to: isoDate(end) };
+  }
+  return {};
+}
+
 /* ------------------------------------------------------------------ filter */
 
 export interface DealFilter {
   stage?: DealStage;
   priority?: DealPriority;
   jobType?: string;
+  serviceArea?: string;
+  /** Keep only deals whose stage falls in one of these groups (empty/undefined = all). */
+  statusGroups?: DealStageGroup[];
+  /** Inclusive scheduledDate range, `YYYY-MM-DD`. A deal with no date is excluded when set. */
+  dateFrom?: string;
+  dateTo?: string;
   techId?: string;
   tag?: string;
   search?: string;
@@ -151,6 +184,14 @@ export function filterDeals(
     if (filter.stage && d.stage !== filter.stage) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
     if (filter.jobType && d.jobType !== filter.jobType) return false;
+    if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
+    if (filter.statusGroups?.length && !filter.statusGroups.includes(stageGroup(d.stage)))
+      return false;
+    if (filter.dateFrom || filter.dateTo) {
+      if (!d.scheduledDate) return false;
+      if (filter.dateFrom && d.scheduledDate < filter.dateFrom) return false;
+      if (filter.dateTo && d.scheduledDate > filter.dateTo) return false;
+    }
     if (filter.techId && d.assignedTechId !== filter.techId) return false;
     if (filter.tag && !d.tags.includes(filter.tag)) return false;
     if (q) {

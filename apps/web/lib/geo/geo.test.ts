@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceMiles, hasCoords, addressForSubmit, sameAddress } from "./geo";
+import { distanceMiles, hasCoords, addressForSubmit, sameAddress, googleMapsLink } from "./geo";
 
 // The same fixtures the backend haversine tests use.
 const ATLANTA = { lat: 33.749, lng: -84.388 };
@@ -126,5 +126,22 @@ describe("addressForSubmit", () => {
     );
 
     expect(result.unit).toBeUndefined();
+  });
+});
+
+describe("googleMapsLink", () => {
+  it("uses coordinates when present", () => {
+    const link = googleMapsLink({
+      street: "123 Main St", city: "Atlanta", state: "GA", zip: "30301",
+      lat: 33.749, lng: -84.388,
+    });
+    expect(link).toBe("https://www.google.com/maps/search/?api=1&query=33.749%2C-84.388");
+  });
+
+  it("falls back to the written address when coordinates are missing", () => {
+    const link = googleMapsLink({
+      street: "123 Main St", city: "Atlanta", state: "GA", zip: "30301",
+    });
+    expect(link).toContain("query=123%20Main%20St%20Atlanta%20GA%2030301");
   });
 });

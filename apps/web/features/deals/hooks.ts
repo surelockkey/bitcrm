@@ -18,10 +18,17 @@ import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./sch
 
 /* ------------------------------------------------------------- queries */
 
-export function useDeals(params: { stage?: DealStage; techId?: string } = {}) {
+/** Dispatch board polls so the map stays live (story 4.01). */
+export const DEALS_POLL_MS = 30_000;
+
+export function useDeals(
+  params: { stage?: DealStage; techId?: string } = {},
+  options: { poll?: boolean } = {},
+) {
   return useQuery({
     queryKey: queryKeys.deals.list(params),
     queryFn: () => api.fetchAllDeals(params),
+    refetchInterval: options.poll ? DEALS_POLL_MS : false,
   });
 }
 

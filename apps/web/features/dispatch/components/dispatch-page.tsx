@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapsProvider } from "@/components/maps/maps-provider";
-import { Briefcase, KeyRound, Layers, Loader2, TriangleAlert, Wrench } from "lucide-react";
-import { DealStage } from "@bitcrm/types";
+import { Briefcase, KeyRound, Layers, Loader2, RefreshCw, TriangleAlert, Wrench } from "lucide-react";
+import { DealStageGroup } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -17,7 +17,14 @@ import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
 import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
-import { filterDeals, stageLabel, STAGE_ORDER, jobTypeLabel } from "@/features/deals/lib";
+import {
+  filterDeals,
+  jobTypeLabel,
+  groupLabel,
+  GROUP_ORDER,
+  datePresetRange,
+  type DatePreset,
+} from "@/features/deals/lib";
 import { contactName } from "@/features/clients/lib";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
 import { DispatchMap } from "./dispatch-map";
@@ -25,6 +32,7 @@ import { JobList } from "./job-list";
 import { TechList } from "./tech-list";
 import { JobSidebar } from "./job-sidebar";
 import { TechSidebar } from "./tech-sidebar";
+import { LastUpdated } from "./last-updated";
 import {
   splitByLocation,
   technicianPositions,
@@ -35,6 +43,42 @@ import {
 
 const ALL = "all";
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
+
+const DATE_PRESETS: { value: DatePreset; label: string }[] = [
+  { value: "all", label: "Any date" },
+  { value: "today", label: "Today" },
+  { value: "week", label: "This week" },
+];
+
+/** Toolbar filter state, persisted across reloads (story 4.01). */
+interface DispatchFilters {
+  search: string;
+  serviceArea: string;
+  datePreset: DatePreset;
+  jobType: string;
+  statusGroups: DealStageGroup[];
+}
+
+const DEFAULT_FILTERS: DispatchFilters = {
+  search: "",
+  serviceArea: ALL,
+  datePreset: "all",
+  jobType: ALL,
+  statusGroups: [],
+};
+
+const FILTERS_KEY = "dispatch:filters";
+
+function loadFilters(): DispatchFilters {
+  if (typeof window === "undefined") return DEFAULT_FILTERS;
+  try {
+    const raw = window.sessionStorage.getItem(FILTERS_KEY);
+    if (!raw) return DEFAULT_FILTERS;
+    return { ...DEFAULT_FILTERS, ...(JSON.parse(raw) as Partial<DispatchFilters>) };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
+}
 
 const LAYER_OPTIONS = [
   { value: "both", label: "Both", title: "Show jobs and technicians", icon: Layers },
@@ -51,15 +95,30 @@ export function DispatchPage() {
 
   const [view, setView] = useState<View>("split");
   const [layer, setLayer] = useState<Layer>("both");
-  const [search, setSearch] = useState("");
-  const [stage, setStage] = useState(ALL);
-  const [jobType, setJobType] = useState(ALL);
+  const [filters, setFilters] = useState<DispatchFilters>(loadFilters);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Bumped on every selection so the map re-centres even when the same item is
   // clicked again — panning off a coordinate change alone wouldn't re-fire.
   const [panNonce, setPanNonce] = useState(0);
   const [editing, setEditing] = useState(false);
+
+  const { search, serviceArea, datePreset, jobType, statusGroups } = filters;
+  const patch = (p: Partial<DispatchFilters>) => setFilters((f) => ({ ...f, ...p }));
+  const toggleGroup = (g: DealStageGroup) =>
+    patch({
+      statusGroups: statusGroups.includes(g)
+        ? statusGroups.filter((x) => x !== g)
+        : [...statusGroups, g],
+    });
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
+    } catch {
+      /* private mode / quota — filters just won't persist */
+    }
+  }, [filters]);
 
   const select = useCallback((id: string) => {
     setSelectedId(id);
@@ -72,7 +131,7 @@ export function DispatchPage() {
     setSelectedId(null);
   }, [layer]);
 
-  const query = useDeals();
+  const query = useDeals({}, { poll: true });
   const { map: contacts } = useContactMap();
   const { map: users } = useUserMap();
   // Technician profiles are manager+ only — firing the query regardless would
@@ -89,19 +148,28 @@ export function DispatchPage() {
     return names;
   }, [contacts]);
 
-  const filtered = useMemo(
-    () =>
-      filterDeals(
-        deals,
-        {
-          search,
-          stage: stage === ALL ? undefined : (stage as DealStage),
-          jobType: jobType === ALL ? undefined : jobType,
-        },
-        contactNames,
-      ),
-    [deals, search, stage, jobType, contactNames],
+  // Service-area options come from the loaded set, so the dropdown only ever
+  // offers areas that actually have jobs.
+  const serviceAreas = useMemo(
+    () => Array.from(new Set(deals.map((d) => d.serviceArea))).sort(),
+    [deals],
   );
+
+  const filtered = useMemo(() => {
+    const { from, to } = datePresetRange(datePreset, todayISO());
+    return filterDeals(
+      deals,
+      {
+        search,
+        serviceArea: serviceArea === ALL ? undefined : serviceArea,
+        jobType: jobType === ALL ? undefined : jobType,
+        statusGroups,
+        dateFrom: from,
+        dateTo: to,
+      },
+      contactNames,
+    );
+  }, [deals, search, serviceArea, jobType, statusGroups, datePreset, contactNames]);
 
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
@@ -145,6 +213,11 @@ export function DispatchPage() {
     return null;
   }, [selectedId, mapped, technicians]);
 
+  // Enter in the search box centres the map on the first matching job.
+  const zoomToFirstMatch = () => {
+    if (mapped.length > 0) select(mapped[0].id);
+  };
+
   if (!can("deals", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -175,29 +248,54 @@ export function DispatchPage() {
         <div className="mr-auto">
           <h1 className="text-lg font-semibold tracking-tight">Dispatch Map</h1>
           <p className="text-sm text-muted-foreground">
-            {mapped.length} on the map
+            Showing {filtered.length} of {deals.length} jobs
             {unmapped.length > 0 ? ` · ${unmapped.length} without coordinates` : ""}
+            {" · "}
+            <LastUpdated at={query.dataUpdatedAt} />
           </p>
         </div>
+
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-9 w-9"
+          onClick={() => query.refetch()}
+          disabled={query.isFetching}
+          title="Refresh jobs"
+        >
+          <RefreshCw className={`size-4 ${query.isFetching ? "animate-spin" : ""}`} />
+        </Button>
 
         <Input
           placeholder="Search client, #, area"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => patch({ search: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") zoomToFirstMatch();
+          }}
           className="h-9 w-52"
         />
 
-        <Select value={stage} onValueChange={setStage}>
+        <Select value={serviceArea} onValueChange={(v) => patch({ serviceArea: v })}>
           <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All stages</SelectItem>
-            {STAGE_ORDER.map((s) => (
-              <SelectItem key={s} value={s}>{stageLabel(s)}</SelectItem>
+            <SelectItem value={ALL}>All areas</SelectItem>
+            {serviceAreas.map((a) => (
+              <SelectItem key={a} value={a}>{a}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Select value={jobType} onValueChange={setJobType}>
+        <Select value={datePreset} onValueChange={(v) => patch({ datePreset: v as DatePreset })}>
+          <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DATE_PRESETS.map((p) => (
+              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={jobType} onValueChange={(v) => patch({ jobType: v })}>
           <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All job types</SelectItem>
@@ -206,6 +304,22 @@ export function DispatchPage() {
             ))}
           </SelectContent>
         </Select>
+
+        {/* Status = stage groups, multi-select (empty = all). */}
+        <div className="flex rounded-md border p-0.5">
+          {GROUP_ORDER.map((g) => (
+            <Button
+              key={g}
+              size="sm"
+              variant={statusGroups.includes(g) ? "secondary" : "ghost"}
+              className="h-7 px-2.5 text-xs"
+              onClick={() => toggleGroup(g)}
+              title={`Toggle ${groupLabel(g)}`}
+            >
+              {groupLabel(g)}
+            </Button>
+          ))}
+        </div>
 
         {/* Layer toggle — what the map draws. Hidden in list view (no map) and
             without technician access the "techs"/"both" split is meaningless. */}
