@@ -159,21 +159,29 @@ export function getDocumentUploadUrl(
   id: string,
   docType: DocumentType,
   contentType: string,
-): Promise<{ uploadUrl: string; s3Key: string }> {
-  return http.post<{ uploadUrl: string; s3Key: string }>(`${BASE}/${id}/documents`, {
-    docType,
-    contentType,
-  });
+): Promise<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }> {
+  return http.post<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }>(
+    `${BASE}/${id}/documents`,
+    { docType, contentType },
+  );
 }
 
 export function deleteDocument(id: string, docType: DocumentType): Promise<null> {
   return http.delete<null>(`${BASE}/${id}/documents/${docType}`);
 }
 
-export async function uploadDocumentBytes(uploadUrl: string, file: File): Promise<void> {
+export async function uploadDocumentBytes(
+  uploadUrl: string,
+  file: File,
+  headers?: Record<string, string>,
+): Promise<void> {
+  // The presigned URL is signed with SSE-KMS, so the encryption headers the
+  // backend returns are part of the signature and MUST be replayed here — a PUT
+  // with only Content-Type is rejected with a 403. Fall back to Content-Type
+  // only if the backend didn't send headers (older API).
   const res = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
+    headers: headers ?? { "Content-Type": file.type || "application/octet-stream" },
     body: file,
   });
   if (!res.ok) throw new Error("Document upload failed");

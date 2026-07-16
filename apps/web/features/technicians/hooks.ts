@@ -272,8 +272,8 @@ export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, docType, file }: { id: string; docType: DocumentType; file: File }) => {
-      const { uploadUrl } = await api.getDocumentUploadUrl(id, docType, file.type);
-      await api.uploadDocumentBytes(uploadUrl, file);
+      const { uploadUrl, headers } = await api.getDocumentUploadUrl(id, docType, file.type);
+      await api.uploadDocumentBytes(uploadUrl, file, headers);
     },
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: queryKeys.technicians.documents(id) });
