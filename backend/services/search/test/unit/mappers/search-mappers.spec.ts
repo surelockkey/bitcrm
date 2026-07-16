@@ -165,6 +165,8 @@ describe('search-mappers', () => {
       expect(doc.department).toBe('sales');
       expect(doc.ownerIds).toEqual(['u1']);
       expect(doc.title).toBe('Jane Doe');
+      // No per-user detail page — links to the admin users list.
+      expect(doc.url).toBe('/admin/users');
     });
 
     it('never indexes cognitoSub or permission overrides', () => {
@@ -222,6 +224,7 @@ describe('search-mappers', () => {
       expect(doc.permissionResource).toBe('products');
       expect(doc.title).toBe('Thermostat');
       expect(doc.keywords).toContain('SKU-123');
+      expect(doc.url).toBe('/inventory/products/p1');
     });
 
     it('mapWarehouse maps name', () => {
@@ -236,6 +239,7 @@ describe('search-mappers', () => {
       expect(doc.type).toBe('warehouse');
       expect(doc.permissionResource).toBe('warehouses');
       expect(doc.title).toBe('Main WH');
+      expect(doc.url).toBe('/inventory/warehouses/w1');
     });
 
     it('mapContainer carries technician owner and department', () => {
@@ -254,6 +258,7 @@ describe('search-mappers', () => {
       expect(doc.ownerIds).toContain('tech1');
       expect(doc.department).toBe('field');
       expect(doc.keywords).toContain('Bob Lee');
+      expect(doc.url).toBe('/inventory/containers/ct1');
     });
 
     it('mapTransfer maps performedBy owner', () => {
@@ -274,6 +279,7 @@ describe('search-mappers', () => {
       expect(doc.permissionResource).toBe('transfers');
       expect(doc.ownerIds).toContain('u9');
       expect(doc.keywords).toContain('Thermostat');
+      expect(doc.url).toBe('/inventory/transfers');
     });
   });
 });

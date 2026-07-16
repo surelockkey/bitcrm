@@ -116,7 +116,8 @@ export function mapUser(user: User): SearchDocument {
     title: name,
     subtitle: user.email,
     keywords: compactUnique([user.email, user.department]),
-    url: `/users/${user.id}`,
+    // No per-user detail page in the web app — link to the admin users list.
+    url: `/admin/users`,
     badges: compactUnique([user.status, user.department]),
     updatedAt: user.updatedAt,
   };
@@ -157,7 +158,7 @@ export function mapProduct(product: Product): SearchDocument {
     subtitle: compactUnique([product.sku, product.category]).join(' · ') || undefined,
     keywords: compactUnique([product.sku, product.barcode, product.category, product.type, product.supplier]),
     body: product.description,
-    url: `/products/${product.id}`,
+    url: `/inventory/products/${product.id}`,
     badges: compactUnique([product.type, product.category, product.status]),
     updatedAt: product.updatedAt,
   };
@@ -175,7 +176,7 @@ export function mapWarehouse(warehouse: Warehouse): SearchDocument {
     subtitle: warehouse.address,
     keywords: compactUnique([warehouse.address, warehouse.description]),
     body: warehouse.description,
-    url: `/warehouses/${warehouse.id}`,
+    url: `/inventory/warehouses/${warehouse.id}`,
     badges: compactUnique([warehouse.status]),
     updatedAt: warehouse.updatedAt,
   };
@@ -193,7 +194,7 @@ export function mapContainer(container: Container): SearchDocument {
     title: container.technicianName ? `${container.technicianName}'s van` : `Container ${container.id}`,
     subtitle: container.department,
     keywords: compactUnique([container.technicianName, container.department]),
-    url: `/containers/${container.id}`,
+    url: `/inventory/containers/${container.id}`,
     badges: compactUnique([container.status, container.department]),
     updatedAt: container.updatedAt,
   };
@@ -215,7 +216,8 @@ export function mapTransfer(transfer: Transfer): SearchDocument {
       ...(transfer.items || []).map((i) => i.productName),
     ]),
     body: transfer.notes,
-    url: `/transfers/${transfer.id}`,
+    // No per-transfer detail page — link to the transfers list.
+    url: `/inventory/transfers`,
     badges: compactUnique([transfer.type]),
     updatedAt: transfer.createdAt,
   };
