@@ -3,12 +3,19 @@
 import { useEffect } from "react";
 // Aliased: the component would otherwise shadow the built-in Map type below.
 import { Map as GoogleMap, useMap } from "@vis.gl/react-google-maps";
-import type { User } from "@bitcrm/types";
+import type { Deal, User } from "@bitcrm/types";
 import { env } from "@/lib/env";
 import { JobPin } from "./job-pin";
 import { TechMarker } from "./tech-marker";
 import { useMarkerClusterer } from "../use-marker-clusterer";
-import type { LocatedDeal, TechnicianPosition } from "../lib";
+import {
+  techJobsToday,
+  technicianAvailability,
+  techJobProgress,
+  todayISO,
+  type LocatedDeal,
+  type TechnicianPosition,
+} from "../lib";
 
 /** Atlanta — the metro the platform serves; only used until real pins arrive. */
 const FALLBACK_CENTER = { lat: 33.749, lng: -84.388 };
@@ -97,6 +104,7 @@ function JobPins({
 
 export function DispatchMap({
   deals,
+  allDeals,
   technicians,
   userMap,
   hoveredId,
@@ -108,6 +116,8 @@ export function DispatchMap({
   label,
 }: {
   deals: LocatedDeal[];
+  /** Every deal (not just the map-filtered ones), for deriving tech job status. */
+  allDeals: Deal[];
   technicians: TechnicianPosition[];
   userMap: Map<string, User>;
   hoveredId: string | null;
@@ -120,6 +130,7 @@ export function DispatchMap({
   onSelect: (id: string) => void;
   label: (deal: LocatedDeal) => string;
 }) {
+  const today = todayISO();
   return (
     <GoogleMap
       mapId={env.googleMapsMapId}
@@ -147,13 +158,18 @@ export function DispatchMap({
         const name = user
           ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email
           : "Technician";
+        const jobs = techJobsToday(allDeals, position.userId, today);
         return (
           <TechMarker
             key={position.userId}
             position={position}
             name={name}
+            availability={technicianAvailability(jobs, position)}
+            progress={techJobProgress(jobs)}
             hovered={hoveredId === position.userId}
+            selected={selectedId === position.userId}
             onHover={onHover}
+            onSelect={onSelect}
           />
         );
       })}

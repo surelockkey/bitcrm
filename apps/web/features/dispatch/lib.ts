@@ -1,5 +1,13 @@
+import { DealStage } from "@bitcrm/types";
 import type { Deal, TechnicianProfile, TechnicianLocation } from "@bitcrm/types";
 import { hasCoords } from "@/lib/geo/geo";
+
+/** Stages where the technician is actively on the job right now. */
+export const ACTIVE_STAGES: ReadonlySet<DealStage> = new Set([
+  DealStage.EN_ROUTE,
+  DealStage.ON_SITE,
+  DealStage.WORK_IN_PROGRESS,
+]);
 
 /** A live fix older than this is real but aging — flagged so dispatch knows. */
 const STALE_AFTER_MS = 90_000;
@@ -165,4 +173,42 @@ export function mergeLivePositions(
   }
 
   return [...byId.values()];
+}
+
+/* ----------------------------------------------------------- job status */
+
+/** All of a technician's jobs for `today`, any stage, ordered by time slot. */
+export function techJobsToday(deals: Deal[], techId: string, today: string): Deal[] {
+  return deals
+    .filter((d) => d.assignedTechId === techId && d.scheduledDate === today)
+    .sort((a, b) => (a.scheduledTimeSlot ?? "~").localeCompare(b.scheduledTimeSlot ?? "~"));
+}
+
+export type TechAvailability = "on_job" | "available" | "offline";
+
+/**
+ * The status ring on a technician's marker (story 4.01:83). Derived from work,
+ * not a live "busy/lunch" feed the platform doesn't have: an active-stage job →
+ * on the job; placeable but idle → available; unplaceable → offline.
+ */
+export function technicianAvailability(
+  jobs: Deal[],
+  position: TechnicianPosition | undefined,
+): TechAvailability {
+  if (!position) return "offline";
+  if (jobs.some((d) => ACTIVE_STAGES.has(d.stage))) return "on_job";
+  return "available";
+}
+
+/**
+ * "N of M jobs" for the marker badge (story 4.01:236). M = today's jobs; N =
+ * the active job's place in the day, or how many are already done if none is
+ * active right now.
+ */
+export function techJobProgress(jobs: Deal[]): { current: number; total: number } {
+  const total = jobs.length;
+  const activeIdx = jobs.findIndex((d) => ACTIVE_STAGES.has(d.stage));
+  if (activeIdx >= 0) return { current: activeIdx + 1, total };
+  const done = jobs.filter((d) => d.stage === DealStage.COMPLETED).length;
+  return { current: done, total };
 }
