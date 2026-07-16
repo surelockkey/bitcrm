@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { DealStage } from '@bitcrm/types';
 import { DealsController } from 'src/deals/deals.controller';
 import { DealsService } from 'src/deals/deals.service';
@@ -27,6 +28,7 @@ describe('DealsController', () => {
       getProducts: jest.fn(),
       getTechDeals: jest.fn(),
       updatePaymentStatus: jest.fn(),
+      findAll: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -279,6 +281,65 @@ describe('DealsController', () => {
 
       expect(result).toEqual({ success: true, data: { updated: true } });
       expect(service.updatePaymentStatus).toHaveBeenCalledWith('deal-1', dto);
+    });
+  });
+
+  describe('listAll (internal)', () => {
+    it('should return { items, nextCursor } in success wrapper', async () => {
+      const deals = [createMockDeal()];
+      service.findAll.mockResolvedValue({ items: deals, nextCursor: 'next' });
+
+      const result = await controller.listAll('50', 'cursor-1');
+
+      expect(result).toEqual({
+        success: true,
+        data: { items: deals, nextCursor: 'next' },
+      });
+      expect(service.findAll).toHaveBeenCalledWith(50, 'cursor-1');
+    });
+
+    it('should default limit to 200 when not provided', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAll();
+
+      expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+    });
+
+    it('should coerce string limit to an int', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAll('42');
+
+      expect(service.findAll).toHaveBeenCalledWith(42, undefined);
+    });
+
+    it('should clamp limit to a max of 500', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAll('9999');
+
+      expect(service.findAll).toHaveBeenCalledWith(500, undefined);
+    });
+  });
+
+  describe('getByIdInternal (internal)', () => {
+    it('should return deal in success wrapper', async () => {
+      const deal = createMockDeal();
+      service.findById.mockResolvedValue(deal);
+
+      const result = await controller.getByIdInternal('deal-1');
+
+      expect(result).toEqual({ success: true, data: deal });
+      expect(service.findById).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('should throw NotFoundException when deal is null', async () => {
+      service.findById.mockResolvedValue(null);
+
+      await expect(controller.getByIdInternal('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 });

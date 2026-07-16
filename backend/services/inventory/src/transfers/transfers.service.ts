@@ -125,6 +125,10 @@ export class TransfersService {
     return this.repository.findByEntity(entityType, entityId, limit, cursor);
   }
 
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async list(query: ListTransfersQueryDto) {
     return this.repository.findAll(query.limit || 20, query.cursor);
   }

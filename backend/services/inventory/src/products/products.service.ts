@@ -60,6 +60,10 @@ export class ProductsService {
     return product;
   }
 
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async list(query: ListProductsQueryDto) {
     const { category, type, search, status, limit = 20, cursor } = query;
 

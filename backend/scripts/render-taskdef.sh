@@ -114,6 +114,8 @@ EXTRA_ENV_JSON=$(jq -n \
     ] else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
+  # search runs an idempotent index backfill on boot.
+  + (if ($service == "search") then [{name: "ENABLE_SEARCH_BACKFILL", value: "true"}] else [] end)
   ')
 
 # 3. Merge SSM + aliases + extra env

@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { CompaniesController } from 'src/companies/companies.controller';
 import { CompaniesService } from 'src/companies/companies.service';
 import { ContactsService } from 'src/contacts/contacts.service';
+import { NotFoundException } from '@nestjs/common';
 import { createMockCompany, createMockContact, createMockJwtUser } from '../mocks';
 import { ClientType } from '@bitcrm/types';
 
@@ -17,6 +18,7 @@ describe('CompaniesController', () => {
       list: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      findAll: jest.fn(),
     };
     contactsService = {
       list: jest.fn(),
@@ -71,6 +73,57 @@ describe('CompaniesController', () => {
       const result = await controller.findById('company-1');
 
       expect(result).toEqual({ success: true, data: company });
+    });
+  });
+
+  describe('findByIdInternal', () => {
+    it('should return success wrapper with company', async () => {
+      const company = createMockCompany();
+      service.findById.mockResolvedValue(company);
+
+      const result = await controller.findByIdInternal('company-1');
+
+      expect(result).toEqual({ success: true, data: company });
+      expect(service.findById).toHaveBeenCalledWith('company-1');
+    });
+
+    it('should throw NotFoundException when company is null', async () => {
+      service.findById.mockResolvedValue(null);
+
+      await expect(controller.findByIdInternal('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findAllInternal', () => {
+    it('should return items and nextCursor wrapped in data', async () => {
+      const companies = [createMockCompany()];
+      service.findAll.mockResolvedValue({ items: companies, nextCursor: 'next-1' });
+
+      const result = await controller.findAllInternal('50', 'cursor-1');
+
+      expect(result).toEqual({
+        success: true,
+        data: { items: companies, nextCursor: 'next-1' },
+      });
+      expect(service.findAll).toHaveBeenCalledWith(50, 'cursor-1');
+    });
+
+    it('should default limit to 200 when not provided', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.findAllInternal(undefined, undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+    });
+
+    it('should clamp limit to a max of 500', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.findAllInternal('1000', undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(500, undefined);
     });
   });
 

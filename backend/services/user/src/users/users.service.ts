@@ -339,6 +339,17 @@ export class UsersService implements OnModuleInit {
     };
   }
 
+  /**
+   * Unfiltered, cursor-paginated user listing for internal consumers such as
+   * the search-service backfill/indexer. Thin passthrough to the repository.
+   */
+  async findAll(
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: User[]; nextCursor?: string }> {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async update(
     id: string,
     dto: UpdateUserDto,

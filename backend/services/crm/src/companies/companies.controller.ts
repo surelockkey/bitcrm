@@ -7,9 +7,11 @@ import {
   Body,
   Param,
   Query,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
+import { Internal } from '../common/decorators/internal.decorator';
 import { type JwtUser } from '@bitcrm/types';
 import { CompaniesService } from './companies.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -111,5 +113,32 @@ export class CompaniesController {
       data: result.items,
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
+  }
+
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({
+    summary: 'List all companies (internal)',
+    description: '**Guard:** Internal service-to-service only (`x-internal-secret` header required). Used by the search-service backfill/indexer.',
+  })
+  async findAllInternal(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const coercedLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
+    const data = await this.companiesService.findAll(coercedLimit, cursor);
+    return { success: true, data };
+  }
+
+  @Get('internal/:id')
+  @Internal()
+  @ApiOperation({
+    summary: 'Get company by ID (internal)',
+    description: '**Guard:** Internal service-to-service only (`x-internal-secret` header required).',
+  })
+  async findByIdInternal(@Param('id') id: string) {
+    const data = await this.companiesService.findById(id);
+    if (!data) throw new NotFoundException('Company not found');
+    return { success: true, data };
   }
 }

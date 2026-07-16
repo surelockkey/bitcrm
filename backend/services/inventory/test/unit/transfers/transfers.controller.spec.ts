@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TransfersController } from 'src/transfers/transfers.controller';
 import { TransfersService } from 'src/transfers/transfers.service';
@@ -15,6 +16,7 @@ describe('TransfersController', () => {
     service = {
       createTransfer: jest.fn(),
       list: jest.fn(),
+      findAll: jest.fn(),
       findById: jest.fn(),
       findByEntity: jest.fn(),
       deductStock: jest.fn(),
@@ -119,6 +121,57 @@ describe('TransfersController', () => {
 
       expect(result).toEqual({ success: true });
       expect(service.restoreStock).toHaveBeenCalledWith(dto);
+    });
+  });
+
+  describe('listAllInternal', () => {
+    it('should return success with { items, nextCursor } data', async () => {
+      const transfer = createMockTransfer();
+      service.findAll.mockResolvedValue({ items: [transfer], nextCursor: 'abc' });
+
+      const result = await controller.listAllInternal('50', 'cur');
+
+      expect(result).toEqual({
+        success: true,
+        data: { items: [transfer], nextCursor: 'abc' },
+      });
+      expect(service.findAll).toHaveBeenCalledWith(50, 'cur');
+    });
+
+    it('should default limit to 200 when missing', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAllInternal(undefined, undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+    });
+
+    it('should clamp limit to a max of 500', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAllInternal('9999');
+
+      expect(service.findAll).toHaveBeenCalledWith(500, undefined);
+    });
+  });
+
+  describe('findByIdInternal', () => {
+    it('should return success with transfer', async () => {
+      const transfer = createMockTransfer();
+      service.findById.mockResolvedValue(transfer);
+
+      const result = await controller.findByIdInternal('transfer-1');
+
+      expect(result).toEqual({ success: true, data: transfer });
+      expect(service.findById).toHaveBeenCalledWith('transfer-1');
+    });
+
+    it('should throw NotFoundException when transfer is null', async () => {
+      service.findById.mockResolvedValue(null);
+
+      await expect(controller.findByIdInternal('missing')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

@@ -70,10 +70,10 @@ export class BackfillService {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status} from ${base}`);
       }
-      const page = (await res.json()) as {
-        items?: any[];
-        nextCursor?: string;
-      };
+      // Internal endpoints wrap results as { success, data: { items, nextCursor } };
+      // tolerate an unwrapped { items, nextCursor } too.
+      const body = (await res.json()) as any;
+      const page: { items?: any[]; nextCursor?: string } = body?.data ?? body;
       const items = page.items ?? [];
       const docs = items
         .map((e) => routeToDocument(type, e))

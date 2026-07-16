@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
@@ -292,5 +293,40 @@ export class DealsController {
   ) {
     await this.dealsService.updatePaymentStatus(id, dto);
     return { success: true, data: { updated: true } };
+  }
+
+  // NOTE: `internal/all` (static) MUST stay declared before `internal/:id`
+  // (param) so the literal "all" segment is not captured as an id.
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({
+    summary: 'List all deals (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). Used by the search-service backfill/indexer.',
+  })
+  async listAll(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    // Query param arrives as a string (no transforming ValidationPipe in this
+    // repo); coerce, default 200, clamp to a max of 500.
+    const safeLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
+    const data = await this.dealsService.findAll(safeLimit, cursor);
+    return { success: true, data };
+  }
+
+  @Get('internal/:id')
+  @Internal()
+  @ApiOperation({
+    summary: 'Get deal by ID (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). Used by the search-service backfill/indexer.',
+  })
+  async getByIdInternal(@Param('id') id: string) {
+    const data = await this.dealsService.findById(id);
+    if (!data) {
+      throw new NotFoundException(`Deal ${id} not found`);
+    }
+    return { success: true, data };
   }
 }

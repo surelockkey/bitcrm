@@ -559,6 +559,11 @@ export class DealsService {
     return this.repository.findByTech(techId, 100);
   }
 
+  /** Thin passthrough for the search-service backfill/indexer. */
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async updatePaymentStatus(id: string, dto: UpdatePaymentStatusDto): Promise<void> {
     await this.repository.update(id, {
       paymentStatus: 'paid',

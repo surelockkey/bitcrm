@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { UsersController } from '../../../src/users/users.controller';
 import { UsersService } from '../../../src/users/users.service';
 import {
@@ -17,6 +18,7 @@ describe('UsersController', () => {
       findCurrentUser: jest.fn(),
       create: jest.fn(),
       list: jest.fn(),
+      findAll: jest.fn(),
       findById: jest.fn(),
       update: jest.fn(),
       deactivate: jest.fn(),
@@ -152,6 +154,58 @@ describe('UsersController', () => {
 
     expect(result).toEqual({ success: true, data: user });
     expect(service.clearPermissionOverrides).toHaveBeenCalledWith('user-1', caller);
+  });
+
+  it('internalListAll should coerce limit to int and return { items, nextCursor } wrapper', async () => {
+    const page = { items: [createMockUser()], nextCursor: 'next-cursor' };
+    service.findAll.mockResolvedValue(page);
+
+    const result = await controller.internalListAll('50', 'cur-1');
+
+    expect(result).toEqual({ success: true, data: page });
+    expect(service.findAll).toHaveBeenCalledWith(50, 'cur-1');
+  });
+
+  it('internalListAll should default limit to 200 when not provided', async () => {
+    service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+    await controller.internalListAll(undefined, undefined);
+
+    expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+  });
+
+  it('internalListAll should fall back to 200 for a non-numeric limit', async () => {
+    service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+    await controller.internalListAll('abc', undefined);
+
+    expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+  });
+
+  it('internalListAll should clamp limit to a max of 500', async () => {
+    service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+    await controller.internalListAll('9999', undefined);
+
+    expect(service.findAll).toHaveBeenCalledWith(500, undefined);
+  });
+
+  it('internalFindById should return success wrapper with user data', async () => {
+    const user = createMockUser();
+    service.findById.mockResolvedValue(user);
+
+    const result = await controller.internalFindById('user-1');
+
+    expect(result).toEqual({ success: true, data: user });
+    expect(service.findById).toHaveBeenCalledWith('user-1');
+  });
+
+  it('internalFindById should throw NotFoundException when the user is missing', async () => {
+    service.findById.mockResolvedValue(null);
+
+    await expect(controller.internalFindById('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('resolvePermissions (internal) should return data directly', async () => {

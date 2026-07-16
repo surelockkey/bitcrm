@@ -91,6 +91,10 @@ export class ContactsService {
     return this.repository.findAll(limit, query.cursor);
   }
 
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
     const existing = await this.findById(id);
 

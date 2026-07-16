@@ -111,6 +111,21 @@ export class ContactsController {
     return { success: true, data };
   }
 
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({
+    summary: 'List all contacts (internal)',
+    description: '**Guard:** Internal service-to-service only (`x-internal-secret` header required). Used by the search-service backfill/indexer.',
+  })
+  async findAllInternal(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const coercedLimit = Math.min(Math.max(Number(limit) || 200, 1), 500);
+    const data = await this.contactsService.findAll(coercedLimit, cursor);
+    return { success: true, data };
+  }
+
   @Get('internal/:id')
   @Internal()
   @ApiOperation({

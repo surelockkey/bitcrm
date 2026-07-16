@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -14,6 +15,7 @@ import { ContainersService } from './containers.service';
 import { EnsureContainerDto } from './dto/ensure-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
 import { Internal } from '../common/decorators/internal.decorator';
+import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
 @ApiTags('Containers')
 @ApiBearerAuth()
@@ -70,6 +72,31 @@ export class ContainersController {
   @ApiOperation({ summary: 'Internal: ensure container exists for technician', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
   async ensureContainer(@Body() dto: EnsureContainerDto) {
     const data = await this.containersService.ensureContainer(dto);
+    return { success: true, data };
+  }
+
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: list all containers (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async listAllInternal(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const data = await this.containersService.findAll(
+      coerceInternalLimit(limit),
+      cursor,
+    );
+    return { success: true, data };
+  }
+
+  @Get('internal/:id')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: get container by ID (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async findByIdInternal(@Param('id') id: string) {
+    const data = await this.containersService.findById(id);
+    if (!data) {
+      throw new NotFoundException(`Container "${id}" not found`);
+    }
     return { success: true, data };
   }
 }

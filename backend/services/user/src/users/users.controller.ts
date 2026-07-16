@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -84,6 +85,45 @@ export class UsersController {
       serviceArea,
       skill,
     });
+    return { success: true, data };
+  }
+
+  // Declared before `:id` — otherwise Nest matches "internal" as a user id.
+  @Get("internal/all")
+  @Internal()
+  @ApiOperation({
+    summary: "Internal: list all users (paginated)",
+    description:
+      "**Guard:** Internal only (`x-internal-secret` required). Unfiltered, cursor-paginated " +
+      "listing of every user. Powers the search-service backfill/indexer. `limit` defaults to 200 " +
+      "and is clamped to a maximum of 500.",
+  })
+  async internalListAll(
+    @Query("limit") limit?: string,
+    @Query("cursor") cursor?: string,
+  ) {
+    // No transforming ValidationPipe on this service — query params arrive as strings.
+    const parsed = Number.parseInt(limit ?? "", 10);
+    const safeLimit = Math.min(
+      Number.isFinite(parsed) && parsed > 0 ? parsed : 200,
+      500,
+    );
+    const data = await this.usersService.findAll(safeLimit, cursor);
+    return { success: true, data };
+  }
+
+  // Catch-all internal param — MUST stay after every static `internal/*` route.
+  @Get("internal/:id")
+  @Internal()
+  @ApiOperation({
+    summary: "Internal: get user by ID",
+    description:
+      "**Guard:** Internal only (`x-internal-secret` required). Fetches a single user by id for " +
+      "the search-service indexer. Returns 404 if the user does not exist.",
+  })
+  async internalFindById(@Param("id") id: string) {
+    const data = await this.usersService.findById(id);
+    if (!data) throw new NotFoundException("User not found");
     return { success: true, data };
   }
 

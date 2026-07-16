@@ -17,6 +17,7 @@ describe('ContactsController', () => {
       delete: jest.fn(),
       searchByPhone: jest.fn(),
       findOrCreate: jest.fn(),
+      findAll: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -69,6 +70,49 @@ describe('ContactsController', () => {
 
       expect(result).toEqual({ success: true, data: contact });
       expect(service.findById).toHaveBeenCalledWith('contact-1');
+    });
+  });
+
+  describe('findByIdInternal', () => {
+    it('should return success wrapper with contact', async () => {
+      const contact = createMockContact();
+      service.findById.mockResolvedValue(contact);
+
+      const result = await controller.findByIdInternal('contact-1');
+
+      expect(result).toEqual({ success: true, data: contact });
+      expect(service.findById).toHaveBeenCalledWith('contact-1');
+    });
+  });
+
+  describe('findAllInternal', () => {
+    it('should return items and nextCursor wrapped in data', async () => {
+      const contacts = [createMockContact()];
+      service.findAll.mockResolvedValue({ items: contacts, nextCursor: 'next-1' });
+
+      const result = await controller.findAllInternal('50', 'cursor-1');
+
+      expect(result).toEqual({
+        success: true,
+        data: { items: contacts, nextCursor: 'next-1' },
+      });
+      expect(service.findAll).toHaveBeenCalledWith(50, 'cursor-1');
+    });
+
+    it('should default limit to 200 when not provided', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.findAllInternal(undefined, undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+    });
+
+    it('should clamp limit to a max of 500', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.findAllInternal('1000', undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(500, undefined);
     });
   });
 

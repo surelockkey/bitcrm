@@ -48,6 +48,10 @@ export class WarehousesService {
     return warehouse;
   }
 
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async list(query: ListWarehousesQueryDto) {
     return this.repository.findAll(query.limit || 20, query.cursor);
   }

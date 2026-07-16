@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -17,6 +18,8 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import { Internal } from '../common/decorators/internal.decorator';
+import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
 @ApiTags('Products')
 @ApiBearerAuth()
@@ -129,6 +132,31 @@ export class ProductsController {
   @ApiOperation({ summary: 'Get presigned URL for photo download', description: '**Guard:** `products.view` permission required.' })
   async getPhotoDownloadUrl(@Param('id') id: string) {
     const data = await this.productsService.getPhotoDownloadUrl(id);
+    return { success: true, data };
+  }
+
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: list all products (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async listAllInternal(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const data = await this.productsService.findAll(
+      coerceInternalLimit(limit),
+      cursor,
+    );
+    return { success: true, data };
+  }
+
+  @Get('internal/:id')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: get product by ID (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async findByIdInternal(@Param('id') id: string) {
+    const data = await this.productsService.findById(id);
+    if (!data) {
+      throw new NotFoundException(`Product "${id}" not found`);
+    }
     return { success: true, data };
   }
 }

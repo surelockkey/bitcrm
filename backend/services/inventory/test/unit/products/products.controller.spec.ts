@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsController } from 'src/products/products.controller';
 import { ProductsService } from 'src/products/products.service';
@@ -14,6 +15,7 @@ describe('ProductsController', () => {
     service = {
       create: jest.fn(),
       list: jest.fn(),
+      findAll: jest.fn(),
       findById: jest.fn(),
       findBySku: jest.fn(),
       update: jest.fn(),
@@ -159,6 +161,57 @@ describe('ProductsController', () => {
 
       expect(result).toEqual({ success: true, data: urlData });
       expect(service.getPhotoDownloadUrl).toHaveBeenCalledWith('prod-1');
+    });
+  });
+
+  describe('listAllInternal', () => {
+    it('should return success with { items, nextCursor } data', async () => {
+      const product = createMockProduct();
+      service.findAll.mockResolvedValue({ items: [product], nextCursor: 'abc' });
+
+      const result = await controller.listAllInternal('50', 'cur');
+
+      expect(result).toEqual({
+        success: true,
+        data: { items: [product], nextCursor: 'abc' },
+      });
+      expect(service.findAll).toHaveBeenCalledWith(50, 'cur');
+    });
+
+    it('should default limit to 200 when missing', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAllInternal(undefined, undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+    });
+
+    it('should clamp limit to a max of 500', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAllInternal('9999');
+
+      expect(service.findAll).toHaveBeenCalledWith(500, undefined);
+    });
+  });
+
+  describe('findByIdInternal', () => {
+    it('should return success with product', async () => {
+      const product = createMockProduct();
+      service.findById.mockResolvedValue(product);
+
+      const result = await controller.findByIdInternal('prod-1');
+
+      expect(result).toEqual({ success: true, data: product });
+      expect(service.findById).toHaveBeenCalledWith('prod-1');
+    });
+
+    it('should throw NotFoundException when product is null', async () => {
+      service.findById.mockResolvedValue(null);
+
+      await expect(controller.findByIdInternal('missing')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

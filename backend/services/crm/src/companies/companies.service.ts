@@ -75,6 +75,10 @@ export class CompaniesService {
     return this.repository.findAll(limit, query.cursor);
   }
 
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async update(id: string, dto: UpdateCompanyDto): Promise<Company> {
     await this.findById(id);
     const updated = await this.repository.update(id, dto);

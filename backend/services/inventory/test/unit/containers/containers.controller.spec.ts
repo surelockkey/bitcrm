@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ContainersController } from 'src/containers/containers.controller';
 import { ContainersService } from 'src/containers/containers.service';
@@ -16,6 +17,7 @@ describe('ContainersController', () => {
     service = {
       getMyContainer: jest.fn(),
       list: jest.fn(),
+      findAll: jest.fn(),
       findById: jest.fn(),
       getStock: jest.fn(),
       ensureContainer: jest.fn(),
@@ -94,6 +96,57 @@ describe('ContainersController', () => {
 
       expect(result).toEqual({ success: true, data: container });
       expect(service.ensureContainer).toHaveBeenCalledWith(dto);
+    });
+  });
+
+  describe('listAllInternal', () => {
+    it('should return success with { items, nextCursor } data', async () => {
+      const container = createMockContainer();
+      service.findAll.mockResolvedValue({ items: [container], nextCursor: 'abc' });
+
+      const result = await controller.listAllInternal('50', 'cur');
+
+      expect(result).toEqual({
+        success: true,
+        data: { items: [container], nextCursor: 'abc' },
+      });
+      expect(service.findAll).toHaveBeenCalledWith(50, 'cur');
+    });
+
+    it('should default limit to 200 when missing', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAllInternal(undefined, undefined);
+
+      expect(service.findAll).toHaveBeenCalledWith(200, undefined);
+    });
+
+    it('should clamp limit to a max of 500', async () => {
+      service.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await controller.listAllInternal('9999');
+
+      expect(service.findAll).toHaveBeenCalledWith(500, undefined);
+    });
+  });
+
+  describe('findByIdInternal', () => {
+    it('should return success with container', async () => {
+      const container = createMockContainer();
+      service.findById.mockResolvedValue(container);
+
+      const result = await controller.findByIdInternal('container-1');
+
+      expect(result).toEqual({ success: true, data: container });
+      expect(service.findById).toHaveBeenCalledWith('container-1');
+    });
+
+    it('should throw NotFoundException when container is null', async () => {
+      service.findById.mockResolvedValue(null);
+
+      await expect(controller.findByIdInternal('missing')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

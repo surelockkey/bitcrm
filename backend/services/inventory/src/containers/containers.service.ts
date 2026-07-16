@@ -61,6 +61,10 @@ export class ContainersService {
     return container;
   }
 
+  async findAll(limit: number, cursor?: string) {
+    return this.repository.findAll(limit, cursor);
+  }
+
   async list(query: ListContainersQueryDto, user?: JwtUser, dataScope?: string) {
     // Apply data scope filtering
     if (dataScope === 'assigned_only' && user) {

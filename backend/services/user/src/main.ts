@@ -62,6 +62,7 @@ async function bootstrap() {
         { url: baseUrl + '/api/crm/openapi-json',       title: 'CRM Service',       slug: 'crm' },
         { url: baseUrl + '/api/deals/openapi-json',     title: 'Deal Service',      slug: 'deals' },
         { url: baseUrl + '/api/inventory/openapi-json', title: 'Inventory Service', slug: 'inventory' },
+        { url: baseUrl + '/api/search/openapi-json',    title: 'Search Service',    slug: 'search' },
       ],
       theme: 'default',
     });

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
   Query,
@@ -15,6 +16,7 @@ import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
 import { ListTransfersQueryDto } from './dto/list-transfers-query.dto';
 import { Internal } from '../common/decorators/internal.decorator';
+import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
 @ApiTags('Transfers')
 @ApiBearerAuth()
@@ -69,6 +71,31 @@ export class TransfersController {
       data: items,
       pagination: { nextCursor, count: items.length },
     };
+  }
+
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: list all transfers (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async listAllInternal(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const data = await this.transfersService.findAll(
+      coerceInternalLimit(limit),
+      cursor,
+    );
+    return { success: true, data };
+  }
+
+  @Get('internal/:id')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: get transfer by ID (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async findByIdInternal(@Param('id') id: string) {
+    const data = await this.transfersService.findById(id);
+    if (!data) {
+      throw new NotFoundException(`Transfer "${id}" not found`);
+    }
+    return { success: true, data };
   }
 
   @Post('internal/stock/deduct')

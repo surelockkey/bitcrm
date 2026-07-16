@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -16,6 +17,8 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
+import { Internal } from '../common/decorators/internal.decorator';
+import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
 @ApiTags('Warehouses')
 @ApiBearerAuth()
@@ -85,5 +88,30 @@ export class WarehousesController {
   ) {
     await this.warehousesService.receiveStock(id, dto.items, user);
     return { success: true };
+  }
+
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: list all warehouses (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async listAllInternal(
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const data = await this.warehousesService.findAll(
+      coerceInternalLimit(limit),
+      cursor,
+    );
+    return { success: true, data };
+  }
+
+  @Get('internal/:id')
+  @Internal()
+  @ApiOperation({ summary: 'Internal: get warehouse by ID (for search indexer)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  async findByIdInternal(@Param('id') id: string) {
+    const data = await this.warehousesService.findById(id);
+    if (!data) {
+      throw new NotFoundException(`Warehouse "${id}" not found`);
+    }
+    return { success: true, data };
   }
 }
