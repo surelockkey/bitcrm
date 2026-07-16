@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryStatus, TransferType, LocationType } from '@bitcrm/types';
+import { SnsPublisherService } from '@bitcrm/shared';
 import { WarehousesService } from 'src/warehouses/warehouses.service';
 import { WarehousesRepository } from 'src/warehouses/warehouses.repository';
 import { StockService } from 'src/stock/stock.service';
@@ -24,7 +25,10 @@ describe('WarehousesService', () => {
   let stockRepository: ReturnType<typeof createMockStockRepository>;
   let transfersRepository: ReturnType<typeof createMockTransfersRepository>;
 
+  let publisher: { publish: jest.Mock };
+
   beforeEach(async () => {
+    publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     repository = createMockWarehousesRepository();
     stockService = createMockStockService();
     stockRepository = createMockStockRepository();
@@ -37,6 +41,7 @@ describe('WarehousesService', () => {
         { provide: StockService, useValue: stockService },
         { provide: StockRepository, useValue: stockRepository },
         { provide: TransfersRepository, useValue: transfersRepository },
+        { provide: SnsPublisherService, useValue: publisher },
       ],
     }).compile();
 
@@ -58,6 +63,9 @@ describe('WarehousesService', () => {
       expect(repository.create).toHaveBeenCalledWith(
         expect.objectContaining({ status: InventoryStatus.ACTIVE }),
       );
+      expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'warehouse.created', {
+        warehouseId: result.id,
+      });
     });
   });
 

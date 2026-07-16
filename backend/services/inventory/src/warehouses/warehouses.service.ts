@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { SnsPublisherService } from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
+import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type Warehouse,
   type TransferItem,
@@ -19,11 +21,14 @@ import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
 
 @Injectable()
 export class WarehousesService {
+  private readonly logger = new Logger(WarehousesService.name);
+
   constructor(
     private readonly repository: WarehousesRepository,
     private readonly stockService: StockService,
     private readonly stockRepository: StockRepository,
     private readonly transfersRepository: TransfersRepository,
+    @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
   async create(dto: CreateWarehouseDto): Promise<Warehouse> {
@@ -37,6 +42,9 @@ export class WarehousesService {
     };
 
     await this.repository.create(warehouse);
+    publishInventoryEvent(this.snsPublisher, this.logger, 'warehouse.created', {
+      warehouseId: warehouse.id,
+    });
     return warehouse;
   }
 
@@ -58,11 +66,21 @@ export class WarehousesService {
 
   async update(id: string, dto: UpdateWarehouseDto): Promise<Warehouse> {
     await this.findById(id);
-    return this.repository.update(id, dto);
+    const warehouse = await this.repository.update(id, dto);
+    publishInventoryEvent(this.snsPublisher, this.logger, 'warehouse.updated', {
+      warehouseId: id,
+    });
+    return warehouse;
   }
 
   async archive(id: string): Promise<Warehouse> {
-    return this.repository.update(id, { status: InventoryStatus.ARCHIVED });
+    const warehouse = await this.repository.update(id, {
+      status: InventoryStatus.ARCHIVED,
+    });
+    publishInventoryEvent(this.snsPublisher, this.logger, 'warehouse.updated', {
+      warehouseId: id,
+    });
+    return warehouse;
   }
 
   async getStock(warehouseId: string): Promise<StockItem[]> {

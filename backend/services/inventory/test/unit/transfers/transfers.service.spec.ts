@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { TransferType, LocationType } from '@bitcrm/types';
+import { SnsPublisherService } from '@bitcrm/shared';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
@@ -19,7 +20,10 @@ describe('TransfersService', () => {
   let stockService: ReturnType<typeof createMockStockService>;
   let containersRepository: { findByTechnicianId: jest.Mock };
 
+  let publisher: { publish: jest.Mock };
+
   beforeEach(async () => {
+    publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     repository = createMockTransfersRepository();
     stockService = createMockStockService();
     // Default: the id is not a technician id, so it's treated as a container id.
@@ -31,6 +35,7 @@ describe('TransfersService', () => {
         { provide: TransfersRepository, useValue: repository },
         { provide: StockService, useValue: stockService },
         { provide: ContainersRepository, useValue: containersRepository },
+        { provide: SnsPublisherService, useValue: publisher },
       ],
     }).compile();
 
@@ -56,6 +61,9 @@ describe('TransfersService', () => {
         dto.items,
       );
       expect(repository.create).toHaveBeenCalledTimes(1);
+      expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'transfer.created', {
+        transferId: result.id,
+      });
     });
 
     it('should allow container->warehouse transfers', async () => {

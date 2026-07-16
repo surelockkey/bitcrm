@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryStatus } from '@bitcrm/types';
+import { SnsPublisherService } from '@bitcrm/shared';
 import { ContainersService } from 'src/containers/containers.service';
 import { ContainersRepository } from 'src/containers/containers.repository';
 import { StockRepository } from 'src/stock/stock.repository';
@@ -18,7 +19,10 @@ describe('ContainersService', () => {
   let repository: ReturnType<typeof createMockContainersRepository>;
   let stockRepository: ReturnType<typeof createMockStockRepository>;
 
+  let publisher: { publish: jest.Mock };
+
   beforeEach(async () => {
+    publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     repository = createMockContainersRepository();
     stockRepository = createMockStockRepository();
 
@@ -27,6 +31,7 @@ describe('ContainersService', () => {
         ContainersService,
         { provide: ContainersRepository, useValue: repository },
         { provide: StockRepository, useValue: stockRepository },
+        { provide: SnsPublisherService, useValue: publisher },
       ],
     }).compile();
 
@@ -54,6 +59,9 @@ describe('ContainersService', () => {
       expect(result.status).toBe(InventoryStatus.ACTIVE);
       expect(result.technicianId).toBe('tech-1');
       expect(repository.create).toHaveBeenCalledTimes(1);
+      expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'container.created', {
+        containerId: result.id,
+      });
     });
   });
 

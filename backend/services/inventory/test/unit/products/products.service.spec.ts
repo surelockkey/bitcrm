@@ -3,7 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ProductsService } from 'src/products/products.service';
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
-import { S3Service } from '@bitcrm/shared';
+import { S3Service, SnsPublisherService } from '@bitcrm/shared';
 import { InventoryStatus } from '@bitcrm/types';
 import {
   createMockProduct,
@@ -18,11 +18,13 @@ describe('ProductsService', () => {
   let repository: ReturnType<typeof createMockProductsRepository>;
   let cache: ReturnType<typeof createMockProductsCacheService>;
   let s3: ReturnType<typeof createMockS3Service>;
+  let publisher: { publish: jest.Mock };
 
   beforeEach(async () => {
     repository = createMockProductsRepository();
     cache = createMockProductsCacheService();
     s3 = createMockS3Service();
+    publisher = { publish: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -30,6 +32,7 @@ describe('ProductsService', () => {
         { provide: ProductsRepository, useValue: repository },
         { provide: ProductsCacheService, useValue: cache },
         { provide: S3Service, useValue: s3 },
+        { provide: SnsPublisherService, useValue: publisher },
       ],
     }).compile();
 
@@ -52,6 +55,14 @@ describe('ProductsService', () => {
       expect(repository.create).toHaveBeenCalledWith(
         expect.objectContaining({ id: result.id, status: InventoryStatus.ACTIVE }),
       );
+    });
+
+    it('publishes product.created with the product id', async () => {
+      repository.create.mockResolvedValue(undefined);
+      const result = await service.create(createMockCreateProductDto());
+      expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'product.created', {
+        productId: result.id,
+      });
     });
   });
 

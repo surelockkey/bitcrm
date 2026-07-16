@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { parse } from 'csv-parse/sync';
 import { type Product, ProductType, InventoryStatus } from '@bitcrm/types';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
-import { S3Service } from '@bitcrm/shared';
+import { S3Service, SnsPublisherService } from '@bitcrm/shared';
+import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -23,6 +24,7 @@ export class ProductsService {
     private readonly repository: ProductsRepository,
     private readonly cache: ProductsCacheService,
     private readonly s3: S3Service,
+    @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
   async create(dto: CreateProductDto): Promise<Product> {
@@ -36,6 +38,9 @@ export class ProductsService {
     };
 
     await this.repository.create(product);
+    publishInventoryEvent(this.snsPublisher, this.logger, 'product.created', {
+      productId: product.id,
+    });
     return product;
   }
 
@@ -81,6 +86,9 @@ export class ProductsService {
     await this.findById(id); // Ensure exists
     const product = await this.repository.update(id, dto);
     await this.cache.invalidate(id);
+    publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
+      productId: id,
+    });
     return product;
   }
 

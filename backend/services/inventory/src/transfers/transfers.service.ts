@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
-import { BusinessMetricsService } from '@bitcrm/shared';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BusinessMetricsService, SnsPublisherService } from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
+import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type JwtUser,
   TransferType,
@@ -22,11 +23,14 @@ const VALID_TRANSFER_ROUTES = new Set([
 
 @Injectable()
 export class TransfersService {
+  private readonly logger = new Logger(TransfersService.name);
+
   constructor(
     private readonly repository: TransfersRepository,
     private readonly stockService: StockService,
     private readonly containersRepository: ContainersRepository,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
   /**
@@ -74,6 +78,9 @@ export class TransfersService {
 
     await this.repository.create(transfer);
     this.businessMetrics?.stockTransfers.inc({ type: 'transfer' });
+    publishInventoryEvent(this.snsPublisher, this.logger, 'transfer.created', {
+      transferId: transfer.id,
+    });
     return transfer;
   }
 

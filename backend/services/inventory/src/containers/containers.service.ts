@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { SnsPublisherService } from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
+import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type Container,
   type StockItem,
@@ -13,9 +15,12 @@ import { ListContainersQueryDto } from './dto/list-containers-query.dto';
 
 @Injectable()
 export class ContainersService {
+  private readonly logger = new Logger(ContainersService.name);
+
   constructor(
     private readonly repository: ContainersRepository,
     private readonly stockRepository: StockRepository,
+    @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
   async ensureContainer(dto: EnsureContainerDto): Promise<Container> {
@@ -34,6 +39,9 @@ export class ContainersService {
     };
 
     await this.repository.create(container);
+    publishInventoryEvent(this.snsPublisher, this.logger, 'container.created', {
+      containerId: container.id,
+    });
     return container;
   }
 

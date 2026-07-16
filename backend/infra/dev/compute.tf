@@ -255,6 +255,14 @@ data "aws_iam_policy_document" "task_inventory" {
     resources = [module.sns_sqs.queue_arns["deal-events-to-inventory"]]
   }
 
+  # Publish product/warehouse/container/transfer events (consumed by search indexer).
+  statement {
+    sid       = "PublishInventoryEvents"
+    effect    = "Allow"
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
+    resources = [module.sns_sqs.topic_arns["inventory-events"]]
+  }
+
   # Consume user-events (user.activated / user.role-changed) to provision containers.
   statement {
     sid       = "ConsumeUserEvents"

@@ -31,8 +31,14 @@ Publishers and consumers import these so the wire format can't drift; the
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
 
-## Topic: `inventory-events` (published by inventory-service — Phase 2)
-Planned: `product.created|updated|deleted`, `warehouse.created|updated`, `container.created|updated`, `transfer.created`. The `inventory-events` topic and the search-index subscription already exist (Terraform); the publishers are the remaining Phase-2 work. Until then, inventory is indexed by the search backfill.
+## Topic: `inventory-events` (published by inventory-service)
+`product.created` / `product.updated` (archive/reactivate emit `product.updated`),
+`warehouse.created` / `warehouse.updated` (archive emits `warehouse.updated`),
+`container.created`, `transfer.created`. Payloads carry the entity id
+(`{productId}` / `{warehouseId}` / `{containerId}` / `{transferId}`). Published
+fire-and-forget via `publishInventoryEvent` (never fails the write). Consumed by
+the search indexer (`search-index` queue). Internal stock deduct/restore transfers
+are not emitted individually — the search backfill reconciles them.
 
 ## Eligibility projection (deal-service)
 `tech.approved` / `tech.updated` build a `TECH_ELIGIBILITY#<id>` read-model in

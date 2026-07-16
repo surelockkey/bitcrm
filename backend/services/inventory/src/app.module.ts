@@ -27,6 +27,14 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
     RedisModule,
     AuthModule,
     EventsModule.forRoot({
+      publisher: {
+        region: process.env.AWS_REGION,
+        endpoint: process.env.AWS_ENDPOINT,
+        source: 'inventory-service',
+        topicArns: process.env.INVENTORY_EVENTS_TOPIC_ARN
+          ? { 'inventory-events': process.env.INVENTORY_EVENTS_TOPIC_ARN }
+          : {},
+      },
       consumer: process.env.USER_EVENTS_TO_INVENTORY_QUEUE_URL
         ? {
             region: process.env.AWS_REGION,
