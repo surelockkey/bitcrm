@@ -1,8 +1,9 @@
 "use client";
 
-import { Wrench } from "lucide-react";
+import { MapPin, Wrench } from "lucide-react";
 import type { User } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
+import { useReverseGeocode } from "../use-reverse-geocode";
 import {
   technicianStatus,
   formatAge,
@@ -40,6 +41,7 @@ function TechRow({
   name,
   status,
   label,
+  address,
   locatable,
   selected,
   hovered,
@@ -50,6 +52,7 @@ function TechRow({
   name: string;
   status: TechStatus;
   label: string;
+  address?: string;
   locatable: boolean;
   selected: boolean;
   hovered: boolean;
@@ -84,6 +87,12 @@ function TechRow({
           <span className={cn("size-2 rounded-full", DOT[status])} />
           {label}
         </div>
+        {address ? (
+          <div className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground">
+            <MapPin className="mt-0.5 size-3 shrink-0" />
+            <span className="truncate">{address}</span>
+          </div>
+        ) : null}
       </div>
     </button>
   );
@@ -114,6 +123,7 @@ export function TechList({
   onSelect: (id: string) => void;
 }) {
   const byId = new Map(positions.map((p) => [p.userId, p]));
+  const addresses = useReverseGeocode(positions);
   const now = Date.now();
 
   const rows = userIds
@@ -151,6 +161,7 @@ export function TechList({
           name={row.name}
           status={row.status}
           label={row.label}
+          address={addresses.get(row.userId)}
           locatable={row.locatable}
           selected={selectedId === row.userId}
           hovered={hoveredId === row.userId}

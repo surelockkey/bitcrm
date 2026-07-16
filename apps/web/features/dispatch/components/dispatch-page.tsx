@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapsProvider } from "@/components/maps/maps-provider";
 import { Briefcase, KeyRound, Layers, Loader2, TriangleAlert, Wrench } from "lucide-react";
 import { DealStage } from "@bitcrm/types";
@@ -49,7 +49,21 @@ export function DispatchPage() {
   const [jobType, setJobType] = useState(ALL);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Bumped on every selection so the map re-centres even when the same item is
+  // clicked again — panning off a coordinate change alone wouldn't re-fire.
+  const [panNonce, setPanNonce] = useState(0);
   const [editing, setEditing] = useState(false);
+
+  const select = useCallback((id: string) => {
+    setSelectedId(id);
+    setPanNonce((n) => n + 1);
+  }, []);
+
+  // A selection in one layer is meaningless in the other — a picked job has no
+  // marker in "Techs" and vice versa. Clear it when the layer changes.
+  useEffect(() => {
+    setSelectedId(null);
+  }, [layer]);
 
   const query = useDeals();
   const { map: contacts } = useContactMap();
@@ -135,6 +149,9 @@ export function DispatchPage() {
   const showList = view !== "map";
 
   return (
+    // One Maps loader for the whole page — the map and the roster's reverse
+    // geocoding share it. Passes through untouched when there's no key.
+    <MapsProvider>
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
         <div className="mr-auto">
@@ -223,30 +240,43 @@ export function DispatchPage() {
             <aside
               className={view === "list" ? "flex-1 overflow-hidden" : "w-88 shrink-0 border-r"}
             >
-              {/* The list follows the layer: the technician roster in "Techs",
-                  the job queue otherwise. */}
-              {layer === "techs" ? (
-                <TechList
-                  userIds={profiles.map((p) => p.userId)}
-                  positions={technicians}
-                  userMap={users}
-                  hoveredId={hoveredId}
-                  selectedId={selectedId}
-                  onHover={setHoveredId}
-                  onSelect={setSelectedId}
-                />
-              ) : (
-                <JobList
-                  mapped={mapped}
-                  unmapped={unmapped}
-                  clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
-                  techName={(d) => nameOf(d.assignedTechId)}
-                  hoveredId={hoveredId}
-                  selectedId={selectedId}
-                  onHover={setHoveredId}
-                  onSelect={setSelectedId}
-                />
-              )}
+              {/* The list follows the layer: technicians in "Techs", jobs in
+                  "Jobs", and both stacked in "Both". */}
+              {(() => {
+                const techList = (
+                  <TechList
+                    userIds={profiles.map((p) => p.userId)}
+                    positions={technicians}
+                    userMap={users}
+                    hoveredId={hoveredId}
+                    selectedId={selectedId}
+                    onHover={setHoveredId}
+                    onSelect={select}
+                  />
+                );
+                const jobList = (
+                  <JobList
+                    mapped={mapped}
+                    unmapped={unmapped}
+                    clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
+                    techName={(d) => nameOf(d.assignedTechId)}
+                    hoveredId={hoveredId}
+                    selectedId={selectedId}
+                    onHover={setHoveredId}
+                    onSelect={select}
+                  />
+                );
+                if (layer === "techs") return techList;
+                if (layer === "jobs") return jobList;
+                return (
+                  <div className="flex h-full flex-col">
+                    <ListHeading>Technicians</ListHeading>
+                    <div className="min-h-0 flex-1">{techList}</div>
+                    <ListHeading>Jobs</ListHeading>
+                    <div className="min-h-0 flex-1">{jobList}</div>
+                  </div>
+                );
+              })()}
             </aside>
           ) : null}
 
@@ -255,21 +285,20 @@ export function DispatchPage() {
               {/* Both are required: without a vector Map ID the map loads but
                   draws no pins, which looks like a bug rather than a gap in setup. */}
               {env.googleMapsApiKey && env.googleMapsMapId ? (
-                <MapsProvider>
-                  <DispatchMap
-                    deals={mapJobs}
-                    technicians={mapTechs}
-                    userMap={users}
-                    hoveredId={hoveredId}
-                    selectedId={selectedId}
-                    panTo={selectedPosition}
-                    onHover={setHoveredId}
-                    onSelect={setSelectedId}
-                    label={(d) =>
-                      `#${d.dealNumber} · ${contactNames.get(d.contactId) ?? "Unknown client"}`
-                    }
-                  />
-                </MapsProvider>
+                <DispatchMap
+                  deals={mapJobs}
+                  technicians={mapTechs}
+                  userMap={users}
+                  hoveredId={hoveredId}
+                  selectedId={selectedId}
+                  panTo={selectedPosition}
+                  panNonce={panNonce}
+                  onHover={setHoveredId}
+                  onSelect={select}
+                  label={(d) =>
+                    `#${d.dealNumber} · ${contactNames.get(d.contactId) ?? "Unknown client"}`
+                  }
+                />
               ) : (
                 <MissingConfig
                   missingKey={!env.googleMapsApiKey}
@@ -295,6 +324,16 @@ export function DispatchPage() {
       {selected && editing ? (
         <EditDealSheet deal={selected} open onOpenChange={setEditing} />
       ) : null}
+    </div>
+    </MapsProvider>
+  );
+}
+
+/** Sticky section label for the combined "Both" list. */
+function ListHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="sticky top-0 z-10 border-b bg-muted/50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
     </div>
   );
 }

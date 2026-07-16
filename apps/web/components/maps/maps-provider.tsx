@@ -15,8 +15,16 @@ import { env } from "@/lib/env";
  *
  * With no key it renders children untouched — address fields degrade to plain
  * typing and the app stays usable.
+ *
+ * Pinned to English + US: the map labels, the Places suggestions, and the
+ * reverse-geocoded addresses all come back in English regardless of the
+ * viewer's browser locale.
  */
 export function MapsProvider({ children }: { children: ReactNode }) {
   if (!env.googleMapsApiKey) return <>{children}</>;
-  return <APIProvider apiKey={env.googleMapsApiKey}>{children}</APIProvider>;
+  return (
+    <APIProvider apiKey={env.googleMapsApiKey} language="en" region="US">
+      {children}
+    </APIProvider>
+  );
 }

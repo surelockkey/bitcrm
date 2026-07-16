@@ -304,12 +304,12 @@ describe("formatAge", () => {
     expect(formatAge(undefined, now)).toBe("");
   });
 
-  it("reads 'just now' for a fresh fix", () => {
+  it("reads 'just now' under a minute (no seconds counter)", () => {
     expect(formatAge(ago(5_000), now)).toBe("just now");
+    expect(formatAge(ago(45_000), now)).toBe("just now");
   });
 
-  it("reads seconds, then minutes, then hours, then days", () => {
-    expect(formatAge(ago(45_000), now)).toBe("45s ago");
+  it("reads minutes, then hours, then days", () => {
     expect(formatAge(ago(5 * 60_000), now)).toBe("5 min ago");
     expect(formatAge(ago(3 * 3_600_000), now)).toBe("3 h ago");
     expect(formatAge(ago(2 * 86_400_000), now)).toBe("2 d ago");
