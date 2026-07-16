@@ -19,7 +19,8 @@ export class SearchController {
   async search(
     @CurrentUser() user: JwtUser,
     @Query() dto: SearchQueryDto,
-  ): Promise<SearchResponse> {
-    return this.searchService.search(user, normalizeSearchQuery(dto));
+  ): Promise<{ success: true; data: SearchResponse }> {
+    const data = await this.searchService.search(user, normalizeSearchQuery(dto));
+    return { success: true, data };
   }
 }
