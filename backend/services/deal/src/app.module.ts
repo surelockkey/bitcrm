@@ -15,6 +15,7 @@ import { UserEventType } from '@bitcrm/types';
 import { AppController } from './app.controller';
 import { DealsModule } from './deals/deals.module';
 import { DealsEventHandler } from './deals/deals.event-handler';
+import { ServiceAreasModule } from './service-areas/service-areas.module';
 import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
 import { TechnicianEligibilityEventHandler } from './technician-eligibility/technician-eligibility.event-handler';
 
@@ -64,6 +65,10 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
           }
         : undefined,
     }),
+    // ServiceAreasModule must register before DealsModule: its collection routes
+    // (GET /service-areas) would otherwise be shadowed by DealsController's
+    // `GET /:id` under the shared `api/deals` prefix.
+    ServiceAreasModule,
     DealsModule,
     TechnicianEligibilityModule,
   ],

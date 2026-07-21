@@ -76,6 +76,59 @@ export class TechnicianSkillsService {
   }
 
   /**
+   * Manager path: assign catalog service areas to a technician directly, skipping
+   * the propose→approve round-trip. Areas are created already-approved (reviewed
+   * by the caller). Duplicates of existing non-rejected areas are skipped.
+   */
+  async assignServiceAreas(
+    userId: string,
+    values: string[],
+    caller: JwtUser,
+  ): Promise<TechnicianSkill[]> {
+    await this.assertManager(caller);
+
+    const existing = await this.repository.listByUser(userId);
+    const taken = new Set(
+      existing
+        .filter((s) => s.status !== 'rejected' && s.type === 'service_area')
+        .map((s) => s.value),
+    );
+
+    const now = new Date().toISOString();
+    const created: TechnicianSkill[] = [];
+    for (const value of values) {
+      const trimmed = value.trim();
+      if (!trimmed || taken.has(trimmed)) continue;
+      taken.add(trimmed);
+      const skill: TechnicianSkill = {
+        skillId: randomUUID(),
+        userId,
+        type: 'service_area',
+        value: trimmed,
+        status: 'approved',
+        proposedBy: caller.id,
+        proposedAt: now,
+        reviewedBy: caller.id,
+        reviewedAt: now,
+      };
+      await this.repository.create(skill);
+      created.push(skill);
+    }
+
+    if (created.length > 0) {
+      this.logger.log(
+        `Manager ${caller.id} assigned ${created.length} service area(s) to ${userId}`,
+      );
+      await this.publishIfNewlyAssignable(userId, new Set(created.map((s) => s.skillId)));
+      this.publish(UserEventType.TECH_UPDATED, {
+        technicianId: userId,
+        changedFields: ['skills'],
+      });
+    }
+    return created;
+  }
+
+  /**
    * Internal: every assignable technician (≥1 approved job type AND service
    * area) with their approved skills. Powers the deal-service eligibility
    * backfill. Matches the TechApprovedEvent payload shape.
@@ -209,6 +262,23 @@ export class TechnicianSkillsService {
     const before = after.map((s) =>
       s.skillId === approvedSkillId ? { ...s, status: priorStatus } : s,
     );
+    if (this.isAssignable(before) || !this.isAssignable(after)) return;
+
+    this.publish(UserEventType.TECH_APPROVED, {
+      technicianId: userId,
+      approvedSkills: this.approvedValues(after, 'job_type'),
+      serviceAreas: this.approvedValues(after, 'service_area'),
+    });
+    this.logger.log(`Technician ${userId} is now assignable (tech.approved published)`);
+  }
+
+  /** Publishes tech.approved when a batch of new skills tips the tech into assignable. */
+  private async publishIfNewlyAssignable(
+    userId: string,
+    newSkillIds: Set<string>,
+  ): Promise<void> {
+    const after = await this.repository.listByUser(userId);
+    const before = after.filter((s) => !newSkillIds.has(s.skillId));
     if (this.isAssignable(before) || !this.isAssignable(after)) return;
 
     this.publish(UserEventType.TECH_APPROVED, {

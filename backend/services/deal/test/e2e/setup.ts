@@ -29,6 +29,7 @@ import {
 } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { DealsModule } from 'src/deals/deals.module';
+import { ServiceAreasModule } from 'src/service-areas/service-areas.module';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import {
   createTestTables,
@@ -108,6 +109,7 @@ export function getInternalHttpMock() {
 const superAdminPermissions = {
   permissions: {
     deals: { view: true, create: true, edit: true, delete: true },
+    service_areas: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -116,6 +118,7 @@ const superAdminPermissions = {
 const adminPermissions = {
   permissions: {
     deals: { view: true, create: true, edit: true, delete: true },
+    service_areas: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -124,6 +127,7 @@ const adminPermissions = {
 const dispatcherPermissions = {
   permissions: {
     deals: { view: true, create: true, edit: true, delete: false },
+    service_areas: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'department' },
   dealStageTransitions: [
@@ -135,6 +139,7 @@ const dispatcherPermissions = {
 const techPermissions = {
   permissions: {
     deals: { view: true, create: false, edit: true, delete: false },
+    service_areas: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'assigned_only' },
   dealStageTransitions: [
@@ -146,6 +151,7 @@ const techPermissions = {
 const readOnlyPermissions = {
   permissions: {
     deals: { view: true, create: false, edit: false, delete: false },
+    service_areas: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: [],
@@ -172,6 +178,9 @@ export async function setupApp(): Promise<INestApplication> {
       RedisModule,
       GeocodingModule,
       TestPermissionModule,
+      // Register before DealsModule so GET /service-areas isn't shadowed by
+      // DealsController's GET /:id (see app.module.ts for the rationale).
+      ServiceAreasModule,
       DealsModule,
     ],
     providers: [

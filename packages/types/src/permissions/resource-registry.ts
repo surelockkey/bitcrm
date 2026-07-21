@@ -11,6 +11,7 @@
  */
 export const RESOURCE_REGISTRY = {
   deals: ['view', 'create', 'edit', 'delete'],
+  service_areas: ['view', 'create', 'edit', 'delete'],
   contacts: ['view', 'create', 'edit', 'delete'],
   companies: ['view', 'create', 'edit', 'delete'],
   products: ['view', 'create', 'edit', 'delete'],

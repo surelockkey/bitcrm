@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/shell/page-placeholder";
+import { SettingsIndex } from "./settings-index";
 
-export default function Page() {
-  return <PagePlaceholder title="Settings" />;
+export default function SettingsPage() {
+  return <SettingsIndex />;
 }

@@ -22,7 +22,8 @@ const timeSlot = z
 export const dealJobSchema = z.object({
   clientType: z.nativeEnum(ClientType),
   jobType: z.string().trim().min(1, "Pick a job type"),
-  serviceArea: z.string().trim().min(1, "Service area is required"),
+  // Auto-resolved from the address by the backend; kept optional as a label override.
+  serviceArea: z.string().trim().optional(),
   address: addressSchema,
   scheduledDate: z.string().trim().optional().or(z.literal("")),
   scheduledTimeSlot: timeSlot,

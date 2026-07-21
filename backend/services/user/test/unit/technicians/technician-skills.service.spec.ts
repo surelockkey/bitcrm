@@ -210,4 +210,86 @@ describe('TechnicianSkillsService (unit)', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
+
+  describe('assignServiceAreas', () => {
+    it('lets a manager assign approved service areas directly', async () => {
+      repo.listByUser.mockResolvedValue([]);
+      const created = await service.assignServiceAreas(
+        'tech-1',
+        ['Atlanta Metro', 'North Georgia'],
+        caller('role-admin', 'mgr-1'),
+      );
+
+      expect(created).toHaveLength(2);
+      expect(repo.create).toHaveBeenCalledTimes(2);
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'service_area',
+          value: 'Atlanta Metro',
+          status: 'approved',
+          reviewedBy: 'mgr-1',
+        }),
+      );
+      expect(sns.publish).toHaveBeenCalledWith(
+        'user-events',
+        'tech.updated',
+        expect.objectContaining({ technicianId: 'tech-1' }),
+      );
+    });
+
+    it('forbids a technician from assigning service areas', async () => {
+      await expect(
+        service.assignServiceAreas('tech-1', ['Atlanta'], caller('role-technician', 'tech-1')),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
+    it('skips duplicates of an existing non-rejected area', async () => {
+      repo.listByUser.mockResolvedValue([
+        createMockTechnicianSkill({ type: 'service_area', value: 'Atlanta Metro', status: 'approved' }),
+      ]);
+      const created = await service.assignServiceAreas(
+        'tech-1',
+        ['Atlanta Metro', 'North Georgia'],
+        caller('role-admin', 'mgr-1'),
+      );
+      expect(created).toHaveLength(1); // only North Georgia
+      expect(created[0].value).toBe('North Georgia');
+    });
+
+    it('publishes tech.approved when the area tips the tech into assignable', async () => {
+      // Already has an approved job type; assigning the first area makes them assignable.
+      const jobSkill = createMockTechnicianSkill({ type: 'job_type', value: 'Locksmith', status: 'approved' });
+      repo.listByUser
+        .mockResolvedValueOnce([jobSkill]) // dedupe read (no areas yet)
+        .mockResolvedValueOnce([
+          jobSkill,
+          createMockTechnicianSkill({ skillId: 'new-area', type: 'service_area', value: 'Atlanta Metro', status: 'approved' }),
+        ]); // post-create read used by publishIfNewlyAssignable
+      repo.create.mockImplementation(async (s: { skillId: string }) => {
+        // force the created skill id so the before/after diff sees it as new
+        s.skillId = 'new-area';
+      });
+
+      await service.assignServiceAreas('tech-1', ['Atlanta Metro'], caller('role-admin', 'mgr-1'));
+
+      expect(sns.publish).toHaveBeenCalledWith(
+        'user-events',
+        'tech.approved',
+        expect.objectContaining({ technicianId: 'tech-1', serviceAreas: ['Atlanta Metro'] }),
+      );
+    });
+
+    it('does not publish tech.approved when no job type is approved yet', async () => {
+      repo.listByUser
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          createMockTechnicianSkill({ skillId: 'a1', type: 'service_area', value: 'Atlanta Metro', status: 'approved' }),
+        ]);
+      await service.assignServiceAreas('tech-1', ['Atlanta Metro'], caller('role-admin', 'mgr-1'));
+
+      const approvedCalls = sns.publish.mock.calls.filter((c: unknown[]) => c[1] === 'tech.approved');
+      expect(approvedCalls).toHaveLength(0);
+    });
+  });
 });

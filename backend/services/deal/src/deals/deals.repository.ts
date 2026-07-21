@@ -317,6 +317,7 @@ export class DealsRepository {
       scheduledDate: item.scheduledDate as string | undefined,
       scheduledTimeSlot: item.scheduledTimeSlot as string | undefined,
       serviceArea: item.serviceArea as string,
+      serviceAreaId: item.serviceAreaId as string | undefined,
       address: item.address as Deal['address'],
       jobType: item.jobType as string,
       stage: item.stage as Deal['stage'],

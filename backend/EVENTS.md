@@ -23,6 +23,10 @@ Publishers and consumers import these so the wire format can't drift; the
 ## Topic: `deal-events` (published by deal-service)
 `deal.created`, `deal.stage_changed`, `deal.completed`, `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
 
+Service-area catalog: `service-area.created`, `service-area.updated`, `service-area.deleted`
+(`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD, for
+search indexing / downstream cache invalidation. No dedicated consumer yet.
+
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
 
