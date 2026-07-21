@@ -7,6 +7,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     description: 'Full system access with all permissions',
     permissions: {
       deals: { view: true, create: true, edit: true, delete: true },
+      service_areas: { view: true, create: true, edit: true, delete: true },
       contacts: { view: true, create: true, edit: true, delete: true },
       companies: { view: true, create: true, edit: true, delete: true },
       products: { view: true, create: true, edit: true, delete: true },
@@ -24,6 +25,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     },
     dataScope: {
       deals: DataScope.ALL,
+      service_areas: DataScope.ALL,
       contacts: DataScope.ALL,
       companies: DataScope.ALL,
       products: DataScope.ALL,
@@ -49,6 +51,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     description: 'Administrative access with most permissions',
     permissions: {
       deals: { view: true, create: true, edit: true, delete: true },
+      service_areas: { view: true, create: true, edit: true, delete: true },
       contacts: { view: true, create: true, edit: true, delete: true },
       companies: { view: true, create: true, edit: true, delete: true },
       products: { view: true, create: true, edit: true, delete: false },
@@ -66,6 +69,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     },
     dataScope: {
       deals: DataScope.ALL,
+      service_areas: DataScope.ALL,
       contacts: DataScope.ALL,
       companies: DataScope.ALL,
       products: DataScope.ALL,
@@ -91,6 +95,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     description: 'Full department-scoped access: team, deals, technician management',
     permissions: {
       deals: { view: true, create: true, edit: true, delete: false },
+      service_areas: { view: true, create: true, edit: true, delete: false },
       contacts: { view: true, create: true, edit: true, delete: false },
       companies: { view: true, create: true, edit: true, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
@@ -108,6 +113,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     },
     dataScope: {
       deals: DataScope.DEPARTMENT,
+      service_areas: DataScope.ALL,
       contacts: DataScope.DEPARTMENT,
       companies: DataScope.DEPARTMENT,
       products: DataScope.ALL,
@@ -133,6 +139,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     description: 'Manages deals and contacts within department',
     permissions: {
       deals: { view: true, create: true, edit: true, delete: false },
+      service_areas: { view: true, create: false, edit: false, delete: false },
       contacts: { view: true, create: true, edit: true, delete: false },
       companies: { view: true, create: false, edit: false, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
@@ -150,6 +157,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     },
     dataScope: {
       deals: DataScope.DEPARTMENT,
+      service_areas: DataScope.ALL,
       contacts: DataScope.DEPARTMENT,
       companies: DataScope.DEPARTMENT,
       products: DataScope.ALL,
@@ -183,6 +191,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     description: 'Minimal access to assigned items only',
     permissions: {
       deals: { view: true, create: false, edit: true, delete: false },
+      service_areas: { view: true, create: false, edit: false, delete: false },
       contacts: { view: true, create: false, edit: false, delete: false },
       companies: { view: true, create: false, edit: false, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
@@ -200,6 +209,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     },
     dataScope: {
       deals: DataScope.ASSIGNED_ONLY,
+      service_areas: DataScope.ALL,
       contacts: DataScope.ASSIGNED_ONLY,
       companies: DataScope.ASSIGNED_ONLY,
       products: DataScope.ALL,
@@ -231,6 +241,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     description: 'View-only access to all resources',
     permissions: {
       deals: { view: true, create: false, edit: false, delete: false },
+      service_areas: { view: true, create: false, edit: false, delete: false },
       contacts: { view: true, create: false, edit: false, delete: false },
       companies: { view: true, create: false, edit: false, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
@@ -248,6 +259,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     },
     dataScope: {
       deals: DataScope.ALL,
+      service_areas: DataScope.ALL,
       contacts: DataScope.ALL,
       companies: DataScope.ALL,
       products: DataScope.ALL,

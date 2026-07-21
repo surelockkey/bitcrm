@@ -32,6 +32,7 @@ import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
+import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
 import { type CreateDealDto } from './dto/create-deal.dto';
@@ -54,6 +55,7 @@ export class DealsService {
     private readonly productsRepo: DealProductsRepository,
     private readonly internalHttp: InternalHttpService,
     private readonly geocoding: GeocodingService,
+    private readonly serviceAreas: ServiceAreasService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
@@ -90,6 +92,29 @@ export class DealsService {
     return coords ? { ...address, ...coords } : address;
   }
 
+  /**
+   * Resolve the catalog service area covering a geocoded address. Returns the
+   * matched area's id + name; falls back to the caller-supplied label (or '')
+   * when the address is uncoordinated or outside every area.
+   */
+  private async resolveServiceArea(
+    address: Address,
+    fallbackLabel?: string,
+  ): Promise<{ serviceAreaId?: string; serviceArea: string }> {
+    if (address.lat === undefined || address.lng === undefined) {
+      return { serviceArea: fallbackLabel ?? '' };
+    }
+    const area = await this.serviceAreas.resolvePoint({
+      lat: address.lat,
+      lng: address.lng,
+    });
+    if (!area) {
+      this.logger.log(`No service area covers deal address; leaving unassigned`);
+      return { serviceArea: fallbackLabel ?? '' };
+    }
+    return { serviceAreaId: area.id, serviceArea: area.name };
+  }
+
   async create(dto: CreateDealDto, caller: JwtUser): Promise<Deal> {
     const contactExists = await this.internalHttp.validateContact(dto.contactId);
     if (!contactExists) {
@@ -103,6 +128,11 @@ export class DealsService {
     // Plain object for DynamoDB marshalling, geocoded if the caller sent no coords.
     const address = await this.resolveAddress(dto.address);
 
+    // Auto-resolve the catalog service area from the geocoded location. A match
+    // is authoritative for the display label; an explicit dto.serviceArea is a
+    // fallback used only when the address falls outside every area.
+    const { serviceAreaId, serviceArea } = await this.resolveServiceArea(address, dto.serviceArea);
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -111,7 +141,8 @@ export class DealsService {
       clientType: dto.clientType,
       scheduledDate: dto.scheduledDate,
       scheduledTimeSlot: dto.scheduledTimeSlot,
-      serviceArea: dto.serviceArea,
+      serviceArea,
+      serviceAreaId,
       address,
       jobType: dto.jobType,
       stage: DealStage.NEW_LEAD,
@@ -217,6 +248,14 @@ export class DealsService {
         updates.address,
         existing.address,
       );
+      // Re-resolve the catalog service area whenever the address changes, so an
+      // edited location moves the deal into the right territory (create-parity).
+      const { serviceAreaId, serviceArea } = await this.resolveServiceArea(
+        updates.address,
+        updates.serviceArea ?? existing.serviceArea,
+      );
+      updates.serviceArea = serviceArea;
+      updates.serviceAreaId = serviceAreaId;
     }
 
     const result = await this.repository.update(id, updates);

@@ -12,7 +12,10 @@ export interface Deal {
   clientType: ClientType;
   scheduledDate?: string;
   scheduledTimeSlot?: string;
+  /** Denormalized service-area name for display (auto-resolved from address). */
   serviceArea: string;
+  /** Catalog service-area id this deal resolved into; null if outside coverage. */
+  serviceAreaId?: string;
   address: Address;
   jobType: string;
   stage: DealStage;

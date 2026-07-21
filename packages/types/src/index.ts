@@ -13,6 +13,7 @@ export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
 export { TimelineEventType } from './enums/timeline-event-type.enum';
 export { JobType } from './enums/job-type.enum';
+export { ServiceAreaType } from './enums/service-area-type.enum';
 
 // Entities
 export { User } from './entities/user.entity';
@@ -21,6 +22,13 @@ export { Contact } from './entities/contact.entity';
 export { Company } from './entities/company.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
+export {
+  ServiceArea,
+  ServiceAreaDefinition,
+  CoverageShape,
+  GeoPoint,
+  ZipEntry,
+} from './entities/service-area.entity';
 export { DealProduct } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';

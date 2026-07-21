@@ -23,8 +23,10 @@ import {
   useRejectSkill,
   useRevokeSkill,
   useProposeSkills,
+  useAssignServiceAreas,
 } from "../hooks";
 import { groupSkills, JOB_TYPE_SUGGESTIONS } from "../lib";
+import { ServiceAreaPicker } from "@/features/service-areas/components/service-area-picker";
 
 export function SkillsTab({ technicianId }: { technicianId: string }) {
   const { me, can } = usePermissions();
@@ -33,6 +35,7 @@ export function SkillsTab({ technicianId }: { technicianId: string }) {
   const revoke = useRevokeSkill();
   const [rejectTarget, setRejectTarget] = useState<TechnicianSkill | null>(null);
   const [proposeOpen, setProposeOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
 
   const canApprove = can("skills", "approve");
   const canRevoke = can("skills", "revoke");
@@ -80,7 +83,18 @@ export function SkillsTab({ technicianId }: { technicianId: string }) {
         {chipList(jobTypes, "No job types yet.")}
       </section>
       <section>
-        <Label className="mb-2 block text-[11px] tracking-wide uppercase">Service areas — where they work</Label>
+        <div className="mb-2 flex items-center justify-between">
+          <Label className="block text-[11px] tracking-wide uppercase">Service areas — where they work</Label>
+          {canApprove ? (
+            <button
+              type="button"
+              onClick={() => setAssignOpen(true)}
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              <Plus className="size-3" /> Assign areas
+            </button>
+          ) : null}
+        </div>
         {chipList(serviceAreas, "No service areas yet.")}
       </section>
 
@@ -90,6 +104,7 @@ export function SkillsTab({ technicianId }: { technicianId: string }) {
         technicianId={technicianId}
       />
       <ProposeDialog technicianId={technicianId} open={proposeOpen} onOpenChange={setProposeOpen} />
+      <AssignAreasDialog technicianId={technicianId} open={assignOpen} onOpenChange={setAssignOpen} />
     </div>
   );
 }
@@ -197,13 +212,13 @@ function ProposeDialog({
 }) {
   const propose = useProposeSkills();
   const [jobTypes, setJobTypes] = useState("");
-  const [serviceAreas, setServiceAreas] = useState("");
+  const [serviceAreas, setServiceAreas] = useState<string[]>([]);
   const parse = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
   const submit = () => {
-    const body = { jobTypes: parse(jobTypes), serviceAreas: parse(serviceAreas) };
+    const body = { jobTypes: parse(jobTypes), serviceAreas };
     if (!body.jobTypes.length && !body.serviceAreas.length) return;
-    propose.mutate({ id: technicianId, body }, { onSuccess: () => { onOpenChange(false); setJobTypes(""); setServiceAreas(""); } });
+    propose.mutate({ id: technicianId, body }, { onSuccess: () => { onOpenChange(false); setJobTypes(""); setServiceAreas([]); } });
   };
 
   return (
@@ -211,7 +226,7 @@ function ProposeDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Propose skills</DialogTitle>
-          <DialogDescription>They&apos;ll go to a manager for review. One per line or comma-separated.</DialogDescription>
+          <DialogDescription>They&apos;ll go to a manager for review. Job types: one per line or comma-separated. Service areas: pick from the defined territories.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -220,7 +235,7 @@ function ProposeDialog({
           </div>
           <div className="space-y-1.5">
             <Label>Service areas</Label>
-            <Textarea rows={2} value={serviceAreas} onChange={(e) => setServiceAreas(e.target.value)} placeholder="Phoenix, Scottsdale" />
+            <ServiceAreaPicker value={serviceAreas} onChange={setServiceAreas} />
           </div>
         </div>
         <DialogFooter>
@@ -228,6 +243,48 @@ function ProposeDialog({
           <Button variant="brand" className="gap-1.5" disabled={propose.isPending} onClick={submit}>
             {propose.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
             Propose
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AssignAreasDialog({
+  technicianId,
+  open,
+  onOpenChange,
+}: {
+  technicianId: string;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const assign = useAssignServiceAreas();
+  const [areas, setAreas] = useState<string[]>([]);
+
+  const submit = () => {
+    if (!areas.length) return;
+    assign.mutate(
+      { id: technicianId, serviceAreas: areas },
+      { onSuccess: () => { onOpenChange(false); setAreas([]); } },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) setAreas([]); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Assign service areas</DialogTitle>
+          <DialogDescription>
+            Grant catalog service areas to this technician directly — no approval needed.
+          </DialogDescription>
+        </DialogHeader>
+        <ServiceAreaPicker value={areas} onChange={setAreas} />
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="brand" className="gap-1.5" disabled={!areas.length || assign.isPending} onClick={submit}>
+            {assign.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+            Assign
           </Button>
         </DialogFooter>
       </DialogContent>

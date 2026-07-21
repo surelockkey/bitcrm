@@ -26,6 +26,7 @@ import { useCreateDeal } from "../hooks";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { formatSchedule, jobTypeLabel } from "../lib";
 import { AddressAutocomplete } from "./address-autocomplete";
+import { ResolvedAreaField, ResolvedAreaText } from "@/features/service-areas/components/resolved-area-field";
 
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 const STEPS = ["Client", "Job", "Schedule", "Review"] as const;
@@ -186,7 +187,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
   const next = async () => {
     const fields: (keyof DealJobValues | `address.${string}`)[] =
       step === 1
-        ? ["jobType", "serviceArea", "clientType", "address.street", "address.city", "address.state", "address.zip"]
+        ? ["jobType", "clientType", "address.street", "address.city", "address.state", "address.zip"]
         : ["scheduledTimeSlot"];
     const ok = await form.trigger(fields as never);
     if (ok) setStep((s) => s + 1);
@@ -219,7 +220,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
             <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Service area" error={err.serviceArea?.message}><Input className="h-9" {...form.register("serviceArea")} /></Field>
+            <ResolvedAreaField lat={v.address?.lat} lng={v.address?.lng} />
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
           <div className="space-y-1.5">
@@ -267,7 +268,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           <ReviewRow label="Job type" value={v.jobType ? jobTypeLabel(v.jobType) : "—"} />
           <ReviewRow label="Priority" value={v.priority === DealPriority.URGENT ? "Urgent" : "Normal"} />
           <ReviewRow label="Client type" value={clientTypeLabel(v.clientType)} />
-          <ReviewRow label="Service area" value={v.serviceArea || "—"} />
+          <ReviewRow label="Service area" value={<ResolvedAreaText lat={v.address?.lat} lng={v.address?.lng} />} />
           <ReviewRow label="Address" value={`${v.address.street}${v.address.unit ? ` ${v.address.unit}` : ""}, ${v.address.city} ${v.address.state} ${v.address.zip}`} />
           <ReviewRow label="Scheduled" value={formatSchedule(v.scheduledDate || undefined, v.scheduledTimeSlot || undefined)} />
           {v.source ? <ReviewRow label="Source" value={v.source} /> : null}
@@ -297,7 +298,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b pb-2 last:border-0 last:pb-0">
       <span className="text-muted-foreground">{label}</span>

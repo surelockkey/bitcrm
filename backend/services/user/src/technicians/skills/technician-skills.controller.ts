@@ -13,6 +13,7 @@ import { TechnicianSkillsService } from './technician-skills.service';
 import { Internal } from '../../common/decorators/internal.decorator';
 import { ProposeSkillsDto } from './dto/propose-skills.dto';
 import { ReviewSkillDto } from './dto/review-skill.dto';
+import { AssignServiceAreasDto } from './dto/assign-service-areas.dto';
 
 @ApiTags('Technician Skills')
 @ApiBearerAuth()
@@ -70,6 +71,24 @@ export class TechnicianSkillsController {
     @CurrentUser() user: JwtUser,
   ) {
     const data = await this.skillsService.propose(id, dto, user);
+    return { success: true, data };
+  }
+
+  @Post(':id/service-areas')
+  @RequirePermission('skills', 'approve')
+  @ApiOperation({
+    summary: 'Assign service areas to a technician directly (manager)',
+    description:
+      '**Guard:** `skills.approve` permission required. Manager+. Creates already-approved ' +
+      'service-area skills from the catalog, skipping the propose→approve step. Publishes ' +
+      '`tech.approved` when the technician first becomes assignable.',
+  })
+  async assignServiceAreas(
+    @Param('id') id: string,
+    @Body() dto: AssignServiceAreasDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.skillsService.assignServiceAreas(id, dto.serviceAreas, user);
     return { success: true, data };
   }
 

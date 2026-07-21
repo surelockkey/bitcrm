@@ -27,6 +27,7 @@ import { useUpdateDeal } from "../hooks";
 import { editDealSchema, type EditDealValues } from "../schemas";
 import { jobTypeLabel } from "../lib";
 import { AddressAutocomplete } from "./address-autocomplete";
+import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 
 const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
@@ -45,6 +46,8 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         city: deal.address.city,
         state: deal.address.state,
         zip: deal.address.zip,
+        lat: deal.address.lat,
+        lng: deal.address.lng,
       },
       scheduledDate: deal.scheduledDate ?? "",
       scheduledTimeSlot: deal.scheduledTimeSlot ?? "",
@@ -76,6 +79,8 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const jobType = useWatch({ control: form.control, name: "jobType" });
   const priority = useWatch({ control: form.control, name: "priority" });
   const street = useWatch({ control: form.control, name: "address.street" });
+  const lat = useWatch({ control: form.control, name: "address.lat" });
+  const lng = useWatch({ control: form.control, name: "address.lng" });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -99,10 +104,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
                 </Select>
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Service area</Label>
-              <Input className="h-9" {...form.register("serviceArea")} />
-            </div>
+            <ResolvedAreaField lat={lat} lng={lng} />
             <div className="space-y-1.5">
               <Label>Address</Label>
               <AddressAutocomplete

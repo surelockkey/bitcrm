@@ -7,6 +7,7 @@ import { DealsCacheService } from 'src/deals/deals-cache.service';
 import { TimelineRepository } from 'src/timeline/timeline.repository';
 import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
+import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
   createMockDeal,
@@ -30,6 +31,7 @@ describe('DealsService', () => {
   let products: ReturnType<typeof createMockDealProductsRepository>;
   let sns: ReturnType<typeof createMockSnsPublisherService>;
   let http: ReturnType<typeof createMockInternalHttpService>;
+  let serviceAreas: { resolvePoint: jest.Mock };
 
   beforeEach(async () => {
     repo = createMockDealsRepository();
@@ -38,6 +40,7 @@ describe('DealsService', () => {
     products = createMockDealProductsRepository();
     sns = createMockSnsPublisherService();
     http = createMockInternalHttpService();
+    serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -49,6 +52,7 @@ describe('DealsService', () => {
         { provide: SnsPublisherService, useValue: sns },
         { provide: InternalHttpService, useValue: http },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
+        { provide: ServiceAreasService, useValue: serviceAreas },
       ],
     }).compile();
 
@@ -86,6 +90,29 @@ describe('DealsService', () => {
       expect(result.priority).toBe(DealPriority.NORMAL);
       expect(result.tags).toEqual([]);
       expect(repo.create).toHaveBeenCalled();
+    });
+
+    it('auto-resolves serviceAreaId and label from the geocoded address', async () => {
+      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.create.mockResolvedValue(undefined);
+      serviceAreas.resolvePoint.mockResolvedValue({ id: 'area-9', name: 'North Metro' });
+
+      const result = await service.create(dto as any, caller);
+
+      expect(serviceAreas.resolvePoint).toHaveBeenCalledWith({ lat: 33.749, lng: -84.388 });
+      expect(result.serviceAreaId).toBe('area-9');
+      expect(result.serviceArea).toBe('North Metro');
+    });
+
+    it('falls back to the provided label when no area covers the address', async () => {
+      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.create.mockResolvedValue(undefined);
+      serviceAreas.resolvePoint.mockResolvedValue(null);
+
+      const result = await service.create(dto as any, caller);
+
+      expect(result.serviceAreaId).toBeUndefined();
+      expect(result.serviceArea).toBe('Atlanta Metro');
     });
 
     it('should use provided priority and tags', async () => {

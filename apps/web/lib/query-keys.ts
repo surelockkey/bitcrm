@@ -23,6 +23,13 @@ export const queryKeys = {
     products: (id: string) => ["deals", id, "products"] as const,
   },
 
+  serviceAreas: {
+    all: () => ["service-areas"] as const,
+    list: () => ["service-areas", "list"] as const,
+    detail: (id: string) => ["service-areas", "detail", id] as const,
+    resolve: (point?: unknown) => ["service-areas", "resolve", point] as const,
+  },
+
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,

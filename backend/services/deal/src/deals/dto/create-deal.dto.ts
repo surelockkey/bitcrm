@@ -33,9 +33,13 @@ export class CreateDealDto {
   })
   scheduledTimeSlot?: string;
 
-  @ApiProperty({ example: 'Atlanta Metro' })
+  @ApiPropertyOptional({
+    example: 'Atlanta Metro',
+    description: 'Optional label override; normally auto-resolved from the address.',
+  })
+  @IsOptional()
   @IsString()
-  serviceArea!: string;
+  serviceArea?: string;
 
   @ApiProperty({ type: AddressDto })
   @ValidateNested()

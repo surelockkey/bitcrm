@@ -7,6 +7,7 @@ import { DealsCacheService } from 'src/deals/deals-cache.service';
 import { TimelineRepository } from 'src/timeline/timeline.repository';
 import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
+import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import {
   createMockDeal,
   createMockJwtUser,
@@ -47,6 +48,7 @@ describe('DealsService — job sequencing', () => {
         { provide: SnsPublisherService, useValue: createMockSnsPublisherService() },
         { provide: InternalHttpService, useValue: createMockInternalHttpService() },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
+        { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();
 

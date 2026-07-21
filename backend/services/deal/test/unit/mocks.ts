@@ -1,6 +1,8 @@
 import {
   ClientType, DealStage, DealPriority, DealStatus, TimelineEventType,
+  ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
+  type ServiceArea,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -65,6 +67,22 @@ export function createMockTimelineEntry(overrides?: Partial<TimelineEntry>): Tim
     actorName: 'Jane Dispatcher',
     timestamp: '2026-04-16T10:00:00.000Z',
     details: {},
+    ...overrides,
+  };
+}
+
+export function createMockServiceArea(overrides?: Partial<ServiceArea>): ServiceArea {
+  return {
+    id: 'area-1',
+    name: 'Atlanta Metro',
+    priority: 0,
+    active: true,
+    type: ServiceAreaType.ZIPS,
+    definition: { type: ServiceAreaType.ZIPS, zips: [{ zip: '30301', radiusMiles: 10 }] },
+    coverage: [{ kind: 'circle', lat: 33.749, lng: -84.388, radiusMiles: 10 }],
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
     ...overrides,
   };
 }
@@ -139,6 +157,16 @@ export function createMockInternalHttpService() {
 
 export function createMockGeocodingService() {
   return { geocode: jest.fn().mockResolvedValue({ lat: 33.749, lng: -84.388 }) };
+}
+
+export function createMockServiceAreasRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    remove: jest.fn(),
+  };
 }
 
 export function createMockDynamoDbService() {

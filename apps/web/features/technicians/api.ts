@@ -115,6 +115,11 @@ export function revokeSkill(id: string, skillId: string): Promise<null> {
   return http.delete<null>(`${BASE}/${id}/skills/${skillId}`);
 }
 
+/** Manager path: grant catalog service areas to a technician directly (pre-approved). */
+export function assignServiceAreas(id: string, serviceAreas: string[]): Promise<TechnicianSkill[]> {
+  return http.post<TechnicianSkill[]>(`${BASE}/${id}/service-areas`, { serviceAreas });
+}
+
 /* ---- Commission ---- */
 
 export function getCommission(id: string): Promise<CommissionConfig> {

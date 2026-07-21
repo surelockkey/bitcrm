@@ -255,6 +255,19 @@ export function useRevokeSkill() {
   });
 }
 
+export function useAssignServiceAreas() {
+  const invalidate = useInvalidateTechnicians();
+  return useMutation({
+    mutationFn: ({ id, serviceAreas }: { id: string; serviceAreas: string[] }) =>
+      api.assignServiceAreas(id, serviceAreas),
+    onSuccess: (created) => {
+      invalidate();
+      toast.success(`Assigned ${created.length} service area${created.length === 1 ? "" : "s"}`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useSetCommission() {
   const invalidate = useInvalidateTechnicians();
   return useMutation({

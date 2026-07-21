@@ -46,6 +46,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Super Admin",
     permissions: {
       deals: crud(true, true, true, true),
+      service_areas: crud(true, true, true, true),
       contacts: crud(true, true, true, true),
       companies: crud(true, true, true, true),
       products: crud(true, true, true, true),
@@ -68,6 +69,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Admin",
     permissions: {
       deals: crud(true, true, true, true),
+      service_areas: crud(true, true, true, true),
       contacts: crud(true, true, true, true),
       companies: crud(true, true, true, true),
       products: crud(true, true, true, false),
@@ -90,6 +92,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Department Manager",
     permissions: {
       deals: crud(true, true, true, false),
+      service_areas: crud(true, true, true, false),
       contacts: crud(true, true, true, false),
       companies: crud(true, true, true, false),
       products: crud(true, false, false, false),
@@ -118,6 +121,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Dispatcher",
     permissions: {
       deals: crud(true, true, true, false),
+      service_areas: crud(true, false, false, false),
       contacts: crud(true, true, true, false),
       companies: crud(true, false, false, false),
       products: crud(true, false, false, false),
@@ -146,6 +150,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Technician",
     permissions: {
       deals: crud(true, false, true, false),
+      service_areas: crud(true, false, false, false),
       contacts: crud(true, false, false, false),
       companies: crud(true, false, false, false),
       products: crud(true, false, false, false),
@@ -172,6 +177,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Read Only",
     permissions: {
       deals: crud(true, false, false, false),
+      service_areas: crud(true, false, false, false),
       contacts: crud(true, false, false, false),
       companies: crud(true, false, false, false),
       products: crud(true, false, false, false),
