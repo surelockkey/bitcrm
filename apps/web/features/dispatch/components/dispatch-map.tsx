@@ -3,10 +3,11 @@
 import { useEffect } from "react";
 // Aliased: the component would otherwise shadow the built-in Map type below.
 import { Map as GoogleMap, useMap } from "@vis.gl/react-google-maps";
-import type { Deal, User } from "@bitcrm/types";
+import type { Deal, ServiceArea, User } from "@bitcrm/types";
 import { env } from "@/lib/env";
 import { JobPin } from "./job-pin";
 import { TechMarker } from "./tech-marker";
+import { ServiceAreaOverlay } from "./service-area-overlay";
 import { useMarkerClusterer } from "../use-marker-clusterer";
 import {
   techJobsToday,
@@ -106,6 +107,7 @@ export function DispatchMap({
   deals,
   allDeals,
   technicians,
+  serviceAreas,
   userMap,
   hoveredId,
   selectedId,
@@ -119,6 +121,8 @@ export function DispatchMap({
   /** Every deal (not just the map-filtered ones), for deriving tech job status. */
   allDeals: Deal[];
   technicians: TechnicianPosition[];
+  /** Coverage polygons to draw underneath the pins; empty hides the layer. */
+  serviceAreas: ServiceArea[];
   userMap: Map<string, User>;
   hoveredId: string | null;
   selectedId: string | null;
@@ -144,6 +148,7 @@ export function DispatchMap({
     >
       <FitToJobs deals={deals} />
       <PanTo target={panTo} nonce={panNonce} />
+      <ServiceAreaOverlay areas={serviceAreas} />
       <JobPins
         deals={deals}
         label={label}
