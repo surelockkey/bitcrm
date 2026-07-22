@@ -44,10 +44,13 @@ export class UpdateDealDto {
   @IsEnum(DealPriority)
   priority?: DealPriority;
 
-  @ApiPropertyOptional({ example: 'Referral' })
+  @ApiPropertyOptional({
+    example: 'a3f2c1b4-8e7d-4a91-9c2e-1f6d0b5a7e34',
+    description: 'Catalog job-source id. An archived source is accepted so old deals stay editable.',
+  })
   @IsOptional()
   @IsString()
-  source?: string;
+  sourceId?: string;
 
   @ApiPropertyOptional({ example: 'Updated notes' })
   @IsOptional()

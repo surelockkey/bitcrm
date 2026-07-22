@@ -21,6 +21,8 @@ import { useContactMap, useDeals, useUserMap } from "../hooks";
 import { STAGE_ORDER, filterDeals, stageLabel, type DealFilter } from "../lib";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
+import { useJobSources } from "@/features/job-sources/hooks";
+import { activeJobSources } from "@/features/job-sources/lib";
 import { DealsBoard } from "./deals-board";
 import { DealsTable } from "./deals-table";
 
@@ -38,6 +40,8 @@ export function DealsPage() {
   const [priority, setPriority] = useState(ALL);
   const [jobTypeId, setJobTypeId] = useState(ALL);
   const jobTypesQuery = useJobTypes();
+  const [sourceId, setSourceId] = useState(ALL);
+  const jobSourcesQuery = useJobSources();
 
   const contactNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -51,9 +55,10 @@ export function DealsPage() {
       stage: stage === ALL ? undefined : (stage as DealFilter["stage"]),
       priority: priority === ALL ? undefined : (priority as DealPriority),
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
+      sourceId: sourceId === ALL ? undefined : sourceId,
     };
     return filterDeals(dealsQuery.data ?? [], filter, contactNames);
-  }, [dealsQuery.data, search, stage, priority, jobTypeId, contactNames]);
+  }, [dealsQuery.data, search, stage, priority, jobTypeId, sourceId, contactNames]);
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -83,6 +88,7 @@ export function DealsPage() {
         <FilterSelect value={stage} onChange={setStage} allLabel="All stages" options={STAGE_ORDER.map((s) => ({ value: s, label: stageLabel(s) }))} width={160} />
         <FilterSelect value={priority} onChange={setPriority} allLabel="Any priority" options={[{ value: DealPriority.URGENT, label: "Urgent" }, { value: DealPriority.NORMAL, label: "Normal" }]} width={140} />
         <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All jobs" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={140} />
+        <FilterSelect value={sourceId} onChange={setSourceId} allLabel="All sources" options={activeJobSources(jobSourcesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={150} />
         <span className="ml-auto flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{filtered.length} {filtered.length === 1 ? "deal" : "deals"}</span>
           {!isTechnician ? (

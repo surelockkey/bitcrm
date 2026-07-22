@@ -36,6 +36,12 @@ export const queryKeys = {
     detail: (id: string) => ["job-types", "detail", id] as const,
   },
 
+  jobSources: {
+    all: () => ["job-sources"] as const,
+    list: () => ["job-sources", "list"] as const,
+    detail: (id: string) => ["job-sources", "detail", id] as const,
+  },
+
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,

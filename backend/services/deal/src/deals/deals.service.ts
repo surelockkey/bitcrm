@@ -34,6 +34,7 @@ import { DealProductsRepository } from '../products/deal-products.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
+import { JobSourcesService } from '../job-sources/job-sources.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
 import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
@@ -59,6 +60,7 @@ export class DealsService {
     private readonly geocoding: GeocodingService,
     private readonly serviceAreas: ServiceAreasService,
     private readonly jobTypes: JobTypesService,
+    private readonly jobSources: JobSourcesService,
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
@@ -143,6 +145,14 @@ export class DealsService {
       throw new BadRequestException(`Job type "${jobType.name}" is archived and cannot be used on a new deal`);
     }
 
+    // Source is optional; validate only when supplied, and reject an archived one.
+    if (dto.sourceId) {
+      const source = await this.jobSources.findById(dto.sourceId);
+      if (!source.active) {
+        throw new BadRequestException(`Job source "${source.name}" is archived and cannot be used on a new deal`);
+      }
+    }
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -158,7 +168,7 @@ export class DealsService {
       stage: DealStage.NEW_LEAD,
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
-      source: dto.source,
+      sourceId: dto.sourceId,
       notes: dto.notes,
       tags: dto.tags || [],
       status: DealStatus.ACTIVE,
@@ -219,6 +229,7 @@ export class DealsService {
     const search = query.search?.trim();
     const filters: DealFilters = {
       jobTypeId: query.jobTypeId,
+      sourceId: query.sourceId,
       serviceArea: query.serviceArea,
       clientType: query.clientType,
       priority: query.priority,
@@ -271,6 +282,8 @@ export class DealsService {
     // Archived types are allowed on update so an old deal stays editable; only
     // the id's existence is enforced.
     if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
+    // Archived source allowed on update so an old deal stays editable.
+    if (updates.sourceId) await this.jobSources.findById(updates.sourceId);
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);

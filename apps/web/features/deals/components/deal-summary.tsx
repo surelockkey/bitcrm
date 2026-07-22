@@ -11,10 +11,12 @@ import { contactName, formatPhone, initials, primaryPhone, clientTypeLabel } fro
 import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../hooks";
 import { dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
+import { useJobSourceName } from "@/features/job-sources/lib";
 import { AssignTechDialog } from "./assign-tech-dialog";
 
 export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const jobTypeName = useJobTypeName();
+  const jobSourceName = useJobSourceName();
   const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
   const { map: userMap } = useUserMap();
@@ -39,7 +41,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
           />
           <Row label="Service area" value={deal.serviceArea} />
           <Row label="Scheduled" value={formatSchedule(deal.scheduledDate, deal.scheduledTimeSlot)} />
-          {deal.source ? <Row label="Source" value={deal.source} /> : null}
+          {deal.sourceId ? <Row label="Source" value={jobSourceName(deal.sourceId)} /> : null}
           {deal.tags.length ? <Row label="Tags" value={deal.tags.join(", ")} /> : null}
         </dl>
       </Card>

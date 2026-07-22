@@ -29,6 +29,11 @@ export class ListDealsQueryDto {
   @IsString()
   jobTypeId?: string;
 
+  @ApiPropertyOptional({ description: 'Catalog job-source id.' })
+  @IsOptional()
+  @IsString()
+  sourceId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

@@ -22,6 +22,7 @@ export { Company } from './entities/company.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
 export { JobType } from './entities/job-type.entity';
+export { JobSource } from './entities/job-source.entity';
 export {
   ServiceArea,
   ServiceAreaDefinition,

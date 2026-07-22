@@ -28,6 +28,7 @@ import { editDealSchema, type EditDealValues } from "../schemas";
 import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
+import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 
 
 export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: boolean; onOpenChange: (v: boolean) => void }) {
@@ -51,7 +52,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       scheduledDate: deal.scheduledDate ?? "",
       scheduledTimeSlot: deal.scheduledTimeSlot ?? "",
       priority: deal.priority,
-      source: deal.source ?? "",
+      sourceId: deal.sourceId ?? "",
       notes: deal.notes ?? "",
       internalNotes: deal.internalNotes ?? "",
       tags: deal.tags,
@@ -65,7 +66,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         ...v,
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
-        source: v.source || undefined,
+        sourceId: v.sourceId || undefined,
         notes: v.notes || undefined,
         internalNotes: v.internalNotes || undefined,
         tags,
@@ -76,6 +77,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
 
   const err = form.formState.errors;
   const jobTypeId = useWatch({ control: form.control, name: "jobTypeId" });
+  const sourceId = useWatch({ control: form.control, name: "sourceId" });
   const priority = useWatch({ control: form.control, name: "priority" });
   const street = useWatch({ control: form.control, name: "address.street" });
   const lat = useWatch({ control: form.control, name: "address.lat" });
@@ -128,7 +130,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
               <div className="space-y-1.5"><Label>Time slot</Label><Input className="h-9" placeholder="09:00-12:00" {...form.register("scheduledTimeSlot")} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Source</Label><Input className="h-9" {...form.register("source")} /></div>
+              <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={sourceId} onChange={(v) => form.setValue("sourceId", v ?? "")} /></div>
               <div className="space-y-1.5"><Label>Tags</Label><Input className="h-9" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></div>
             </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} {...form.register("notes")} /></div>

@@ -83,7 +83,7 @@ describe('DealsRepository', () => {
     it('should map all fields correctly', async () => {
       const deal = createMockDeal({
         companyId: 'comp-1', scheduledTimeSlot: '09:00-12:00',
-        source: 'Google', notes: 'Test', internalNotes: 'Internal',
+        sourceId: 'src-1', notes: 'Test', internalNotes: 'Internal',
         cancellationReason: undefined, estimatedTotal: 100, actualTotal: 90,
         paymentStatus: 'paid', sequenceNumber: 2,
       });
@@ -93,7 +93,7 @@ describe('DealsRepository', () => {
 
       expect(result!.companyId).toBe('comp-1');
       expect(result!.scheduledTimeSlot).toBe('09:00-12:00');
-      expect(result!.source).toBe('Google');
+      expect(result!.sourceId).toBe('src-1');
       expect(result!.estimatedTotal).toBe(100);
       expect(result!.paymentStatus).toBe('paid');
       expect(result!.sequenceNumber).toBe(2);

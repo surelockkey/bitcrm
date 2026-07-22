@@ -24,6 +24,7 @@ export interface PaginatedResult {
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
   jobTypeId?: string;
+  sourceId?: string;
   serviceArea?: string;
   clientType?: string;
   priority?: string;
@@ -60,6 +61,7 @@ export class DealsRepository {
       values[`:${attr}`] = val;
     };
     if (filters?.jobTypeId) eq('jobTypeId', filters.jobTypeId);
+    if (filters?.sourceId) eq('sourceId', filters.sourceId);
     if (filters?.serviceArea) eq('serviceArea', filters.serviceArea);
     if (filters?.clientType) eq('clientType', filters.clientType);
     if (filters?.priority) eq('priority', filters.priority);
@@ -325,7 +327,7 @@ export class DealsRepository {
       assignedDispatcherId: item.assignedDispatcherId as string,
       sequenceNumber: item.sequenceNumber as number | undefined,
       priority: item.priority as Deal['priority'],
-      source: item.source as string | undefined,
+      sourceId: item.sourceId as string | undefined,
       notes: item.notes as string | undefined,
       internalNotes: item.internalNotes as string | undefined,
       cancellationReason: item.cancellationReason as string | undefined,

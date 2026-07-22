@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ServiceAreasModule } from '../service-areas/service-areas.module';
 import { JobTypesModule } from '../job-types/job-types.module';
+import { JobSourcesModule } from '../job-sources/job-sources.module';
 import { TechnicianEligibilityModule } from '../technician-eligibility/technician-eligibility.module';
 import { DealsController } from './deals.controller';
 import { DealsService } from './deals.service';
@@ -12,7 +13,7 @@ import { InternalHttpService } from '../common/services/internal-http.service';
 import { DealsEventHandler } from './deals.event-handler';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, TechnicianEligibilityModule],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, TechnicianEligibilityModule],
   controllers: [DealsController],
   providers: [
     DealsService,

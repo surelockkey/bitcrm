@@ -58,10 +58,13 @@ export class CreateDealDto {
   @IsEnum(DealPriority)
   priority?: DealPriority;
 
-  @ApiPropertyOptional({ example: 'Google Ads' })
+  @ApiPropertyOptional({
+    example: 'a3f2c1b4-8e7d-4a91-9c2e-1f6d0b5a7e34',
+    description: 'Catalog job-source id (GET /api/deals/job-sources). Must be active.',
+  })
   @IsOptional()
   @IsString()
-  source?: string;
+  sourceId?: string;
 
   @ApiPropertyOptional({ example: 'Client locked out of home' })
   @IsOptional()

@@ -27,6 +27,8 @@ import { dealJobSchema, type DealJobValues } from "../schemas";
 import { formatSchedule } from "../lib";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { useJobTypeName } from "@/features/job-types/lib";
+import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { useJobSourceName } from "@/features/job-sources/lib";
 import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField, ResolvedAreaText } from "@/features/service-areas/components/resolved-area-field";
 
@@ -161,6 +163,7 @@ function ClientStep({ onResolved }: { onResolved: (c: ResolvedClient) => void })
 function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChangeClient: () => void }) {
   const router = useRouter();
   const jobTypeName = useJobTypeName();
+  const jobSourceName = useJobSourceName();
   const createDeal = useCreateDeal();
   const [step, setStep] = useState(1); // 1=job, 2=schedule, 3=review
   const [tagsStr, setTagsStr] = useState("");
@@ -175,7 +178,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
       scheduledDate: "",
       scheduledTimeSlot: "",
       priority: DealPriority.NORMAL,
-      source: "",
+      sourceId: "",
       notes: "",
       tags: [],
     },
@@ -203,7 +206,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
         ...form.getValues(),
         scheduledDate: form.getValues("scheduledDate") || undefined,
         scheduledTimeSlot: form.getValues("scheduledTimeSlot") || undefined,
-        source: form.getValues("source") || undefined,
+        sourceId: form.getValues("sourceId") || undefined,
         notes: form.getValues("notes") || undefined,
         tags,
       },
@@ -261,7 +264,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
             <Field label="Time slot" error={typeof err.scheduledTimeSlot?.message === "string" ? err.scheduledTimeSlot.message : undefined}><Input className="h-9" placeholder="09:00-12:00" {...form.register("scheduledTimeSlot")} /></Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Source"><Input className="h-9" placeholder="e.g. Google Ads" {...form.register("source")} /></Field>
+            <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} /></div>
             <Field label="Tags (comma-separated)"><Input className="h-9" placeholder="rush, repeat" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></Field>
           </div>
           <Field label="Notes"><Textarea rows={3} {...form.register("notes")} /></Field>
@@ -277,7 +280,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           <ReviewRow label="Service area" value={<ResolvedAreaText lat={v.address?.lat} lng={v.address?.lng} />} />
           <ReviewRow label="Address" value={`${v.address.street}${v.address.unit ? ` ${v.address.unit}` : ""}, ${v.address.city} ${v.address.state} ${v.address.zip}`} />
           <ReviewRow label="Scheduled" value={formatSchedule(v.scheduledDate || undefined, v.scheduledTimeSlot || undefined)} />
-          {v.source ? <ReviewRow label="Source" value={v.source} /> : null}
+          {v.sourceId ? <ReviewRow label="Source" value={jobSourceName(v.sourceId)} /> : null}
           {tags.length ? <ReviewRow label="Tags" value={tags.join(", ")} /> : null}
           {v.notes ? <ReviewRow label="Notes" value={v.notes} /> : null}
         </div>

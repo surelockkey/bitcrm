@@ -17,6 +17,7 @@ import { DealsModule } from './deals/deals.module';
 import { DealsEventHandler } from './deals/deals.event-handler';
 import { ServiceAreasModule } from './service-areas/service-areas.module';
 import { JobTypesModule } from './job-types/job-types.module';
+import { JobSourcesModule } from './job-sources/job-sources.module';
 import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
 import { TechnicianEligibilityEventHandler } from './technician-eligibility/technician-eligibility.event-handler';
 
@@ -71,6 +72,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     // DealsController's `GET /:id` under the shared `api/deals` prefix.
     ServiceAreasModule,
     JobTypesModule,
+    JobSourcesModule,
     DealsModule,
     TechnicianEligibilityModule,
   ],

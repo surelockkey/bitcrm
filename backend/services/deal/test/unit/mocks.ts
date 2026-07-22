@@ -2,7 +2,7 @@ import {
   ClientType, DealStage, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
-  type ServiceArea, type JobType,
+  type ServiceArea, type JobType, type JobSource,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,19 @@ export function createMockJobType(overrides?: Partial<JobType>): JobType {
   };
 }
 
+export function createMockJobSource(overrides?: Partial<JobSource>): JobSource {
+  return {
+    id: 'jobsource-1',
+    name: 'Google Ads',
+    priority: 0,
+    active: true,
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export function createMockJwtUser(overrides?: Partial<JwtUser>): JwtUser {
   return {
     id: 'admin-1',
@@ -186,6 +199,17 @@ export function createMockServiceAreasRepository() {
 }
 
 export function createMockJobTypesRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockJobSourcesRepository() {
   return {
     create: jest.fn(),
     put: jest.fn(),

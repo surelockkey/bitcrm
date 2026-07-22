@@ -24,7 +24,8 @@ export interface Deal {
   assignedDispatcherId: string;
   sequenceNumber?: number;
   priority: DealPriority;
-  source?: string;
+  /** Catalog job-source id (where the deal came from). Optional. */
+  sourceId?: string;
   notes?: string;
   internalNotes?: string;
   cancellationReason?: string;

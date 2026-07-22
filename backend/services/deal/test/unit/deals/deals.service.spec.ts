@@ -9,6 +9,7 @@ import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
+import { JobSourcesService } from 'src/job-sources/job-sources.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
@@ -24,6 +25,7 @@ import {
   createMockInternalHttpService,
   createMockGeocodingService,
   createMockJobType,
+  createMockJobSource,
   createMockTechnicianEligibilityRepository,
 } from '../mocks';
 
@@ -37,6 +39,7 @@ describe('DealsService', () => {
   let http: ReturnType<typeof createMockInternalHttpService>;
   let serviceAreas: { resolvePoint: jest.Mock };
   let jobTypes: { findById: jest.Mock };
+  let jobSources: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
 
   beforeEach(async () => {
@@ -48,6 +51,7 @@ describe('DealsService', () => {
     http = createMockInternalHttpService();
     serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
+    jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
     eligibility = createMockTechnicianEligibilityRepository();
 
     const module = await Test.createTestingModule({
@@ -62,6 +66,7 @@ describe('DealsService', () => {
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: serviceAreas },
         { provide: JobTypesService, useValue: jobTypes },
+        { provide: JobSourcesService, useValue: jobSources },
         { provide: TechnicianEligibilityRepository, useValue: eligibility },
       ],
     }).compile();

@@ -145,6 +145,7 @@ export interface DealFilter {
   stage?: DealStage;
   priority?: DealPriority;
   jobTypeId?: string;
+  sourceId?: string;
   serviceArea?: string;
   /** Keep only deals whose stage falls in one of these groups (empty/undefined = all). */
   statusGroups?: DealStageGroup[];
@@ -168,6 +169,7 @@ export function filterDeals(
     if (filter.stage && d.stage !== filter.stage) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
     if (filter.jobTypeId && d.jobTypeId !== filter.jobTypeId) return false;
+    if (filter.sourceId && d.sourceId !== filter.sourceId) return false;
     if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
     if (filter.statusGroups?.length && !filter.statusGroups.includes(stageGroup(d.stage)))
       return false;

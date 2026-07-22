@@ -28,7 +28,7 @@ export const dealJobSchema = z.object({
   scheduledDate: z.string().trim().optional().or(z.literal("")),
   scheduledTimeSlot: timeSlot,
   priority: z.nativeEnum(DealPriority),
-  source: z.string().trim().optional(),
+  sourceId: z.string().trim().optional(),
   notes: z.string().trim().optional(),
   tags: z.array(z.string().trim().min(1)),
 });
