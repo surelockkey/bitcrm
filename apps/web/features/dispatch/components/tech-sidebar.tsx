@@ -23,7 +23,7 @@ import { GripVertical, MapPin, TriangleAlert, X } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
-import { jobTypeLabel } from "@/features/deals/lib";
+import { useJobTypeName } from "@/features/job-types/lib";
 import { techColor } from "../tech-color";
 import { useReverseGeocode } from "../use-reverse-geocode";
 import {
@@ -67,6 +67,7 @@ function JobRow({
   canReorder: boolean;
   onSelectJob: (dealId: string) => void;
 }) {
+  const jobTypeName = useJobTypeName();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: deal.id,
     disabled: !canReorder,
@@ -103,7 +104,7 @@ function JobRow({
               #{deal.dealNumber} · {clientName(deal)}
             </span>
             <span className="block truncate text-xs text-muted-foreground">
-              {jobTypeLabel(deal.jobType)}
+              {jobTypeName(deal.jobTypeId)}
               {deal.scheduledTimeSlot ? ` · ${deal.scheduledTimeSlot}` : ""}
             </span>
           </span>

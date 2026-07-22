@@ -8,8 +8,12 @@ function makeClient() {
   };
 }
 
+function stubCatalogNames() {
+  return { nameOf: jest.fn().mockResolvedValue(undefined), invalidate: jest.fn() };
+}
+
 function makeService(client: any) {
-  return new SearchIndexerService({ client } as any);
+  return new SearchIndexerService({ client } as any, stubCatalogNames() as any);
 }
 
 describe('SearchIndexerService', () => {

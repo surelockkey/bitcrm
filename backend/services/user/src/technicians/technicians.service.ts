@@ -21,7 +21,7 @@ import {
 import { TechniciansRepository } from './technicians.repository';
 import { TechniciansCacheService } from './technicians-cache.service';
 import { RolesService } from '../roles/roles.service';
-import { TechnicianSkillsRepository } from './skills/technician-skills.repository';
+import { TechnicianAssignmentsRepository, type TechnicianAssignment } from './assignments/technician-assignments.repository';
 import { CommissionRepository } from './commission/commission.repository';
 import { UpdateTechnicianDto, OPERATIONAL_FIELDS } from './dto/update-technician.dto';
 import { ListTechniciansQueryDto } from './dto/list-technicians-query.dto';
@@ -41,7 +41,7 @@ export class TechniciansService {
     private readonly geocoding: GeocodingService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
-    @Optional() private readonly skillsRepository?: TechnicianSkillsRepository,
+    @Optional() private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
     @Optional() private readonly commissionRepository?: CommissionRepository,
   ) {}
 
@@ -181,12 +181,12 @@ export class TechniciansService {
     const profile =
       (await this.cache.getProfile(id)) ?? (await this.repository.getProfile(id));
 
-    const skillsApproved = await this.hasApprovedSkillSet(id);
+    const assignmentsApproved = await this.hasApprovedAssignments(id);
     const commissionSet = this.commissionRepository
       ? Boolean(await this.commissionRepository.getLatest(id))
       : false;
 
-    return deriveOnboardingStatus(profile, { skillsApproved, commissionSet });
+    return deriveOnboardingStatus(profile, { assignmentsApproved, commissionSet });
   }
 
   async list(query: ListTechniciansQueryDto, caller: JwtUser) {
@@ -213,13 +213,13 @@ export class TechniciansService {
 
   // --- Private helpers ---
 
-  /** A technician is "skills-approved" once they have ≥1 approved job type and service area. */
-  private async hasApprovedSkillSet(userId: string): Promise<boolean> {
-    if (!this.skillsRepository) return false;
-    const skills = await this.skillsRepository.listByUser(userId);
-    const hasJob = skills.some((s) => s.status === 'approved' && s.type === 'job_type');
-    const hasArea = skills.some((s) => s.status === 'approved' && s.type === 'service_area');
-    return hasJob && hasArea;
+  /** Onboarding bar: ≥1 approved job type AND ≥1 approved service area. */
+  private async hasApprovedAssignments(userId: string): Promise<boolean> {
+    if (!this.assignmentsRepository) return false;
+    const all = await this.assignmentsRepository.listByUser(userId);
+    const approved = (kind: TechnicianAssignment['kind']) =>
+      all.some((a) => a.kind === kind && a.status === 'approved');
+    return approved('job_type') && approved('service_area');
   }
 
   private resolveCallerRoleId(caller: JwtUser): string {

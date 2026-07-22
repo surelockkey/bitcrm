@@ -203,22 +203,32 @@ export function createMockSnsPublisher() {
   };
 }
 
-export function createMockTechnicianSkill(
-  overrides?: Partial<import('@bitcrm/types').TechnicianSkill>,
-): import('@bitcrm/types').TechnicianSkill {
+/** A storage-shape technician assignment row (as the repository stores it). */
+export function createMockTechnicianAssignment(
+  overrides?: Partial<{
+    userId: string;
+    kind: 'job_type' | 'service_area';
+    catalogId: string;
+    status: 'pending' | 'approved' | 'rejected';
+    proposedBy: string;
+    proposedAt: string;
+    reviewedBy?: string;
+    reviewedAt?: string;
+    comments?: string;
+  }>,
+) {
   return {
-    skillId: 'sk-1',
     userId: 'tech-1',
-    type: 'job_type',
-    value: 'Locksmith',
-    status: 'pending',
+    kind: 'job_type' as const,
+    catalogId: 'jt-1',
+    status: 'pending' as const,
     proposedBy: 'tech-1',
     proposedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
 }
 
-export function createMockTechnicianSkillsRepository() {
+export function createMockTechnicianAssignmentsRepository() {
   return {
     create: jest.fn(),
     getById: jest.fn(),

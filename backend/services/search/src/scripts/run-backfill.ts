@@ -12,11 +12,13 @@ config({ path: resolve(__dirname, '../../../.env') });
 import { OpenSearchService } from '../common/opensearch/opensearch.service';
 import { SearchIndexerService } from '../indexer/indexer.service';
 import { BackfillService } from '../indexer/backfill/backfill.service';
+import { CatalogNamesService } from '../indexer/catalog-names.service';
 
 async function main() {
   const opensearch = new OpenSearchService();
-  const indexer = new SearchIndexerService(opensearch);
-  const backfill = new BackfillService(indexer);
+  const catalogNames = new CatalogNamesService();
+  const indexer = new SearchIndexerService(opensearch, catalogNames);
+  const backfill = new BackfillService(indexer, catalogNames);
 
   const totals = await backfill.run();
   console.log('Backfill totals:', totals);

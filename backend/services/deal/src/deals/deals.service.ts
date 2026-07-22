@@ -33,6 +33,8 @@ import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
+import { JobTypesService } from '../job-types/job-types.service';
+import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
 import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
 import { type CreateDealDto } from './dto/create-deal.dto';
@@ -56,6 +58,8 @@ export class DealsService {
     private readonly internalHttp: InternalHttpService,
     private readonly geocoding: GeocodingService,
     private readonly serviceAreas: ServiceAreasService,
+    private readonly jobTypes: JobTypesService,
+    private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
@@ -133,6 +137,12 @@ export class DealsService {
     // fallback used only when the address falls outside every area.
     const { serviceAreaId, serviceArea } = await this.resolveServiceArea(address, dto.serviceArea);
 
+    // 404s on an unknown id; a new deal may not use an archived type.
+    const jobType = await this.jobTypes.findById(dto.jobTypeId);
+    if (!jobType.active) {
+      throw new BadRequestException(`Job type "${jobType.name}" is archived and cannot be used on a new deal`);
+    }
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -144,7 +154,7 @@ export class DealsService {
       serviceArea,
       serviceAreaId,
       address,
-      jobType: dto.jobType,
+      jobTypeId: dto.jobTypeId,
       stage: DealStage.NEW_LEAD,
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
@@ -166,7 +176,7 @@ export class DealsService {
       dealId: deal.id,
       dealNumber: deal.dealNumber,
       contactId: deal.contactId,
-      jobType: deal.jobType,
+      jobTypeId: deal.jobTypeId,
       stage: deal.stage,
       createdBy: caller.id,
     });
@@ -208,7 +218,7 @@ export class DealsService {
     // Secondary filters applied on top of whichever index we query.
     const search = query.search?.trim();
     const filters: DealFilters = {
-      jobType: query.jobType,
+      jobTypeId: query.jobTypeId,
       serviceArea: query.serviceArea,
       clientType: query.clientType,
       priority: query.priority,
@@ -257,6 +267,10 @@ export class DealsService {
       updates.serviceArea = serviceArea;
       updates.serviceAreaId = serviceAreaId;
     }
+
+    // Archived types are allowed on update so an old deal stays editable; only
+    // the id's existence is enforced.
+    if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
@@ -346,31 +360,60 @@ export class DealsService {
     await this.addTimelineEntry(id, TimelineEventType.NOTE_ADDED, caller, {}, dto.note);
   }
 
+  /**
+   * Candidates for assigning this deal, read from the local eligibility
+   * projection rather than user-service — the ids there are catalog ids, so the
+   * match is exact. (The previous implementation compared a deal's `lock_change`
+   * slug against a technician's hand-typed "Lock Change", and so returned
+   * nothing.)
+   *
+   * Every technician is returned, not just the matching ones: dispatchers keep
+   * the right to override, and `eligible` + `reasons` let the UI say why someone
+   * doesn't qualify instead of silently hiding them.
+   */
   async getQualifiedTechs(id: string) {
     const deal = await this.findById(id);
-    const techs = await this.internalHttp.getTechnicians({
-      serviceArea: deal.serviceArea,
-      skill: deal.jobType,
-    });
+    const candidates = await this.eligibility.listAll();
 
-    if (deal.address.lat && deal.address.lng) {
-      return techs
-        .map((tech) => {
-          const distance =
-            tech.homeAddress?.lat && tech.homeAddress?.lng
-              ? distanceMiles(
-                  deal.address.lat!,
-                  deal.address.lng!,
-                  tech.homeAddress.lat,
-                  tech.homeAddress.lng,
-                )
-              : null;
-          return { ...tech, distanceMiles: distance };
-        })
-        .sort((a, b) => (a.distanceMiles ?? 999) - (b.distanceMiles ?? 999));
-    }
+    return candidates
+      .map((tech) => {
+        const reasons: string[] = [];
+        if (!tech.assignable) reasons.push('not_assignable');
+        if (!tech.jobTypeIds.includes(deal.jobTypeId)) reasons.push('missing_job_type');
+        if (!deal.serviceAreaId || !tech.serviceAreaIds.includes(deal.serviceAreaId)) {
+          reasons.push('outside_area');
+        }
 
-    return techs.map((tech) => ({ ...tech, distanceMiles: null }));
+        const distance =
+          deal.address.lat !== undefined &&
+          deal.address.lng !== undefined &&
+          tech.homeAddress?.lat !== undefined &&
+          tech.homeAddress?.lng !== undefined
+            ? distanceMiles(
+                deal.address.lat,
+                deal.address.lng,
+                tech.homeAddress.lat,
+                tech.homeAddress.lng,
+              )
+            : null;
+
+        return {
+          id: tech.technicianId,
+          firstName: tech.firstName,
+          lastName: tech.lastName,
+          department: tech.department,
+          jobTypeIds: tech.jobTypeIds,
+          serviceAreaIds: tech.serviceAreaIds,
+          eligible: reasons.length === 0,
+          reasons,
+          distanceMiles: distance,
+        };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.eligible) - Number(a.eligible) ||
+          (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity),
+      );
   }
 
   async assignTech(id: string, dto: AssignTechDto, caller: JwtUser): Promise<Deal> {

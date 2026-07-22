@@ -13,9 +13,9 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useTechnicians, useUserMap, usePendingSkills } from "../hooks";
+import { useTechnicians, useUserMap, usePendingAssignments } from "../hooks";
 import { TechniciansTable } from "./technicians-table";
-import { SkillsQueueDialog } from "./skills-queue-dialog";
+import { AssignmentsQueueDialog } from "./assignments-queue-dialog";
 
 export function TechniciansPage() {
   const { can } = usePermissions();
@@ -24,14 +24,14 @@ export function TechniciansPage() {
 
   const query = useTechnicians(status === "all" ? undefined : status);
   const { data: userMap } = useUserMap();
-  const canApprove = can("skills", "approve");
-  const { data: pending } = usePendingSkills(canApprove);
+  const canApprove = can("job_types", "approve");
+  const { data: pending } = usePendingAssignments(canApprove);
 
   const technicians = useMemo(
     () => query.data?.pages.flatMap((p) => p.data) ?? [],
     [query.data],
   );
-  const pendingCount = pending?.data.length ?? 0;
+  const pendingCount = (pending?.jobTypes.length ?? 0) + (pending?.serviceAreas.length ?? 0);
 
   if (!can("technicians", "view")) {
     return (
@@ -82,7 +82,7 @@ export function TechniciansPage() {
             onClick={() => setQueueOpen(true)}
           >
             <ClipboardCheck className="size-4" />
-            {pendingCount} skill{pendingCount === 1 ? "" : "s"} awaiting review
+            {pendingCount} assignment{pendingCount === 1 ? "" : "s"} awaiting review
           </Button>
         ) : null}
 
@@ -145,7 +145,7 @@ export function TechniciansPage() {
         )}
       </div>
 
-      <SkillsQueueDialog
+      <AssignmentsQueueDialog
         open={queueOpen}
         onOpenChange={setQueueOpen}
         userMap={userMap ?? new Map()}

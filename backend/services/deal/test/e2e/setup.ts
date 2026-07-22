@@ -30,6 +30,8 @@ import {
 import { type JwtUser } from '@bitcrm/types';
 import { DealsModule } from 'src/deals/deals.module';
 import { ServiceAreasModule } from 'src/service-areas/service-areas.module';
+import { JobTypesModule } from 'src/job-types/job-types.module';
+import { JobTypesService } from 'src/job-types/job-types.service';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import {
   createTestTables,
@@ -87,7 +89,10 @@ class TestPermissionModule {}
 // ---------------------------------------------------------------------------
 const mockInternalHttpService = {
   validateContact: jest.fn().mockResolvedValue(true),
-  getTechnicians: jest.fn().mockResolvedValue([]),
+  listAssignableTechnicians: jest.fn().mockResolvedValue([]),
+  getTechnicianEligibility: jest
+    .fn()
+    .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
   deductStock: jest.fn().mockResolvedValue(undefined),
   restoreStock: jest.fn().mockResolvedValue(undefined),
 };
@@ -110,6 +115,7 @@ const superAdminPermissions = {
   permissions: {
     deals: { view: true, create: true, edit: true, delete: true },
     service_areas: { view: true, create: true, edit: true, delete: true },
+    job_types: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -119,6 +125,7 @@ const adminPermissions = {
   permissions: {
     deals: { view: true, create: true, edit: true, delete: true },
     service_areas: { view: true, create: true, edit: true, delete: true },
+    job_types: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -128,6 +135,7 @@ const dispatcherPermissions = {
   permissions: {
     deals: { view: true, create: true, edit: true, delete: false },
     service_areas: { view: true, create: false, edit: false, delete: false },
+    job_types: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'department' },
   dealStageTransitions: [
@@ -140,6 +148,7 @@ const techPermissions = {
   permissions: {
     deals: { view: true, create: false, edit: true, delete: false },
     service_areas: { view: true, create: false, edit: false, delete: false },
+    job_types: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'assigned_only' },
   dealStageTransitions: [
@@ -152,6 +161,7 @@ const readOnlyPermissions = {
   permissions: {
     deals: { view: true, create: false, edit: false, delete: false },
     service_areas: { view: true, create: false, edit: false, delete: false },
+    job_types: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: [],
@@ -181,6 +191,7 @@ export async function setupApp(): Promise<INestApplication> {
       // Register before DealsModule so GET /service-areas isn't shadowed by
       // DealsController's GET /:id (see app.module.ts for the rationale).
       ServiceAreasModule,
+      JobTypesModule,
       DealsModule,
     ],
     providers: [
@@ -208,7 +219,22 @@ export async function setupApp(): Promise<INestApplication> {
   await seedPermissions(redis);
   await app.init();
 
+  // A deal now needs a real catalog job type; seed one so create paths work.
+  seededJobTypeId = await seedJobType(app);
+
   return app;
+}
+
+/** The catalog job-type id created in setup; deals reference this. */
+export let seededJobTypeId = '';
+
+async function seedJobType(nestApp: INestApplication): Promise<string> {
+  const jobTypes = nestApp.get(JobTypesService);
+  const jt = await jobTypes.create(
+    { name: 'Lockout', priority: 10 } as never,
+    { id: 'seed-admin' } as JwtUser,
+  );
+  return jt.id;
 }
 
 export async function teardownApp(): Promise<void> {
@@ -222,4 +248,6 @@ export async function cleanupData(): Promise<void> {
   await clearTestTable(DEALS_TEST_TABLE);
   if (redis) await redis.flushdb();
   await seedPermissions(redis);
+  // The catalog lives in the same table, so re-seed the job type deals need.
+  if (app) seededJobTypeId = await seedJobType(app);
 }

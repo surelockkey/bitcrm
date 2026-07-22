@@ -12,7 +12,6 @@ import {
   stageGroup,
   groupLabel,
   STAGE_ORDER,
-  jobTypeLabel,
   priorityLabel,
   isUrgent,
   formatMoney,
@@ -32,7 +31,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Phoenix",
     address: { street: "1 Main", city: "Phoenix", state: "AZ", zip: "85001" },
-    jobType: "lockout",
+    jobTypeId: "jt-lockout",
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
@@ -85,11 +84,6 @@ describe("stage helpers", () => {
 });
 
 describe("labels", () => {
-  it("labels known job types and titlecases unknown", () => {
-    expect(jobTypeLabel("lock_change")).toBe("Lock Change");
-    expect(jobTypeLabel("automotive")).toBe("Automotive");
-    expect(jobTypeLabel("gate_repair")).toBe("Gate Repair");
-  });
   it("labels priority + urgency", () => {
     expect(priorityLabel(DealPriority.URGENT)).toBe("Urgent");
     expect(isUrgent(deal({ priority: DealPriority.URGENT }))).toBe(true);
@@ -125,8 +119,8 @@ describe("price band (±15%)", () => {
 describe("filterDeals", () => {
   const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
   const list = [
-    deal({ id: "a", dealNumber: 1042, contactId: "c1", stage: DealStage.NEW_LEAD, priority: DealPriority.URGENT, jobType: "lockout" }),
-    deal({ id: "b", dealNumber: 1040, contactId: "c2", stage: DealStage.ASSIGNED, jobType: "rekey", assignedTechId: "t9" }),
+    deal({ id: "a", dealNumber: 1042, contactId: "c1", stage: DealStage.NEW_LEAD, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
+    deal({ id: "b", dealNumber: 1040, contactId: "c2", stage: DealStage.ASSIGNED, jobTypeId: "jt-rekey", assignedTechId: "t9" }),
   ];
   it("returns all with no filters", () => {
     expect(filterDeals(list, {}, names)).toHaveLength(2);

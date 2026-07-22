@@ -26,7 +26,12 @@ function toDocStatus(status: string | undefined): SearchDocStatus {
   }
 }
 
-export function mapDeal(deal: Deal): SearchDocument {
+/**
+ * `jobTypeName` is resolved from `deal.jobTypeId` by the caller (see
+ * CatalogNamesService) — the deal itself only stores the catalog id, and a raw
+ * uuid in the subtitle would be useless to a searcher.
+ */
+export function mapDeal(deal: Deal, jobTypeName?: string): SearchDocument {
   const addr = deal.address;
   return {
     docId: `deal#${deal.id}`,
@@ -36,10 +41,10 @@ export function mapDeal(deal: Deal): SearchDocument {
     ownerIds: compactUnique([deal.assignedTechId, deal.assignedDispatcherId, deal.createdBy]),
     status: toDocStatus(deal.status),
     title: `Deal #${deal.dealNumber}`,
-    subtitle: compactUnique([deal.jobType, deal.stage]).join(' · ') || undefined,
+    subtitle: compactUnique([jobTypeName, deal.stage]).join(' · ') || undefined,
     keywords: compactUnique([
       deal.serviceArea,
-      deal.jobType,
+      jobTypeName,
       deal.stage,
       deal.priority,
       deal.paymentStatus,
@@ -134,14 +139,14 @@ export function mapTechnician(input: TechnicianSearchInput): SearchDocument {
     department: input.department,
     status: toDocStatus(input.status),
     title: name,
-    subtitle: compactUnique([input.department, ...(input.skills || [])]).slice(0, 3).join(' · ') || undefined,
+    subtitle: compactUnique([input.department, ...(input.jobTypes || [])]).slice(0, 3).join(' · ') || undefined,
     keywords: compactUnique([
-      ...(input.skills || []),
+      ...(input.jobTypes || []),
       ...(input.serviceAreas || []),
       phoneSearchKey(input.phone),
     ]),
     url: `/technicians/${input.userId}`,
-    badges: compactUnique([input.status, ...(input.skills || []).slice(0, 3)]),
+    badges: compactUnique([input.status, ...(input.jobTypes || []).slice(0, 3)]),
     updatedAt: input.updatedAt,
   };
 }

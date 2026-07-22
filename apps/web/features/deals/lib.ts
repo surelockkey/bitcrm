@@ -72,25 +72,9 @@ export const stageTone = (s: DealStage) =>
 
 /* ------------------------------------------------------------------ labels */
 
-const JOB_TYPE_LABEL: Record<string, string> = {
-  lockout: "Lockout",
-  rekey: "Rekey",
-  lock_change: "Lock Change",
-  installation: "Installation",
-  repair: "Repair",
-  safe: "Safe",
-  automotive: "Automotive",
-  commercial: "Commercial",
-  other: "Other",
-};
-export function jobTypeLabel(t: string): string {
-  if (JOB_TYPE_LABEL[t]) return JOB_TYPE_LABEL[t];
-  return t
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((w) => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
-}
+// Job types are now a managed catalog — resolve ids to names with
+// `useJobTypeName()` / `jobTypeName()` from features/job-types/lib. The old
+// hardcoded slug→label map lived here.
 
 export const priorityLabel = (p: DealPriority): string =>
   p === DealPriority.URGENT ? "Urgent" : "Normal";
@@ -160,7 +144,7 @@ export function datePresetRange(
 export interface DealFilter {
   stage?: DealStage;
   priority?: DealPriority;
-  jobType?: string;
+  jobTypeId?: string;
   serviceArea?: string;
   /** Keep only deals whose stage falls in one of these groups (empty/undefined = all). */
   statusGroups?: DealStageGroup[];
@@ -183,7 +167,7 @@ export function filterDeals(
   return deals.filter((d) => {
     if (filter.stage && d.stage !== filter.stage) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
-    if (filter.jobType && d.jobType !== filter.jobType) return false;
+    if (filter.jobTypeId && d.jobTypeId !== filter.jobTypeId) return false;
     if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
     if (filter.statusGroups?.length && !filter.statusGroups.includes(stageGroup(d.stage)))
       return false;

@@ -6,7 +6,7 @@ import { ArrowUpRight, MapPin, MapPinOff, Pencil, UserPlus, X } from "lucide-rea
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
-import { jobTypeLabel } from "@/features/deals/lib";
+import { useJobTypeName } from "@/features/job-types/lib";
 import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog";
 import { googleMapsLink, hasCoords } from "@/lib/geo/geo";
 
@@ -35,6 +35,7 @@ export function JobSidebar({
   onEdit: () => void;
   onClose: () => void;
 }) {
+  const jobTypeName = useJobTypeName();
   const [assigning, setAssigning] = useState(false);
   const address = `${deal.address.street}${deal.address.unit ? ` ${deal.address.unit}` : ""}, ${deal.address.city} ${deal.address.state} ${deal.address.zip}`;
 
@@ -56,7 +57,7 @@ export function JobSidebar({
 
       <dl className="px-4">
         <Row label="Client" value={clientName} />
-        <Row label="Job" value={jobTypeLabel(deal.jobType)} />
+        <Row label="Job" value={jobTypeName(deal.jobTypeId)} />
         <Row
           label="Address"
           value={

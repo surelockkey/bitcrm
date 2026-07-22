@@ -1,12 +1,12 @@
 import { type TechnicianProfile, type OnboardingStatus } from '@bitcrm/types';
 
 /**
- * Inputs that come from other modules (skills, commission). They are passed in
+ * Inputs that come from other modules (assignments, commission). They are passed in
  * so this stays a pure, fully-testable function. Phases 2/3 wire the real
  * lookups; until then the service passes `false`.
  */
 export interface OnboardingInputs {
-  skillsApproved: boolean;
+  assignmentsApproved: boolean;
   commissionSet: boolean;
 }
 
@@ -21,7 +21,7 @@ export function deriveOnboardingStatus(
 ): OnboardingStatus {
   const checklist = {
     profileComplete: isProfileComplete(profile),
-    skillsApproved: inputs.skillsApproved,
+    assignmentsApproved: inputs.assignmentsApproved,
     commissionSet: inputs.commissionSet,
   };
 

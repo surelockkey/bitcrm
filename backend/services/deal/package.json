@@ -14,6 +14,8 @@
     "setup:db": "ts-node src/scripts/setup-dynamodb.ts",
     "backfill:geo": "ts-node src/scripts/backfill-geo.ts",
     "backfill:service-areas": "ts-node src/scripts/backfill-service-areas.ts",
+    "seed:job-types": "ts-node src/scripts/seed-job-types.ts",
+    "migrate:deal-job-types": "ts-node src/scripts/migrate-deal-job-types.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
     "setup": "npm run setup:db && npm run setup:aws"
   },

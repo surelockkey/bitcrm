@@ -68,23 +68,32 @@ export class UsersController {
   }
 
   // Declared before `:id` — otherwise Nest matches "internal" as a user id.
-  @Get("internal/technicians")
+  @Get("internal/technicians/assignable")
   @Internal()
   @ApiOperation({
-    summary: "Internal: technicians for dispatch",
+    summary: "Internal: assignable technicians for dispatch",
     description:
-      "**Guard:** Internal only (`x-internal-secret` required). Returns every technician with " +
-      "approved skills, their service areas, and home coordinates. Used by deal-service to rank " +
-      "candidates by distance in `GET /deals/:id/qualified-techs`. Filterable by `serviceArea` and `skill`.",
+      "**Guard:** Internal only (`x-internal-secret` required). Every technician holding an " +
+      "approved job type AND service area, with their approved catalog ids and home coordinates. " +
+      "deal-service projects this into its eligibility read-model, which backs " +
+      "`GET /deals/:id/qualified-techs`. Matching happens there, by id — hence no filter params.",
   })
-  async listTechniciansForDispatch(
-    @Query("serviceArea") serviceArea?: string,
-    @Query("skill") skill?: string,
-  ) {
-    const data = await this.usersService.listTechniciansForDispatch({
-      serviceArea,
-      skill,
-    });
+  async listAssignableTechnicians() {
+    const data = await this.usersService.listAssignableTechnicians();
+    return { success: true, data };
+  }
+
+  // Declared before `:id` — otherwise Nest matches "internal" as a user id.
+  @Get("internal/technicians/:technicianId/eligibility")
+  @Internal()
+  @ApiOperation({
+    summary: "Internal: one technician's assignment eligibility",
+    description:
+      "**Guard:** Internal only (`x-internal-secret` required). Read by deal-service when a " +
+      "`tech.approved` / `tech.updated` event arrives, to refresh that technician's projection.",
+  })
+  async getTechnicianEligibility(@Param("technicianId") technicianId: string) {
+    const data = await this.usersService.getTechnicianEligibility(technicianId);
     return { success: true, data };
   }
 

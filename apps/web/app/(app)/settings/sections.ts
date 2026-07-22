@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { MapPin, SlidersHorizontal } from "lucide-react";
+import { MapPin, SlidersHorizontal, Wrench } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
 export interface SettingsSection {
@@ -24,5 +24,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Territories that auto-assign deals and match technicians.",
     icon: MapPin,
     resource: "service_areas",
+  },
+  {
+    label: "Job Types",
+    href: "/settings/job-types",
+    description: "Kinds of work you dispatch. Deals pick one; technicians are approved for them.",
+    icon: Wrench,
+    resource: "job_types",
   },
 ];

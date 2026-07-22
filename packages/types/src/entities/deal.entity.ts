@@ -17,7 +17,8 @@ export interface Deal {
   /** Catalog service-area id this deal resolved into; null if outside coverage. */
   serviceAreaId?: string;
   address: Address;
-  jobType: string;
+  /** Catalog job-type id. Drives technician eligibility matching. */
+  jobTypeId: string;
   stage: DealStage;
   assignedTechId?: string;
   assignedDispatcherId: string;

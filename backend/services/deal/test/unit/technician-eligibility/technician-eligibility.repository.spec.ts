@@ -14,8 +14,8 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     dynamoDb.client.send.mockResolvedValue({});
     await repo.upsert({
       technicianId: 'tech-1',
-      approvedSkills: ['Locksmith'],
-      serviceAreas: ['Atlanta'],
+      jobTypeIds: ['jt-1'],
+      serviceAreaIds: ['sa-1'],
       assignable: true,
       updatedAt: '2026-06-30T00:00:00.000Z',
     });

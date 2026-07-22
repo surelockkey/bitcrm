@@ -43,7 +43,8 @@ export interface OnboardingStatus {
   status: TechnicianProfileStatus;
   checklist: {
     profileComplete: boolean;
-    skillsApproved: boolean;
+    /** ≥1 approved job type AND ≥1 approved service area. */
+    assignmentsApproved: boolean;
     commissionSet: boolean;
   };
   completedSteps: number;

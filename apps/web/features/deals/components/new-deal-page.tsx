@@ -24,11 +24,12 @@ import { useContactByPhone, useCreateContact, useCompanyMap } from "@/features/c
 import { clientTypeLabel, contactName } from "@/features/clients/lib";
 import { useCreateDeal } from "../hooks";
 import { dealJobSchema, type DealJobValues } from "../schemas";
-import { formatSchedule, jobTypeLabel } from "../lib";
+import { formatSchedule } from "../lib";
+import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
+import { useJobTypeName } from "@/features/job-types/lib";
 import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField, ResolvedAreaText } from "@/features/service-areas/components/resolved-area-field";
 
-const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 const STEPS = ["Client", "Job", "Schedule", "Review"] as const;
 
 interface ResolvedClient {
@@ -159,6 +160,7 @@ function ClientStep({ onResolved }: { onResolved: (c: ResolvedClient) => void })
 
 function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChangeClient: () => void }) {
   const router = useRouter();
+  const jobTypeName = useJobTypeName();
   const createDeal = useCreateDeal();
   const [step, setStep] = useState(1); // 1=job, 2=schedule, 3=review
   const [tagsStr, setTagsStr] = useState("");
@@ -167,7 +169,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
     resolver: zodResolver(dealJobSchema),
     defaultValues: {
       clientType: client.clientType,
-      jobType: "",
+      jobTypeId: "",
       serviceArea: "",
       address: { street: "", unit: "", city: "", state: "", zip: "" },
       scheduledDate: "",
@@ -187,7 +189,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
   const next = async () => {
     const fields: (keyof DealJobValues | `address.${string}`)[] =
       step === 1
-        ? ["jobType", "clientType", "address.street", "address.city", "address.state", "address.zip"]
+        ? ["jobTypeId", "clientType", "address.street", "address.city", "address.state", "address.zip"]
         : ["scheduledTimeSlot"];
     const ok = await form.trigger(fields as never);
     if (ok) setStep((s) => s + 1);
@@ -216,7 +218,11 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
       {step === 1 ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <Sel label="Job type" error={err.jobType?.message} value={v.jobType} onChange={(val) => form.setValue("jobType", val, { shouldValidate: true })} options={JOB_TYPES.map((t) => ({ value: t, label: jobTypeLabel(t) }))} placeholder="Select" />
+            <div className="space-y-1.5">
+              <Label>Job type</Label>
+              <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
+              {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
+            </div>
             <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -265,7 +271,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
       {step === 3 ? (
         <div className="space-y-3 rounded-xl border p-4 text-sm">
           <ReviewRow label="Client" value={client.name} />
-          <ReviewRow label="Job type" value={v.jobType ? jobTypeLabel(v.jobType) : "—"} />
+          <ReviewRow label="Job type" value={v.jobTypeId ? jobTypeName(v.jobTypeId) : "—"} />
           <ReviewRow label="Priority" value={v.priority === DealPriority.URGENT ? "Urgent" : "Normal"} />
           <ReviewRow label="Client type" value={clientTypeLabel(v.clientType)} />
           <ReviewRow label="Service area" value={<ResolvedAreaText lat={v.address?.lat} lng={v.address?.lng} />} />

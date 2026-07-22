@@ -14,6 +14,11 @@ import type { PermissionMatrix, DataScopeRules } from "@bitcrm/types";
  * Keep in sync with the backend constant.
  */
 
+const caps = (
+  view: boolean, create: boolean, edit: boolean, del: boolean,
+  propose: boolean, approve: boolean, revoke: boolean,
+) => ({ view, create, edit, delete: del, propose, approve, revoke });
+
 const crud = (view: boolean, create: boolean, edit: boolean, del: boolean) => ({
   view,
   create,
@@ -46,7 +51,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Super Admin",
     permissions: {
       deals: crud(true, true, true, true),
-      service_areas: crud(true, true, true, true),
+      service_areas: caps(true, true, true, true, true, true, true),
       contacts: crud(true, true, true, true),
       companies: crud(true, true, true, true),
       products: crud(true, true, true, true),
@@ -58,7 +63,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       reports: crud(true, true, true, true),
       settings: { view: true, edit: true },
       technicians: crud(true, true, true, true),
-      skills: { view: true, propose: true, approve: true, revoke: true },
+      job_types: caps(true, true, true, true, true, true, true),
       commission: { view: true, edit: true },
       documents: { view: true, upload: true, delete: true },
     },
@@ -69,7 +74,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Admin",
     permissions: {
       deals: crud(true, true, true, true),
-      service_areas: crud(true, true, true, true),
+      service_areas: caps(true, true, true, true, false, true, true),
       contacts: crud(true, true, true, true),
       companies: crud(true, true, true, true),
       products: crud(true, true, true, false),
@@ -81,7 +86,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       reports: crud(true, true, true, false),
       settings: { view: true, edit: true },
       technicians: crud(true, true, true, true),
-      skills: { view: true, propose: false, approve: true, revoke: true },
+      job_types: caps(true, true, true, true, false, true, true),
       commission: { view: true, edit: true },
       documents: { view: true, upload: false, delete: true },
     },
@@ -92,7 +97,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Department Manager",
     permissions: {
       deals: crud(true, true, true, false),
-      service_areas: crud(true, true, true, false),
+      service_areas: caps(true, true, true, false, false, true, true),
       contacts: crud(true, true, true, false),
       companies: crud(true, true, true, false),
       products: crud(true, false, false, false),
@@ -104,7 +109,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       reports: crud(true, true, true, false),
       settings: { view: true, edit: false },
       technicians: crud(true, true, true, false),
-      skills: { view: true, propose: false, approve: true, revoke: true },
+      job_types: caps(true, true, true, false, false, true, true),
       commission: { view: true, edit: true },
       documents: { view: true, upload: false, delete: false },
     },
@@ -121,7 +126,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Dispatcher",
     permissions: {
       deals: crud(true, true, true, false),
-      service_areas: crud(true, false, false, false),
+      service_areas: caps(true, false, false, false, false, false, false),
       contacts: crud(true, true, true, false),
       companies: crud(true, false, false, false),
       products: crud(true, false, false, false),
@@ -133,7 +138,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       reports: crud(true, false, false, false),
       settings: { view: true, edit: false },
       technicians: crud(true, false, false, false),
-      skills: { view: true, propose: false, approve: false, revoke: false },
+      job_types: caps(true, false, false, false, false, false, false),
       commission: { view: false, edit: false },
       documents: { view: false, upload: false, delete: false },
     },
@@ -150,7 +155,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Technician",
     permissions: {
       deals: crud(true, false, true, false),
-      service_areas: crud(true, false, false, false),
+      service_areas: caps(true, false, false, false, true, false, false),
       contacts: crud(true, false, false, false),
       companies: crud(true, false, false, false),
       products: crud(true, false, false, false),
@@ -162,7 +167,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       reports: crud(false, false, false, false),
       settings: { view: false, edit: false },
       technicians: crud(true, false, true, false),
-      skills: { view: true, propose: true, approve: false, revoke: false },
+      job_types: caps(true, false, false, false, true, false, false),
       commission: { view: true, edit: false },
       documents: { view: true, upload: true, delete: false },
     },
@@ -177,7 +182,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
     name: "Read Only",
     permissions: {
       deals: crud(true, false, false, false),
-      service_areas: crud(true, false, false, false),
+      service_areas: caps(true, false, false, false, false, false, false),
       contacts: crud(true, false, false, false),
       companies: crud(true, false, false, false),
       products: crud(true, false, false, false),
@@ -189,7 +194,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       reports: crud(true, false, false, false),
       settings: { view: true, edit: false },
       technicians: crud(true, false, false, false),
-      skills: { view: true, propose: false, approve: false, revoke: false },
+      job_types: caps(true, false, false, false, false, false, false),
       commission: { view: true, edit: false },
       documents: { view: false, upload: false, delete: false },
     },

@@ -45,29 +45,38 @@ describe('InternalHttpService', () => {
     });
   });
 
-  describe('getTechnicians', () => {
-    it('should return technicians from user service', async () => {
-      const techs = [{ id: 'tech-1', firstName: 'John' }];
+  describe('listAssignableTechnicians', () => {
+    it('returns the assignable technicians from user service', async () => {
+      const techs = [{ technicianId: 'tech-1', assignable: true, jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] }];
       userGet.mockResolvedValue({ data: { data: techs } });
 
-      const result = await service.getTechnicians({ serviceArea: 'Atlanta', skill: 'lockout' });
+      const result = await service.listAssignableTechnicians();
 
       expect(result).toEqual(techs);
-      expect(userGet).toHaveBeenCalledWith('/api/users/internal/technicians', {
-        params: { serviceArea: 'Atlanta', skill: 'lockout' },
-      });
+      expect(userGet).toHaveBeenCalledWith('/api/users/internal/technicians/assignable');
     });
 
-    it('should return empty array on error', async () => {
+    it('returns an empty array on error', async () => {
       userGet.mockRejectedValue(new Error('timeout'));
-      const result = await service.getTechnicians();
-      expect(result).toEqual([]);
+      expect(await service.listAssignableTechnicians()).toEqual([]);
+    });
+  });
+
+  describe('getTechnicianEligibility', () => {
+    it('returns a single technician’s eligibility', async () => {
+      const eligibility = { technicianId: 'tech-1', assignable: true, jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] };
+      userGet.mockResolvedValue({ data: { data: eligibility } });
+
+      const result = await service.getTechnicianEligibility('tech-1');
+
+      expect(result).toEqual(eligibility);
+      expect(userGet).toHaveBeenCalledWith('/api/users/internal/technicians/tech-1/eligibility');
     });
 
-    it('should pass no params when no filters', async () => {
-      userGet.mockResolvedValue({ data: { data: [] } });
-      await service.getTechnicians();
-      expect(userGet).toHaveBeenCalledWith('/api/users/internal/technicians', { params: {} });
+    it('treats an unreachable user-service as not assignable', async () => {
+      userGet.mockRejectedValue(new Error('timeout'));
+      const result = await service.getTechnicianEligibility('tech-1');
+      expect(result).toEqual({ technicianId: 'tech-1', assignable: false, jobTypeIds: [], serviceAreaIds: [] });
     });
   });
 

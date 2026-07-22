@@ -41,7 +41,7 @@ describe('search-mappers', () => {
       clientType: ClientType.RESIDENTIAL,
       serviceArea: 'Brooklyn',
       address: { street: '5 Main St', city: 'NYC', state: 'NY', zip: '11201' } as any,
-      jobType: 'Install',
+      jobTypeId: 'jt-install',
       stage: DealStage.ASSIGNED,
       assignedTechId: 'tech1',
       assignedDispatcherId: 'disp1',
@@ -71,7 +71,7 @@ describe('search-mappers', () => {
     });
 
     it('builds title, keywords and deep link', () => {
-      const doc = mapDeal(deal);
+      const doc = mapDeal(deal, 'Install');
       expect(doc.title).toContain('1042');
       expect(doc.keywords).toEqual(expect.arrayContaining(['Brooklyn', 'vip', 'Install']));
       expect(doc.url).toBe('/deals/d1');
@@ -188,7 +188,7 @@ describe('search-mappers', () => {
         lastName: 'Lee',
         department: 'field',
         phone: '212-555-0000',
-        skills: ['HVAC', 'Plumbing'],
+        jobTypes: ['HVAC', 'Plumbing'],
         serviceAreas: ['Queens'],
         status: 'active',
         updatedAt: '2026-02-01T00:00:00Z',

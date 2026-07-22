@@ -27,7 +27,8 @@ export const RESOURCE_LABELS: Record<string, string> = {
   reports: "Reports",
   settings: "Settings",
   technicians: "Technicians",
-  skills: "Skills",
+  job_types: "Job Types",
+  service_areas: "Service Areas",
   commission: "Commission",
   documents: "Documents",
 };
@@ -48,7 +49,7 @@ export const RESOURCE_GROUPS: { label: string; resources: string[] }[] = [
   { label: "Sales & CRM", resources: ["deals", "contacts", "companies"] },
   { label: "Inventory", resources: ["products", "warehouses", "containers", "transfers"] },
   { label: "People", resources: ["users", "roles", "technicians"] },
-  { label: "Field & billing", resources: ["skills", "commission", "documents"] },
+  { label: "Field & billing", resources: ["job_types", "service_areas", "commission", "documents"] },
   { label: "Platform", resources: ["reports", "settings"] },
 ];
 

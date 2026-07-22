@@ -7,6 +7,8 @@ import { TimelineRepository } from 'src/timeline/timeline.repository';
 import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
+import { JobTypesService } from 'src/job-types/job-types.service';
+import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import {
   createMockDeal,
   createMockAddress,
@@ -18,6 +20,8 @@ import {
   createMockSnsPublisherService,
   createMockInternalHttpService,
   createMockGeocodingService,
+  createMockJobType,
+  createMockTechnicianEligibilityRepository,
 } from '../mocks';
 
 /**
@@ -53,6 +57,8 @@ describe('DealsService — address geocoding', () => {
         { provide: InternalHttpService, useValue: createMockInternalHttpService() },
         { provide: GeocodingService, useValue: geocoding },
         { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
+        { provide: JobTypesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobType()) } },
+        { provide: TechnicianEligibilityRepository, useValue: createMockTechnicianEligibilityRepository() },
       ],
     }).compile();
 
@@ -74,7 +80,7 @@ describe('DealsService — address geocoding', () => {
     contactId: 'contact-1',
     clientType: 'residential',
     serviceArea: 'Atlanta Metro',
-    jobType: 'lockout',
+    jobTypeId: 'jobtype-1',
     address: { street: '5 Oak Ave', city: 'Atlanta', state: 'GA', zip: '30303' },
   } as any;
 

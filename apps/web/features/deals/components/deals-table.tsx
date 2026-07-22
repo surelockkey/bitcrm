@@ -11,7 +11,8 @@ import {
 } from "@/components/ui/table";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { contactName, initials } from "@/features/clients/lib";
-import { formatMoney, formatSchedule, isUrgent, jobTypeLabel } from "../lib";
+import { formatMoney, formatSchedule, isUrgent } from "../lib";
+import { useJobTypeName } from "@/features/job-types/lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 
 export function DealsTable({
@@ -24,6 +25,7 @@ export function DealsTable({
   userMap: Map<string, User>;
 }) {
   const router = useRouter();
+  const jobTypeName = useJobTypeName();
   return (
     <div className="overflow-hidden rounded-lg border">
       <Table>
@@ -51,7 +53,7 @@ export function DealsTable({
                   <span className="font-medium">{contact ? contactName(contact) : "—"}</span>
                   {isUrgent(d) ? <PriorityFlag className="ml-2" /> : null}
                 </TableCell>
-                <TableCell className="text-sm">{jobTypeLabel(d.jobType)}</TableCell>
+                <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{d.serviceArea}</TableCell>
                 <TableCell><StageBadge stage={d.stage} /></TableCell>
                 <TableCell>

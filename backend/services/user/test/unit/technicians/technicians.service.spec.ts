@@ -150,7 +150,7 @@ describe('TechniciansService (unit)', () => {
       );
       const status = await service.getOnboardingStatus('tech-1', caller('role-technician', 'tech-1'));
       expect(status.checklist.profileComplete).toBe(true);
-      expect(status.checklist.skillsApproved).toBe(false); // phase-2 stub
+      expect(status.checklist.assignmentsApproved).toBe(false); // phase-2 stub
       expect(status.totalSteps).toBe(3);
     });
   });

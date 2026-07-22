@@ -13,9 +13,8 @@ Publishers and consumers import these so the wire format can't drift; the
 | `user.activated` | `UserActivatedEvent` | user created / reactivated | inventory (provision container) |
 | `user.role-changed` | `UserRoleChangedEvent` | role assigned | inventory |
 | `user.invite-resent` | `UserInviteResentEvent` | invite re-sent | — (audit) |
-| `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / skills / commission change | deal (eligibility), reporting |
-| `tech.approved` | `TechApprovedEvent` `{technicianId, approvedSkills, serviceAreas}` | technician first becomes assignable | **deal (eligibility projection)** |
-| `skill.proposed` | `SkillProposedEvent` | technician proposes skills | — (manager notification / SLA) |
+| `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change | deal (eligibility), reporting |
+| `tech.approved` | `TechApprovedEvent` `{technicianId, jobTypeIds, serviceAreaIds}` | technician first becomes assignable | **deal (eligibility projection)** |
 | `commission.updated` | `CommissionUpdatedEvent` | commission set | reporting, payment |
 | `document.uploaded` / `document.accessed` / `document.deleted` | `DocumentEvent` | sensitive document op | — (compliance/audit) |
 | `sensitive.accessed` | `SensitiveAccessedEvent` | SSN/bank read | — (compliance/audit) |
@@ -24,8 +23,12 @@ Publishers and consumers import these so the wire format can't drift; the
 `deal.created`, `deal.stage_changed`, `deal.completed`, `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
 
 Service-area catalog: `service-area.created`, `service-area.updated`, `service-area.deleted`
-(`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD, for
-search indexing / downstream cache invalidation. No dedicated consumer yet.
+(`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD.
+
+Job-type catalog: `job-type.created`, `job-type.updated`, `job-type.archived`,
+`job-type.deleted` (`{jobTypeId, name}`) — emitted by `JobTypesService`. Deals and
+technicians store catalog *ids*, so the search indexer resolves names through
+`CatalogNamesService` and invalidates that cache on these events.
 
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
@@ -45,10 +48,17 @@ the search indexer (`search-index` queue). Internal stock deduct/restore transfe
 are not emitted individually — the search backfill reconciles them.
 
 ## Eligibility projection (deal-service)
-`tech.approved` / `tech.updated` build a `TECH_ELIGIBILITY#<id>` read-model in
-`BitCRM_Deals` (`TechnicianEligibilityRepository`). Existing approved technicians
-are backfilled on boot via `GET /api/users/technicians/internal/assignable`
+`tech.approved` / `tech.updated` (the latter only when `changedFields` includes
+`assignments`) build a `TECH_ELIGIBILITY#<id>` read-model in `BitCRM_Deals`
+(`TechnicianEligibilityRepository`). Existing approved technicians are backfilled on
+boot via `GET /api/users/internal/technicians/assignable`
 (`TechnicianEligibilityBackfill`, idempotent, upsert-only).
+
+This projection is what `GET /deals/:id/qualified-techs` reads. It carries the
+technician's approved **catalog ids** plus their name/department/home coordinates,
+so assignment needs no synchronous call into user-service. Matching by id is what
+made the qualified list work: it previously compared a deal's `lock_change` slug
+against a technician's hand-typed "Lock Change" and so was always empty.
 
 ## Infra
 SNS topics + SQS queues + SNS→SQS subscriptions are provisioned by Terraform

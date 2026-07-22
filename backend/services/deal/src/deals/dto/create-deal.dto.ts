@@ -46,9 +46,12 @@ export class CreateDealDto {
   @Type(() => AddressDto)
   address!: AddressDto;
 
-  @ApiProperty({ example: 'lockout' })
+  @ApiProperty({
+    example: 'e1b9c2a4-5d3f-4a71-9c8e-2f6d1b0a7e34',
+    description: 'Catalog job-type id (GET /api/deals/job-types). Must be an active type.',
+  })
   @IsString()
-  jobType!: string;
+  jobTypeId!: string;
 
   @ApiPropertyOptional({ enum: DealPriority, example: DealPriority.NORMAL })
   @IsOptional()

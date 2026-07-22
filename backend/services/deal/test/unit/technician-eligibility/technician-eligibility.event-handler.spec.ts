@@ -5,6 +5,17 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
   let http: { getTechnicianEligibility: jest.Mock };
   let handler: TechnicianEligibilityEventHandler;
 
+  const assignable = {
+    technicianId: 'tech-1',
+    assignable: true,
+    jobTypeIds: ['jt-1'],
+    serviceAreaIds: ['sa-1'],
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    department: 'ATL',
+    homeAddress: { lat: 33.7, lng: -84.4 },
+  };
+
   beforeEach(() => {
     repo = { upsert: jest.fn(), remove: jest.fn(), get: jest.fn(), listAll: jest.fn() };
     http = { getTechnicianEligibility: jest.fn() };
@@ -12,18 +23,24 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
   });
 
   describe('handleTechApproved', () => {
-    it('upserts the eligibility projection (assignable)', async () => {
+    it('re-fetches the authoritative record and upserts it with display fields', async () => {
+      http.getTechnicianEligibility.mockResolvedValue(assignable);
+
       await handler.handleTechApproved({
         technicianId: 'tech-1',
-        approvedSkills: ['Locksmith'],
-        serviceAreas: ['Atlanta'],
+        jobTypeIds: ['jt-1'],
+        serviceAreaIds: ['sa-1'],
       });
+
+      expect(http.getTechnicianEligibility).toHaveBeenCalledWith('tech-1');
       expect(repo.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           technicianId: 'tech-1',
-          approvedSkills: ['Locksmith'],
-          serviceAreas: ['Atlanta'],
+          jobTypeIds: ['jt-1'],
+          serviceAreaIds: ['sa-1'],
           assignable: true,
+          firstName: 'Ada',
+          homeAddress: { lat: 33.7, lng: -84.4 },
         }),
       );
     });
@@ -31,13 +48,10 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
 
   describe('handleTechUpdated', () => {
     it('re-fetches eligibility and upserts when still assignable', async () => {
-      http.getTechnicianEligibility.mockResolvedValue({
-        technicianId: 'tech-1',
-        assignable: true,
-        approvedSkills: ['Locksmith'],
-        serviceAreas: ['Atlanta'],
-      });
-      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['skills'] });
+      http.getTechnicianEligibility.mockResolvedValue(assignable);
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['assignments'] });
+
       expect(http.getTechnicianEligibility).toHaveBeenCalledWith('tech-1');
       expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ assignable: true }));
     });
@@ -46,16 +60,19 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
       http.getTechnicianEligibility.mockResolvedValue({
         technicianId: 'tech-1',
         assignable: false,
-        approvedSkills: [],
-        serviceAreas: [],
+        jobTypeIds: [],
+        serviceAreaIds: [],
       });
-      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['skills'] });
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['assignments'] });
+
       expect(repo.remove).toHaveBeenCalledWith('tech-1');
       expect(repo.upsert).not.toHaveBeenCalled();
     });
 
-    it('ignores non-skill changes (no fetch)', async () => {
+    it('ignores changes that do not touch assignments (no fetch)', async () => {
       await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['commission'] });
+
       expect(http.getTechnicianEligibility).not.toHaveBeenCalled();
       expect(repo.upsert).not.toHaveBeenCalled();
     });

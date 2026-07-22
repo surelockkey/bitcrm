@@ -14,14 +14,20 @@ import {
   INTERNAL_SERVICE_SECRET,
 } from '../constants/services.constants';
 
-export interface TechnicianInfo {
-  id: string;
-  firstName: string;
-  lastName: string;
-  skills: string[];
-  serviceAreas: string[];
+/**
+ * A technician's eligibility as user-service reports it. Carries the display
+ * fields too, so the deal-service projection can render the assignment dialog
+ * without a second round trip.
+ */
+export interface TechnicianEligibilityInfo {
+  technicianId: string;
+  assignable: boolean;
+  jobTypeIds: string[];
+  serviceAreaIds: string[];
+  firstName?: string;
+  lastName?: string;
+  department?: string;
   homeAddress?: { lat: number; lng: number };
-  department: string;
 }
 
 export interface DeductStockDto {
@@ -74,37 +80,11 @@ export class InternalHttpService {
     }
   }
 
-  async getTechnicians(filters?: {
-    serviceArea?: string;
-    skill?: string;
-  }): Promise<TechnicianInfo[]> {
-    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'getTechnicians' });
-    try {
-      const params: Record<string, string> = {};
-      if (filters?.serviceArea) params.serviceArea = filters.serviceArea;
-      if (filters?.skill) params.skill = filters.skill;
-
-      const response = await this.userClient.get('/api/users/internal/technicians', { params });
-      timer?.();
-      return response.data.data || [];
-    } catch (error: any) {
-      timer?.();
-      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'getTechnicians' });
-      this.logger.warn(`Failed to get technicians: ${error.message}`);
-      return [];
-    }
-  }
-
-  async getTechnicianEligibility(technicianId: string): Promise<{
-    technicianId: string;
-    assignable: boolean;
-    approvedSkills: string[];
-    serviceAreas: string[];
-  }> {
+  async getTechnicianEligibility(technicianId: string): Promise<TechnicianEligibilityInfo> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'getTechnicianEligibility' });
     try {
       const response = await this.userClient.get(
-        `/api/users/technicians/internal/${technicianId}/eligibility`,
+        `/api/users/internal/technicians/${technicianId}/eligibility`,
       );
       timer?.();
       return response.data.data;
@@ -113,16 +93,14 @@ export class InternalHttpService {
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'getTechnicianEligibility' });
       this.logger.warn(`Failed to get eligibility for ${technicianId}: ${error.message}`);
       // Treat unknown as not assignable.
-      return { technicianId, assignable: false, approvedSkills: [], serviceAreas: [] };
+      return { technicianId, assignable: false, jobTypeIds: [], serviceAreaIds: [] };
     }
   }
 
-  async listAssignableTechnicians(): Promise<
-    Array<{ technicianId: string; approvedSkills: string[]; serviceAreas: string[] }>
-  > {
+  async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[]> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'listAssignableTechnicians' });
     try {
-      const response = await this.userClient.get('/api/users/technicians/internal/assignable');
+      const response = await this.userClient.get('/api/users/internal/technicians/assignable');
       timer?.();
       return response.data.data || [];
     } catch (error: any) {

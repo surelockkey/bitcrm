@@ -30,6 +30,12 @@ export const queryKeys = {
     resolve: (point?: unknown) => ["service-areas", "resolve", point] as const,
   },
 
+  jobTypes: {
+    all: () => ["job-types"] as const,
+    list: () => ["job-types", "list"] as const,
+    detail: (id: string) => ["job-types", "detail", id] as const,
+  },
+
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,
@@ -95,8 +101,8 @@ export const queryKeys = {
     list: (filters?: unknown) => ["technicians", "list", filters] as const,
     profile: (id: string) => ["technicians", id, "profile"] as const,
     onboarding: (id: string) => ["technicians", id, "onboarding"] as const,
-    skills: (id: string) => ["technicians", id, "skills"] as const,
-    pendingSkills: () => ["technicians", "skills", "pending"] as const,
+    assignments: (id: string) => ["technicians", id, "assignments"] as const,
+    pendingAssignments: () => ["technicians", "assignments", "pending"] as const,
     commission: (id: string) => ["technicians", id, "commission"] as const,
     commissionHistory: (id: string) => ["technicians", id, "commission", "history"] as const,
     commissionCalc: (id: string, q?: unknown) => ["technicians", id, "commission", "calc", q] as const,

@@ -6,6 +6,7 @@ import {
   teardownApp,
   cleanupData,
   createTestUserHeader,
+  seededJobTypeId,
 } from './setup';
 
 const BASE = '/api/deals';
@@ -30,13 +31,15 @@ const readOnlyUser: JwtUser = {
   roleId: 'role-read-only', department: 'HQ',
 };
 
-const validDealPayload = {
+// A function, not a const: the catalog job-type id is only known after setup
+// seeds it in beforeAll. `import`ed `seededJobTypeId` is a live binding.
+const validDealPayload = () => ({
   contactId: '550e8400-e29b-41d4-a716-446655440000',
   clientType: ClientType.RESIDENTIAL,
   serviceArea: 'Atlanta Metro',
   address: { street: '123 Main St', city: 'Atlanta', state: 'GA', zip: '30301' },
-  jobType: 'lockout',
-};
+  jobTypeId: seededJobTypeId,
+});
 
 describe('Deals E2E', () => {
   let app: INestApplication;
@@ -60,21 +63,21 @@ describe('Deals E2E', () => {
       const res = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload)
+        .send(validDealPayload())
         .expect(201);
 
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBeDefined();
       expect(res.body.data.dealNumber).toBeDefined();
       expect(res.body.data.stage).toBe(DealStage.NEW_LEAD);
-      expect(res.body.data.contactId).toBe(validDealPayload.contactId);
+      expect(res.body.data.contactId).toBe(validDealPayload().contactId);
     });
 
     it('should create deal as dispatcher (201)', async () => {
       const res = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(dispatcherUser))
-        .send(validDealPayload)
+        .send(validDealPayload())
         .expect(201);
 
       expect(res.body.data.assignedDispatcherId).toBe('dispatcher-1');
@@ -84,7 +87,7 @@ describe('Deals E2E', () => {
       await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(techUser))
-        .send(validDealPayload)
+        .send(validDealPayload())
         .expect(403);
     });
 
@@ -92,7 +95,7 @@ describe('Deals E2E', () => {
       await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(readOnlyUser))
-        .send(validDealPayload)
+        .send(validDealPayload())
         .expect(403);
     });
 
@@ -107,7 +110,7 @@ describe('Deals E2E', () => {
     it('should reject unauthenticated (401)', async () => {
       await request(app.getHttpServer())
         .post(BASE)
-        .send(validDealPayload)
+        .send(validDealPayload())
         .expect(401);
     });
   });
@@ -118,12 +121,12 @@ describe('Deals E2E', () => {
       await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
 
       await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
 
       const res = await request(app.getHttpServer())
         .get(BASE)
@@ -141,7 +144,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
 
       const id = created.body.data.id;
 
@@ -166,7 +169,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -186,7 +189,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -204,7 +207,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -219,7 +222,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       await request(app.getHttpServer())
@@ -236,7 +239,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -252,7 +255,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       // Read-only user has empty transitions
@@ -267,7 +270,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       await request(app.getHttpServer())
@@ -281,7 +284,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -301,7 +304,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -319,7 +322,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       await request(app.getHttpServer())
@@ -345,7 +348,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
@@ -364,7 +367,7 @@ describe('Deals E2E', () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send(validDealPayload);
+        .send(validDealPayload());
       const id = created.body.data.id;
 
       // First assign
@@ -391,7 +394,7 @@ describe('Deals E2E', () => {
       const res = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ ...validDealPayload, scheduledDate: DATE, scheduledTimeSlot: slot });
+        .send({ ...validDealPayload(), scheduledDate: DATE, scheduledTimeSlot: slot });
       return res.body.data.id as string;
     };
 

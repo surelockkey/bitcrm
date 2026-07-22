@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SearchDocument, SearchType } from '@bitcrm/types';
 import { SearchIndexerService } from '../indexer.service';
 import { routeToDocument } from '../index-router';
+import { CatalogNamesService } from '../catalog-names.service';
 
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 
@@ -38,7 +39,10 @@ const PAGE_SIZE = 200;
 export class BackfillService {
   private readonly logger = new Logger(BackfillService.name);
 
-  constructor(private readonly indexer: SearchIndexerService) {}
+  constructor(
+    private readonly indexer: SearchIndexerService,
+    private readonly catalogNames: CatalogNamesService,
+  ) {}
 
   async run(): Promise<Record<string, number>> {
     const totals: Record<string, number> = {};
@@ -75,9 +79,19 @@ export class BackfillService {
       const body = (await res.json()) as any;
       const page: { items?: any[]; nextCursor?: string } = body?.data ?? body;
       const items = page.items ?? [];
-      const docs = items
-        .map((e) => routeToDocument(type, e))
-        .filter((d): d is SearchDocument => d !== null);
+      const docs = (
+        await Promise.all(
+          items.map(async (e) =>
+            routeToDocument(
+              type,
+              e,
+              type === 'deal'
+                ? await this.catalogNames.nameOf('job-types', e?.jobTypeId)
+                : undefined,
+            ),
+          ),
+        )
+      ).filter((d): d is SearchDocument => d !== null);
 
       count += await this.indexer.bulkIndex(docs);
       cursor = page.nextCursor;

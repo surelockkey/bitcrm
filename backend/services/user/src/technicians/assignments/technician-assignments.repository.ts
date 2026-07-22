@@ -7,86 +7,132 @@ import {
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { type TechnicianSkill, type SkillStatus } from '@bitcrm/types';
+import { type AssignmentStatus } from '@bitcrm/types';
 import {
   TECHNICIANS_TABLE,
   GSI4_NAME,
-  SKILL_SK_PREFIX,
-  skillStatusGsiPk,
+  JOB_TYPE_SK_PREFIX,
+  SERVICE_AREA_SK_PREFIX,
+  jobTypeStatusGsiPk,
+  serviceAreaStatusGsiPk,
 } from '../constants/dynamo.constants';
 
-interface PaginatedSkills {
-  items: TechnicianSkill[];
+/** Which catalog an assignment points at. */
+export type AssignmentKind = 'job_type' | 'service_area';
+
+/**
+ * Storage shape shared by both kinds. The service maps this to the public
+ * `TechnicianJobType` / `TechnicianServiceArea` entities at its boundary, so the
+ * duplicated key-handling lives here once rather than in two near-identical
+ * repositories.
+ */
+export interface TechnicianAssignment {
+  userId: string;
+  kind: AssignmentKind;
+  /** Job-type id or service-area id, depending on `kind`. */
+  catalogId: string;
+  status: AssignmentStatus;
+  proposedBy: string;
+  proposedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  comments?: string;
+}
+
+interface PaginatedAssignments {
+  items: TechnicianAssignment[];
   nextCursor?: string;
 }
 
+const skPrefix = (kind: AssignmentKind) =>
+  kind === 'job_type' ? JOB_TYPE_SK_PREFIX : SERVICE_AREA_SK_PREFIX;
+
+const statusGsiPk = (kind: AssignmentKind, status: string) =>
+  kind === 'job_type' ? jobTypeStatusGsiPk(status) : serviceAreaStatusGsiPk(status);
+
 @Injectable()
-export class TechnicianSkillsRepository {
+export class TechnicianAssignmentsRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
-  async create(skill: TechnicianSkill): Promise<void> {
+  private key(userId: string, kind: AssignmentKind, catalogId: string) {
+    return { PK: `USER#${userId}`, SK: `${skPrefix(kind)}${catalogId}` };
+  }
+
+  /** Insert; fails if this technician already holds the catalog entry. */
+  async create(a: TechnicianAssignment): Promise<void> {
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: TECHNICIANS_TABLE,
         Item: {
-          PK: `USER#${skill.userId}`,
-          SK: `${SKILL_SK_PREFIX}${skill.skillId}`,
-          GSI4PK: skillStatusGsiPk(skill.status),
-          GSI4SK: `${skill.userId}#${skill.skillId}`,
-          ...skill,
+          ...this.key(a.userId, a.kind, a.catalogId),
+          GSI4PK: statusGsiPk(a.kind, a.status),
+          GSI4SK: `${a.userId}#${a.catalogId}`,
+          ...a,
         },
         ConditionExpression: 'attribute_not_exists(PK) OR attribute_not_exists(SK)',
       }),
     );
   }
 
-  async getById(userId: string, skillId: string): Promise<TechnicianSkill | null> {
+  async getById(
+    userId: string,
+    kind: AssignmentKind,
+    catalogId: string,
+  ): Promise<TechnicianAssignment | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: TECHNICIANS_TABLE,
-        Key: { PK: `USER#${userId}`, SK: `${SKILL_SK_PREFIX}${skillId}` },
+        Key: this.key(userId, kind, catalogId),
       }),
     );
-    return result.Item ? this.toSkill(result.Item) : null;
+    return result.Item ? this.toAssignment(result.Item) : null;
   }
 
-  async listByUser(userId: string): Promise<TechnicianSkill[]> {
+  /** One technician's assignments; omit `kind` for both. */
+  async listByUser(userId: string, kind?: AssignmentKind): Promise<TechnicianAssignment[]> {
+    if (kind) return this.queryByUser(userId, skPrefix(kind));
+    const [jobTypes, areas] = await Promise.all([
+      this.queryByUser(userId, JOB_TYPE_SK_PREFIX),
+      this.queryByUser(userId, SERVICE_AREA_SK_PREFIX),
+    ]);
+    return [...jobTypes, ...areas];
+  }
+
+  private async queryByUser(userId: string, prefix: string): Promise<TechnicianAssignment[]> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: TECHNICIANS_TABLE,
         KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
-        ExpressionAttributeValues: {
-          ':pk': `USER#${userId}`,
-          ':sk': SKILL_SK_PREFIX,
-        },
+        ExpressionAttributeValues: { ':pk': `USER#${userId}`, ':sk': prefix },
       }),
     );
-    return (result.Items || []).map(this.toSkill);
+    return (result.Items || []).map(this.toAssignment);
   }
 
   async listPendingAcrossTechs(
+    kind: AssignmentKind,
     limit: number,
     cursor?: string,
-  ): Promise<PaginatedSkills> {
+  ): Promise<PaginatedAssignments> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: TECHNICIANS_TABLE,
         IndexName: GSI4_NAME,
         KeyConditionExpression: 'GSI4PK = :pk',
-        ExpressionAttributeValues: { ':pk': skillStatusGsiPk('pending') },
+        ExpressionAttributeValues: { ':pk': statusGsiPk(kind, 'pending') },
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
       }),
     );
     return {
-      items: (result.Items || []).map(this.toSkill),
+      items: (result.Items || []).map(this.toAssignment),
       nextCursor: this.encodeCursor(result.LastEvaluatedKey),
     };
   }
 
-  /** All approved skills across every technician (paginates internally). */
-  async listAllApproved(): Promise<TechnicianSkill[]> {
-    const items: TechnicianSkill[] = [];
+  /** Every approved assignment of one kind, across all technicians. */
+  async listAllApproved(kind: AssignmentKind): Promise<TechnicianAssignment[]> {
+    const items: TechnicianAssignment[] = [];
     let lastKey: Record<string, unknown> | undefined;
     do {
       const result = await this.dynamoDb.client.send(
@@ -94,11 +140,11 @@ export class TechnicianSkillsRepository {
           TableName: TECHNICIANS_TABLE,
           IndexName: GSI4_NAME,
           KeyConditionExpression: 'GSI4PK = :pk',
-          ExpressionAttributeValues: { ':pk': skillStatusGsiPk('approved') },
+          ExpressionAttributeValues: { ':pk': statusGsiPk(kind, 'approved') },
           ExclusiveStartKey: lastKey,
         }),
       );
-      items.push(...(result.Items || []).map(this.toSkill));
+      items.push(...(result.Items || []).map(this.toAssignment));
       lastKey = result.LastEvaluatedKey;
     } while (lastKey);
     return items;
@@ -106,9 +152,10 @@ export class TechnicianSkillsRepository {
 
   async updateStatus(
     userId: string,
-    skillId: string,
-    attrs: Partial<TechnicianSkill>,
-  ): Promise<TechnicianSkill> {
+    kind: AssignmentKind,
+    catalogId: string,
+    attrs: Partial<TechnicianAssignment>,
+  ): Promise<TechnicianAssignment> {
     const setParts: string[] = [];
     const removeParts: string[] = [];
     const names: Record<string, string> = {};
@@ -116,10 +163,10 @@ export class TechnicianSkillsRepository {
 
     const updates: Record<string, unknown> = { ...attrs };
     if (attrs.status) {
-      updates.GSI4PK = skillStatusGsiPk(attrs.status);
+      updates.GSI4PK = statusGsiPk(kind, attrs.status);
     }
 
-    const immutable = new Set(['skillId', 'userId', 'proposedBy', 'proposedAt']);
+    const immutable = new Set(['userId', 'kind', 'catalogId', 'proposedBy', 'proposedAt']);
     for (const [key, value] of Object.entries(updates)) {
       if (immutable.has(key)) continue;
       const n = `#${key}`;
@@ -139,7 +186,7 @@ export class TechnicianSkillsRepository {
     const result = await this.dynamoDb.client.send(
       new UpdateCommand({
         TableName: TECHNICIANS_TABLE,
-        Key: { PK: `USER#${userId}`, SK: `${SKILL_SK_PREFIX}${skillId}` },
+        Key: this.key(userId, kind, catalogId),
         UpdateExpression: segments.join(' '),
         ExpressionAttributeNames: names,
         ExpressionAttributeValues:
@@ -148,25 +195,24 @@ export class TechnicianSkillsRepository {
         ReturnValues: 'ALL_NEW',
       }),
     );
-    return this.toSkill(result.Attributes!);
+    return this.toAssignment(result.Attributes!);
   }
 
-  async delete(userId: string, skillId: string): Promise<void> {
+  async delete(userId: string, kind: AssignmentKind, catalogId: string): Promise<void> {
     await this.dynamoDb.client.send(
       new DeleteCommand({
         TableName: TECHNICIANS_TABLE,
-        Key: { PK: `USER#${userId}`, SK: `${SKILL_SK_PREFIX}${skillId}` },
+        Key: this.key(userId, kind, catalogId),
       }),
     );
   }
 
-  private toSkill(item: Record<string, unknown>): TechnicianSkill {
+  private toAssignment(item: Record<string, unknown>): TechnicianAssignment {
     return {
-      skillId: item.skillId as string,
       userId: item.userId as string,
-      type: item.type as TechnicianSkill['type'],
-      value: item.value as string,
-      status: item.status as SkillStatus,
+      kind: item.kind as AssignmentKind,
+      catalogId: item.catalogId as string,
+      status: item.status as AssignmentStatus,
       proposedBy: item.proposedBy as string,
       proposedAt: item.proposedAt as string,
       reviewedBy: item.reviewedBy as string | undefined,

@@ -16,6 +16,7 @@ import { AppController } from './app.controller';
 import { DealsModule } from './deals/deals.module';
 import { DealsEventHandler } from './deals/deals.event-handler';
 import { ServiceAreasModule } from './service-areas/service-areas.module';
+import { JobTypesModule } from './job-types/job-types.module';
 import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
 import { TechnicianEligibilityEventHandler } from './technician-eligibility/technician-eligibility.event-handler';
 
@@ -65,10 +66,11 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
           }
         : undefined,
     }),
-    // ServiceAreasModule must register before DealsModule: its collection routes
-    // (GET /service-areas) would otherwise be shadowed by DealsController's
-    // `GET /:id` under the shared `api/deals` prefix.
+    // The catalog modules must register before DealsModule: their collection
+    // routes (GET /service-areas, GET /job-types) would otherwise be shadowed by
+    // DealsController's `GET /:id` under the shared `api/deals` prefix.
     ServiceAreasModule,
+    JobTypesModule,
     DealsModule,
     TechnicianEligibilityModule,
   ],

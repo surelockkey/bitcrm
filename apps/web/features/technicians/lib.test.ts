@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
-import type { TechnicianSkill, User, OnboardingStatus } from "@bitcrm/types";
+import type {
+  TechnicianJobType,
+  TechnicianServiceArea,
+  User,
+  OnboardingStatus,
+} from "@bitcrm/types";
 import { UserStatus } from "@bitcrm/types";
 import {
   onboardingPct,
   techName,
-  groupSkills,
-  approvedValues,
+  approvedJobTypeIds,
+  approvedServiceAreaIds,
   isAssignable,
   statusLabel,
   formatPct,
@@ -32,26 +37,26 @@ describe("techName — profiles have no name, so join with Users", () => {
   void UserStatus;
 });
 
-describe("skills grouping + assignability", () => {
-  const skills: TechnicianSkill[] = [
-    { skillId: "1", userId: "u1", type: "job_type", value: "Locksmith", status: "approved", proposedBy: "u1", proposedAt: "" },
-    { skillId: "2", userId: "u1", type: "job_type", value: "Automotive", status: "pending", proposedBy: "u1", proposedAt: "" },
-    { skillId: "3", userId: "u1", type: "service_area", value: "Phoenix", status: "approved", proposedBy: "u1", proposedAt: "" },
+describe("assignment approvals + assignability", () => {
+  const jobTypes: TechnicianJobType[] = [
+    { userId: "u1", jobTypeId: "jt-locksmith", status: "approved", proposedBy: "u1", proposedAt: "" },
+    { userId: "u1", jobTypeId: "jt-automotive", status: "pending", proposedBy: "u1", proposedAt: "" },
+  ];
+  const serviceAreas: TechnicianServiceArea[] = [
+    { userId: "u1", serviceAreaId: "sa-phoenix", status: "approved", proposedBy: "u1", proposedAt: "" },
   ];
 
-  it("splits job types and service areas", () => {
-    const g = groupSkills(skills);
-    expect(g.jobTypes).toHaveLength(2);
-    expect(g.serviceAreas).toHaveLength(1);
+  it("lists approved job-type ids", () => {
+    expect(approvedJobTypeIds(jobTypes)).toEqual(["jt-locksmith"]);
   });
-  it("lists approved values by type", () => {
-    expect(approvedValues(skills, "job_type")).toEqual(["Locksmith"]);
+  it("lists approved service-area ids", () => {
+    expect(approvedServiceAreaIds(serviceAreas)).toEqual(["sa-phoenix"]);
   });
   it("is assignable with ≥1 approved job type and area", () => {
-    expect(isAssignable(skills)).toBe(true);
+    expect(isAssignable(jobTypes, serviceAreas)).toBe(true);
   });
   it("is not assignable without an approved area", () => {
-    expect(isAssignable(skills.filter((s) => s.type !== "service_area"))).toBe(false);
+    expect(isAssignable(jobTypes, [])).toBe(false);
   });
 });
 

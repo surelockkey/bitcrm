@@ -25,11 +25,10 @@ import {
 } from "@/components/ui/select";
 import { useUpdateDeal } from "../hooks";
 import { editDealSchema, type EditDealValues } from "../schemas";
-import { jobTypeLabel } from "../lib";
 import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
+import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 
-const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
 export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: boolean; onOpenChange: (v: boolean) => void }) {
   const update = useUpdateDeal(deal.id);
@@ -38,7 +37,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const form = useForm<EditDealValues>({
     resolver: zodResolver(editDealSchema),
     defaultValues: {
-      jobType: deal.jobType,
+      jobTypeId: deal.jobTypeId,
       serviceArea: deal.serviceArea,
       address: {
         street: deal.address.street,
@@ -76,7 +75,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   };
 
   const err = form.formState.errors;
-  const jobType = useWatch({ control: form.control, name: "jobType" });
+  const jobTypeId = useWatch({ control: form.control, name: "jobTypeId" });
   const priority = useWatch({ control: form.control, name: "priority" });
   const street = useWatch({ control: form.control, name: "address.street" });
   const lat = useWatch({ control: form.control, name: "address.lat" });
@@ -91,10 +90,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Job type</Label>
-                <Select value={jobType} onValueChange={(v) => form.setValue("jobType", v)}>
-                  <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>{JOB_TYPES.map((t) => <SelectItem key={t} value={t}>{jobTypeLabel(t)}</SelectItem>)}</SelectContent>
-                </Select>
+<JobTypeSelect value={jobTypeId} onChange={(v) => form.setValue("jobTypeId", v)} />
               </div>
               <div className="space-y-1.5">
                 <Label>Priority</Label>

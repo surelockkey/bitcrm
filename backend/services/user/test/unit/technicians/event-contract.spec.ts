@@ -17,7 +17,6 @@ describe('user-events contract', () => {
       USER_INVITE_RESENT: 'user.invite-resent',
       TECH_UPDATED: 'tech.updated',
       TECH_APPROVED: 'tech.approved',
-      SKILL_PROPOSED: 'skill.proposed',
       COMMISSION_UPDATED: 'commission.updated',
       DOCUMENT_UPLOADED: 'document.uploaded',
       DOCUMENT_ACCESSED: 'document.accessed',

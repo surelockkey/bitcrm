@@ -3,6 +3,7 @@ import { SearchDocument, SearchType } from '@bitcrm/types';
 import { OpenSearchService } from '../common/opensearch/opensearch.service';
 import { SEARCH_INDEX_ALIAS } from '../common/constants/opensearch.constants';
 import { routeToDocument } from './index-router';
+import { CatalogNamesService } from './catalog-names.service';
 
 /**
  * Write side of the CQRS index. Upserts and deletes single documents (used by the
@@ -13,11 +14,19 @@ import { routeToDocument } from './index-router';
 export class SearchIndexerService {
   private readonly logger = new Logger(SearchIndexerService.name);
 
-  constructor(private readonly opensearch: OpenSearchService) {}
+  constructor(
+    private readonly opensearch: OpenSearchService,
+    private readonly catalogNames: CatalogNamesService,
+  ) {}
 
   /** Map a full entity to a document and upsert it. */
   async indexEntity(type: SearchType, entity: any): Promise<void> {
-    const doc = routeToDocument(type, entity);
+    // Deals carry a job-type id; search shows the name.
+    const jobTypeName =
+      type === 'deal'
+        ? await this.catalogNames.nameOf('job-types', entity?.jobTypeId)
+        : undefined;
+    const doc = routeToDocument(type, entity, jobTypeName);
     if (!doc) {
       this.logger.warn(`No mapper for type "${type}", skipping`);
       return;

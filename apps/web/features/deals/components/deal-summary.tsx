@@ -9,10 +9,12 @@ import { cn } from "@/lib/utils";
 import { useCompanyMap } from "@/features/clients/hooks";
 import { contactName, formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
 import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../hooks";
-import { dealTotal, formatMoney, formatSchedule, jobTypeLabel } from "../lib";
+import { dealTotal, formatMoney, formatSchedule } from "../lib";
+import { useJobTypeName } from "@/features/job-types/lib";
 import { AssignTechDialog } from "./assign-tech-dialog";
 
 export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
+  const jobTypeName = useJobTypeName();
   const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
   const { map: userMap } = useUserMap();
@@ -30,7 +32,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
       {/* Job */}
       <Card icon={<Briefcase className="size-3.5" />} title="Job">
         <dl className="text-sm">
-          <Row label="Type" value={jobTypeLabel(deal.jobType)} />
+          <Row label="Type" value={jobTypeName(deal.jobTypeId)} />
           <Row
             label="Address"
             value={`${deal.address.street}${deal.address.unit ? ` ${deal.address.unit}` : ""}, ${deal.address.city} ${deal.address.state} ${deal.address.zip}`}

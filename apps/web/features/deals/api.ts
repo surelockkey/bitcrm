@@ -18,13 +18,19 @@ const PAGE = 100;
  * whatever the earlier shape claimed. `distanceMiles` is null until both the deal
  * address and the technician's home carry coordinates.
  */
+/** Why a technician doesn't qualify for a deal (empty when eligible). */
+export type IneligibilityReason = "not_assignable" | "missing_job_type" | "outside_area";
+
 export interface QualifiedTech {
   id: string;
   firstName?: string;
   lastName?: string;
   department?: string;
-  skills?: string[];
-  serviceAreas?: string[];
+  jobTypeIds?: string[];
+  serviceAreaIds?: string[];
+  /** True when approved for this deal's job type AND service area. */
+  eligible: boolean;
+  reasons: IneligibilityReason[];
   distanceMiles?: number | null;
 }
 

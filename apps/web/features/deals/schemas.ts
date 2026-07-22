@@ -21,7 +21,7 @@ const timeSlot = z
 /** The job step of the New Deal wizard (contact/company come from step 1). */
 export const dealJobSchema = z.object({
   clientType: z.nativeEnum(ClientType),
-  jobType: z.string().trim().min(1, "Pick a job type"),
+  jobTypeId: z.string().trim().min(1, "Pick a job type"),
   // Auto-resolved from the address by the backend; kept optional as a label override.
   serviceArea: z.string().trim().optional(),
   address: addressSchema,

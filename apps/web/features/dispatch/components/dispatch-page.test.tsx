@@ -89,7 +89,7 @@ const LOCATED = {
   clientType: "residential",
   serviceArea: "Atlanta Metro",
   address: { street: "1 Peachtree St", city: "Atlanta", state: "GA", zip: "30303", lat: 33.749, lng: -84.388 },
-  jobType: "lockout",
+  jobTypeId: "jt-lockout",
   stage: "new_lead",
   assignedDispatcherId: "d1",
   priority: "normal",

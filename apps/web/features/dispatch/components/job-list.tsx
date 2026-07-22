@@ -4,7 +4,7 @@ import { MapPin, MapPinOff } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "@/features/deals/components/deal-badges";
-import { jobTypeLabel } from "@/features/deals/lib";
+import { useJobTypeName } from "@/features/job-types/lib";
 
 function JobRow({
   deal,
@@ -25,6 +25,7 @@ function JobRow({
   onHover: (id: string | null) => void;
   onSelect: (id: string) => void;
 }) {
+  const jobTypeName = useJobTypeName();
   return (
     <button
       type="button"
@@ -55,7 +56,7 @@ function JobRow({
       <div className="flex items-center gap-2 pl-5">
         <StageBadge stage={deal.stage} />
         <span className="truncate text-xs text-muted-foreground">
-          {jobTypeLabel(deal.jobType)}
+          {jobTypeName(deal.jobTypeId)}
         </span>
       </div>
 

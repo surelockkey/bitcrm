@@ -8,6 +8,8 @@ import { TimelineRepository } from 'src/timeline/timeline.repository';
 import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
+import { JobTypesService } from 'src/job-types/job-types.service';
+import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import {
   createMockDeal,
   createMockJwtUser,
@@ -18,6 +20,8 @@ import {
   createMockSnsPublisherService,
   createMockInternalHttpService,
   createMockGeocodingService,
+  createMockJobType,
+  createMockTechnicianEligibilityRepository,
 } from '../mocks';
 
 /**
@@ -49,6 +53,8 @@ describe('DealsService — job sequencing', () => {
         { provide: InternalHttpService, useValue: createMockInternalHttpService() },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
+        { provide: JobTypesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobType()) } },
+        { provide: TechnicianEligibilityRepository, useValue: createMockTechnicianEligibilityRepository() },
       ],
     }).compile();
 

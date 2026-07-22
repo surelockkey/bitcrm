@@ -15,7 +15,7 @@ import { techName, techUser } from "../lib";
 import { TechnicianStatusBadge } from "./technician-status-badge";
 import { OverviewTab } from "./overview-tab";
 import { ProfileTab } from "./profile-tab";
-import { SkillsTab } from "./skills-tab";
+import { AssignmentsTab } from "./assignments-tab";
 import { CommissionTab } from "./commission-tab";
 import { DocumentsTab } from "./documents-tab";
 
@@ -31,7 +31,7 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
   const tabs = [
     { value: "overview", label: "Overview", node: <OverviewTab technicianId={technicianId} /> },
     { value: "profile", label: "Profile", node: <ProfileTab technicianId={technicianId} readOnly={!canEditTech} /> },
-    ...(can("skills", "view") ? [{ value: "skills", label: "Skills", node: <SkillsTab technicianId={technicianId} /> }] : []),
+    ...(can("job_types", "view") ? [{ value: "assignments", label: "Assignments", node: <AssignmentsTab technicianId={technicianId} /> }] : []),
     ...(can("commission", "view") ? [{ value: "commission", label: "Commission", node: <CommissionTab technicianId={technicianId} /> }] : []),
     ...(can("documents", "view") ? [{ value: "documents", label: "Documents", node: <DocumentsTab technicianId={technicianId} /> }] : []),
   ];

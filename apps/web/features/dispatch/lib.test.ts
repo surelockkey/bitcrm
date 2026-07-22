@@ -37,7 +37,7 @@ function deal(overrides: Partial<Deal> = {}): Deal {
       lat: 33.749,
       lng: -84.388,
     },
-    jobType: "lockout",
+    jobTypeId: "jt-lockout",
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "dispatcher-1",
     priority: DealPriority.NORMAL,

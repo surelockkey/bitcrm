@@ -31,10 +31,13 @@ export class UpdateDealDto {
   @Type(() => AddressDto)
   address?: AddressDto;
 
-  @ApiPropertyOptional({ example: 'rekey' })
+  @ApiPropertyOptional({
+    example: 'e1b9c2a4-5d3f-4a71-9c8e-2f6d1b0a7e34',
+    description: 'Catalog job-type id. An archived type is accepted here so old deals stay editable.',
+  })
   @IsOptional()
   @IsString()
-  jobType?: string;
+  jobTypeId?: string;
 
   @ApiPropertyOptional({ enum: DealPriority })
   @IsOptional()

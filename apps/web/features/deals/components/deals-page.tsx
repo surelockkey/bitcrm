@@ -18,12 +18,13 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
 import Link from "next/link";
 import { useContactMap, useDeals, useUserMap } from "../hooks";
-import { STAGE_ORDER, filterDeals, jobTypeLabel, stageLabel, type DealFilter } from "../lib";
+import { STAGE_ORDER, filterDeals, stageLabel, type DealFilter } from "../lib";
+import { useJobTypes } from "@/features/job-types/hooks";
+import { activeJobTypes } from "@/features/job-types/lib";
 import { DealsBoard } from "./deals-board";
 import { DealsTable } from "./deals-table";
 
 const ALL = "all";
-const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
 export function DealsPage() {
   const { can, isTechnician } = usePermissions();
@@ -35,7 +36,8 @@ export function DealsPage() {
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState(ALL);
   const [priority, setPriority] = useState(ALL);
-  const [jobType, setJobType] = useState(ALL);
+  const [jobTypeId, setJobTypeId] = useState(ALL);
+  const jobTypesQuery = useJobTypes();
 
   const contactNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -48,10 +50,10 @@ export function DealsPage() {
       search: search || undefined,
       stage: stage === ALL ? undefined : (stage as DealFilter["stage"]),
       priority: priority === ALL ? undefined : (priority as DealPriority),
-      jobType: jobType === ALL ? undefined : jobType,
+      jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
     };
     return filterDeals(dealsQuery.data ?? [], filter, contactNames);
-  }, [dealsQuery.data, search, stage, priority, jobType, contactNames]);
+  }, [dealsQuery.data, search, stage, priority, jobTypeId, contactNames]);
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -80,7 +82,7 @@ export function DealsPage() {
         </div>
         <FilterSelect value={stage} onChange={setStage} allLabel="All stages" options={STAGE_ORDER.map((s) => ({ value: s, label: stageLabel(s) }))} width={160} />
         <FilterSelect value={priority} onChange={setPriority} allLabel="Any priority" options={[{ value: DealPriority.URGENT, label: "Urgent" }, { value: DealPriority.NORMAL, label: "Normal" }]} width={140} />
-        <FilterSelect value={jobType} onChange={setJobType} allLabel="All jobs" options={JOB_TYPES.map((t) => ({ value: t, label: jobTypeLabel(t) }))} width={140} />
+        <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All jobs" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={140} />
         <span className="ml-auto flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{filtered.length} {filtered.length === 1 ? "deal" : "deals"}</span>
           {!isTechnician ? (

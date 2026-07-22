@@ -23,7 +23,7 @@ export interface PaginatedResult {
 
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
-  jobType?: string;
+  jobTypeId?: string;
   serviceArea?: string;
   clientType?: string;
   priority?: string;
@@ -59,7 +59,7 @@ export class DealsRepository {
       names[`#${attr}`] = attr;
       values[`:${attr}`] = val;
     };
-    if (filters?.jobType) eq('jobType', filters.jobType);
+    if (filters?.jobTypeId) eq('jobTypeId', filters.jobTypeId);
     if (filters?.serviceArea) eq('serviceArea', filters.serviceArea);
     if (filters?.clientType) eq('clientType', filters.clientType);
     if (filters?.priority) eq('priority', filters.priority);
@@ -319,7 +319,7 @@ export class DealsRepository {
       serviceArea: item.serviceArea as string,
       serviceAreaId: item.serviceAreaId as string | undefined,
       address: item.address as Deal['address'],
-      jobType: item.jobType as string,
+      jobTypeId: item.jobTypeId as string,
       stage: item.stage as Deal['stage'],
       assignedTechId: item.assignedTechId as string | undefined,
       assignedDispatcherId: item.assignedDispatcherId as string,

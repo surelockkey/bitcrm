@@ -4,7 +4,8 @@ import type {
   TechnicianHomeAddress,
   TechnicianLocation,
   OnboardingStatus,
-  TechnicianSkill,
+  TechnicianJobType,
+  TechnicianServiceArea,
   CommissionConfig,
   CommissionBreakdown,
   DocumentType,
@@ -44,9 +45,16 @@ export interface UpdateProfileBody {
   mobileAppInstalled?: boolean;
   status?: TechnicianProfileStatus;
 }
-export interface ProposeSkillsBody {
-  jobTypes?: string[];
-  serviceAreas?: string[];
+/** A technician's job types + service areas with their review statuses. */
+export interface TechnicianAssignments {
+  jobTypes: TechnicianJobType[];
+  serviceAreas: TechnicianServiceArea[];
+}
+
+/** The manager review queue, split by kind. */
+export interface PendingAssignments {
+  jobTypes: TechnicianJobType[];
+  serviceAreas: TechnicianServiceArea[];
 }
 export interface SetCommissionBody {
   baseRatePct: number;
@@ -89,35 +97,41 @@ export function getOnboarding(id: string): Promise<OnboardingStatus> {
   return http.get<OnboardingStatus>(`${BASE}/${id}/onboarding-status`);
 }
 
-/* ---- Skills ---- */
+/* ---- Assignments (job types + service areas) ----
+ * Both share one review flow; the route segment picks the catalog. `kind` maps
+ * to the URL: 'job_type' → /job-types, 'service_area' → /service-areas.
+ */
 
-export function listPendingSkills(): Promise<PaginatedResponse<TechnicianSkill>> {
-  return apiFetchPaginated<TechnicianSkill>(`${BASE}/skills/pending?limit=50`);
+export type AssignmentKind = "job_type" | "service_area";
+const seg = (kind: AssignmentKind) => (kind === "job_type" ? "job-types" : "service-areas");
+
+export function getAssignments(id: string): Promise<TechnicianAssignments> {
+  return http.get<TechnicianAssignments>(`${BASE}/${id}/assignments`);
 }
 
-export function getSkills(id: string): Promise<TechnicianSkill[]> {
-  return http.get<TechnicianSkill[]>(`${BASE}/${id}/skills`);
+export function listPendingAssignments(): Promise<PendingAssignments> {
+  return http.get<PendingAssignments>(`${BASE}/assignments/pending`);
 }
 
-export function proposeSkills(id: string, body: ProposeSkillsBody): Promise<TechnicianSkill[]> {
-  return http.post<TechnicianSkill[]>(`${BASE}/${id}/skills/propose`, body);
+export function proposeAssignments(id: string, kind: AssignmentKind, ids: string[]) {
+  return http.post(`${BASE}/${id}/${seg(kind)}/propose`, { ids });
 }
 
-export function approveSkill(id: string, skillId: string, comments?: string): Promise<TechnicianSkill> {
-  return http.post<TechnicianSkill>(`${BASE}/${id}/skills/${skillId}/approve`, { comments });
+/** Manager path: grant catalog entries directly (pre-approved), skipping propose. */
+export function assignDirect(id: string, kind: AssignmentKind, ids: string[]) {
+  return http.post(`${BASE}/${id}/${seg(kind)}`, { ids });
 }
 
-export function rejectSkill(id: string, skillId: string, comments: string): Promise<TechnicianSkill> {
-  return http.post<TechnicianSkill>(`${BASE}/${id}/skills/${skillId}/reject`, { comments });
+export function approveAssignment(id: string, kind: AssignmentKind, catalogId: string, comments?: string) {
+  return http.post(`${BASE}/${id}/${seg(kind)}/${catalogId}/approve`, { comments });
 }
 
-export function revokeSkill(id: string, skillId: string): Promise<null> {
-  return http.delete<null>(`${BASE}/${id}/skills/${skillId}`);
+export function rejectAssignment(id: string, kind: AssignmentKind, catalogId: string, comments: string) {
+  return http.post(`${BASE}/${id}/${seg(kind)}/${catalogId}/reject`, { comments });
 }
 
-/** Manager path: grant catalog service areas to a technician directly (pre-approved). */
-export function assignServiceAreas(id: string, serviceAreas: string[]): Promise<TechnicianSkill[]> {
-  return http.post<TechnicianSkill[]>(`${BASE}/${id}/service-areas`, { serviceAreas });
+export function revokeAssignment(id: string, kind: AssignmentKind, catalogId: string): Promise<null> {
+  return http.delete<null>(`${BASE}/${id}/${seg(kind)}/${catalogId}`);
 }
 
 /* ---- Commission ---- */

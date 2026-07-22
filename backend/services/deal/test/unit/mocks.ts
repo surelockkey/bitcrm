@@ -2,7 +2,7 @@ import {
   ClientType, DealStage, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
-  type ServiceArea,
+  type ServiceArea, type JobType,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
     scheduledTimeSlot: '09:00-12:00',
     serviceArea: 'Atlanta Metro',
     address: createMockAddress(),
-    jobType: 'lockout',
+    jobTypeId: 'jobtype-1',
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: 'dispatcher-1',
     priority: DealPriority.NORMAL,
@@ -80,6 +80,19 @@ export function createMockServiceArea(overrides?: Partial<ServiceArea>): Service
     type: ServiceAreaType.ZIPS,
     definition: { type: ServiceAreaType.ZIPS, zips: [{ zip: '30301', radiusMiles: 10 }] },
     coverage: [{ kind: 'circle', lat: 33.749, lng: -84.388, radiusMiles: 10 }],
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockJobType(overrides?: Partial<JobType>): JobType {
+  return {
+    id: 'jobtype-1',
+    name: 'Lockout',
+    priority: 0,
+    active: true,
     createdBy: 'admin-1',
     createdAt: '2026-04-16T10:00:00.000Z',
     updatedAt: '2026-04-16T10:00:00.000Z',
@@ -149,7 +162,10 @@ export function createMockSnsPublisherService() {
 export function createMockInternalHttpService() {
   return {
     validateContact: jest.fn().mockResolvedValue(true),
-    getTechnicians: jest.fn().mockResolvedValue([]),
+    listAssignableTechnicians: jest.fn().mockResolvedValue([]),
+    getTechnicianEligibility: jest
+      .fn()
+      .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
     deductStock: jest.fn().mockResolvedValue(undefined),
     restoreStock: jest.fn().mockResolvedValue(undefined),
   };
@@ -166,6 +182,26 @@ export function createMockServiceAreasRepository() {
     get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
+  };
+}
+
+export function createMockJobTypesRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockTechnicianEligibilityRepository() {
+  return {
+    upsert: jest.fn(),
+    get: jest.fn(),
+    remove: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
   };
 }
 

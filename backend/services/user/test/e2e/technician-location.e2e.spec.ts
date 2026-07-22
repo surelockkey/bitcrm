@@ -18,9 +18,11 @@ jest.mock('../../src/technicians/constants/dynamo.constants', () => ({
   GSI3_NAME: 'TechnicianIndex',
   TECHNICIAN_GSI_PK: 'TECHNICIAN',
   PROFILE_SK: 'TECH_PROFILE',
-  SKILL_SK_PREFIX: 'SKILL#',
+  JOB_TYPE_SK_PREFIX: 'JOBTYPE#',
+  SERVICE_AREA_SK_PREFIX: 'AREA#',
   GSI4_NAME: 'SkillStatusIndex',
-  skillStatusGsiPk: (s: string) => `SKILL_STATUS#${s}`,
+  jobTypeStatusGsiPk: (s: string) => `JOBTYPE_STATUS#${s}`,
+  serviceAreaStatusGsiPk: (s: string) => `AREA_STATUS#${s}`,
   COMMISSION_SK_PREFIX: 'COMMISSION#',
 }));
 

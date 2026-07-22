@@ -16,14 +16,18 @@ import { TechnicianSearchInput } from './mappers/mapper-input';
  * Routes a full entity (from a backfill fetch or an entity-carrying event) to the
  * mapper for its type. `technician` and `stock` take assembled inputs rather than
  * a single stored entity, so they are indexed directly via their mappers.
+ *
+ * `jobTypeName` is pre-resolved by the caller because mappers stay pure/sync —
+ * only deals need it.
  */
 export function routeToDocument(
   type: SearchType,
   entity: any,
+  jobTypeName?: string,
 ): SearchDocument | null {
   switch (type) {
     case 'deal':
-      return mapDeal(entity);
+      return mapDeal(entity, jobTypeName);
     case 'contact':
       return mapContact(entity);
     case 'company':

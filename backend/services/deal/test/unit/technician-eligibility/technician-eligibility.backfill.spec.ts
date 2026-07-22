@@ -13,8 +13,8 @@ describe('TechnicianEligibilityBackfill (unit)', () => {
 
   it('upserts an eligibility projection for each assignable technician on boot', async () => {
     http.listAssignableTechnicians.mockResolvedValue([
-      { technicianId: 't1', approvedSkills: ['Locksmith'], serviceAreas: ['Atlanta'] },
-      { technicianId: 't2', approvedSkills: ['Rekeying'], serviceAreas: ['North GA'] },
+      { technicianId: 't1', jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] },
+      { technicianId: 't2', jobTypeIds: ['jt-2'], serviceAreaIds: ['sa-2'] },
     ]);
     await backfill.onModuleInit();
     expect(repo.upsert).toHaveBeenCalledTimes(2);

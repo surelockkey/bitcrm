@@ -24,10 +24,10 @@ export class ListDealsQueryDto {
   @IsString()
   contactId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Catalog job-type id.' })
   @IsOptional()
   @IsString()
-  jobType?: string;
+  jobTypeId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

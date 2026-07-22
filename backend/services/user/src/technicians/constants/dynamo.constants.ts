@@ -9,13 +9,21 @@ export const TECHNICIAN_GSI_PK = 'TECHNICIAN';
 // Sort-key discriminator for the profile item under PK=USER#<id>.
 export const PROFILE_SK = 'TECH_PROFILE';
 
-// Skill items: SK = SKILL#<skillId> under PK=USER#<id>.
-export const SKILL_SK_PREFIX = 'SKILL#';
+// Assignment items under PK=USER#<id>. The catalog id IS the sort key, so a
+// technician can hold each job type / service area at most once.
+//   SK = JOBTYPE#<jobTypeId>  |  SK = AREA#<serviceAreaId>
+export const JOB_TYPE_SK_PREFIX = 'JOBTYPE#';
+export const SERVICE_AREA_SK_PREFIX = 'AREA#';
 
-// GSI4 — lists skill proposals by status across all technicians (manager
-// dashboard / SLA). GSI4PK = SKILL_STATUS#<status>, GSI4SK = <userId>#<skillId>.
+// GSI4 — lists assignment proposals by status across all technicians (manager
+// dashboard / SLA). GSI4PK = <KIND>_STATUS#<status>, GSI4SK = <userId>#<catalogId>.
+//
+// The physical index name still says "Skill": renaming a GSI forces DynamoDB to
+// rebuild it, so only the partition VALUES changed in the job-types migration.
+// Renaming the index itself is a deliberate follow-up.
 export const GSI4_NAME = 'SkillStatusIndex';
-export const skillStatusGsiPk = (status: string) => `SKILL_STATUS#${status}`;
+export const jobTypeStatusGsiPk = (status: string) => `JOBTYPE_STATUS#${status}`;
+export const serviceAreaStatusGsiPk = (status: string) => `AREA_STATUS#${status}`;
 
 // Commission config items (versioned): SK = COMMISSION#<effectiveDateISO>.
 export const COMMISSION_SK_PREFIX = 'COMMISSION#';

@@ -24,9 +24,13 @@ export class TechnicianEligibilityBackfill implements OnModuleInit {
       for (const a of assignable) {
         await this.repository.upsert({
           technicianId: a.technicianId,
-          approvedSkills: a.approvedSkills,
-          serviceAreas: a.serviceAreas,
+          jobTypeIds: a.jobTypeIds ?? [],
+          serviceAreaIds: a.serviceAreaIds ?? [],
           assignable: true,
+          firstName: a.firstName,
+          lastName: a.lastName,
+          department: a.department,
+          homeAddress: a.homeAddress,
           updatedAt: now,
         });
       }

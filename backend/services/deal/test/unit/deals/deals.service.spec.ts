@@ -8,6 +8,8 @@ import { TimelineRepository } from 'src/timeline/timeline.repository';
 import { DealProductsRepository } from 'src/products/deal-products.repository';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
+import { JobTypesService } from 'src/job-types/job-types.service';
+import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
   createMockDeal,
@@ -21,6 +23,8 @@ import {
   createMockSnsPublisherService,
   createMockInternalHttpService,
   createMockGeocodingService,
+  createMockJobType,
+  createMockTechnicianEligibilityRepository,
 } from '../mocks';
 
 describe('DealsService', () => {
@@ -32,6 +36,8 @@ describe('DealsService', () => {
   let sns: ReturnType<typeof createMockSnsPublisherService>;
   let http: ReturnType<typeof createMockInternalHttpService>;
   let serviceAreas: { resolvePoint: jest.Mock };
+  let jobTypes: { findById: jest.Mock };
+  let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
 
   beforeEach(async () => {
     repo = createMockDealsRepository();
@@ -41,6 +47,8 @@ describe('DealsService', () => {
     sns = createMockSnsPublisherService();
     http = createMockInternalHttpService();
     serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
+    jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
+    eligibility = createMockTechnicianEligibilityRepository();
 
     const module = await Test.createTestingModule({
       providers: [
@@ -53,6 +61,8 @@ describe('DealsService', () => {
         { provide: InternalHttpService, useValue: http },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: serviceAreas },
+        { provide: JobTypesService, useValue: jobTypes },
+        { provide: TechnicianEligibilityRepository, useValue: eligibility },
       ],
     }).compile();
 
@@ -73,7 +83,7 @@ describe('DealsService', () => {
       clientType: ClientType.RESIDENTIAL,
       serviceArea: 'Atlanta Metro',
       address: { street: '123 Main', city: 'Atlanta', state: 'GA', zip: '30301' },
-      jobType: 'lockout',
+      jobTypeId: 'jobtype-1',
     };
 
     it('should create deal with auto-generated fields', async () => {
@@ -251,13 +261,13 @@ describe('DealsService', () => {
       expect(repo.findAll).toHaveBeenCalledWith(100, undefined, expect.any(Object));
     });
 
-    it('should pass secondary filters (jobType, priority) through', async () => {
+    it('should pass secondary filters (jobTypeId, priority) through', async () => {
       repo.findAll.mockResolvedValue(mockResult);
-      await service.list({ jobType: 'lockout', priority: 'urgent' } as any, caller);
+      await service.list({ jobTypeId: 'jobtype-1', priority: 'urgent' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
         undefined,
-        expect.objectContaining({ jobType: 'lockout', priority: 'urgent' }),
+        expect.objectContaining({ jobTypeId: 'jobtype-1', priority: 'urgent' }),
       );
     });
 
@@ -461,61 +471,77 @@ describe('DealsService', () => {
   });
 
   describe('getQualifiedTechs', () => {
-    it('should return techs with distances when deal has coordinates', async () => {
-      mockFindById(createMockDeal({
+    // A deal for jobtype X in area Y; techs are matched against the local
+    // eligibility projection by these ids.
+    const dealForMatch = () =>
+      createMockDeal({
+        jobTypeId: 'jt-x',
+        serviceAreaId: 'sa-y',
         address: createMockAddress({ lat: 33.749, lng: -84.388 }),
-      }));
-      http.getTechnicians.mockResolvedValue([
-        { id: 't-1', firstName: 'A', lastName: 'B', skills: [], serviceAreas: [], department: 'ATL',
-          homeAddress: { lat: 33.953, lng: -84.550 } },
-        { id: 't-2', firstName: 'C', lastName: 'D', skills: [], serviceAreas: [], department: 'ATL',
-          homeAddress: { lat: 34.1, lng: -84.2 } },
+      });
+
+    const projected = (over: Record<string, unknown>) => ({
+      technicianId: 't',
+      jobTypeIds: ['jt-x'],
+      serviceAreaIds: ['sa-y'],
+      assignable: true,
+      updatedAt: '2026-04-16T10:00:00.000Z',
+      ...over,
+    });
+
+    it('flags a tech approved for the deal’s job type and area as eligible', async () => {
+      mockFindById(dealForMatch());
+      eligibility.listAll.mockResolvedValue([
+        projected({ technicianId: 't-1', homeAddress: { lat: 33.953, lng: -84.55 } }),
       ]);
 
       const result = await service.getQualifiedTechs('deal-1');
 
-      expect(result.length).toBe(2);
-      expect(result[0].distanceMiles).toBeDefined();
+      expect(result[0]).toMatchObject({ id: 't-1', eligible: true, reasons: [] });
       expect(typeof result[0].distanceMiles).toBe('number');
-      // Should be sorted by distance
-      expect(result[0].distanceMiles!).toBeLessThanOrEqual(result[1].distanceMiles!);
     });
 
-    it('should return null distance for techs without coordinates', async () => {
-      mockFindById(createMockDeal({
-        address: createMockAddress({ lat: 33.749, lng: -84.388 }),
-      }));
-      http.getTechnicians.mockResolvedValue([
-        { id: 't-1', firstName: 'A', lastName: 'B', skills: [], serviceAreas: [], department: 'ATL' },
+    it('flags a tech missing the job type as ineligible with a reason', async () => {
+      mockFindById(dealForMatch());
+      eligibility.listAll.mockResolvedValue([
+        projected({ technicianId: 't-2', jobTypeIds: ['jt-other'] }),
       ]);
 
       const result = await service.getQualifiedTechs('deal-1');
-      expect(result[0].distanceMiles).toBeNull();
+
+      expect(result[0]).toMatchObject({ id: 't-2', eligible: false });
+      expect(result[0].reasons).toContain('missing_job_type');
     });
 
-    it('should return null distances when deal has no coordinates', async () => {
-      mockFindById(createMockDeal({
-        address: createMockAddress({ lat: undefined, lng: undefined }),
-      }));
-      http.getTechnicians.mockResolvedValue([
-        { id: 't-1', firstName: 'A', lastName: 'B', skills: [], serviceAreas: [], department: 'ATL',
-          homeAddress: { lat: 33.9, lng: -84.5 } },
+    it('flags a tech outside the deal’s area as ineligible', async () => {
+      mockFindById(dealForMatch());
+      eligibility.listAll.mockResolvedValue([
+        projected({ technicianId: 't-3', serviceAreaIds: ['sa-other'] }),
       ]);
 
       const result = await service.getQualifiedTechs('deal-1');
-      expect(result[0].distanceMiles).toBeNull();
+      expect(result[0].reasons).toContain('outside_area');
     });
 
-    it('should pass filters to getTechnicians', async () => {
-      mockFindById(createMockDeal({
-        serviceArea: 'North GA', jobType: 'rekey',
-        address: createMockAddress({ lat: undefined, lng: undefined }),
-      }));
-      http.getTechnicians.mockResolvedValue([]);
+    it('ranks eligible techs first, then by ascending distance', async () => {
+      mockFindById(dealForMatch());
+      eligibility.listAll.mockResolvedValue([
+        projected({ technicianId: 'far', homeAddress: { lat: 34.3, lng: -84.9 } }),
+        projected({ technicianId: 'ineligible', jobTypeIds: ['jt-other'] }),
+        projected({ technicianId: 'near', homeAddress: { lat: 33.8, lng: -84.4 } }),
+      ]);
 
-      await service.getQualifiedTechs('deal-1');
+      const result = await service.getQualifiedTechs('deal-1');
 
-      expect(http.getTechnicians).toHaveBeenCalledWith({ serviceArea: 'North GA', skill: 'rekey' });
+      expect(result.map((t) => t.id)).toEqual(['near', 'far', 'ineligible']);
+    });
+
+    it('returns null distance when the tech has no coordinates', async () => {
+      mockFindById(dealForMatch());
+      eligibility.listAll.mockResolvedValue([projected({ technicianId: 't-1' })]);
+
+      const result = await service.getQualifiedTechs('deal-1');
+      expect(result[0].distanceMiles).toBeNull();
     });
   });
 
@@ -711,7 +737,7 @@ describe('DealsService', () => {
       const dto = {
         contactId: 'c-1', clientType: ClientType.RESIDENTIAL,
         serviceArea: 'ATL', address: { street: '1', city: 'A', state: 'GA', zip: '30301' },
-        jobType: 'lockout',
+        jobTypeId: 'jobtype-1',
       };
 
       // Should not throw even though publish fails

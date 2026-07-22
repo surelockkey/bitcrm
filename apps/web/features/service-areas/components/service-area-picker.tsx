@@ -6,22 +6,22 @@ import { cn } from "@/lib/utils";
 import { useServiceAreas } from "../hooks";
 
 /**
- * Multi-select over the managed service-area catalog. Technicians are now
- * assigned to defined areas (by name) instead of typing free text, so their
- * coverage lines up with the territories deals resolve into.
+ * Multi-select over the managed service-area catalog, selecting by id. Technicians
+ * are assigned to catalog areas (by id) rather than typing free text, so renaming
+ * an area never orphans a technician's coverage.
  */
 export function ServiceAreaPicker({
   value,
   onChange,
 }: {
   value: string[];
-  onChange: (names: string[]) => void;
+  onChange: (ids: string[]) => void;
 }) {
   const { data: areas, isLoading } = useServiceAreas();
   const active = (areas ?? []).filter((a) => a.active);
 
-  const toggle = (name: string) =>
-    onChange(value.includes(name) ? value.filter((n) => n !== name) : [...value, name]);
+  const toggle = (id: string) =>
+    onChange(value.includes(id) ? value.filter((n) => n !== id) : [...value, id]);
 
   if (isLoading) {
     return (
@@ -42,7 +42,7 @@ export function ServiceAreaPicker({
   return (
     <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
       {active.map((area) => {
-        const checked = value.includes(area.name);
+        const checked = value.includes(area.id);
         return (
           <label
             key={area.id}
@@ -51,7 +51,7 @@ export function ServiceAreaPicker({
               checked && "bg-muted/40",
             )}
           >
-            <Checkbox checked={checked} onCheckedChange={() => toggle(area.name)} />
+            <Checkbox checked={checked} onCheckedChange={() => toggle(area.id)} />
             <span>{area.name}</span>
           </label>
         );

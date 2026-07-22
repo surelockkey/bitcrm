@@ -22,10 +22,10 @@ const complete = {
 
 describe('deriveOnboardingStatus', () => {
   it('reports nothing complete for a null profile', () => {
-    const s = deriveOnboardingStatus(null, { skillsApproved: false, commissionSet: false });
+    const s = deriveOnboardingStatus(null, { assignmentsApproved: false, commissionSet: false });
     expect(s).toEqual({
       status: 'pending',
-      checklist: { profileComplete: false, skillsApproved: false, commissionSet: false },
+      checklist: { profileComplete: false, assignmentsApproved: false, commissionSet: false },
       completedSteps: 0,
       totalSteps: 3,
     });
@@ -33,7 +33,7 @@ describe('deriveOnboardingStatus', () => {
 
   it('marks profileComplete only when phone + address + photo are all present', () => {
     expect(
-      deriveOnboardingStatus(profile(complete), { skillsApproved: false, commissionSet: false })
+      deriveOnboardingStatus(profile(complete), { assignmentsApproved: false, commissionSet: false })
         .checklist.profileComplete,
     ).toBe(true);
 
@@ -43,7 +43,7 @@ describe('deriveOnboardingStatus', () => {
       delete partial[key];
       expect(
         deriveOnboardingStatus(profile(partial), {
-          skillsApproved: false,
+          assignmentsApproved: false,
           commissionSet: false,
         }).checklist.profileComplete,
       ).toBe(false);
@@ -52,12 +52,12 @@ describe('deriveOnboardingStatus', () => {
 
   it('counts completed steps across all three inputs', () => {
     const s = deriveOnboardingStatus(profile(complete), {
-      skillsApproved: true,
+      assignmentsApproved: true,
       commissionSet: false,
     });
     expect(s.checklist).toEqual({
       profileComplete: true,
-      skillsApproved: true,
+      assignmentsApproved: true,
       commissionSet: false,
     });
     expect(s.completedSteps).toBe(2);
@@ -65,7 +65,7 @@ describe('deriveOnboardingStatus', () => {
 
   it('reflects the persisted profile status and reaches 3/3 when fully onboarded', () => {
     const s = deriveOnboardingStatus(profile({ ...complete, status: 'active' }), {
-      skillsApproved: true,
+      assignmentsApproved: true,
       commissionSet: true,
     });
     expect(s.status).toBe('active');

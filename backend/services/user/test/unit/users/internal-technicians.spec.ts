@@ -7,7 +7,7 @@ import { RolesService } from '../../../src/roles/roles.service';
 import { RolesCacheService } from '../../../src/roles/roles-cache.service';
 import { PermissionResolverService } from '../../../src/roles/permission-resolver.service';
 import { TechniciansRepository } from '../../../src/technicians/technicians.repository';
-import { TechnicianSkillsRepository } from '../../../src/technicians/skills/technician-skills.repository';
+import { TechnicianAssignmentsRepository } from '../../../src/technicians/assignments/technician-assignments.repository';
 import {
   createMockUser,
   createMockUsersRepository,
@@ -17,73 +17,57 @@ import {
   createMockPermissionResolver,
   createMockPermissionCacheReader,
   createMockTechniciansRepository,
-  createMockTechnicianSkillsRepository,
+  createMockTechnicianAssignmentsRepository,
 } from '../mocks';
 
 /**
- * deal-service has always called GET /api/users/internal/technicians to rank
- * technicians for a job. Nobody ever implemented it, so the call 404'd and the
- * error was swallowed into `[]` — which is why "qualified technicians" is empty
- * in the UI. These are the guards for the endpoint that fills that hole.
+ * deal-service projects `GET /api/users/internal/technicians/assignable` into
+ * its eligibility read-model and matches deals against it by catalog id. This
+ * endpoint returns every technician holding ≥1 approved job type AND service
+ * area, with identity + home coordinates for ranking. (The old free-text join is
+ * why "qualified technicians" was always empty — see the eligibility projection.)
  */
-describe('UsersService — internal technicians (dispatch)', () => {
+describe('UsersService — assignable technicians (dispatch)', () => {
   let service: UsersService;
   let usersRepo: ReturnType<typeof createMockUsersRepository>;
   let techRepo: ReturnType<typeof createMockTechniciansRepository>;
-  let skillsRepo: ReturnType<typeof createMockTechnicianSkillsRepository>;
+  let assignmentsRepo: ReturnType<typeof createMockTechnicianAssignmentsRepository>;
 
   const ada = createMockUser({
-    id: 'tech-1',
-    firstName: 'Ada',
-    lastName: 'Lovelace',
-    department: 'Field',
-    roleId: 'role-technician',
+    id: 'tech-1', firstName: 'Ada', lastName: 'Lovelace',
+    department: 'Field', roleId: 'role-technician',
   });
   const grace = createMockUser({
-    id: 'tech-2',
-    firstName: 'Grace',
-    lastName: 'Hopper',
-    department: 'Field',
-    roleId: 'role-technician',
+    id: 'tech-2', firstName: 'Grace', lastName: 'Hopper',
+    department: 'Field', roleId: 'role-technician',
   });
 
-  const approvedSkills = [
-    { userId: 'tech-1', type: 'job_type', value: 'Lockout', status: 'approved' },
-    { userId: 'tech-1', type: 'service_area', value: 'Atlanta Metro', status: 'approved' },
-    { userId: 'tech-2', type: 'job_type', value: 'Rekey', status: 'approved' },
-    { userId: 'tech-2', type: 'service_area', value: 'North GA', status: 'approved' },
+  const jobTypes = [
+    { userId: 'tech-1', kind: 'job_type', catalogId: 'jt-lockout', status: 'approved' },
+    { userId: 'tech-2', kind: 'job_type', catalogId: 'jt-rekey', status: 'approved' },
+  ];
+  const serviceAreas = [
+    { userId: 'tech-1', kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+    { userId: 'tech-2', kind: 'service_area', catalogId: 'sa-ngeorgia', status: 'approved' },
   ];
 
   beforeEach(async () => {
     usersRepo = createMockUsersRepository();
     techRepo = createMockTechniciansRepository();
-    skillsRepo = createMockTechnicianSkillsRepository();
+    assignmentsRepo = createMockTechnicianAssignmentsRepository();
 
     usersRepo.findByRoleId.mockResolvedValue([ada, grace]);
-    skillsRepo.listAllApproved.mockResolvedValue(approvedSkills);
+    assignmentsRepo.listAllApproved.mockImplementation((kind: string) =>
+      Promise.resolve(kind === 'job_type' ? jobTypes : serviceAreas),
+    );
     techRepo.listAll.mockResolvedValue({
       items: [
         {
           userId: 'tech-1',
-          homeAddress: {
-            line1: '1 Peachtree St',
-            city: 'Atlanta',
-            state: 'GA',
-            zip: '30303',
-            lat: 33.749,
-            lng: -84.388,
-          },
+          homeAddress: { line1: '1 Peachtree St', city: 'Atlanta', state: 'GA', zip: '30303', lat: 33.749, lng: -84.388 },
         },
-        // No coordinates — this technician cannot be distance-ranked or mapped.
-        {
-          userId: 'tech-2',
-          homeAddress: {
-            line1: '9 Elm St',
-            city: 'Dalton',
-            state: 'GA',
-            zip: '30720',
-          },
-        },
+        // No coordinates — cannot be distance-ranked or mapped.
+        { userId: 'tech-2', homeAddress: { line1: '9 Elm St', city: 'Dalton', state: 'GA', zip: '30720' } },
       ],
       nextCursor: undefined,
     });
@@ -99,67 +83,51 @@ describe('UsersService — internal technicians (dispatch)', () => {
         { provide: RolesCacheService, useValue: createMockRolesCacheService() },
         { provide: PermissionResolverService, useValue: createMockPermissionResolver() },
         { provide: TechniciansRepository, useValue: techRepo },
-        { provide: TechnicianSkillsRepository, useValue: skillsRepo },
+        { provide: TechnicianAssignmentsRepository, useValue: assignmentsRepo },
       ],
     }).compile();
 
     service = module.get(UsersService);
   });
 
-  it('returns technicians with names, approved skills, areas and home coordinates', async () => {
-    const result = await service.listTechniciansForDispatch({});
+  it('returns technicians with identity, approved catalog ids and home coordinates', async () => {
+    const result = await service.listAssignableTechnicians();
 
     expect(result).toHaveLength(2);
-    const first = result.find((t) => t.id === 'tech-1')!;
+    const first = result.find((t) => t.technicianId === 'tech-1')!;
     expect(first).toMatchObject({
-      id: 'tech-1',
+      technicianId: 'tech-1',
+      assignable: true,
       firstName: 'Ada',
       lastName: 'Lovelace',
       department: 'Field',
-      skills: ['Lockout'],
-      serviceAreas: ['Atlanta Metro'],
+      jobTypeIds: ['jt-lockout'],
+      serviceAreaIds: ['sa-atl'],
       homeAddress: { lat: 33.749, lng: -84.388 },
     });
   });
 
   it('omits homeAddress for a technician whose home has no coordinates', async () => {
-    const result = await service.listTechniciansForDispatch({});
-
-    const second = result.find((t) => t.id === 'tech-2')!;
+    const result = await service.listAssignableTechnicians();
+    const second = result.find((t) => t.technicianId === 'tech-2')!;
     expect(second.homeAddress).toBeUndefined();
   });
 
-  it('filters by service area', async () => {
-    const result = await service.listTechniciansForDispatch({
-      serviceArea: 'North GA',
-    });
+  it('excludes a technician missing an approved service area', async () => {
+    assignmentsRepo.listAllApproved.mockImplementation((kind: string) =>
+      Promise.resolve(kind === 'job_type' ? jobTypes : [serviceAreas[0]]),
+    );
 
-    expect(result.map((t) => t.id)).toEqual(['tech-2']);
+    const result = await service.listAssignableTechnicians();
+    expect(result.map((t) => t.technicianId)).toEqual(['tech-1']);
   });
 
-  it('filters by skill', async () => {
-    const result = await service.listTechniciansForDispatch({ skill: 'Lockout' });
+  it('excludes a technician missing an approved job type', async () => {
+    assignmentsRepo.listAllApproved.mockImplementation((kind: string) =>
+      Promise.resolve(kind === 'job_type' ? [jobTypes[0]] : serviceAreas),
+    );
 
-    expect(result.map((t) => t.id)).toEqual(['tech-1']);
-  });
-
-  it('applies service area and skill together', async () => {
-    const result = await service.listTechniciansForDispatch({
-      serviceArea: 'Atlanta Metro',
-      skill: 'Rekey',
-    });
-
-    expect(result).toEqual([]);
-  });
-
-  it('excludes a technician with no approved skills at all', async () => {
-    skillsRepo.listAllApproved.mockResolvedValue([
-      { userId: 'tech-1', type: 'job_type', value: 'Lockout', status: 'approved' },
-      { userId: 'tech-1', type: 'service_area', value: 'Atlanta Metro', status: 'approved' },
-    ]);
-
-    const result = await service.listTechniciansForDispatch({});
-
-    expect(result.map((t) => t.id)).toEqual(['tech-1']);
+    const result = await service.listAssignableTechnicians();
+    expect(result.map((t) => t.technicianId)).toEqual(['tech-1']);
   });
 });

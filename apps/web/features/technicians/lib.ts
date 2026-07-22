@@ -1,8 +1,8 @@
 import type {
   TechnicianProfileStatus,
-  TechnicianSkill,
-  SkillType,
-  SkillStatus,
+  TechnicianJobType,
+  TechnicianServiceArea,
+  AssignmentStatus,
   DocumentType,
   OnboardingStatus,
   User,
@@ -30,38 +30,26 @@ export function techName(userId: string, map: Map<string, User>): string {
   return name || u.email;
 }
 
-/* ---- Skills ---- */
+/* ---- Assignments ---- */
 
-export function groupSkills(skills: TechnicianSkill[]) {
-  return {
-    jobTypes: skills.filter((s) => s.type === "job_type"),
-    serviceAreas: skills.filter((s) => s.type === "service_area"),
-  };
+/** Approved catalog ids of one kind. */
+export function approvedJobTypeIds(jobTypes: TechnicianJobType[]): string[] {
+  return jobTypes.filter((j) => j.status === "approved").map((j) => j.jobTypeId);
 }
-
-export function approvedValues(skills: TechnicianSkill[], type: SkillType): string[] {
-  return skills.filter((s) => s.type === type && s.status === "approved").map((s) => s.value);
+export function approvedServiceAreaIds(areas: TechnicianServiceArea[]): string[] {
+  return areas.filter((a) => a.status === "approved").map((a) => a.serviceAreaId);
 }
 
 /** A technician is assignable with ≥1 approved job type AND service area. */
-export function isAssignable(skills: TechnicianSkill[]): boolean {
-  const hasJob = skills.some((s) => s.type === "job_type" && s.status === "approved");
-  const hasArea = skills.some((s) => s.type === "service_area" && s.status === "approved");
-  return hasJob && hasArea;
+export function isAssignable(
+  jobTypes: TechnicianJobType[],
+  serviceAreas: TechnicianServiceArea[],
+): boolean {
+  return (
+    jobTypes.some((j) => j.status === "approved") &&
+    serviceAreas.some((a) => a.status === "approved")
+  );
 }
-
-/** Common job types offered as free-text suggestions when proposing. */
-export const JOB_TYPE_SUGGESTIONS = [
-  "Lockout",
-  "Rekey",
-  "Lock Change",
-  "Installation",
-  "Repair",
-  "Safe",
-  "Automotive",
-  "Commercial",
-  "Other",
-] as const;
 
 /* ---- Labels ---- */
 
@@ -74,13 +62,13 @@ export function statusLabel(s: TechnicianProfileStatus): string {
   return STATUS_LABELS[s] ?? s;
 }
 
-const SKILL_STATUS_LABELS: Record<SkillStatus, string> = {
+const ASSIGNMENT_STATUS_LABELS: Record<AssignmentStatus, string> = {
   pending: "Pending",
   approved: "Approved",
   rejected: "Rejected",
 };
-export function skillStatusLabel(s: SkillStatus): string {
-  return SKILL_STATUS_LABELS[s] ?? s;
+export function assignmentStatusLabel(s: AssignmentStatus): string {
+  return ASSIGNMENT_STATUS_LABELS[s] ?? s;
 }
 
 export function formatPct(n: number): string {

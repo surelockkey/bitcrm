@@ -58,9 +58,13 @@ export class TechnicianEligibilityRepository {
   private toEntity(item: Record<string, unknown>): TechnicianEligibility {
     return {
       technicianId: item.technicianId as string,
-      approvedSkills: (item.approvedSkills as string[]) || [],
-      serviceAreas: (item.serviceAreas as string[]) || [],
+      jobTypeIds: (item.jobTypeIds as string[]) || [],
+      serviceAreaIds: (item.serviceAreaIds as string[]) || [],
       assignable: Boolean(item.assignable),
+      firstName: item.firstName as string | undefined,
+      lastName: item.lastName as string | undefined,
+      department: item.department as string | undefined,
+      homeAddress: item.homeAddress as TechnicianEligibility['homeAddress'],
       updatedAt: item.updatedAt as string,
     };
   }

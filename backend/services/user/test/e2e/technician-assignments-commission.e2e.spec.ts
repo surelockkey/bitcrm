@@ -22,19 +22,25 @@ jest.mock('../../src/technicians/constants/dynamo.constants', () => ({
   GSI3_NAME: 'TechnicianIndex',
   TECHNICIAN_GSI_PK: 'TECHNICIAN',
   PROFILE_SK: 'TECH_PROFILE',
-  SKILL_SK_PREFIX: 'SKILL#',
+  JOB_TYPE_SK_PREFIX: 'JOBTYPE#',
+  SERVICE_AREA_SK_PREFIX: 'AREA#',
   GSI4_NAME: 'SkillStatusIndex',
-  skillStatusGsiPk: (s: string) => `SKILL_STATUS#${s}`,
+  jobTypeStatusGsiPk: (s: string) => `JOBTYPE_STATUS#${s}`,
+  serviceAreaStatusGsiPk: (s: string) => `AREA_STATUS#${s}`,
   COMMISSION_SK_PREFIX: 'COMMISSION#',
 }));
 
-describe('Technician Skills & Commission API (e2e)', () => {
+describe('Technician Assignments & Commission API (e2e)', () => {
   let app: INestApplication;
   let http: ReturnType<INestApplication['getHttpServer']>;
 
   const admin: JwtUser = { id: 'admin-1', cognitoSub: 'c-a', email: 'a@t.com', roleId: 'role-admin', department: 'HVAC' };
   const tech: JwtUser = { id: 'tech-1', cognitoSub: 'c-t', email: 't@t.com', roleId: 'role-technician', department: 'HVAC' };
   const tech2: JwtUser = { id: 'tech-2', cognitoSub: 'c-t2', email: 't2@t.com', roleId: 'role-technician', department: 'HVAC' };
+
+  // Catalog ids live in deal-service; e2e just needs stable strings to link.
+  const JT = 'jt-locksmith';
+  const SA = 'sa-atlanta';
 
   const base = '/api/users/technicians';
   const hdr = (u: JwtUser) => ['x-test-user', createTestUserHeader(u)] as const;
@@ -46,72 +52,72 @@ describe('Technician Skills & Commission API (e2e)', () => {
   afterAll(async () => teardownApp());
   beforeEach(async () => cleanupData());
 
-  async function proposeAtomic(u = tech, body = { jobTypes: ['Locksmith'], serviceAreas: ['Atlanta'] }) {
-    return request(http).post(`${base}/${u.id}/skills/propose`).set(...hdr(u)).send(body);
+  /** Technician proposes one job type and one service area. */
+  async function proposeBoth(u = tech) {
+    await request(http).post(`${base}/${u.id}/job-types/propose`).set(...hdr(u)).send({ ids: [JT] }).expect(201);
+    await request(http).post(`${base}/${u.id}/service-areas/propose`).set(...hdr(u)).send({ ids: [SA] }).expect(201);
   }
 
-  describe('skills', () => {
-    it('technician proposes job types + service areas', async () => {
-      const res = await proposeAtomic();
+  describe('assignments', () => {
+    it('technician proposes a job type', async () => {
+      const res = await request(http).post(`${base}/${tech.id}/job-types/propose`).set(...hdr(tech)).send({ ids: [JT] });
       expect(res.status).toBe(201);
-      expect(res.body.data).toHaveLength(2);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({ catalogId: JT, status: 'pending' });
     });
 
     it('forbids proposing for another technician', async () => {
-      const res = await request(http).post(`${base}/${tech2.id}/skills/propose`).set(...hdr(tech)).send({ jobTypes: ['X'] });
+      const res = await request(http).post(`${base}/${tech2.id}/job-types/propose`).set(...hdr(tech)).send({ ids: [JT] });
       expect(res.status).toBe(403);
     });
 
-    it('technician cannot approve (lacks skills.approve)', async () => {
-      await proposeAtomic();
-      const list = await request(http).get(`${base}/${tech.id}/skills`).set(...hdr(tech));
-      const skillId = list.body.data[0].skillId;
-      const res = await request(http).post(`${base}/${tech.id}/skills/${skillId}/approve`).set(...hdr(tech)).send({});
+    it('technician cannot approve (lacks job_types.approve)', async () => {
+      await proposeBoth();
+      const res = await request(http).post(`${base}/${tech.id}/job-types/${JT}/approve`).set(...hdr(tech)).send({});
       expect(res.status).toBe(403);
     });
 
-    it('manager approves skills; technician becomes assignable; onboarding reflects it', async () => {
-      await proposeAtomic();
-      const list = await request(http).get(`${base}/${tech.id}/skills`).set(...hdr(admin));
-      for (const s of list.body.data) {
-        const r = await request(http).post(`${base}/${tech.id}/skills/${s.skillId}/approve`).set(...hdr(admin)).send({ comments: 'ok' });
-        expect(r.status).toBe(201);
-        expect(r.body.data.status).toBe('approved');
-      }
+    it('manager approves both; technician becomes assignable; onboarding reflects it', async () => {
+      await proposeBoth();
+      await request(http).post(`${base}/${tech.id}/job-types/${JT}/approve`).set(...hdr(admin)).send({ comments: 'ok' }).expect(201);
+      await request(http).post(`${base}/${tech.id}/service-areas/${SA}/approve`).set(...hdr(admin)).send({ comments: 'ok' }).expect(201);
+
       const ob = await request(http).get(`${base}/${tech.id}/onboarding-status`).set(...hdr(admin));
-      expect(ob.body.data.checklist.skillsApproved).toBe(true);
+      expect(ob.body.data.checklist.assignmentsApproved).toBe(true);
+    });
+
+    it('manager direct-assigns a job type (skips propose→approve)', async () => {
+      const res = await request(http).post(`${base}/${tech.id}/job-types`).set(...hdr(admin)).send({ ids: [JT] });
+      expect(res.status).toBe(201);
+      expect(res.body.data[0]).toMatchObject({ catalogId: JT, status: 'approved' });
     });
 
     it('manager sees pending across techs; technician cannot', async () => {
-      await proposeAtomic();
-      const mgr = await request(http).get(`${base}/skills/pending`).set(...hdr(admin));
+      await proposeBoth();
+      const mgr = await request(http).get(`${base}/assignments/pending`).set(...hdr(admin));
       expect(mgr.status).toBe(200);
-      expect(mgr.body.data.length).toBeGreaterThanOrEqual(2);
+      expect(mgr.body.data.jobTypes.length + mgr.body.data.serviceAreas.length).toBeGreaterThanOrEqual(2);
 
-      const denied = await request(http).get(`${base}/skills/pending`).set(...hdr(tech));
+      const denied = await request(http).get(`${base}/assignments/pending`).set(...hdr(tech));
       expect(denied.status).toBe(403);
     });
 
     it('reject requires a comment', async () => {
-      await proposeAtomic();
-      const list = await request(http).get(`${base}/${tech.id}/skills`).set(...hdr(admin));
-      const skillId = list.body.data[0].skillId;
-      const noComment = await request(http).post(`${base}/${tech.id}/skills/${skillId}/reject`).set(...hdr(admin)).send({});
+      await proposeBoth();
+      const noComment = await request(http).post(`${base}/${tech.id}/job-types/${JT}/reject`).set(...hdr(admin)).send({});
       expect(noComment.status).toBe(400);
-      const withComment = await request(http).post(`${base}/${tech.id}/skills/${skillId}/reject`).set(...hdr(admin)).send({ comments: 'no cert' });
+      const withComment = await request(http).post(`${base}/${tech.id}/job-types/${JT}/reject`).set(...hdr(admin)).send({ comments: 'no cert' });
       expect(withComment.status).toBe(201);
       expect(withComment.body.data.status).toBe('rejected');
     });
 
-    it('manager revokes an approved skill; technician cannot', async () => {
-      await proposeAtomic();
-      const list = await request(http).get(`${base}/${tech.id}/skills`).set(...hdr(admin));
-      const skillId = list.body.data[0].skillId;
-      await request(http).post(`${base}/${tech.id}/skills/${skillId}/approve`).set(...hdr(admin)).send({}).expect(201);
+    it('manager revokes an approved job type; technician cannot', async () => {
+      await proposeBoth();
+      await request(http).post(`${base}/${tech.id}/job-types/${JT}/approve`).set(...hdr(admin)).send({}).expect(201);
 
-      const denied = await request(http).delete(`${base}/${tech.id}/skills/${skillId}`).set(...hdr(tech));
+      const denied = await request(http).delete(`${base}/${tech.id}/job-types/${JT}`).set(...hdr(tech));
       expect(denied.status).toBe(403);
-      const ok = await request(http).delete(`${base}/${tech.id}/skills/${skillId}`).set(...hdr(admin));
+      const ok = await request(http).delete(`${base}/${tech.id}/job-types/${JT}`).set(...hdr(admin));
       expect(ok.status).toBe(200);
     });
   });

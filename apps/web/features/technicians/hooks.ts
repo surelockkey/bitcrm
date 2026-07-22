@@ -15,7 +15,7 @@ import { ApiError } from "@/lib/api/errors";
 import * as api from "./api";
 import type {
   UpdateProfileBody,
-  ProposeSkillsBody,
+  AssignmentKind,
   SetCommissionBody,
   CalculateCommissionQuery,
   SetSensitiveBody,
@@ -109,17 +109,17 @@ export function useOnboarding(id: string) {
   });
 }
 
-export function useSkills(id: string) {
+export function useAssignments(id: string) {
   return useQuery({
-    queryKey: queryKeys.technicians.skills(id),
-    queryFn: () => api.getSkills(id),
+    queryKey: queryKeys.technicians.assignments(id),
+    queryFn: () => api.getAssignments(id),
   });
 }
 
-export function usePendingSkills(enabled = true) {
+export function usePendingAssignments(enabled = true) {
   return useQuery({
-    queryKey: queryKeys.technicians.pendingSkills(),
-    queryFn: () => api.listPendingSkills(),
+    queryKey: queryKeys.technicians.pendingAssignments(),
+    queryFn: () => api.listPendingAssignments(),
     enabled,
     staleTime: 30 * 1000,
   });
@@ -203,66 +203,68 @@ export function useUpdateProfile() {
   });
 }
 
-export function useProposeSkills() {
+const kindLabel = (kind: AssignmentKind) => (kind === "job_type" ? "job type" : "service area");
+
+export function useProposeAssignments() {
   const invalidate = useInvalidateTechnicians();
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: ProposeSkillsBody }) =>
-      api.proposeSkills(id, body),
-    onSuccess: (created) => {
+    mutationFn: ({ id, kind, ids }: { id: string; kind: AssignmentKind; ids: string[] }) =>
+      api.proposeAssignments(id, kind, ids),
+    onSuccess: (_res, { kind }) => {
       invalidate();
-      toast.success(`Proposed ${created.length} ${created.length === 1 ? "skill" : "skills"}`);
+      toast.success(`Proposed ${kindLabel(kind)}s`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 
-export function useApproveSkill() {
+export function useAssignDirect() {
   const invalidate = useInvalidateTechnicians();
   return useMutation({
-    mutationFn: ({ id, skillId, comments }: { id: string; skillId: string; comments?: string }) =>
-      api.approveSkill(id, skillId, comments),
-    onSuccess: () => {
+    mutationFn: ({ id, kind, ids }: { id: string; kind: AssignmentKind; ids: string[] }) =>
+      api.assignDirect(id, kind, ids),
+    onSuccess: (_res, { kind }) => {
       invalidate();
-      toast.success("Skill approved");
+      toast.success(`Assigned ${kindLabel(kind)}s`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 
-export function useRejectSkill() {
+export function useApproveAssignment() {
   const invalidate = useInvalidateTechnicians();
   return useMutation({
-    mutationFn: ({ id, skillId, comments }: { id: string; skillId: string; comments: string }) =>
-      api.rejectSkill(id, skillId, comments),
-    onSuccess: () => {
+    mutationFn: ({ id, kind, catalogId, comments }: { id: string; kind: AssignmentKind; catalogId: string; comments?: string }) =>
+      api.approveAssignment(id, kind, catalogId, comments),
+    onSuccess: (_res, { kind }) => {
       invalidate();
-      toast.success("Skill rejected");
+      toast.success(`${kindLabel(kind)} approved`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 
-export function useRevokeSkill() {
+export function useRejectAssignment() {
   const invalidate = useInvalidateTechnicians();
   return useMutation({
-    mutationFn: ({ id, skillId }: { id: string; skillId: string }) =>
-      api.revokeSkill(id, skillId),
-    onSuccess: () => {
+    mutationFn: ({ id, kind, catalogId, comments }: { id: string; kind: AssignmentKind; catalogId: string; comments: string }) =>
+      api.rejectAssignment(id, kind, catalogId, comments),
+    onSuccess: (_res, { kind }) => {
       invalidate();
-      toast.success("Skill revoked");
+      toast.success(`${kindLabel(kind)} rejected`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 
-export function useAssignServiceAreas() {
+export function useRevokeAssignment() {
   const invalidate = useInvalidateTechnicians();
   return useMutation({
-    mutationFn: ({ id, serviceAreas }: { id: string; serviceAreas: string[] }) =>
-      api.assignServiceAreas(id, serviceAreas),
-    onSuccess: (created) => {
+    mutationFn: ({ id, kind, catalogId }: { id: string; kind: AssignmentKind; catalogId: string }) =>
+      api.revokeAssignment(id, kind, catalogId),
+    onSuccess: (_res, { kind }) => {
       invalidate();
-      toast.success(`Assigned ${created.length} service area${created.length === 1 ? "" : "s"}`);
+      toast.success(`${kindLabel(kind)} revoked`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

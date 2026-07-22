@@ -17,6 +17,13 @@ import { DealCard } from "./deal-card";
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
+// The card resolves job-type ids to names via the catalog hook; stub it so the
+// test doesn't need a QueryClient or a live catalog.
+vi.mock("@/features/job-types/lib", () => ({
+  useJobTypeName: () => (id: string | undefined) =>
+    id === "jt-lockout" ? "Lockout" : (id ?? "—"),
+}));
+
 const contact: Contact = {
   id: "c1",
   firstName: "Jane",
@@ -51,7 +58,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Phoenix",
     address: { street: "1 Main", city: "Phoenix", state: "AZ", zip: "85001" },
-    jobType: "lockout",
+    jobTypeId: "jt-lockout",
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,

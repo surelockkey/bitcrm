@@ -3,9 +3,9 @@ import { TechniciansController } from './technicians.controller';
 import { TechniciansService } from './technicians.service';
 import { TechniciansRepository } from './technicians.repository';
 import { TechniciansCacheService } from './technicians-cache.service';
-import { TechnicianSkillsController } from './skills/technician-skills.controller';
-import { TechnicianSkillsService } from './skills/technician-skills.service';
-import { TechnicianSkillsRepository } from './skills/technician-skills.repository';
+import { TechnicianAssignmentsController } from './assignments/technician-assignments.controller';
+import { TechnicianAssignmentsService } from './assignments/technician-assignments.service';
+import { TechnicianAssignmentsRepository } from './assignments/technician-assignments.repository';
 import { CommissionController } from './commission/commission.controller';
 import { CommissionService } from './commission/commission.service';
 import { CommissionRepository } from './commission/commission.repository';
@@ -22,7 +22,7 @@ import { RolesModule } from '../roles/roles.module';
 @Module({
   imports: [forwardRef(() => RolesModule)],
   controllers: [
-    TechnicianSkillsController,
+    TechnicianAssignmentsController,
     CommissionController,
     DocumentsController,
     TechnicianLocationController,
@@ -32,8 +32,8 @@ import { RolesModule } from '../roles/roles.module';
     TechniciansService,
     TechniciansRepository,
     TechniciansCacheService,
-    TechnicianSkillsService,
-    TechnicianSkillsRepository,
+    TechnicianAssignmentsService,
+    TechnicianAssignmentsRepository,
     CommissionService,
     CommissionRepository,
     DocumentsService,
@@ -46,7 +46,8 @@ import { RolesModule } from '../roles/roles.module';
   exports: [
     TechniciansService,
     TechniciansRepository,
-    TechnicianSkillsRepository,
+    TechnicianAssignmentsRepository,
+    TechnicianAssignmentsService,
     CommissionRepository,
   ],
 })

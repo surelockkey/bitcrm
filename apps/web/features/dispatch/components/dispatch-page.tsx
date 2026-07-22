@@ -17,9 +17,10 @@ import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactMap, useDeals, useReorderDeals, useUserMap } from "@/features/deals/hooks";
 import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
+import { useJobTypes } from "@/features/job-types/hooks";
+import { activeJobTypes } from "@/features/job-types/lib";
 import {
   filterDeals,
-  jobTypeLabel,
   groupLabel,
   GROUP_ORDER,
   datePresetRange,
@@ -42,7 +43,6 @@ import {
 } from "../lib";
 
 const ALL = "all";
-const JOB_TYPES = ["lockout", "rekey", "lock_change", "installation", "repair", "safe", "automotive", "commercial", "other"];
 
 const DATE_PRESETS: { value: DatePreset; label: string }[] = [
   { value: "all", label: "Any date" },
@@ -55,7 +55,7 @@ interface DispatchFilters {
   search: string;
   serviceArea: string;
   datePreset: DatePreset;
-  jobType: string;
+  jobTypeId: string;
   statusGroups: DealStageGroup[];
 }
 
@@ -63,7 +63,7 @@ const DEFAULT_FILTERS: DispatchFilters = {
   search: "",
   serviceArea: ALL,
   datePreset: "all",
-  jobType: ALL,
+  jobTypeId: ALL,
   statusGroups: [],
 };
 
@@ -103,7 +103,8 @@ export function DispatchPage() {
   const [panNonce, setPanNonce] = useState(0);
   const [editing, setEditing] = useState(false);
 
-  const { search, serviceArea, datePreset, jobType, statusGroups } = filters;
+  const { search, serviceArea, datePreset, jobTypeId, statusGroups } = filters;
+  const { data: jobTypes } = useJobTypes();
   const patch = (p: Partial<DispatchFilters>) => setFilters((f) => ({ ...f, ...p }));
   const toggleGroup = (g: DealStageGroup) =>
     patch({
@@ -163,14 +164,14 @@ export function DispatchPage() {
       {
         search,
         serviceArea: serviceArea === ALL ? undefined : serviceArea,
-        jobType: jobType === ALL ? undefined : jobType,
+        jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
         statusGroups,
         dateFrom: from,
         dateTo: to,
       },
       contactNames,
     );
-  }, [deals, search, serviceArea, jobType, statusGroups, datePreset, contactNames]);
+  }, [deals, search, serviceArea, jobTypeId, statusGroups, datePreset, contactNames]);
 
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 
@@ -296,12 +297,12 @@ export function DispatchPage() {
           </SelectContent>
         </Select>
 
-        <Select value={jobType} onValueChange={(v) => patch({ jobType: v })}>
+        <Select value={jobTypeId} onValueChange={(v) => patch({ jobTypeId: v })}>
           <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All job types</SelectItem>
-            {JOB_TYPES.map((t) => (
-              <SelectItem key={t} value={t}>{jobTypeLabel(t)}</SelectItem>
+            {activeJobTypes(jobTypes).map((t) => (
+              <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>

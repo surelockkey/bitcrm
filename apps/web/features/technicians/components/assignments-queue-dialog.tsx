@@ -14,12 +14,23 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { TechnicianSkill, User } from "@bitcrm/types";
+import type { User } from "@bitcrm/types";
 import { formatDate } from "@/features/users/lib";
-import { usePendingSkills, useApproveSkill, useRejectSkill } from "../hooks";
+import { usePendingAssignments, useApproveAssignment, useRejectAssignment } from "../hooks";
+import type { AssignmentKind } from "../api";
 import { techName } from "../lib";
+import { useJobTypeName } from "@/features/job-types/lib";
+import { useServiceAreas } from "@/features/service-areas/hooks";
 
-export function SkillsQueueDialog({
+interface QueueRow {
+  kind: AssignmentKind;
+  userId: string;
+  catalogId: string;
+  name: string;
+  proposedAt: string;
+}
+
+export function AssignmentsQueueDialog({
   open,
   onOpenChange,
   userMap,
@@ -28,18 +39,38 @@ export function SkillsQueueDialog({
   onOpenChange: (open: boolean) => void;
   userMap: Map<string, User>;
 }) {
-  const { data, isLoading } = usePendingSkills(open);
-  const approve = useApproveSkill();
-  const reject = useRejectSkill();
-  const [rejectTarget, setRejectTarget] = useState<TechnicianSkill | null>(null);
+  const { data, isLoading } = usePendingAssignments(open);
+  const approve = useApproveAssignment();
+  const reject = useRejectAssignment();
+  const jobTypeName = useJobTypeName();
+  const { data: areas } = useServiceAreas();
+
+  const [rejectTarget, setRejectTarget] = useState<QueueRow | null>(null);
   const [reason, setReason] = useState("");
 
-  const skills = useMemo(() => data?.data ?? [], [data]);
+  const rows = useMemo<QueueRow[]>(() => {
+    const areaName = (id: string) => areas?.find((a) => a.id === id)?.name ?? id;
+    const jobTypeRows: QueueRow[] = (data?.jobTypes ?? []).map((j) => ({
+      kind: "job_type",
+      userId: j.userId,
+      catalogId: j.jobTypeId,
+      name: jobTypeName(j.jobTypeId),
+      proposedAt: j.proposedAt,
+    }));
+    const areaRows: QueueRow[] = (data?.serviceAreas ?? []).map((a) => ({
+      kind: "service_area",
+      userId: a.userId,
+      catalogId: a.serviceAreaId,
+      name: areaName(a.serviceAreaId),
+      proposedAt: a.proposedAt,
+    }));
+    return [...jobTypeRows, ...areaRows];
+  }, [data, areas, jobTypeName]);
 
   const doReject = () => {
     if (!rejectTarget || !reason.trim()) return;
     reject.mutate(
-      { id: rejectTarget.userId, skillId: rejectTarget.skillId, comments: reason.trim() },
+      { id: rejectTarget.userId, kind: rejectTarget.kind, catalogId: rejectTarget.catalogId, comments: reason.trim() },
       {
         onSuccess: () => {
           setRejectTarget(null);
@@ -54,10 +85,10 @@ export function SkillsQueueDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Skills awaiting review</DialogTitle>
+            <DialogTitle>Assignments awaiting review</DialogTitle>
             <DialogDescription>
-              Approve or reject proposed skills. Approved job types &amp; areas make a
-              technician assignable.
+              Approve or reject proposed job types &amp; service areas. Approving one of each
+              makes a technician assignable.
             </DialogDescription>
           </DialogHeader>
 
@@ -67,24 +98,24 @@ export function SkillsQueueDialog({
                 <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
-          ) : skills.length === 0 ? (
+          ) : rows.length === 0 ? (
             <p className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
               Nothing to review — you&apos;re all caught up.
             </p>
           ) : (
             <div className="max-h-80 divide-y overflow-y-auto rounded-lg border">
-              {skills.map((s) => (
-                <div key={s.skillId} className="flex items-center gap-3 px-3 py-2.5">
+              {rows.map((row) => (
+                <div key={`${row.kind}:${row.userId}:${row.catalogId}`} className="flex items-center gap-3 px-3 py-2.5">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
-                      {techName(s.userId, userMap)}
+                      {techName(row.userId, userMap)}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Badge variant="secondary" className="font-normal">
-                        {s.type === "job_type" ? "Job type" : "Service area"}
+                        {row.kind === "job_type" ? "Job type" : "Service area"}
                       </Badge>
-                      <span className="font-medium text-foreground">{s.value}</span>
-                      <span>· {formatDate(s.proposedAt)}</span>
+                      <span className="font-medium text-foreground">{row.name}</span>
+                      <span>· {formatDate(row.proposedAt)}</span>
                     </div>
                   </div>
                   <Button
@@ -92,7 +123,7 @@ export function SkillsQueueDialog({
                     size="sm"
                     className="gap-1 text-green-600 dark:text-green-500"
                     disabled={approve.isPending}
-                    onClick={() => approve.mutate({ id: s.userId, skillId: s.skillId })}
+                    onClick={() => approve.mutate({ id: row.userId, kind: row.kind, catalogId: row.catalogId })}
                   >
                     <Check className="size-3.5" />
                     Approve
@@ -101,7 +132,7 @@ export function SkillsQueueDialog({
                     variant="ghost"
                     size="sm"
                     className="gap-1 text-destructive"
-                    onClick={() => setRejectTarget(s)}
+                    onClick={() => setRejectTarget(row)}
                   >
                     <X className="size-3.5" />
                     Reject
@@ -123,7 +154,7 @@ export function SkillsQueueDialog({
       <Dialog open={rejectTarget !== null} onOpenChange={(o) => !o && setRejectTarget(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Reject “{rejectTarget?.value}”?</DialogTitle>
+            <DialogTitle>Reject “{rejectTarget?.name}”?</DialogTitle>
             <DialogDescription>A reason is required and shown to the technician.</DialogDescription>
           </DialogHeader>
           <Textarea
@@ -143,7 +174,7 @@ export function SkillsQueueDialog({
               onClick={doReject}
             >
               {reject.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-              Reject skill
+              Reject
             </Button>
           </DialogFooter>
         </DialogContent>

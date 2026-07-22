@@ -38,7 +38,7 @@ export function OverviewTab({ technicianId }: { technicianId: string }) {
           <div className="h-full rounded-full bg-green-500" style={{ width: `${pct}%` }} />
         </div>
         <CheckRow done={!!onboarding?.checklist.profileComplete} label="Profile complete" hint="phone · address · photo" />
-        <CheckRow done={!!onboarding?.checklist.skillsApproved} label="Skills approved" hint="≥1 job type + area" />
+        <CheckRow done={!!onboarding?.checklist.assignmentsApproved} label="Assignments approved" hint="≥1 job type + area" />
         <CheckRow done={!!onboarding?.checklist.commissionSet} label="Commission set" last />
       </section>
 

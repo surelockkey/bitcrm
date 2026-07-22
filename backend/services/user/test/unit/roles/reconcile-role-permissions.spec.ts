@@ -6,12 +6,12 @@ describe('reconcileRolePermissions', () => {
     permissions: {
       deals: { view: true, create: true, edit: true, delete: true },
       technicians: { view: true, create: true, edit: true, delete: true },
-      skills: { view: true, propose: false, approve: true, revoke: true },
+      job_types: { view: true, create: true, edit: true, delete: true, propose: false, approve: true, revoke: true },
     },
     dataScope: {
       deals: DataScope.ALL,
       technicians: DataScope.ALL,
-      skills: DataScope.ALL,
+      job_types: DataScope.ALL,
     },
   };
 
@@ -29,7 +29,7 @@ describe('reconcileRolePermissions', () => {
       edit: true,
       delete: true,
     });
-    expect(result.permissions.skills).toEqual(def.permissions.skills);
+    expect(result.permissions.job_types).toEqual(def.permissions.job_types);
     expect(result.dataScope.technicians).toBe(DataScope.ALL);
   });
 
@@ -38,12 +38,12 @@ describe('reconcileRolePermissions', () => {
       permissions: {
         deals: { view: true, create: false, edit: false, delete: false },
         technicians: { view: true, create: false, edit: false, delete: false },
-        skills: { view: true, propose: false, approve: false, revoke: false },
+        job_types: { view: true, create: false, edit: false, delete: false, propose: false, approve: false, revoke: false },
       },
       dataScope: {
         deals: DataScope.DEPARTMENT,
         technicians: DataScope.DEPARTMENT,
-        skills: DataScope.DEPARTMENT,
+        job_types: DataScope.DEPARTMENT,
       },
     };
     const result = reconcileRolePermissions(role, def);
@@ -66,6 +66,6 @@ describe('reconcileRolePermissions', () => {
     };
     const result = reconcileRolePermissions(role, def);
     expect(result.changed).toBe(true);
-    expect(result.dataScope.skills).toBe(DataScope.ALL);
+    expect(result.dataScope.job_types).toBe(DataScope.ALL);
   });
 });

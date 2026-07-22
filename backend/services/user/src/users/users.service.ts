@@ -19,7 +19,7 @@ import {
 import { UsersRepository } from './users.repository';
 import { UsersCacheService } from './users-cache.service';
 import { TechniciansRepository } from '../technicians/technicians.repository';
-import { TechnicianSkillsRepository } from '../technicians/skills/technician-skills.repository';
+import { TechnicianAssignmentsRepository } from '../technicians/assignments/technician-assignments.repository';
 import { CommissionRepository } from '../technicians/commission/commission.repository';
 import { buildDefaultCommission } from '../technicians/commission/commission.defaults';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -30,17 +30,20 @@ import { RolesCacheService } from '../roles/roles-cache.service';
 import { PermissionResolverService } from '../roles/permission-resolver.service';
 
 /**
- * The technician shape deal-service consumes for assignment ranking. Mirrors
- * `TechnicianInfo` in deal-service's `internal-http.service.ts` — the contract
- * that service has been coding against all along.
+ * A technician's eligibility as deal-service projects it. Identity and approved
+ * catalog ids travel together so the deal-service read-model can render and rank
+ * the assignment dialog without calling back here.
+ *
+ * Mirrors `TechnicianEligibilityInfo` in deal-service's `internal-http.service.ts`.
  */
-export interface TechnicianDispatchInfo {
-  id: string;
-  firstName: string;
-  lastName: string;
-  department: string;
-  skills: string[];
-  serviceAreas: string[];
+export interface TechnicianEligibilityInfo {
+  technicianId: string;
+  assignable: boolean;
+  jobTypeIds: string[];
+  serviceAreaIds: string[];
+  firstName?: string;
+  lastName?: string;
+  department?: string;
   homeAddress?: { lat: number; lng: number };
 }
 
@@ -61,27 +64,23 @@ export class UsersService implements OnModuleInit {
     @Optional() private readonly techniciansRepository?: TechniciansRepository,
     @Optional() private readonly commissionRepository?: CommissionRepository,
     @Optional()
-    private readonly technicianSkillsRepository?: TechnicianSkillsRepository,
+    private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
   ) {}
 
   private static readonly TECHNICIAN_ROLE_ID = 'role-technician';
 
   /**
-   * Technicians as deal-service needs them for dispatch: identity, approved
-   * skills and service areas, and home coordinates for distance ranking.
+   * Every assignable technician, with identity and approved catalog ids.
+   * deal-service projects this into its eligibility read-model on boot, and
+   * matches deals against it by id — the reason the "qualified technicians"
+   * list used to come back empty was that both sides compared free text
+   * (`lock_change` against a hand-typed "Lock Change") instead.
    *
-   * deal-service has always called this endpoint (`internal-http.service.ts`),
-   * but it was never implemented — the 404 was swallowed into an empty array,
-   * which is why the "qualified technicians" list is blank in the UI.
-   *
-   * A technician needs at least one approved job type AND one approved service
-   * area to be assignable, so anyone without approved skills is left out.
+   * Assignable means ≥1 approved job type AND ≥1 approved service area, so
+   * partially-onboarded technicians are left out.
    */
-  async listTechniciansForDispatch(filters: {
-    serviceArea?: string;
-    skill?: string;
-  }): Promise<TechnicianDispatchInfo[]> {
-    if (!this.techniciansRepository || !this.technicianSkillsRepository) {
+  async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[]> {
+    if (!this.techniciansRepository || !this.assignmentsRepository) {
       // Returning [] quietly is how this endpoint's absence went unnoticed for so
       // long — deal-service swallowed the 404 and dispatch just looked empty. Say so.
       this.logger.error(
@@ -90,40 +89,40 @@ export class UsersService implements OnModuleInit {
       return [];
     }
 
-    const [users, approved, profiles] = await Promise.all([
+    const [users, jobTypes, areas, profiles] = await Promise.all([
       this.repository.findByRoleId(UsersService.TECHNICIAN_ROLE_ID),
-      this.technicianSkillsRepository.listAllApproved(),
+      this.assignmentsRepository.listAllApproved('job_type'),
+      this.assignmentsRepository.listAllApproved('service_area'),
       this.listAllTechnicianProfiles(),
     ]);
 
-    const skillsByTech = new Map<string, { skills: string[]; areas: string[] }>();
-    for (const skill of approved) {
-      const entry = skillsByTech.get(skill.userId) ?? { skills: [], areas: [] };
-      if (skill.type === 'job_type') entry.skills.push(skill.value);
-      else entry.areas.push(skill.value);
-      skillsByTech.set(skill.userId, entry);
-    }
+    const byTech = new Map<string, { jobTypeIds: string[]; serviceAreaIds: string[] }>();
+    const bucket = (userId: string) => {
+      const entry = byTech.get(userId) ?? { jobTypeIds: [], serviceAreaIds: [] };
+      byTech.set(userId, entry);
+      return entry;
+    };
+    for (const a of jobTypes) bucket(a.userId).jobTypeIds.push(a.catalogId);
+    for (const a of areas) bucket(a.userId).serviceAreaIds.push(a.catalogId);
 
     const homeByTech = new Map(profiles.map((p) => [p.userId, p.homeAddress]));
 
-    const technicians: TechnicianDispatchInfo[] = [];
-
+    const technicians: TechnicianEligibilityInfo[] = [];
     for (const user of users) {
-      const entry = skillsByTech.get(user.id);
-      if (!entry) continue;
-      if (filters.serviceArea && !entry.areas.includes(filters.serviceArea)) continue;
-      if (filters.skill && !entry.skills.includes(filters.skill)) continue;
+      const entry = byTech.get(user.id);
+      if (!entry?.jobTypeIds.length || !entry.serviceAreaIds.length) continue;
 
       const home = homeByTech.get(user.id);
       const mappable = home?.lat !== undefined && home?.lng !== undefined;
 
       technicians.push({
-        id: user.id,
+        technicianId: user.id,
+        assignable: true,
+        jobTypeIds: entry.jobTypeIds,
+        serviceAreaIds: entry.serviceAreaIds,
         firstName: user.firstName,
         lastName: user.lastName,
         department: user.department,
-        skills: entry.skills,
-        serviceAreas: entry.areas,
         homeAddress: mappable
           ? { lat: home.lat as number, lng: home.lng as number }
           : undefined,
@@ -131,6 +130,43 @@ export class UsersService implements OnModuleInit {
     }
 
     return technicians;
+  }
+
+  /** One technician's eligibility, in the same shape as the list above. */
+  async getTechnicianEligibility(userId: string): Promise<TechnicianEligibilityInfo> {
+    const unassignable: TechnicianEligibilityInfo = {
+      technicianId: userId,
+      assignable: false,
+      jobTypeIds: [],
+      serviceAreaIds: [],
+    };
+    if (!this.assignmentsRepository) return unassignable;
+
+    const all = await this.assignmentsRepository.listByUser(userId);
+    const approved = (kind: 'job_type' | 'service_area') =>
+      all.filter((a) => a.kind === kind && a.status === 'approved').map((a) => a.catalogId);
+
+    const jobTypeIds = approved('job_type');
+    const serviceAreaIds = approved('service_area');
+    if (!jobTypeIds.length || !serviceAreaIds.length) return unassignable;
+
+    const [user, profile] = await Promise.all([
+      this.repository.findById(userId),
+      this.techniciansRepository?.getProfile(userId),
+    ]);
+    const home = profile?.homeAddress;
+    const mappable = home?.lat !== undefined && home?.lng !== undefined;
+
+    return {
+      technicianId: userId,
+      assignable: true,
+      jobTypeIds,
+      serviceAreaIds,
+      firstName: user?.firstName,
+      lastName: user?.lastName,
+      department: user?.department,
+      homeAddress: mappable ? { lat: home.lat as number, lng: home.lng as number } : undefined,
+    };
   }
 
   /**

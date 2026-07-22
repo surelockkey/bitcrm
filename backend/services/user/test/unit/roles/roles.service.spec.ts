@@ -255,7 +255,7 @@ describe('RolesService', () => {
       expect(updateCall).toBeDefined();
       const attrs = updateCall![1] as { permissions: Record<string, unknown> };
       expect(attrs.permissions.technicians).toBeDefined();
-      expect(attrs.permissions.skills).toBeDefined();
+      expect(attrs.permissions.job_types).toBeDefined();
       expect(attrs.permissions.commission).toBeDefined();
       // cache invalidated so resolved permissions recompute for affected users
       expect(rolesCache.invalidateRole).toHaveBeenCalledWith('role-super-admin');

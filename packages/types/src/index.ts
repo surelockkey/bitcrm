@@ -12,7 +12,6 @@ export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './enum
 export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
 export { TimelineEventType } from './enums/timeline-event-type.enum';
-export { JobType } from './enums/job-type.enum';
 export { ServiceAreaType } from './enums/service-area-type.enum';
 
 // Entities
@@ -22,6 +21,7 @@ export { Contact } from './entities/contact.entity';
 export { Company } from './entities/company.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
+export { JobType } from './entities/job-type.entity';
 export {
   ServiceArea,
   ServiceAreaDefinition,
@@ -44,10 +44,11 @@ export {
 } from './entities/technician-profile.entity';
 export { TechnicianLocation } from './entities/technician-location.entity';
 export {
-  TechnicianSkill,
-  SkillType,
-  SkillStatus,
-} from './entities/technician-skill.entity';
+  TechnicianJobType,
+  TechnicianServiceArea,
+  AssignmentStatus,
+} from './entities/technician-assignment.entity';
+export { isAssignable } from './entities/technician-assignment.entity';
 export {
   CommissionConfig,
   CommissionBreakdown,
@@ -68,7 +69,6 @@ export type {
   UserInviteResentEvent,
   TechUpdatedEvent,
   TechApprovedEvent,
-  SkillProposedEvent,
   CommissionUpdatedEvent,
   DocumentEvent,
   SensitiveAccessedEvent,

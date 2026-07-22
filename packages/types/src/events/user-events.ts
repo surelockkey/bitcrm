@@ -11,7 +11,6 @@ export const UserEventType = {
   USER_INVITE_RESENT: 'user.invite-resent',
   TECH_UPDATED: 'tech.updated',
   TECH_APPROVED: 'tech.approved',
-  SKILL_PROPOSED: 'skill.proposed',
   COMMISSION_UPDATED: 'commission.updated',
   DOCUMENT_UPLOADED: 'document.uploaded',
   DOCUMENT_ACCESSED: 'document.accessed',
@@ -40,13 +39,10 @@ export interface TechUpdatedEvent {
 
 export interface TechApprovedEvent {
   technicianId: string;
-  approvedSkills: string[];
-  serviceAreas: string[];
-}
-
-export interface SkillProposedEvent {
-  technicianId: string;
-  skills: Array<{ type: 'job_type' | 'service_area'; value: string }>;
+  /** Catalog job-type ids the technician is approved for. */
+  jobTypeIds: string[];
+  /** Catalog service-area ids the technician is approved for. */
+  serviceAreaIds: string[];
 }
 
 export interface CommissionUpdatedEvent {

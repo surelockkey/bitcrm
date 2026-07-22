@@ -11,7 +11,7 @@
  */
 export const RESOURCE_REGISTRY = {
   deals: ['view', 'create', 'edit', 'delete'],
-  service_areas: ['view', 'create', 'edit', 'delete'],
+  service_areas: ['view', 'create', 'edit', 'delete', 'propose', 'approve', 'revoke'],
   contacts: ['view', 'create', 'edit', 'delete'],
   companies: ['view', 'create', 'edit', 'delete'],
   products: ['view', 'create', 'edit', 'delete'],
@@ -23,7 +23,7 @@ export const RESOURCE_REGISTRY = {
   reports: ['view', 'create', 'edit', 'delete'],
   settings: ['view', 'edit'],
   technicians: ['view', 'create', 'edit', 'delete'],
-  skills: ['view', 'propose', 'approve', 'revoke'],
+  job_types: ['view', 'create', 'edit', 'delete', 'propose', 'approve', 'revoke'],
   commission: ['view', 'edit'],
   documents: ['view', 'upload', 'delete'],
 } as const;

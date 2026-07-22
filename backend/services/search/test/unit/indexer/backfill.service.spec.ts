@@ -1,5 +1,9 @@
 import { BackfillService } from 'src/indexer/backfill/backfill.service';
 
+function stubCatalogNames() {
+  return { nameOf: jest.fn().mockResolvedValue(undefined), invalidate: jest.fn() };
+}
+
 describe('BackfillService', () => {
   const realFetch = global.fetch;
   afterEach(() => {
@@ -43,7 +47,7 @@ describe('BackfillService', () => {
     }) as any;
 
     const indexer = fakeIndexer();
-    const totals = await new BackfillService(indexer as any).run();
+    const totals = await new BackfillService(indexer as any, stubCatalogNames() as any).run();
 
     // 8 sources, each contributed 1 doc
     expect(global.fetch).toHaveBeenCalledTimes(8);
@@ -71,7 +75,7 @@ describe('BackfillService', () => {
     }) as any;
 
     const indexer = fakeIndexer();
-    await new BackfillService(indexer as any).run();
+    await new BackfillService(indexer as any, stubCatalogNames() as any).run();
     // 8 sources + 1 extra page from the paginated first source
     expect(global.fetch).toHaveBeenCalledTimes(9);
   });
@@ -84,7 +88,7 @@ describe('BackfillService', () => {
       return { ok: true, json: async () => ({ success: true, data: { items: [], nextCursor: undefined } }) };
     }) as any;
 
-    const totals = await new BackfillService(fakeIndexer() as any).run();
+    const totals = await new BackfillService(fakeIndexer() as any, stubCatalogNames() as any).run();
     const failed = Object.values(totals).filter((v) => v === -1);
     expect(failed).toHaveLength(1);
     // the other 7 still ran

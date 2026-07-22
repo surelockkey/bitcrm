@@ -13,8 +13,11 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
       'edit',
       'delete',
     ]);
-    expect(RESOURCE_REGISTRY.skills).toEqual([
+    expect(RESOURCE_REGISTRY.job_types).toEqual([
       'view',
+      'create',
+      'edit',
+      'delete',
       'propose',
       'approve',
       'revoke',
@@ -62,8 +65,8 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
       view: true,
       edit: true,
     });
-    expect(tech.permissions.skills?.propose).toBe(true);
-    expect(tech.permissions.skills?.approve).toBe(false);
+    expect(tech.permissions.job_types?.propose).toBe(true);
+    expect(tech.permissions.job_types?.approve).toBe(false);
     expect(tech.permissions.commission?.view).toBe(true);
     expect(tech.permissions.commission?.edit).toBe(false);
   });
@@ -71,8 +74,8 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
   it('grants Manager/Admin skill approval + commission edit', () => {
     for (const id of ['role-super-admin', 'role-admin']) {
       const role = DEFAULT_ROLES.find((r) => r.id === id)!;
-      expect(role.permissions.skills?.approve).toBe(true);
-      expect(role.permissions.skills?.revoke).toBe(true);
+      expect(role.permissions.job_types?.approve).toBe(true);
+      expect(role.permissions.job_types?.revoke).toBe(true);
       expect(role.permissions.commission?.edit).toBe(true);
       expect(role.permissions.technicians?.delete).toBe(true);
     }
@@ -82,8 +85,8 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
     const dm = DEFAULT_ROLES.find((r) => r.id === 'role-dept-manager')!;
     expect(dm.priority).toBe(60);
     expect(dm.isSystem).toBe(true);
-    expect(dm.permissions.skills?.approve).toBe(true);
-    expect(dm.permissions.skills?.revoke).toBe(true);
+    expect(dm.permissions.job_types?.approve).toBe(true);
+    expect(dm.permissions.job_types?.revoke).toBe(true);
     expect(dm.permissions.commission?.edit).toBe(true);
     expect(dm.permissions.technicians).toMatchObject({ view: true, edit: true, delete: false });
     // department-scoped, not global
