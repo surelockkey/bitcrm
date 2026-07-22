@@ -30,7 +30,7 @@ export const dealJobSchema = z.object({
   priority: z.nativeEnum(DealPriority),
   sourceId: z.string().trim().optional(),
   notes: z.string().trim().optional(),
-  tags: z.array(z.string().trim().min(1)),
+  tagIds: z.array(z.string()).default([]),
 });
 export type DealJobValues = z.infer<typeof dealJobSchema>;
 

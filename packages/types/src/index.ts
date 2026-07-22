@@ -13,6 +13,7 @@ export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
 export { TimelineEventType } from './enums/timeline-event-type.enum';
 export { ServiceAreaType } from './enums/service-area-type.enum';
+export { JOB_TAG_COLORS, JobTagColor } from './enums/job-tag-color.enum';
 
 // Entities
 export { User } from './entities/user.entity';
@@ -23,6 +24,7 @@ export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
+export { JobTag } from './entities/job-tag.entity';
 export {
   ServiceArea,
   ServiceAreaDefinition,

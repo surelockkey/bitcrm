@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { contactName, initials } from "@/features/clients/lib";
 import { formatMoney, isUrgent } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
+import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { PriorityFlag } from "./deal-badges";
 
 export function DealCard({
@@ -48,11 +49,7 @@ export function DealCard({
             {tech.firstName}
           </span>
         ) : null}
-        {deal.tags.slice(0, 2).map((t) => (
-          <span key={t} className="rounded-full border bg-muted/60 px-1.5 text-[10px] text-muted-foreground">
-            {t}
-          </span>
-        ))}
+        <JobTagChips ids={deal.tagIds} max={2} />
         {typeof deal.estimatedTotal === "number" ? (
           <span className={cn("ml-auto font-mono text-[11px]", deal.actualTotal ? "text-emerald-600" : "text-muted-foreground")}>
             {formatMoney(deal.actualTotal ?? deal.estimatedTotal)}

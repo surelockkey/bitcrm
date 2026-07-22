@@ -24,6 +24,12 @@ vi.mock("@/features/job-types/lib", () => ({
     id === "jt-lockout" ? "Lockout" : (id ?? "—"),
 }));
 
+// JobTagChips reads the catalog via react-query; stub it so the card renders
+// without a QueryClient (the test deal carries no tags anyway).
+vi.mock("@/features/job-tags/components/job-tag-chips", () => ({
+  JobTagChips: () => null,
+}));
+
 const contact: Contact = {
   id: "c1",
   firstName: "Jane",
@@ -62,7 +68,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
-    tags: [],
+    tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: "u1",
     createdAt: "",

@@ -71,9 +71,9 @@ export class CreateDealDto {
   @IsString()
   notes?: string;
 
-  @ApiPropertyOptional({ example: ['vip', 'urgent'] })
+  @ApiPropertyOptional({ example: ['t1', 't2'], description: 'Catalog job-tag ids. Must be active.' })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  tags?: string[];
+  tagIds?: string[];
 }

@@ -81,15 +81,21 @@ export class BackfillService {
       const items = page.items ?? [];
       const docs = (
         await Promise.all(
-          items.map(async (e) =>
-            routeToDocument(
+          items.map(async (e) => {
+            if (type !== 'deal') return routeToDocument(type, e);
+            const [jobTypeName, ...tagNames] = await Promise.all([
+              this.catalogNames.nameOf('job-types', e?.jobTypeId),
+              ...((e?.tagIds ?? []) as string[]).map((id) =>
+                this.catalogNames.nameOf('job-tags', id),
+              ),
+            ]);
+            return routeToDocument(
               type,
               e,
-              type === 'deal'
-                ? await this.catalogNames.nameOf('job-types', e?.jobTypeId)
-                : undefined,
-            ),
-          ),
+              jobTypeName,
+              tagNames.filter((n): n is string => Boolean(n)),
+            );
+          }),
         )
       ).filter((d): d is SearchDocument => d !== null);
 

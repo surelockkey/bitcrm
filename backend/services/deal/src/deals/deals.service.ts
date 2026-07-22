@@ -35,6 +35,7 @@ import { InternalHttpService } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
+import { JobTagsService } from '../job-tags/job-tags.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
 import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
@@ -61,6 +62,7 @@ export class DealsService {
     private readonly serviceAreas: ServiceAreasService,
     private readonly jobTypes: JobTypesService,
     private readonly jobSources: JobSourcesService,
+    private readonly jobTags: JobTagsService,
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
@@ -153,6 +155,20 @@ export class DealsService {
       }
     }
 
+    // Tags are optional and many; validate all against the catalog in one read,
+    // rejecting unknown or archived ids on a new deal.
+    const tagIds = dto.tagIds ?? [];
+    if (tagIds.length) {
+      const catalog = new Map((await this.jobTags.list()).map((t) => [t.id, t]));
+      for (const tagId of tagIds) {
+        const tag = catalog.get(tagId);
+        if (!tag) throw new BadRequestException(`Job tag ${tagId} not found`);
+        if (!tag.active) {
+          throw new BadRequestException(`Job tag "${tag.name}" is archived and cannot be used on a new deal`);
+        }
+      }
+    }
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -170,7 +186,7 @@ export class DealsService {
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
       notes: dto.notes,
-      tags: dto.tags || [],
+      tagIds,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
       createdAt: now,
@@ -233,8 +249,8 @@ export class DealsService {
       serviceArea: query.serviceArea,
       clientType: query.clientType,
       priority: query.priority,
-      tags: query.tags
-        ? query.tags.split(',').map((t) => t.trim()).filter(Boolean)
+      tagIds: query.tagIds
+        ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
         : undefined,
       dealNumber:
         search && /^#?\d+$/.test(search) ? Number(search.replace('#', '')) : undefined,
@@ -284,6 +300,13 @@ export class DealsService {
     if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
     // Archived source allowed on update so an old deal stays editable.
     if (updates.sourceId) await this.jobSources.findById(updates.sourceId);
+    // Tags: archived allowed on update; enforce each id exists.
+    if (updates.tagIds?.length) {
+      const known = new Set((await this.jobTags.list()).map((t) => t.id));
+      for (const tagId of updates.tagIds) {
+        if (!known.has(tagId)) throw new BadRequestException(`Job tag ${tagId} not found`);
+      }
+    }
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);

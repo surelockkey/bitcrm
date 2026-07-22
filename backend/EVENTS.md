@@ -30,6 +30,15 @@ Job-type catalog: `job-type.created`, `job-type.updated`, `job-type.archived`,
 technicians store catalog *ids*, so the search indexer resolves names through
 `CatalogNamesService` and invalidates that cache on these events.
 
+Job-source catalog: `job-source.created` / `.updated` / `.archived` / `.deleted`
+(`{jobSourceId, name}`) — emitted by `JobSourcesService`. Deals store a `sourceId`;
+not indexed in search.
+
+Job-tag catalog: `job-tag.created` / `.updated` / `.archived` / `.deleted`
+(`{jobTagId, name}`) — emitted by `JobTagsService`. Deals store `tagIds` (many);
+the search indexer resolves them to names via `CatalogNamesService` and
+invalidates that cache on these events.
+
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
 

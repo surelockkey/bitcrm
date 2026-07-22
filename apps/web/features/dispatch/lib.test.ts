@@ -41,7 +41,7 @@ function deal(overrides: Partial<Deal> = {}): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "dispatcher-1",
     priority: DealPriority.NORMAL,
-    tags: [],
+    tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: "dispatcher-1",
     createdAt: "2026-07-01T10:00:00.000Z",

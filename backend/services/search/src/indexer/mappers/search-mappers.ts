@@ -31,7 +31,7 @@ function toDocStatus(status: string | undefined): SearchDocStatus {
  * CatalogNamesService) — the deal itself only stores the catalog id, and a raw
  * uuid in the subtitle would be useless to a searcher.
  */
-export function mapDeal(deal: Deal, jobTypeName?: string): SearchDocument {
+export function mapDeal(deal: Deal, jobTypeName?: string, tagNames: string[] = []): SearchDocument {
   const addr = deal.address;
   return {
     docId: `deal#${deal.id}`,
@@ -52,7 +52,7 @@ export function mapDeal(deal: Deal, jobTypeName?: string): SearchDocument {
       addr?.city,
       addr?.state,
       addr?.zip,
-      ...(deal.tags || []),
+      ...tagNames,
     ]),
     body: deal.notes,
     url: `/deals/${deal.id}`,

@@ -29,6 +29,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   technicians: "Technicians",
   job_types: "Job Types",
   job_sources: "Job Sources",
+  job_tags: "Job Tags",
   service_areas: "Service Areas",
   commission: "Commission",
   documents: "Documents",
@@ -47,7 +48,7 @@ export const ACTION_LABELS: Record<string, string> = {
 
 /** Domain grouping for the matrix — keeps 15 resources scannable. */
 export const RESOURCE_GROUPS: { label: string; resources: string[] }[] = [
-  { label: "Sales & CRM", resources: ["deals", "job_sources", "contacts", "companies"] },
+  { label: "Sales & CRM", resources: ["deals", "job_sources", "job_tags", "contacts", "companies"] },
   { label: "Inventory", resources: ["products", "warehouses", "containers", "transfers"] },
   { label: "People", resources: ["users", "roles", "technicians"] },
   { label: "Field & billing", resources: ["job_types", "service_areas", "commission", "documents"] },

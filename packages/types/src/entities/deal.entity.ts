@@ -29,7 +29,8 @@ export interface Deal {
   notes?: string;
   internalNotes?: string;
   cancellationReason?: string;
-  tags: string[];
+  /** Catalog job-tag ids applied to this deal. */
+  tagIds: string[];
   estimatedTotal?: number;
   actualTotal?: number;
   paymentStatus?: string;

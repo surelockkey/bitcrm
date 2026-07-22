@@ -29,6 +29,8 @@ import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { useJobSourceName } from "@/features/job-sources/lib";
+import { JobTagPicker } from "@/features/job-tags/components/job-tag-picker";
+import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField, ResolvedAreaText } from "@/features/service-areas/components/resolved-area-field";
 
@@ -166,7 +168,6 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
   const jobSourceName = useJobSourceName();
   const createDeal = useCreateDeal();
   const [step, setStep] = useState(1); // 1=job, 2=schedule, 3=review
-  const [tagsStr, setTagsStr] = useState("");
 
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
@@ -180,14 +181,13 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
       priority: DealPriority.NORMAL,
       sourceId: "",
       notes: "",
-      tags: [],
+      tagIds: [],
     },
   });
 
   const err = form.formState.errors;
   const v = useWatch({ control: form.control }) as DealJobValues;
 
-  const tags = tagsStr.split(",").map((t) => t.trim()).filter(Boolean);
 
   const next = async () => {
     const fields: (keyof DealJobValues | `address.${string}`)[] =
@@ -208,7 +208,6 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
         scheduledTimeSlot: form.getValues("scheduledTimeSlot") || undefined,
         sourceId: form.getValues("sourceId") || undefined,
         notes: form.getValues("notes") || undefined,
-        tags,
       },
       { onSuccess: (d) => router.push(`/deals/${d.id}`) },
     );
@@ -265,7 +264,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} /></div>
-            <Field label="Tags (comma-separated)"><Input className="h-9" placeholder="rush, repeat" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></Field>
+            <div className="space-y-1.5"><Label>Tags</Label><JobTagPicker value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
           </div>
           <Field label="Notes"><Textarea rows={3} {...form.register("notes")} /></Field>
         </div>
@@ -281,7 +280,7 @@ function DealForm({ client, onChangeClient }: { client: ResolvedClient; onChange
           <ReviewRow label="Address" value={`${v.address.street}${v.address.unit ? ` ${v.address.unit}` : ""}, ${v.address.city} ${v.address.state} ${v.address.zip}`} />
           <ReviewRow label="Scheduled" value={formatSchedule(v.scheduledDate || undefined, v.scheduledTimeSlot || undefined)} />
           {v.sourceId ? <ReviewRow label="Source" value={jobSourceName(v.sourceId)} /> : null}
-          {tags.length ? <ReviewRow label="Tags" value={tags.join(", ")} /> : null}
+          {v.tagIds?.length ? <ReviewRow label="Tags" value={<JobTagChips ids={v.tagIds} />} /> : null}
           {v.notes ? <ReviewRow label="Notes" value={v.notes} /> : null}
         </div>
       ) : null}

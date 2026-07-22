@@ -10,6 +10,7 @@ import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
+import { JobTagsService } from 'src/job-tags/job-tags.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
@@ -26,6 +27,7 @@ import {
   createMockGeocodingService,
   createMockJobType,
   createMockJobSource,
+  createMockJobTag,
   createMockTechnicianEligibilityRepository,
 } from '../mocks';
 
@@ -40,6 +42,7 @@ describe('DealsService', () => {
   let serviceAreas: { resolvePoint: jest.Mock };
   let jobTypes: { findById: jest.Mock };
   let jobSources: { findById: jest.Mock };
+  let jobTags: { list: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
 
   beforeEach(async () => {
@@ -52,6 +55,7 @@ describe('DealsService', () => {
     serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
     jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
+    jobTags = { list: jest.fn().mockResolvedValue([]) };
     eligibility = createMockTechnicianEligibilityRepository();
 
     const module = await Test.createTestingModule({
@@ -67,6 +71,7 @@ describe('DealsService', () => {
         { provide: ServiceAreasService, useValue: serviceAreas },
         { provide: JobTypesService, useValue: jobTypes },
         { provide: JobSourcesService, useValue: jobSources },
+        { provide: JobTagsService, useValue: jobTags },
         { provide: TechnicianEligibilityRepository, useValue: eligibility },
       ],
     }).compile();
@@ -103,7 +108,7 @@ describe('DealsService', () => {
       expect(result.status).toBe(DealStatus.ACTIVE);
       expect(result.assignedDispatcherId).toBe('dispatcher-1');
       expect(result.priority).toBe(DealPriority.NORMAL);
-      expect(result.tags).toEqual([]);
+      expect(result.tagIds).toEqual([]);
       expect(repo.create).toHaveBeenCalled();
     });
 
@@ -133,14 +138,15 @@ describe('DealsService', () => {
     it('should use provided priority and tags', async () => {
       repo.getNextDealNumber.mockResolvedValue(1002);
       repo.create.mockResolvedValue(undefined);
+      jobTags.list.mockResolvedValue([createMockJobTag({ id: 'tag-vip', active: true })]);
 
       const result = await service.create(
-        { ...dto, priority: DealPriority.URGENT, tags: ['vip'] } as any,
+        { ...dto, priority: DealPriority.URGENT, tagIds: ['tag-vip'] } as any,
         caller,
       );
 
       expect(result.priority).toBe(DealPriority.URGENT);
-      expect(result.tags).toEqual(['vip']);
+      expect(result.tagIds).toEqual(['tag-vip']);
     });
 
     it('should validate contact exists', async () => {
@@ -276,14 +282,14 @@ describe('DealsService', () => {
       );
     });
 
-    it('should split comma-separated tags into an array', async () => {
+    it('should split comma-separated tag ids into an array', async () => {
       repo.findByStage.mockResolvedValue(mockResult);
-      await service.list({ stage: DealStage.NEW_LEAD, tags: 'rush, repeat' } as any, caller);
+      await service.list({ stage: DealStage.NEW_LEAD, tagIds: 'tag-1, tag-2' } as any, caller);
       expect(repo.findByStage).toHaveBeenCalledWith(
         DealStage.NEW_LEAD,
         20,
         undefined,
-        expect.objectContaining({ tags: ['rush', 'repeat'] }),
+        expect.objectContaining({ tagIds: ['tag-1', 'tag-2'] }),
       );
     });
 

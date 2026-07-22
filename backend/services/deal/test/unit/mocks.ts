@@ -2,7 +2,7 @@ import {
   ClientType, DealStage, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
-  type ServiceArea, type JobType, type JobSource,
+  type ServiceArea, type JobType, type JobSource, type JobTag,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: 'dispatcher-1',
     priority: DealPriority.NORMAL,
-    tags: [],
+    tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: 'dispatcher-1',
     createdAt: '2026-04-16T10:00:00.000Z',
@@ -104,6 +104,20 @@ export function createMockJobSource(overrides?: Partial<JobSource>): JobSource {
   return {
     id: 'jobsource-1',
     name: 'Google Ads',
+    priority: 0,
+    active: true,
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockJobTag(overrides?: Partial<JobTag>): JobTag {
+  return {
+    id: 'jobtag-1',
+    name: 'Rush',
+    color: 'red',
     priority: 0,
     active: true,
     createdBy: 'admin-1',
@@ -210,6 +224,17 @@ export function createMockJobTypesRepository() {
 }
 
 export function createMockJobSourcesRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockJobTagsRepository() {
   return {
     create: jest.fn(),
     put: jest.fn(),

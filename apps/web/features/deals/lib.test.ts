@@ -35,7 +35,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
-    tags: [],
+    tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: "u1",
     createdAt: "",

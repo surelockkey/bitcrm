@@ -21,17 +21,28 @@ export class SearchIndexerService {
 
   /** Map a full entity to a document and upsert it. */
   async indexEntity(type: SearchType, entity: any): Promise<void> {
-    // Deals carry a job-type id; search shows the name.
+    // Deals carry a job-type id and job-tag ids; search shows the names.
     const jobTypeName =
       type === 'deal'
         ? await this.catalogNames.nameOf('job-types', entity?.jobTypeId)
         : undefined;
-    const doc = routeToDocument(type, entity, jobTypeName);
+    const tagNames =
+      type === 'deal' ? await this.resolveTagNames(entity?.tagIds) : [];
+    const doc = routeToDocument(type, entity, jobTypeName, tagNames);
     if (!doc) {
       this.logger.warn(`No mapper for type "${type}", skipping`);
       return;
     }
     await this.indexDocument(doc);
+  }
+
+  /** Resolve a deal's job-tag ids to names (dropping any that no longer exist). */
+  private async resolveTagNames(tagIds?: string[]): Promise<string[]> {
+    if (!tagIds?.length) return [];
+    const names = await Promise.all(
+      tagIds.map((id) => this.catalogNames.nameOf('job-tags', id)),
+    );
+    return names.filter((n): n is string => Boolean(n));
   }
 
   async indexDocument(doc: SearchDocument): Promise<void> {

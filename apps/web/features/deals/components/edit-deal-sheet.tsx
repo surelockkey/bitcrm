@@ -29,11 +29,11 @@ import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { JobTagPicker } from "@/features/job-tags/components/job-tag-picker";
 
 
 export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: boolean; onOpenChange: (v: boolean) => void }) {
   const update = useUpdateDeal(deal.id);
-  const [tagsStr, setTagsStr] = useState(deal.tags.join(", "));
 
   const form = useForm<EditDealValues>({
     resolver: zodResolver(editDealSchema),
@@ -55,12 +55,11 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       sourceId: deal.sourceId ?? "",
       notes: deal.notes ?? "",
       internalNotes: deal.internalNotes ?? "",
-      tags: deal.tags,
+      tagIds: deal.tagIds,
     },
   });
 
   const submit = (v: EditDealValues) => {
-    const tags = tagsStr.split(",").map((t) => t.trim()).filter(Boolean);
     update.mutate(
       {
         ...v,
@@ -69,7 +68,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         sourceId: v.sourceId || undefined,
         notes: v.notes || undefined,
         internalNotes: v.internalNotes || undefined,
-        tags,
+        tagIds: v.tagIds,
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -78,6 +77,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const err = form.formState.errors;
   const jobTypeId = useWatch({ control: form.control, name: "jobTypeId" });
   const sourceId = useWatch({ control: form.control, name: "sourceId" });
+  const tagIds = useWatch({ control: form.control, name: "tagIds" }) ?? [];
   const priority = useWatch({ control: form.control, name: "priority" });
   const street = useWatch({ control: form.control, name: "address.street" });
   const lat = useWatch({ control: form.control, name: "address.lat" });
@@ -131,7 +131,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={sourceId} onChange={(v) => form.setValue("sourceId", v ?? "")} /></div>
-              <div className="space-y-1.5"><Label>Tags</Label><Input className="h-9" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Tags</Label><JobTagPicker value={tagIds} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
             </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} {...form.register("notes")} /></div>
             <div className="space-y-1.5"><Label>Internal notes</Label><Textarea rows={2} {...form.register("internalNotes")} /></div>

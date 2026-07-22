@@ -4,7 +4,7 @@ const DEAL_SERVICE_URL = process.env.DEAL_SERVICE_URL || 'http://localhost:4003'
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 
 /** Catalogs the indexer has to resolve ids against. */
-export type CatalogKind = 'job-types' | 'service-areas';
+export type CatalogKind = 'job-types' | 'service-areas' | 'job-tags';
 
 /** Names go stale only when someone edits a catalog, which is rare. */
 const TTL_MS = 5 * 60 * 1000;

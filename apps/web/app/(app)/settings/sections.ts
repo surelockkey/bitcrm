@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { MapPin, SlidersHorizontal, Wrench, Megaphone } from "lucide-react";
+import { MapPin, SlidersHorizontal, Wrench, Megaphone, Tags } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
 export interface SettingsSection {
@@ -38,5 +38,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Where your deals come from. Deals pick one when created.",
     icon: Megaphone,
     resource: "job_sources",
+  },
+  {
+    label: "Job Tags",
+    href: "/settings/job-tags",
+    description: "Colored labels for deals. A deal can carry many.",
+    icon: Tags,
+    resource: "job_tags",
   },
 ];

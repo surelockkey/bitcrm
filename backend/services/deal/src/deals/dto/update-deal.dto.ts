@@ -62,9 +62,9 @@ export class UpdateDealDto {
   @IsString()
   internalNotes?: string;
 
-  @ApiPropertyOptional({ example: ['vip'] })
+  @ApiPropertyOptional({ example: ['t1'], description: 'Catalog job-tag ids. Archived ids allowed so old deals stay editable.' })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  tags?: string[];
+  tagIds?: string[];
 }

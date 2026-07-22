@@ -46,7 +46,7 @@ describe('search-mappers', () => {
       assignedTechId: 'tech1',
       assignedDispatcherId: 'disp1',
       priority: DealPriority.URGENT,
-      tags: ['vip', 'rush'],
+      tagIds: ['t-vip', 't-rush'],
       notes: 'call before arrival',
       internalNotes: 'do-not-index-secret',
       status: DealStatus.ACTIVE,
@@ -71,7 +71,7 @@ describe('search-mappers', () => {
     });
 
     it('builds title, keywords and deep link', () => {
-      const doc = mapDeal(deal, 'Install');
+      const doc = mapDeal(deal, 'Install', ['vip', 'rush']);
       expect(doc.title).toContain('1042');
       expect(doc.keywords).toEqual(expect.arrayContaining(['Brooklyn', 'vip', 'Install']));
       expect(doc.url).toBe('/deals/d1');

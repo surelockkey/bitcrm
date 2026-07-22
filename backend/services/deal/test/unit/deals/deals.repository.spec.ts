@@ -243,13 +243,13 @@ describe('DealsRepository', () => {
     it('appends secondary filters (equality + tag contains) to the scan', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [] });
 
-      await repository.findAll(20, undefined, { jobTypeId: 'jobtype-1', tags: ['rush'] });
+      await repository.findAll(20, undefined, { jobTypeId: 'jobtype-1', tagIds: ['tag-1'] });
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.FilterExpression).toContain('#jobTypeId = :jobTypeId');
-      expect(command.input.FilterExpression).toContain('contains(#tags, :tag0)');
+      expect(command.input.FilterExpression).toContain('contains(#tagIds, :tag0)');
       expect(command.input.ExpressionAttributeValues[':jobTypeId']).toBe('jobtype-1');
-      expect(command.input.ExpressionAttributeValues[':tag0']).toBe('rush');
+      expect(command.input.ExpressionAttributeValues[':tag0']).toBe('tag-1');
     });
 
     it('should pass cursor', async () => {

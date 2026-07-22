@@ -153,7 +153,7 @@ export interface DealFilter {
   dateFrom?: string;
   dateTo?: string;
   techId?: string;
-  tag?: string;
+  tagId?: string;
   search?: string;
 }
 
@@ -179,7 +179,7 @@ export function filterDeals(
       if (filter.dateTo && d.scheduledDate > filter.dateTo) return false;
     }
     if (filter.techId && d.assignedTechId !== filter.techId) return false;
-    if (filter.tag && !d.tags.includes(filter.tag)) return false;
+    if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;
     if (q) {
       const name = (contactNames.get(d.contactId) ?? "").toLowerCase();
       const num = String(d.dealNumber);

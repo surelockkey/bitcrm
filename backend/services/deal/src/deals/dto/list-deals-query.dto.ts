@@ -54,10 +54,10 @@ export class ListDealsQueryDto {
   @IsEnum(DealPriority)
   priority?: DealPriority;
 
-  @ApiPropertyOptional({ description: 'Comma-separated tags; a deal must carry all of them.' })
+  @ApiPropertyOptional({ description: 'Comma-separated job-tag ids; a deal must carry all of them.' })
   @IsOptional()
   @IsString()
-  tags?: string;
+  tagIds?: string;
 
   @ApiPropertyOptional({ description: 'Deal-number search, e.g. "1042" or "#1042".' })
   @IsOptional()

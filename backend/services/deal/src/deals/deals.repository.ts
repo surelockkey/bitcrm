@@ -28,7 +28,7 @@ export interface DealFilters {
   serviceArea?: string;
   clientType?: string;
   priority?: string;
-  tags?: string[];
+  tagIds?: string[];
   dealNumber?: number;
 }
 
@@ -66,10 +66,10 @@ export class DealsRepository {
     if (filters?.clientType) eq('clientType', filters.clientType);
     if (filters?.priority) eq('priority', filters.priority);
     if (filters?.dealNumber !== undefined) eq('dealNumber', filters.dealNumber);
-    if (filters?.tags?.length) {
-      names['#tags'] = 'tags';
-      filters.tags.forEach((t, i) => {
-        parts.push(`contains(#tags, :tag${i})`);
+    if (filters?.tagIds?.length) {
+      names['#tagIds'] = 'tagIds';
+      filters.tagIds.forEach((t, i) => {
+        parts.push(`contains(#tagIds, :tag${i})`);
         values[`:tag${i}`] = t;
       });
     }
@@ -331,7 +331,7 @@ export class DealsRepository {
       notes: item.notes as string | undefined,
       internalNotes: item.internalNotes as string | undefined,
       cancellationReason: item.cancellationReason as string | undefined,
-      tags: (item.tags as string[]) || [],
+      tagIds: (item.tagIds as string[]) || [],
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
       paymentStatus: item.paymentStatus as string | undefined,

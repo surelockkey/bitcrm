@@ -12,6 +12,7 @@ import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../
 import { dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
+import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { AssignTechDialog } from "./assign-tech-dialog";
 
 export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
@@ -42,7 +43,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
           <Row label="Service area" value={deal.serviceArea} />
           <Row label="Scheduled" value={formatSchedule(deal.scheduledDate, deal.scheduledTimeSlot)} />
           {deal.sourceId ? <Row label="Source" value={jobSourceName(deal.sourceId)} /> : null}
-          {deal.tags.length ? <Row label="Tags" value={deal.tags.join(", ")} /> : null}
+          {deal.tagIds.length ? <Row label="Tags" value={<JobTagChips ids={deal.tagIds} />} /> : null}
         </dl>
       </Card>
 
