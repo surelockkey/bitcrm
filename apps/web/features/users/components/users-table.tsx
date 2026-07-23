@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { User, Role } from "@bitcrm/types";
 import { initials, formatDate, roleName } from "../lib";
+import { overrideSummary } from "../overrides";
 import { UserStatusBadge } from "./status-badge";
 import { UserRowActions } from "./user-row-actions";
 
@@ -62,9 +63,20 @@ export function UsersTable({
                 </div>
               </TableCell>
               <TableCell>
-                <Badge variant="secondary" className="font-normal">
-                  {roleName(u.roleId, roles)}
-                </Badge>
+                <span className="inline-flex items-center gap-1.5">
+                  <Badge variant="secondary" className="font-normal">
+                    {roleName(u.roleId, roles)}
+                  </Badge>
+                  {overrideSummary(u.permissionOverrides).any ? (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px]"
+                      title="Has permission overrides"
+                    >
+                      custom
+                    </Badge>
+                  ) : null}
+                </span>
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {u.department || "—"}
