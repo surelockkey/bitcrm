@@ -9,7 +9,9 @@ import { S3Service, SnsPublisherService } from '@bitcrm/shared';
 import { type JwtUser, type DocumentType } from '@bitcrm/types';
 import { DocumentsRepository } from './documents.repository';
 import { AuditRepository } from './audit.repository';
+import { type AuditEntryWithActor } from './audit.types';
 import { RolesService } from '../../roles/roles.service';
+import { UsersRepository } from '../../users/users.repository';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { documentS3Key } from '../constants/dynamo.constants';
 
@@ -26,6 +28,7 @@ export class DocumentsService {
     private readonly repository: DocumentsRepository,
     private readonly audit: AuditRepository,
     private readonly rolesService: RolesService,
+    private readonly usersRepository: UsersRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
@@ -98,6 +101,24 @@ export class DocumentsService {
     await this.writeAudit(userId, caller.id, 'document.deleted', docType);
     this.publish('document.deleted', { technicianId: userId, docType, actorId: caller.id });
     this.logger.log(`Document deleted: ${userId}/${docType} by ${caller.id}`);
+  }
+
+  async getAuditTrail(userId: string): Promise<AuditEntryWithActor[]> {
+    const entries = await this.audit.listByUser(userId);
+    const actorIds = [
+      ...new Set(entries.map((e) => e.actorId).filter((id): id is string => Boolean(id))),
+    ];
+    const actors = await Promise.all(
+      actorIds.map((id) => this.usersRepository.findById(id).catch(() => null)),
+    );
+    const names = new Map<string, string>();
+    actorIds.forEach((id, i) => {
+      const actor = actors[i];
+      if (!actor) return;
+      const name = `${actor.firstName ?? ''} ${actor.lastName ?? ''}`.trim();
+      names.set(id, name || actor.email);
+    });
+    return entries.map((e) => ({ ...e, actorName: names.get(e.actorId) }));
   }
 
   // --- helpers ---

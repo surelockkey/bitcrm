@@ -18,9 +18,10 @@ import { AuditRepository } from './documents/audit.repository';
 import { TechnicianLocationController } from './location/technician-location.controller';
 import { TechnicianLocationService } from './location/technician-location.service';
 import { RolesModule } from '../roles/roles.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [forwardRef(() => RolesModule)],
+  imports: [forwardRef(() => RolesModule), forwardRef(() => UsersModule)],
   controllers: [
     TechnicianAssignmentsController,
     CommissionController,
