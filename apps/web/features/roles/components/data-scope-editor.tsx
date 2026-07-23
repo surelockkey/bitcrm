@@ -23,16 +23,23 @@ const SCOPES = [DataScope.ALL, DataScope.DEPARTMENT, DataScope.ASSIGNED_ONLY];
 export function DataScopeEditor({
   schema,
   dataScope,
+  baseline,
   readOnly,
   onChange,
 }: {
   schema: Schema;
   dataScope: DataScopeRules;
+  /** The saved rules — resources that differ get a "modified" marker. */
+  baseline?: DataScopeRules;
   readOnly?: boolean;
   onChange: (next: DataScopeRules) => void;
 }) {
   const groups = groupedResources(schema);
   const allResources = Object.keys(schema);
+
+  const modified = (resource: string) =>
+    baseline !== undefined &&
+    (dataScope[resource] ?? DataScope.ALL) !== (baseline[resource] ?? DataScope.ALL);
 
   return (
     <div className="space-y-5">
@@ -77,24 +84,32 @@ export function DataScopeEditor({
                   className="flex items-center justify-between gap-3 px-3 py-2"
                 >
                   <span className="text-sm">{resourceLabel(resource)}</span>
-                  <Select
-                    value={dataScope[resource] ?? DataScope.ALL}
-                    disabled={readOnly}
-                    onValueChange={(v) =>
-                      onChange(setScope(dataScope, resource, v as DataScope))
-                    }
-                  >
-                    <SelectTrigger className="h-8 w-36">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SCOPES.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {scopeLabel(s)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <span className="relative inline-flex">
+                    <Select
+                      value={dataScope[resource] ?? DataScope.ALL}
+                      disabled={readOnly}
+                      onValueChange={(v) =>
+                        onChange(setScope(dataScope, resource, v as DataScope))
+                      }
+                    >
+                      <SelectTrigger className="h-8 w-36">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SCOPES.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {scopeLabel(s)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {modified(resource) ? (
+                      <span
+                        className="absolute -top-1 -right-1 size-1.5 rounded-full bg-brand"
+                        title="Changed"
+                      />
+                    ) : null}
+                  </span>
                 </div>
               ))}
             </div>
