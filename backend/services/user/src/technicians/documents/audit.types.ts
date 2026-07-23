@@ -10,3 +10,12 @@ export interface AuditEntry {
   resource: string;
   timestamp: string;
 }
+
+/**
+ * Read shape of the audit trail: actor display name resolved server-side,
+ * because viewers (e.g. the technician themselves) may lack `users.view`.
+ * Absent when the actor is unknown (deleted user, legacy row with no actor).
+ */
+export interface AuditEntryWithActor extends AuditEntry {
+  actorName?: string;
+}

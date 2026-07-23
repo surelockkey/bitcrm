@@ -13,7 +13,6 @@ import { type JwtUser, type DocumentType } from '@bitcrm/types';
 import { Internal } from '../../common/decorators/internal.decorator';
 import { DocumentsService } from './documents.service';
 import { SensitiveService } from './sensitive.service';
-import { AuditRepository } from './audit.repository';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { SetSensitiveDto } from './dto/set-sensitive.dto';
 
@@ -24,7 +23,6 @@ export class DocumentsController {
   constructor(
     private readonly documents: DocumentsService,
     private readonly sensitive: SensitiveService,
-    private readonly audit: AuditRepository,
   ) {}
 
   // --- Internal (service-to-service) ---
@@ -138,12 +136,14 @@ export class DocumentsController {
   @RequirePermission('documents', 'view')
   @ApiOperation({
     summary: 'List the sensitive-data access audit trail',
-    description: '**Guard:** `documents.view` permission required. Manager+ or self.',
+    description:
+      '**Guard:** `documents.view` permission required. Manager+ or self. ' +
+      'Rows carry `actorName` resolved server-side (viewers may lack `users.view`).',
   })
   async auditTrail(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     // view is gated by the guard + service-level checks on the sensitive/documents reads;
     // listing the trail itself requires documents.view.
-    const data = await this.audit.listByUser(id);
+    const data = await this.documents.getAuditTrail(id);
     return { success: true, data };
   }
 }
