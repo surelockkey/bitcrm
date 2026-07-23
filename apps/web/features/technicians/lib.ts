@@ -23,11 +23,25 @@ export function techUser(userId: string, map: Map<string, User>): User | undefin
   return map.get(userId);
 }
 
-export function techName(userId: string, map: Map<string, User>): string {
-  const u = map.get(userId);
-  if (!u) return "Unknown technician";
+function userLabel(u: User): string {
   const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
   return name || u.email;
+}
+
+export function techName(userId: string, map: Map<string, User>): string {
+  const u = map.get(userId);
+  return u ? userLabel(u) : "Unknown technician";
+}
+
+/**
+ * Audit actors are any staff member (often an admin), and rows written before
+ * the `custom:user_id` claim backfill may have no actor at all.
+ */
+export function actorName(actorId: string | undefined, map: Map<string, User>): string {
+  if (!actorId) return "Unknown user";
+  if (actorId === "system") return "System";
+  const u = map.get(actorId);
+  return u ? userLabel(u) : "Unknown user";
 }
 
 /* ---- Skills ---- */

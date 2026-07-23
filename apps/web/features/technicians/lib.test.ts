@@ -4,6 +4,7 @@ import { UserStatus } from "@bitcrm/types";
 import {
   onboardingPct,
   techName,
+  actorName,
   groupSkills,
   approvedValues,
   isAssignable,
@@ -30,6 +31,29 @@ describe("techName — profiles have no name, so join with Users", () => {
     expect(techName("u2", map)).toBe("Unknown technician");
   });
   void UserStatus;
+});
+
+describe("actorName — audit actors are any staff, not necessarily technicians", () => {
+  const map = new Map<string, User>([
+    ["u1", { id: "u1", firstName: "Riley", lastName: "Santos", email: "riley@slk" } as User],
+    ["u3", { id: "u3", firstName: "", lastName: "", email: "ops@slk" } as User],
+  ]);
+  it("joins the actor name by id", () => {
+    expect(actorName("u1", map)).toBe("Riley Santos");
+  });
+  it("falls back to the email when the name is empty", () => {
+    expect(actorName("u3", map)).toBe("ops@slk");
+  });
+  it("says Unknown user (not technician) for an actor missing from the map", () => {
+    expect(actorName("u2", map)).toBe("Unknown user");
+  });
+  it("handles records written without an actor id", () => {
+    expect(actorName(undefined, map)).toBe("Unknown user");
+    expect(actorName("", map)).toBe("Unknown user");
+  });
+  it("labels system-written records", () => {
+    expect(actorName("system", map)).toBe("System");
+  });
 });
 
 describe("skills grouping + assignability", () => {
