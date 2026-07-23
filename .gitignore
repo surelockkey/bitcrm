@@ -66,3 +66,6 @@ project-info/
 
 # Claude planning docs (local only)
 claude-plans/
+
+# Local scratch
+ring-call/

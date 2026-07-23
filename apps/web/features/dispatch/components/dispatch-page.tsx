@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapsProvider } from "@/components/maps/maps-provider";
-import { Briefcase, KeyRound, Layers, Loader2, RefreshCw, TriangleAlert, Wrench } from "lucide-react";
+import { Briefcase, KeyRound, Layers, Loader2, Map as MapIcon, RefreshCw, TriangleAlert, Wrench } from "lucide-react";
 import { DealStageGroup } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactMap, useDeals, useReorderDeals, useUserMap } from "@/features/deals/hooks";
 import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
+import { useServiceAreas } from "@/features/service-areas/hooks";
 import {
   filterDeals,
   jobTypeLabel,
@@ -28,6 +29,7 @@ import {
 import { contactName } from "@/features/clients/lib";
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
 import { DispatchMap } from "./dispatch-map";
+import { ServiceAreaLegend } from "./service-area-overlay";
 import { JobList } from "./job-list";
 import { TechList } from "./tech-list";
 import { JobSidebar } from "./job-sidebar";
@@ -95,6 +97,10 @@ export function DispatchPage() {
 
   const [view, setView] = useState<View>("split");
   const [layer, setLayer] = useState<Layer>("both");
+  // Coverage polygons are a background layer, orthogonal to the marker layer,
+  // so they get their own on/off toggle. On by default — dispatchers asked to
+  // see where jobs fall relative to their areas.
+  const [showAreas, setShowAreas] = useState(true);
   const [filters, setFilters] = useState<DispatchFilters>(loadFilters);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -139,6 +145,10 @@ export function DispatchPage() {
   const canSeeTechs = can("technicians", "view");
   const { profiles } = useAllTechnicians(canSeeTechs);
   const { data: liveLocations } = useTechnicianLocations(canSeeTechs);
+  // Only fetch the catalog when the viewer can read it — dispatchers without the
+  // permission would 403 on every load.
+  const canSeeAreas = can("service_areas", "view");
+  const { data: serviceAreasData } = useServiceAreas(canSeeAreas);
   const reorder = useReorderDeals();
 
   const deals = useMemo(() => query.data ?? [], [query.data]);
@@ -186,6 +196,12 @@ export function DispatchPage() {
   const showTechLayer = layer !== "jobs" && canSeeTechs;
   const mapJobs = showJobLayer ? mapped : [];
   const mapTechs = showTechLayer ? technicians : [];
+  // Memoized so the overlay's polygons only rebuild when the set actually
+  // changes, not on every unrelated render (hover, selection, poll).
+  const mapAreas = useMemo(
+    () => (showAreas ? serviceAreasData ?? [] : []),
+    [showAreas, serviceAreasData],
+  );
 
   const selected = useMemo(
     () => filtered.find((d) => d.id === selectedId) ?? null,
@@ -342,6 +358,22 @@ export function DispatchPage() {
           </div>
         ) : null}
 
+        {/* Service-area boundaries — an independent background layer. */}
+        {showMap && canSeeAreas ? (
+          <div className="flex rounded-md border p-0.5">
+            <Button
+              size="sm"
+              variant={showAreas ? "secondary" : "ghost"}
+              className="h-7 gap-1.5 px-3 text-xs"
+              onClick={() => setShowAreas((s) => !s)}
+              title="Toggle service area boundaries"
+            >
+              <MapIcon className="size-3.5" />
+              Areas
+            </Button>
+          </div>
+        ) : null}
+
         <div className="flex rounded-md border p-0.5">
           {(["split", "map", "list"] as const).map((v) => (
             <Button
@@ -418,21 +450,25 @@ export function DispatchPage() {
               {/* Both are required: without a vector Map ID the map loads but
                   draws no pins, which looks like a bug rather than a gap in setup. */}
               {env.googleMapsApiKey && env.googleMapsMapId ? (
-                <DispatchMap
-                  deals={mapJobs}
-                  allDeals={deals}
-                  technicians={mapTechs}
-                  userMap={users}
-                  hoveredId={hoveredId}
-                  selectedId={selectedId}
-                  panTo={selectedPosition}
-                  panNonce={panNonce}
-                  onHover={setHoveredId}
-                  onSelect={select}
-                  label={(d) =>
-                    `#${d.dealNumber} · ${contactNames.get(d.contactId) ?? "Unknown client"}`
-                  }
-                />
+                <>
+                  <DispatchMap
+                    deals={mapJobs}
+                    allDeals={deals}
+                    technicians={mapTechs}
+                    serviceAreas={mapAreas}
+                    userMap={users}
+                    hoveredId={hoveredId}
+                    selectedId={selectedId}
+                    panTo={selectedPosition}
+                    panNonce={panNonce}
+                    onHover={setHoveredId}
+                    onSelect={select}
+                    label={(d) =>
+                      `#${d.dealNumber} · ${contactNames.get(d.contactId) ?? "Unknown client"}`
+                    }
+                  />
+                  <ServiceAreaLegend areas={mapAreas} />
+                </>
               ) : (
                 <MissingConfig
                   missingKey={!env.googleMapsApiKey}

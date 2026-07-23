@@ -8,10 +8,11 @@ import * as api from "./api";
 
 /* --------------------------------------------------------------- queries */
 
-export function useServiceAreas() {
+export function useServiceAreas(enabled = true) {
   return useQuery({
     queryKey: queryKeys.serviceAreas.list(),
     queryFn: api.listServiceAreas,
+    enabled,
   });
 }
 
