@@ -22,6 +22,12 @@ Publishers and consumers import these so the wire format can't drift; the
 ## Topic: `deal-events` (published by deal-service)
 `deal.created`, `deal.stage_changed`, `deal.completed`, `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
 
+A deal carries **many** technicians (`assignedTechIds`), so `deal.tech_assigned` /
+`deal.tech_unassigned` (`{dealId, techId, …}`) fire **once per technician** added or
+removed by a roster change. Assignment itself is stored as adjacency rows
+(`PK=DEAL#<id>, SK=ASSIGN#<techId>`) indexed on the tech GSI, which is what
+`findByTech` — and therefore the `assigned_only` data scope — reads.
+
 Service-area catalog: `service-area.created`, `service-area.updated`, `service-area.deleted`
 (`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD.
 

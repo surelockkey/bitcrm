@@ -13,6 +13,7 @@ import type { Contact, Deal, User } from "@bitcrm/types";
 import { contactName, initials } from "@/features/clients/lib";
 import { formatMoney, formatSchedule, isUrgent } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
+import { TechChips } from "./assigned-techs";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 
 export function DealsTable({
@@ -44,7 +45,6 @@ export function DealsTable({
         <TableBody>
           {deals.map((d) => {
             const contact = contactMap.get(d.contactId);
-            const tech = d.assignedTechId ? userMap.get(d.assignedTechId) : undefined;
             const total = d.actualTotal ?? d.estimatedTotal;
             return (
               <TableRow key={d.id} className="cursor-pointer" onClick={() => router.push(`/deals/${d.id}`)}>
@@ -57,16 +57,7 @@ export function DealsTable({
                 <TableCell className="text-sm text-muted-foreground">{d.serviceArea}</TableCell>
                 <TableCell><StageBadge stage={d.stage} /></TableCell>
                 <TableCell>
-                  {tech ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm">
-                      <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-bold">
-                        {initials(tech.firstName, tech.lastName)}
-                      </span>
-                      {tech.firstName}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
+                  <TechChips techIds={d.assignedTechIds} userMap={userMap} emptyText="—" />
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}

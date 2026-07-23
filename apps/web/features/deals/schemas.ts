@@ -57,6 +57,7 @@ export const changeStageSchema = z.object({
 });
 
 export const addProductSchema = z.object({
+  sourceTechId: z.string().min(1, "Pick a technician"),
   productId: z.string(),
   name: z.string(),
   sku: z.string(),

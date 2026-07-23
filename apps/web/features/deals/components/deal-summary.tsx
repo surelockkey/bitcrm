@@ -14,6 +14,7 @@ import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { AssignTechDialog } from "./assign-tech-dialog";
+import { TechChips } from "./assigned-techs";
 
 export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const jobTypeName = useJobTypeName();
@@ -27,7 +28,6 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
 
   const contact = contactMap.get(deal.contactId);
   const company = deal.companyId ? companyMap.get(deal.companyId) : undefined;
-  const tech = deal.assignedTechId ? userMap.get(deal.assignedTechId) : undefined;
   const total = dealTotal(products ?? []);
 
   return (
@@ -69,36 +69,19 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
         )}
       </Card>
 
-      {/* Technician */}
-      <Card icon={<Wrench className="size-3.5" />} title="Technician">
-        {tech ? (
-          <div className="flex items-center gap-2">
-            <span className="grid size-8 place-items-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">
-              {initials(tech.firstName, tech.lastName)}
-            </span>
-            <div className="flex-1 text-sm font-medium">{tech.firstName} {tech.lastName}</div>
-            {canEdit ? (
-              <button
-                type="button"
-                onClick={() => unassign.mutate()}
-                disabled={unassign.isPending}
-                className="text-muted-foreground hover:text-destructive"
-                aria-label="Unassign technician"
-              >
-                {unassign.isPending ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <>
-            <div className="text-sm text-muted-foreground">Unassigned</div>
-            {canEdit ? (
-              <Button variant="brand" size="sm" className="mt-2 w-full gap-1.5" onClick={() => setAssignOpen(true)}>
-                <UserPlus className="size-3.5" /> Assign technician
-              </Button>
-            ) : null}
-          </>
-        )}
+      {/* Technicians */}
+      <Card icon={<Wrench className="size-3.5" />} title="Technicians">
+        <TechChips
+          techIds={deal.assignedTechIds}
+          userMap={userMap}
+          onRemove={canEdit ? (techId) => unassign.mutate(techId) : undefined}
+        />
+        {canEdit ? (
+          <Button variant="brand" size="sm" className="mt-2 w-full gap-1.5" onClick={() => setAssignOpen(true)}>
+            {unassign.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <UserPlus className="size-3.5" />}
+            {deal.assignedTechIds.length ? "Edit crew" : "Assign technicians"}
+          </Button>
+        ) : null}
       </Card>
 
       {/* Financials */}
@@ -115,7 +98,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
         </dl>
       </Card>
 
-      <AssignTechDialog dealId={deal.id} open={assignOpen} onOpenChange={setAssignOpen} />
+      <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open={assignOpen} onOpenChange={setAssignOpen} />
     </div>
   );
 }

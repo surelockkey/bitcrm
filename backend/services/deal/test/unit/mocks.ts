@@ -32,7 +32,9 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
     address: createMockAddress(),
     jobTypeId: 'jobtype-1',
     stage: DealStage.NEW_LEAD,
+    assignedTechIds: [],
     assignedDispatcherId: 'dispatcher-1',
+    sequences: {},
     priority: DealPriority.NORMAL,
     tagIds: [],
     status: DealStatus.ACTIVE,
@@ -155,6 +157,10 @@ export function createMockDealsRepository() {
     update: jest.fn(),
     softDelete: jest.fn(),
     getNextDealNumber: jest.fn(),
+    addAssignment: jest.fn(),
+    removeAssignment: jest.fn(),
+    listAssignmentTechIds: jest.fn().mockResolvedValue([]),
+    restampAssignmentDates: jest.fn(),
   };
 }
 

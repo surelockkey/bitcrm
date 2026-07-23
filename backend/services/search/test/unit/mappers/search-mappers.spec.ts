@@ -43,7 +43,7 @@ describe('search-mappers', () => {
       address: { street: '5 Main St', city: 'NYC', state: 'NY', zip: '11201' } as any,
       jobTypeId: 'jt-install',
       stage: DealStage.ASSIGNED,
-      assignedTechId: 'tech1',
+      assignedTechIds: ['tech1', 'tech2'],
       assignedDispatcherId: 'disp1',
       priority: DealPriority.URGENT,
       tagIds: ['t-vip', 't-rush'],
@@ -66,7 +66,7 @@ describe('search-mappers', () => {
     it('collects all owner ids for ASSIGNED_ONLY scope', () => {
       const doc = mapDeal(deal);
       expect(doc.ownerIds).toEqual(
-        expect.arrayContaining(['tech1', 'disp1', 'creator1']),
+        expect.arrayContaining(['tech1', 'tech2', 'disp1', 'creator1']),
       );
     });
 

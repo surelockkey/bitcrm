@@ -18,7 +18,8 @@ import { UpdateDealDto } from './dto/update-deal.dto';
 import { ChangeStageDto } from './dto/change-stage.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
-import { AssignTechDto } from './dto/assign-tech.dto';
+import { AssignTechsDto } from './dto/assign-techs.dto';
+import { UnassignTechDto } from './dto/unassign-tech.dto';
 import { ReorderDto } from './dto/reorder.dto';
 import { AddDealProductDto } from './dto/add-deal-product.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
@@ -187,29 +188,32 @@ export class DealsController {
   @Post(':id/assign')
   @RequirePermission('deals', 'edit')
   @ApiOperation({
-    summary: 'Assign technician to deal',
-    description: '**Guard:** `deals.edit` permission required. Auto-transitions to ASSIGNED if in submitted group.',
+    summary: 'Set the technician roster on a deal',
+    description:
+      '**Guard:** `deals.edit` permission required. Body carries the full `techIds` roster ' +
+      '(diffed against the current one). Auto-transitions to ASSIGNED on the first assignment.',
   })
-  async assignTech(
+  async assignTechs(
     @Param('id') id: string,
-    @Body() dto: AssignTechDto,
+    @Body() dto: AssignTechsDto,
     @CurrentUser() user: JwtUser,
   ) {
-    const data = await this.dealsService.assignTech(id, dto, user);
+    const data = await this.dealsService.assignTechs(id, dto.techIds, user);
     return { success: true, data };
   }
 
   @Post(':id/unassign')
   @RequirePermission('deals', 'edit')
   @ApiOperation({
-    summary: 'Remove technician assignment',
-    description: '**Guard:** `deals.edit` permission required.',
+    summary: 'Remove one technician from a deal',
+    description: '**Guard:** `deals.edit` permission required. Body names the `techId` to remove.',
   })
   async unassignTech(
     @Param('id') id: string,
+    @Body() dto: UnassignTechDto,
     @CurrentUser() user: JwtUser,
   ) {
-    const data = await this.dealsService.unassignTech(id, user);
+    const data = await this.dealsService.unassignTech(id, dto.techId, user);
     return { success: true, data };
   }
 
@@ -219,8 +223,8 @@ export class DealsController {
   @ApiOperation({
     summary: 'Reorder a technician’s jobs (drag-and-drop)',
     description:
-      '**Guard:** `deals.edit` permission required. Writes sequenceNumber 1..N in ' +
-      'the given order for the technician’s own jobs; ids that are not theirs are ignored.',
+      '**Guard:** `deals.edit` permission required. Writes that technician’s own ' +
+      'sequence 1..N in the given order; ids that are not theirs are ignored.',
   })
   async reorder(@Body() dto: ReorderDto, @CurrentUser() user: JwtUser) {
     await this.dealsService.reorderSchedule(dto, user);

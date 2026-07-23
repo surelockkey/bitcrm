@@ -2,6 +2,8 @@ import { DealStage, DealStatus } from '@bitcrm/types';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { createMockDeal, createMockDynamoDbService } from '../mocks';
 
+const TABLE = process.env.DEALS_TABLE || 'BitCRM_Deals';
+
 describe('DealsRepository', () => {
   let repository: DealsRepository;
   let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
@@ -24,29 +26,10 @@ describe('DealsRepository', () => {
       expect(item.PK).toBe('DEAL#deal-1');
       expect(item.SK).toBe('METADATA');
       expect(item.GSI1PK).toBe('STAGE#new_lead');
-      expect(item.GSI2PK).toBe('TECH#UNASSIGNED');
+      // The tech index (GSI2) lives on ASSIGN# rows, not deal metadata.
+      expect(item.GSI2PK).toBeUndefined();
       expect(item.GSI3PK).toBe('CONTACT#contact-1');
       expect(item.GSI4PK).toBe('DISPATCHER#dispatcher-1');
-    });
-
-    it('should set GSI2PK to tech ID when assigned', async () => {
-      const deal = createMockDeal({ assignedTechId: 'tech-1' });
-      dynamoDb.client.send.mockResolvedValue({});
-
-      await repository.create(deal);
-
-      const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.Item.GSI2PK).toBe('TECH#tech-1');
-    });
-
-    it('should use createdAt for GSI2SK when no scheduledDate', async () => {
-      const deal = createMockDeal({ scheduledDate: undefined });
-      dynamoDb.client.send.mockResolvedValue({});
-
-      await repository.create(deal);
-
-      const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.Item.GSI2SK).toContain(deal.createdAt);
     });
 
     it('should set ConditionExpression', async () => {
@@ -85,7 +68,7 @@ describe('DealsRepository', () => {
         companyId: 'comp-1', scheduledTimeSlot: '09:00-12:00',
         sourceId: 'src-1', notes: 'Test', internalNotes: 'Internal',
         cancellationReason: undefined, estimatedTotal: 100, actualTotal: 90,
-        paymentStatus: 'paid', sequenceNumber: 2,
+        paymentStatus: 'paid', assignedTechIds: ['tech-1', 'tech-2'], sequences: { 'tech-1': 2 },
       });
       dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...deal } });
 
@@ -96,7 +79,8 @@ describe('DealsRepository', () => {
       expect(result!.sourceId).toBe('src-1');
       expect(result!.estimatedTotal).toBe(100);
       expect(result!.paymentStatus).toBe('paid');
-      expect(result!.sequenceNumber).toBe(2);
+      expect(result!.assignedTechIds).toEqual(['tech-1', 'tech-2']);
+      expect(result!.sequences).toEqual({ 'tech-1': 2 });
     });
   });
 
@@ -139,7 +123,7 @@ describe('DealsRepository', () => {
   });
 
   describe('findByTech', () => {
-    it('should query GSI2 with correct tech key', async () => {
+    it('queries GSI2 for the tech assignment rows', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [], Count: 0 });
 
       await repository.findByTech('tech-1', 20);
@@ -149,15 +133,61 @@ describe('DealsRepository', () => {
       expect(command.input.ExpressionAttributeValues[':pk']).toBe('TECH#tech-1');
     });
 
-    it('should return mapped deal items', async () => {
-      const deal = createMockDeal({ assignedTechId: 'tech-1' });
-      dynamoDb.client.send.mockResolvedValue({
-        Items: [{ ...deal, PK: 'DEAL#deal-1', SK: 'METADATA' }],
-      });
+    it('batch-gets the deals referenced by the assignment rows', async () => {
+      const deal = createMockDeal({ id: 'deal-1', assignedTechIds: ['tech-1'] });
+      dynamoDb.client.send
+        // GSI2 query → assignment rows carrying dealId
+        .mockResolvedValueOnce({ Items: [{ dealId: 'deal-1', techId: 'tech-1' }] })
+        // BatchGet → deal metadata
+        .mockResolvedValueOnce({
+          Responses: { [TABLE]: [{ ...deal, PK: 'DEAL#deal-1', SK: 'METADATA' }] },
+        });
 
       const result = await repository.findByTech('tech-1', 20);
-      expect(result.items.length).toBe(1);
-      expect(result.items[0].id).toBe('deal-1');
+
+      expect(result.items.map((d) => d.id)).toEqual(['deal-1']);
+      const batch = dynamoDb.client.send.mock.calls[1][0];
+      expect(batch.input.RequestItems[TABLE].Keys).toEqual([{ PK: 'DEAL#deal-1', SK: 'METADATA' }]);
+    });
+
+    it('returns empty without a BatchGet when the tech has no assignments', async () => {
+      dynamoDb.client.send.mockResolvedValueOnce({ Items: [] });
+      const result = await repository.findByTech('tech-1', 20);
+      expect(result.items).toEqual([]);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('assignment rows', () => {
+    it('addAssignment writes an ASSIGN# row on the tech index', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+      await repository.addAssignment('deal-1', 'tech-1', '2026-05-01', 'disp-1');
+
+      const item = dynamoDb.client.send.mock.calls[0][0].input.Item;
+      expect(item.PK).toBe('DEAL#deal-1');
+      expect(item.SK).toBe('ASSIGN#tech-1');
+      expect(item.GSI2PK).toBe('TECH#tech-1');
+      expect(item.GSI2SK).toContain('2026-05-01');
+      expect(item.techId).toBe('tech-1');
+    });
+
+    it('removeAssignment deletes the ASSIGN# row', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+      await repository.removeAssignment('deal-1', 'tech-1');
+
+      const key = dynamoDb.client.send.mock.calls[0][0].input.Key;
+      expect(key).toEqual({ PK: 'DEAL#deal-1', SK: 'ASSIGN#tech-1' });
+    });
+
+    it('listAssignmentTechIds queries the ASSIGN# rows', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Items: [{ techId: 'tech-1' }, { techId: 'tech-2' }],
+      });
+      expect(await repository.listAssignmentTechIds('deal-1')).toEqual(['tech-1', 'tech-2']);
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.ExpressionAttributeValues[':pk']).toBe('DEAL#deal-1');
+      expect(input.ExpressionAttributeValues[':sk']).toBe('ASSIGN#');
     });
   });
 
@@ -277,37 +307,17 @@ describe('DealsRepository', () => {
       expect(command.input.ExpressionAttributeValues[':GSI1PK']).toBe('STAGE#assigned');
     });
 
-    it('should update GSI keys when tech changes', async () => {
+    it('writes assignedTechIds and sequences as plain attributes (no metadata GSI2)', async () => {
       dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...createMockDeal({ assignedTechId: 'tech-2' }) },
+        Attributes: { ...createMockDeal({ assignedTechIds: ['tech-2'] }) },
       });
 
-      await repository.update('deal-1', { assignedTechId: 'tech-2' });
+      await repository.update('deal-1', { assignedTechIds: ['tech-2'], sequences: { 'tech-2': 1 } });
 
       const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.ExpressionAttributeValues[':GSI2PK']).toBe('TECH#tech-2');
-    });
-
-    it('should set TECH#UNASSIGNED when assignedTechId is empty', async () => {
-      dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...createMockDeal({ assignedTechId: '' }) },
-      });
-
-      await repository.update('deal-1', { assignedTechId: '' } as any);
-
-      const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.ExpressionAttributeValues[':GSI2PK']).toBe('TECH#UNASSIGNED');
-    });
-
-    it('should update GSI2SK when scheduledDate changes', async () => {
-      dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...createMockDeal({ scheduledDate: '2026-05-01' }) },
-      });
-
-      await repository.update('deal-1', { scheduledDate: '2026-05-01' });
-
-      const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.ExpressionAttributeValues[':GSI2SK']).toContain('2026-05-01');
+      expect(command.input.UpdateExpression).toContain('#assignedTechIds');
+      expect(command.input.UpdateExpression).toContain('#sequences');
+      expect(command.input.ExpressionAttributeValues).not.toHaveProperty(':GSI2PK');
     });
 
     it('should not update immutable fields', async () => {

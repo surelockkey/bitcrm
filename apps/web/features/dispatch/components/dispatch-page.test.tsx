@@ -93,6 +93,7 @@ const LOCATED = {
   stage: "new_lead",
   assignedDispatcherId: "d1",
   priority: "normal",
+  assignedTechIds: [],
   tagIds: [],
   status: "active",
   createdBy: "d1",

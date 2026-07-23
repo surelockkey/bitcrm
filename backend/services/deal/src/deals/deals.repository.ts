@@ -2,9 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   GetCommand,
   PutCommand,
+  DeleteCommand,
   QueryCommand,
   ScanCommand,
   UpdateCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { DealStatus, type Deal } from '@bitcrm/types';
@@ -40,9 +42,9 @@ export class DealsRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
 
   /**
-   * Builds the `#status = :active [AND ...]` FilterExpression shared by every
-   * list query, appending equality filters and tag `contains` checks. All
-   * attribute names are aliased to dodge DynamoDB reserved words.
+   * Builds the `#status = :active [AND ...]` FilterExpression shared by the
+   * index-backed list queries, appending equality filters and tag `contains`
+   * checks. All attribute names are aliased to dodge DynamoDB reserved words.
    */
   private dealFilterExpression(
     filters?: DealFilters,
@@ -76,17 +78,33 @@ export class DealsRepository {
     return { expression: parts.join(' AND '), names, values };
   }
 
+  /**
+   * In-memory equivalent of `dealFilterExpression`, used after a BatchGet where
+   * the filter can't run in the query (findByTech resolves deals from
+   * assignment rows, then filters the fetched metadata).
+   */
+  private matchesFilters(deal: Deal, filters?: DealFilters, status: string = DealStatus.ACTIVE): boolean {
+    if (deal.status !== status) return false;
+    if (filters?.jobTypeId && deal.jobTypeId !== filters.jobTypeId) return false;
+    if (filters?.sourceId && deal.sourceId !== filters.sourceId) return false;
+    if (filters?.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
+    if (filters?.clientType && deal.clientType !== filters.clientType) return false;
+    if (filters?.priority && deal.priority !== filters.priority) return false;
+    if (filters?.dealNumber !== undefined && deal.dealNumber !== filters.dealNumber) return false;
+    if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    return true;
+  }
+
   async create(deal: Deal): Promise<void> {
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: this.tableName,
+        // No GSI2 on metadata: the tech index is owned by ASSIGN#<techId> rows.
         Item: {
           PK: `DEAL#${deal.id}`,
           SK: 'METADATA',
           GSI1PK: `STAGE#${deal.stage}`,
           GSI1SK: `${deal.createdAt}#DEAL#${deal.id}`,
-          GSI2PK: `TECH#${deal.assignedTechId || 'UNASSIGNED'}`,
-          GSI2SK: `${deal.scheduledDate || deal.createdAt}#DEAL#${deal.id}`,
           GSI3PK: `CONTACT#${deal.contactId}`,
           GSI3SK: `${deal.createdAt}#DEAL#${deal.id}`,
           GSI4PK: `DISPATCHER#${deal.assignedDispatcherId}`,
@@ -137,29 +155,34 @@ export class DealsRepository {
     };
   }
 
+  /**
+   * A technician's deals — every deal they're assigned to. Queries the tech
+   * index for the technician's `ASSIGN#` rows, then batch-gets the deal
+   * metadata. Filters run in memory since they target deal attributes, not the
+   * assignment rows.
+   */
   async findByTech(
     techId: string,
     limit: number,
     cursor?: string,
     filters?: DealFilters,
   ): Promise<PaginatedResult> {
-    const f = this.dealFilterExpression(filters);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI2_NAME,
         KeyConditionExpression: 'GSI2PK = :pk',
-        FilterExpression: f.expression,
-        ExpressionAttributeValues: { ':pk': `TECH#${techId}`, ...f.values },
-        ExpressionAttributeNames: f.names,
+        ExpressionAttributeValues: { ':pk': `TECH#${techId}` },
         ScanIndexForward: false,
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
       }),
     );
 
+    const dealIds = (result.Items || []).map((i) => i.dealId as string);
+    const deals = await this.batchGetDeals(dealIds);
     return {
-      items: (result.Items || []).map((i) => this.toDeal(i)),
+      items: deals.filter((d) => this.matchesFilters(d, filters)),
       nextCursor: this.encodeCursor(result.LastEvaluatedKey),
     };
   }
@@ -242,6 +265,85 @@ export class DealsRepository {
     };
   }
 
+  // ------------------------------------------------------------- assignments
+
+  /**
+   * Assignment adjacency row: PK=DEAL#<id>, SK=ASSIGN#<techId>, indexed on the
+   * tech GSI so `findByTech` returns every deal a technician is on. Idempotent —
+   * re-adding the same tech overwrites the row (refreshes the sort key).
+   */
+  async addAssignment(
+    dealId: string,
+    techId: string,
+    scheduledDate: string | undefined,
+    by: string,
+  ): Promise<void> {
+    await this.dynamoDb.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          PK: `DEAL#${dealId}`,
+          SK: `ASSIGN#${techId}`,
+          GSI2PK: `TECH#${techId}`,
+          GSI2SK: `${scheduledDate || new Date().toISOString()}#DEAL#${dealId}`,
+          dealId,
+          techId,
+          assignedBy: by,
+          assignedAt: new Date().toISOString(),
+          scheduledDate,
+        },
+      }),
+    );
+  }
+
+  async removeAssignment(dealId: string, techId: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+      }),
+    );
+  }
+
+  /** The technician ids currently assigned to a deal (from its assignment rows). */
+  async listAssignmentTechIds(dealId: string): Promise<string[]> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+        ExpressionAttributeValues: { ':pk': `DEAL#${dealId}`, ':sk': 'ASSIGN#' },
+      }),
+    );
+    return (result.Items || []).map((i) => i.techId as string);
+  }
+
+  /** Re-stamp every assignment row's sort key when a deal's date changes. */
+  async restampAssignmentDates(dealId: string, scheduledDate: string | undefined, by: string): Promise<void> {
+    const techIds = await this.listAssignmentTechIds(dealId);
+    await Promise.all(techIds.map((techId) => this.addAssignment(dealId, techId, scheduledDate, by)));
+  }
+
+  private async batchGetDeals(ids: string[]): Promise<Deal[]> {
+    if (!ids.length) return [];
+    const deals: Deal[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const res = await this.dynamoDb.client.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [this.tableName]: {
+              Keys: chunk.map((id) => ({ PK: `DEAL#${id}`, SK: 'METADATA' })),
+            },
+          },
+        }),
+      );
+      for (const item of res.Responses?.[this.tableName] ?? []) deals.push(this.toDeal(item));
+    }
+    // Preserve the tech-index order the caller asked for.
+    const byId = new Map(deals.map((d) => [d.id, d]));
+    return ids.map((id) => byId.get(id)).filter((d): d is Deal => Boolean(d));
+  }
+
   async update(id: string, attrs: Partial<Deal>): Promise<Deal> {
     const setParts: string[] = [];
     const expressionNames: Record<string, string> = {};
@@ -250,16 +352,10 @@ export class DealsRepository {
     const now = new Date().toISOString();
     const updates: Record<string, unknown> = { ...attrs, updatedAt: now };
 
-    // Update GSI keys when relevant fields change
+    // Update GSI keys when relevant fields change. The tech index lives on the
+    // assignment rows now, so metadata only owns the stage index here.
     if (attrs.stage !== undefined) {
       updates['GSI1PK'] = `STAGE#${attrs.stage}`;
-    }
-    if (attrs.assignedTechId !== undefined) {
-      updates['GSI2PK'] = `TECH#${attrs.assignedTechId || 'UNASSIGNED'}`;
-    }
-    if (attrs.scheduledDate !== undefined) {
-      // GSI2SK needs deal id which we rebuild
-      updates['GSI2SK'] = `${attrs.scheduledDate}#DEAL#${id}`;
     }
 
     const immutableKeys = new Set([
@@ -323,9 +419,9 @@ export class DealsRepository {
       address: item.address as Deal['address'],
       jobTypeId: item.jobTypeId as string,
       stage: item.stage as Deal['stage'],
-      assignedTechId: item.assignedTechId as string | undefined,
+      assignedTechIds: (item.assignedTechIds as string[]) || [],
       assignedDispatcherId: item.assignedDispatcherId as string,
-      sequenceNumber: item.sequenceNumber as number | undefined,
+      sequences: (item.sequences as Record<string, number>) || {},
       priority: item.priority as Deal['priority'],
       sourceId: item.sourceId as string | undefined,
       notes: item.notes as string | undefined,

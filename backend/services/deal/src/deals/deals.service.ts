@@ -44,7 +44,6 @@ import { type UpdateDealDto } from './dto/update-deal.dto';
 import { type ChangeStageDto } from './dto/change-stage.dto';
 import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
-import { type AssignTechDto } from './dto/assign-tech.dto';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 
@@ -182,6 +181,7 @@ export class DealsService {
       address,
       jobTypeId: dto.jobTypeId,
       stage: DealStage.NEW_LEAD,
+      assignedTechIds: [],
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
@@ -310,6 +310,16 @@ export class DealsService {
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
+
+    // Moving the deal's date re-stamps its assignment rows (so each tech's day
+    // re-sorts on the tech index) and renumbers both the old and new days.
+    if (updates.scheduledDate !== undefined && updates.scheduledDate !== existing.scheduledDate) {
+      await this.repository.restampAssignmentDates(id, updates.scheduledDate, caller.id);
+      for (const techId of existing.assignedTechIds) {
+        await this.renumberTechSchedule(techId, existing.scheduledDate);
+        await this.renumberTechSchedule(techId, updates.scheduledDate);
+      }
+    }
 
     // Track field changes in timeline
     for (const [key, value] of Object.entries(dto)) {
@@ -452,62 +462,92 @@ export class DealsService {
       );
   }
 
-  async assignTech(id: string, dto: AssignTechDto, caller: JwtUser): Promise<Deal> {
+  /**
+   * Set the full technician roster on a deal (equal peers). Diffs the requested
+   * set against the current one: adds/removes assignment rows, renumbers each
+   * affected tech's day, and emits a per-tech event + timeline entry. The deal
+   * auto-transitions to ASSIGNED only when it goes from unassigned → assigned.
+   */
+  async assignTechs(id: string, techIds: string[], caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
 
-    const updates: Partial<Deal> = { assignedTechId: dto.techId };
+    const current = new Set(deal.assignedTechIds);
+    const requested = new Set(techIds);
+    const toAdd = techIds.filter((t) => !current.has(t));
+    const toRemove = deal.assignedTechIds.filter((t) => !requested.has(t));
+    if (!toAdd.length && !toRemove.length) return deal;
 
-    // Auto-transition to ASSIGNED if in submitted group
-    const group = STAGE_GROUPS[deal.stage];
-    if (group === DealStageGroup.SUBMITTED) {
+    for (const t of toAdd) await this.repository.addAssignment(id, t, deal.scheduledDate, caller.id);
+    for (const t of toRemove) await this.repository.removeAssignment(id, t);
+
+    const nextRoster = [...requested];
+    const updates: Partial<Deal> = { assignedTechIds: nextRoster };
+
+    // Empty → non-assigned transition (first assignment) advances the stage.
+    if (
+      deal.assignedTechIds.length === 0 &&
+      nextRoster.length > 0 &&
+      STAGE_GROUPS[deal.stage] === DealStageGroup.SUBMITTED
+    ) {
       updates.stage = DealStage.ASSIGNED;
     }
 
-    const result = await this.repository.update(id, updates);
-    await this.cache.invalidate(id);
-    this.businessMetrics?.dealTechAssignments.inc();
-
-    // Slot the job into the technician's day by scheduled time.
-    await this.renumberTechSchedule(dto.techId, deal.scheduledDate);
-
-    await this.addTimelineEntry(id, TimelineEventType.TECH_ASSIGNED, caller, {
-      techId: dto.techId,
-    });
-
-    this.publishEvent('deal.tech_assigned', {
-      dealId: id,
-      techId: dto.techId,
-      assignedBy: caller.id,
-    });
-
-    return result;
-  }
-
-  async unassignTech(id: string, caller: JwtUser): Promise<Deal> {
-    const deal = await this.findById(id);
-
-    if (!deal.assignedTechId) {
-      throw new BadRequestException('No technician assigned to this deal');
+    // Drop removed techs' per-tech sequence entries.
+    if (toRemove.length) {
+      const sequences = { ...(deal.sequences ?? {}) };
+      for (const t of toRemove) delete sequences[t];
+      updates.sequences = sequences;
     }
 
-    const previousTechId = deal.assignedTechId;
-    const result = await this.repository.update(id, { assignedTechId: '' } as any);
+    await this.repository.update(id, updates);
+    await this.cache.invalidate(id);
+    if (toAdd.length) this.businessMetrics?.dealTechAssignments.inc();
+
+    // Slot the deal into each affected tech's day by scheduled time.
+    for (const t of new Set([...toAdd, ...toRemove])) {
+      await this.renumberTechSchedule(t, deal.scheduledDate);
+    }
+
+    for (const t of toAdd) {
+      await this.addTimelineEntry(id, TimelineEventType.TECH_ASSIGNED, caller, { techId: t });
+      this.publishEvent('deal.tech_assigned', { dealId: id, techId: t, assignedBy: caller.id });
+    }
+    for (const t of toRemove) {
+      await this.addTimelineEntry(id, TimelineEventType.TECH_UNASSIGNED, caller, { previousTechId: t });
+      this.publishEvent('deal.tech_unassigned', { dealId: id, techId: t, unassignedBy: caller.id });
+    }
+
+    await this.cache.invalidate(id);
+    return this.findById(id);
+  }
+
+  /** Remove a single technician from a deal's roster. */
+  async unassignTech(id: string, techId: string, caller: JwtUser): Promise<Deal> {
+    const deal = await this.findById(id);
+
+    if (!deal.assignedTechIds.includes(techId)) {
+      throw new BadRequestException('Technician is not assigned to this deal');
+    }
+
+    await this.repository.removeAssignment(id, techId);
+    const sequences = { ...(deal.sequences ?? {}) };
+    delete sequences[techId];
+    await this.repository.update(id, {
+      assignedTechIds: deal.assignedTechIds.filter((t) => t !== techId),
+      sequences,
+    });
     await this.cache.invalidate(id);
 
     // Close the gap the removed job left in the technician's sequence.
-    await this.renumberTechSchedule(previousTechId, deal.scheduledDate);
+    await this.renumberTechSchedule(techId, deal.scheduledDate);
 
     await this.addTimelineEntry(id, TimelineEventType.TECH_UNASSIGNED, caller, {
-      previousTechId,
+      previousTechId: techId,
     });
+    this.publishEvent('deal.tech_unassigned', { dealId: id, techId, unassignedBy: caller.id });
 
-    this.publishEvent('deal.tech_unassigned', {
-      dealId: id,
-      techId: previousTechId,
-      unassignedBy: caller.id,
-    });
-
-    return result;
+    await this.cache.invalidate(id);
+    return this.findById(id);
   }
 
   /** Every active deal a technician has, drained across pages. */
@@ -525,7 +565,8 @@ export class DealsService {
   /**
    * Renumber a technician's schedule for a day: earliest scheduled job is [1].
    * Jobs are visited in scheduled-time order (EPIC-4's time-based sequencing),
-   * so assigning or removing one keeps the badges contiguous and correct.
+   * so assigning or removing one keeps that tech's badges contiguous. Only this
+   * technician's entry in each deal's `sequences` map is touched.
    */
   private async renumberTechSchedule(
     techId: string,
@@ -539,22 +580,25 @@ export class DealsService {
         (a.scheduledTimeSlot ?? '~').localeCompare(b.scheduledTimeSlot ?? '~'),
       );
 
-    await this.writeSequence(deals.map((d) => d.id));
+    await this.writeSequence(techId, deals.map((d) => d.id));
   }
 
-  /** Persist sequenceNumber 1..N for the given deal ids, in order. */
-  private async writeSequence(orderedIds: string[]): Promise<void> {
+  /** Persist `sequences[techId] = 1..N` across the given deals, in order. */
+  private async writeSequence(techId: string, orderedIds: string[]): Promise<void> {
     await Promise.all(
-      orderedIds.map((id, index) =>
-        this.repository.update(id, { sequenceNumber: index + 1 } as Partial<Deal>),
-      ),
+      orderedIds.map(async (id, index) => {
+        const deal = await this.repository.findById(id);
+        if (!deal) return;
+        const sequences = { ...(deal.sequences ?? {}), [techId]: index + 1 };
+        await this.repository.update(id, { sequences } as Partial<Deal>);
+      }),
     );
     for (const id of orderedIds) await this.cache.invalidate(id);
   }
 
   /**
-   * Manual drag-to-reorder of a technician's day. Writes the sequence in the
-   * given order, ignoring any id that isn't actually this technician's.
+   * Manual drag-to-reorder of a technician's day. Writes that tech's sequence in
+   * the given order, ignoring any id that isn't actually this technician's.
    */
   async reorderSchedule(
     dto: { techId: string; orderedDealIds: string[] },
@@ -565,11 +609,11 @@ export class DealsService {
     );
     const ordered = dto.orderedDealIds.filter((id) => owned.has(id));
 
-    await this.writeSequence(ordered);
+    await this.writeSequence(dto.techId, ordered);
 
     for (const id of ordered) {
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
-        field: 'sequenceNumber',
+        field: `sequences.${dto.techId}`,
         newValue: ordered.indexOf(id) + 1,
       });
     }
@@ -578,16 +622,20 @@ export class DealsService {
   async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
     const deal = await this.findById(id);
 
-    if (!deal.assignedTechId) {
+    if (deal.assignedTechIds.length === 0) {
       throw new BadRequestException('Cannot add products without an assigned technician');
     }
+    // The product comes from one specific technician's container.
+    if (!deal.assignedTechIds.includes(dto.sourceTechId)) {
+      throw new BadRequestException('The chosen technician is not assigned to this deal');
+    }
 
-    // Deduct from tech's container. A 4xx here (e.g. the tech doesn't carry
+    // Deduct from that tech's container. A 4xx here (e.g. the tech doesn't carry
     // enough of this product) is a client error, not a server fault — surface
     // it as a clear message referencing the product by name.
     try {
       await this.internalHttp.deductStock({
-        containerId: deal.assignedTechId,
+        containerId: dto.sourceTechId,
         items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
         dealId: id,
         performedBy: caller.id,
@@ -600,7 +648,7 @@ export class DealsService {
         error.getStatus() < 500
       ) {
         throw new BadRequestException(
-          `The assigned technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
+          `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
         );
       }
       throw error;
@@ -615,6 +663,7 @@ export class DealsService {
       costCompany: dto.costCompany,
       costForTech: dto.costForTech,
       priceClient: dto.priceClient,
+      sourceTechId: dto.sourceTechId,
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
@@ -642,10 +691,12 @@ export class DealsService {
       throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
     }
 
-    // Restore to tech's container
-    if (deal.assignedTechId) {
+    // Restore to the container the line was pulled from. Legacy rows without a
+    // recorded source fall back to the sole assigned tech, if any.
+    const restoreTo = product.sourceTechId ?? (deal.assignedTechIds.length === 1 ? deal.assignedTechIds[0] : undefined);
+    if (restoreTo) {
       await this.internalHttp.restoreStock({
-        containerId: deal.assignedTechId,
+        containerId: restoreTo,
         items: [{ productId: product.productId, productName: product.name, quantity: product.quantity }],
         dealId: id,
         performedBy: caller.id,

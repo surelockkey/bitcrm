@@ -2,6 +2,10 @@ import { IsString, IsNumber, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AddDealProductDto {
+  @ApiProperty({ example: 'tech-uuid', description: 'Assigned technician whose container supplies this product.' })
+  @IsString()
+  sourceTechId!: string;
+
   @ApiProperty({ example: 'product-uuid' })
   @IsString()
   productId!: string;

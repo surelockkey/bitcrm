@@ -35,6 +35,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
+    assignedTechIds: [],
     tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: "u1",
@@ -120,7 +121,7 @@ describe("filterDeals", () => {
   const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
   const list = [
     deal({ id: "a", dealNumber: 1042, contactId: "c1", stage: DealStage.NEW_LEAD, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
-    deal({ id: "b", dealNumber: 1040, contactId: "c2", stage: DealStage.ASSIGNED, jobTypeId: "jt-rekey", assignedTechId: "t9" }),
+    deal({ id: "b", dealNumber: 1040, contactId: "c2", stage: DealStage.ASSIGNED, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
   ];
   it("returns all with no filters", () => {
     expect(filterDeals(list, {}, names)).toHaveLength(2);

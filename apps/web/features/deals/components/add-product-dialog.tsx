@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Package, PackageX, Search, TriangleAlert } from "lucide-react";
 import { InventoryStatus } from "@bitcrm/types";
@@ -17,30 +17,25 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
-import { listContainers, getContainerStock } from "@/features/inventory/containers/api";
 import { useUserMap, useAddProduct } from "../hooks";
+import { fetchTechStock } from "../tech-stock";
 import { formatMoney, isPriceInBand, priceRange } from "../lib";
-
-/** Fetch the assigned technician's container stock as productId → quantity. */
-async function fetchTechStock(techId: string): Promise<Map<string, number>> {
-  const containers = await listContainers();
-  const container = containers.data.find((c) => c.technicianId === techId);
-  if (!container) return new Map();
-  const stock = await getContainerStock(container.id);
-  return new Map(stock.map((s) => [s.productId, s.quantity]));
-}
 
 export function AddProductDialog({
   dealId,
-  techId,
+  techIds,
   open,
   onOpenChange,
 }: {
   dealId: string;
-  techId?: string;
+  /** The deal's assigned technicians — the product is pulled from one of them. */
+  techIds: string[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  // Which assigned tech supplies this product; defaults to the first.
+  const [techId, setTechId] = useState<string | undefined>(techIds[0]);
+  useEffect(() => { if (open) setTechId(techIds[0]); }, [open, techIds]);
   const catalog = useQuery({
     queryKey: queryKeys.inventory.products.map(),
     queryFn: fetchAllProducts,
@@ -91,10 +86,34 @@ export function AddProductDialog({
             techName={techName}
             pending={add.isPending}
             onBack={() => setPicked(null)}
-            onAdd={(v) => add.mutate(v, { onSuccess: () => { onOpenChange(false); reset(); } })}
+            onAdd={(v) => add.mutate({ ...v, sourceTechId: techId! }, { onSuccess: () => { onOpenChange(false); reset(); } })}
           />
         ) : (
           <>
+            {techIds.length > 1 ? (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Take from</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {techIds.map((id) => {
+                    const u = userMap.get(id);
+                    const label = u ? `${u.firstName} ${u.lastName}` : id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => { setTechId(id); setPicked(null); }}
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          id === techId ? "border-primary bg-primary/10 font-medium" : "hover:bg-muted/50",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
             <p className="text-[11px] text-muted-foreground">
               Products are deducted from {techName}&apos;s container. Items they don&apos;t carry can&apos;t be added to the deal.
             </p>

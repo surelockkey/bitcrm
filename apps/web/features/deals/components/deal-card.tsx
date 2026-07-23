@@ -8,6 +8,7 @@ import { contactName, initials } from "@/features/clients/lib";
 import { formatMoney, isUrgent } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
+import { TechChips } from "./assigned-techs";
 import { PriorityFlag } from "./deal-badges";
 
 export function DealCard({
@@ -22,7 +23,6 @@ export function DealCard({
   const router = useRouter();
   const jobTypeName = useJobTypeName();
   const contact = contactMap.get(deal.contactId);
-  const tech = deal.assignedTechId ? userMap.get(deal.assignedTechId) : undefined;
   const client = contact ? contactName(contact) : "—";
 
   return (
@@ -41,14 +41,7 @@ export function DealCard({
         {deal.serviceArea} · {jobTypeName(deal.jobTypeId)}
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-        {tech ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <span className="grid size-4 place-items-center rounded-full bg-muted text-[8px] font-bold">
-              {initials(tech.firstName, tech.lastName)}
-            </span>
-            {tech.firstName}
-          </span>
-        ) : null}
+        <TechChips techIds={deal.assignedTechIds} userMap={userMap} size="xs" emptyText={null} />
         <JobTagChips ids={deal.tagIds} max={2} />
         {typeof deal.estimatedTotal === "number" ? (
           <span className={cn("ml-auto font-mono text-[11px]", deal.actualTotal ? "text-emerald-600" : "text-muted-foreground")}>

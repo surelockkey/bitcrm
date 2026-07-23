@@ -21,7 +21,7 @@ describe('DealsController', () => {
       getTimeline: jest.fn(),
       addNote: jest.fn(),
       getQualifiedTechs: jest.fn(),
-      assignTech: jest.fn(),
+      assignTechs: jest.fn(),
       unassignTech: jest.fn(),
       addProduct: jest.fn(),
       removeProduct: jest.fn(),
@@ -200,28 +200,29 @@ describe('DealsController', () => {
     });
   });
 
-  describe('assignTech', () => {
-    it('should call service.assignTech', async () => {
+  describe('assignTechs', () => {
+    it('should call service.assignTechs with the roster', async () => {
       const deal = createMockDeal();
       const caller = createMockJwtUser();
-      service.assignTech.mockResolvedValue(deal);
+      service.assignTechs.mockResolvedValue(deal);
 
-      const result = await controller.assignTech('deal-1', { techId: 'tech-1' } as any, caller);
+      const result = await controller.assignTechs('deal-1', { techIds: ['tech-1', 'tech-2'] } as any, caller);
 
       expect(result).toEqual({ success: true, data: deal });
-      expect(service.assignTech).toHaveBeenCalledWith('deal-1', { techId: 'tech-1' }, caller);
+      expect(service.assignTechs).toHaveBeenCalledWith('deal-1', ['tech-1', 'tech-2'], caller);
     });
   });
 
   describe('unassignTech', () => {
-    it('should call service.unassignTech', async () => {
+    it('should call service.unassignTech with the tech id', async () => {
       const deal = createMockDeal();
       const caller = createMockJwtUser();
       service.unassignTech.mockResolvedValue(deal);
 
-      const result = await controller.unassignTech('deal-1', caller);
+      const result = await controller.unassignTech('deal-1', { techId: 'tech-1' } as any, caller);
 
       expect(result).toEqual({ success: true, data: deal });
+      expect(service.unassignTech).toHaveBeenCalledWith('deal-1', 'tech-1', caller);
     });
   });
 

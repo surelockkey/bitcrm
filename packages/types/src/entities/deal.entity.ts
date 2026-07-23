@@ -20,9 +20,15 @@ export interface Deal {
   /** Catalog job-type id. Drives technician eligibility matching. */
   jobTypeId: string;
   stage: DealStage;
-  assignedTechId?: string;
+  /** All technicians assigned to this deal (equal peers). Empty = unassigned. */
+  assignedTechIds: string[];
   assignedDispatcherId: string;
-  sequenceNumber?: number;
+  /**
+   * Per-technician visit order for the day: `techId → position`. A deal shared
+   * by several techs can be job #2 for one and #4 for another. Absent entries
+   * fall back to scheduled-time order.
+   */
+  sequences?: Record<string, number>;
   priority: DealPriority;
   /** Catalog job-source id (where the deal came from). Optional. */
   sourceId?: string;

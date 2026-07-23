@@ -67,11 +67,13 @@ describe('DealsService — job sequencing', () => {
     service = module.get(DealsService);
   });
 
-  /** The sequenceNumber written to each deal id by repo.update. */
-  function sequenceWrites(): Record<string, number> {
+  /** The per-tech sequence written to each deal id by repo.update. */
+  function sequenceWrites(techId = 'tech-1'): Record<string, number> {
     const out: Record<string, number> = {};
     for (const [id, updates] of repo.update.mock.calls) {
-      if (updates.sequenceNumber !== undefined) out[id] = updates.sequenceNumber;
+      if (updates.sequences && updates.sequences[techId] !== undefined) {
+        out[id] = updates.sequences[techId];
+      }
     }
     return out;
   }
@@ -81,18 +83,18 @@ describe('DealsService — job sequencing', () => {
     repo.findByTech.mockResolvedValue({ items: deals, nextCursor: undefined });
   }
 
-  describe('assignTech', () => {
+  describe('assignTechs', () => {
     it('numbers the technician’s jobs by scheduled time, earliest first', async () => {
       const target = createMockDeal({ id: 'pm', scheduledDate: TODAY, scheduledTimeSlot: '15:00-18:00' });
       repo.findById.mockResolvedValue(target);
       repo.update.mockImplementation(async (_id: string, u: any) => ({ ...target, ...u }));
       techHasDeals([
-        createMockDeal({ id: 'am', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '09:00-12:00' }),
-        createMockDeal({ id: 'pm', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '15:00-18:00' }),
-        createMockDeal({ id: 'noon', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '12:00-15:00' }),
+        createMockDeal({ id: 'am', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '09:00-12:00' }),
+        createMockDeal({ id: 'pm', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '15:00-18:00' }),
+        createMockDeal({ id: 'noon', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '12:00-15:00' }),
       ]);
 
-      await service.assignTech('pm', { techId: 'tech-1' } as any, caller);
+      await service.assignTechs('pm', ['tech-1'], caller);
 
       expect(sequenceWrites()).toMatchObject({ am: 1, noon: 2, pm: 3 });
     });
@@ -102,12 +104,12 @@ describe('DealsService — job sequencing', () => {
       repo.findById.mockResolvedValue(target);
       repo.update.mockImplementation(async (_id: string, u: any) => ({ ...target, ...u }));
       techHasDeals([
-        createMockDeal({ id: 'a', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '09:00-12:00' }),
-        createMockDeal({ id: 'done', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '10:00-11:00', stage: DealStage.COMPLETED }),
-        createMockDeal({ id: 'b', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '13:00-15:00' }),
+        createMockDeal({ id: 'a', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '09:00-12:00' }),
+        createMockDeal({ id: 'done', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '10:00-11:00', stage: DealStage.COMPLETED }),
+        createMockDeal({ id: 'b', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '13:00-15:00' }),
       ]);
 
-      await service.assignTech('a', { techId: 'tech-1' } as any, caller);
+      await service.assignTechs('a', ['tech-1'], caller);
 
       const writes = sequenceWrites();
       expect(writes).toMatchObject({ a: 1, b: 2 });
@@ -117,16 +119,16 @@ describe('DealsService — job sequencing', () => {
 
   describe('unassignTech', () => {
     it('renumbers the previous technician’s remaining jobs', async () => {
-      const target = createMockDeal({ id: 'gone', assignedTechId: 'tech-1', scheduledDate: TODAY });
+      const target = createMockDeal({ id: 'gone', assignedTechIds: ['tech-1'], scheduledDate: TODAY });
       repo.findById.mockResolvedValue(target);
       repo.update.mockImplementation(async (_id: string, u: any) => ({ ...target, ...u }));
       // After unassign, only these two remain with the tech.
       techHasDeals([
-        createMockDeal({ id: 'keep-2', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '14:00-16:00' }),
-        createMockDeal({ id: 'keep-1', assignedTechId: 'tech-1', scheduledDate: TODAY, scheduledTimeSlot: '09:00-11:00' }),
+        createMockDeal({ id: 'keep-2', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '14:00-16:00' }),
+        createMockDeal({ id: 'keep-1', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '09:00-11:00' }),
       ]);
 
-      await service.unassignTech('gone', caller);
+      await service.unassignTech('gone', 'tech-1', caller);
 
       expect(sequenceWrites()).toMatchObject({ 'keep-1': 1, 'keep-2': 2 });
     });
@@ -135,10 +137,11 @@ describe('DealsService — job sequencing', () => {
   describe('reorderSchedule', () => {
     it('writes the sequence in the given order', async () => {
       techHasDeals([
-        createMockDeal({ id: 'x', assignedTechId: 'tech-1' }),
-        createMockDeal({ id: 'y', assignedTechId: 'tech-1' }),
-        createMockDeal({ id: 'z', assignedTechId: 'tech-1' }),
+        createMockDeal({ id: 'x', assignedTechIds: ['tech-1'] }),
+        createMockDeal({ id: 'y', assignedTechIds: ['tech-1'] }),
+        createMockDeal({ id: 'z', assignedTechIds: ['tech-1'] }),
       ]);
+      repo.findById.mockResolvedValue(createMockDeal());
       repo.update.mockImplementation(async (_id: string, u: any) => u);
 
       await service.reorderSchedule({ techId: 'tech-1', orderedDealIds: ['z', 'x', 'y'] }, caller);
@@ -147,7 +150,8 @@ describe('DealsService — job sequencing', () => {
     });
 
     it('ignores deal ids that are not the technician’s', async () => {
-      techHasDeals([createMockDeal({ id: 'mine', assignedTechId: 'tech-1' })]);
+      techHasDeals([createMockDeal({ id: 'mine', assignedTechIds: ['tech-1'] })]);
+      repo.findById.mockResolvedValue(createMockDeal());
       repo.update.mockImplementation(async (_id: string, u: any) => u);
 
       await service.reorderSchedule(

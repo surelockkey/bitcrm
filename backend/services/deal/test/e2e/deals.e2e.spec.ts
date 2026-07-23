@@ -343,8 +343,11 @@ describe('Deals E2E', () => {
 
   // ─── ASSIGNMENT ───────────────────────────────────────
 
+  const TECH_1 = '550e8400-e29b-41d4-a716-446655440001';
+  const TECH_2 = '550e8400-e29b-41d4-a716-446655440002';
+
   describe('POST /api/deals/:id/assign', () => {
-    it('should assign tech and auto-transition to ASSIGNED', async () => {
+    it('assigns multiple techs and auto-transitions to ASSIGNED', async () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
@@ -354,40 +357,39 @@ describe('Deals E2E', () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}/${id}/assign`)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ techId: '550e8400-e29b-41d4-a716-446655440001' })
+        .send({ techIds: [TECH_1, TECH_2] })
         .expect(201);
 
-      expect(res.body.data.assignedTechId).toBe('550e8400-e29b-41d4-a716-446655440001');
+      expect(res.body.data.assignedTechIds).toEqual(expect.arrayContaining([TECH_1, TECH_2]));
       expect(res.body.data.stage).toBe(DealStage.ASSIGNED);
     });
   });
 
   describe('POST /api/deals/:id/unassign', () => {
-    it('should unassign tech', async () => {
+    it('removes one tech and keeps the rest', async () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
         .send(validDealPayload());
       const id = created.body.data.id;
 
-      // First assign
       await request(app.getHttpServer())
         .post(`${BASE}/${id}/assign`)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ techId: '550e8400-e29b-41d4-a716-446655440001' });
+        .send({ techIds: [TECH_1, TECH_2] });
 
-      // Then unassign
       const res = await request(app.getHttpServer())
         .post(`${BASE}/${id}/unassign`)
         .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ techId: TECH_1 })
         .expect(201);
 
-      expect(res.body.success).toBe(true);
+      expect(res.body.data.assignedTechIds).toEqual([TECH_2]);
     });
   });
 
   describe('job sequencing', () => {
-    const TECH = '550e8400-e29b-41d4-a716-446655440001';
+    const TECH = TECH_1;
     const DATE = '2026-07-16';
 
     const createFor = async (slot: string) => {
@@ -402,13 +404,13 @@ describe('Deals E2E', () => {
       request(app.getHttpServer())
         .post(`${BASE}/${id}/assign`)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ techId: TECH });
+        .send({ techIds: [TECH] });
 
     const seqOf = async (id: string) => {
       const res = await request(app.getHttpServer())
         .get(`${BASE}/${id}`)
         .set('x-test-user', createTestUserHeader(adminUser));
-      return res.body.data.sequenceNumber as number;
+      return res.body.data.sequences?.[TECH] as number;
     };
 
     it('numbers a technician’s jobs by scheduled time on assignment', async () => {

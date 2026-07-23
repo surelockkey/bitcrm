@@ -61,8 +61,8 @@ export function splitByLocation(deals: Deal[]): {
  * the day, or their home address if they have no jobs today. A technician we
  * can place by neither is omitted — a marker at 0,0 would be a fiction.
  *
- * Ordering is by scheduled time slot: `sequenceNumber` exists in the type but
- * nothing in the platform ever writes it.
+ * Ordering is by the technician's own `sequences[techId]` when set (a manual
+ * drag-reorder), else by scheduled time slot.
  */
 export function technicianPositions(
   technicians: TechnicianProfile[],
@@ -71,11 +71,14 @@ export function technicianPositions(
 ): TechnicianPosition[] {
   const jobsToday = new Map<string, Deal[]>();
 
+  // A deal can carry several technicians — it belongs in every one of their days.
   for (const deal of deals) {
-    if (!deal.assignedTechId || deal.scheduledDate !== today) continue;
-    const forTech = jobsToday.get(deal.assignedTechId) ?? [];
-    forTech.push(deal);
-    jobsToday.set(deal.assignedTechId, forTech);
+    if (deal.scheduledDate !== today) continue;
+    for (const techId of deal.assignedTechIds) {
+      const forTech = jobsToday.get(techId) ?? [];
+      forTech.push(deal);
+      jobsToday.set(techId, forTech);
+    }
   }
 
   const positions: TechnicianPosition[] = [];
@@ -177,11 +180,19 @@ export function mergeLivePositions(
 
 /* ----------------------------------------------------------- job status */
 
-/** All of a technician's jobs for `today`, any stage, ordered by time slot. */
+/**
+ * All of a technician's jobs for `today`, any stage. Ordered by that
+ * technician's manual sequence when present, else by scheduled time slot.
+ */
 export function techJobsToday(deals: Deal[], techId: string, today: string): Deal[] {
   return deals
-    .filter((d) => d.assignedTechId === techId && d.scheduledDate === today)
-    .sort((a, b) => (a.scheduledTimeSlot ?? "~").localeCompare(b.scheduledTimeSlot ?? "~"));
+    .filter((d) => d.assignedTechIds.includes(techId) && d.scheduledDate === today)
+    .sort((a, b) => {
+      const sa = a.sequences?.[techId];
+      const sb = b.sequences?.[techId];
+      if (sa !== undefined && sb !== undefined) return sa - sb;
+      return (a.scheduledTimeSlot ?? "~").localeCompare(b.scheduledTimeSlot ?? "~");
+    });
 }
 
 /**

@@ -28,10 +28,13 @@ export function JobPin({
   /** Registers this pin with the clusterer so dense areas fold into one circle. */
   markerRef?: (marker: google.maps.marker.AdvancedMarkerElement | null) => void;
 }) {
-  const unassigned = !deal.assignedTechId;
+  // A deal can carry several techs; the pin takes the first one's colour and
+  // that technician's position in their own day.
+  const primaryTechId = deal.assignedTechIds[0];
+  const unassigned = !primaryTechId;
   const active = hovered || selected;
   // The sequence badge only makes sense on assigned, numbered work.
-  const seq = unassigned ? undefined : deal.sequenceNumber;
+  const seq = primaryTechId ? deal.sequences?.[primaryTechId] : undefined;
 
   return (
     <AdvancedMarker
@@ -48,7 +51,7 @@ export function JobPin({
           data-testid={`job-pin-${deal.id}`}
           data-hovered={active ? "true" : "false"}
           data-assigned={unassigned ? "false" : "true"}
-          style={unassigned ? undefined : { backgroundColor: techColor(deal.assignedTechId) }}
+          style={primaryTechId ? { backgroundColor: techColor(primaryTechId) } : undefined}
           className={cn(
             "size-4 cursor-pointer rounded-full border-2 border-white shadow-md transition-transform",
             unassigned && "bg-red-600",

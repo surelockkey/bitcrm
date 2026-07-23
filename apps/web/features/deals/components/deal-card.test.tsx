@@ -68,6 +68,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
+    assignedTechIds: [],
     tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: "u1",
@@ -89,9 +90,9 @@ describe("DealCard", () => {
   });
 
   it("flags urgent deals and shows the assigned tech", () => {
-    render(<DealCard deal={deal({ priority: DealPriority.URGENT, assignedTechId: "t1" })} contactMap={contactMap} userMap={userMap} />);
+    render(<DealCard deal={deal({ priority: DealPriority.URGENT, assignedTechIds: ["t1"] })} contactMap={contactMap} userMap={userMap} />);
     expect(screen.getByText("Urgent")).toBeInTheDocument();
-    expect(screen.getByText("Riley")).toBeInTheDocument();
+    expect(screen.getByText("Riley Santos")).toBeInTheDocument();
   });
 
   it("navigates to the deal on click", async () => {

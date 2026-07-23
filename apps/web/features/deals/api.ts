@@ -104,11 +104,13 @@ export const addNote = (id: string, note: string): Promise<{ added: true }> =>
 export const getQualifiedTechs = (id: string): Promise<QualifiedTech[]> =>
   http.get<QualifiedTech[]>(`/deals/${id}/qualified-techs`);
 
-export const assignTech = (id: string, techId: string): Promise<Deal> =>
-  http.post<Deal>(`/deals/${id}/assign`, { techId });
+/** Set the full technician roster on a deal (diffed server-side). */
+export const assignTechs = (id: string, techIds: string[]): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/assign`, { techIds });
 
-export const unassignTech = (id: string): Promise<Deal> =>
-  http.post<Deal>(`/deals/${id}/unassign`, {});
+/** Remove one technician from a deal. */
+export const unassignTech = (id: string, techId: string): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/unassign`, { techId });
 
 /** Persist a manual job order for a technician (story 4.02). */
 export const reorderDeals = (techId: string, orderedDealIds: string[]): Promise<{ ok: true }> =>

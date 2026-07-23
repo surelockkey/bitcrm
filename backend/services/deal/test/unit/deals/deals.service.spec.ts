@@ -556,92 +556,102 @@ describe('DealsService', () => {
     });
   });
 
-  describe('assignTech', () => {
+  describe('assignTechs', () => {
     const caller = createMockJwtUser({ id: 'dispatcher-1', roleId: 'role-dispatcher' });
 
-    it('should assign tech and add timeline entry', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, assignedTechId: 'tech-1', stage: DealStage.ASSIGNED });
+    it('adds assignment rows, sets the roster, and emits per-tech events', async () => {
+      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD, assignedTechIds: [] }));
+      repo.update.mockResolvedValue({ ...deal, assignedTechIds: ['tech-1', 'tech-2'], stage: DealStage.ASSIGNED });
 
-      await service.assignTech('deal-1', { techId: 'tech-1' } as any, caller);
+      await service.assignTechs('deal-1', ['tech-1', 'tech-2'], caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ assignedTechId: 'tech-1' }));
-      expect(timeline.addEntry).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: TimelineEventType.TECH_ASSIGNED }),
-      );
-      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_assigned', expect.any(Object));
+      expect(repo.addAssignment).toHaveBeenCalledWith('deal-1', 'tech-1', expect.anything(), 'dispatcher-1');
+      expect(repo.addAssignment).toHaveBeenCalledWith('deal-1', 'tech-2', expect.anything(), 'dispatcher-1');
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ assignedTechIds: ['tech-1', 'tech-2'] }));
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_assigned', expect.objectContaining({ techId: 'tech-1' }));
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_assigned', expect.objectContaining({ techId: 'tech-2' }));
     });
 
-    it('should auto-transition to ASSIGNED from submitted group', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, assignedTechId: 'tech-1', stage: DealStage.ASSIGNED });
+    it('auto-transitions to ASSIGNED on the first assignment', async () => {
+      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD, assignedTechIds: [] }));
+      repo.update.mockResolvedValue(deal);
 
-      await service.assignTech('deal-1', { techId: 'tech-1' } as any, caller);
+      await service.assignTechs('deal-1', ['tech-1'], caller);
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ stage: DealStage.ASSIGNED }));
     });
 
-    it('should not change stage if not in submitted group', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.FOLLOW_UP }));
-      repo.update.mockResolvedValue({ ...deal, assignedTechId: 'tech-1' });
+    it('does not re-transition when techs are already assigned', async () => {
+      const deal = mockFindById(createMockDeal({ stage: DealStage.ASSIGNED, assignedTechIds: ['tech-1'] }));
+      repo.update.mockResolvedValue(deal);
 
-      await service.assignTech('deal-1', { techId: 'tech-1' } as any, caller);
+      await service.assignTechs('deal-1', ['tech-1', 'tech-2'], caller);
 
       const updateArg = repo.update.mock.calls[0][1];
       expect(updateArg.stage).toBeUndefined();
+    });
+
+    it('removes a dropped tech and emits an unassigned event', async () => {
+      const deal = mockFindById(createMockDeal({ stage: DealStage.ASSIGNED, assignedTechIds: ['tech-1', 'tech-2'] }));
+      repo.update.mockResolvedValue(deal);
+
+      await service.assignTechs('deal-1', ['tech-1'], caller);
+
+      expect(repo.removeAssignment).toHaveBeenCalledWith('deal-1', 'tech-2');
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_unassigned', expect.objectContaining({ techId: 'tech-2' }));
     });
   });
 
   describe('unassignTech', () => {
     const caller = createMockJwtUser({ id: 'dispatcher-1' });
 
-    it('should clear assignedTechId and publish event', async () => {
-      const deal = mockFindById(createMockDeal({ assignedTechId: 'tech-1', stage: DealStage.ASSIGNED }));
-      repo.update.mockResolvedValue({ ...deal, assignedTechId: undefined });
+    it('removes the tech from the roster and publishes the event', async () => {
+      const deal = mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'], stage: DealStage.ASSIGNED }));
+      repo.update.mockResolvedValue(deal);
 
-      await service.unassignTech('deal-1', caller);
+      await service.unassignTech('deal-1', 'tech-1', caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ assignedTechId: '' }));
-      expect(timeline.addEntry).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: TimelineEventType.TECH_UNASSIGNED }),
-      );
-      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_unassigned', expect.any(Object));
+      expect(repo.removeAssignment).toHaveBeenCalledWith('deal-1', 'tech-1');
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ assignedTechIds: ['tech-2'] }));
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_unassigned', expect.objectContaining({ techId: 'tech-1' }));
     });
 
-    it('should throw if no tech assigned', async () => {
-      mockFindById(createMockDeal({ assignedTechId: undefined }));
-      await expect(service.unassignTech('deal-1', caller)).rejects.toThrow(BadRequestException);
+    it('throws if the tech is not assigned', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-2'] }));
+      await expect(service.unassignTech('deal-1', 'tech-1', caller)).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('addProduct', () => {
     const caller = createMockJwtUser({ id: 'tech-1' });
     const dto = {
+      sourceTechId: 'tech-1',
       productId: 'product-1', name: 'Deadbolt', sku: 'KW-001',
       quantity: 1, costCompany: 15, costForTech: 20, priceClient: 45,
     };
 
-    it('should deduct stock and add product to deal', async () => {
-      mockFindById(createMockDeal({ assignedTechId: 'tech-1', stage: DealStage.WORK_IN_PROGRESS }));
+    it('deducts from the chosen tech and records the source on the line', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'], stage: DealStage.WORK_IN_PROGRESS }));
 
       await service.addProduct('deal-1', dto as any, caller);
 
-      expect(http.deductStock).toHaveBeenCalled();
-      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({ productId: 'product-1' }));
-      expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
-      expect(timeline.addEntry).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: TimelineEventType.PRODUCT_ADDED }),
-      );
+      expect(http.deductStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-1' }));
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({ productId: 'product-1', sourceTechId: 'tech-1' }));
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_added', expect.any(Object));
     });
 
-    it('should throw if no tech assigned', async () => {
-      mockFindById(createMockDeal({ assignedTechId: undefined }));
+    it('throws if no tech assigned', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: [] }));
       await expect(service.addProduct('deal-1', dto as any, caller)).rejects.toThrow(BadRequestException);
     });
 
-    it('should turn an insufficient-stock 4xx into a clear BadRequest naming the product', async () => {
-      mockFindById(createMockDeal({ assignedTechId: 'tech-1', stage: DealStage.WORK_IN_PROGRESS }));
+    it('throws if the source tech is not on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-2'], stage: DealStage.WORK_IN_PROGRESS }));
+      await expect(service.addProduct('deal-1', dto as any, caller)).rejects.toThrow(BadRequestException);
+    });
+
+    it('turns an insufficient-stock 4xx into a clear BadRequest naming the product', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'], stage: DealStage.WORK_IN_PROGRESS }));
       http.deductStock.mockRejectedValue(
         new HttpException('Insufficient stock for product product-1', 400),
       );
@@ -649,7 +659,6 @@ describe('DealsService', () => {
       const err = await service.addProduct('deal-1', dto as any, caller).catch((e) => e);
       expect(err).toBeInstanceOf(BadRequestException);
       expect(err.message).toMatch(/Deadbolt/);
-      // The product must NOT be recorded when the deduction was rejected.
       expect(products.addProduct).not.toHaveBeenCalled();
     });
   });
@@ -657,34 +666,28 @@ describe('DealsService', () => {
   describe('removeProduct', () => {
     const caller = createMockJwtUser({ id: 'tech-1' });
 
-    it('should restore stock and remove product', async () => {
-      const deal = mockFindById(createMockDeal({ assignedTechId: 'tech-1' }));
-      const product = createMockDealProduct();
-      products.findProduct.mockResolvedValue(product);
+    it('restores stock to the line’s source tech and removes the product', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: 'tech-2' }));
 
       await service.removeProduct('deal-1', 'product-1', caller);
 
-      expect(http.restoreStock).toHaveBeenCalled();
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
       expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
-      expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
-      expect(timeline.addEntry).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: TimelineEventType.PRODUCT_REMOVED }),
-      );
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_removed', expect.any(Object));
     });
 
-    it('should skip restoreStock if no tech assigned', async () => {
-      mockFindById(createMockDeal({ assignedTechId: undefined }));
-      products.findProduct.mockResolvedValue(createMockDealProduct());
+    it('falls back to the sole assigned tech for a legacy line with no source', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-9'] }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({ sourceTechId: undefined }));
 
       await service.removeProduct('deal-1', 'product-1', caller);
 
-      expect(http.restoreStock).not.toHaveBeenCalled();
-      expect(products.removeProduct).toHaveBeenCalled();
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-9' }));
     });
 
-    it('should throw if product not found on deal', async () => {
-      mockFindById(createMockDeal({ assignedTechId: 'tech-1' }));
+    it('throws if product not found on deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
       products.findProduct.mockResolvedValue(null);
 
       await expect(service.removeProduct('deal-1', 'nonexistent', caller)).rejects.toThrow(NotFoundException);

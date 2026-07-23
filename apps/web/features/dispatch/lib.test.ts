@@ -41,6 +41,7 @@ function deal(overrides: Partial<Deal> = {}): Deal {
     stage: DealStage.NEW_LEAD,
     assignedDispatcherId: "dispatcher-1",
     priority: DealPriority.NORMAL,
+    assignedTechIds: [],
     tagIds: [],
     status: DealStatus.ACTIVE,
     createdBy: "dispatcher-1",
@@ -116,14 +117,14 @@ describe("technicianPositions", () => {
     const deals = [
       deal({
         id: "morning",
-        assignedTechId: "tech-1",
+        assignedTechIds: ["tech-1"],
         scheduledDate: TODAY,
         scheduledTimeSlot: "09:00-12:00",
         address: { street: "AM", city: "Atlanta", state: "GA", zip: "1", lat: 1, lng: 1 },
       }),
       deal({
         id: "afternoon",
-        assignedTechId: "tech-1",
+        assignedTechIds: ["tech-1"],
         scheduledDate: TODAY,
         scheduledTimeSlot: "15:00-18:00",
         address: { street: "PM", city: "Atlanta", state: "GA", zip: "2", lat: 2, lng: 2 },
@@ -139,14 +140,14 @@ describe("technicianPositions", () => {
     const deals = [
       deal({
         id: "late",
-        assignedTechId: "tech-1",
+        assignedTechIds: ["tech-1"],
         scheduledDate: TODAY,
         scheduledTimeSlot: "15:00-18:00",
         address: { street: "PM", city: "A", state: "GA", zip: "2", lat: 2, lng: 2 },
       }),
       deal({
         id: "early",
-        assignedTechId: "tech-1",
+        assignedTechIds: ["tech-1"],
         scheduledDate: TODAY,
         scheduledTimeSlot: "09:00-12:00",
         address: { street: "AM", city: "A", state: "GA", zip: "1", lat: 1, lng: 1 },
@@ -161,7 +162,7 @@ describe("technicianPositions", () => {
   it("ignores jobs scheduled on another day", () => {
     const deals = [
       deal({
-        assignedTechId: "tech-1",
+        assignedTechIds: ["tech-1"],
         scheduledDate: "2026-07-01",
         scheduledTimeSlot: "09:00-12:00",
         address: { street: "old", city: "A", state: "GA", zip: "1", lat: 9, lng: 9 },
@@ -176,7 +177,7 @@ describe("technicianPositions", () => {
   it("ignores another technician's jobs", () => {
     const deals = [
       deal({
-        assignedTechId: "tech-2",
+        assignedTechIds: ["tech-2"],
         scheduledDate: TODAY,
         scheduledTimeSlot: "09:00-12:00",
         address: { street: "theirs", city: "A", state: "GA", zip: "1", lat: 9, lng: 9 },
@@ -191,7 +192,7 @@ describe("technicianPositions", () => {
   it("falls back to home when today's last job has no coordinates", () => {
     const deals = [
       deal({
-        assignedTechId: "tech-1",
+        assignedTechIds: ["tech-1"],
         scheduledDate: TODAY,
         scheduledTimeSlot: "09:00-12:00",
         address: { street: "unlocated", city: "A", state: "GA", zip: "1" },
@@ -324,10 +325,10 @@ describe("formatAge", () => {
 describe("techJobsToday", () => {
   it("returns only this tech's today jobs, ordered by time slot", () => {
     const deals = [
-      deal({ id: "b", assignedTechId: "t1", scheduledDate: TODAY, scheduledTimeSlot: "13:00-15:00" }),
-      deal({ id: "a", assignedTechId: "t1", scheduledDate: TODAY, scheduledTimeSlot: "09:00-11:00" }),
-      deal({ id: "other-tech", assignedTechId: "t2", scheduledDate: TODAY, scheduledTimeSlot: "10:00" }),
-      deal({ id: "other-day", assignedTechId: "t1", scheduledDate: "2026-07-13" }),
+      deal({ id: "b", assignedTechIds: ["t1"], scheduledDate: TODAY, scheduledTimeSlot: "13:00-15:00" }),
+      deal({ id: "a", assignedTechIds: ["t1"], scheduledDate: TODAY, scheduledTimeSlot: "09:00-11:00" }),
+      deal({ id: "other-tech", assignedTechIds: ["t2"], scheduledDate: TODAY, scheduledTimeSlot: "10:00" }),
+      deal({ id: "other-day", assignedTechIds: ["t1"], scheduledDate: "2026-07-13" }),
     ];
     expect(techJobsToday(deals, "t1", TODAY).map((d) => d.id)).toEqual(["a", "b"]);
   });

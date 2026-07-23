@@ -161,13 +161,13 @@ export function useChangeStage(id: string) {
   });
 }
 
-export function useAssignTech(id: string) {
+export function useAssignTechs(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({
-    mutationFn: (techId: string) => api.assignTech(id, techId),
+    mutationFn: (techIds: string[]) => api.assignTechs(id, techIds),
     onSuccess: () => {
       invalidate();
-      toast.success("Technician assigned");
+      toast.success("Technicians updated");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -176,10 +176,10 @@ export function useAssignTech(id: string) {
 export function useUnassignTech(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({
-    mutationFn: () => api.unassignTech(id),
+    mutationFn: (techId: string) => api.unassignTech(id, techId),
     onSuccess: () => {
       invalidate();
-      toast.success("Technician unassigned");
+      toast.success("Technician removed");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

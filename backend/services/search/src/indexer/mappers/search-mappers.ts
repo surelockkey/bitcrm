@@ -38,7 +38,7 @@ export function mapDeal(deal: Deal, jobTypeName?: string, tagNames: string[] = [
     entityId: deal.id,
     type: 'deal',
     permissionResource: 'deals',
-    ownerIds: compactUnique([deal.assignedTechId, deal.assignedDispatcherId, deal.createdBy]),
+    ownerIds: compactUnique([...(deal.assignedTechIds ?? []), deal.assignedDispatcherId, deal.createdBy]),
     status: toDocStatus(deal.status),
     title: `Deal #${deal.dealNumber}`,
     subtitle: compactUnique([jobTypeName, deal.stage]).join(' · ') || undefined,

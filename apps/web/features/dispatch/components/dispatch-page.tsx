@@ -238,6 +238,12 @@ export function DispatchPage() {
     return `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
   };
 
+  /** A deal's roster as one label — the job list shows a single line per job. */
+  const techNamesOf = (techIds: string[]) => {
+    const names = techIds.map(nameOf).filter(Boolean) as string[];
+    return names.length ? names.join(", ") : undefined;
+  };
+
   const showMap = view !== "list";
   const showList = view !== "map";
 
@@ -393,7 +399,7 @@ export function DispatchPage() {
                     mapped={mapped}
                     unmapped={unmapped}
                     clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
-                    techName={(d) => nameOf(d.assignedTechId)}
+                    techName={(d) => techNamesOf(d.assignedTechIds)}
                     hoveredId={hoveredId}
                     selectedId={selectedId}
                     onHover={setHoveredId}
@@ -447,7 +453,7 @@ export function DispatchPage() {
             <JobSidebar
               deal={selected}
               clientName={contactNames.get(selected.contactId) ?? "Unknown client"}
-              techName={nameOf(selected.assignedTechId)}
+              techName={techNamesOf(selected.assignedTechIds)}
               canEdit={can("deals", "edit")}
               onEdit={() => setEditing(true)}
               onClose={() => setSelectedId(null)}

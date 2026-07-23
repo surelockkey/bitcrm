@@ -17,7 +17,7 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   const items = products ?? [];
   const total = dealTotal(items);
-  const noTech = !deal.assignedTechId;
+  const noTech = deal.assignedTechIds.length === 0;
 
   return (
     <div className="space-y-3">
@@ -73,13 +73,13 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
             <Button variant="outline" size="sm" className="gap-1.5" disabled={noTech} onClick={() => setAdding(true)}>
               <Plus className="size-3.5" /> Add product
             </Button>
-            {noTech ? <span className="text-[11px] text-muted-foreground">Assign a technician first — products come from their container.</span> : null}
+            {noTech ? <span className="text-[11px] text-muted-foreground">Assign a technician first — products come from a technician&apos;s container.</span> : null}
           </div>
         ) : <span />}
         <span className="font-mono text-sm font-semibold tabular-nums">Total {formatMoney(total)}</span>
       </div>
 
-      <AddProductDialog dealId={deal.id} techId={deal.assignedTechId} open={adding} onOpenChange={setAdding} />
+      <AddProductDialog dealId={deal.id} techIds={deal.assignedTechIds} open={adding} onOpenChange={setAdding} />
     </div>
   );
 }

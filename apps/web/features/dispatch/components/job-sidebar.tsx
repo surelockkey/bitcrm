@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/features/deals/components/deal-badges";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { AssignTechDialog } from "@/features/deals/components/assign-tech-dialog";
+import { AssignedTechs } from "@/features/deals/components/assigned-techs";
 import { googleMapsLink, hasCoords } from "@/lib/geo/geo";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -93,10 +94,14 @@ export function JobSidebar({
           }
         />
         <Row
-          label="Technician"
+          label="Technicians"
           value={
             <span className="flex items-center gap-2">
-              {techName ?? <span className="text-red-600">Unassigned</span>}
+              {deal.assignedTechIds.length ? (
+                <AssignedTechs techIds={deal.assignedTechIds} size="xs" />
+              ) : (
+                <span className="text-red-600">Unassigned</span>
+              )}
               {canEdit ? (
                 <Button
                   size="sm"
@@ -105,7 +110,7 @@ export function JobSidebar({
                   onClick={() => setAssigning(true)}
                 >
                   <UserPlus className="size-3.5" />
-                  {techName ? "Reassign" : "Assign"}
+                  {deal.assignedTechIds.length ? "Edit crew" : "Assign"}
                 </Button>
               ) : null}
             </span>
@@ -115,7 +120,7 @@ export function JobSidebar({
       </dl>
 
       {assigning ? (
-        <AssignTechDialog dealId={deal.id} open onOpenChange={setAssigning} />
+        <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open onOpenChange={setAssigning} />
       ) : null}
 
       <div className="mt-auto flex gap-2 border-t p-4">
