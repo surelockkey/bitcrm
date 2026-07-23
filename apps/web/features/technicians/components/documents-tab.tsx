@@ -34,7 +34,7 @@ import {
   useUploadDocument,
   useUserMap,
 } from "../hooks";
-import { DOC_TYPES, docLabel, auditLabel, techName } from "../lib";
+import { DOC_TYPES, docLabel, auditLabel, actorName } from "../lib";
 import { sensitiveSchema, type SensitiveValues } from "../schemas";
 
 export function DocumentsTab({ technicianId }: { technicianId: string }) {
@@ -139,7 +139,7 @@ export function DocumentsTab({ technicianId }: { technicianId: string }) {
                   {r.resource ? <span className="text-muted-foreground"> · {r.resource}</span> : null}
                 </span>
                 <span className="text-xs whitespace-nowrap text-muted-foreground">
-                  {techName(r.actorId, userMap ?? new Map())} · {formatDate(r.timestamp)}
+                  {actorName(r.actorId, userMap ?? new Map())} · {formatDate(r.timestamp)}
                 </span>
               </div>
             ))}
