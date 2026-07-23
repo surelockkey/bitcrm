@@ -33,6 +33,8 @@ export interface AuditRecord {
   action: string;
   resource: string;
   timestamp: string;
+  /** Resolved server-side; absent for unknown actors or older backends. */
+  actorName?: string;
 }
 export interface UpdateProfileBody {
   phone?: string;

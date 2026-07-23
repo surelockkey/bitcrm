@@ -4,7 +4,9 @@ import { UserStatus } from "@bitcrm/types";
 import {
   onboardingPct,
   techName,
+  techUser,
   actorName,
+  auditActorLabel,
   groupSkills,
   approvedValues,
   isAssignable,
@@ -31,6 +33,37 @@ describe("techName — profiles have no name, so join with Users", () => {
     expect(techName("u2", map)).toBe("Unknown technician");
   });
   void UserStatus;
+});
+
+describe("self fallback — a technician viewer can't fetch the user map (no users.view)", () => {
+  const self = { id: "me1", firstName: "Sam", lastName: "Ochoa", email: "sam@slk" } as User;
+  const mapped = { id: "me1", firstName: "Mapped", lastName: "Name", email: "m@slk" } as User;
+
+  it("techUser falls back to the signed-in user for their own id", () => {
+    expect(techUser("me1", new Map(), self)).toBe(self);
+    expect(techUser("other", new Map(), self)).toBeUndefined();
+  });
+  it("the map wins over the self fallback", () => {
+    expect(techUser("me1", new Map([["me1", mapped]]), self)).toBe(mapped);
+  });
+  it("techName resolves through the self fallback", () => {
+    expect(techName("me1", new Map(), self)).toBe("Sam Ochoa");
+    expect(techName("me1", new Map(), null)).toBe("Unknown technician");
+  });
+});
+
+describe("auditActorLabel — prefers the server-resolved actorName", () => {
+  const map = new Map<string, User>([
+    ["u1", { id: "u1", firstName: "Riley", lastName: "Santos", email: "riley@slk" } as User],
+  ]);
+  it("uses actorName from the record when the backend provides it", () => {
+    expect(auditActorLabel({ actorId: "nope", actorName: "Dana Reeves" }, map)).toBe("Dana Reeves");
+  });
+  it("falls back to the client-side join for older backends", () => {
+    expect(auditActorLabel({ actorId: "u1" }, map)).toBe("Riley Santos");
+    expect(auditActorLabel({ actorId: "nope" }, map)).toBe("Unknown user");
+    expect(auditActorLabel({ actorId: undefined }, map)).toBe("Unknown user");
+  });
 });
 
 describe("actorName — audit actors are any staff, not necessarily technicians", () => {
