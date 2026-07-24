@@ -106,4 +106,10 @@ export const queryKeys = {
     userMap: () => ["users", "all-map"] as const,
     locations: () => ["technicians", "locations"] as const,
   },
+
+  calendarEvents: {
+    all: () => ["calendar-events"] as const,
+    range: (techIds: string[], from: string, to: string) =>
+      ["calendar-events", "range", techIds, from, to] as const,
+  },
 } as const;
