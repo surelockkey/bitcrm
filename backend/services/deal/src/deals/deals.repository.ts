@@ -424,6 +424,8 @@ export class DealsRepository {
       sequences: (item.sequences as Record<string, number>) || {},
       priority: item.priority as Deal['priority'],
       sourceId: item.sourceId as string | undefined,
+      workOrderId: item.workOrderId as string | undefined,
+      poNumber: item.poNumber as string | undefined,
       notes: item.notes as string | undefined,
       internalNotes: item.internalNotes as string | undefined,
       cancellationReason: item.cancellationReason as string | undefined,

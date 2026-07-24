@@ -52,6 +52,16 @@ export class UpdateDealDto {
   @IsString()
   sourceId?: string;
 
+  @ApiPropertyOptional({ example: 'wo-uuid' })
+  @IsOptional()
+  @IsString()
+  workOrderId?: string;
+
+  @ApiPropertyOptional({ example: 'PO-12345' })
+  @IsOptional()
+  @IsString()
+  poNumber?: string;
+
   @ApiPropertyOptional({ example: 'Updated notes' })
   @IsOptional()
   @IsString()
