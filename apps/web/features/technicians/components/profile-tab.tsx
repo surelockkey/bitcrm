@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile, TechnicianProfileStatus } from "@bitcrm/types";
 import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
 import { useProfile, useUpdateProfile } from "../hooks";
+import { WorkingHoursEditor } from "@/features/schedule/components/working-hours-editor";
 import { profileSchema, type ProfileValues } from "../schemas";
 
 export function ProfileTab({
@@ -142,6 +143,10 @@ function ProfileForm({
         <Toggle label="Call masking" hint="Hide the tech's number on calls" checked={callMasking} disabled={readOnly} onChange={(c) => setValue("callMaskingEnabled", c)} />
         <Toggle label="GPS tracking" hint="Location during shifts" checked={gps} disabled={readOnly} onChange={(c) => setValue("gpsTrackingEnabled", c)} />
         <Toggle label="Mobile app installed" checked={mobile} disabled={readOnly} onChange={(c) => setValue("mobileAppInstalled", c)} />
+      </Group>
+
+      <Group label="Schedule">
+        <WorkingHoursEditor profile={profile} readOnly={readOnly} />
       </Group>
 
       {!readOnly ? (

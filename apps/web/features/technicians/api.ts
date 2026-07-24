@@ -45,6 +45,9 @@ export interface UpdateProfileBody {
   gpsTrackingEnabled?: boolean;
   mobileAppInstalled?: boolean;
   status?: TechnicianProfileStatus;
+  workingDays?: number[];
+  workStart?: string;
+  workEnd?: string;
 }
 export interface ProposeSkillsBody {
   jobTypes?: string[];

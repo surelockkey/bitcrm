@@ -12,6 +12,7 @@ export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './enum
 export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
 export { TimelineEventType } from './enums/timeline-event-type.enum';
+export { CalendarEventType } from './enums/calendar-event-type.enum';
 export { JobType } from './enums/job-type.enum';
 export { ServiceAreaType } from './enums/service-area-type.enum';
 
@@ -43,6 +44,7 @@ export {
   OnboardingStatus,
 } from './entities/technician-profile.entity';
 export { TechnicianLocation } from './entities/technician-location.entity';
+export { CalendarEvent } from './entities/calendar-event.entity';
 export {
   TechnicianSkill,
   SkillType,

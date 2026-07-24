@@ -34,6 +34,14 @@ export interface TechnicianProfile {
   mobileAppInstalled: boolean;
   status: TechnicianProfileStatus;
 
+  // --- Working hours (manager-controlled; drive schedule dimming + conflicts) ---
+  /** Days the tech works: 0=Sun … 6=Sat. Undefined = unset (nothing dimmed). */
+  workingDays?: number[];
+  /** Shift start "HH:MM" (24h). */
+  workStart?: string;
+  /** Shift end "HH:MM" (24h). */
+  workEnd?: string;
+
   createdAt: string;
   updatedAt: string;
 }

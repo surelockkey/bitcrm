@@ -6,3 +6,4 @@ export { Address } from './address.entity';
 export { Deal } from './deal.entity';
 export { DealProduct } from './deal-product.entity';
 export { TimelineEntry } from './timeline-entry.entity';
+export { CalendarEvent } from './calendar-event.entity';
