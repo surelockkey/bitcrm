@@ -1,4 +1,10 @@
-import type { Contact, Company, ClientType, PaginatedResponse } from "@bitcrm/types";
+import type {
+  Contact,
+  Company,
+  ClientType,
+  CompanyDocumentType,
+  PaginatedResponse,
+} from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type {
   CreateContactValues,
@@ -89,3 +95,47 @@ export const updateCompany = (id: string, body: UpdateCompanyValues): Promise<Co
 
 export const deleteCompany = (id: string): Promise<{ id: string; deleted: true }> =>
   http.delete<{ id: string; deleted: true }>(`/crm/companies/${id}`);
+
+/* ------------------------------------------- company compliance documents */
+
+export interface CompanyDocumentMeta {
+  docType: CompanyDocumentType;
+  contentType: string;
+  uploadedAt: string;
+}
+
+export const listCompanyDocuments = (id: string): Promise<CompanyDocumentMeta[]> =>
+  http.get<CompanyDocumentMeta[]>(`/crm/companies/${id}/documents`);
+
+export const getCompanyDocumentUploadUrl = (
+  id: string,
+  docType: CompanyDocumentType,
+  contentType: string,
+): Promise<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }> =>
+  http.post<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }>(
+    `/crm/companies/${id}/documents`,
+    { docType, contentType },
+  );
+
+export const getCompanyDocumentDownloadUrl = (
+  id: string,
+  docType: CompanyDocumentType,
+): Promise<{ downloadUrl: string }> =>
+  http.get<{ downloadUrl: string }>(`/crm/companies/${id}/documents/${docType}`);
+
+export const deleteCompanyDocument = (id: string, docType: CompanyDocumentType): Promise<null> =>
+  http.delete<null>(`/crm/companies/${id}/documents/${docType}`);
+
+/** Reuse the technician-doc upload helper: PUT with replayed SSE-KMS headers. */
+export async function uploadCompanyDocumentBytes(
+  uploadUrl: string,
+  file: File,
+  headers?: Record<string, string>,
+): Promise<void> {
+  const res = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: headers ?? { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) throw new Error("Document upload failed");
+}

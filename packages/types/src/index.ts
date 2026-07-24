@@ -8,6 +8,9 @@ export { ContactType } from './enums/contact-type.enum';
 export { ContactSource } from './enums/contact-source.enum';
 export { ClientType } from './enums/client-type.enum';
 export { CrmStatus } from './enums/crm-status.enum';
+export { PaymentTerms } from './enums/payment-terms.enum';
+export { WorkOrderStatus } from './enums/work-order-status.enum';
+export { CompanyDocumentType } from './enums/company-document-type.enum';
 export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './enums/deal-stage.enum';
 export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
@@ -21,6 +24,8 @@ export { User } from './entities/user.entity';
 export { Role } from './entities/role.entity';
 export { Contact } from './entities/contact.entity';
 export { Company } from './entities/company.entity';
+export { WorkOrder } from './entities/work-order.entity';
+export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
 export {

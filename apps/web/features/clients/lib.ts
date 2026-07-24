@@ -1,4 +1,4 @@
-import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
+import { ClientType, ContactSource, ContactType, PaymentTerms } from "@bitcrm/types";
 import type { Contact, Company } from "@bitcrm/types";
 
 /** E.164 (or a bare US number) → `(404) 555-1234`. Anything else passes through. */
@@ -74,4 +74,45 @@ export function searchCompanies(list: Company[], query: string): Company[] {
     if (digits.length >= 3 && c.phones.some((p) => onlyDigits(p).includes(digits))) return true;
     return false;
   });
+}
+
+/* ---- Platinum client financial terms & compliance (EPIC-9) ---- */
+
+export type CoiStatus = "none" | "valid" | "expiring" | "expired";
+
+/** COI status derived from its expiry date; "expiring" ≤ 30 days out. */
+export function coiStatus(coiExpiration: string | undefined, now = new Date()): CoiStatus {
+  if (!coiExpiration) return "none";
+  const expiry = Date.parse(`${coiExpiration}T00:00:00Z`);
+  const today = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  const days = Math.round((expiry - today) / 86_400_000);
+  if (days < 0) return "expired";
+  if (days <= 30) return "expiring";
+  return "valid";
+}
+
+const NET_DAYS: Record<PaymentTerms, number> = {
+  [PaymentTerms.CASH]: 0,
+  [PaymentTerms.NET_15]: 15,
+  [PaymentTerms.NET_30]: 30,
+  [PaymentTerms.NET_60]: 60,
+  [PaymentTerms.CUSTOM]: 0,
+};
+
+export function paymentTermsLabel(terms?: PaymentTerms, customDays?: number): string {
+  if (!terms) return "—";
+  if (terms === PaymentTerms.CASH) return "Cash";
+  if (terms === PaymentTerms.CUSTOM) return `Net-${customDays ?? "?"} (custom)`;
+  return `Net-${NET_DAYS[terms]}`;
+}
+
+/** Invoice due date = invoice date + the terms' net days ("YYYY-MM-DD"). */
+export function dueDateFrom(invoiceDate: string, terms?: PaymentTerms, customDays?: number): string {
+  const net = !terms
+    ? 0
+    : terms === PaymentTerms.CUSTOM
+      ? customDays ?? 0
+      : NET_DAYS[terms];
+  const due = Date.parse(`${invoiceDate}T00:00:00Z`) + net * 86_400_000;
+  return new Date(due).toISOString().slice(0, 10);
 }
