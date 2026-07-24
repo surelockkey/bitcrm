@@ -66,6 +66,16 @@ export class CreateDealDto {
   @IsString()
   sourceId?: string;
 
+  @ApiPropertyOptional({ example: 'wo-uuid', description: 'Platinum client Work Order this deal was authorized by.' })
+  @IsOptional()
+  @IsString()
+  workOrderId?: string;
+
+  @ApiPropertyOptional({ example: 'PO-12345', description: 'Client PO number.' })
+  @IsOptional()
+  @IsString()
+  poNumber?: string;
+
   @ApiPropertyOptional({ example: 'Client locked out of home' })
   @IsOptional()
   @IsString()

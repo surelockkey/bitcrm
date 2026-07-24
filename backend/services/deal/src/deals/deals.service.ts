@@ -185,6 +185,8 @@ export class DealsService {
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
+      workOrderId: dto.workOrderId,
+      poNumber: dto.poNumber,
       notes: dto.notes,
       tagIds,
       status: DealStatus.ACTIVE,

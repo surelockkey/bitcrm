@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, MetricsModule, HealthModule, ConnectivityModule } from '@bitcrm/shared';
+import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, MetricsModule, HealthModule, ConnectivityModule, StorageModule } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { ContactsModule } from './contacts/contacts.module';
 import { CompaniesModule } from './companies/companies.module';
+import { WorkOrdersModule } from './work-orders/work-orders.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { CompaniesModule } from './companies/companies.module';
     DynamoDbModule,
     RedisModule,
     AuthModule,
+    StorageModule,
     EventsModule.forRoot({
       publisher: {
         region: process.env.AWS_REGION,
@@ -40,6 +42,7 @@ import { CompaniesModule } from './companies/companies.module';
       },
     }),
     ContactsModule,
+    WorkOrdersModule,
     CompaniesModule,
   ],
   controllers: [AppController],

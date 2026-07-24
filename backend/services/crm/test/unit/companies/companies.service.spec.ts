@@ -4,7 +4,7 @@ import { CompaniesService } from 'src/companies/companies.service';
 import { CompaniesRepository } from 'src/companies/companies.repository';
 import { CompaniesCacheService } from 'src/companies/companies-cache.service';
 import { SnsPublisherService } from '@bitcrm/shared';
-import { ClientType, CrmStatus } from '@bitcrm/types';
+import { ClientType, CrmStatus, PaymentTerms } from '@bitcrm/types';
 import {
   createMockCompany,
   createMockCompaniesRepository,
@@ -51,6 +51,32 @@ describe('CompaniesService', () => {
       expect(repository.create).toHaveBeenCalled();
       expect(snsPublisher.publish).toHaveBeenCalledWith(
         'crm', 'company.created', expect.objectContaining({ companyId: result.id }),
+      );
+    });
+
+    it('persists platinum financial terms & compliance fields', async () => {
+      repository.create.mockResolvedValue(undefined);
+      const platinumDto = {
+        title: 'ABC Supply',
+        clientType: ClientType.COMMERCIAL,
+        isPlatinum: true,
+        paymentTerms: PaymentTerms.NET_30,
+        taxExempt: true,
+        poRequired: true,
+        coiExpiration: '2026-12-31',
+      };
+
+      const result = await service.create(platinumDto as any, caller);
+
+      expect(result).toMatchObject({
+        isPlatinum: true,
+        paymentTerms: PaymentTerms.NET_30,
+        taxExempt: true,
+        poRequired: true,
+        coiExpiration: '2026-12-31',
+      });
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isPlatinum: true, paymentTerms: PaymentTerms.NET_30 }),
       );
     });
   });

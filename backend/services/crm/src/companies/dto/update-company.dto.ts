@@ -1,9 +1,9 @@
 import {
   IsString, IsOptional, IsEnum, IsArray,
-  ArrayMaxSize, MinLength,
+  ArrayMaxSize, MinLength, IsBoolean, IsInt, Min, IsDateString,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { ClientType } from '@bitcrm/types';
+import { ClientType, PaymentTerms } from '@bitcrm/types';
 
 export class UpdateCompanyDto {
   @ApiPropertyOptional({ example: 'New Name' })
@@ -44,4 +44,37 @@ export class UpdateCompanyDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // --- Platinum financial terms & compliance (EPIC-9) ---
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  isPlatinum?: boolean;
+
+  @ApiPropertyOptional({ enum: PaymentTerms })
+  @IsOptional()
+  @IsEnum(PaymentTerms)
+  paymentTerms?: PaymentTerms;
+
+  @ApiPropertyOptional({ example: 45 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  customTermsDays?: number;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  taxExempt?: boolean;
+
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  poRequired?: boolean;
+
+  @ApiPropertyOptional({ example: '2026-12-31' })
+  @IsOptional()
+  @IsDateString()
+  coiExpiration?: string;
 }

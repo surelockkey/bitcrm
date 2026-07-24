@@ -112,6 +112,22 @@ describe('DealsService', () => {
       expect(repo.create).toHaveBeenCalled();
     });
 
+    it('persists a platinum work-order link and PO number', async () => {
+      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(
+        { ...dto, workOrderId: 'wo-1', poNumber: 'PO-12345' } as any,
+        caller,
+      );
+
+      expect(result.workOrderId).toBe('wo-1');
+      expect(result.poNumber).toBe('PO-12345');
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ workOrderId: 'wo-1', poNumber: 'PO-12345' }),
+      );
+    });
+
     it('auto-resolves serviceAreaId and label from the geocoded address', async () => {
       repo.getNextDealNumber.mockResolvedValue(1001);
       repo.create.mockResolvedValue(undefined);

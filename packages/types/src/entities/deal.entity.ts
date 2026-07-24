@@ -40,6 +40,10 @@ export interface Deal {
   estimatedTotal?: number;
   actualTotal?: number;
   paymentStatus?: string;
+  /** Platinum client Work Order this deal was authorized by (EPIC-9). */
+  workOrderId?: string;
+  /** Client PO number (required when the company has poRequired). */
+  poNumber?: string;
   status: DealStatus;
   createdBy: string;
   createdAt: string;
