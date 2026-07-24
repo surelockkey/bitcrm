@@ -17,6 +17,9 @@ import { SensitiveRepository } from './documents/sensitive.repository';
 import { AuditRepository } from './documents/audit.repository';
 import { TechnicianLocationController } from './location/technician-location.controller';
 import { TechnicianLocationService } from './location/technician-location.service';
+import { CalendarController } from './calendar/calendar.controller';
+import { CalendarService } from './calendar/calendar.service';
+import { CalendarRepository } from './calendar/calendar.repository';
 import { RolesModule } from '../roles/roles.module';
 import { UsersModule } from '../users/users.module';
 
@@ -27,6 +30,7 @@ import { UsersModule } from '../users/users.module';
     CommissionController,
     DocumentsController,
     TechnicianLocationController,
+    CalendarController,
     TechniciansController,
   ],
   providers: [
@@ -43,6 +47,8 @@ import { UsersModule } from '../users/users.module';
     SensitiveRepository,
     AuditRepository,
     TechnicianLocationService,
+    CalendarService,
+    CalendarRepository,
   ],
   exports: [
     TechniciansService,
