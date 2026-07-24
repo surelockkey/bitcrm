@@ -3,11 +3,18 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarPlus } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarPlus, Search } from "lucide-react";
 import type { Deal, TechnicianProfile } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -16,7 +23,7 @@ import { useAllTechnicians } from "@/features/technicians/hooks";
 import * as dealApi from "@/features/deals/api";
 import { todayISO } from "@/features/dispatch/lib";
 import { useCalendarEvents } from "../hooks";
-import { weekDays, dealConflicts, eventOnDate, type ConflictReason } from "../lib";
+import { weekDays, dealConflicts, eventOnDate, filterTechnicians, type ConflictReason } from "../lib";
 import { DayGrid, type RescheduleTarget } from "./day-grid";
 import { WeekGrid } from "./week-grid";
 import { TimeOffDialog } from "./time-off-dialog";
@@ -33,6 +40,9 @@ export function SchedulePage() {
   const [date, setDate] = useState(todayISO());
   const [timeOffOpen, setTimeOffOpen] = useState(false);
   const [pending, setPending] = useState<RescheduleTarget | null>(null);
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [department, setDepartment] = useState<string>("all");
+  const [query, setQuery] = useState("");
 
   const canView = can("deals", "view");
   const canManage = can("technicians", "edit");
@@ -42,11 +52,31 @@ export function SchedulePage() {
   const { map: users } = useUserMap();
   const { map: contacts } = useContactMap();
 
-  const techIds = useMemo(() => profiles.map((p) => p.userId), [profiles]);
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of profiles) {
+      const dept = users.get(p.userId)?.department;
+      if (dept) set.add(dept);
+    }
+    return [...set].sort();
+  }, [profiles, users]);
+
+  const visibleProfiles = useMemo(
+    () =>
+      filterTechnicians(profiles, users, {
+        activeOnly,
+        department: department === "all" ? undefined : department,
+        query,
+      }),
+    [profiles, users, activeOnly, department, query],
+  );
+  const techIds = useMemo(() => visibleProfiles.map((p) => p.userId), [visibleProfiles]);
+  const allTechIds = useMemo(() => profiles.map((p) => p.userId), [profiles]);
   const week = useMemo(() => weekDays(date), [date]);
   const [from, to] = view === "day" ? [date, date] : [week[0], week[6]];
 
-  const { data: events } = useCalendarEvents(techIds, from, to, canView);
+  // Fetch events for the whole roster so toggling filters never refetches.
+  const { data: events } = useCalendarEvents(allTechIds, from, to, canView);
 
   const profileMap = useMemo(() => {
     const m = new Map<string, TechnicianProfile>();
@@ -122,6 +152,41 @@ export function SchedulePage() {
             Add time off
           </Button>
         ) : null}
+      </div>
+
+      {/* Technician filters */}
+      <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-6 py-2">
+        <div className="relative">
+          <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-8 w-48 pl-7"
+            placeholder="Search technicians…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
+        <Select value={department} onValueChange={setDepartment}>
+          <SelectTrigger className="h-8 w-44"><SelectValue placeholder="Department" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All departments</SelectItem>
+            {departments.map((d) => (
+              <SelectItem key={d} value={d}>{d}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={activeOnly ? "active" : "all"} onValueChange={(v) => setActiveOnly(v === "active")}>
+          <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active only</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <span className="ml-auto text-xs text-muted-foreground">
+          {techIds.length} {techIds.length === 1 ? "technician" : "technicians"}
+        </span>
       </div>
 
       <div className="flex-1 overflow-auto p-4">

@@ -1,4 +1,10 @@
-import { CalendarEventType, type CalendarEvent, type Deal } from "@bitcrm/types";
+import {
+  CalendarEventType,
+  type CalendarEvent,
+  type Deal,
+  type TechnicianProfile,
+  type User,
+} from "@bitcrm/types";
 
 /** Vertical grid geometry for the day view. */
 export interface Grid {
@@ -201,6 +207,68 @@ export function dealConflicts(
       reasons.push("out_of_hours");
   }
   return reasons;
+}
+
+/** Default day window, always shown; the grid only ever grows past it. */
+const DEFAULT_START_HOUR = 7;
+const DEFAULT_END_HOUR = 19;
+
+/**
+ * The hour window a day column should span: the [7,19] baseline, widened to fit
+ * any job or working-hours boundary that falls outside it that day. This is why
+ * the grid is no longer stuck at 7–18 — an early or late job pulls it open.
+ */
+export function computeDayWindow(
+  deals: Deal[],
+  profiles: Map<string, TechnicianProfile>,
+  dateISO: string,
+): { startHour: number; endHour: number } {
+  let minStart = DEFAULT_START_HOUR * 60;
+  let maxEnd = DEFAULT_END_HOUR * 60;
+
+  for (const d of deals) {
+    if (d.scheduledDate !== dateISO) continue;
+    const p = parseSlot(d.scheduledTimeSlot);
+    if (!p) continue;
+    minStart = Math.min(minStart, p.start);
+    maxEnd = Math.max(maxEnd, p.end);
+  }
+  for (const prof of profiles.values()) {
+    const start = parseSlot(`${prof.workStart}-${prof.workStart}`);
+    const end = parseSlot(`${prof.workEnd}-${prof.workEnd}`);
+    if (start) minStart = Math.min(minStart, start.start);
+    if (end) maxEnd = Math.max(maxEnd, end.start);
+  }
+
+  return {
+    startHour: Math.max(0, Math.floor(minStart / 60)),
+    endHour: Math.min(24, Math.ceil(maxEnd / 60)),
+  };
+}
+
+export interface TechFilter {
+  activeOnly: boolean;
+  department?: string;
+  query?: string;
+}
+
+/** Filter the technician roster for the schedule toolbar (status/department/name). */
+export function filterTechnicians(
+  profiles: TechnicianProfile[],
+  users: Map<string, User>,
+  filter: TechFilter,
+): TechnicianProfile[] {
+  const q = filter.query?.trim().toLowerCase();
+  return profiles.filter((p) => {
+    if (filter.activeOnly && p.status !== "active") return false;
+    const u = users.get(p.userId);
+    if (filter.department && u?.department !== filter.department) return false;
+    if (q) {
+      const name = `${u?.firstName ?? ""} ${u?.lastName ?? ""} ${u?.email ?? ""}`.toLowerCase();
+      if (!name.includes(q)) return false;
+    }
+    return true;
+  });
 }
 
 const EVENT_LABELS: Record<CalendarEventType, string> = {
