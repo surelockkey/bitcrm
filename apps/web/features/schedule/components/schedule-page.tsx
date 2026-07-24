@@ -41,7 +41,6 @@ export function SchedulePage() {
   const [timeOffOpen, setTimeOffOpen] = useState(false);
   const [pending, setPending] = useState<RescheduleTarget | null>(null);
   const [activeOnly, setActiveOnly] = useState(true);
-  const [department, setDepartment] = useState<string>("all");
   const [query, setQuery] = useState("");
 
   const canView = can("deals", "view");
@@ -52,23 +51,9 @@ export function SchedulePage() {
   const { map: users } = useUserMap();
   const { map: contacts } = useContactMap();
 
-  const departments = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of profiles) {
-      const dept = users.get(p.userId)?.department;
-      if (dept) set.add(dept);
-    }
-    return [...set].sort();
-  }, [profiles, users]);
-
   const visibleProfiles = useMemo(
-    () =>
-      filterTechnicians(profiles, users, {
-        activeOnly,
-        department: department === "all" ? undefined : department,
-        query,
-      }),
-    [profiles, users, activeOnly, department, query],
+    () => filterTechnicians(profiles, users, { activeOnly, query }),
+    [profiles, users, activeOnly, query],
   );
   const techIds = useMemo(() => visibleProfiles.map((p) => p.userId), [visibleProfiles]);
   const allTechIds = useMemo(() => profiles.map((p) => p.userId), [profiles]);
@@ -165,16 +150,6 @@ export function SchedulePage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-
-        <Select value={department} onValueChange={setDepartment}>
-          <SelectTrigger className="h-8 w-44"><SelectValue placeholder="Department" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All departments</SelectItem>
-            {departments.map((d) => (
-              <SelectItem key={d} value={d}>{d}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         <Select value={activeOnly ? "active" : "all"} onValueChange={(v) => setActiveOnly(v === "active")}>
           <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
