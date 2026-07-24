@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ClientType, ContactSource, ContactType, CrmStatus } from "@bitcrm/types";
+import { ClientType, ContactSource, ContactType, CrmStatus, PaymentTerms } from "@bitcrm/types";
 import type { Contact, Company } from "@bitcrm/types";
 import {
   formatPhone,
@@ -12,6 +12,9 @@ import {
   sourceLabel,
   searchContacts,
   searchCompanies,
+  coiStatus,
+  paymentTermsLabel,
+  dueDateFrom,
 } from "./lib";
 
 function contact(over: Partial<Contact> = {}): Contact {
@@ -124,5 +127,48 @@ describe("searchCompanies", () => {
   });
   it("matches by phone digits", () => {
     expect(searchCompanies(list, "404 555").map((c) => c.id)).toEqual(["x"]);
+  });
+});
+
+describe("coiStatus", () => {
+  const now = new Date("2026-07-24T00:00:00Z");
+  it("is 'none' when no expiry is set", () => {
+    expect(coiStatus(undefined, now)).toBe("none");
+    expect(coiStatus("", now)).toBe("none");
+  });
+  it("is 'expired' when the date is in the past", () => {
+    expect(coiStatus("2026-07-01", now)).toBe("expired");
+  });
+  it("is 'expiring' within 30 days", () => {
+    expect(coiStatus("2026-08-10", now)).toBe("expiring"); // 17 days out
+    expect(coiStatus("2026-08-23", now)).toBe("expiring"); // 30 days out
+  });
+  it("is 'valid' beyond 30 days", () => {
+    expect(coiStatus("2026-12-31", now)).toBe("valid");
+  });
+});
+
+describe("paymentTermsLabel", () => {
+  it("labels standard terms", () => {
+    expect(paymentTermsLabel(PaymentTerms.NET_30)).toBe("Net-30");
+    expect(paymentTermsLabel(PaymentTerms.CASH)).toBe("Cash");
+  });
+  it("labels custom terms with the day count", () => {
+    expect(paymentTermsLabel(PaymentTerms.CUSTOM, 45)).toBe("Net-45 (custom)");
+  });
+  it("returns a dash when unset", () => {
+    expect(paymentTermsLabel(undefined)).toBe("—");
+  });
+});
+
+describe("dueDateFrom", () => {
+  it("adds the net days to the invoice date", () => {
+    expect(dueDateFrom("2026-07-01", PaymentTerms.NET_30)).toBe("2026-07-31");
+  });
+  it("uses customTermsDays for CUSTOM", () => {
+    expect(dueDateFrom("2026-07-01", PaymentTerms.CUSTOM, 45)).toBe("2026-08-15");
+  });
+  it("is same-day for CASH", () => {
+    expect(dueDateFrom("2026-07-01", PaymentTerms.CASH)).toBe("2026-07-01");
   });
 });

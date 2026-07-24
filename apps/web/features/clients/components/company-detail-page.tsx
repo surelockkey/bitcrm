@@ -16,8 +16,9 @@ import {
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCompany, useCompanyContacts, useDeleteCompany } from "../hooks";
 import { formatPhone } from "../lib";
-import { ClientTypeBadge } from "./client-badges";
+import { ClientTypeBadge, PlatinumBadge } from "./client-badges";
 import { CompanyForm } from "./company-form";
+import { CompanyComplianceTab } from "./company-compliance-tab";
 import { ContactForm } from "./contact-form";
 import { ContactsTable } from "./contacts-table";
 import { DeleteClientDialog } from "./delete-client-dialog";
@@ -57,6 +58,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
             {company.website ? <> · <span className="text-primary">{company.website}</span></> : null}
           </div>
         </div>
+        {company.isPlatinum ? <PlatinumBadge /> : null}
         <ClientTypeBadge type={company.clientType} />
         {!editing && can("companies", "edit") ? (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
@@ -81,6 +83,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
               <TabsList variant="line" className="h-11">
                 <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
                 <TabsTrigger value="contacts" className="px-2">Contacts · {roster.length}</TabsTrigger>
+                <TabsTrigger value="compliance" className="px-2">Compliance</TabsTrigger>
               </TabsList>
             </div>
 
@@ -116,6 +119,10 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
               ) : (
                 <ContactsTable contacts={roster} companyMap={companyMap} />
               )}
+            </TabsContent>
+
+            <TabsContent value="compliance" className="mt-0 p-6">
+              <CompanyComplianceTab company={company} />
             </TabsContent>
           </Tabs>
         )}

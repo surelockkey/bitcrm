@@ -31,6 +31,8 @@ export interface Deal {
   estimatedTotal?: number;
   actualTotal?: number;
   paymentStatus?: string;
+  workOrderId?: string;
+  poNumber?: string;
   status: DealStatus;
   createdBy: string;
   createdAt: string;

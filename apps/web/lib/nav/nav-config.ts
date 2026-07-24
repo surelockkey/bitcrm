@@ -101,7 +101,7 @@ export const MAIN_NAV: NavGroup[] = [
     items: [
       { label: "Invoices", href: "/invoices", icon: FileText, status: "coming-soon" },
       { label: "Payments", href: "/payments", icon: CreditCard, status: "coming-soon" },
-      { label: "Work Orders", href: "/work-orders", icon: ClipboardCheck, status: "coming-soon" },
+      { label: "Work Orders", href: "/work-orders", icon: ClipboardCheck, resource: "work_orders" },
     ],
   },
   {

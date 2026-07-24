@@ -24,6 +24,7 @@ export const RESOURCE_REGISTRY = {
   settings: ['view', 'edit'],
   technicians: ['view', 'create', 'edit', 'delete'],
   skills: ['view', 'propose', 'approve', 'revoke'],
+  work_orders: ['view', 'create', 'edit', 'delete'],
   commission: ['view', 'edit'],
   documents: ['view', 'upload', 'delete'],
 } as const;

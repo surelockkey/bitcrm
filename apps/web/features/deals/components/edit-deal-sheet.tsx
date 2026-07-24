@@ -53,6 +53,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       scheduledTimeSlot: deal.scheduledTimeSlot ?? "",
       priority: deal.priority,
       source: deal.source ?? "",
+      poNumber: deal.poNumber ?? "",
       notes: deal.notes ?? "",
       internalNotes: deal.internalNotes ?? "",
       tags: deal.tags,
@@ -67,6 +68,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         source: v.source || undefined,
+        poNumber: v.poNumber || undefined,
         notes: v.notes || undefined,
         internalNotes: v.internalNotes || undefined,
         tags,
@@ -133,6 +135,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Source</Label><Input className="h-9" {...form.register("source")} /></div>
+              <div className="space-y-1.5"><Label>PO number</Label><Input className="h-9" placeholder="PO-12345" {...form.register("poNumber")} /></div>
               <div className="space-y-1.5"><Label>Tags</Label><Input className="h-9" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} /></div>
             </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} {...form.register("notes")} /></div>
