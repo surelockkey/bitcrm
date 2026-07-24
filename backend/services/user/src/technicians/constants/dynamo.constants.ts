@@ -28,6 +28,15 @@ export const serviceAreaStatusGsiPk = (status: string) => `AREA_STATUS#${status}
 // Commission config items (versioned): SK = COMMISSION#<effectiveDateISO>.
 export const COMMISSION_SK_PREFIX = 'COMMISSION#';
 
+// Calendar events (time off / lunch / break / appointment) under PK=USER#<id>.
+//   SK = CAL#<startDate>#<id>   (startDate 'YYYY-MM-DD' → lexical == chronological)
+// A range query over [from,to] must widen the low bound by MAX_EVENT_DAYS,
+// because an all-day event may START before `from` yet still overlap it.
+export const CAL_SK_PREFIX = 'CAL#';
+export const calSk = (startDate: string, id: string) =>
+  `${CAL_SK_PREFIX}${startDate}#${id}`;
+export const MAX_EVENT_DAYS = 60;
+
 // Sensitive document metadata: SK = DOC#<docType> under PK=USER#<id>.
 export const DOC_SK_PREFIX = 'DOC#';
 

@@ -154,6 +154,9 @@ export class TechniciansRepository {
       gpsTrackingEnabled: Boolean(item.gpsTrackingEnabled),
       mobileAppInstalled: Boolean(item.mobileAppInstalled),
       status: item.status as TechnicianProfileStatus,
+      workingDays: item.workingDays as number[] | undefined,
+      workStart: item.workStart as string | undefined,
+      workEnd: item.workEnd as string | undefined,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };

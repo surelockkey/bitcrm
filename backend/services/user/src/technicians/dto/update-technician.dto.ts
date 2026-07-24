@@ -20,4 +20,7 @@ export const OPERATIONAL_FIELDS = [
   'gpsTrackingEnabled',
   'mobileAppInstalled',
   'status',
+  'workingDays',
+  'workStart',
+  'workEnd',
 ] as const;

@@ -8,3 +8,4 @@ export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './deal
 export { DealPriority } from './deal-priority.enum';
 export { DealStatus } from './deal-status.enum';
 export { TimelineEventType } from './timeline-event-type.enum';
+export { CalendarEventType } from './calendar-event-type.enum';
