@@ -1,8 +1,8 @@
-import { Globe, Mail, Phone, PencilLine } from "lucide-react";
+import { Globe, Mail, Phone, PencilLine, Crown } from "lucide-react";
 import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { clientTypeLabel, contactTypeLabel, sourceLabel } from "../lib";
+import { clientTypeLabel, contactTypeLabel, sourceLabel, type CoiStatus } from "../lib";
 
 export function ClientTypeBadge({ type }: { type: ClientType }) {
   return (
@@ -54,4 +54,25 @@ export function StatusDot({ active = true, label }: { active?: boolean; label?: 
       {label ?? (active ? "Active" : "Deleted")}
     </Badge>
   );
+}
+
+export function PlatinumBadge() {
+  return (
+    <Badge variant="outline" className="gap-1 border-violet-500/40 font-normal text-violet-700 dark:text-violet-400">
+      <Crown className="size-3" />
+      Platinum
+    </Badge>
+  );
+}
+
+const COI_STYLE: Record<Exclude<CoiStatus, "none">, { label: string; cls: string }> = {
+  valid: { label: "COI valid", cls: "border-green-500/40 text-green-700 dark:text-green-500" },
+  expiring: { label: "COI expiring", cls: "border-amber-500/40 text-amber-700 dark:text-amber-500" },
+  expired: { label: "COI expired", cls: "border-destructive/40 text-destructive" },
+};
+
+export function CoiStatusBadge({ status }: { status: CoiStatus }) {
+  if (status === "none") return null;
+  const s = COI_STYLE[status];
+  return <Badge variant="outline" className={cn("font-normal", s.cls)}>{s.label}</Badge>;
 }
