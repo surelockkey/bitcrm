@@ -61,7 +61,7 @@ export const MAIN_NAV: NavGroup[] = [
     items: [
       { label: "Deals", href: "/deals", icon: Briefcase, resource: "deals" },
       { label: "Dispatch Map", href: "/dispatch", icon: Map, resource: "deals" },
-      { label: "Schedule", href: "/schedule", icon: Calendar, resource: "deals", status: "coming-soon" },
+      { label: "Schedule", href: "/schedule", icon: Calendar, resource: "deals" },
     ],
   },
   {
