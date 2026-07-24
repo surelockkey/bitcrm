@@ -67,24 +67,26 @@ function mockApi() {
         success: true,
         data: [
           {
-            userId: "tech-1",
-            status: "active",
-            callMaskingEnabled: false,
-            gpsTrackingEnabled: false,
-            mobileAppInstalled: false,
-            workingDays: [1, 2, 3, 4, 5],
-            workStart: "08:00",
-            workEnd: "17:00",
+            userId: "tech-1", status: "active",
+            callMaskingEnabled: false, gpsTrackingEnabled: false, mobileAppInstalled: false,
+            workingDays: [1, 2, 3, 4, 5], workStart: "08:00", workEnd: "17:00",
+          },
+          {
+            userId: "tech-2", status: "inactive",
+            callMaskingEnabled: false, gpsTrackingEnabled: false, mobileAppInstalled: false,
           },
         ],
-        pagination: { count: 1 },
+        pagination: { count: 2 },
       }),
     ),
     http.get("*/users", () =>
       HttpResponse.json({
         success: true,
-        data: [{ id: "tech-1", firstName: "Sam", lastName: "Ochoa", email: "sam@x.com", roleId: "role-technician" }],
-        pagination: { count: 1 },
+        data: [
+          { id: "tech-1", firstName: "Sam", lastName: "Ochoa", email: "sam@x.com", roleId: "role-technician", department: "East" },
+          { id: "tech-2", firstName: "Dana", lastName: "Reeves", email: "dana@x.com", roleId: "role-technician", department: "West" },
+        ],
+        pagination: { count: 2 },
       }),
     ),
   );
@@ -137,6 +139,22 @@ describe("SchedulePage", () => {
     // Week grid shows day-of-week headers and a per-day count, not proportional blocks.
     expect(await screen.findByText("Mon")).toBeInTheDocument();
     expect(screen.getByText(/1 job/)).toBeInTheDocument();
+  });
+
+  it("shows only active technicians by default (Active-only filter)", async () => {
+    render(<SchedulePage />, { wrapper });
+    // Sam (active) shows; Dana (inactive) is hidden by the default Active-only filter.
+    expect(await screen.findByText("Sam Ochoa")).toBeInTheDocument();
+    expect(screen.queryByText("Dana Reeves")).not.toBeInTheDocument();
+    expect(screen.getByText(/1 technician/)).toBeInTheDocument();
+  });
+
+  it("filters technicians by a name search", async () => {
+    render(<SchedulePage />, { wrapper });
+    await screen.findByText("Sam Ochoa");
+    await userEvent.type(screen.getByPlaceholderText("Search technicians…"), "nomatch");
+    expect(screen.queryByText("Sam Ochoa")).not.toBeInTheDocument();
+    expect(screen.getByText(/0 technicians/)).toBeInTheDocument();
   });
 
   it("blocks access without deals.view", async () => {
