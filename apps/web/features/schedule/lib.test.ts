@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { CalendarEventType, type CalendarEvent, type Deal } from "@bitcrm/types";
+import {
+  CalendarEventType,
+  type CalendarEvent,
+  type Deal,
+  type TechnicianProfile,
+  type User,
+} from "@bitcrm/types";
 import {
   weekDays,
   parseSlot,
@@ -9,6 +15,8 @@ import {
   layoutDayColumn,
   outOfHoursBands,
   dealConflicts,
+  computeDayWindow,
+  filterTechnicians,
   type Grid,
 } from "./lib";
 
@@ -148,6 +156,89 @@ describe("outOfHoursBands", () => {
   });
   it("returns no bands when working hours are unset (opt-in)", () => {
     expect(outOfHoursBands({}, "2026-07-24", grid)).toEqual([]);
+  });
+});
+
+describe("computeDayWindow", () => {
+  const wh = (over?: Partial<TechnicianProfile>): TechnicianProfile =>
+    ({
+      userId: "t1",
+      callMaskingEnabled: false,
+      gpsTrackingEnabled: false,
+      mobileAppInstalled: false,
+      status: "active",
+      createdAt: "",
+      updatedAt: "",
+      ...over,
+    }) as TechnicianProfile;
+
+  it("defaults to 7..19 when there are no jobs or working hours", () => {
+    expect(computeDayWindow([], new Map(), "2026-07-24")).toEqual({ startHour: 7, endHour: 19 });
+  });
+
+  it("expands down to fit an early job", () => {
+    const jobs = [deal({ scheduledTimeSlot: "05:30-06:30" })];
+    expect(computeDayWindow(jobs, new Map(), "2026-07-24").startHour).toBe(5);
+  });
+
+  it("expands up to fit a late job", () => {
+    const jobs = [deal({ scheduledTimeSlot: "20:00-21:30" })];
+    expect(computeDayWindow(jobs, new Map(), "2026-07-24").endHour).toBe(22);
+  });
+
+  it("expands to fit working hours that run past the default", () => {
+    const profiles = new Map([["t1", wh({ workStart: "06:00", workEnd: "22:00" })]]);
+    const w = computeDayWindow([], profiles, "2026-07-24");
+    expect(w).toEqual({ startHour: 6, endHour: 22 });
+  });
+
+  it("ignores jobs on other days", () => {
+    const jobs = [deal({ scheduledDate: "2026-07-25", scheduledTimeSlot: "05:00-06:00" })];
+    expect(computeDayWindow(jobs, new Map(), "2026-07-24")).toEqual({ startHour: 7, endHour: 19 });
+  });
+});
+
+describe("filterTechnicians", () => {
+  const prof = (userId: string, status: TechnicianProfile["status"]): TechnicianProfile =>
+    ({
+      userId,
+      callMaskingEnabled: false,
+      gpsTrackingEnabled: false,
+      mobileAppInstalled: false,
+      status,
+      createdAt: "",
+      updatedAt: "",
+    }) as TechnicianProfile;
+
+  const users = new Map<string, User>([
+    ["t1", { id: "t1", firstName: "Sam", lastName: "Ochoa", email: "s@x", department: "East" } as User],
+    ["t2", { id: "t2", firstName: "Dana", lastName: "Reeves", email: "d@x", department: "West" } as User],
+    ["t3", { id: "t3", firstName: "Lee", lastName: "Park", email: "l@x", department: "East" } as User],
+  ]);
+  const profiles = [prof("t1", "active"), prof("t2", "active"), prof("t3", "inactive")];
+
+  it("keeps only active technicians when activeOnly is set", () => {
+    const ids = filterTechnicians(profiles, users, { activeOnly: true }).map((p) => p.userId);
+    expect(ids).toEqual(["t1", "t2"]);
+  });
+
+  it("returns all statuses when activeOnly is false", () => {
+    expect(filterTechnicians(profiles, users, { activeOnly: false })).toHaveLength(3);
+  });
+
+  it("filters by department", () => {
+    const ids = filterTechnicians(profiles, users, { activeOnly: false, department: "East" }).map((p) => p.userId);
+    expect(ids).toEqual(["t1", "t3"]);
+  });
+
+  it("filters by a case-insensitive name query", () => {
+    const ids = filterTechnicians(profiles, users, { activeOnly: false, query: "ree" }).map((p) => p.userId);
+    expect(ids).toEqual(["t2"]);
+  });
+
+  it("combines filters", () => {
+    const ids = filterTechnicians(profiles, users, { activeOnly: true, department: "East", query: "sam" }).map((p) => p.userId);
+    expect(ids).toEqual(["t1"]);
   });
 });
 

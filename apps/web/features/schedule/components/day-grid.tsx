@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { techColor } from "@/features/dispatch/tech-color";
 import {
   blockGeometry,
+  computeDayWindow,
   dealConflicts,
   eventOnDate,
   layoutDayColumn,
@@ -32,7 +33,8 @@ export interface RescheduleTarget {
   newSlot: string;
 }
 
-const GRID: Grid = { startHour: 7, endHour: 19, hourPx: 56, minBlockPx: 24 };
+const HOUR_PX = 56;
+const MIN_BLOCK_PX = 24;
 
 function techName(id: string, users: Map<string, User>): string {
   const u = users.get(id);
@@ -76,14 +78,31 @@ export function DayGrid({
   onReschedule: (t: RescheduleTarget) => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const hours = useMemo(
-    () => Array.from({ length: GRID.endHour - GRID.startHour }, (_, i) => GRID.startHour + i),
-    [],
-  );
 
   const dayDeals = useMemo(
     () => deals.filter((d) => d.scheduledDate === dateISO && d.assignedTechId),
     [deals, dateISO],
+  );
+
+  // The grid window grows past the 7–19 baseline to fit early/late jobs and the
+  // visible technicians' working hours, so nothing is clipped off the top/bottom.
+  const grid: Grid = useMemo(() => {
+    const visibleProfiles = new Map<string, TechnicianProfile>();
+    for (const id of techIds) {
+      const p = profiles.get(id);
+      if (p) visibleProfiles.set(id, p);
+    }
+    const win = computeDayWindow(
+      dayDeals.filter((d) => techIds.includes(d.assignedTechId!)),
+      visibleProfiles,
+      dateISO,
+    );
+    return { ...win, hourPx: HOUR_PX, minBlockPx: MIN_BLOCK_PX };
+  }, [dayDeals, profiles, techIds, dateISO]);
+
+  const hours = useMemo(
+    () => Array.from({ length: grid.endHour - grid.startHour }, (_, i) => grid.startHour + i),
+    [grid],
   );
 
   const handleDragEnd = (e: DragEndEvent) => {
@@ -103,7 +122,7 @@ export function DayGrid({
         <div className="sticky left-0 z-10 w-14 flex-none bg-background">
           <div className="h-10 border-b" />
           {hours.map((h) => (
-            <div key={h} className="relative border-b text-[10px] text-muted-foreground" style={{ height: GRID.hourPx }}>
+            <div key={h} className="relative border-b text-[10px] text-muted-foreground" style={{ height: grid.hourPx }}>
               <span className="absolute -top-1.5 right-1">{String(h).padStart(2, "0")}:00</span>
             </div>
           ))}
@@ -111,9 +130,9 @@ export function DayGrid({
 
         {techIds.map((techId) => {
           const techDeals = dayDeals.filter((d) => d.assignedTechId === techId);
-          const layout = layoutDayColumn(techDeals, GRID);
+          const layout = layoutDayColumn(techDeals, grid);
           const wh = profiles.get(techId) ?? {};
-          const bands = outOfHoursBands(wh, dateISO, GRID);
+          const bands = outOfHoursBands(wh, dateISO, grid);
           const dayEvents = events.filter((e) => e.technicianId === techId && eventOnDate(e, dateISO));
 
           return (
@@ -124,20 +143,20 @@ export function DayGrid({
                 <span className="ml-auto text-xs text-muted-foreground">{techDeals.length}</span>
               </div>
 
-              <div className="relative" style={{ height: hours.length * GRID.hourPx }}>
+              <div className="relative" style={{ height: hours.length * grid.hourPx }}>
                 {/* out-of-hours dimming */}
                 {bands.map((b, i) => (
                   <div key={i} className="absolute inset-x-0 bg-muted/50" style={{ top: b.topPx, height: b.heightPx }} />
                 ))}
                 {/* hour lines + droppable cells */}
                 {hours.map((h) => (
-                  <DropCell key={h} id={`${techId}:${h}`} readOnly={readOnly} top={(h - GRID.startHour) * GRID.hourPx} height={GRID.hourPx} />
+                  <DropCell key={h} id={`${techId}:${h}`} readOnly={readOnly} top={(h - grid.startHour) * grid.hourPx} height={grid.hourPx} />
                 ))}
                 {/* time-off / lunch blocks (non-draggable) */}
                 {dayEvents.map((ev) => {
                   const geo = ev.allDay
-                    ? { topPx: 0, heightPx: hours.length * GRID.hourPx }
-                    : blockGeometry(ev.timeSlot!, GRID);
+                    ? { topPx: 0, heightPx: hours.length * grid.hourPx }
+                    : blockGeometry(ev.timeSlot!, grid);
                   return (
                     <div
                       key={ev.id}
