@@ -149,6 +149,71 @@ describe('ContactsService', () => {
         'contact-1', ['+14045551234'], ['+15558675309'],
       );
     });
+
+    it('adds a new phone while keeping existing ones', async () => {
+      const existing = createMockContact({ phones: ['+14045551234'] });
+      cache.get.mockResolvedValue(existing);
+      repository.findByPhone.mockResolvedValue(null); // new phone is free
+      repository.update.mockResolvedValue(existing);
+      repository.updatePhoneIndex.mockResolvedValue(undefined);
+
+      await service.update('contact-1', {
+        phones: ['(404) 555-1234', '(555) 867-5309'],
+      } as any);
+
+      expect(repository.updatePhoneIndex).toHaveBeenCalledWith(
+        'contact-1',
+        ['+14045551234'],
+        ['+14045551234', '+15558675309'],
+      );
+    });
+
+    it('rejects a newly added phone that belongs to another contact', async () => {
+      const existing = createMockContact({ id: 'contact-1', phones: ['+14045551234'] });
+      cache.get.mockResolvedValue(existing);
+      repository.findByPhone.mockResolvedValue(
+        createMockContact({ id: 'contact-2', phones: ['+15558675309'] }),
+      );
+
+      await expect(
+        service.update('contact-1', {
+          phones: ['(404) 555-1234', '(555) 867-5309'],
+        } as any),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.updatePhoneIndex).not.toHaveBeenCalled();
+    });
+
+    it('de-duplicates repeated phones before writing the index', async () => {
+      const existing = createMockContact({ phones: ['+14045551234'] });
+      cache.get.mockResolvedValue(existing);
+      repository.findByPhone.mockResolvedValue(null);
+      repository.update.mockResolvedValue(existing);
+
+      await service.update('contact-1', {
+        phones: ['(404) 555-1234', '(404) 555-1234'],
+      } as any);
+
+      expect(repository.updatePhoneIndex).toHaveBeenCalledWith(
+        'contact-1', ['+14045551234'], ['+14045551234'],
+      );
+    });
+
+    it('persists structured addresses', async () => {
+      const addresses = [
+        { street: '1 A St', city: 'Atlanta', state: 'GA', zip: '30301', lat: 33.7, lng: -84.4 },
+        { street: '2 B St', city: 'Decatur', state: 'GA', zip: '30030' },
+      ];
+      const existing = createMockContact();
+      cache.get.mockResolvedValue(existing);
+      repository.update.mockResolvedValue({ ...existing, addresses });
+
+      await service.update('contact-1', { addresses } as any);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'contact-1',
+        expect.objectContaining({ addresses }),
+      );
+    });
   });
 
   describe('delete', () => {

@@ -7,7 +7,7 @@ import {
 export function createMockContact(overrides?: Partial<Contact>): Contact {
   return {
     id: 'contact-1', firstName: 'John', lastName: 'Doe',
-    phones: ['+14045551234'], emails: ['john@example.com'],
+    phones: ['+14045551234'], emails: ['john@example.com'], addresses: [],
     type: ContactType.RESIDENTIAL, source: ContactSource.MANUAL,
     status: CrmStatus.ACTIVE, createdBy: 'admin-1',
     createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',

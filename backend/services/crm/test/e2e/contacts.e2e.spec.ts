@@ -265,6 +265,69 @@ describe('Contacts E2E', () => {
     expect(res.body.data.notes).toBe('Updated');
   });
 
+  it('PUT /contacts/:id - adds a new phone while keeping existing ones (regression)', async () => {
+    const first = `(404) 555-${String(Date.now()).slice(-4)}`;
+    const contact = await createContact(app, adminUser, { phones: [first] });
+    const existingPhone = contact.phones[0]; // normalized +1…
+
+    const second = '(555) 867-5309';
+    const res = await request(app.getHttpServer())
+      .put(`${BASE}/${contact.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ phones: [existingPhone, second] })
+      .expect(200);
+
+    expect(res.body.data.phones).toHaveLength(2);
+    expect(res.body.data.phones).toEqual(
+      expect.arrayContaining([existingPhone, '+15558675309']),
+    );
+  });
+
+  it('PUT /contacts/:id - stores multiple emails and addresses', async () => {
+    const contact = await createContact(app, adminUser);
+
+    const res = await request(app.getHttpServer())
+      .put(`${BASE}/${contact.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        emails: ['a@example.com', 'b@example.com'],
+        addresses: [
+          { street: '123 Main St', city: 'Atlanta', state: 'GA', zip: '30301', lat: 33.749, lng: -84.388 },
+          { street: '9 Oak Ave', unit: 'Apt 2', city: 'Decatur', state: 'GA', zip: '30030' },
+        ],
+      })
+      .expect(200);
+
+    expect(res.body.data.emails).toEqual(['a@example.com', 'b@example.com']);
+    expect(res.body.data.addresses).toHaveLength(2);
+    expect(res.body.data.addresses[0]).toMatchObject({
+      street: '123 Main St', city: 'Atlanta', state: 'GA', zip: '30301', lat: 33.749, lng: -84.388,
+    });
+    expect(res.body.data.addresses[1].unit).toBe('Apt 2');
+  });
+
+  it('POST /contacts - creates with multiple phones, emails, and addresses', async () => {
+    const p1 = `(404) 555-${String(Date.now()).slice(-4)}`;
+    const res = await request(app.getHttpServer())
+      .post(BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send(
+        validContactPayload({
+          phones: [p1, '(555) 867-5309'],
+          emails: ['a@example.com', 'b@example.com'],
+          addresses: [
+            { street: '1 A St', city: 'Atlanta', state: 'GA', zip: '30301' },
+            { street: '2 B St', city: 'Atlanta', state: 'GA', zip: '30302' },
+          ],
+        }),
+      )
+      .expect(201);
+
+    expect(res.body.data.phones).toHaveLength(2);
+    expect(res.body.data.addresses).toHaveLength(2);
+    expect(res.body.data.addresses[0].street).toBe('1 A St');
+  });
+
   it('PUT /contacts/:id - technician gets 403', async () => {
     const contact = await createContact(app, adminUser);
 

@@ -15,6 +15,7 @@ function contact(over: Partial<Contact> = {}): Contact {
     lastName: "Smith",
     phones: ["+14045551234", "+14045559002"],
     emails: ["jane@acme.com"],
+    addresses: [],
     companyId: "co1",
     type: ContactType.COMPANY_REPRESENTATIVE,
     title: "Facilities Manager",

@@ -200,5 +200,55 @@ describe('ContactsRepository', () => {
 
       expect(dynamoDb.client.send).not.toHaveBeenCalled();
     });
+
+    it('adds a new phone while keeping existing ones without duplicate operations', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      // Existing phone kept, one new phone added — the classic "add a phone" edit.
+      await repository.updatePhoneIndex(
+        'contact-1',
+        ['+14045551234'],
+        ['+14045551234', '+15558675309'],
+      );
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      const items = dynamoDb.client.send.mock.calls[0][0].input.TransactItems;
+      // Only the added phone is written; the unchanged one is left untouched, so
+      // no item is both Deleted and Put in the same transaction.
+      expect(items).toHaveLength(1);
+      expect(items[0].Put.Item.PK).toBe('PHONE#+15558675309');
+
+      // No PHONE# key appears in more than one operation.
+      const keys = items.map((i: any) => {
+        const op = i.Put ?? i.Delete;
+        const k = i.Put ? op.Item : op.Key;
+        return `${k.PK}|${k.SK}`;
+      });
+      expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it('only deletes phones that were removed', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.updatePhoneIndex(
+        'contact-1',
+        ['+14045551234', '+15558675309'],
+        ['+14045551234'],
+      );
+
+      const items = dynamoDb.client.send.mock.calls[0][0].input.TransactItems;
+      expect(items).toHaveLength(1);
+      expect(items[0].Delete.Key.PK).toBe('PHONE#+15558675309');
+    });
+
+    it('sends nothing when the phone set is unchanged', async () => {
+      await repository.updatePhoneIndex(
+        'contact-1',
+        ['+14045551234', '+15558675309'],
+        ['+15558675309', '+14045551234'],
+      );
+
+      expect(dynamoDb.client.send).not.toHaveBeenCalled();
+    });
   });
 });

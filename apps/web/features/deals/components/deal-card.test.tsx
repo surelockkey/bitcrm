@@ -36,6 +36,7 @@ const contact: Contact = {
   lastName: "Smith",
   phones: ["+14045551234"],
   emails: [],
+  addresses: [],
   type: ContactType.RESIDENTIAL,
   source: ContactSource.PHONE_CALL,
   status: CrmStatus.ACTIVE,

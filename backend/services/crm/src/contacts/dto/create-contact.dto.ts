@@ -1,9 +1,11 @@
 import {
   IsString, IsOptional, IsEnum, IsArray,
-  ArrayMinSize, ArrayMaxSize, MinLength, IsEmail,
+  ArrayMinSize, ArrayMaxSize, MinLength, IsEmail, ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ContactType, ContactSource } from '@bitcrm/types';
+import { ContactAddressDto } from './address.dto';
 
 export class CreateContactDto {
   @ApiProperty({ example: 'John' })
@@ -28,6 +30,14 @@ export class CreateContactDto {
   @IsArray()
   @IsString({ each: true })
   emails?: string[];
+
+  @ApiPropertyOptional({ type: [ContactAddressDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => ContactAddressDto)
+  addresses?: ContactAddressDto[];
 
   @ApiPropertyOptional({ example: 'company-uuid' })
   @IsOptional()

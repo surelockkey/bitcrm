@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronLeft, Mail, Pencil, Phone, Trash2 } from "lucide-react";
+import { Building2, ChevronLeft, Mail, MapPin, Pencil, Phone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
-import { clientTypeLabel, contactName, formatPhone, initials, sourceLabel } from "../lib";
+import { clientTypeLabel, contactName, formatAddress, formatPhone, initials, sourceLabel } from "../lib";
 import { ContactTypeBadge } from "./client-badges";
 import { ContactForm } from "./contact-form";
 import { DeleteClientDialog } from "./delete-client-dialog";
@@ -70,6 +70,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
             <div className="space-y-5 p-6">
               <FieldList label="Phones" icon={Phone} values={contact.phones.map(formatPhone)} primaryFirst />
               <FieldList label="Emails" icon={Mail} values={contact.emails} />
+              {contact.addresses?.length ? (
+                <FieldList label="Addresses" icon={MapPin} values={contact.addresses.map(formatAddress)} />
+              ) : null}
               <div className="grid grid-cols-2 gap-4">
                 <Detail label="Title" value={contact.title || "—"} />
                 <Detail label="Source" value={sourceLabel(contact.source)} />

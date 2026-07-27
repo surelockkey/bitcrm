@@ -19,6 +19,7 @@ describe('ContactsRepository (integration)', () => {
     lastName: 'Doe',
     phones: ['+14045551234'],
     emails: ['john@example.com'],
+    addresses: [],
     type: ContactType.RESIDENTIAL,
     source: ContactSource.MANUAL,
     status: CrmStatus.ACTIVE,
@@ -167,6 +168,40 @@ describe('ContactsRepository (integration)', () => {
       expect(oldResult).toBeNull();
       expect(newResult).not.toBeNull();
       expect(newResult!.id).toBe('contact-1');
+    });
+
+    it('adds a new phone while keeping an existing one (regression: no dup-op error)', async () => {
+      const contact = makeContact({ phones: ['+14045551234'] });
+      await repository.create(contact);
+
+      // Would previously throw a DynamoDB "multiple operations on one item"
+      // transaction error because the kept phone was Deleted and Put together.
+      await expect(
+        repository.updatePhoneIndex(
+          'contact-1',
+          ['+14045551234'],
+          ['+14045551234', '+15558675309'],
+        ),
+      ).resolves.not.toThrow();
+
+      expect((await repository.findByPhone('+14045551234'))!.id).toBe('contact-1');
+      expect((await repository.findByPhone('+15558675309'))!.id).toBe('contact-1');
+    });
+  });
+
+  describe('addresses', () => {
+    it('round-trips multiple structured addresses', async () => {
+      const addresses = [
+        { street: '123 Main St', city: 'Atlanta', state: 'GA', zip: '30301', lat: 33.7, lng: -84.4 },
+        { street: '9 Oak Ave', city: 'Decatur', state: 'GA', zip: '30030' },
+      ];
+      await repository.create(makeContact({ id: 'c-addr', addresses }));
+      const read = await repository.findById('c-addr');
+      expect(read!.addresses).toEqual(addresses);
+
+      const next = [{ street: '1 New Rd', city: 'Marietta', state: 'GA', zip: '30060' }];
+      const updated = await repository.update('c-addr', { addresses: next });
+      expect(updated.addresses).toEqual(next);
     });
   });
 });

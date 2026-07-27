@@ -8,7 +8,7 @@ import {
   DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { CrmStatus, type Contact } from '@bitcrm/types';
+import { CrmStatus, type Contact, type Address } from '@bitcrm/types';
 import {
   CONTACTS_TABLE,
   CONTACTS_GSI1_NAME,
@@ -201,9 +201,19 @@ export class ContactsRepository {
     oldPhones: string[],
     newPhones: string[],
   ): Promise<void> {
+    // Only touch phones that actually changed. Deleting *and* re-Putting an
+    // unchanged phone in the same TransactWrite hits the same item twice, which
+    // DynamoDB rejects ("Transaction request cannot include multiple operations
+    // on one item") — that is why adding a phone to a contact that kept its
+    // existing ones used to fail.
+    const oldSet = new Set(oldPhones);
+    const newSet = new Set(newPhones);
+    const toDelete = [...oldSet].filter((phone) => !newSet.has(phone));
+    const toAdd = [...newSet].filter((phone) => !oldSet.has(phone));
+
     const transactItems: any[] = [];
 
-    for (const phone of oldPhones) {
+    for (const phone of toDelete) {
       transactItems.push({
         Delete: {
           TableName: this.tableName,
@@ -212,7 +222,7 @@ export class ContactsRepository {
       });
     }
 
-    for (const phone of newPhones) {
+    for (const phone of toAdd) {
       transactItems.push({
         Put: {
           TableName: this.tableName,
@@ -239,6 +249,8 @@ export class ContactsRepository {
       lastName: item.lastName as string,
       phones: item.phones as string[],
       emails: (item.emails as string[]) || [],
+      // Legacy rows predate addresses — default to an empty list on read.
+      addresses: (item.addresses as Address[]) || [],
       companyId: item.companyId as string | undefined,
       type: item.type as Contact['type'],
       title: item.title as string | undefined,

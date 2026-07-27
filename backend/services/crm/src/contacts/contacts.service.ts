@@ -27,7 +27,9 @@ export class ContactsService {
   ) {}
 
   async create(dto: CreateContactDto, caller: JwtUser): Promise<Contact> {
-    const phones = normalizePhones(dto.phones);
+    // De-duplicate: a repeated phone would write the same PHONE# index item
+    // twice in one transaction, which DynamoDB rejects.
+    const phones = [...new Set(normalizePhones(dto.phones))];
 
     for (const phone of phones) {
       const existing = await this.repository.findByPhone(phone);
@@ -45,6 +47,7 @@ export class ContactsService {
       lastName: dto.lastName,
       phones,
       emails: dto.emails || [],
+      addresses: dto.addresses || [],
       companyId: dto.companyId,
       type: dto.type,
       title: dto.title,
@@ -100,7 +103,22 @@ export class ContactsService {
 
     let normalizedPhones: string[] | undefined;
     if (dto.phones) {
-      normalizedPhones = normalizePhones(dto.phones);
+      // De-duplicate: a repeated phone would otherwise write the same PHONE#
+      // index item twice in one transaction.
+      normalizedPhones = [...new Set(normalizePhones(dto.phones))];
+
+      // Reject a newly-added phone that already belongs to a different contact
+      // (parity with create). Phones the contact already had are skipped.
+      const added = normalizedPhones.filter((p) => !existing.phones.includes(p));
+      for (const phone of added) {
+        const owner = await this.repository.findByPhone(phone);
+        if (owner && owner.id !== id) {
+          throw new ConflictException(
+            `Contact with phone ${phone} already exists (id: ${owner.id})`,
+          );
+        }
+      }
+
       await this.repository.updatePhoneIndex(id, existing.phones, normalizedPhones);
     }
 
@@ -144,6 +162,7 @@ export class ContactsService {
       lastName: dto.lastName || 'Unknown',
       phones: [normalized],
       emails: [],
+      addresses: [],
       type: ContactType.RESIDENTIAL,
       source: dto.source || ContactSource.PHONE_CALL,
       status: CrmStatus.ACTIVE,

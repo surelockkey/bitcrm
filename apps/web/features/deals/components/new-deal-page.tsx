@@ -119,7 +119,7 @@ function ClientStep({ onResolved }: { onResolved: (c: ResolvedClient) => void })
   const create = () => {
     if (!first.trim() || !last.trim()) return;
     createContact.mutate(
-      { firstName: first, lastName: last, phones: [trimmed], emails: [], type: ContactType.RESIDENTIAL, source: ContactSource.PHONE_CALL },
+      { firstName: first, lastName: last, phones: [trimmed], emails: [], addresses: [], type: ContactType.RESIDENTIAL, source: ContactSource.PHONE_CALL },
       { onSuccess: (c) => selectContact(c) },
     );
   };

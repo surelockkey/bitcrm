@@ -1,5 +1,12 @@
 import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
-import type { Contact, Company } from "@bitcrm/types";
+import type { Contact, Company, Address } from "@bitcrm/types";
+
+/** Structured address → single display line, e.g. `123 Main St, Apt 4B, Atlanta, GA 30301`. */
+export function formatAddress(a: Address): string {
+  const line1 = [a.street, a.unit].filter(Boolean).join(", ");
+  const cityLine = [a.city, [a.state, a.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return [line1, cityLine].filter(Boolean).join(", ");
+}
 
 /** E.164 (or a bare US number) → `(404) 555-1234`. Anything else passes through. */
 export function formatPhone(raw: string): string {

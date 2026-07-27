@@ -22,6 +22,7 @@ import { contactFormSchema, type ContactFormValues } from "../schemas";
 import { useContactByPhone, useCompanyMap, useCreateContact, useUpdateContact } from "../hooks";
 import { contactTypeLabel, sourceLabel } from "../lib";
 import { RepeatableInputs } from "./phone-email-fields";
+import { ContactAddressFields } from "./contact-address-fields";
 import { CompanyPickerDialog } from "./company-picker-dialog";
 
 export function ContactForm({
@@ -49,6 +50,7 @@ export function ContactForm({
           lastName: contact.lastName,
           phones: contact.phones.length ? contact.phones : [""],
           emails: contact.emails,
+          addresses: contact.addresses ?? [],
           companyId: contact.companyId ?? "",
           type: contact.type,
           source: contact.source,
@@ -60,6 +62,7 @@ export function ContactForm({
           lastName: "",
           phones: [""],
           emails: [],
+          addresses: [],
           companyId: defaultCompanyId ?? "",
           type: ContactType.RESIDENTIAL,
           source: ContactSource.MANUAL,
@@ -83,6 +86,7 @@ export function ContactForm({
       lastName: v.lastName,
       phones: v.phones,
       emails: v.emails,
+      addresses: v.addresses,
       companyId: v.companyId || undefined,
       type: v.type,
       title: v.title || undefined,
@@ -122,6 +126,8 @@ export function ContactForm({
       ) : null}
 
       <RepeatableInputs form={form} name="emails" label="Emails" placeholder="name@example.com" icon={Mail} />
+
+      <ContactAddressFields form={form} />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">

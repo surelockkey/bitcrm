@@ -20,6 +20,7 @@ import { Test } from '@nestjs/testing';
 import {
   DynamoDbModule,
   RedisModule,
+  StorageModule,
   PermissionGuard,
   PermissionCacheReader,
   HttpExceptionFilter,
@@ -148,6 +149,10 @@ export async function setupApp(): Promise<INestApplication> {
     imports: [
       DynamoDbModule,
       RedisModule,
+      // StorageModule (@Global) provides S3Service, which CompaniesModule's
+      // CompanyDocumentsService depends on. Without it the whole test app fails
+      // to boot.
+      StorageModule,
       TestPermissionModule,
       ContactsModule,
       CompaniesModule,
