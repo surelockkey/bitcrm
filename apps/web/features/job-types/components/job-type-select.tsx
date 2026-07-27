@@ -20,11 +20,13 @@ export function JobTypeSelect({
   onChange,
   triggerClassName,
   placeholder = "Select",
+  disabled,
 }: {
   value: string | undefined;
   onChange: (id: string) => void;
   triggerClassName?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const { data } = useJobTypes();
   const active = activeJobTypes(data);
@@ -36,7 +38,7 @@ export function JobTypeSelect({
       : undefined;
 
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger className={triggerClassName ?? "h-9 w-full"}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

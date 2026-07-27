@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
 
+// The PhoneInput only lets a well-formed number be entered (auto-formatted,
+// digits-only), so we don't add a phone-format validation on top.
 const phoneRow = z.string().trim().min(1, "Enter a phone or remove the row");
 const emailRow = z.string().trim().email("Enter a valid email");
 

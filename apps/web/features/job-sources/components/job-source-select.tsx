@@ -24,11 +24,13 @@ export function JobSourceSelect({
   onChange,
   triggerClassName,
   placeholder = "No source",
+  disabled,
 }: {
   value: string | undefined;
   onChange: (id: string | undefined) => void;
   triggerClassName?: string;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   const { data } = useJobSources();
   const active = activeJobSources(data);
@@ -42,6 +44,7 @@ export function JobSourceSelect({
     <Select
       value={value || NONE}
       onValueChange={(v) => onChange(v === NONE ? undefined : v)}
+      disabled={disabled}
     >
       <SelectTrigger className={triggerClassName ?? "h-9 w-full"}>
         <SelectValue placeholder={placeholder} />

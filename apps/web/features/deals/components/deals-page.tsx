@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Briefcase, KanbanSquare, List, Plus, Search, TriangleAlert } from "lucide-react";
-import { DealPriority } from "@bitcrm/types";
+import Link from "next/link";
+import { Briefcase, Plus, Search, TriangleAlert } from "lucide-react";
+import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,15 +17,23 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
-import Link from "next/link";
+import { contactName } from "@/features/clients/lib";
 import { useContactMap, useDeals, useUserMap } from "../hooks";
-import { STAGE_ORDER, filterDeals, stageLabel, type DealFilter } from "../lib";
+import {
+  filterDeals,
+  jobTabLabel,
+  matchesTab,
+  tabCounts,
+  JOB_TABS,
+  type DealFilter,
+  type JobTab,
+} from "../lib";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
-import { useJobSources } from "@/features/job-sources/hooks";
-import { activeJobSources } from "@/features/job-sources/lib";
-import { DealsBoard } from "./deals-board";
+import { useJobTags } from "@/features/job-tags/hooks";
+import { activeJobTags } from "@/features/job-tags/lib";
 import { DealsTable } from "./deals-table";
+import { DealQuickView } from "./deal-quick-view";
 
 const ALL = "all";
 
@@ -33,44 +42,73 @@ export function DealsPage() {
   const dealsQuery = useDeals();
   const { map: contactMap } = useContactMap();
   const { map: userMap } = useUserMap();
-
-  const [view, setView] = useState<"board" | "table">(isTechnician ? "table" : "board");
-  const [search, setSearch] = useState("");
-  const [stage, setStage] = useState(ALL);
-  const [priority, setPriority] = useState(ALL);
-  const [jobTypeId, setJobTypeId] = useState(ALL);
   const jobTypesQuery = useJobTypes();
-  const [sourceId, setSourceId] = useState(ALL);
-  const jobSourcesQuery = useJobSources();
+  const jobTagsQuery = useJobTags();
+
+  const [tab, setTab] = useState<JobTab>(JOB_TABS[0]);
+  const [search, setSearch] = useState("");
+  const [techId, setTechId] = useState(ALL);
+  const [jobTypeId, setJobTypeId] = useState(ALL);
+  const [serviceArea, setServiceArea] = useState(ALL);
+  const [tagId, setTagId] = useState(ALL);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const contactNames = useMemo(() => {
     const m = new Map<string, string>();
-    contactMap.forEach((c, id) => m.set(id, `${c.firstName} ${c.lastName}`));
+    contactMap.forEach((c, id) => m.set(id, contactName(c)));
     return m;
   }, [contactMap]);
 
-  const filtered = useMemo(() => {
-    const filter: DealFilter = {
+  const deals = dealsQuery.data ?? [];
+
+  // Techs that actually appear on deals, resolved to names — the tech filter.
+  const techOptions = useMemo(() => {
+    const ids = new Set<string>();
+    deals.forEach((d) => d.assignedTechIds.forEach((t) => ids.add(t)));
+    return [...ids]
+      .map((id) => {
+        const u = userMap.get(id);
+        return { value: id, label: u ? `${u.firstName} ${u.lastName}`.trim() : id };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [deals, userMap]);
+
+  // Distinct service areas present on deals — the area filter.
+  const areaOptions = useMemo(() => {
+    const set = new Set<string>();
+    deals.forEach((d) => d.serviceArea && set.add(d.serviceArea));
+    return [...set].sort().map((a) => ({ value: a, label: a }));
+  }, [deals]);
+
+  // Everything except the status tab — so tab counts reflect the active filters.
+  const baseFilter: DealFilter = useMemo(
+    () => ({
       search: search || undefined,
-      stage: stage === ALL ? undefined : (stage as DealFilter["stage"]),
-      priority: priority === ALL ? undefined : (priority as DealPriority),
+      techId: techId === ALL ? undefined : techId,
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
-      sourceId: sourceId === ALL ? undefined : sourceId,
-    };
-    return filterDeals(dealsQuery.data ?? [], filter, contactNames);
-  }, [dealsQuery.data, search, stage, priority, jobTypeId, sourceId, contactNames]);
+      serviceArea: serviceArea === ALL ? undefined : serviceArea,
+      tagId: tagId === ALL ? undefined : tagId,
+    }),
+    [search, techId, jobTypeId, serviceArea, tagId],
+  );
+
+  const base = useMemo(
+    () => filterDeals(deals, baseFilter, contactNames),
+    [deals, baseFilter, contactNames],
+  );
+  const counts = useMemo(() => tabCounts(base), [base]);
+  const visible = useMemo(() => base.filter((d) => matchesTab(d, tab)), [base, tab]);
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
-  const showBoard = view === "board" && !isTechnician;
-
   return (
     <div className="flex flex-1 flex-col">
+      {/* Header */}
       <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">{isTechnician ? "My Jobs" : "Deals"}</h1>
+          <h1 className="text-lg font-semibold tracking-tight">{isTechnician ? "My Jobs" : "Jobs"}</h1>
           <p className="text-sm text-muted-foreground">
-            {isTechnician ? "Your assigned jobs." : "The job pipeline — open a deal to move it forward."}
+            {isTechnician ? "Your assigned jobs." : "The job pipeline, grouped by status."}
           </p>
         </div>
         {can("deals", "create") ? (
@@ -80,46 +118,78 @@ export function DealsPage() {
         ) : null}
       </div>
 
+      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-9 pl-8" placeholder="Search #, client, area" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input
+            className="h-9 pl-8"
+            placeholder="Search job #, client, area…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-        <FilterSelect value={stage} onChange={setStage} allLabel="All stages" options={STAGE_ORDER.map((s) => ({ value: s, label: stageLabel(s) }))} width={160} />
-        <FilterSelect value={priority} onChange={setPriority} allLabel="Any priority" options={[{ value: DealPriority.URGENT, label: "Urgent" }, { value: DealPriority.NORMAL, label: "Normal" }]} width={140} />
-        <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All jobs" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={140} />
-        <FilterSelect value={sourceId} onChange={setSourceId} allLabel="All sources" options={activeJobSources(jobSourcesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={150} />
-        <span className="ml-auto flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">{filtered.length} {filtered.length === 1 ? "deal" : "deals"}</span>
-          {!isTechnician ? (
-            <span className="inline-flex overflow-hidden rounded-lg border">
-              <button type="button" onClick={() => setView("board")} className={cn("px-2.5 py-1.5", view === "board" ? "bg-foreground text-background" : "text-muted-foreground")} aria-label="Board view"><KanbanSquare className="size-4" /></button>
-              <button type="button" onClick={() => setView("table")} className={cn("px-2.5 py-1.5", view === "table" ? "bg-foreground text-background" : "text-muted-foreground")} aria-label="Table view"><List className="size-4" /></button>
-            </span>
-          ) : null}
-        </span>
+        <FilterSelect value={techId} onChange={setTechId} allLabel="All techs" options={techOptions} width={150} />
+        <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All job types" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={160} />
+        <FilterSelect value={serviceArea} onChange={setServiceArea} allLabel="All areas" options={areaOptions} width={150} />
+        <FilterSelect value={tagId} onChange={setTagId} allLabel="Any tag" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={130} />
       </div>
 
+      {/* Status tabs */}
+      <div className="flex gap-1 overflow-x-auto border-b px-6" role="tablist" aria-label="Job status">
+        {JOB_TABS.map((t) => {
+          const active = t === tab;
+          return (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(t)}
+              className={cn(
+                "flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
+                active
+                  ? "border-brand text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {jobTabLabel(t)}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  active ? "bg-brand/10 text-brand" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {counts[t]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Body */}
       <div className="flex-1 overflow-auto p-6">
         {dealsQuery.isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : dealsQuery.isError ? (
-          <DealsError
-            onRetry={() => dealsQuery.refetch()}
-            isRetrying={dealsQuery.isFetching}
-          />
-        ) : filtered.length === 0 ? (
+          <DealsError onRetry={() => dealsQuery.refetch()} isRetrying={dealsQuery.isFetching} />
+        ) : visible.length === 0 ? (
           <EmptyState
             icon={<Briefcase className="size-6" />}
-            title={dealsQuery.data?.length ? "No matching deals" : isTechnician ? "No jobs assigned yet" : "No deals yet"}
-            hint={dealsQuery.data?.length ? "Try a different search or filter." : isTechnician ? "Assigned jobs will appear here." : "Create your first deal to get started."}
+            title={deals.length ? "No matching jobs" : isTechnician ? "No jobs assigned yet" : "No jobs yet"}
+            hint={
+              deals.length
+                ? "Try another tab, search, or filter."
+                : isTechnician
+                  ? "Assigned jobs will appear here."
+                  : "Create your first job to get started."
+            }
           />
-        ) : showBoard ? (
-          <DealsBoard deals={filtered} contactMap={contactMap} userMap={userMap} />
         ) : (
-          <DealsTable deals={filtered} contactMap={contactMap} userMap={userMap} />
+          <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} />
         )}
       </div>
+
+      <DealQuickView dealId={openId} open={!!openId} onOpenChange={(o) => !o && setOpenId(null)} />
     </div>
   );
 }
@@ -130,7 +200,7 @@ function DealsError({ onRetry, isRetrying }: { onRetry: () => void; isRetrying: 
       <div className="flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <TriangleAlert className="size-6" />
       </div>
-      <div className="font-medium">Couldn&apos;t load deals</div>
+      <div className="font-medium">Couldn&apos;t load jobs</div>
       <p className="max-w-xs text-sm text-muted-foreground">
         Something went wrong fetching the pipeline. Check your connection and try again.
       </p>

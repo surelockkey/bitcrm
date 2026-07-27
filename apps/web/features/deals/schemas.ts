@@ -31,6 +31,9 @@ export const dealJobSchema = z.object({
   sourceId: z.string().trim().optional(),
   notes: z.string().trim().optional(),
   tagIds: z.array(z.string()).default([]),
+  // Optional platinum / work-order fields.
+  poNumber: z.string().trim().optional(),
+  workOrderId: z.string().trim().optional(),
 });
 export type DealJobValues = z.infer<typeof dealJobSchema>;
 

@@ -70,6 +70,34 @@ export const GROUP_TONE: Record<DealStageGroup, "submitted" | "progress" | "pend
 export const stageTone = (s: DealStage) =>
   s === DealStage.CANCELED ? ("canceled" as const) : GROUP_TONE[stageGroup(s)];
 
+/* -------------------------------------------------------------- status tabs */
+
+/**
+ * A jobs-list tab. The first four are the real stage groups; `unscheduled` is a
+ * schedule-state pseudo-tab (deals with no `scheduledDate`) that overlaps the
+ * status tabs — an undated Submitted deal shows under both Submitted and
+ * Unscheduled, matching how the pipeline is triaged.
+ */
+export type JobTab = DealStageGroup | "unscheduled";
+
+export const JOB_TABS: JobTab[] = [...GROUP_ORDER, "unscheduled"];
+
+export const jobTabLabel = (t: JobTab): string =>
+  t === "unscheduled" ? "Unscheduled" : groupLabel(t);
+
+export function matchesTab(d: Pick<Deal, "stage" | "scheduledDate">, tab: JobTab): boolean {
+  return tab === "unscheduled" ? !d.scheduledDate : stageGroup(d.stage) === tab;
+}
+
+/** Count how many deals fall under each tab. Tabs overlap, so counts sum to ≥ deals.length. */
+export function tabCounts(deals: Pick<Deal, "stage" | "scheduledDate">[]): Record<JobTab, number> {
+  const counts = Object.fromEntries(JOB_TABS.map((t) => [t, 0])) as Record<JobTab, number>;
+  for (const d of deals) {
+    for (const t of JOB_TABS) if (matchesTab(d, t)) counts[t]++;
+  }
+  return counts;
+}
+
 /* ------------------------------------------------------------------ labels */
 
 // Job types are now a managed catalog — resolve ids to names with
@@ -112,6 +140,27 @@ export function formatSchedule(date?: string, slot?: string): string {
   return slot ? `${day} · ${slot}` : day;
 }
 
+/**
+ * A short, relative label for a scheduled date vs. `todayIso` (date-only), with
+ * a tone the table uses to colour it: past → `overdue`, today → `soon`, else `ok`.
+ * Returns null for undated deals.
+ */
+export function scheduleRelative(
+  date: string | undefined,
+  todayIso: string,
+): { label: string; tone: "overdue" | "soon" | "ok" } | null {
+  if (!date) return null;
+  const day = 86_400_000;
+  const diff = Math.round(
+    (new Date(`${date}T00:00:00`).getTime() - new Date(`${todayIso}T00:00:00`).getTime()) / day,
+  );
+  if (Number.isNaN(diff)) return null;
+  if (diff < 0) return { label: `${-diff} day${diff === -1 ? "" : "s"} ago`, tone: "overdue" };
+  if (diff === 0) return { label: "Today", tone: "soon" };
+  if (diff === 1) return { label: "Tomorrow", tone: "ok" };
+  return { label: `in ${diff} days`, tone: "ok" };
+}
+
 export type DatePreset = "all" | "today" | "week";
 
 const isoDate = (d: Date): string => {
@@ -149,6 +198,8 @@ export interface DealFilter {
   serviceArea?: string;
   /** Keep only deals whose stage falls in one of these groups (empty/undefined = all). */
   statusGroups?: DealStageGroup[];
+  /** Active jobs-list tab — a stage group or the `unscheduled` pseudo-tab. */
+  tab?: JobTab;
   /** Inclusive scheduledDate range, `YYYY-MM-DD`. A deal with no date is excluded when set. */
   dateFrom?: string;
   dateTo?: string;
@@ -173,6 +224,7 @@ export function filterDeals(
     if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
     if (filter.statusGroups?.length && !filter.statusGroups.includes(stageGroup(d.stage)))
       return false;
+    if (filter.tab && !matchesTab(d, filter.tab)) return false;
     if (filter.dateFrom || filter.dateTo) {
       if (!d.scheduledDate) return false;
       if (filter.dateFrom && d.scheduledDate < filter.dateFrom) return false;

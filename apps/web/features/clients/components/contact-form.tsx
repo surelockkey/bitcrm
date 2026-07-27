@@ -110,7 +110,7 @@ export function ContactForm({
         </Field>
       </div>
 
-      <RepeatableInputs form={form} name="phones" label="Phones" placeholder="(404) 555-1234" icon={Phone} markPrimary />
+      <RepeatableInputs form={form} name="phones" label="Phones" placeholder="(404) 555-1234" icon={Phone} markPrimary variant="phone" />
 
       {duplicate ? (
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">

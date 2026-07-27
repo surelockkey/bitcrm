@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -68,6 +69,7 @@ function ProfileForm({
   const callMasking = useWatch({ control, name: "callMaskingEnabled" });
   const gps = useWatch({ control, name: "gpsTrackingEnabled" });
   const mobile = useWatch({ control, name: "mobileAppInstalled" });
+  const phone = useWatch({ control, name: "phone" }) ?? "";
   const line1 = useWatch({ control, name: "line1" }) ?? "";
 
   const onSubmit = (v: ProfileValues) => {
@@ -93,7 +95,8 @@ function ProfileForm({
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-xl space-y-7" noValidate>
       <Group label="Contact (self-filled)">
         <Field label="Phone">
-          <Input className="h-10" disabled={readOnly} {...register("phone")} />
+          <PhoneInput disabled={readOnly} value={phone} onChange={(v) => setValue("phone", v, { shouldValidate: true, shouldDirty: true })} />
+          {form.formState.errors.phone ? <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p> : null}
         </Field>
         <Field label="Address line 1">
           {readOnly ? (

@@ -12,6 +12,9 @@ import {
   sourceLabel,
   searchContacts,
   searchCompanies,
+  formatAddress,
+  addressKey,
+  addressInList,
 } from "./lib";
 
 function contact(over: Partial<Contact> = {}): Contact {
@@ -52,17 +55,13 @@ function company(over: Partial<Company> = {}): Company {
 }
 
 describe("formatPhone", () => {
-  it("formats an E.164 US number friendly", () => {
-    expect(formatPhone("+14045551234")).toBe("(404) 555-1234");
-  });
-  it("formats a bare 10-digit number", () => {
-    expect(formatPhone("4045551234")).toBe("(404) 555-1234");
-  });
-  it("strips a leading 1 on 11 digits", () => {
-    expect(formatPhone("14045551234")).toBe("(404) 555-1234");
+  it("formats every US number the same way — country code + national grouping", () => {
+    expect(formatPhone("+14045551234")).toBe("+1 (404) 555-1234");
+    expect(formatPhone("4045551234")).toBe("+1 (404) 555-1234");
+    expect(formatPhone("14045551234")).toBe("+1 (404) 555-1234");
+    expect(formatPhone("(404) 555-1234")).toBe("+1 (404) 555-1234");
   });
   it("passes through anything it can't normalize", () => {
-    expect(formatPhone("+44 20 7946 0000")).toBe("+44 20 7946 0000");
     expect(formatPhone("")).toBe("");
   });
 });
@@ -125,5 +124,25 @@ describe("searchCompanies", () => {
   });
   it("matches by phone digits", () => {
     expect(searchCompanies(list, "404 555").map((c) => c.id)).toEqual(["x"]);
+  });
+});
+
+describe("address helpers", () => {
+  const a = { street: "123 Main St", unit: "Apt 4B", city: "Atlanta", state: "GA", zip: "30301" };
+  it("formats a structured address to one line", () => {
+    expect(formatAddress(a)).toBe("123 Main St, Apt 4B, Atlanta, GA 30301");
+    expect(formatAddress({ street: "9 Oak Ave", city: "Decatur", state: "GA", zip: "30030" })).toBe(
+      "9 Oak Ave, Decatur, GA 30030",
+    );
+  });
+  it("addressKey normalizes for comparison", () => {
+    expect(addressKey(a)).toBe(addressKey({ ...a, street: " 123 MAIN ST " }));
+    expect(addressKey(a)).not.toBe(addressKey({ ...a, zip: "30302" }));
+  });
+  it("addressInList detects existing vs new addresses", () => {
+    expect(addressInList(a, [a])).toBe(true);
+    expect(addressInList({ ...a, street: "999 New Rd" }, [a])).toBe(false);
+    // empty street → nothing to save
+    expect(addressInList({ street: "", city: "", state: "", zip: "" }, [a])).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile } from "@bitcrm/types";
@@ -48,6 +49,7 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
   });
 
   const line1 = useWatch({ control: form.control, name: "line1" }) ?? "";
+  const phoneVal = useWatch({ control: form.control, name: "phone" }) ?? "";
 
   const onSubmit = (v: SelfValues) => {
     const homeAddress =
@@ -61,7 +63,8 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
     <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-xl space-y-5" noValidate>
       <div className="space-y-1.5">
         <Label>Phone</Label>
-        <Input className="h-10" {...form.register("phone")} />
+        <PhoneInput value={phoneVal} onChange={(v) => form.setValue("phone", v, { shouldValidate: true, shouldDirty: true })} />
+        {form.formState.errors.phone ? <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p> : null}
       </div>
       <div className="space-y-1.5">
         <Label>Home address</Label>

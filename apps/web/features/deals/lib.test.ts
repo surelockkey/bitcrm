@@ -21,6 +21,11 @@ import {
   isTerminal,
   filterDeals,
   datePresetRange,
+  scheduleRelative,
+  JOB_TABS,
+  jobTabLabel,
+  matchesTab,
+  tabCounts,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -168,5 +173,62 @@ describe("filterDeals", () => {
     expect(
       filterDeals(dated, { dateFrom: "2026-07-14", dateTo: "2026-07-16" }, names).map((d) => d.id),
     ).toEqual(["wed"]);
+  });
+});
+
+describe("status tabs", () => {
+  const names = new Map<string, string>();
+  it("orders the 4 groups then unscheduled, and labels them", () => {
+    expect(JOB_TABS).toEqual([
+      DealStageGroup.SUBMITTED,
+      DealStageGroup.IN_PROGRESS,
+      DealStageGroup.PENDING,
+      DealStageGroup.CLOSED,
+      "unscheduled",
+    ]);
+    expect(jobTabLabel(DealStageGroup.IN_PROGRESS)).toBe("In Progress");
+    expect(jobTabLabel("unscheduled")).toBe("Unscheduled");
+  });
+
+  it("matchesTab: status groups by stage, unscheduled by missing date", () => {
+    const submittedDated = deal({ stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" });
+    const submittedUndated = deal({ stage: DealStage.NEW_LEAD });
+    expect(matchesTab(submittedDated, DealStageGroup.SUBMITTED)).toBe(true);
+    expect(matchesTab(submittedDated, "unscheduled")).toBe(false);
+    expect(matchesTab(submittedUndated, "unscheduled")).toBe(true);
+    // Unscheduled overlaps its status group — a deal can appear in both tabs.
+    expect(matchesTab(submittedUndated, DealStageGroup.SUBMITTED)).toBe(true);
+  });
+
+  it("tabCounts counts each tab independently (overlapping)", () => {
+    const list = [
+      deal({ stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" }), // submitted, scheduled
+      deal({ stage: DealStage.NEW_LEAD }), // submitted, unscheduled
+      deal({ stage: DealStage.ASSIGNED, scheduledDate: "2026-07-14" }), // in progress
+      deal({ stage: DealStage.COMPLETED }), // closed, unscheduled
+    ];
+    const c = tabCounts(list);
+    expect(c[DealStageGroup.SUBMITTED]).toBe(2);
+    expect(c[DealStageGroup.IN_PROGRESS]).toBe(1);
+    expect(c[DealStageGroup.CLOSED]).toBe(1);
+    expect(c.unscheduled).toBe(2);
+  });
+
+  it("scheduleRelative labels dates relative to today", () => {
+    expect(scheduleRelative(undefined, "2026-07-16")).toBeNull();
+    expect(scheduleRelative("2026-07-16", "2026-07-16")).toEqual({ label: "Today", tone: "soon" });
+    expect(scheduleRelative("2026-07-17", "2026-07-16")).toEqual({ label: "Tomorrow", tone: "ok" });
+    expect(scheduleRelative("2026-07-19", "2026-07-16")).toEqual({ label: "in 3 days", tone: "ok" });
+    expect(scheduleRelative("2026-07-14", "2026-07-16")).toEqual({ label: "2 days ago", tone: "overdue" });
+    expect(scheduleRelative("2026-07-15", "2026-07-16")).toEqual({ label: "1 day ago", tone: "overdue" });
+  });
+
+  it("filterDeals honors a single tab", () => {
+    const list = [
+      deal({ id: "a", stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" }),
+      deal({ id: "b", stage: DealStage.ASSIGNED }),
+    ];
+    expect(filterDeals(list, { tab: DealStageGroup.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { tab: "unscheduled" }, names).map((d) => d.id)).toEqual(["b"]);
   });
 });

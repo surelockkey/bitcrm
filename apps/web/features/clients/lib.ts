@@ -1,6 +1,10 @@
 import { ClientType, ContactSource, ContactType } from "@bitcrm/types";
 import type { Contact, Company, Address } from "@bitcrm/types";
 
+// The canonical phone formatter lives in lib/phone; re-exported so existing
+// `@/features/clients/lib` imports render the same `+1 404 555 1234` everywhere.
+export { formatPhone } from "@/lib/phone";
+
 /** Structured address → single display line, e.g. `123 Main St, Apt 4B, Atlanta, GA 30301`. */
 export function formatAddress(a: Address): string {
   const line1 = [a.street, a.unit].filter(Boolean).join(", ");
@@ -8,13 +12,21 @@ export function formatAddress(a: Address): string {
   return [line1, cityLine].filter(Boolean).join(", ");
 }
 
-/** E.164 (or a bare US number) → `(404) 555-1234`. Anything else passes through. */
-export function formatPhone(raw: string): string {
-  if (!raw) return raw;
-  const digits = raw.replace(/\D/g, "");
-  const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
-  if (ten.length === 10) return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
-  return raw;
+/** Normalized comparison key for an address — used to dedupe / detect new ones. */
+export function addressKey(a: Pick<Address, "street" | "unit" | "city" | "state" | "zip">): string {
+  return [a.street, a.unit ?? "", a.city, a.state, a.zip]
+    .map((s) => s.trim().toLowerCase())
+    .join("|");
+}
+
+/** True when `a` (a non-empty street) already appears in `list`. */
+export function addressInList(
+  a: Pick<Address, "street" | "unit" | "city" | "state" | "zip">,
+  list: Address[] | undefined,
+): boolean {
+  if (!a.street.trim()) return true; // empty → nothing to save
+  const key = addressKey(a);
+  return (list ?? []).some((x) => addressKey(x) === key);
 }
 
 export function contactName(c: Pick<Contact, "firstName" | "lastName">): string {

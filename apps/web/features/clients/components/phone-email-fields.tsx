@@ -2,6 +2,7 @@
 
 import {
   useFieldArray,
+  useWatch,
   type ArrayPath,
   type FieldValues,
   type Path,
@@ -11,6 +12,7 @@ import { Plus, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PhoneInput } from "@/components/ui/phone-input";
 
 /** Pulls the first human-readable message out of a react-hook-form error node. */
 function firstFieldError(node: unknown): string | undefined {
@@ -36,6 +38,7 @@ export function RepeatableInputs<T extends FieldValues>({
   placeholder,
   icon: Icon,
   markPrimary = false,
+  variant = "text",
 }: {
   form: UseFormReturn<T>;
   name: string;
@@ -43,6 +46,8 @@ export function RepeatableInputs<T extends FieldValues>({
   placeholder: string;
   icon: LucideIcon;
   markPrimary?: boolean;
+  /** `phone` renders the shared PhoneInput so numbers format + validate identically. */
+  variant?: "text" | "phone";
 }) {
   const { fields, append, remove } = useFieldArray({ control: form.control, name: name as ArrayPath<T> });
   const errors = form.formState.errors as Record<string, unknown>;
@@ -63,17 +68,23 @@ export function RepeatableInputs<T extends FieldValues>({
         <div className="space-y-2">
           {fields.map((field, i) => (
             <div key={field.id} className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Icon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  className="h-9 pl-8"
-                  placeholder={placeholder}
-                  {...form.register(`${name}.${i}` as Path<T>)}
-                />
+              <div className="flex-1">
+                {variant === "phone" ? (
+                  <PhoneField form={form} name={`${name}.${i}` as Path<T>} placeholder={placeholder} />
+                ) : (
+                  <div className="relative">
+                    <Icon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="h-9 pl-8"
+                      placeholder={placeholder}
+                      {...form.register(`${name}.${i}` as Path<T>)}
+                    />
+                  </div>
+                )}
               </div>
               {markPrimary && i === 0 ? (
-                <span className="rounded-full border border-green-500/40 px-1.5 text-[10px] text-green-600 dark:text-green-500">
-                  primary
+                <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                  Primary
                 </span>
               ) : null}
               <Button
@@ -92,5 +103,25 @@ export function RepeatableInputs<T extends FieldValues>({
       )}
       {message ? <p className="text-xs text-destructive">{message}</p> : null}
     </div>
+  );
+}
+
+/** Binds the shared PhoneInput to a react-hook-form array slot. */
+function PhoneField<T extends FieldValues>({
+  form,
+  name,
+  placeholder,
+}: {
+  form: UseFormReturn<T>;
+  name: Path<T>;
+  placeholder: string;
+}) {
+  const value = (useWatch({ control: form.control, name }) as string | undefined) ?? "";
+  return (
+    <PhoneInput
+      value={value}
+      placeholder={placeholder}
+      onChange={(v) => form.setValue(name, v as never, { shouldValidate: true, shouldDirty: true })}
+    />
   );
 }

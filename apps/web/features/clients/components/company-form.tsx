@@ -102,7 +102,7 @@ export function CompanyForm({
         </div>
       </div>
 
-      <RepeatableInputs form={form} name="phones" label="Phones" placeholder="(404) 555-2000" icon={Phone} markPrimary />
+      <RepeatableInputs form={form} name="phones" label="Phones" placeholder="(404) 555-2000" icon={Phone} markPrimary variant="phone" />
       <RepeatableInputs form={form} name="emails" label="Emails" placeholder="hello@company.com" icon={Mail} />
 
       <div className="grid grid-cols-2 gap-3">

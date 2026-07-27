@@ -18,6 +18,14 @@ export interface ParsedAddress {
   lng?: number;
 }
 
+/** A pre-filled suggestion shown on focus (e.g. the client's saved addresses). */
+export interface AddressSuggestion {
+  id: string;
+  label: string;
+  sublabel?: string;
+  onPick: () => void;
+}
+
 interface Props {
   value: string;
   onChange: (v: string) => void;
@@ -26,6 +34,34 @@ interface Props {
   country?: string;
   className?: string;
   autoFocus?: boolean;
+  /** Shown at the top of the dropdown while the input is focused and near-empty. */
+  suggestions?: AddressSuggestion[];
+}
+
+/** Header + rows for the saved-address suggestions block in the dropdown. */
+function SuggestionBlock({ suggestions }: { suggestions: AddressSuggestion[] }) {
+  return (
+    <>
+      <li className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Client&apos;s saved addresses
+      </li>
+      {suggestions.map((s) => (
+        <li key={s.id}>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); s.onPick(); }}
+            className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/60"
+          >
+            <MapPin className="mt-0.5 size-3.5 flex-none text-muted-foreground" />
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{s.label}</span>
+              {s.sublabel ? <span className="block truncate text-xs text-muted-foreground">{s.sublabel}</span> : null}
+            </span>
+          </button>
+        </li>
+      ))}
+    </>
+  );
 }
 
 /**
@@ -47,8 +83,10 @@ export function AddressAutocomplete(props: Props) {
   );
 }
 
-/** Fallback with no key: a normal text field, no suggestions. */
-function PlainInput({ value, onChange, placeholder, className, autoFocus }: Props) {
+/** Fallback with no Google key: a plain field that still offers saved addresses. */
+function PlainInput({ value, onChange, placeholder, className, autoFocus, suggestions }: Props) {
+  const [focused, setFocused] = useState(false);
+  const showSuggestions = focused && value.trim().length < 3 && !!suggestions?.length;
   return (
     <div className="relative">
       <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -58,8 +96,15 @@ function PlainInput({ value, onChange, placeholder, className, autoFocus }: Prop
         value={value}
         autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 120)}
         autoComplete="off"
       />
+      {showSuggestions ? (
+        <ul className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover p-1 shadow-md">
+          <SuggestionBlock suggestions={suggestions!} />
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -72,6 +117,7 @@ function PlacesInput({
   country = "us",
   className,
   autoFocus,
+  suggestions,
 }: Props) {
   const placesLib = useMapsLibrary("places");
   const serviceRef = useRef<InstanceType<NonNullable<Window["google"]>["maps"]["places"]["AutocompleteService"]> | null>(null);
@@ -164,7 +210,7 @@ function PlacesInput({
           value={value}
           autoFocus={autoFocus}
           onChange={(e) => handleChange(e.target.value)}
-          onFocus={() => { if (predictions.length) setOpen(true); }}
+          onFocus={() => { if (predictions.length || suggestions?.length) setOpen(true); }}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           onKeyDown={onKeyDown}
           autoComplete="off"
@@ -175,8 +221,9 @@ function PlacesInput({
         {loading ? <Loader2 className="absolute right-2.5 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" /> : null}
       </div>
 
-      {open && predictions.length > 0 ? (
+      {open && (predictions.length > 0 || (value.trim().length < 3 && !!suggestions?.length)) ? (
         <ul className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover p-1 shadow-md">
+          {value.trim().length < 3 && suggestions?.length ? <SuggestionBlock suggestions={suggestions} /> : null}
           {predictions.map((p, i) => (
             <li key={p.place_id}>
               <button

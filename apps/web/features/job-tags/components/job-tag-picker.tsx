@@ -13,15 +13,19 @@ import { activeJobTags, tagColorClasses } from "../lib";
 export function JobTagPicker({
   value,
   onChange,
+  disabled,
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
+  disabled?: boolean;
 }) {
   const { data, isLoading } = useJobTags();
   const active = activeJobTags(data);
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    if (disabled) return;
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  };
 
   if (isLoading) {
     return (
@@ -47,11 +51,12 @@ export function JobTagPicker({
           <label
             key={tag.id}
             className={cn(
-              "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50",
+              "flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50",
               checked && "bg-muted/40",
+              disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer",
             )}
           >
-            <Checkbox checked={checked} onCheckedChange={() => toggle(tag.id)} />
+            <Checkbox checked={checked} disabled={disabled} onCheckedChange={() => toggle(tag.id)} />
             <span
               className={cn(
                 "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
