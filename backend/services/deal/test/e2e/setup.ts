@@ -95,6 +95,14 @@ const mockInternalHttpService = {
     .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
   deductStock: jest.fn().mockResolvedValue(undefined),
   restoreStock: jest.fn().mockResolvedValue(undefined),
+  // Default: the referenced product exists and is a stockable product-type.
+  // Individual tests override this (e.g. to return a service-type product).
+  getProduct: jest.fn().mockResolvedValue({
+    id: 'product-1',
+    name: 'Test Product',
+    sku: 'SKU-1',
+    type: 'product',
+  }),
 };
 
 // ---------------------------------------------------------------------------

@@ -312,6 +312,56 @@ describe('Transfers E2E', () => {
       .expect(400);
   });
 
+  // ---- SERVICE (non-stockable) GUARD ----
+
+  it('POST /transfers - transferring a service-type product returns 400', async () => {
+    const service = await createProduct(app, adminUser, { type: 'service' });
+    const warehouse = await createWarehouse(app, adminUser);
+    const container = await ensureContainer(app, 'tech-svc-xfer', 'Svc Tech', 'HQ');
+
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'container',
+        toId: container.id,
+        items: [{ productId: service.id, productName: service.name, quantity: 1 }],
+      })
+      .expect(400);
+  });
+
+  it('POST /warehouses/:id/receive - receiving a service-type product returns 400', async () => {
+    const service = await createProduct(app, adminUser, { type: 'service' });
+    const warehouse = await createWarehouse(app, adminUser);
+
+    await request(app.getHttpServer())
+      .post(`${WAREHOUSES_BASE}/${warehouse.id}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        items: [{ productId: service.id, productName: service.name, quantity: 5 }],
+      })
+      .expect(400);
+  });
+
+  it('POST /transfers/internal/stock/deduct - deducting a service-type product returns 400', async () => {
+    const service = await createProduct(app, adminUser, { type: 'service' });
+    const container = await ensureContainer(app, 'tech-svc-deduct', 'Svc Deduct', 'HQ');
+
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/internal/stock/deduct`)
+      .set('x-internal-secret', INTERNAL_SECRET)
+      .send({
+        containerId: container.id,
+        items: [{ productId: service.id, productName: service.name, quantity: 1 }],
+        dealId: 'deal-svc',
+        performedBy: 'tech-svc-deduct',
+        performedByName: 'Svc Deduct',
+      })
+      .expect(400);
+  });
+
   // ---- LIST ----
 
   it('GET /transfers - lists all transfers', async () => {

@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Package, PackageX, Search, TriangleAlert } from "lucide-react";
-import { InventoryStatus } from "@bitcrm/types";
+import { Loader2, Package, PackageX, Search, TriangleAlert, Wrench } from "lucide-react";
+import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
+import type { AddProductValues } from "../schemas";
 import {
   Dialog,
   DialogContent,
@@ -84,9 +85,10 @@ export function AddProductDialog({
             available={pickedAvail}
             stockKnown={stockKnown}
             techName={techName}
+            techId={techId}
             pending={add.isPending}
             onBack={() => setPicked(null)}
-            onAdd={(v) => add.mutate({ ...v, sourceTechId: techId! }, { onSuccess: () => { onOpenChange(false); reset(); } })}
+            onAdd={(v) => add.mutate(v, { onSuccess: () => { onOpenChange(false); reset(); } })}
           />
         ) : (
           <>
@@ -115,7 +117,8 @@ export function AddProductDialog({
               </div>
             ) : null}
             <p className="text-[11px] text-muted-foreground">
-              Products are deducted from {techName}&apos;s container. Items they don&apos;t carry can&apos;t be added to the deal.
+              Parts in {techName}&apos;s van are deducted from their container. Parts they
+              don&apos;t carry can be added as items to order; services are added directly.
             </p>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -128,6 +131,7 @@ export function AddProductDialog({
                 <p className="py-3 text-sm text-muted-foreground">No products found.</p>
               ) : (
                 products.map((p) => {
+                  const isService = p.type === ProductType.SERVICE;
                   const avail = availOf(p.id);
                   const carried = !stockKnown || avail > 0;
                   return (
@@ -137,17 +141,26 @@ export function AddProductDialog({
                       onClick={() => setPicked(p)}
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-lg border p-2 text-left hover:bg-accent/50",
-                        stockKnown && avail === 0 && "opacity-60",
+                        !isService && stockKnown && avail === 0 && "opacity-60",
                       )}
                     >
-                      <span className={cn("grid size-7 flex-none place-items-center rounded-md border", carried ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive")}>
-                        {carried ? <Package className="size-3.5" /> : <PackageX className="size-3.5" />}
+                      <span className={cn(
+                        "grid size-7 flex-none place-items-center rounded-md border",
+                        isService
+                          ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+                          : carried ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive",
+                      )}>
+                        {isService ? <Wrench className="size-3.5" /> : carried ? <Package className="size-3.5" /> : <PackageX className="size-3.5" />}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{p.name}</div>
                         <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
                       </div>
-                      {stockKnown ? (
+                      {isService ? (
+                        <span className="flex-none rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+                          Service
+                        </span>
+                      ) : stockKnown ? (
                         <span className={cn("flex-none rounded-full px-1.5 py-0.5 text-[10px] font-semibold", avail > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
                           {avail > 0 ? `In van · ${avail}` : "Not in van"}
                         </span>
@@ -175,6 +188,7 @@ function Configure({
   available,
   stockKnown,
   techName,
+  techId,
   pending,
   onBack,
   onAdd,
@@ -183,26 +197,52 @@ function Configure({
   available: number;
   stockKnown: boolean;
   techName: string;
+  techId: string | undefined;
   pending: boolean;
   onBack: () => void;
-  onAdd: (v: {
-    productId: string; name: string; sku: string; quantity: number;
-    costCompany: number; costForTech: number; priceClient: number;
-  }) => void;
+  onAdd: (v: AddProductValues) => void;
 }) {
+  const isService = product.type === ProductType.SERVICE;
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState(product.priceClient);
   const { min, max } = priceRange(product.priceClient);
   const inBand = isPriceInBand(price, product.priceClient);
-  const shortStock = stockKnown && qty > available;
-  const blocked = !inBand || shortStock;
+
+  // A stockable part the chosen tech is short on — or with no tech to source
+  // from — is added as a to-order line instead of a van deduction.
+  const shortStock = !isService && stockKnown && qty > available;
+  const mustOrder = !isService && (!techId || shortStock);
+
+  const base = {
+    productId: product.id,
+    name: product.name,
+    sku: product.sku,
+    quantity: qty,
+    costCompany: product.costCompany,
+    costForTech: product.costTech,
+    priceClient: price,
+  };
+
+  const submit = () => {
+    if (isService) {
+      onAdd({ ...base, fulfillment: "service" });
+    } else if (mustOrder) {
+      onAdd({ ...base, fulfillment: "to_order" });
+    } else {
+      onAdd({ ...base, fulfillment: "sourced", sourceTechId: techId });
+    }
+  };
+
+  const label = isService ? "Add service" : mustOrder ? "Add to order" : "Add";
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border p-3">
         <div className="text-sm font-medium">{product.name}</div>
         <div className="font-mono text-[11px] text-muted-foreground">{product.sku} · catalog {formatMoney(product.priceClient)}</div>
-        {stockKnown ? (
+        {isService ? (
+          <div className="mt-1 text-[11px] text-muted-foreground">Service — not stocked; added directly to the job.</div>
+        ) : stockKnown ? (
           <div className={cn("mt-1 text-[11px]", available > 0 ? "text-muted-foreground" : "text-destructive")}>
             {techName} has {available} in their van
           </div>
@@ -221,19 +261,24 @@ function Configure({
           </p>
         </div>
       </div>
-      {shortStock ? (
-        <div className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-[11px] text-destructive">
+      {mustOrder ? (
+        <div className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-700 dark:text-amber-400">
           <TriangleAlert className="mt-px size-3.5 flex-none" />
-          <span>{techName} only has {available} of this in their van. Transfer stock to their container first, or reduce the quantity.</span>
+          <span>
+            {techId
+              ? `${techName} ${available > 0 ? `only has ${available}` : "doesn’t carry this"} in their van`
+              : "No technician is assigned to source this from"}
+            . It will be added as an item to order (no stock deducted).
+          </span>
         </div>
       ) : null}
       <div className="flex items-center justify-between border-t pt-3">
         <Button variant="ghost" size="sm" onClick={onBack}>← Back</Button>
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm tabular-nums">{formatMoney(price * qty)}</span>
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={pending || blocked}
-            onClick={() => onAdd({ productId: product.id, name: product.name, sku: product.sku, quantity: qty, costCompany: product.costCompany, costForTech: product.costTech, priceClient: price })}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : null} Add
+          <Button variant="brand" size="sm" className="gap-1.5" disabled={pending || !inBand}
+            onClick={submit}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null} {label}
           </Button>
         </div>
       </div>

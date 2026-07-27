@@ -56,14 +56,23 @@ export const changeStageSchema = z.object({
   cancellationReason: z.string().trim().optional(),
 });
 
-export const addProductSchema = z.object({
-  sourceTechId: z.string().min(1, "Pick a technician"),
-  productId: z.string(),
-  name: z.string(),
-  sku: z.string(),
-  quantity: z.coerce.number().int().min(1, "At least 1"),
-  costCompany: z.number(),
-  costForTech: z.number(),
-  priceClient: z.coerce.number().min(0),
-});
+export const addProductSchema = z
+  .object({
+    // How the line is fulfilled. `sourced` pulls from a tech's van (deducts
+    // stock); `to_order` is a part the tech doesn't carry; `service` is labor.
+    fulfillment: z.enum(["sourced", "to_order", "service"]).default("sourced"),
+    // Only sourced lines record which technician supplied the item.
+    sourceTechId: z.string().optional(),
+    productId: z.string(),
+    name: z.string(),
+    sku: z.string(),
+    quantity: z.coerce.number().int().min(1, "At least 1"),
+    costCompany: z.number(),
+    costForTech: z.number(),
+    priceClient: z.coerce.number().min(0),
+  })
+  .refine((v) => v.fulfillment !== "sourced" || !!v.sourceTechId, {
+    message: "Pick a technician",
+    path: ["sourceTechId"],
+  });
 export type AddProductValues = z.infer<typeof addProductSchema>;

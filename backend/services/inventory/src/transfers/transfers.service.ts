@@ -10,6 +10,7 @@ import {
 import { TransfersRepository } from './transfers.repository';
 import { StockService } from '../stock/stock.service';
 import { ContainersRepository } from '../containers/containers.repository';
+import { ProductsService } from '../products/products.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
@@ -29,6 +30,7 @@ export class TransfersService {
     private readonly repository: TransfersRepository,
     private readonly stockService: StockService,
     private readonly containersRepository: ContainersRepository,
+    private readonly productsService: ProductsService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
@@ -56,6 +58,8 @@ export class TransfersService {
         `Invalid transfer route: ${dto.fromType} -> ${dto.toType}`,
       );
     }
+
+    await this.productsService.assertStockable(dto.items.map((i) => i.productId));
 
     const fromPK = `${dto.fromType.toUpperCase()}#${dto.fromId}`;
     const toPK = `${dto.toType.toUpperCase()}#${dto.toId}`;
@@ -85,6 +89,7 @@ export class TransfersService {
   }
 
   async deductStock(dto: DeductStockDto) {
+    await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     const containerId = await this.resolveContainerId(dto.containerId);
     await this.stockService.deduct(`CONTAINER#${containerId}`, dto.items);
     this.businessMetrics?.stockDeductions.inc();
@@ -105,6 +110,7 @@ export class TransfersService {
   }
 
   async restoreStock(dto: RestoreStockDto) {
+    await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     const containerId = await this.resolveContainerId(dto.containerId);
     await this.stockService.receive(`CONTAINER#${containerId}`, dto.items);
     this.businessMetrics?.stockTransfers.inc({ type: 'restore' });

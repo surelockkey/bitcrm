@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { ProductsService } from 'src/products/products.service';
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
 import { S3Service, SnsPublisherService } from '@bitcrm/shared';
-import { InventoryStatus } from '@bitcrm/types';
+import { InventoryStatus, ProductType } from '@bitcrm/types';
 import {
   createMockProduct,
   createMockCreateProductDto,
@@ -97,6 +98,40 @@ describe('ProductsService', () => {
       await expect(service.findById('nonexistent')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('assertStockable', () => {
+    it('resolves when every product is a stockable product-type', async () => {
+      repository.findById.mockResolvedValue(createMockProduct({ type: ProductType.PRODUCT }));
+
+      await expect(service.assertStockable(['prod-1'])).resolves.toBeUndefined();
+    });
+
+    it('throws BadRequestException when any product is a service', async () => {
+      repository.findById.mockImplementation(async (id: string) =>
+        id === 'svc-1'
+          ? createMockProduct({ id: 'svc-1', name: 'Rekey', type: ProductType.SERVICE })
+          : createMockProduct({ id: 'prod-1', type: ProductType.PRODUCT }),
+      );
+
+      await expect(service.assertStockable(['prod-1', 'svc-1'])).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('ignores unknown product ids (repository returns null)', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.assertStockable(['ghost'])).resolves.toBeUndefined();
+    });
+
+    it('de-duplicates ids before looking them up', async () => {
+      repository.findById.mockResolvedValue(createMockProduct({ type: ProductType.PRODUCT }));
+
+      await service.assertStockable(['prod-1', 'prod-1', 'prod-1']);
+
+      expect(repository.findById).toHaveBeenCalledTimes(1);
     });
   });
 

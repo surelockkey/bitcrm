@@ -19,10 +19,12 @@ import {
   DealStatus,
   DealPriority,
   TimelineEventType,
+  ProductType,
   STAGE_GROUPS,
   TERMINAL_STAGES,
   type Address,
   type Deal,
+  type DealProductFulfillment,
   type TimelineEntry,
   type JwtUser,
 } from '@bitcrm/types';
@@ -623,37 +625,67 @@ export class DealsService {
 
   async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
     const deal = await this.findById(id);
+    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
 
-    if (deal.assignedTechIds.length === 0) {
-      throw new BadRequestException('Cannot add products without an assigned technician');
+    // Validate the referenced product exists and that its inventory type matches
+    // the requested fulfillment: a `service`-type product can only be a service
+    // line, and a stockable product can only be `sourced` / `to_order`.
+    const product = await this.internalHttp.getProduct(dto.productId);
+    if (!product) {
+      throw new BadRequestException(
+        `Product "${dto.name}" was not found in inventory`,
+      );
     }
-    // The product comes from one specific technician's container.
-    if (!deal.assignedTechIds.includes(dto.sourceTechId)) {
-      throw new BadRequestException('The chosen technician is not assigned to this deal');
+    const isService = product.type === ProductType.SERVICE;
+    if (isService && fulfillment !== 'service') {
+      throw new BadRequestException(
+        `"${dto.name}" is a service and must be added as a service line`,
+      );
+    }
+    if (!isService && fulfillment === 'service') {
+      throw new BadRequestException(
+        `"${dto.name}" is a stockable product and cannot be added as a service line`,
+      );
     }
 
-    // Deduct from that tech's container. A 4xx here (e.g. the tech doesn't carry
-    // enough of this product) is a client error, not a server fault — surface
-    // it as a clear message referencing the product by name.
-    try {
-      await this.internalHttp.deductStock({
-        containerId: dto.sourceTechId,
-        items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
-        dealId: id,
-        performedBy: caller.id,
-        performedByName: caller.email,
-      });
-    } catch (error) {
-      if (
-        error instanceof HttpException &&
-        error.getStatus() >= 400 &&
-        error.getStatus() < 500
-      ) {
+    // Only `sourced` lines are pulled from a technician's container and deduct
+    // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
+    // lines never touch inventory and don't require an assigned technician.
+    if (fulfillment === 'sourced') {
+      if (deal.assignedTechIds.length === 0) {
         throw new BadRequestException(
-          `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
+          'Cannot add products without an assigned technician',
         );
       }
-      throw error;
+      if (!dto.sourceTechId || !deal.assignedTechIds.includes(dto.sourceTechId)) {
+        throw new BadRequestException(
+          'The chosen technician is not assigned to this deal',
+        );
+      }
+
+      // Deduct from that tech's container. A 4xx here (e.g. the tech doesn't
+      // carry enough of this product) is a client error, not a server fault —
+      // surface it as a clear message referencing the product by name.
+      try {
+        await this.internalHttp.deductStock({
+          containerId: dto.sourceTechId,
+          items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
+          dealId: id,
+          performedBy: caller.id,
+          performedByName: caller.email,
+        });
+      } catch (error) {
+        if (
+          error instanceof HttpException &&
+          error.getStatus() >= 400 &&
+          error.getStatus() < 500
+        ) {
+          throw new BadRequestException(
+            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
+          );
+        }
+        throw error;
+      }
     }
 
     this.businessMetrics?.dealProductsAdded.inc();
@@ -665,7 +697,9 @@ export class DealsService {
       costCompany: dto.costCompany,
       costForTech: dto.costForTech,
       priceClient: dto.priceClient,
-      sourceTechId: dto.sourceTechId,
+      fulfillment,
+      // Only a sourced line records which technician supplied it.
+      ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
@@ -676,12 +710,14 @@ export class DealsService {
       productId: dto.productId,
       productName: dto.name,
       quantity: dto.quantity,
+      fulfillment,
     });
 
     this.publishEvent('deal.product_added', {
       dealId: id,
       productId: dto.productId,
       quantity: dto.quantity,
+      fulfillment,
     });
   }
 
@@ -693,17 +729,24 @@ export class DealsService {
       throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
     }
 
-    // Restore to the container the line was pulled from. Legacy rows without a
-    // recorded source fall back to the sole assigned tech, if any.
-    const restoreTo = product.sourceTechId ?? (deal.assignedTechIds.length === 1 ? deal.assignedTechIds[0] : undefined);
-    if (restoreTo) {
-      await this.internalHttp.restoreStock({
-        containerId: restoreTo,
-        items: [{ productId: product.productId, productName: product.name, quantity: product.quantity }],
-        dealId: id,
-        performedBy: caller.id,
-        performedByName: caller.email,
-      });
+    // Only sourced lines deducted stock, so only they restore it. `to_order` and
+    // `service` lines never touched inventory. Legacy rows (no `fulfillment`)
+    // are treated as sourced by the repository mapper.
+    if (product.fulfillment === 'sourced') {
+      // Restore to the container the line was pulled from. Legacy sourced rows
+      // without a recorded source fall back to the sole assigned tech, if any.
+      const restoreTo =
+        product.sourceTechId ??
+        (deal.assignedTechIds.length === 1 ? deal.assignedTechIds[0] : undefined);
+      if (restoreTo) {
+        await this.internalHttp.restoreStock({
+          containerId: restoreTo,
+          items: [{ productId: product.productId, productName: product.name, quantity: product.quantity }],
+          dealId: id,
+          performedBy: caller.id,
+          performedByName: caller.email,
+        });
+      }
     }
 
     await this.productsRepo.removeProduct(id, productId);
@@ -717,6 +760,36 @@ export class DealsService {
     this.publishEvent('deal.product_removed', {
       dealId: id,
       productId,
+    });
+  }
+
+  /**
+   * Mark a to-order line as ordered (or clear it). Only `to_order` lines carry
+   * an order status; sourced/service lines have nothing to order.
+   */
+  async markProductOrdered(
+    id: string,
+    productId: string,
+    ordered: boolean,
+    caller: JwtUser,
+  ): Promise<void> {
+    const product = await this.productsRepo.findProduct(id, productId);
+    if (!product) {
+      throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
+    }
+    if (product.fulfillment !== 'to_order') {
+      throw new BadRequestException(
+        'Only items that need ordering can be marked as ordered',
+      );
+    }
+
+    const orderedAt = ordered ? new Date().toISOString() : null;
+    await this.productsRepo.setOrderedAt(id, productId, orderedAt);
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+      field: `product.${productId}.ordered`,
+      newValue: ordered,
     });
   }
 

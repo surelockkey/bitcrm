@@ -6,12 +6,14 @@ import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
 import { ContainersRepository } from 'src/containers/containers.repository';
+import { ProductsService } from 'src/products/products.service';
 import {
   createMockTransfer,
   createMockCreateTransferDto,
   createMockJwtUser,
   createMockTransfersRepository,
   createMockStockService,
+  createMockProductsService,
 } from '../mocks';
 
 describe('TransfersService', () => {
@@ -19,6 +21,7 @@ describe('TransfersService', () => {
   let repository: ReturnType<typeof createMockTransfersRepository>;
   let stockService: ReturnType<typeof createMockStockService>;
   let containersRepository: { findByTechnicianId: jest.Mock };
+  let productsService: ReturnType<typeof createMockProductsService>;
 
   let publisher: { publish: jest.Mock };
 
@@ -26,6 +29,7 @@ describe('TransfersService', () => {
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     repository = createMockTransfersRepository();
     stockService = createMockStockService();
+    productsService = createMockProductsService();
     // Default: the id is not a technician id, so it's treated as a container id.
     containersRepository = { findByTechnicianId: jest.fn().mockResolvedValue(null) };
 
@@ -35,6 +39,7 @@ describe('TransfersService', () => {
         { provide: TransfersRepository, useValue: repository },
         { provide: StockService, useValue: stockService },
         { provide: ContainersRepository, useValue: containersRepository },
+        { provide: ProductsService, useValue: productsService },
         { provide: SnsPublisherService, useValue: publisher },
       ],
     }).compile();
@@ -126,6 +131,21 @@ describe('TransfersService', () => {
         BadRequestException,
       );
     });
+
+    it('rejects transferring a service-type product and never touches stock', async () => {
+      const dto = createMockCreateTransferDto();
+      const user = createMockJwtUser();
+      productsService.assertStockable.mockRejectedValueOnce(
+        new BadRequestException('Services cannot be stocked or transferred: Rekey'),
+      );
+
+      await expect(service.createTransfer(dto, user)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(productsService.assertStockable).toHaveBeenCalledWith(['prod-1']);
+      expect(stockService.transfer).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('deductStock', () => {
@@ -153,6 +173,24 @@ describe('TransfersService', () => {
           notes: 'Deal: deal-1',
         }),
       );
+    });
+
+    it('rejects deducting a service-type product before touching stock', async () => {
+      const dto = {
+        containerId: 'container-1',
+        items: [{ productId: 'svc-1', productName: 'Rekey', quantity: 1 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-1',
+        performedByName: 'tech@test.com',
+      };
+      productsService.assertStockable.mockRejectedValueOnce(
+        new BadRequestException('Services cannot be stocked or transferred: Rekey'),
+      );
+
+      await expect(service.deductStock(dto as any)).rejects.toThrow(BadRequestException);
+      expect(productsService.assertStockable).toHaveBeenCalledWith(['svc-1']);
+      expect(stockService.deduct).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
     });
 
     it('should resolve a technician id to their container id before deducting', async () => {

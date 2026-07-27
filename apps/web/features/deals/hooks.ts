@@ -231,3 +231,16 @@ export function useRemoveProduct(id: string) {
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
+
+export function useMarkProductOrdered(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ productId, ordered }: { productId: string; ordered: boolean }) =>
+      api.markDealProductOrdered(id, productId, ordered),
+    onSuccess: (_data, { ordered }) => {
+      invalidate();
+      toast.success(ordered ? "Marked as ordered" : "Marked as not ordered");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}

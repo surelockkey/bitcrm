@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -22,6 +23,7 @@ import { AssignTechsDto } from './dto/assign-techs.dto';
 import { UnassignTechDto } from './dto/unassign-tech.dto';
 import { ReorderDto } from './dto/reorder.dto';
 import { AddDealProductDto } from './dto/add-deal-product.dto';
+import { MarkProductOrderedDto } from './dto/mark-product-ordered.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
@@ -234,8 +236,14 @@ export class DealsController {
   @Post(':id/products')
   @RequirePermission('deals', 'edit')
   @ApiOperation({
-    summary: 'Add product to deal (deducts from tech container)',
-    description: '**Guard:** `deals.edit` permission required. Requires assigned technician.',
+    summary: 'Add a line item to a deal',
+    description:
+      '**Guard:** `deals.edit` permission required. ' +
+      'Behavior depends on `fulfillment`: `sourced` (default) deducts the ' +
+      "quantity from the source technician's container and requires an assigned " +
+      'tech; `to_order` records a part the tech does not carry (no deduction); ' +
+      '`service` adds a non-stockable service line (no deduction, no tech). The ' +
+      "product's inventory type must match — services only as `service` lines.",
   })
   async addProduct(
     @Param('id') id: string,
@@ -244,6 +252,23 @@ export class DealsController {
   ) {
     await this.dealsService.addProduct(id, dto, user);
     return { success: true, data: { added: true } };
+  }
+
+  @Patch(':id/products/:productId/ordered')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Mark a to-order line as ordered (or clear it)',
+    description:
+      '**Guard:** `deals.edit` permission required. Only valid for `to_order` lines.',
+  })
+  async markProductOrdered(
+    @Param('id') id: string,
+    @Param('productId') productId: string,
+    @Body() dto: MarkProductOrderedDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.dealsService.markProductOrdered(id, productId, dto.ordered, user);
+    return { success: true, data: { ordered: dto.ordered } };
   }
 
   @Delete(':id/products/:productId')

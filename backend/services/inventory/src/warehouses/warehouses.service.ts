@@ -15,6 +15,7 @@ import { WarehousesRepository } from './warehouses.repository';
 import { StockService } from '../stock/stock.service';
 import { StockRepository } from '../stock/stock.repository';
 import { TransfersRepository } from '../transfers/transfers.repository';
+import { ProductsService } from '../products/products.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
@@ -28,6 +29,7 @@ export class WarehousesService {
     private readonly stockService: StockService,
     private readonly stockRepository: StockRepository,
     private readonly transfersRepository: TransfersRepository,
+    private readonly productsService: ProductsService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
@@ -94,6 +96,7 @@ export class WarehousesService {
     user: JwtUser,
   ): Promise<void> {
     await this.findById(warehouseId);
+    await this.productsService.assertStockable(items.map((i) => i.productId));
     await this.stockService.receive(`WAREHOUSE#${warehouseId}`, items);
 
     await this.transfersRepository.create({

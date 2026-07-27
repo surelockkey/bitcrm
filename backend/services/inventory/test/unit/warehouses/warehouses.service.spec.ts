@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryStatus, TransferType, LocationType } from '@bitcrm/types';
 import { SnsPublisherService } from '@bitcrm/shared';
 import { WarehousesService } from 'src/warehouses/warehouses.service';
@@ -7,6 +7,7 @@ import { WarehousesRepository } from 'src/warehouses/warehouses.repository';
 import { StockService } from 'src/stock/stock.service';
 import { StockRepository } from 'src/stock/stock.repository';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
+import { ProductsService } from 'src/products/products.service';
 import {
   createMockWarehouse,
   createMockCreateWarehouseDto,
@@ -16,6 +17,7 @@ import {
   createMockStockService,
   createMockStockRepository,
   createMockTransfersRepository,
+  createMockProductsService,
 } from '../mocks';
 
 describe('WarehousesService', () => {
@@ -24,6 +26,7 @@ describe('WarehousesService', () => {
   let stockService: ReturnType<typeof createMockStockService>;
   let stockRepository: ReturnType<typeof createMockStockRepository>;
   let transfersRepository: ReturnType<typeof createMockTransfersRepository>;
+  let productsService: ReturnType<typeof createMockProductsService>;
 
   let publisher: { publish: jest.Mock };
 
@@ -33,6 +36,7 @@ describe('WarehousesService', () => {
     stockService = createMockStockService();
     stockRepository = createMockStockRepository();
     transfersRepository = createMockTransfersRepository();
+    productsService = createMockProductsService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -41,6 +45,7 @@ describe('WarehousesService', () => {
         { provide: StockService, useValue: stockService },
         { provide: StockRepository, useValue: stockRepository },
         { provide: TransfersRepository, useValue: transfersRepository },
+        { provide: ProductsService, useValue: productsService },
         { provide: SnsPublisherService, useValue: publisher },
       ],
     }).compile();
@@ -196,6 +201,22 @@ describe('WarehousesService', () => {
       await expect(
         service.receiveStock('nonexistent', [], createMockJwtUser()),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects receiving a service-type product and never touches stock', async () => {
+      const warehouse = createMockWarehouse();
+      const items = [{ productId: 'svc-1', productName: 'Rekey', quantity: 1 }];
+      repository.findById.mockResolvedValue(warehouse);
+      productsService.assertStockable.mockRejectedValueOnce(
+        new BadRequestException('Services cannot be stocked or transferred: Rekey'),
+      );
+
+      await expect(
+        service.receiveStock('wh-1', items, createMockJwtUser()),
+      ).rejects.toThrow(BadRequestException);
+      expect(productsService.assertStockable).toHaveBeenCalledWith(['svc-1']);
+      expect(stockService.receive).not.toHaveBeenCalled();
+      expect(transfersRepository.create).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { parse } from 'csv-parse/sync';
 import { type Product, ProductType, InventoryStatus } from '@bitcrm/types';
@@ -55,6 +61,31 @@ export class ProductsService {
 
     await this.cache.set(id, product);
     return product;
+  }
+
+  /**
+   * Guard for stock operations. Services are non-stockable, so they may never be
+   * received into a warehouse, transferred between locations, or moved through a
+   * technician's container. Unknown product ids are ignored (callers may pass ids
+   * not persisted here) — only confirmed service-type products are rejected.
+   */
+  async assertStockable(productIds: string[]): Promise<void> {
+    const uniqueIds = [...new Set(productIds)];
+    const serviceNames: string[] = [];
+    for (const id of uniqueIds) {
+      const product = await this.repository.findById(id);
+      if (product?.type === ProductType.SERVICE) {
+        serviceNames.push(product.name);
+      }
+    }
+    if (serviceNames.length > 0) {
+      this.logger.warn(
+        `Rejected stock operation for service-type product(s): ${serviceNames.join(', ')}`,
+      );
+      throw new BadRequestException(
+        `Services cannot be stocked or transferred: ${serviceNames.join(', ')}`,
+      );
+    }
   }
 
   async findBySku(sku: string): Promise<Product> {

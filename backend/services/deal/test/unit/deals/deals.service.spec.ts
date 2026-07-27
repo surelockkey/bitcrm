@@ -677,6 +677,107 @@ describe('DealsService', () => {
       expect(err.message).toMatch(/Deadbolt/);
       expect(products.addProduct).not.toHaveBeenCalled();
     });
+
+    it('rejects when the referenced product does not exist in inventory', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'], stage: DealStage.WORK_IN_PROGRESS }));
+      http.getProduct.mockResolvedValueOnce(null);
+
+      await expect(service.addProduct('deal-1', dto as any, caller)).rejects.toThrow(BadRequestException);
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    describe('service lines', () => {
+      const serviceDto = { ...dto, fulfillment: 'service', sourceTechId: undefined };
+
+      beforeEach(() => {
+        http.getProduct.mockResolvedValue({ id: 'product-1', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+      });
+
+      it('adds a service line without a tech and without deducting stock', async () => {
+        mockFindById(createMockDeal({ assignedTechIds: [], stage: DealStage.WORK_IN_PROGRESS }));
+
+        await service.addProduct('deal-1', serviceDto as any, caller);
+
+        expect(http.deductStock).not.toHaveBeenCalled();
+        expect(products.addProduct).toHaveBeenCalledWith(
+          'deal-1',
+          expect.objectContaining({ fulfillment: 'service' }),
+        );
+        // A service line records no source technician.
+        expect(products.addProduct.mock.calls[0][1].sourceTechId).toBeUndefined();
+      });
+
+      it('rejects a service-type product added as a sourced line', async () => {
+        mockFindById(createMockDeal({ assignedTechIds: ['tech-1'], stage: DealStage.WORK_IN_PROGRESS }));
+
+        await expect(
+          service.addProduct('deal-1', { ...dto, fulfillment: 'sourced' } as any, caller),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('to-order lines', () => {
+      const orderDto = { ...dto, fulfillment: 'to_order', sourceTechId: undefined };
+
+      it('adds a to-order line without deducting stock or requiring a tech', async () => {
+        mockFindById(createMockDeal({ assignedTechIds: [], stage: DealStage.WORK_IN_PROGRESS }));
+
+        await service.addProduct('deal-1', orderDto as any, caller);
+
+        expect(http.deductStock).not.toHaveBeenCalled();
+        expect(products.addProduct).toHaveBeenCalledWith(
+          'deal-1',
+          expect.objectContaining({ fulfillment: 'to_order' }),
+        );
+      });
+
+      it('rejects adding a stockable product as a service line', async () => {
+        mockFindById(createMockDeal({ assignedTechIds: ['tech-1'], stage: DealStage.WORK_IN_PROGRESS }));
+
+        await expect(
+          service.addProduct('deal-1', { ...dto, fulfillment: 'service' } as any, caller),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+  });
+
+  describe('markProductOrdered', () => {
+    const caller = createMockJwtUser({ id: 'tech-1' });
+
+    it('sets orderedAt on a to-order line', async () => {
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'to_order' }),
+      );
+
+      await service.markProductOrdered('deal-1', 'product-1', true, caller);
+
+      expect(products.setOrderedAt).toHaveBeenCalledWith(
+        'deal-1',
+        'product-1',
+        expect.any(String),
+      );
+    });
+
+    it('clears orderedAt when ordered=false', async () => {
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'to_order' }),
+      );
+
+      await service.markProductOrdered('deal-1', 'product-1', false, caller);
+
+      expect(products.setOrderedAt).toHaveBeenCalledWith('deal-1', 'product-1', null);
+    });
+
+    it('rejects marking a sourced line as ordered', async () => {
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'sourced' }),
+      );
+
+      await expect(
+        service.markProductOrdered('deal-1', 'product-1', true, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(products.setOrderedAt).not.toHaveBeenCalled();
+    });
   });
 
   describe('removeProduct', () => {
@@ -707,6 +808,29 @@ describe('DealsService', () => {
       products.findProduct.mockResolvedValue(null);
 
       await expect(service.removeProduct('deal-1', 'nonexistent', caller)).rejects.toThrow(NotFoundException);
+    });
+
+    it('does not restore stock when removing a service line', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'service', sourceTechId: undefined }),
+      );
+
+      await service.removeProduct('deal-1', 'product-1', caller);
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+    });
+
+    it('does not restore stock when removing a to-order line', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'to_order', sourceTechId: undefined }),
+      );
+
+      await service.removeProduct('deal-1', 'product-1', caller);
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
     });
   });
 

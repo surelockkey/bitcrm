@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Product } from "@bitcrm/types";
+import { ProductType } from "@bitcrm/types";
 import { useProductMap, useReceiveStock } from "../hooks";
 
 interface Row {
@@ -36,7 +37,14 @@ export function ReceiveStockDialog({
   const [rows, setRows] = useState<Row[]>([]);
   const [search, setSearch] = useState("");
 
-  const products = useMemo(() => (productMap ? [...productMap.values()] : []), [productMap]);
+  // Services are non-stockable, so they can never be received into a warehouse.
+  const products = useMemo(
+    () =>
+      productMap
+        ? [...productMap.values()].filter((p) => p.type !== ProductType.SERVICE)
+        : [],
+    [productMap],
+  );
   const chosen = new Set(rows.map((r) => r.product.id));
   const matches = search
     ? products

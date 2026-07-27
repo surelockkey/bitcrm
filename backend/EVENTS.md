@@ -28,6 +28,15 @@ removed by a roster change. Assignment itself is stored as adjacency rows
 (`PK=DEAL#<id>, SK=ASSIGN#<techId>`) indexed on the tech GSI, which is what
 `findByTech` — and therefore the `assigned_only` data scope — reads.
 
+A deal line item (`SK=PRODUCT#<productId>`) carries a `fulfillment` of `sourced`
+(pulled from an assigned tech's container — deducts stock), `to_order` (a part the
+tech doesn't carry — no stock movement, toggleable to ordered via
+`PATCH /deals/:id/products/:productId/ordered`), or `service` (a non-stockable service
+line — no stock, no source tech). `deal.product_added` carries
+`{dealId, productId, quantity, fulfillment}`. Only `sourced` lines call inventory's
+internal deduct/restore. Service-type inventory products may only be added as `service`
+lines; inventory rejects them from all stock operations (receive/transfer/deduct).
+
 Service-area catalog: `service-area.created`, `service-area.updated`, `service-area.deleted`
 (`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD.
 

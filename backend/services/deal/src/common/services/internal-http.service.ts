@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import { BusinessMetricsService } from '@bitcrm/shared';
+import { type Product } from '@bitcrm/types';
 import {
   CRM_SERVICE_URL,
   USER_SERVICE_URL,
@@ -108,6 +109,29 @@ export class InternalHttpService {
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'listAssignableTechnicians' });
       this.logger.warn(`Failed to list assignable technicians: ${error.message}`);
       return [];
+    }
+  }
+
+  /**
+   * Fetch a product from inventory to validate a deal line (existence + type).
+   * Returns null when the product does not exist (404); other failures surface
+   * as a 502 so callers can distinguish "not found" from "inventory is down".
+   */
+  async getProduct(productId: string): Promise<Product | null> {
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'inventory', operation: 'getProduct' });
+    try {
+      const response = await this.inventoryClient.get(
+        `/api/inventory/products/internal/${productId}`,
+      );
+      timer?.();
+      return response.data.data as Product;
+    } catch (error: any) {
+      timer?.();
+      if (error.response?.status === 404) {
+        return null;
+      }
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'inventory', operation: 'getProduct' });
+      throw this.toHttpError(error, 'Product lookup');
     }
   }
 

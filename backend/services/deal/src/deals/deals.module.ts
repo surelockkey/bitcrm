@@ -10,6 +10,7 @@ import { DealsRepository } from './deals.repository';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
+import { DealProductsBackfill } from '../products/deal-products.backfill';
 import { InternalHttpService } from '../common/services/internal-http.service';
 import { DealsEventHandler } from './deals.event-handler';
 
@@ -22,6 +23,7 @@ import { DealsEventHandler } from './deals.event-handler';
     DealsCacheService,
     TimelineRepository,
     DealProductsRepository,
+    DealProductsBackfill,
     InternalHttpService,
     DealsEventHandler,
   ],

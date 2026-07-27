@@ -7,6 +7,7 @@ import {
   cleanupData,
   createTestUserHeader,
   seededJobTypeId,
+  getInternalHttpMock,
 } from './setup';
 
 const BASE = '/api/deals';
@@ -385,6 +386,108 @@ describe('Deals E2E', () => {
         .expect(201);
 
       expect(res.body.data.assignedTechIds).toEqual([TECH_2]);
+    });
+  });
+
+  // ─── LINE ITEMS (products / services / to-order) ──────
+
+  describe('POST /api/deals/:id/products', () => {
+    const http = getInternalHttpMock();
+
+    const createDeal = async () => {
+      const created = await request(app.getHttpServer())
+        .post(BASE)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send(validDealPayload());
+      return created.body.data.id as string;
+    };
+
+    const assign = (id: string, techIds: string[]) =>
+      request(app.getHttpServer())
+        .post(`${BASE}/${id}/assign`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ techIds });
+
+    const baseLine = {
+      productId: 'product-1', name: 'Deadbolt', sku: 'KW-001',
+      quantity: 2, costCompany: 15, costForTech: 20, priceClient: 45,
+    };
+
+    beforeEach(() => {
+      http.getProduct.mockResolvedValue({ id: 'product-1', name: 'Deadbolt', sku: 'KW-001', type: 'product' });
+      http.deductStock.mockClear();
+    });
+
+    it('adds a sourced line and deducts from the tech container', async () => {
+      const id = await createDeal();
+      await assign(id, [TECH_1]);
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ ...baseLine, fulfillment: 'sourced', sourceTechId: TECH_1 })
+        .expect(201);
+
+      expect(http.deductStock).toHaveBeenCalledTimes(1);
+
+      const list = await request(app.getHttpServer())
+        .get(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .expect(200);
+      expect(list.body.data[0].fulfillment).toBe('sourced');
+    });
+
+    it('adds a service line with no tech and no stock deduction', async () => {
+      http.getProduct.mockResolvedValue({ id: 'svc-1', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+      const id = await createDeal();
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ ...baseLine, productId: 'svc-1', name: 'Rekey', sku: 'SVC-1', fulfillment: 'service' })
+        .expect(201);
+
+      expect(http.deductStock).not.toHaveBeenCalled();
+      const list = await request(app.getHttpServer())
+        .get(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser));
+      expect(list.body.data[0].fulfillment).toBe('service');
+    });
+
+    it('adds a to-order line without deducting stock, then marks it ordered', async () => {
+      const id = await createDeal();
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ ...baseLine, fulfillment: 'to_order' })
+        .expect(201);
+
+      expect(http.deductStock).not.toHaveBeenCalled();
+
+      await request(app.getHttpServer())
+        .patch(`${BASE}/${id}/products/product-1/ordered`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ ordered: true })
+        .expect(200);
+
+      const list = await request(app.getHttpServer())
+        .get(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser));
+      expect(list.body.data[0].fulfillment).toBe('to_order');
+      expect(list.body.data[0].orderedAt).toBeDefined();
+    });
+
+    it('rejects a service-type product added as a sourced line (400)', async () => {
+      http.getProduct.mockResolvedValue({ id: 'svc-1', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+      const id = await createDeal();
+      await assign(id, [TECH_1]);
+
+      await request(app.getHttpServer())
+        .post(`${BASE}/${id}/products`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ ...baseLine, productId: 'svc-1', fulfillment: 'sourced', sourceTechId: TECH_1 })
+        .expect(400);
     });
   });
 

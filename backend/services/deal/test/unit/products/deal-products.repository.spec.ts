@@ -69,5 +69,99 @@ describe('DealProductsRepository', () => {
 
       expect(result).toBeNull();
     });
+
+    it('maps sourceTechId, fulfillment, and orderedAt out of the item', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: {
+          PK: 'DEAL#deal-1',
+          SK: 'PRODUCT#product-1',
+          productId: 'product-1',
+          name: 'Deadbolt',
+          sku: 'KW-001',
+          quantity: 1,
+          costCompany: 15,
+          costForTech: 20,
+          priceClient: 45,
+          sourceTechId: 'tech-7',
+          fulfillment: 'to_order',
+          orderedAt: '2026-07-27T00:00:00.000Z',
+          addedBy: 'tech-1',
+          addedAt: '2026-07-01T00:00:00.000Z',
+        },
+      });
+
+      const result = await repository.findProduct('deal-1', 'product-1');
+
+      expect(result!.sourceTechId).toBe('tech-7');
+      expect(result!.fulfillment).toBe('to_order');
+      expect(result!.orderedAt).toBe('2026-07-27T00:00:00.000Z');
+    });
+
+    it("defaults a missing fulfillment to 'sourced' (legacy rows)", async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: {
+          PK: 'DEAL#deal-1',
+          SK: 'PRODUCT#product-1',
+          productId: 'product-1',
+          name: 'Deadbolt',
+          sku: 'KW-001',
+          quantity: 1,
+          costCompany: 15,
+          costForTech: 20,
+          priceClient: 45,
+          addedBy: 'tech-1',
+          addedAt: '2026-07-01T00:00:00.000Z',
+        },
+      });
+
+      const result = await repository.findProduct('deal-1', 'product-1');
+
+      expect(result!.fulfillment).toBe('sourced');
+    });
+  });
+
+  describe('setOrderedAt', () => {
+    it('sets orderedAt with a value', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.setOrderedAt('deal-1', 'product-1', '2026-07-27T00:00:00.000Z');
+
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.input.UpdateExpression).toContain('SET orderedAt');
+      expect(command.input.ExpressionAttributeValues[':o']).toBe('2026-07-27T00:00:00.000Z');
+    });
+
+    it('removes orderedAt when null', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.setOrderedAt('deal-1', 'product-1', null);
+
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.input.UpdateExpression).toContain('REMOVE orderedAt');
+    });
+  });
+
+  describe('listRowsMissingFulfillment', () => {
+    it('scans PRODUCT# rows lacking fulfillment and paginates', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({
+          Items: [{ PK: 'DEAL#deal-1', SK: 'PRODUCT#a', productId: 'a' }],
+          LastEvaluatedKey: { PK: 'x' },
+        })
+        .mockResolvedValueOnce({
+          Items: [{ PK: 'DEAL#deal-2', SK: 'PRODUCT#b', productId: 'b' }],
+          LastEvaluatedKey: undefined,
+        });
+
+      const rows = await repository.listRowsMissingFulfillment();
+
+      expect(rows).toEqual([
+        { dealId: 'deal-1', productId: 'a' },
+        { dealId: 'deal-2', productId: 'b' },
+      ]);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.input.FilterExpression).toContain('attribute_not_exists(fulfillment)');
+    });
   });
 });

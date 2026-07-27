@@ -129,3 +129,14 @@ export const removeDealProduct = (
   productId: string,
 ): Promise<{ removed: true }> =>
   http.delete<{ removed: true }>(`/deals/${id}/products/${productId}`);
+
+/** Mark a to-order line as ordered (or clear it). */
+export const markDealProductOrdered = (
+  id: string,
+  productId: string,
+  ordered: boolean,
+): Promise<{ ordered: boolean }> =>
+  http.patch<{ ordered: boolean }>(
+    `/deals/${id}/products/${productId}/ordered`,
+    { ordered },
+  );

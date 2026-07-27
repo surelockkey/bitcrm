@@ -54,6 +54,7 @@ export function createMockDealProduct(overrides?: Partial<DealProduct>): DealPro
     costCompany: 15.0,
     costForTech: 20.0,
     priceClient: 45.0,
+    fulfillment: 'sourced',
     addedBy: 'tech-1',
     addedAt: '2026-04-16T12:00:00.000Z',
     ...overrides,
@@ -177,6 +178,7 @@ export function createMockDealProductsRepository() {
     removeProduct: jest.fn(),
     findByDeal: jest.fn(),
     findProduct: jest.fn(),
+    setOrderedAt: jest.fn(),
   };
 }
 
@@ -201,6 +203,13 @@ export function createMockInternalHttpService() {
       .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
     deductStock: jest.fn().mockResolvedValue(undefined),
     restoreStock: jest.fn().mockResolvedValue(undefined),
+    // Default: the referenced product exists and is a stockable product-type.
+    getProduct: jest.fn().mockResolvedValue({
+      id: 'product-1',
+      name: 'Kwikset Deadbolt',
+      sku: 'KW-DB-001',
+      type: 'product',
+    }),
   };
 }
 
