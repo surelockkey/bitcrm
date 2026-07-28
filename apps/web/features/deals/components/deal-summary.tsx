@@ -43,6 +43,10 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
           <Row label="Service area" value={deal.serviceArea} />
           <Row label="Scheduled" value={formatSchedule(deal.scheduledDate, deal.scheduledTimeSlot)} />
           {deal.sourceId ? <Row label="Source" value={jobSourceName(deal.sourceId)} /> : null}
+          {deal.poNumber ? <Row label="PO number" value={deal.poNumber} /> : null}
+          {deal.workOrderId ? (
+            <Row label="Work order" value={<Link href="/work-orders" className="text-primary hover:underline">View</Link>} />
+          ) : null}
           {deal.tagIds.length ? <Row label="Tags" value={<JobTagChips ids={deal.tagIds} />} /> : null}
         </dl>
       </Card>

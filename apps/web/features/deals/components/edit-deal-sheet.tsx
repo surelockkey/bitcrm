@@ -53,6 +53,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       scheduledTimeSlot: deal.scheduledTimeSlot ?? "",
       priority: deal.priority,
       sourceId: deal.sourceId ?? "",
+      poNumber: deal.poNumber ?? "",
       notes: deal.notes ?? "",
       internalNotes: deal.internalNotes ?? "",
       tagIds: deal.tagIds,
@@ -66,6 +67,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         sourceId: v.sourceId || undefined,
+        poNumber: v.poNumber || undefined,
         notes: v.notes || undefined,
         internalNotes: v.internalNotes || undefined,
         tagIds: v.tagIds,
@@ -131,6 +133,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={sourceId} onChange={(v) => form.setValue("sourceId", v ?? "")} /></div>
+              <div className="space-y-1.5"><Label>PO number</Label><Input className="h-9" placeholder="PO-12345" {...form.register("poNumber")} /></div>
               <div className="space-y-1.5"><Label>Tags</Label><JobTagPicker value={tagIds} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
             </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} {...form.register("notes")} /></div>
