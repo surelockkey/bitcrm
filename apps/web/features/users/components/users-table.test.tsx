@@ -48,4 +48,17 @@ describe("UsersTable", () => {
     await userEvent.click(screen.getByText("Alex Bell"));
     expect(onOpen).toHaveBeenCalledWith(users[0]);
   });
+
+  it("marks users that have permission overrides with a custom badge", () => {
+    const overridden: User[] = [
+      { ...users[0], permissionOverrides: { permissions: { deals: { delete: true } } } },
+    ];
+    render(<UsersTable users={overridden} roles={roles} onOpen={() => {}} />);
+    expect(screen.getByText("custom")).toBeInTheDocument();
+  });
+
+  it("shows no custom badge without overrides", () => {
+    render(<UsersTable users={users} roles={roles} onOpen={() => {}} />);
+    expect(screen.queryByText("custom")).not.toBeInTheDocument();
+  });
 });
