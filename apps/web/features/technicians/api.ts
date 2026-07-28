@@ -44,6 +44,9 @@ export interface UpdateProfileBody {
   gpsTrackingEnabled?: boolean;
   mobileAppInstalled?: boolean;
   status?: TechnicianProfileStatus;
+  workingDays?: number[];
+  workStart?: string;
+  workEnd?: string;
 }
 /** A technician's job types + service areas with their review statuses. */
 export interface TechnicianAssignments {
