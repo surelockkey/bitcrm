@@ -35,8 +35,8 @@ export function RescheduleConfirmDialog({
   onCancel: () => void;
 }) {
   if (!target) return null;
-  const { deal, newTechId, newSlot } = target;
-  const reassigned = newTechId !== deal.assignedTechId;
+  const { deal, fromTechId, newTechId, newSlot } = target;
+  const reassigned = newTechId !== fromTechId;
   const techName = (id?: string) => {
     if (!id) return "unassigned";
     const u = users.get(id);
@@ -53,7 +53,7 @@ export function RescheduleConfirmDialog({
               <div>
                 {deal.scheduledTimeSlot ?? "unscheduled"} → <b>{newSlot}</b>
                 {reassigned ? (
-                  <> · {techName(deal.assignedTechId)} → <b>{techName(newTechId)}</b></>
+                  <> · {techName(fromTechId)} → <b>{techName(newTechId)}</b></>
                 ) : null}
               </div>
               {conflicts.length > 0 ? (

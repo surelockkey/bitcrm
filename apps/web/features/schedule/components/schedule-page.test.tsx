@@ -33,12 +33,12 @@ const DEAL = {
   clientType: "residential",
   serviceArea: "Austin",
   address: { street: "1 Main", city: "Austin", state: "TX", zip: "78701" },
-  jobType: "lockout",
+  jobTypeId: "jt-lockout",
   stage: "assigned",
-  assignedTechId: "tech-1",
+  assignedTechIds: ["tech-1"],
   assignedDispatcherId: "d1",
   priority: "normal",
-  tags: [],
+  tagIds: [],
   status: "open",
   createdBy: "d1",
   createdAt: "2026-07-01T10:00:00.000Z",
@@ -155,6 +155,44 @@ describe("SchedulePage", () => {
     await userEvent.type(screen.getByPlaceholderText("Search technicians…"), "nomatch");
     expect(screen.queryByText("Sam Ochoa")).not.toBeInTheDocument();
     expect(screen.getByText(/0 technicians/)).toBeInTheDocument();
+  });
+
+  it("renders a shared job once per assigned technician", async () => {
+    // A deal is worked by an equal-peer crew, so it belongs in every crew
+    // member's column — not just a single 'primary' technician's.
+    server.use(
+      http.get("*/deals", () =>
+        HttpResponse.json({
+          success: true,
+          data: [{ ...DEAL, assignedTechIds: ["tech-1", "tech-2"] }],
+          pagination: { count: 1 },
+        }),
+      ),
+      http.get("*/users/technicians", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              userId: "tech-1", status: "active",
+              callMaskingEnabled: false, gpsTrackingEnabled: false, mobileAppInstalled: false,
+              workingDays: [1, 2, 3, 4, 5], workStart: "08:00", workEnd: "17:00",
+            },
+            {
+              userId: "tech-2", status: "active",
+              callMaskingEnabled: false, gpsTrackingEnabled: false, mobileAppInstalled: false,
+              workingDays: [1, 2, 3, 4, 5], workStart: "08:00", workEnd: "17:00",
+            },
+          ],
+          pagination: { count: 2 },
+        }),
+      ),
+    );
+    render(<SchedulePage />, { wrapper });
+    expect(await screen.findByText("Sam Ochoa")).toBeInTheDocument();
+    expect(await screen.findByText("Dana Reeves")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getAllByText(/#101 · Ada Lovelace/)).toHaveLength(2),
+    );
   });
 
   it("blocks access without deals.view", async () => {

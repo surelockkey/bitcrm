@@ -29,6 +29,12 @@ import { JobBlock } from "./job-block";
 
 export interface RescheduleTarget {
   deal: Deal;
+  /**
+   * The column the block was dragged out of. A deal can be assigned to several
+   * technicians at once, so a cross-column drag swaps this one for `newTechId`
+   * and leaves the rest of the crew alone.
+   */
+  fromTechId: string;
   newTechId: string;
   newSlot: string;
 }
@@ -80,7 +86,7 @@ export function DayGrid({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const dayDeals = useMemo(
-    () => deals.filter((d) => d.scheduledDate === dateISO && d.assignedTechId),
+    () => deals.filter((d) => d.scheduledDate === dateISO && d.assignedTechIds.length > 0),
     [deals, dateISO],
   );
 
@@ -93,7 +99,7 @@ export function DayGrid({
       if (p) visibleProfiles.set(id, p);
     }
     const win = computeDayWindow(
-      dayDeals.filter((d) => techIds.includes(d.assignedTechId!)),
+      dayDeals.filter((d) => d.assignedTechIds.some((t) => techIds.includes(t))),
       visibleProfiles,
       dateISO,
     );
@@ -108,11 +114,14 @@ export function DayGrid({
   const handleDragEnd = (e: DragEndEvent) => {
     if (!e.over) return;
     const deal = e.active.data.current?.deal as Deal | undefined;
-    if (!deal) return;
+    const fromTechId = e.active.data.current?.techId as string | undefined;
+    if (!deal || !fromTechId) return;
     const [newTechId, hourStr] = String(e.over.id).split(":");
     const newSlot = slotAtHour(deal.scheduledTimeSlot, Number(hourStr));
-    if (newTechId === deal.assignedTechId && newSlot === deal.scheduledTimeSlot) return;
-    onReschedule({ deal, newTechId, newSlot });
+    if (newTechId === fromTechId && newSlot === deal.scheduledTimeSlot) return;
+    // Dropping onto a tech who is already on this deal would duplicate them.
+    if (newTechId !== fromTechId && deal.assignedTechIds.includes(newTechId)) return;
+    onReschedule({ deal, fromTechId, newTechId, newSlot });
   };
 
   return (
@@ -129,7 +138,7 @@ export function DayGrid({
         </div>
 
         {techIds.map((techId) => {
-          const techDeals = dayDeals.filter((d) => d.assignedTechId === techId);
+          const techDeals = dayDeals.filter((d) => d.assignedTechIds.includes(techId));
           const layout = layoutDayColumn(techDeals, grid);
           const wh = profiles.get(techId) ?? {};
           const bands = outOfHoursBands(wh, dateISO, grid);
@@ -228,7 +237,9 @@ function DraggableBlock({
   children: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: deal.id,
+    // A deal shared by several technicians renders once per column, so the
+    // draggable id has to include the column — `deal.id` alone would collide.
+    id: `${techId}:${deal.id}`,
     data: { deal, techId },
     disabled,
   });

@@ -72,8 +72,12 @@ export function SchedulePage() {
   const reschedule = useMutation({
     mutationFn: async (t: RescheduleTarget) => {
       await dealApi.updateDeal(t.deal.id, { scheduledTimeSlot: t.newSlot } as never);
-      if (t.newTechId !== t.deal.assignedTechId) {
-        await dealApi.assignTech(t.deal.id, t.newTechId);
+      if (t.newTechId !== t.fromTechId) {
+        // Swap just the dragged technician; the rest of the crew stays on the deal.
+        await dealApi.assignTechs(
+          t.deal.id,
+          t.deal.assignedTechIds.map((id) => (id === t.fromTechId ? t.newTechId : id)),
+        );
       }
     },
     onSuccess: () => {
@@ -88,11 +92,16 @@ export function SchedulePage() {
     if (!pending) return [];
     const preview: Deal = {
       ...pending.deal,
-      assignedTechId: pending.newTechId,
+      assignedTechIds: pending.deal.assignedTechIds.map((id) =>
+        id === pending.fromTechId ? pending.newTechId : id,
+      ),
       scheduledTimeSlot: pending.newSlot,
     };
     const sameDay = (deals ?? []).filter(
-      (d) => d.scheduledDate === preview.scheduledDate && d.assignedTechId === pending.newTechId,
+      (d) =>
+        d.id !== preview.id &&
+        d.scheduledDate === preview.scheduledDate &&
+        d.assignedTechIds.includes(pending.newTechId),
     );
     const techEvents = (events ?? []).filter(
       (e) => e.technicianId === pending.newTechId && preview.scheduledDate && eventOnDate(e, preview.scheduledDate),

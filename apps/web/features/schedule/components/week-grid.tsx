@@ -59,7 +59,7 @@ export function WeekGrid({
               </td>
               {days.map((day) => {
                 const jobs = deals.filter(
-                  (d) => d.scheduledDate === day && d.assignedTechId === techId,
+                  (d) => d.scheduledDate === day && d.assignedTechIds.includes(techId),
                 );
                 const off = events.some(
                   (e) => e.technicianId === techId && e.allDay && eventOnDate(e, day),
