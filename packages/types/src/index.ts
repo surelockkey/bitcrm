@@ -28,6 +28,7 @@ export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
+export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';
