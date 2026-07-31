@@ -139,6 +139,19 @@ export function useUpdateDeal(id: string) {
   });
 }
 
+/**
+ * Tags auto-save immediately (no Save button). The success toast is left to the
+ * caller so it can say "Tag added" vs "Tag removed".
+ */
+export function useSetDealTags(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (tagIds: string[]) => api.updateDeal(id, { tagIds }),
+    onSuccess: () => invalidate(),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useDeleteDeal() {
   const invalidate = useInvalidateDeal();
   return useMutation({

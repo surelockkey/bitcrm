@@ -35,7 +35,8 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { useDeal, useDeleteDeal, useUpdateDeal } from "../hooks";
+import { toast } from "sonner";
+import { useDeal, useDeleteDeal, useSetDealTags, useUpdateDeal } from "../hooks";
 import { isUrgent } from "../lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import { StageMenu } from "./stage-menu";
@@ -55,7 +56,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
-  const tagUpdate = useUpdateDeal(dealId);
+  const setTags = useSetDealTags(dealId);
   const [tab, setTab] = useState<Tab>("details");
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
@@ -108,7 +109,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         <div className="flex items-center gap-2 border-b px-6 py-2.5">
           <JobTagCombobox
             value={deal.tagIds ?? []}
-            onChange={(ids) => tagUpdate.mutate({ tagIds: ids })}
+            onChange={(ids) => {
+              const added = ids.length > (deal.tagIds?.length ?? 0);
+              setTags.mutate(ids, {
+                onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+              });
+            }}
             disabled={!canEdit}
           />
         </div>
