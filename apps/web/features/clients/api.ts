@@ -58,6 +58,16 @@ export const updateContact = (id: string, body: UpdateContactValues): Promise<Co
 export const deleteContact = (id: string): Promise<{ id: string; deleted: true }> =>
   http.delete<{ id: string; deleted: true }>(`/crm/contacts/${id}`);
 
+export interface MergeContactsBody {
+  /** Surviving contact; the others are folded into it and soft-deleted. */
+  primaryId: string;
+  /** 1-4 duplicates (2-5 contacts merged in total). */
+  mergeIds: string[];
+}
+
+export const mergeContacts = (body: MergeContactsBody): Promise<Contact> =>
+  http.post<Contact>("/crm/contacts/merge", body);
+
 /* --------------------------------------------------------------- companies */
 
 export function listCompanies(

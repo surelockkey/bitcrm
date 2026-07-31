@@ -4,6 +4,7 @@ import type { Contact, Company } from "@bitcrm/types";
 import {
   formatPhone,
   contactName,
+  findDuplicateGroups,
   primaryPhone,
   primaryEmail,
   initials,
@@ -190,5 +191,62 @@ describe("dueDateFrom", () => {
   });
   it("is same-day for CASH", () => {
     expect(dueDateFrom("2026-07-01", PaymentTerms.CASH)).toBe("2026-07-01");
+  });
+});
+
+describe("findDuplicateGroups", () => {
+  it("groups contacts sharing a phone regardless of formatting", () => {
+    const a = contact({ id: "a", phones: ["+14045551234"] });
+    const b = contact({ id: "b", phones: ["(404) 555-1234", "+14049998888"] });
+    const c = contact({ id: "c", phones: ["+14040000000"] });
+
+    const groups = findDuplicateGroups([a, b, c], "phone");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].contacts.map((x) => x.id)).toEqual(["a", "b"]);
+  });
+
+  it("groups by normalized address and labels with the display line", () => {
+    const a = contact({
+      id: "a",
+      addresses: [{ street: "123 Main St", city: "Atlanta", state: "GA", zip: "30301" }],
+    });
+    const b = contact({
+      id: "b",
+      phones: ["+14042222222"],
+      addresses: [{ street: "123 main st", city: "atlanta", state: "ga", zip: "30301" }],
+    });
+    const c = contact({
+      id: "c",
+      phones: ["+14043333333"],
+      addresses: [{ street: "9 Peachtree Rd", city: "Atlanta", state: "GA", zip: "30305" }],
+    });
+
+    const groups = findDuplicateGroups([a, b, c], "address");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].contacts.map((x) => x.id)).toEqual(["a", "b"]);
+    expect(groups[0].label).toBe("123 Main St, Atlanta, GA 30301");
+  });
+
+  it("groups by full name case-insensitively", () => {
+    const a = contact({ id: "a", firstName: "John", lastName: "Doe", phones: ["+14041111111"] });
+    const b = contact({ id: "b", firstName: "JOHN", lastName: "doe", phones: ["+14042222222"] });
+
+    const groups = findDuplicateGroups([a, b], "name");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("John Doe");
+    expect(groups[0].contacts.map((x) => x.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns nothing when there are no duplicates", () => {
+    expect(findDuplicateGroups([contact()], "phone")).toEqual([]);
+    expect(findDuplicateGroups([], "name")).toEqual([]);
+  });
+
+  it("does not pair a contact with itself when it repeats the same phone", () => {
+    const a = contact({ id: "a", phones: ["+14045551234", "(404) 555-1234"] });
+    expect(findDuplicateGroups([a], "phone")).toEqual([]);
   });
 });
