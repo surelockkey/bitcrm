@@ -8,7 +8,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, DealStage, User } from "@bitcrm/types";
+import type { Contact, Deal, DealStage, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
@@ -144,11 +144,25 @@ export function useUpdateDeal(id: string) {
  * caller so it can say "Tag added" vs "Tag removed".
  */
 export function useSetDealTags(id: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateDeal(id);
   return useMutation({
     mutationFn: (tagIds: string[]) => api.updateDeal(id, { tagIds }),
-    onSuccess: () => invalidate(),
-    onError: (e) => toast.error(getApiErrorMessage(e)),
+    // Optimistic: paint the chip immediately (before the server round-trip) so
+    // the tag appears first and the toast follows, not the other way around.
+    onMutate: async (tagIds) => {
+      await qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) });
+      const previous = qc.getQueryData<Deal>(queryKeys.deals.detail(id));
+      if (previous) {
+        qc.setQueryData<Deal>(queryKeys.deals.detail(id), { ...previous, tagIds });
+      }
+      return { previous };
+    },
+    onError: (e, _tagIds, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
   });
 }
 
