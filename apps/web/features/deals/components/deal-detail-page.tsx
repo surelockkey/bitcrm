@@ -55,6 +55,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
+  const tagUpdate = useUpdateDeal(dealId);
   const [tab, setTab] = useState<Tab>("details");
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
@@ -101,6 +102,17 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           </AlertDialog>
         ) : null}
       </div>
+
+      {/* Tags — top-left, with a "+" to quickly add existing tags */}
+      {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
+        <div className="flex items-center gap-2 border-b px-6 py-2.5">
+          <JobTagCombobox
+            value={deal.tagIds ?? []}
+            onChange={(ids) => tagUpdate.mutate({ tagIds: ids })}
+            disabled={!canEdit}
+          />
+        </div>
+      ) : null}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
@@ -218,9 +230,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
-        <Field label="Tags">
-          <JobTagCombobox value={deal.tagIds ?? []} onChange={(ids) => commit({ tagIds: ids })} disabled={!canEdit} />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="PO number">
             <Input className="h-9" defaultValue={deal.poNumber ?? ""} disabled={!canEdit} placeholder="C-PO / VPO"
