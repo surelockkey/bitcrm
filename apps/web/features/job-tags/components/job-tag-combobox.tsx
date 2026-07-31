@@ -11,8 +11,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { useJobTags } from "../hooks";
-import { activeJobTags, jobTagMap, tagColorClasses } from "../lib";
+import { useCreateJobTag, useJobTags } from "../hooks";
+import { activeJobTags, canCreateTag, jobTagMap, tagColorClasses } from "../lib";
 
 /**
  * Job-tag picker: selected tags show as removable colored chips; pressing
@@ -32,9 +32,24 @@ export function JobTagCombobox({
   const active = activeJobTags(data);
   const map = jobTagMap(data);
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const create = useCreateJobTag();
 
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+
+  const handleCreate = async () => {
+    const name = search.trim();
+    if (!name) return;
+    try {
+      const tag = await create.mutateAsync({ name, color: "slate", priority: 0 });
+      onChange([...value, tag.id]);
+      setSearch("");
+      setOpen(false);
+    } catch {
+      // The mutation's onError already surfaces a toast.
+    }
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -76,7 +91,7 @@ export function JobTagCombobox({
               <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
               <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border bg-popover shadow-md">
                 <Command loop>
-                  <CommandInput autoFocus placeholder="Search tags…" className="h-9" />
+                  <CommandInput value={search} onValueChange={setSearch} autoFocus placeholder="Search or create…" className="h-9" />
                   <CommandList className="max-h-56">
                     <CommandEmpty>No tags found.</CommandEmpty>
                     <CommandGroup>
@@ -97,6 +112,19 @@ export function JobTagCombobox({
                         );
                       })}
                     </CommandGroup>
+                    {canCreateTag(search, data) ? (
+                      <CommandGroup>
+                        <CommandItem
+                          value={`create ${search}`}
+                          onSelect={handleCreate}
+                          disabled={create.isPending}
+                          className="gap-2 text-muted-foreground"
+                        >
+                          <Plus className="size-3.5" />
+                          Create &ldquo;{search.trim()}&rdquo;
+                        </CommandItem>
+                      </CommandGroup>
+                    ) : null}
                   </CommandList>
                 </Command>
               </div>

@@ -29,6 +29,17 @@ export function activeJobTags(jobTags: JobTag[] | undefined): JobTag[] {
 }
 
 /**
+ * True when `search` is a non-empty name that no existing tag (active or
+ * archived) already uses — i.e. it's safe to offer "create this tag". Checking
+ * archived names too avoids minting a duplicate of a hidden tag.
+ */
+export function canCreateTag(search: string, jobTags: JobTag[] | undefined): boolean {
+  const name = search.trim().toLowerCase();
+  if (!name) return false;
+  return !(jobTags ?? []).some((t) => t.name.toLowerCase() === name);
+}
+
+/**
  * Palette token → chip classes, legible in light and dark. One string per
  * JobTagColor (the enum in @bitcrm/types is the source of truth). Mirrors the
  * tone pattern used by the technician assignment chips.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { JOB_TAG_COLORS, type JobTag } from "@bitcrm/types";
-import { jobTagName, jobTagMap, activeJobTags, TAG_COLOR_CLASSES } from "./lib";
+import { jobTagName, jobTagMap, activeJobTags, canCreateTag, TAG_COLOR_CLASSES } from "./lib";
 
 const tag = (over: Partial<JobTag>): JobTag => ({
   id: "t-1",
@@ -48,5 +48,25 @@ describe("TAG_COLOR_CLASSES", () => {
     for (const color of JOB_TAG_COLORS) {
       expect(TAG_COLOR_CLASSES[color]).toBeTruthy();
     }
+  });
+});
+
+describe("canCreateTag", () => {
+  const catalog = [tag({ name: "Rush" }), tag({ name: "VIP" }), tag({ name: "Old", active: false })];
+
+  it("is false for an empty or whitespace search", () => {
+    expect(canCreateTag("", catalog)).toBe(false);
+    expect(canCreateTag("   ", catalog)).toBe(false);
+  });
+  it("is false when a tag already has that name (case-insensitive, incl. archived)", () => {
+    expect(canCreateTag("rush", catalog)).toBe(false);
+    expect(canCreateTag("  VIP  ", catalog)).toBe(false);
+    expect(canCreateTag("old", catalog)).toBe(false);
+  });
+  it("is true for a new, unused name", () => {
+    expect(canCreateTag("Warranty", catalog)).toBe(true);
+  });
+  it("handles an empty catalog", () => {
+    expect(canCreateTag("Anything", undefined)).toBe(true);
   });
 });
