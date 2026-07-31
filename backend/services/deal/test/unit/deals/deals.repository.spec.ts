@@ -1,4 +1,4 @@
-import { DealStage, DealStatus } from '@bitcrm/types';
+import { DealStage, JobSuperStatus, DealStatus } from '@bitcrm/types';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { createMockDeal, createMockDynamoDbService } from '../mocks';
 
@@ -25,7 +25,7 @@ describe('DealsRepository', () => {
       const item = command.input.Item;
       expect(item.PK).toBe('DEAL#deal-1');
       expect(item.SK).toBe('METADATA');
-      expect(item.GSI1PK).toBe('STAGE#new_lead');
+      expect(item.GSI1PK).toBe('STATUS#submitted');
       // The tech index (GSI2) lives on ASSIGN# rows, not deal metadata.
       expect(item.GSI2PK).toBeUndefined();
       expect(item.GSI3PK).toBe('CONTACT#contact-1');
@@ -84,15 +84,15 @@ describe('DealsRepository', () => {
     });
   });
 
-  describe('findByStage', () => {
-    it('should query GSI1 with correct stage key', async () => {
+  describe('findBySuperStatus', () => {
+    it('should query GSI1 with correct super-status key', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [], Count: 0 });
 
-      await repository.findByStage(DealStage.NEW_LEAD, 20);
+      await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 20);
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.IndexName).toBe('StageIndex');
-      expect(command.input.ExpressionAttributeValues[':pk']).toBe('STAGE#new_lead');
+      expect(command.input.ExpressionAttributeValues[':pk']).toBe('STATUS#submitted');
       expect(command.input.ScanIndexForward).toBe(false);
     });
 
@@ -103,7 +103,7 @@ describe('DealsRepository', () => {
         LastEvaluatedKey: { PK: 'x', SK: 'y' },
       });
 
-      const result = await repository.findByStage(DealStage.NEW_LEAD, 20);
+      const result = await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 20);
 
       expect(result.items.length).toBe(1);
       expect(result.items[0].id).toBe('deal-1');
@@ -114,7 +114,7 @@ describe('DealsRepository', () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [] });
       const cursor = Buffer.from(JSON.stringify({ PK: 'x', SK: 'y' })).toString('base64url');
 
-      await repository.findByStage(DealStage.NEW_LEAD, 10, cursor);
+      await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 10, cursor);
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.ExclusiveStartKey).toEqual({ PK: 'x', SK: 'y' });
@@ -294,17 +294,17 @@ describe('DealsRepository', () => {
   });
 
   describe('update', () => {
-    it('should update GSI keys when stage changes', async () => {
+    it('should update GSI keys when super-status changes', async () => {
       dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...createMockDeal({ stage: DealStage.ASSIGNED }) },
+        Attributes: { ...createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS }) },
       });
 
-      await repository.update('deal-1', { stage: DealStage.ASSIGNED });
+      await repository.update('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS });
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       const expr = command.input.UpdateExpression;
       expect(expr).toContain('#GSI1PK');
-      expect(command.input.ExpressionAttributeValues[':GSI1PK']).toBe('STAGE#assigned');
+      expect(command.input.ExpressionAttributeValues[':GSI1PK']).toBe('STATUS#in_progress');
     });
 
     it('writes assignedTechIds and sequences as plain attributes (no metadata GSI2)', async () => {

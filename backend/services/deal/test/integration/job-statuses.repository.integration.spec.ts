@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { DealStageGroup, type DealSubStatus } from '@bitcrm/types';
+import { JobSuperStatus, type DealSubStatus } from '@bitcrm/types';
 import { JobStatusesRepository } from '../../src/job-statuses/job-statuses.repository';
 import {
   createTestTables,
@@ -22,7 +22,7 @@ function makeStatus(overrides: Partial<DealSubStatus> = {}): DealSubStatus {
   return {
     id: 'js-1',
     name: 'Will Call Back',
-    group: DealStageGroup.PENDING,
+    group: JobSuperStatus.PENDING,
     color: 'red',
     priority: 0,
     active: true,
@@ -55,7 +55,7 @@ describe('JobStatusesRepository (integration)', () => {
     await repo.create(makeStatus({ id: 'a1', name: 'Alpha', priority: 1 }));
     await repo.create(makeStatus({ id: 'a2', name: 'Bravo', priority: 2 }));
 
-    expect(await repo.get('a1')).toMatchObject({ id: 'a1', name: 'Alpha', group: DealStageGroup.PENDING });
+    expect(await repo.get('a1')).toMatchObject({ id: 'a1', name: 'Alpha', group: JobSuperStatus.PENDING });
     const all = await repo.listAll();
     expect(all.map((a) => a.id).sort()).toEqual(['a1', 'a2']);
 
@@ -71,8 +71,8 @@ describe('JobStatusesRepository (integration)', () => {
 
   it('put replaces an existing job status', async () => {
     await repo.create(makeStatus({ id: 'p1', name: 'Old' }));
-    await repo.put(makeStatus({ id: 'p1', name: 'New', priority: 9, group: DealStageGroup.CLOSED }));
-    expect(await repo.get('p1')).toMatchObject({ name: 'New', priority: 9, group: DealStageGroup.CLOSED });
+    await repo.put(makeStatus({ id: 'p1', name: 'New', priority: 9, group: JobSuperStatus.DONE }));
+    expect(await repo.get('p1')).toMatchObject({ name: 'New', priority: 9, group: JobSuperStatus.DONE });
   });
 
   it('detects whether a deal references the status (scalar subStatusId match)', async () => {

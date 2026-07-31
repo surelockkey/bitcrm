@@ -4,7 +4,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import { type DealSubStatus, type DealStageGroup } from '@bitcrm/types';
+import { type DealSubStatus, type JobSuperStatus } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { JobStatusesRepository } from './job-statuses.repository';
 import { type CreateJobStatusDto } from './dto/create-job-status.dto';
@@ -23,7 +23,7 @@ export class JobStatusesService {
    */
   private async assertNameAvailable(
     name: string,
-    group: DealStageGroup,
+    group: JobSuperStatus,
     excludeId?: string,
   ): Promise<void> {
     const existing = await this.repository.listAll();

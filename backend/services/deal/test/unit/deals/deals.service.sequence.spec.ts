@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { GeocodingService, SnsPublisherService } from '@bitcrm/shared';
-import { DealStage } from '@bitcrm/types';
+import { JobSuperStatus } from '@bitcrm/types';
 import { DealsService } from 'src/deals/deals.service';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { DealsCacheService } from 'src/deals/deals-cache.service';
@@ -107,7 +107,7 @@ describe('DealsService — job sequencing', () => {
       repo.update.mockImplementation(async (_id: string, u: any) => ({ ...target, ...u }));
       techHasDeals([
         createMockDeal({ id: 'a', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '09:00-12:00' }),
-        createMockDeal({ id: 'done', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '10:00-11:00', stage: DealStage.COMPLETED }),
+        createMockDeal({ id: 'done', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '10:00-11:00', superStatus: JobSuperStatus.DONE }),
         createMockDeal({ id: 'b', assignedTechIds: ['tech-1'], scheduledDate: TODAY, scheduledTimeSlot: '13:00-15:00' }),
       ]);
 

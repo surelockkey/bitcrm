@@ -9,7 +9,13 @@ import {
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { DealStatus, type Deal } from '@bitcrm/types';
+import {
+  DealStatus,
+  JobSuperStatus,
+  STAGE_TO_SUPER_STATUS,
+  type Deal,
+  type DealStage,
+} from '@bitcrm/types';
 import {
   DEALS_TABLE,
   DEALS_GSI1_NAME,
@@ -103,7 +109,7 @@ export class DealsRepository {
         Item: {
           PK: `DEAL#${deal.id}`,
           SK: 'METADATA',
-          GSI1PK: `STAGE#${deal.stage}`,
+          GSI1PK: `STATUS#${deal.superStatus}`,
           GSI1SK: `${deal.createdAt}#DEAL#${deal.id}`,
           GSI3PK: `CONTACT#${deal.contactId}`,
           GSI3SK: `${deal.createdAt}#DEAL#${deal.id}`,
@@ -128,8 +134,8 @@ export class DealsRepository {
     return this.toDeal(result.Item);
   }
 
-  async findByStage(
-    stage: string,
+  async findBySuperStatus(
+    superStatus: string,
     limit: number,
     cursor?: string,
     filters?: DealFilters,
@@ -141,7 +147,7 @@ export class DealsRepository {
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
         FilterExpression: f.expression,
-        ExpressionAttributeValues: { ':pk': `STAGE#${stage}`, ...f.values },
+        ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...f.values },
         ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
         Limit: limit,
@@ -353,9 +359,9 @@ export class DealsRepository {
     const updates: Record<string, unknown> = { ...attrs, updatedAt: now };
 
     // Update GSI keys when relevant fields change. The tech index lives on the
-    // assignment rows now, so metadata only owns the stage index here.
-    if (attrs.stage !== undefined) {
-      updates['GSI1PK'] = `STAGE#${attrs.stage}`;
+    // assignment rows now, so metadata only owns the super-status index here.
+    if (attrs.superStatus !== undefined) {
+      updates['GSI1PK'] = `STATUS#${attrs.superStatus}`;
     }
 
     const immutableKeys = new Set([
@@ -418,6 +424,12 @@ export class DealsRepository {
       serviceAreaId: item.serviceAreaId as string | undefined,
       address: item.address as Deal['address'],
       jobTypeId: item.jobTypeId as string,
+      // Prefer the stored super-status; derive it from the legacy stage for rows
+      // not yet backfilled, so reads are correct before/after migration.
+      superStatus:
+        (item.superStatus as JobSuperStatus) ??
+        STAGE_TO_SUPER_STATUS[item.stage as DealStage] ??
+        JobSuperStatus.SUBMITTED,
       stage: item.stage as Deal['stage'],
       assignedTechIds: (item.assignedTechIds as string[]) || [],
       assignedDispatcherId: item.assignedDispatcherId as string,

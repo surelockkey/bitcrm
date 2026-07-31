@@ -10,7 +10,7 @@
  * and matrix generation.
  */
 export const RESOURCE_REGISTRY = {
-  deals: ['view', 'create', 'edit', 'delete'],
+  deals: ['view', 'create', 'edit', 'delete', 'move_status'],
   service_areas: ['view', 'create', 'edit', 'delete', 'propose', 'approve', 'revoke'],
   contacts: ['view', 'create', 'edit', 'delete'],
   companies: ['view', 'create', 'edit', 'delete'],

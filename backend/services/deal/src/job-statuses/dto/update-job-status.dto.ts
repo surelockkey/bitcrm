@@ -3,7 +3,7 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { JOB_TAG_COLORS, type JobTagColor, DealStageGroup } from '@bitcrm/types';
+import { JOB_TAG_COLORS, type JobTagColor, JobSuperStatus } from '@bitcrm/types';
 
 /**
  * Hand-written rather than PartialType(CreateJobStatusDto) to match the sibling
@@ -17,10 +17,10 @@ export class UpdateJobStatusDto {
   @MinLength(1)
   name?: string;
 
-  @ApiPropertyOptional({ enum: DealStageGroup, description: 'Move the sub-status under a different super-status.' })
+  @ApiPropertyOptional({ enum: JobSuperStatus, description: 'Move the sub-status under a different super-status.' })
   @IsOptional()
-  @IsEnum(DealStageGroup)
-  group?: DealStageGroup;
+  @IsEnum(JobSuperStatus)
+  group?: JobSuperStatus;
 
   @ApiPropertyOptional({ enum: JOB_TAG_COLORS, example: 'amber' })
   @IsOptional()

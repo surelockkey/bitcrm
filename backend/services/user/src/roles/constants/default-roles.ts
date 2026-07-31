@@ -6,7 +6,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     name: 'Super Admin',
     description: 'Full system access with all permissions',
     permissions: {
-      deals: { view: true, create: true, edit: true, delete: true },
+      deals: { view: true, create: true, edit: true, delete: true, move_status: true },
       service_areas: { view: true, create: true, edit: true, delete: true, propose: true, approve: true, revoke: true },
       contacts: { view: true, create: true, edit: true, delete: true },
       companies: { view: true, create: true, edit: true, delete: true },
@@ -56,7 +56,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     name: 'Admin',
     description: 'Administrative access with most permissions',
     permissions: {
-      deals: { view: true, create: true, edit: true, delete: true },
+      deals: { view: true, create: true, edit: true, delete: true, move_status: true },
       service_areas: { view: true, create: true, edit: true, delete: true, propose: false, approve: true, revoke: true },
       contacts: { view: true, create: true, edit: true, delete: true },
       companies: { view: true, create: true, edit: true, delete: true },
@@ -106,7 +106,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     name: 'Department Manager',
     description: 'Full department-scoped access: team, deals, technician management',
     permissions: {
-      deals: { view: true, create: true, edit: true, delete: false },
+      deals: { view: true, create: true, edit: true, delete: false, move_status: true },
       service_areas: { view: true, create: true, edit: true, delete: false, propose: false, approve: true, revoke: true },
       contacts: { view: true, create: true, edit: true, delete: false },
       companies: { view: true, create: true, edit: true, delete: false },
@@ -156,7 +156,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     name: 'Dispatcher',
     description: 'Manages deals and contacts within department',
     permissions: {
-      deals: { view: true, create: true, edit: true, delete: false },
+      deals: { view: true, create: true, edit: true, delete: false, move_status: true },
       service_areas: { view: true, create: false, edit: false, delete: false, propose: false, approve: false, revoke: false },
       contacts: { view: true, create: true, edit: true, delete: false },
       companies: { view: true, create: false, edit: false, delete: false },
@@ -214,7 +214,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     name: 'Technician',
     description: 'Minimal access to assigned items only',
     permissions: {
-      deals: { view: true, create: false, edit: true, delete: false },
+      deals: { view: true, create: false, edit: true, delete: false, move_status: true },
       service_areas: { view: true, create: false, edit: false, delete: false, propose: true, approve: false, revoke: false },
       contacts: { view: true, create: false, edit: false, delete: false },
       companies: { view: true, create: false, edit: false, delete: false },
@@ -270,7 +270,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     name: 'Read Only',
     description: 'View-only access to all resources',
     permissions: {
-      deals: { view: true, create: false, edit: false, delete: false },
+      deals: { view: true, create: false, edit: false, delete: false, move_status: false },
       service_areas: { view: true, create: false, edit: false, delete: false, propose: false, approve: false, revoke: false },
       contacts: { view: true, create: false, edit: false, delete: false },
       companies: { view: true, create: false, edit: false, delete: false },

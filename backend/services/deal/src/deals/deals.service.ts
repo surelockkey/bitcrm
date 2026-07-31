@@ -14,14 +14,12 @@ import {
   formatAddress,
 } from '@bitcrm/shared';
 import {
-  DealStage,
-  DealStageGroup,
+  JobSuperStatus,
+  TERMINAL_SUPER_STATUSES,
   DealStatus,
   DealPriority,
   TimelineEventType,
   ProductType,
-  STAGE_GROUPS,
-  TERMINAL_STAGES,
   type Address,
   type Deal,
   type DealProductFulfillment,
@@ -40,11 +38,10 @@ import { JobSourcesService } from '../job-sources/job-sources.service';
 import { JobTagsService } from '../job-tags/job-tags.service';
 import { JobStatusesService } from '../job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
-import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
 import { type CreateDealDto } from './dto/create-deal.dto';
 import { type UpdateDealDto } from './dto/update-deal.dto';
-import { type ChangeStageDto } from './dto/change-stage.dto';
+import { type MoveStatusDto } from './dto/move-status.dto';
 import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
@@ -184,7 +181,7 @@ export class DealsService {
       serviceAreaId,
       address,
       jobTypeId: dto.jobTypeId,
-      stage: DealStage.NEW_LEAD,
+      superStatus: JobSuperStatus.SUBMITTED,
       assignedTechIds: [],
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
@@ -209,7 +206,7 @@ export class DealsService {
       dealNumber: deal.dealNumber,
       contactId: deal.contactId,
       jobTypeId: deal.jobTypeId,
-      stage: deal.stage,
+      superStatus: deal.superStatus,
       createdBy: caller.id,
     });
 
@@ -262,8 +259,8 @@ export class DealsService {
         search && /^#?\d+$/.test(search) ? Number(search.replace('#', '')) : undefined,
     };
 
-    if (query.stage) {
-      return this.repository.findByStage(query.stage, limit, query.cursor, filters);
+    if (query.superStatus) {
+      return this.repository.findBySuperStatus(query.superStatus, limit, query.cursor, filters);
     }
     if (query.techId) {
       return this.repository.findByTech(query.techId, limit, query.cursor, filters);
@@ -313,9 +310,6 @@ export class DealsService {
         if (!known.has(tagId)) throw new BadRequestException(`Job tag ${tagId} not found`);
       }
     }
-    // Sub-status: archived allowed on update so an old deal stays editable; only
-    // existence is enforced. An empty string clears it (findById would 404).
-    if (updates.subStatusId) await this.jobStatuses.findById(updates.subStatusId);
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
@@ -349,48 +343,59 @@ export class DealsService {
     await this.cache.invalidate(id);
   }
 
-  async changeStage(
-    id: string,
-    dto: ChangeStageDto,
-    caller: JwtUser,
-    dealStageTransitions: string[],
-  ): Promise<Deal> {
+  /**
+   * Move a deal's status: set its fixed super-status plus an optional custom
+   * sub-status filed under it. Gated at the controller by `deals.move_status`
+   * (a single matrix permission — the old per-transition `dealStageTransitions`
+   * rules are gone). Omitting `subStatusId` clears any existing sub-status.
+   */
+  async moveStatus(id: string, dto: MoveStatusDto, caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
 
-    // Validate transition
-    if (!canTransition(dealStageTransitions, deal.stage, dto.stage)) {
-      throw new ForbiddenException(
-        `Cannot transition from ${deal.stage} to ${dto.stage}`,
-      );
-    }
-
-    // Require cancellation reason
-    if (dto.stage === DealStage.CANCELED && !dto.cancellationReason) {
+    // Require a cancellation reason when moving to Canceled.
+    if (dto.superStatus === JobSuperStatus.CANCELED && !dto.cancellationReason) {
       throw new BadRequestException('cancellationReason is required when canceling a deal');
     }
 
-    const updates: Partial<Deal> = { stage: dto.stage };
+    // A sub-status, if supplied, must belong to the target super-status.
+    if (dto.subStatusId) {
+      const sub = await this.jobStatuses.findById(dto.subStatusId);
+      if (sub.group !== dto.superStatus) {
+        throw new BadRequestException(
+          `Sub-status "${sub.name}" does not belong to super-status ${dto.superStatus}`,
+        );
+      }
+    }
+
+    const from = deal.superStatus;
+    const updates: Partial<Deal> = {
+      superStatus: dto.superStatus,
+      // Always reconcile the sub-status: the provided one, or cleared (a sub-status
+      // belongs to a single super-status, so moving without one drops the old).
+      subStatusId: dto.subStatusId || undefined,
+    };
     if (dto.cancellationReason) {
       updates.cancellationReason = dto.cancellationReason;
     }
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
-    this.businessMetrics?.dealStageTransitions.inc({ from_stage: deal.stage, to_stage: dto.stage });
+    this.businessMetrics?.dealStageTransitions.inc({ from_stage: from, to_stage: dto.superStatus });
 
-    await this.addTimelineEntry(id, TimelineEventType.STAGE_CHANGED, caller, {
-      fromStage: deal.stage,
-      toStage: dto.stage,
+    await this.addTimelineEntry(id, TimelineEventType.STATUS_CHANGED, caller, {
+      fromStatus: from,
+      toStatus: dto.superStatus,
+      subStatusId: dto.subStatusId,
     });
 
-    this.publishEvent('deal.stage_changed', {
+    this.publishEvent('deal.status_changed', {
       dealId: id,
-      oldStage: deal.stage,
-      newStage: dto.stage,
+      oldStatus: from,
+      newStatus: dto.superStatus,
       changedBy: caller.id,
     });
 
-    if (dto.stage === DealStage.COMPLETED) {
+    if (dto.superStatus === JobSuperStatus.DONE) {
       this.publishEvent('deal.completed', {
         dealId: id,
         completedAt: new Date().toISOString(),
@@ -398,11 +403,6 @@ export class DealsService {
     }
 
     return result;
-  }
-
-  async getAllowedStages(id: string, dealStageTransitions: string[]) {
-    const deal = await this.findById(id);
-    return getAllowedNextStages(dealStageTransitions, deal.stage);
   }
 
   async getTimeline(dealId: string, limit = 20, cursor?: string) {
@@ -492,13 +492,13 @@ export class DealsService {
     const nextRoster = [...requested];
     const updates: Partial<Deal> = { assignedTechIds: nextRoster };
 
-    // Empty → non-assigned transition (first assignment) advances the stage.
+    // First assignment advances a still-Submitted deal into In Progress.
     if (
       deal.assignedTechIds.length === 0 &&
       nextRoster.length > 0 &&
-      STAGE_GROUPS[deal.stage] === DealStageGroup.SUBMITTED
+      deal.superStatus === JobSuperStatus.SUBMITTED
     ) {
-      updates.stage = DealStage.ASSIGNED;
+      updates.superStatus = JobSuperStatus.IN_PROGRESS;
     }
 
     // Drop removed techs' per-tech sequence entries.
@@ -568,7 +568,7 @@ export class DealsService {
       all.push(...page.items);
       cursor = page.nextCursor;
     } while (cursor && all.length < 500);
-    return all.filter((d) => !TERMINAL_STAGES.has(d.stage));
+    return all.filter((d) => !TERMINAL_SUPER_STATUSES.has(d.superStatus));
   }
 
   /**

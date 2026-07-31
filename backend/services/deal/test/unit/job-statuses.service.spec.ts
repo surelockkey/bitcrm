@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { DealStageGroup, type DealSubStatus } from '@bitcrm/types';
+import { JobSuperStatus, type DealSubStatus } from '@bitcrm/types';
 import { JobStatusesService } from '../../src/job-statuses/job-statuses.service';
 import { JobStatusesRepository } from '../../src/job-statuses/job-statuses.repository';
 
@@ -45,13 +45,13 @@ describe('JobStatusesService', () => {
     it('fills defaults (slate, priority 0, active) and stamps audit fields', async () => {
       const { service } = makeService();
       const created = await service.create(
-        { name: 'Will Call Back', group: DealStageGroup.PENDING },
+        { name: 'Will Call Back', group: JobSuperStatus.PENDING },
         caller,
       );
 
       expect(created).toMatchObject({
         name: 'Will Call Back',
-        group: DealStageGroup.PENDING,
+        group: JobSuperStatus.PENDING,
         color: 'slate',
         priority: 0,
         active: true,
@@ -65,7 +65,7 @@ describe('JobStatusesService', () => {
     it('honors explicit color and priority', async () => {
       const { service } = makeService();
       const created = await service.create(
-        { name: 'Job Done', group: DealStageGroup.IN_PROGRESS, color: 'green', priority: 10 },
+        { name: 'Job Done', group: JobSuperStatus.IN_PROGRESS, color: 'green', priority: 10 },
         caller,
       );
       expect(created).toMatchObject({ color: 'green', priority: 10 });
@@ -73,27 +73,27 @@ describe('JobStatusesService', () => {
 
     it('rejects a duplicate name within the same super-status (case-insensitive)', async () => {
       const { service } = makeService();
-      await service.create({ name: 'Job Done', group: DealStageGroup.IN_PROGRESS }, caller);
+      await service.create({ name: 'Job Done', group: JobSuperStatus.IN_PROGRESS }, caller);
       await expect(
-        service.create({ name: ' job done ', group: DealStageGroup.IN_PROGRESS }, caller),
+        service.create({ name: ' job done ', group: JobSuperStatus.IN_PROGRESS }, caller),
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('allows the same name under a different super-status', async () => {
       const { service } = makeService();
-      await service.create({ name: 'In progress', group: DealStageGroup.SUBMITTED }, caller);
+      await service.create({ name: 'In progress', group: JobSuperStatus.SUBMITTED }, caller);
       await expect(
-        service.create({ name: 'In progress', group: DealStageGroup.IN_PROGRESS }, caller),
-      ).resolves.toMatchObject({ name: 'In progress', group: DealStageGroup.IN_PROGRESS });
+        service.create({ name: 'In progress', group: JobSuperStatus.IN_PROGRESS }, caller),
+      ).resolves.toMatchObject({ name: 'In progress', group: JobSuperStatus.IN_PROGRESS });
     });
   });
 
   describe('list', () => {
     it('sorts by priority desc then name asc', async () => {
       const { service } = makeService();
-      await service.create({ name: 'B', group: DealStageGroup.PENDING, priority: 1 }, caller);
-      await service.create({ name: 'A', group: DealStageGroup.PENDING, priority: 5 }, caller);
-      await service.create({ name: 'Z', group: DealStageGroup.PENDING, priority: 5 }, caller);
+      await service.create({ name: 'B', group: JobSuperStatus.PENDING, priority: 1 }, caller);
+      await service.create({ name: 'A', group: JobSuperStatus.PENDING, priority: 5 }, caller);
+      await service.create({ name: 'Z', group: JobSuperStatus.PENDING, priority: 5 }, caller);
 
       const list = await service.list();
       expect(list.map((s) => s.name)).toEqual(['A', 'Z', 'B']);
@@ -110,16 +110,16 @@ describe('JobStatusesService', () => {
   describe('update', () => {
     it('renames and re-stamps updatedAt', async () => {
       const { service } = makeService();
-      const s = await service.create({ name: 'Old', group: DealStageGroup.PENDING }, caller);
+      const s = await service.create({ name: 'Old', group: JobSuperStatus.PENDING }, caller);
       const updated = await service.update(s.id, { name: 'New' }, caller);
       expect(updated.name).toBe('New');
     });
 
     it('rejects renaming onto a sibling name in the same group', async () => {
       const { service } = makeService();
-      await service.create({ name: 'Job Done', group: DealStageGroup.IN_PROGRESS }, caller);
+      await service.create({ name: 'Job Done', group: JobSuperStatus.IN_PROGRESS }, caller);
       const other = await service.create(
-        { name: 'Job Accepted', group: DealStageGroup.IN_PROGRESS },
+        { name: 'Job Accepted', group: JobSuperStatus.IN_PROGRESS },
         caller,
       );
       await expect(
@@ -129,7 +129,7 @@ describe('JobStatusesService', () => {
 
     it('archives via active:false without a name clash', async () => {
       const { service } = makeService();
-      const s = await service.create({ name: 'Job Done', group: DealStageGroup.IN_PROGRESS }, caller);
+      const s = await service.create({ name: 'Job Done', group: JobSuperStatus.IN_PROGRESS }, caller);
       const updated = await service.update(s.id, { active: false }, caller);
       expect(updated.active).toBe(false);
     });
@@ -138,7 +138,7 @@ describe('JobStatusesService', () => {
   describe('remove', () => {
     it('deletes a status no deal references', async () => {
       const { service, repo } = makeService();
-      const s = await service.create({ name: 'Job Done', group: DealStageGroup.IN_PROGRESS }, caller);
+      const s = await service.create({ name: 'Job Done', group: JobSuperStatus.IN_PROGRESS }, caller);
       const res = await service.remove(s.id, caller);
       expect(res).toEqual({ archived: false });
       expect(await repo.get(s.id)).toBeNull();
@@ -146,7 +146,7 @@ describe('JobStatusesService', () => {
 
     it('archives a status still referenced by a deal', async () => {
       const { service, repo } = makeService();
-      const s = await service.create({ name: 'Job Done', group: DealStageGroup.IN_PROGRESS }, caller);
+      const s = await service.create({ name: 'Job Done', group: JobSuperStatus.IN_PROGRESS }, caller);
       repo.references.add(s.id);
       const res = await service.remove(s.id, caller);
       expect(res).toEqual({ archived: true });

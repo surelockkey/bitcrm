@@ -8,6 +8,12 @@ export { PaymentTerms } from './payment-terms.enum';
 export { WorkOrderStatus } from './work-order-status.enum';
 export { CompanyDocumentType } from './company-document-type.enum';
 export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './deal-stage.enum';
+export {
+  JobSuperStatus,
+  SUPER_STATUS_ORDER,
+  TERMINAL_SUPER_STATUSES,
+  STAGE_TO_SUPER_STATUS,
+} from './deal-stage.enum';
 export { DealPriority } from './deal-priority.enum';
 export { DealStatus } from './deal-status.enum';
 export { TimelineEventType } from './timeline-event-type.enum';

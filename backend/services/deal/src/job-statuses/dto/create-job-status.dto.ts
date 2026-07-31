@@ -3,7 +3,7 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { JOB_TAG_COLORS, type JobTagColor, DealStageGroup } from '@bitcrm/types';
+import { JOB_TAG_COLORS, type JobTagColor, JobSuperStatus } from '@bitcrm/types';
 
 export class CreateJobStatusDto {
   @ApiProperty({ example: 'Will Call Back' })
@@ -13,12 +13,12 @@ export class CreateJobStatusDto {
   name!: string;
 
   @ApiProperty({
-    enum: DealStageGroup,
-    example: DealStageGroup.PENDING,
-    description: 'The built-in super-status (pipeline group) this sub-status is filed under.',
+    enum: JobSuperStatus,
+    example: JobSuperStatus.PENDING,
+    description: 'The built-in super-status this sub-status is filed under.',
   })
-  @IsEnum(DealStageGroup)
-  group!: DealStageGroup;
+  @IsEnum(JobSuperStatus)
+  group!: JobSuperStatus;
 
   @ApiPropertyOptional({ enum: JOB_TAG_COLORS, example: 'amber', description: 'Palette token. Defaults to slate.' })
   @IsOptional()

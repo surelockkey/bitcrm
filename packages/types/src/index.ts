@@ -12,6 +12,12 @@ export { PaymentTerms } from './enums/payment-terms.enum';
 export { WorkOrderStatus } from './enums/work-order-status.enum';
 export { CompanyDocumentType } from './enums/company-document-type.enum';
 export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './enums/deal-stage.enum';
+export {
+  JobSuperStatus,
+  SUPER_STATUS_ORDER,
+  TERMINAL_SUPER_STATUSES,
+  STAGE_TO_SUPER_STATUS,
+} from './enums/deal-stage.enum';
 export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
 export { TimelineEventType } from './enums/timeline-event-type.enum';
