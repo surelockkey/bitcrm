@@ -459,8 +459,10 @@ describe('DealsService', () => {
 
       await service.moveStatus('deal-1', { superStatus: JobSuperStatus.PENDING }, caller);
 
+      // null (not undefined) so the repository REMOVEs the stale sub-status —
+      // undefined is skipped by update(), leaving the old sub-status attached.
       expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
-        superStatus: JobSuperStatus.PENDING, subStatusId: undefined,
+        superStatus: JobSuperStatus.PENDING, subStatusId: null,
       }));
     });
 
