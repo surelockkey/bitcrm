@@ -5,7 +5,10 @@ import {
   SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
 } from "@bitcrm/types";
-import type { Deal, DealProduct } from "@bitcrm/types";
+import type { Address, Contact, Deal, DealProduct } from "@bitcrm/types";
+import { addressInList } from "@/features/clients/lib";
+import type { UpdateContactValues } from "@/features/clients/schemas";
+import type { UpdateDealValues } from "./schemas";
 
 /* ----------------------------------------------------------- super-statuses */
 
@@ -177,6 +180,142 @@ export function datePresetRange(
     return { from: isoDate(start), to: isoDate(end) };
   }
   return {};
+}
+
+/* ------------------- single-save drafts (one Save button on the job page) --- */
+
+/**
+ * Editable snapshot of the details tab. Optional deal fields are held as ""
+ * while empty so plain controlled inputs can drive them; `buildDealPatch`
+ * turns "" back into `undefined` on save (today's commit semantics).
+ */
+export interface DealDraft {
+  address: Address;
+  serviceArea: string;
+  jobTypeId: string;
+  sourceId: string;
+  priority: DealPriority;
+  poNumber: string;
+  workOrderId: string;
+  scheduledDate: string;
+  scheduledTimeSlot: string;
+  notes: string;
+  internalNotes: string;
+}
+
+/** Editable snapshot of the client card. `email` is the first email only. */
+export interface ClientDraft {
+  firstName: string;
+  lastName: string;
+  phones: string[];
+  email: string;
+}
+
+export function dealDraftFromDeal(d: Deal): DealDraft {
+  return {
+    address: {
+      street: d.address?.street ?? "",
+      unit: d.address?.unit ?? "",
+      city: d.address?.city ?? "",
+      state: d.address?.state ?? "",
+      zip: d.address?.zip ?? "",
+      lat: d.address?.lat,
+      lng: d.address?.lng,
+    },
+    serviceArea: d.serviceArea ?? "",
+    jobTypeId: d.jobTypeId,
+    sourceId: d.sourceId ?? "",
+    priority: d.priority,
+    poNumber: d.poNumber ?? "",
+    workOrderId: d.workOrderId ?? "",
+    scheduledDate: d.scheduledDate ?? "",
+    scheduledTimeSlot: d.scheduledTimeSlot ?? "",
+    notes: d.notes ?? "",
+    internalNotes: d.internalNotes ?? "",
+  };
+}
+
+export function clientDraftFromContact(c: Contact): ClientDraft {
+  return {
+    firstName: c.firstName,
+    lastName: c.lastName,
+    phones: c.phones.length ? [...c.phones] : [""],
+    email: c.emails[0] ?? "",
+  };
+}
+
+const sameAddress = (a: Address, b: Address): boolean =>
+  a.street === b.street &&
+  (a.unit ?? "") === (b.unit ?? "") &&
+  a.city === b.city &&
+  a.state === b.state &&
+  a.zip === b.zip &&
+  a.lat === b.lat &&
+  a.lng === b.lng;
+
+/** Optional string fields where an emptied draft value means "clear it". */
+const OPTIONAL_DEAL_FIELDS = [
+  "sourceId", "poNumber", "workOrderId", "scheduledDate", "scheduledTimeSlot",
+] as const;
+
+/**
+ * Diff a draft against the server deal → the PUT patch with only the changed
+ * keys, or null when nothing changed. Emptied optional fields patch to
+ * `undefined`; notes are trimmed, so whitespace-only edits aren't changes.
+ */
+export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues | null {
+  const base = dealDraftFromDeal(deal);
+  const patch: UpdateDealValues = {};
+  let dirty = false;
+
+  if (!sameAddress(draft.address, base.address)) { patch.address = draft.address; dirty = true; }
+  if (draft.serviceArea !== base.serviceArea) { patch.serviceArea = draft.serviceArea; dirty = true; }
+  if (draft.jobTypeId !== base.jobTypeId) { patch.jobTypeId = draft.jobTypeId; dirty = true; }
+  if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
+  for (const key of OPTIONAL_DEAL_FIELDS) {
+    if (draft[key] !== base[key]) { patch[key] = draft[key] || undefined; dirty = true; }
+  }
+  for (const key of ["notes", "internalNotes"] as const) {
+    const next = draft[key].trim();
+    if (next !== base[key]) { patch[key] = next; dirty = true; }
+  }
+
+  return dirty ? patch : null;
+}
+
+/**
+ * Diff a client draft against the contact → the full PUT body (the endpoint
+ * replaces, not merges), or null when clean. A `newAddress` not yet on the
+ * client is appended for next time; duplicates (per `addressInList`) aren't.
+ * Phones are trimmed with empties dropped; an emptied-out draft keeps the
+ * contact's phones. Only the first email is editable — the rest are preserved.
+ */
+export function buildContactBody(
+  c: Contact,
+  draft: ClientDraft,
+  newAddress?: Address,
+): UpdateContactValues | null {
+  const phones = draft.phones.map((p) => p.trim()).filter(Boolean);
+  const email = draft.email.trim();
+  const appendAddress = !!newAddress && !addressInList(newAddress, c.addresses);
+  const dirty =
+    draft.firstName !== c.firstName ||
+    draft.lastName !== c.lastName ||
+    JSON.stringify(phones) !== JSON.stringify(c.phones) ||
+    email !== (c.emails[0] ?? "");
+  if (!dirty && !appendAddress) return null;
+
+  return {
+    firstName: draft.firstName.trim(),
+    lastName: draft.lastName.trim(),
+    phones: phones.length ? phones : c.phones,
+    emails: email ? [email, ...c.emails.slice(1)] : c.emails.slice(1),
+    addresses: appendAddress && newAddress ? [...c.addresses, newAddress] : c.addresses,
+    companyId: c.companyId,
+    type: c.type,
+    title: c.title,
+    notes: c.notes,
+  };
 }
 
 /* ------------------------------------------------------------------ filter */
