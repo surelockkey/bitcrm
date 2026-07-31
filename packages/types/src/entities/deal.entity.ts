@@ -1,6 +1,6 @@
 import { type Address } from './address.entity';
 import { type ClientType } from '../enums/client-type.enum';
-import { type DealStage } from '../enums/deal-stage.enum';
+import { type DealStage, type JobSuperStatus } from '../enums/deal-stage.enum';
 import { type DealPriority } from '../enums/deal-priority.enum';
 import { type DealStatus } from '../enums/deal-status.enum';
 
@@ -19,7 +19,16 @@ export interface Deal {
   address: Address;
   /** Catalog job-type id. Drives technician eligibility matching. */
   jobTypeId: string;
-  stage: DealStage;
+  /**
+   * Fixed pipeline super-status (replaces the legacy 13-stage `stage`). Source of
+   * truth for the board/list/reporting. Paired with an optional `subStatusId`.
+   */
+  superStatus: JobSuperStatus;
+  /**
+   * @deprecated Legacy 13-stage value, kept only so un-migrated rows still read
+   * and historical timeline entries resolve. New writes set `superStatus`.
+   */
+  stage?: DealStage;
   /** All technicians assigned to this deal (equal peers). Empty = unassigned. */
   assignedTechIds: string[];
   assignedDispatcherId: string;
@@ -37,6 +46,11 @@ export interface Deal {
   cancellationReason?: string;
   /** Catalog job-tag ids applied to this deal. */
   tagIds: string[];
+  /**
+   * Catalog job-sub-status id (a custom colored label under a super-status).
+   * Optional and independent of `stage` — a display/reporting label only.
+   */
+  subStatusId?: string;
   estimatedTotal?: number;
   actualTotal?: number;
   paymentStatus?: string;

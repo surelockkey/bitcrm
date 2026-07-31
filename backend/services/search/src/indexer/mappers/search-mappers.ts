@@ -41,11 +41,11 @@ export function mapDeal(deal: Deal, jobTypeName?: string, tagNames: string[] = [
     ownerIds: compactUnique([...(deal.assignedTechIds ?? []), deal.assignedDispatcherId, deal.createdBy]),
     status: toDocStatus(deal.status),
     title: `Deal #${deal.dealNumber}`,
-    subtitle: compactUnique([jobTypeName, deal.stage]).join(' · ') || undefined,
+    subtitle: compactUnique([jobTypeName, deal.superStatus]).join(' · ') || undefined,
     keywords: compactUnique([
       deal.serviceArea,
       jobTypeName,
-      deal.stage,
+      deal.superStatus,
       deal.priority,
       deal.paymentStatus,
       addr?.street,
@@ -56,7 +56,7 @@ export function mapDeal(deal: Deal, jobTypeName?: string, tagNames: string[] = [
     ]),
     body: deal.notes,
     url: `/deals/${deal.id}`,
-    badges: compactUnique([deal.stage, deal.priority, deal.paymentStatus]),
+    badges: compactUnique([deal.superStatus, deal.priority, deal.paymentStatus]),
     updatedAt: deal.updatedAt,
   };
 }

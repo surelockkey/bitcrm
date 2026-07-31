@@ -3,6 +3,7 @@ import { ServiceAreasModule } from '../service-areas/service-areas.module';
 import { JobTypesModule } from '../job-types/job-types.module';
 import { JobSourcesModule } from '../job-sources/job-sources.module';
 import { JobTagsModule } from '../job-tags/job-tags.module';
+import { JobStatusesModule } from '../job-statuses/job-statuses.module';
 import { TechnicianEligibilityModule } from '../technician-eligibility/technician-eligibility.module';
 import { DealsController } from './deals.controller';
 import { DealsService } from './deals.service';
@@ -18,7 +19,7 @@ import { DealAttachmentsService } from './attachments/deal-attachments.service';
 import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, TechnicianEligibilityModule],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, JobStatusesModule, TechnicianEligibilityModule],
   // Attachments controller before Deals so `/:id/attachments` isn't shadowed by `/:id`.
   controllers: [DealAttachmentsController, DealsController],
   providers: [

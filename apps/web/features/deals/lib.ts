@@ -1,30 +1,49 @@
 import {
   DealPriority,
   DealStage,
-  DealStageGroup,
-  STAGE_GROUPS,
-  TERMINAL_STAGES,
+  JobSuperStatus,
+  SUPER_STATUS_ORDER,
+  TERMINAL_SUPER_STATUSES,
 } from "@bitcrm/types";
 import type { Deal, DealProduct } from "@bitcrm/types";
 
-/* ------------------------------------------------------------------ stages */
+/* ----------------------------------------------------------- super-statuses */
 
-export const STAGE_ORDER: DealStage[] = [
-  DealStage.NEW_LEAD,
-  DealStage.ESTIMATE_SENT,
-  DealStage.APPROVED,
-  DealStage.ASSIGNED,
-  DealStage.EN_ROUTE,
-  DealStage.ON_SITE,
-  DealStage.WORK_IN_PROGRESS,
-  DealStage.PENDING_PAYMENT,
-  DealStage.PENDING_PARTS,
-  DealStage.FOLLOW_UP,
-  DealStage.ON_HOLD,
-  DealStage.COMPLETED,
-  DealStage.CANCELED,
-];
+const SUPER_STATUS_LABEL: Record<JobSuperStatus, string> = {
+  [JobSuperStatus.SUBMITTED]: "Submitted",
+  [JobSuperStatus.IN_PROGRESS]: "In Progress",
+  [JobSuperStatus.DONE]: "Done",
+  [JobSuperStatus.PENDING]: "Pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "Done Pending Approval",
+  [JobSuperStatus.CANCELED]: "Canceled",
+};
+export const superStatusLabel = (s: JobSuperStatus): string => SUPER_STATUS_LABEL[s] ?? s;
 
+export const isTerminalStatus = (s: JobSuperStatus): boolean => TERMINAL_SUPER_STATUSES.has(s);
+
+/** Tone token per super-status; the badge maps these to colours. */
+export type SuperStatusTone =
+  | "submitted" | "progress" | "done" | "pending" | "done_pending" | "canceled";
+const SUPER_STATUS_TONE: Record<JobSuperStatus, SuperStatusTone> = {
+  [JobSuperStatus.SUBMITTED]: "submitted",
+  [JobSuperStatus.IN_PROGRESS]: "progress",
+  [JobSuperStatus.DONE]: "done",
+  [JobSuperStatus.PENDING]: "pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "done_pending",
+  [JobSuperStatus.CANCELED]: "canceled",
+};
+export const superStatusTone = (s: JobSuperStatus): SuperStatusTone =>
+  SUPER_STATUS_TONE[s] ?? "submitted";
+
+// The sub-status catalog files each custom status under a super-status, so its
+// grouping reuses the same order/labels.
+export const GROUP_ORDER = SUPER_STATUS_ORDER;
+export const groupLabel = superStatusLabel;
+
+/**
+ * Legacy 13-stage labels, kept ONLY so historical `stage_changed` timeline
+ * entries still render a readable name. Nothing else should use this.
+ */
 const STAGE_LABEL: Record<DealStage, string> = {
   [DealStage.NEW_LEAD]: "New Lead",
   [DealStage.ESTIMATE_SENT]: "Estimate Sent",
@@ -40,57 +59,29 @@ const STAGE_LABEL: Record<DealStage, string> = {
   [DealStage.COMPLETED]: "Completed",
   [DealStage.CANCELED]: "Canceled",
 };
-export const stageLabel = (s: DealStage): string => STAGE_LABEL[s] ?? s;
-
-export const stageGroup = (s: DealStage): DealStageGroup => STAGE_GROUPS[s];
-export const isTerminal = (s: DealStage): boolean => TERMINAL_STAGES.has(s);
-
-export const GROUP_ORDER: DealStageGroup[] = [
-  DealStageGroup.SUBMITTED,
-  DealStageGroup.IN_PROGRESS,
-  DealStageGroup.PENDING,
-  DealStageGroup.CLOSED,
-];
-
-const GROUP_LABEL: Record<DealStageGroup, string> = {
-  [DealStageGroup.SUBMITTED]: "Submitted",
-  [DealStageGroup.IN_PROGRESS]: "In Progress",
-  [DealStageGroup.PENDING]: "Pending",
-  [DealStageGroup.CLOSED]: "Closed",
-};
-export const groupLabel = (g: DealStageGroup): string => GROUP_LABEL[g] ?? g;
-
-/** Tailwind-ish token key per group; the badge/board map these to colours. */
-export const GROUP_TONE: Record<DealStageGroup, "submitted" | "progress" | "pending" | "closed"> = {
-  [DealStageGroup.SUBMITTED]: "submitted",
-  [DealStageGroup.IN_PROGRESS]: "progress",
-  [DealStageGroup.PENDING]: "pending",
-  [DealStageGroup.CLOSED]: "closed",
-};
-export const stageTone = (s: DealStage) =>
-  s === DealStage.CANCELED ? ("canceled" as const) : GROUP_TONE[stageGroup(s)];
+export const stageLabel = (s: DealStage | undefined): string =>
+  s ? STAGE_LABEL[s] ?? s : "—";
 
 /* -------------------------------------------------------------- status tabs */
 
 /**
- * A jobs-list tab. The first four are the real stage groups; `unscheduled` is a
+ * A jobs-list tab: one of the six super-statuses, plus `unscheduled` — a
  * schedule-state pseudo-tab (deals with no `scheduledDate`) that overlaps the
- * status tabs — an undated Submitted deal shows under both Submitted and
- * Unscheduled, matching how the pipeline is triaged.
+ * status tabs, so an undated Submitted deal shows under both.
  */
-export type JobTab = DealStageGroup | "unscheduled";
+export type JobTab = JobSuperStatus | "unscheduled";
 
-export const JOB_TABS: JobTab[] = [...GROUP_ORDER, "unscheduled"];
+export const JOB_TABS: JobTab[] = [...SUPER_STATUS_ORDER, "unscheduled"];
 
 export const jobTabLabel = (t: JobTab): string =>
-  t === "unscheduled" ? "Unscheduled" : groupLabel(t);
+  t === "unscheduled" ? "Unscheduled" : superStatusLabel(t);
 
-export function matchesTab(d: Pick<Deal, "stage" | "scheduledDate">, tab: JobTab): boolean {
-  return tab === "unscheduled" ? !d.scheduledDate : stageGroup(d.stage) === tab;
+export function matchesTab(d: Pick<Deal, "superStatus" | "scheduledDate">, tab: JobTab): boolean {
+  return tab === "unscheduled" ? !d.scheduledDate : d.superStatus === tab;
 }
 
 /** Count how many deals fall under each tab. Tabs overlap, so counts sum to ≥ deals.length. */
-export function tabCounts(deals: Pick<Deal, "stage" | "scheduledDate">[]): Record<JobTab, number> {
+export function tabCounts(deals: Pick<Deal, "superStatus" | "scheduledDate">[]): Record<JobTab, number> {
   const counts = Object.fromEntries(JOB_TABS.map((t) => [t, 0])) as Record<JobTab, number>;
   for (const d of deals) {
     for (const t of JOB_TABS) if (matchesTab(d, t)) counts[t]++;
@@ -191,14 +182,14 @@ export function datePresetRange(
 /* ------------------------------------------------------------------ filter */
 
 export interface DealFilter {
-  stage?: DealStage;
+  superStatus?: JobSuperStatus;
   priority?: DealPriority;
   jobTypeId?: string;
   sourceId?: string;
   serviceArea?: string;
-  /** Keep only deals whose stage falls in one of these groups (empty/undefined = all). */
-  statusGroups?: DealStageGroup[];
-  /** Active jobs-list tab — a stage group or the `unscheduled` pseudo-tab. */
+  /** Keep only deals in one of these super-statuses (empty/undefined = all). */
+  statusGroups?: JobSuperStatus[];
+  /** Active jobs-list tab — a super-status or the `unscheduled` pseudo-tab. */
   tab?: JobTab;
   /** Inclusive scheduledDate range, `YYYY-MM-DD`. A deal with no date is excluded when set. */
   dateFrom?: string;
@@ -217,12 +208,12 @@ export function filterDeals(
   const q = (filter.search ?? "").trim().toLowerCase();
   const qDigits = q.replace(/[^\d]/g, "");
   return deals.filter((d) => {
-    if (filter.stage && d.stage !== filter.stage) return false;
+    if (filter.superStatus && d.superStatus !== filter.superStatus) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
     if (filter.jobTypeId && d.jobTypeId !== filter.jobTypeId) return false;
     if (filter.sourceId && d.sourceId !== filter.sourceId) return false;
     if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
-    if (filter.statusGroups?.length && !filter.statusGroups.includes(stageGroup(d.stage)))
+    if (filter.statusGroups?.length && !filter.statusGroups.includes(d.superStatus))
       return false;
     if (filter.tab && !matchesTab(d, filter.tab)) return false;
     if (filter.dateFrom || filter.dateTo) {

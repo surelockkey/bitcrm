@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ClientType,
   DealPriority,
-  DealStage,
+  JobSuperStatus,
   DealStatus,
   type Deal,
   type TechnicianProfile,
@@ -38,7 +38,7 @@ function deal(overrides: Partial<Deal> = {}): Deal {
       lng: -84.388,
     },
     jobTypeId: "jt-lockout",
-    stage: DealStage.NEW_LEAD,
+    superStatus: JobSuperStatus.SUBMITTED,
     assignedDispatcherId: "dispatcher-1",
     priority: DealPriority.NORMAL,
     assignedTechIds: [],
@@ -339,11 +339,11 @@ describe("technicianAvailability", () => {
   it("is offline without a position", () => {
     expect(technicianAvailability([], undefined)).toBe("offline");
   });
-  it("is on_job when an active-stage job exists", () => {
-    expect(technicianAvailability([deal({ stage: DealStage.ON_SITE })], pos)).toBe("on_job");
+  it("is on_job when an in-progress job exists", () => {
+    expect(technicianAvailability([deal({ superStatus: JobSuperStatus.IN_PROGRESS })], pos)).toBe("on_job");
   });
   it("is available when placeable but idle", () => {
-    expect(technicianAvailability([deal({ stage: DealStage.ASSIGNED })], pos)).toBe("available");
+    expect(technicianAvailability([deal({ superStatus: JobSuperStatus.SUBMITTED })], pos)).toBe("available");
     expect(technicianAvailability([], pos)).toBe("available");
   });
 });
@@ -351,14 +351,14 @@ describe("technicianAvailability", () => {
 describe("techJobProgress", () => {
   it("points at the active job's place in the day", () => {
     const jobs = [
-      deal({ stage: DealStage.COMPLETED }),
-      deal({ stage: DealStage.ON_SITE }),
-      deal({ stage: DealStage.ASSIGNED }),
+      deal({ superStatus: JobSuperStatus.DONE }),
+      deal({ superStatus: JobSuperStatus.IN_PROGRESS }),
+      deal({ superStatus: JobSuperStatus.SUBMITTED }),
     ];
     expect(techJobProgress(jobs)).toEqual({ current: 2, total: 3 });
   });
-  it("counts completed when nothing is active", () => {
-    const jobs = [deal({ stage: DealStage.COMPLETED }), deal({ stage: DealStage.ASSIGNED })];
+  it("counts done jobs when nothing is active", () => {
+    const jobs = [deal({ superStatus: JobSuperStatus.DONE }), deal({ superStatus: JobSuperStatus.SUBMITTED })];
     expect(techJobProgress(jobs)).toEqual({ current: 1, total: 2 });
   });
 });

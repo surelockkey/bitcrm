@@ -1,6 +1,6 @@
 import { NotFoundException, BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { DealStage, DealStageGroup, DealStatus, TimelineEventType, DealPriority, ClientType } from '@bitcrm/types';
+import { DealStage, DealStageGroup, JobSuperStatus, DealStatus, TimelineEventType, DealPriority, ClientType } from '@bitcrm/types';
 import { DealsService } from 'src/deals/deals.service';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { DealsCacheService } from 'src/deals/deals-cache.service';
@@ -11,6 +11,7 @@ import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
+import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
@@ -43,6 +44,7 @@ describe('DealsService', () => {
   let jobTypes: { findById: jest.Mock };
   let jobSources: { findById: jest.Mock };
   let jobTags: { list: jest.Mock };
+  let jobStatuses: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
 
   beforeEach(async () => {
@@ -56,6 +58,7 @@ describe('DealsService', () => {
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
     jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
     jobTags = { list: jest.fn().mockResolvedValue([]) };
+    jobStatuses = { findById: jest.fn() };
     eligibility = createMockTechnicianEligibilityRepository();
 
     const module = await Test.createTestingModule({
@@ -72,6 +75,7 @@ describe('DealsService', () => {
         { provide: JobTypesService, useValue: jobTypes },
         { provide: JobSourcesService, useValue: jobSources },
         { provide: JobTagsService, useValue: jobTags },
+        { provide: JobStatusesService, useValue: jobStatuses },
         { provide: TechnicianEligibilityRepository, useValue: eligibility },
       ],
     }).compile();
@@ -104,7 +108,7 @@ describe('DealsService', () => {
 
       expect(result.id).toBeDefined();
       expect(result.dealNumber).toBe(1001);
-      expect(result.stage).toBe(DealStage.NEW_LEAD);
+      expect(result.superStatus).toBe(JobSuperStatus.SUBMITTED);
       expect(result.status).toBe(DealStatus.ACTIVE);
       expect(result.assignedDispatcherId).toBe('dispatcher-1');
       expect(result.priority).toBe(DealPriority.NORMAL);
@@ -226,10 +230,10 @@ describe('DealsService', () => {
     const caller = createMockJwtUser({ id: 'user-1' });
     const mockResult = { items: [createMockDeal()], nextCursor: undefined };
 
-    it('should query by stage when provided', async () => {
-      repo.findByStage.mockResolvedValue(mockResult);
-      await service.list({ stage: DealStage.NEW_LEAD } as any, caller);
-      expect(repo.findByStage).toHaveBeenCalledWith(DealStage.NEW_LEAD, 20, undefined, expect.any(Object));
+    it('should query by super-status when provided', async () => {
+      repo.findBySuperStatus.mockResolvedValue(mockResult);
+      await service.list({ superStatus: JobSuperStatus.SUBMITTED } as any, caller);
+      expect(repo.findBySuperStatus).toHaveBeenCalledWith(JobSuperStatus.SUBMITTED, 20, undefined, expect.any(Object));
     });
 
     it('should query by techId when provided', async () => {
@@ -299,10 +303,10 @@ describe('DealsService', () => {
     });
 
     it('should split comma-separated tag ids into an array', async () => {
-      repo.findByStage.mockResolvedValue(mockResult);
-      await service.list({ stage: DealStage.NEW_LEAD, tagIds: 'tag-1, tag-2' } as any, caller);
-      expect(repo.findByStage).toHaveBeenCalledWith(
-        DealStage.NEW_LEAD,
+      repo.findBySuperStatus.mockResolvedValue(mockResult);
+      await service.list({ superStatus: JobSuperStatus.SUBMITTED, tagIds: 'tag-1, tag-2' } as any, caller);
+      expect(repo.findBySuperStatus).toHaveBeenCalledWith(
+        JobSuperStatus.SUBMITTED,
         20,
         undefined,
         expect.objectContaining({ tagIds: ['tag-1', 'tag-2'] }),
@@ -378,87 +382,104 @@ describe('DealsService', () => {
     });
   });
 
-  describe('changeStage', () => {
+  describe('moveStatus', () => {
     const caller = createMockJwtUser({ id: 'admin-1', roleId: 'role-admin' });
 
-    it('should change stage and add timeline entry', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.ASSIGNED });
+    it('should move super-status and add a STATUS_CHANGED timeline entry', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
 
-      await service.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, ['*->*']);
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ stage: DealStage.ASSIGNED }));
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ superStatus: JobSuperStatus.IN_PROGRESS }));
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({
-          eventType: TimelineEventType.STAGE_CHANGED,
-          details: expect.objectContaining({ fromStage: DealStage.NEW_LEAD, toStage: DealStage.ASSIGNED }),
+          eventType: TimelineEventType.STATUS_CHANGED,
+          details: expect.objectContaining({ fromStatus: JobSuperStatus.SUBMITTED, toStatus: JobSuperStatus.IN_PROGRESS }),
         }),
       );
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
     });
 
-    it('should publish deal.stage_changed event', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.ASSIGNED });
+    it('should publish deal.status_changed event', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
 
-      await service.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, ['*->*']);
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
 
-      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.stage_changed', expect.objectContaining({
-        dealId: 'deal-1', oldStage: DealStage.NEW_LEAD, newStage: DealStage.ASSIGNED,
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.status_changed', expect.objectContaining({
+        dealId: 'deal-1', oldStatus: JobSuperStatus.SUBMITTED, newStatus: JobSuperStatus.IN_PROGRESS,
       }));
     });
 
     it('should require cancellationReason when moving to canceled', async () => {
-      mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
+      mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
       await expect(
-        service.changeStage('deal-1', { stage: DealStage.CANCELED } as any, caller, ['*->*']),
+        service.moveStatus('deal-1', { superStatus: JobSuperStatus.CANCELED }, caller),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should allow canceled with reason', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.CANCELED });
+    it('should allow canceled with a reason', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.CANCELED });
 
-      await service.changeStage(
-        'deal-1', { stage: DealStage.CANCELED, cancellationReason: 'Client resolved' } as any, caller, ['*->*'],
+      await service.moveStatus(
+        'deal-1', { superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved' }, caller,
       );
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
-        stage: DealStage.CANCELED, cancellationReason: 'Client resolved',
+        superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved',
       }));
     });
 
-    it('should reject unauthorized transitions', async () => {
-      mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      await expect(
-        service.changeStage('deal-1', { stage: DealStage.COMPLETED } as any, caller, []),
-      ).rejects.toThrow(ForbiddenException);
+    it('should set a sub-status that belongs to the target super-status', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-1', name: 'Job Done', group: JobSuperStatus.IN_PROGRESS });
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' }, caller);
+
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1',
+      }));
     });
 
-    it('should publish deal.completed event for completed stage', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.PENDING_PAYMENT }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.COMPLETED });
+    it('should reject a sub-status that belongs to a different super-status', async () => {
+      mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-1', name: 'Will Call Back', group: JobSuperStatus.PENDING });
 
-      await service.changeStage('deal-1', { stage: DealStage.COMPLETED } as any, caller, ['*->*']);
+      await expect(
+        service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' }, caller),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should clear the sub-status when none is provided', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'old-sub' }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.PENDING });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.PENDING }, caller);
+
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        superStatus: JobSuperStatus.PENDING, subStatusId: undefined,
+      }));
+    });
+
+    it('should publish deal.completed when moving to Done', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.PENDING }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.DONE });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE }, caller);
 
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.completed', expect.any(Object));
     });
 
-    it('should not publish deal.completed for non-completed stage', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.ASSIGNED });
+    it('should not publish deal.completed for a non-Done move', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
 
-      await service.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, ['*->*']);
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
 
       expect(sns.publish).not.toHaveBeenCalledWith('deal-events', 'deal.completed', expect.any(Object));
-    });
-  });
-
-  describe('getAllowedStages', () => {
-    it('should return allowed stages based on transitions', async () => {
-      mockFindById(createMockDeal({ stage: DealStage.ASSIGNED }));
-      const result = await service.getAllowedStages('deal-1', ['assigned->en_route']);
-      expect(result).toEqual([DealStage.EN_ROUTE]);
     });
   });
 
@@ -588,17 +609,17 @@ describe('DealsService', () => {
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_assigned', expect.objectContaining({ techId: 'tech-2' }));
     });
 
-    it('auto-transitions to ASSIGNED on the first assignment', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD, assignedTechIds: [] }));
+    it('auto-transitions to In Progress on the first assignment', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED, assignedTechIds: [] }));
       repo.update.mockResolvedValue(deal);
 
       await service.assignTechs('deal-1', ['tech-1'], caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ stage: DealStage.ASSIGNED }));
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ superStatus: JobSuperStatus.IN_PROGRESS }));
     });
 
     it('does not re-transition when techs are already assigned', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.ASSIGNED, assignedTechIds: ['tech-1'] }));
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, assignedTechIds: ['tech-1'] }));
       repo.update.mockResolvedValue(deal);
 
       await service.assignTechs('deal-1', ['tech-1', 'tech-2'], caller);

@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { MapPin, SlidersHorizontal, Wrench, Megaphone, Tags } from "lucide-react";
+import { MapPin, SlidersHorizontal, Wrench, Megaphone, Tags, ListChecks } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
 export interface SettingsSection {
@@ -45,5 +45,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Colored labels for deals. A deal can carry many.",
     icon: Tags,
     resource: "job_tags",
+  },
+  {
+    label: "Job Statuses",
+    href: "/settings/job-statuses",
+    description: "Custom colored statuses under each super-status. A job carries one.",
+    icon: ListChecks,
+    resource: "job_statuses",
   },
 ];

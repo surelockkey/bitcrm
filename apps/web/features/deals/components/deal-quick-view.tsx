@@ -16,15 +16,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { toast } from "sonner";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { contactName, formatAddress, formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { useDeal, useDealProducts, useContactMap, useUpdateDeal, useUserMap } from "../hooks";
+import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { useDeal, useDealProducts, useContactMap, useUpdateDeal, useMoveStatus, useUserMap } from "../hooks";
 import { dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
-import { PriorityFlag, StageBadge } from "./deal-badges";
-import { StageMenu } from "./stage-menu";
+import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
 
 export function DealQuickView({
@@ -61,6 +62,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(dealId);
   const update = useUpdateDeal(dealId);
+  const moveStatus = useMoveStatus(dealId);
   const jobTypeName = useJobTypeName();
 
   if (isLoading || !deal) {
@@ -90,11 +92,15 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
         <Row label="Status">
-          <div className="flex items-center gap-2">
-            <StageBadge stage={deal.stage} />
+          <div className="flex flex-wrap items-center gap-2">
             {isUrgent(deal) ? <PriorityFlag /> : null}
-            <span className="flex-1" />
-            {canEdit ? <StageMenu dealId={deal.id} /> : null}
+            <JobStatusSelect
+              value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
+              onChange={(v) =>
+                moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
+              }
+              disabled={!canEdit}
+            />
           </div>
         </Row>
 

@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContact, useUpdateContact } from "@/features/clients/hooks";
@@ -35,10 +36,10 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { useDeal, useDeleteDeal, useUpdateDeal } from "../hooks";
+import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { useDeal, useDeleteDeal, useUpdateDeal, useMoveStatus } from "../hooks";
 import { isUrgent } from "../lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
-import { StageMenu } from "./stage-menu";
 import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelineTab } from "./deal-timeline-tab";
@@ -56,6 +57,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
   const tagUpdate = useUpdateDeal(dealId);
+  const moveStatus = useMoveStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
@@ -71,14 +73,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           <ChevronLeft className="size-4" /> Jobs
         </Link>
         <span className="font-mono text-base font-semibold">#{deal.dealNumber}</span>
-        <StageBadge stage={deal.stage} />
+        <StageBadge status={deal.superStatus} />
         {isUrgent(deal) ? <PriorityFlag /> : null}
         <span className="flex-1" />
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           {canEdit ? <UserCog className="size-3.5" /> : <Lock className="size-3.5" />}
           {canEdit ? "You can edit" : "Read only"}
         </span>
-        {canEdit ? <StageMenu dealId={deal.id} /> : null}
         {canDelete ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -101,6 +102,18 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             </AlertDialogContent>
           </AlertDialog>
         ) : null}
+      </div>
+
+      {/* Status — above the tags: a grouped super-status + sub-status select */}
+      <div className="flex items-center gap-2 border-b px-6 py-2.5">
+        <span className="text-xs font-medium text-muted-foreground">Status</span>
+        <JobStatusSelect
+          value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
+          onChange={(v) =>
+            moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
+          }
+          disabled={!canEdit}
+        />
       </div>
 
       {/* Tags — top-left, with a "+" to quickly add existing tags */}

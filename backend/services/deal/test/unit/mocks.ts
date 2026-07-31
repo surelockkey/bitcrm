@@ -1,5 +1,5 @@
 import {
-  ClientType, DealStage, DealPriority, DealStatus, TimelineEventType,
+  ClientType, DealStage, JobSuperStatus, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
   type ServiceArea, type JobType, type JobSource, type JobTag,
@@ -31,6 +31,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
     serviceArea: 'Atlanta Metro',
     address: createMockAddress(),
     jobTypeId: 'jobtype-1',
+    superStatus: JobSuperStatus.SUBMITTED,
     stage: DealStage.NEW_LEAD,
     assignedTechIds: [],
     assignedDispatcherId: 'dispatcher-1',
@@ -148,7 +149,7 @@ export function createMockDealsRepository() {
   return {
     create: jest.fn(),
     findById: jest.fn(),
-    findByStage: jest.fn(),
+    findBySuperStatus: jest.fn(),
     // Empty page by default so the assign/unassign renumber step is a no-op
     // unless a test sets up a schedule explicitly.
     findByTech: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),

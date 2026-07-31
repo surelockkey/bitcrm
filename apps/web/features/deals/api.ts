@@ -1,7 +1,7 @@
 import type {
   Deal,
   DealProduct,
-  DealStage,
+  JobSuperStatus,
   TimelineEntry,
   PaginatedResponse,
 } from "@bitcrm/types";
@@ -37,10 +37,10 @@ export interface QualifiedTech {
 /* -------------------------------------------------------------------- list */
 
 export function listDeals(
-  params: { stage?: DealStage; techId?: string; cursor?: string } = {},
+  params: { superStatus?: JobSuperStatus; techId?: string; cursor?: string } = {},
 ): Promise<PaginatedResponse<Deal>> {
   const q = new URLSearchParams({ limit: String(PAGE) });
-  if (params.stage) q.set("stage", params.stage);
+  if (params.superStatus) q.set("superStatus", params.superStatus);
   if (params.techId) q.set("techId", params.techId);
   if (params.cursor) q.set("cursor", params.cursor);
   return apiFetchPaginated<Deal>(`/deals?${q}`);
@@ -52,7 +52,7 @@ export function listDeals(
  * can be empty while a cursor still exists — loop until `nextCursor` is gone.
  */
 export async function fetchAllDeals(
-  params: { stage?: DealStage; techId?: string } = {},
+  params: { superStatus?: JobSuperStatus; techId?: string } = {},
 ): Promise<Deal[]> {
   const out: Deal[] = [];
   let cursor: string | undefined;
@@ -77,16 +77,17 @@ export const updateDeal = (id: string, body: UpdateDealValues): Promise<Deal> =>
 export const deleteDeal = (id: string): Promise<{ id: string; deleted: true }> =>
   http.delete<{ id: string; deleted: true }>(`/deals/${id}`);
 
-/* ------------------------------------------------------------------ stage */
+/* ----------------------------------------------------------------- status */
 
-export const changeStage = (
-  id: string,
-  stage: DealStage,
-  cancellationReason?: string,
-): Promise<Deal> => http.put<Deal>(`/deals/${id}/stage`, { stage, cancellationReason });
+export interface MoveStatusBody {
+  superStatus: JobSuperStatus;
+  subStatusId?: string;
+  cancellationReason?: string;
+}
 
-export const getAllowedStages = (id: string): Promise<DealStage[]> =>
-  http.get<DealStage[]>(`/deals/${id}/allowed-stages`);
+/** Move a deal's status (super-status + optional sub-status). Guarded by deals.move_status. */
+export const moveStatus = (id: string, body: MoveStatusBody): Promise<Deal> =>
+  http.put<Deal>(`/deals/${id}/status`, body);
 
 /* --------------------------------------------------------------- timeline */
 

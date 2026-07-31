@@ -108,7 +108,7 @@ function JobRow({
               {deal.scheduledTimeSlot ? ` · ${deal.scheduledTimeSlot}` : ""}
             </span>
           </span>
-          <StageBadge stage={deal.stage} />
+          <StageBadge status={deal.superStatus} />
         </button>
       </div>
     </li>
