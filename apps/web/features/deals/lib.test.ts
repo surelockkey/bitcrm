@@ -4,8 +4,11 @@ import {
   DealPriority,
   DealStatus,
   ClientType,
+  ContactSource,
+  ContactType,
+  CrmStatus,
 } from "@bitcrm/types";
-import type { Deal, DealProduct } from "@bitcrm/types";
+import type { Address, Contact, Deal, DealProduct } from "@bitcrm/types";
 import {
   superStatusLabel,
   groupLabel,
@@ -23,6 +26,10 @@ import {
   jobTabLabel,
   matchesTab,
   tabCounts,
+  dealDraftFromDeal,
+  buildDealPatch,
+  clientDraftFromContact,
+  buildContactBody,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -233,5 +240,153 @@ describe("status tabs", () => {
     ];
     expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { tab: "unscheduled" }, names).map((d) => d.id)).toEqual(["b"]);
+  });
+});
+
+/* ------------------- single-save drafts (one Save button on the job page) --- */
+
+// Imported with their real signatures so these cases type-check the actual
+// UpdateDealValues / UpdateContactValues shapes, not a loosened stand-in.
+
+function contact(over: Partial<Contact> = {}): Contact {
+  return {
+    id: "c1",
+    firstName: "Jane",
+    lastName: "Smith",
+    phones: ["+14045551234"],
+    emails: ["jane@example.com", "billing@example.com"],
+    addresses: [{ street: "1 Main St", city: "Phoenix", state: "AZ", zip: "85001" }],
+    companyId: "co1",
+    type: ContactType.COMPANY_REPRESENTATIVE,
+    title: "Office manager",
+    source: ContactSource.PHONE_CALL,
+    notes: "VIP",
+    status: CrmStatus.ACTIVE,
+    createdBy: "u1",
+    createdAt: "",
+    updatedAt: "",
+    ...over,
+  };
+}
+
+describe("buildDealPatch", () => {
+  it("returns null for a clean draft (sparse and fully-populated deals)", () => {
+    const sparse = deal();
+    expect(buildDealPatch(sparse, dealDraftFromDeal(sparse))).toBeNull();
+
+    const full = deal({
+      poNumber: "PO-1",
+      workOrderId: "wo-1",
+      sourceId: "src-1",
+      scheduledDate: "2026-08-01",
+      scheduledTimeSlot: "08:00-10:00",
+      notes: "hello",
+      internalNotes: "internal",
+    });
+    expect(buildDealPatch(full, dealDraftFromDeal(full))).toBeNull();
+  });
+
+  it("returns only the changed key", () => {
+    const d = deal();
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
+    expect(patch!.serviceArea).toBe("North GA");
+  });
+
+  it("clears an emptied optional field with undefined (today's commit semantics)", () => {
+    const d = deal({ poNumber: "PO-1" });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), poNumber: "" });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["poNumber"]);
+    expect(patch!.poNumber).toBeUndefined();
+  });
+
+  it("treats empty draft values over absent optional fields as clean", () => {
+    const d = deal(); // no poNumber / sourceId / scheduledDate
+    expect(
+      buildDealPatch(d, { ...dealDraftFromDeal(d), poNumber: "", sourceId: "", scheduledDate: "" }),
+    ).toBeNull();
+  });
+
+  it("trims notes and ignores whitespace-only changes", () => {
+    const d = deal({ notes: "hello" });
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "  hello  " })).toBeNull();
+
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "  changed  " });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["notes"]);
+    expect(patch!.notes).toBe("changed");
+  });
+});
+
+describe("buildContactBody", () => {
+  it("returns null when nothing changed and there is no new address", () => {
+    const c = contact();
+    expect(buildContactBody(c, clientDraftFromContact(c))).toBeNull();
+  });
+
+  it("returns the full body on a name change, preserving company/type/title/notes and extra emails", () => {
+    const c = contact();
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" });
+    expect(body).toEqual({
+      firstName: "Janet",
+      lastName: "Smith",
+      phones: ["+14045551234"],
+      emails: ["jane@example.com", "billing@example.com"],
+      addresses: c.addresses,
+      companyId: "co1",
+      type: ContactType.COMPANY_REPRESENTATIVE,
+      title: "Office manager",
+      notes: "VIP",
+    });
+  });
+
+  it("replaces only the first email, keeping the rest", () => {
+    const c = contact();
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), email: "new@example.com" });
+    expect(body).not.toBeNull();
+    expect(body!.emails).toEqual(["new@example.com", "billing@example.com"]);
+  });
+
+  it("cleans phones (trim, drop empties) and treats a no-op cleanup as clean", () => {
+    const c = contact();
+    expect(
+      buildContactBody(c, { ...clientDraftFromContact(c), phones: [" +14045551234 ", "", "  "] }),
+    ).toBeNull();
+  });
+
+  it("keeps the existing phones when the draft would empty them all", () => {
+    const c = contact();
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      firstName: "Janet",
+      phones: ["", "  "],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phones).toEqual(["+14045551234"]);
+  });
+
+  it("appends a brand-new address once, even with an otherwise clean draft", () => {
+    const c = contact();
+    const addr: Address = { street: "22 Oak Ave", unit: "B", city: "Tempe", state: "AZ", zip: "85281" };
+    const body = buildContactBody(c, clientDraftFromContact(c), addr);
+    expect(body).not.toBeNull();
+    expect(body!.addresses).toEqual([...c.addresses, addr]);
+  });
+
+  it("does not re-append an address already on the client (normalized match)", () => {
+    const c = contact();
+    // Same address modulo case/whitespace/empty unit — addressInList must match.
+    const dup: Address = { street: " 1 main st", unit: "", city: "PHOENIX", state: "az", zip: "85001" };
+    expect(buildContactBody(c, clientDraftFromContact(c), dup)).toBeNull();
+  });
+
+  it("keeps the address list unchanged when a dirty draft comes with a duplicate address", () => {
+    const c = contact();
+    const dup: Address = { street: "1 Main St", unit: "", city: "Phoenix", state: "AZ", zip: "85001" };
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" }, dup);
+    expect(body).not.toBeNull();
+    expect(body!.addresses).toEqual(c.addresses);
   });
 });

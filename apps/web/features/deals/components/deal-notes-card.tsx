@@ -1,78 +1,46 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Lock, Pencil } from "lucide-react";
-import type { Deal } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
+import { Lock } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useUpdateDeal } from "../hooks";
 
 /**
  * Deal notes. Dispatchers / management edit both the shared note and an
- * internal (dispatcher-only) note; technicians see them read-only.
+ * internal (dispatcher-only) note; technicians see them read-only. The card is
+ * dumb: it renders the parent's draft values and reports keystrokes back — the
+ * job page's single Save button persists them (trimmed there).
  */
-export function DealNotesCard({ deal }: { deal: Deal }) {
-  const { can, isTechnician } = usePermissions();
-  const update = useUpdateDeal(deal.id);
-  const editable = can("deals", "edit") && !isTechnician;
-
-  const [editing, setEditing] = useState(false);
-  const [notes, setNotes] = useState(deal.notes ?? "");
-  const [internalNotes, setInternalNotes] = useState(deal.internalNotes ?? "");
-
-  const start = () => {
-    setNotes(deal.notes ?? "");
-    setInternalNotes(deal.internalNotes ?? "");
-    setEditing(true);
-  };
-
-  const save = () => {
-    update.mutate(
-      { notes: notes.trim(), internalNotes: internalNotes.trim() },
-      { onSuccess: () => setEditing(false) },
-    );
-  };
-
+export function DealNotesCard({
+  notes,
+  internalNotes,
+  editable,
+  onNotesChange,
+  onInternalNotesChange,
+}: {
+  notes: string;
+  internalNotes: string;
+  editable: boolean;
+  onNotesChange: (v: string) => void;
+  onInternalNotesChange: (v: string) => void;
+}) {
   return (
     <section className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Notes</h2>
-        {editable && !editing ? (
-          <Button variant="outline" size="sm" className="h-7 gap-1.5" onClick={start}>
-            <Pencil className="size-3.5" /> Edit
-          </Button>
-        ) : null}
-      </div>
+      <h2 className="mb-3 text-sm font-semibold">Notes</h2>
 
-      {editing ? (
+      {editable ? (
         <div className="space-y-3">
           <Field label="Note">
-            <Textarea rows={3} value={notes} placeholder="Notes visible to the team…" onChange={(e) => setNotes(e.target.value)} />
+            <Textarea rows={3} value={notes} placeholder="Notes visible to the team…" onChange={(e) => onNotesChange(e.target.value)} />
           </Field>
           <Field label="Dispatcher note" hint="Internal — technicians can't edit this.">
-            <Textarea rows={3} value={internalNotes} placeholder="Internal dispatcher notes…" onChange={(e) => setInternalNotes(e.target.value)} />
+            <Textarea rows={3} value={internalNotes} placeholder="Internal dispatcher notes…" onChange={(e) => onInternalNotesChange(e.target.value)} />
           </Field>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" disabled={update.isPending} onClick={() => setEditing(false)}>Cancel</Button>
-            <Button variant="brand" size="sm" className="gap-1.5" disabled={update.isPending} onClick={save}>
-              {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
-            </Button>
-          </div>
         </div>
       ) : (
         <div className="space-y-3">
-          <NoteBlock label="Note" value={deal.notes} />
-          <NoteBlock
-            label="Dispatcher note"
-            value={deal.internalNotes}
-            tone="warn"
-            icon={!editable ? <Lock className="size-3" /> : undefined}
-          />
-          {!editable ? (
-            <p className="text-[11px] text-muted-foreground">Notes are managed by dispatch.</p>
-          ) : null}
+          <NoteBlock label="Note" value={notes} />
+          <NoteBlock label="Dispatcher note" value={internalNotes} tone="warn" icon={<Lock className="size-3" />} />
+          <p className="text-[11px] text-muted-foreground">Notes are managed by dispatch.</p>
         </div>
       )}
     </section>
