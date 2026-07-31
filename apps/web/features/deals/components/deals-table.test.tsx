@@ -75,7 +75,7 @@ describe("DealsTable", () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
   });
 
-  it("renders a per-row link that opens the full job in a new tab", () => {
+  it("the job number itself is the new-tab link, sitting in the first column", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
@@ -83,6 +83,19 @@ describe("DealsTable", () => {
     expect(link).toHaveAttribute("href", "/deals/d1");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    // The number is the click target — no reaching for the far edge of the row.
+    expect(link).toHaveTextContent("#1042");
+    const cell = link.closest("td");
+    expect(cell).not.toBeNull();
+    expect(cell!.cellIndex).toBe(0);
+  });
+
+  it("has no separate far-right new-tab column anymore", () => {
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.queryByText("Open in new tab")).toBeNull();
   });
 
   it("does not open the preview when the new-tab link is clicked", async () => {
