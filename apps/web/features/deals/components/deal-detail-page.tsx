@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
+import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
 import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -185,7 +185,18 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   return (
     <div className="mx-auto grid max-w-5xl grid-cols-1 items-start gap-4 lg:grid-cols-2">
       {/* Client */}
-      <Section title="Client">
+      <Section
+        title="Client"
+        action={
+          contact ? (
+            <Button asChild variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+              <Link href={`/contacts/${contact.id}`}>
+                <ExternalLink className="size-3.5" /> View client
+              </Link>
+            </Button>
+          ) : null
+        }
+      >
         {contact ? (
           <ClientEditor contact={contact} canEdit={can("contacts", "edit")} />
         ) : (
