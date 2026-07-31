@@ -19,7 +19,7 @@ export function JobTagChips({
   max?: number;
   className?: string;
 }) {
-  const { data } = useJobTags();
+  const { data, isLoading } = useJobTags();
   const map = jobTagMap(data);
 
   if (!ids?.length) return null;
@@ -30,6 +30,10 @@ export function JobTagChips({
     <div className={cn("flex flex-wrap items-center gap-1", className)}>
       {shown.map((id) => {
         const tag = map.get(id);
+        // Skeleton until the catalog loads, so ids don't flash on first paint.
+        if (!tag && isLoading) {
+          return <span key={id} className="inline-block h-4 w-12 animate-pulse rounded-full bg-muted" />;
+        }
         return (
           <span
             key={id}

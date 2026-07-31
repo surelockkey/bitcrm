@@ -28,7 +28,7 @@ export function JobTagCombobox({
   onChange: (ids: string[]) => void;
   disabled?: boolean;
 }) {
-  const { data } = useJobTags();
+  const { data, isLoading } = useJobTags();
   const active = activeJobTags(data);
   const map = jobTagMap(data);
   const [open, setOpen] = useState(false);
@@ -40,6 +40,11 @@ export function JobTagCombobox({
     <div className="flex flex-wrap items-center gap-1.5">
       {value.map((id) => {
         const tag = map.get(id);
+        // Until the tag catalog loads, show a skeleton rather than the raw id —
+        // otherwise chips flash ids on a fresh page load.
+        if (!tag && isLoading) {
+          return <span key={id} className="inline-block h-5 w-16 animate-pulse rounded-full bg-muted" />;
+        }
         return (
           <span
             key={id}
