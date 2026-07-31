@@ -376,6 +376,74 @@ describe('DealsService', () => {
       );
     });
 
+    it('records oldValue and newValue for a changed field', async () => {
+      const deal = mockFindById(createMockDeal({ priority: DealPriority.NORMAL }));
+      repo.update.mockResolvedValue({ ...deal, priority: DealPriority.URGENT });
+
+      await service.update('deal-1', { priority: DealPriority.URGENT } as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.FIELD_UPDATED,
+          details: { field: 'priority', oldValue: DealPriority.NORMAL, newValue: DealPriority.URGENT },
+        }),
+      );
+    });
+
+    it('records null as oldValue when the field was previously unset', async () => {
+      const deal = mockFindById(createMockDeal({ poNumber: undefined }));
+      repo.update.mockResolvedValue({ ...deal, poNumber: 'PO-77' });
+
+      await service.update('deal-1', { poNumber: 'PO-77' } as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: { field: 'poNumber', oldValue: null, newValue: 'PO-77' },
+        }),
+      );
+    });
+
+    it('does not log a field whose value did not change', async () => {
+      const deal = mockFindById(createMockDeal({ priority: DealPriority.NORMAL }));
+      repo.update.mockResolvedValue(deal);
+
+      await service.update('deal-1', { priority: DealPriority.NORMAL } as any, caller);
+
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+    });
+
+    it('does not log a deep-equal unchanged array', async () => {
+      const deal = mockFindById(createMockDeal({ tagIds: ['tag-1'] }));
+      jobTags.list.mockResolvedValue([createMockJobTag({ id: 'tag-1' })]);
+      repo.update.mockResolvedValue(deal);
+
+      await service.update('deal-1', { tagIds: ['tag-1'] } as any, caller);
+
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+    });
+
+    it('logs an address change with the old and new address', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue(deal);
+
+      await service.update(
+        'deal-1',
+        { address: { street: '456 Oak', city: 'Marietta', state: 'GA', zip: '30060' } } as any,
+        caller,
+      );
+
+      expect(timeline.addEntry).toHaveBeenCalledTimes(1);
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            field: 'address',
+            oldValue: expect.objectContaining({ street: '123 Main St' }),
+            newValue: expect.objectContaining({ street: '456 Oak' }),
+          }),
+        }),
+      );
+    });
+
     it('should convert address class instance to plain object', async () => {
       const deal = mockFindById();
       repo.update.mockResolvedValue(deal);
@@ -481,6 +549,34 @@ describe('DealsService', () => {
       await expect(
         service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' }, caller),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('records the previous and next sub-status on the timeline entry', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'old-sub' }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-2', name: 'Parts Ordered', group: JobSuperStatus.PENDING });
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.PENDING, subStatusId: 'sub-2' });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.PENDING, subStatusId: 'sub-2' }, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.STATUS_CHANGED,
+          details: expect.objectContaining({ fromSubStatusId: 'old-sub', subStatusId: 'sub-2' }),
+        }),
+      );
+    });
+
+    it('records a null fromSubStatusId when the deal had no sub-status', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({ fromSubStatusId: null, subStatusId: null }),
+        }),
+      );
     });
 
     it('should clear the sub-status when none is provided', async () => {

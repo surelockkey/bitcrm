@@ -337,14 +337,18 @@ export class DealsService {
       }
     }
 
-    // Track field changes in timeline
-    for (const [key, value] of Object.entries(dto)) {
-      if (value !== undefined) {
-        await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
-          field: key,
-          newValue: value,
-        });
-      }
+    // Track field changes in timeline: one entry per field that actually
+    // changed, carrying both the previous and the new value. Diffed against the
+    // final write payload so auto-derived fields (service area) are covered too.
+    for (const [key, value] of Object.entries(updates as Record<string, unknown>)) {
+      if (value === undefined) continue;
+      const previous = (existing as unknown as Record<string, unknown>)[key];
+      if (this.valuesEqual(previous, value)) continue;
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: key,
+        oldValue: previous ?? null,
+        newValue: value,
+      });
     }
 
     return result;
@@ -400,7 +404,8 @@ export class DealsService {
     await this.addTimelineEntry(id, TimelineEventType.STATUS_CHANGED, caller, {
       fromStatus: from,
       toStatus: dto.superStatus,
-      subStatusId: dto.subStatusId,
+      fromSubStatusId: deal.subStatusId ?? null,
+      subStatusId: dto.subStatusId || null,
     });
 
     this.publishEvent('deal.status_changed', {
@@ -852,6 +857,29 @@ export class DealsService {
   }
 
   // Private helpers
+
+  /**
+   * Structural equality for timeline diffing (primitives, arrays, plain
+   * objects). Undefined-valued keys are ignored so a re-sent object that merely
+   * omits optional keys isn't logged as a change.
+   */
+  private valuesEqual(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((v, i) => this.valuesEqual(v, b[i]));
+    }
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      const objA = a as Record<string, unknown>;
+      const objB = b as Record<string, unknown>;
+      const keysA = Object.keys(objA).filter((k) => objA[k] !== undefined);
+      const keysB = Object.keys(objB).filter((k) => objB[k] !== undefined);
+      return (
+        keysA.length === keysB.length &&
+        keysA.every((k) => this.valuesEqual(objA[k], objB[k]))
+      );
+    }
+    return false;
+  }
 
   private async addTimelineEntry(
     dealId: string,
