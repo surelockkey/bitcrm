@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -8,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { contactName, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
 import { formatSchedule, isUrgent, scheduleRelative } from "../lib";
@@ -42,6 +45,7 @@ export function DealsTable({
             <TableHead>Location</TableHead>
             <TableHead>Scheduled</TableHead>
             <TableHead>Job type</TableHead>
+            <TableHead className="w-10"><span className="sr-only">Open in new tab</span></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -95,6 +99,27 @@ export function DealsTable({
                   ) : null}
                 </TableCell>
                 <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
+                <TableCell className="text-right">
+                  {/* Opens the full job in a new tab; stopPropagation keeps the
+                      row click (which opens the preview drawer) from also firing. */}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-foreground"
+                    title="Open in new tab"
+                  >
+                    <Link
+                      href={`/deals/${d.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Open job #${d.dealNumber} in new tab`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="size-4" />
+                    </Link>
+                  </Button>
+                </TableCell>
               </TableRow>
             );
           })}

@@ -180,7 +180,9 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
       <div className="border-t p-4">
         <Button asChild variant="brand" className="w-full gap-1.5">
-          <Link href={`/deals/${deal.id}`}>Open full job <ExternalLink className="size-4" /></Link>
+          <Link href={`/deals/${deal.id}`} target="_blank" rel="noopener noreferrer">
+            Open full job <ExternalLink className="size-4" />
+          </Link>
         </Button>
       </div>
     </>
