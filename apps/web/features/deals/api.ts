@@ -125,6 +125,18 @@ export const getDealProducts = (id: string): Promise<DealProduct[]> =>
 export const addDealProduct = (id: string, body: AddProductValues): Promise<{ added: true }> =>
   http.post<{ added: true }>(`/deals/${id}/products`, body);
 
+/**
+ * Replace a line item — edit its quantity/price or swap it for a different
+ * catalog product. `productId` keys the line being edited; the body is the
+ * complete new line (same shape as add). Stock is reconciled server-side.
+ */
+export const replaceDealProduct = (
+  id: string,
+  productId: string,
+  body: AddProductValues,
+): Promise<{ updated: true }> =>
+  http.put<{ updated: true }>(`/deals/${id}/products/${productId}`, body);
+
 export const removeDealProduct = (
   id: string,
   productId: string,

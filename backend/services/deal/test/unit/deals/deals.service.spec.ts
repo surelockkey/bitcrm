@@ -983,6 +983,236 @@ describe('DealsService', () => {
     });
   });
 
+  describe('replaceProduct', () => {
+    const caller = createMockJwtUser({ id: 'dispatcher-1' });
+    // The replacement line — a different catalog product by default.
+    const dto = {
+      sourceTechId: 'tech-1',
+      productId: 'product-2', name: 'Schlage Deadbolt', sku: 'SC-002',
+      quantity: 2, costCompany: 18, costForTech: 24, priceClient: 60,
+    };
+
+    beforeEach(() => {
+      http.getProduct.mockResolvedValue({
+        id: 'product-2', name: 'Schlage Deadbolt', sku: 'SC-002', type: 'product',
+      });
+      // The line being edited exists; the swap target does not (no duplicate).
+      products.findProduct.mockImplementation(async (_dealId: string, productId: string) =>
+        productId === 'product-1' ? createMockDealProduct({ sourceTechId: 'tech-2' }) : null,
+      );
+    });
+
+    it('swaps a sourced line: restores the old stock, deducts the new, rewrites the row', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      // The old line goes back to the tech it was pulled from…
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({
+        containerId: 'tech-2',
+        items: [expect.objectContaining({ productId: 'product-1', quantity: 1 })],
+      }));
+      // …the replacement is pulled from the chosen tech…
+      expect(http.deductStock).toHaveBeenCalledWith(expect.objectContaining({
+        containerId: 'tech-1',
+        items: [expect.objectContaining({ productId: 'product-2', quantity: 2 })],
+      }));
+      // …and the row moves to the new product id.
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
+      }));
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
+    });
+
+    it('preserves the original addedBy/addedAt and stamps the editor', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        productId === 'product-1'
+          ? createMockDealProduct({ sourceTechId: 'tech-1', addedBy: 'tech-9', addedAt: '2026-01-01T00:00:00.000Z' })
+          : null,
+      );
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        addedBy: 'tech-9', addedAt: '2026-01-01T00:00:00.000Z',
+        updatedBy: 'dispatcher-1', updatedAt: expect.any(String),
+      }));
+    });
+
+    it('edits a sourced line in place: restores before deducting so only the delta must fit', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ sourceTechId: 'tech-1', quantity: 2 }),
+      );
+      http.getProduct.mockResolvedValue({
+        id: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', type: 'product',
+      });
+      const order: string[] = [];
+      http.restoreStock.mockImplementation(async () => { order.push('restore'); });
+      http.deductStock.mockImplementation(async () => { order.push('deduct'); });
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, productId: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', quantity: 3 } as any,
+        caller,
+      );
+
+      expect(order).toEqual(['restore', 'deduct']);
+      // Same product id — the row is overwritten, never deleted.
+      expect(products.removeProduct).not.toHaveBeenCalled();
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        productId: 'product-1', quantity: 3,
+      }));
+    });
+
+    it('re-deducts the old line when the new deduction fails, naming the product', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+      http.deductStock.mockRejectedValueOnce(new HttpException('Insufficient stock', 400));
+
+      const err = await service.replaceProduct('deal-1', 'product-1', dto as any, caller).catch((e) => e);
+
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.message).toMatch(/Schlage Deadbolt/);
+      // The compensating deduct puts the restored old stock back where it was.
+      expect(http.deductStock).toHaveBeenCalledTimes(2);
+      expect(http.deductStock).toHaveBeenLastCalledWith(expect.objectContaining({
+        containerId: 'tech-2',
+        items: [expect.objectContaining({ productId: 'product-1', quantity: 1 })],
+      }));
+      expect(products.addProduct).not.toHaveBeenCalled();
+      expect(products.removeProduct).not.toHaveBeenCalled();
+    });
+
+    it('throws if the line is not on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(null);
+
+      await expect(
+        service.replaceProduct('deal-1', 'nonexistent', dto as any, caller),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects when the replacement product does not exist in inventory', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      http.getProduct.mockResolvedValue(null);
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+    });
+
+    it('rejects swapping onto a product that is already a line on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        createMockDealProduct({ productId, sourceTechId: 'tech-1' }),
+      );
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('rejects a sourced replacement whose tech is not on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-2'] }));
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+    });
+
+    it('swapping a sourced part to a service line restores stock and deducts nothing', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      http.getProduct.mockResolvedValue({ id: 'product-3', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, productId: 'product-3', name: 'Rekey', sku: 'SVC-1', fulfillment: 'service', sourceTechId: undefined } as any,
+        caller,
+      );
+
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).toHaveBeenCalledWith(
+        'deal-1',
+        expect.objectContaining({ fulfillment: 'service' }),
+      );
+      expect(products.addProduct.mock.calls[0][1].sourceTechId).toBeUndefined();
+    });
+
+    it('rejects a service-type product replaced in as a sourced line', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      http.getProduct.mockResolvedValue({ id: 'product-2', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', { ...dto, fulfillment: 'sourced' } as any, caller),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('keeps orderedAt when a to-order line is edited in place', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: [] }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({
+        fulfillment: 'to_order', sourceTechId: undefined, orderedAt: '2026-05-01T00:00:00.000Z',
+      }));
+      http.getProduct.mockResolvedValue({
+        id: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', type: 'product',
+      });
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, productId: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', fulfillment: 'to_order', sourceTechId: undefined, quantity: 5 } as any,
+        caller,
+      );
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        quantity: 5, orderedAt: '2026-05-01T00:00:00.000Z',
+      }));
+    });
+
+    it('drops orderedAt when the product is swapped', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: [] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        productId === 'product-1'
+          ? createMockDealProduct({ fulfillment: 'to_order', sourceTechId: undefined, orderedAt: '2026-05-01T00:00:00.000Z' })
+          : null,
+      );
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, fulfillment: 'to_order', sourceTechId: undefined } as any,
+        caller,
+      );
+
+      expect(products.addProduct.mock.calls[0][1].orderedAt).toBeUndefined();
+    });
+
+    it('writes a product_updated timeline entry naming both products', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.PRODUCT_UPDATED,
+          details: expect.objectContaining({
+            productId: 'product-2',
+            productName: 'Schlage Deadbolt',
+            previousProductId: 'product-1',
+            previousProductName: 'Kwikset Deadbolt',
+            quantity: 2,
+          }),
+        }),
+      );
+    });
+  });
+
   describe('getProducts', () => {
     it('should return products for deal', async () => {
       mockFindById();

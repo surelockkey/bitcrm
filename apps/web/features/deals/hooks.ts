@@ -233,6 +233,19 @@ export function useAddProduct(id: string) {
   });
 }
 
+export function useReplaceProduct(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ productId, body }: { productId: string; body: AddProductValues }) =>
+      api.replaceDealProduct(id, productId, body),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Item updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useRemoveProduct(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({

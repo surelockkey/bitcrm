@@ -8,5 +8,6 @@ export enum TimelineEventType {
   TECH_ASSIGNED = 'tech_assigned',
   TECH_UNASSIGNED = 'tech_unassigned',
   PRODUCT_ADDED = 'product_added',
+  PRODUCT_UPDATED = 'product_updated',
   PRODUCT_REMOVED = 'product_removed',
 }
