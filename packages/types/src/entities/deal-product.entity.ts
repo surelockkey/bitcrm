@@ -25,4 +25,7 @@ export interface DealProduct {
   orderedAt?: string;
   addedBy: string;
   addedAt: string;
+  /** Set when the line was last edited (quantity/price change or product swap). */
+  updatedBy?: string;
+  updatedAt?: string;
 }

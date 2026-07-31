@@ -240,6 +240,27 @@ export class DealsController {
     return { success: true, data: { added: true } };
   }
 
+  @Put(':id/products/:productId')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Edit a line item (or swap it for another catalog product)',
+    description:
+      '**Guard:** `deals.edit` permission required. The body is the complete ' +
+      'new line — same shape and validation as add. Stock is reconciled: the ' +
+      "old sourced line is restored to its source technician's container " +
+      'before the new sourced line is deducted from the chosen one, so raising ' +
+      'a quantity only needs the delta in the van.',
+  })
+  async replaceProduct(
+    @Param('id') id: string,
+    @Param('productId') productId: string,
+    @Body() dto: AddDealProductDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.dealsService.replaceProduct(id, productId, dto, user);
+    return { success: true, data: { updated: true } };
+  }
+
   @Patch(':id/products/:productId/ordered')
   @RequirePermission('deals', 'edit')
   @ApiOperation({

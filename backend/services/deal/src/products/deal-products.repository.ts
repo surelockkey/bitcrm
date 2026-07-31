@@ -156,6 +156,8 @@ export class DealProductsRepository {
       orderedAt: item.orderedAt as string | undefined,
       addedBy: item.addedBy as string,
       addedAt: item.addedAt as string,
+      updatedBy: item.updatedBy as string | undefined,
+      updatedAt: item.updatedAt as string | undefined,
     };
   }
 }

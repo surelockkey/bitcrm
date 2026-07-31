@@ -648,13 +648,15 @@ export class DealsService {
     }
   }
 
-  async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
-    const deal = await this.findById(id);
-    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
-
-    // Validate the referenced product exists and that its inventory type matches
-    // the requested fulfillment: a `service`-type product can only be a service
-    // line, and a stockable product can only be `sourced` / `to_order`.
+  /**
+   * The referenced product must exist in inventory and its type must match the
+   * requested fulfillment: a `service`-type product can only be a service line,
+   * and a stockable product can only be `sourced` / `to_order`.
+   */
+  private async validateProductFulfillment(
+    dto: { productId: string; name: string },
+    fulfillment: DealProductFulfillment,
+  ): Promise<void> {
     const product = await this.internalHttp.getProduct(dto.productId);
     if (!product) {
       throw new BadRequestException(
@@ -672,6 +674,13 @@ export class DealsService {
         `"${dto.name}" is a stockable product and cannot be added as a service line`,
       );
     }
+  }
+
+  async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
+    const deal = await this.findById(id);
+    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+
+    await this.validateProductFulfillment(dto, fulfillment);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -741,6 +750,138 @@ export class DealsService {
     this.publishEvent('deal.product_added', {
       dealId: id,
       productId: dto.productId,
+      quantity: dto.quantity,
+      fulfillment,
+    });
+  }
+
+  /**
+   * Replace a line item in place — edit its quantity/price or swap it for a
+   * different catalog product. The dto is the complete new line. Stock is
+   * reconciled restore-first: the old sourced line goes back to its source
+   * technician before the new sourced line is deducted, so raising a quantity
+   * only needs the delta in the van. If the new deduction is refused, the
+   * restore is compensated (re-deducted) so containers end where they started.
+   */
+  async replaceProduct(
+    id: string,
+    productId: string,
+    dto: AddDealProductDto,
+    caller: JwtUser,
+  ): Promise<void> {
+    const deal = await this.findById(id);
+
+    const existing = await this.productsRepo.findProduct(id, productId);
+    if (!existing) {
+      throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
+    }
+
+    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+    const isSwap = dto.productId !== productId;
+
+    // A deal keys one line per product — swapping onto a product that already
+    // has its own line would silently merge the two rows.
+    if (isSwap && (await this.productsRepo.findProduct(id, dto.productId))) {
+      throw new BadRequestException(
+        `"${dto.name}" is already on this deal — edit that line instead`,
+      );
+    }
+
+    await this.validateProductFulfillment(dto, fulfillment);
+
+    if (fulfillment === 'sourced') {
+      if (deal.assignedTechIds.length === 0) {
+        throw new BadRequestException(
+          'Cannot add products without an assigned technician',
+        );
+      }
+      if (!dto.sourceTechId || !deal.assignedTechIds.includes(dto.sourceTechId)) {
+        throw new BadRequestException(
+          'The chosen technician is not assigned to this deal',
+        );
+      }
+    }
+
+    // Same restore-target rule as removeProduct: legacy sourced rows without a
+    // recorded source fall back to the sole assigned tech, if any.
+    const restoreTo =
+      (existing.fulfillment ?? 'sourced') === 'sourced'
+        ? existing.sourceTechId ??
+          (deal.assignedTechIds.length === 1 ? deal.assignedTechIds[0] : undefined)
+        : undefined;
+    const oldItems = [
+      { productId: existing.productId, productName: existing.name, quantity: existing.quantity },
+    ];
+    const stockMeta = { dealId: id, performedBy: caller.id, performedByName: caller.email };
+
+    if (restoreTo) {
+      await this.internalHttp.restoreStock({ containerId: restoreTo, items: oldItems, ...stockMeta });
+    }
+
+    if (fulfillment === 'sourced') {
+      try {
+        await this.internalHttp.deductStock({
+          containerId: dto.sourceTechId!,
+          items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
+          ...stockMeta,
+        });
+      } catch (error) {
+        // Undo the restore so the van holds exactly what it did before the edit.
+        if (restoreTo) {
+          await this.internalHttp.deductStock({ containerId: restoreTo, items: oldItems, ...stockMeta });
+        }
+        if (
+          error instanceof HttpException &&
+          error.getStatus() >= 400 &&
+          error.getStatus() < 500
+        ) {
+          throw new BadRequestException(
+            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
+          );
+        }
+        throw error;
+      }
+    }
+
+    if (isSwap) {
+      await this.productsRepo.removeProduct(id, productId);
+    }
+    await this.productsRepo.addProduct(id, {
+      productId: dto.productId,
+      name: dto.name,
+      sku: dto.sku,
+      quantity: dto.quantity,
+      costCompany: dto.costCompany,
+      costForTech: dto.costForTech,
+      priceClient: dto.priceClient,
+      fulfillment,
+      // Only a sourced line records which technician supplied it.
+      ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
+      // An in-place to-order edit keeps its ordered stamp; a swap starts fresh.
+      ...(!isSwap &&
+        fulfillment === 'to_order' &&
+        existing.orderedAt && { orderedAt: existing.orderedAt }),
+      addedBy: existing.addedBy,
+      addedAt: existing.addedAt,
+      updatedBy: caller.id,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.PRODUCT_UPDATED, caller, {
+      productId: dto.productId,
+      productName: dto.name,
+      previousProductId: existing.productId,
+      previousProductName: existing.name,
+      quantity: dto.quantity,
+      fulfillment,
+    });
+
+    this.publishEvent('deal.product_updated', {
+      dealId: id,
+      productId: dto.productId,
+      previousProductId: existing.productId,
       quantity: dto.quantity,
       fulfillment,
     });
