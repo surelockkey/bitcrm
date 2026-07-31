@@ -375,19 +375,55 @@ describe('DealsRepository', () => {
     });
   });
 
-  describe('getNextDealNumber', () => {
-    it('should return incremented deal number', async () => {
-      dynamoDb.client.send.mockResolvedValue({
-        Attributes: { dealNumber: 1002 },
-      });
+  describe('reserveDealNumber', () => {
+    const conditionalFailure = () => {
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      return err;
+    };
 
-      const result = await repository.getNextDealNumber();
+    it('reserves a random 6-char code with an attribute_not_exists marker row', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
 
-      expect(result).toBe(1002);
+      const code = await repository.reserveDealNumber();
+
+      expect(code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(code).toMatch(/[A-Z]/);
+      expect(code).toMatch(/[0-9]/);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.Key.PK).toBe('COUNTER');
-      expect(command.input.Key.SK).toBe('DEAL_NUMBER');
-      expect(command.input.ReturnValues).toBe('ALL_NEW');
+      expect(command.input.Item.PK).toBe(`DEALNUM#${code}`);
+      expect(command.input.Item.SK).toBe('UNIQUE');
+      expect(command.input.ConditionExpression).toBe('attribute_not_exists(PK)');
+    });
+
+    it('retries with a fresh code when the reservation collides', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(conditionalFailure())
+        .mockResolvedValueOnce({});
+
+      const code = await repository.reserveDealNumber();
+
+      expect(code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      const first = dynamoDb.client.send.mock.calls[0][0].input.Item.PK;
+      const second = dynamoDb.client.send.mock.calls[1][0].input.Item.PK;
+      expect(second).toBe(`DEALNUM#${code}`);
+      expect(first).not.toBe(second);
+    });
+
+    it('gives up after exhausting retries on persistent collisions', async () => {
+      dynamoDb.client.send.mockRejectedValue(conditionalFailure());
+
+      await expect(repository.reserveDealNumber()).rejects.toThrow(/deal number/i);
+      expect(dynamoDb.client.send.mock.calls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('propagates non-collision errors immediately', async () => {
+      dynamoDb.client.send.mockRejectedValue(new Error('network down'));
+
+      await expect(repository.reserveDealNumber()).rejects.toThrow('network down');
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
     });
   });
 });

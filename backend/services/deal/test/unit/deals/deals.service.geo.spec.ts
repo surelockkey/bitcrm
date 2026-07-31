@@ -94,7 +94,7 @@ describe('DealsService — address geocoding', () => {
 
   describe('create', () => {
     it('geocodes an address that arrives without coordinates', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1);
+      repo.reserveDealNumber.mockResolvedValue('GE0AB1');
       geocoding.geocode.mockResolvedValue({ lat: 34.1, lng: -84.2 });
 
       const deal = await service.create(createDto, caller);
@@ -105,7 +105,7 @@ describe('DealsService — address geocoding', () => {
     });
 
     it('trusts coordinates the caller already supplied and does not re-geocode', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1);
+      repo.reserveDealNumber.mockResolvedValue('GE0AB1');
 
       const deal = await service.create(
         { ...createDto, address: { ...createDto.address, lat: 1, lng: 2 } },
@@ -118,7 +118,7 @@ describe('DealsService — address geocoding', () => {
     });
 
     it('still creates the deal when the address cannot be geocoded', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1);
+      repo.reserveDealNumber.mockResolvedValue('GE0AB1');
       geocoding.geocode.mockResolvedValue(null);
 
       const deal = await service.create(createDto, caller);

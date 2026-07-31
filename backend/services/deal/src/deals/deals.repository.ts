@@ -23,6 +23,7 @@ import {
   DEALS_GSI3_NAME,
   DEALS_GSI4_NAME,
 } from '../common/constants/dynamo.constants';
+import { generateDealNumberCode } from './deal-number.util';
 
 export interface PaginatedResult {
   items: Deal[];
@@ -37,7 +38,8 @@ export interface DealFilters {
   clientType?: string;
   priority?: string;
   tagIds?: string[];
-  dealNumber?: number;
+  /** Random 6-char code (string) or legacy sequential id (number, stored as-is). */
+  dealNumber?: string | number;
 }
 
 /**
@@ -103,7 +105,7 @@ export class DealsRepository {
     if (filters?.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
     if (filters?.clientType && deal.clientType !== filters.clientType) return false;
     if (filters?.priority && deal.priority !== filters.priority) return false;
-    if (filters?.dealNumber !== undefined && deal.dealNumber !== filters.dealNumber) return false;
+    if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     return true;
   }
@@ -417,24 +419,37 @@ export class DealsRepository {
     await this.update(id, { status: DealStatus.DELETED } as any);
   }
 
-  async getNextDealNumber(): Promise<number> {
-    const result = await this.dynamoDb.client.send(
-      new UpdateCommand({
-        TableName: this.tableName,
-        Key: { PK: 'COUNTER', SK: 'DEAL_NUMBER' },
-        UpdateExpression: 'ADD dealNumber :inc',
-        ExpressionAttributeValues: { ':inc': 1 },
-        ReturnValues: 'ALL_NEW',
-      }),
-    );
-
-    return result.Attributes!.dealNumber as number;
+  /**
+   * Reserves a random 6-char Job ID (uppercase letters + digits) by writing a
+   * `DEALNUM#<code>` marker row guarded with attribute_not_exists. A collision
+   * (the code already reserved) regenerates and retries; anything else rethrows.
+   */
+  async reserveDealNumber(): Promise<string> {
+    const MAX_ATTEMPTS = 5;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const code = generateDealNumberCode();
+      try {
+        await this.dynamoDb.client.send(
+          new PutCommand({
+            TableName: this.tableName,
+            Item: { PK: `DEALNUM#${code}`, SK: 'UNIQUE' },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          }),
+        );
+        return code;
+      } catch (error) {
+        if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+        this.logger.warn(`Deal number ${code} already taken (attempt ${attempt}/${MAX_ATTEMPTS})`);
+      }
+    }
+    throw new Error(`Could not reserve a unique deal number after ${MAX_ATTEMPTS} attempts`);
   }
 
   private toDeal(item: Record<string, unknown>): Deal {
     return {
       id: item.id as string,
-      dealNumber: item.dealNumber as number,
+      // Legacy deals store a sequential number; new ones a 6-char code. Always a string in the domain.
+      dealNumber: String(item.dealNumber ?? ''),
       contactId: item.contactId as string,
       companyId: item.companyId as string | undefined,
       clientType: item.clientType as Deal['clientType'],

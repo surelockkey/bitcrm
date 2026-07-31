@@ -35,7 +35,7 @@ describe('search-mappers', () => {
   describe('mapDeal', () => {
     const deal: Deal = {
       id: 'd1',
-      dealNumber: 1042,
+      dealNumber: 'K4T9ZW',
       contactId: 'c1',
       companyId: 'co1',
       clientType: ClientType.RESIDENTIAL,
@@ -72,7 +72,7 @@ describe('search-mappers', () => {
 
     it('builds title, keywords and deep link', () => {
       const doc = mapDeal(deal, 'Install', ['vip', 'rush']);
-      expect(doc.title).toContain('1042');
+      expect(doc.title).toContain('K4T9ZW');
       expect(doc.keywords).toEqual(expect.arrayContaining(['Brooklyn', 'vip', 'Install']));
       expect(doc.url).toBe('/deals/d1');
       expect(doc.status).toBe('active');
