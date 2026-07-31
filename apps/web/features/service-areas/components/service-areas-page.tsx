@@ -68,7 +68,7 @@ export function ServiceAreasPage() {
         <div>
           <h2 className="text-base font-semibold tracking-tight">Service areas</h2>
           <p className="text-sm text-muted-foreground">
-            Territories used to auto-assign deals and match technicians. Areas can&apos;t overlap.
+            Territories used to auto-assign jobs and match technicians. Areas can&apos;t overlap.
           </p>
         </div>
         {canCreate ? (
@@ -88,7 +88,7 @@ export function ServiceAreasPage() {
           <MapPin className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">No service areas yet</p>
           <p className="text-sm text-muted-foreground">
-            Create one to start auto-assigning deals by address.
+            Create one to start auto-assigning jobs by address.
           </p>
         </div>
       ) : (
@@ -149,8 +149,8 @@ export function ServiceAreasPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete service area?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{deleting?.name}&rdquo; will be removed. Deals already assigned keep their label;
-              new deals in this territory will no longer auto-resolve to it.
+              &ldquo;{deleting?.name}&rdquo; will be removed. Jobs already assigned keep their label;
+              new jobs in this territory will no longer auto-resolve to it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

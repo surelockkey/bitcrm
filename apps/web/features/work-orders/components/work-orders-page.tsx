@@ -128,7 +128,7 @@ export function WorkOrdersPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Deal</TableHead>
+                  <TableHead>Job</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>

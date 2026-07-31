@@ -104,11 +104,11 @@ export const addNote = (id: string, note: string): Promise<{ added: true }> =>
 export const getQualifiedTechs = (id: string): Promise<QualifiedTech[]> =>
   http.get<QualifiedTech[]>(`/deals/${id}/qualified-techs`);
 
-/** Set the full technician roster on a deal (diffed server-side). */
+/** Set the full technician roster on a job (diffed server-side). */
 export const assignTechs = (id: string, techIds: string[]): Promise<Deal> =>
   http.post<Deal>(`/deals/${id}/assign`, { techIds });
 
-/** Remove one technician from a deal. */
+/** Remove one technician from a job. */
 export const unassignTech = (id: string, techId: string): Promise<Deal> =>
   http.post<Deal>(`/deals/${id}/unassign`, { techId });
 

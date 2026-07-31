@@ -22,7 +22,7 @@ import { stageLabel } from "../lib";
 import { useAddNote, useDealTimeline } from "../hooks";
 
 const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> = {
-  [TimelineEventType.CREATED]: { icon: Sparkles, label: "Deal created" },
+  [TimelineEventType.CREATED]: { icon: Sparkles, label: "Job created" },
   [TimelineEventType.STAGE_CHANGED]: { icon: ArrowRight, label: "Stage changed" },
   [TimelineEventType.FIELD_UPDATED]: { icon: Pencil, label: "Field updated" },
   [TimelineEventType.NOTE_ADDED]: { icon: MessageSquare, label: "Note" },

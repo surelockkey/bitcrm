@@ -18,7 +18,7 @@ const timeSlot = z
   .optional()
   .or(z.literal(""));
 
-/** The job step of the New Deal wizard (contact/company come from step 1). */
+/** The job step of the New Job wizard (contact/company come from step 1). */
 export const dealJobSchema = z.object({
   clientType: z.nativeEnum(ClientType),
   jobTypeId: z.string().trim().min(1, "Pick a job type"),

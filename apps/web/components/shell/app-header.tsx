@@ -35,7 +35,7 @@ export function AppHeader() {
           <Button asChild variant="brand" className="h-9 gap-1.5 px-3.5">
             <Link href="/deals/new">
               <Plus className="size-4" />
-              <span className="hidden sm:inline">New Deal</span>
+              <span className="hidden sm:inline">New Job</span>
             </Link>
           </Button>
         ) : null}

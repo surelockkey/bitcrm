@@ -88,7 +88,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg">
-        <SheetHeader className="border-b px-5 py-4"><SheetTitle>Edit deal #{deal.dealNumber}</SheetTitle></SheetHeader>
+        <SheetHeader className="border-b px-5 py-4"><SheetTitle>Edit job #{deal.dealNumber}</SheetTitle></SheetHeader>
         <form onSubmit={form.handleSubmit(submit)} className="flex flex-1 flex-col">
           <div className="flex-1 space-y-4 px-5 py-5">
             <div className="grid grid-cols-2 gap-3">

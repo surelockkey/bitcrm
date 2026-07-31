@@ -246,7 +246,7 @@ function RoleEditor({
           <TabsList variant="line" className="h-11">
             <TabsTrigger value="permissions" className="px-2">Permissions</TabsTrigger>
             <TabsTrigger value="scope" className="px-2">Data scope</TabsTrigger>
-            <TabsTrigger value="stages" className="px-2">Deal stages</TabsTrigger>
+            <TabsTrigger value="stages" className="px-2">Job stages</TabsTrigger>
             <TabsTrigger value="members" className="px-2">
               Members{memberCount !== undefined ? ` · ${memberCount}` : ""}
             </TabsTrigger>

@@ -41,7 +41,7 @@ describe("CommandMenu", () => {
       screen.getByPlaceholderText(/search deals, contacts/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Deals")).toBeInTheDocument();
+    expect(screen.getByText("Jobs")).toBeInTheDocument();
   });
 
   it("queries the backend and shows grouped entity results as you type", async () => {

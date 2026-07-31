@@ -16,8 +16,8 @@ type Kind = "in" | "out" | "deal";
 function classify(t: Transfer, containerId: string): { kind: Kind; title: string } {
   const units = transferUnits(t);
   const u = `${units} ${units === 1 ? "unit" : "units"}`;
-  if (t.type === TransferType.DEDUCT) return { kind: "deal", title: `Used ${u} on a deal` };
-  if (t.type === TransferType.RESTORE) return { kind: "deal", title: `Restored ${u} from a deal` };
+  if (t.type === TransferType.DEDUCT) return { kind: "deal", title: `Used ${u} on a job` };
+  if (t.type === TransferType.RESTORE) return { kind: "deal", title: `Restored ${u} from a job` };
   const toHere = t.toType === LocationType.CONTAINER && t.toId === containerId;
   if (toHere) {
     const src = t.fromType === LocationType.WAREHOUSE ? "a warehouse" : "another container";
@@ -57,7 +57,7 @@ export function ContainerActivityTab({ containerId }: { containerId: string }) {
         <div>
           <div className="font-medium">No movement yet</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Restocks, returns, handoffs, and deal usage will show up here.
+            Restocks, returns, handoffs, and job usage will show up here.
           </p>
         </div>
       </div>

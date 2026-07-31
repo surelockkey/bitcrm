@@ -59,7 +59,7 @@ export function JobTypeFormDialog({
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${jobType!.name}` : "New job type"}</DialogTitle>
           <DialogDescription>
-            A kind of work you dispatch. Deals pick one; technicians are approved for it.
+            A kind of work you dispatch. Jobs pick one; technicians are approved for it.
           </DialogDescription>
         </DialogHeader>
 

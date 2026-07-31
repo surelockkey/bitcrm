@@ -87,7 +87,7 @@ export function ProductRowActions({ product }: { product: Product }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Archive “{product.name}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              It stays in past deals but is hidden from pickers and new jobs. You
+              It stays in past jobs but is hidden from pickers and new jobs. You
               can restore it later from the Archived filter.
             </AlertDialogDescription>
           </AlertDialogHeader>
