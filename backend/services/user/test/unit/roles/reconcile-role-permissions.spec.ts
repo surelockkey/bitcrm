@@ -54,6 +54,46 @@ describe('reconcileRolePermissions', () => {
     expect(result.dataScope.technicians).toBe(DataScope.DEPARTMENT);
   });
 
+  it('backfills a NEW action added to an existing resource (e.g. deals.move_status)', () => {
+    const defWithAction = {
+      permissions: {
+        deals: { view: true, create: true, edit: true, delete: true, move_status: true },
+      },
+      dataScope: { deals: DataScope.ALL },
+    };
+    // Role seeded before move_status existed; create was manually restricted.
+    const role = {
+      permissions: { deals: { view: true, create: false, edit: true, delete: true } },
+      dataScope: { deals: DataScope.ALL },
+    };
+    const result = reconcileRolePermissions(role, defWithAction);
+
+    expect(result.changed).toBe(true);
+    // the new action is backfilled from the default
+    expect(result.permissions.deals.move_status).toBe(true);
+    // the manual edit on an existing action is preserved
+    expect(result.permissions.deals.create).toBe(false);
+  });
+
+  it('never overwrites an existing action value (a manually disabled action stays off)', () => {
+    const defWithAction = {
+      permissions: {
+        deals: { view: true, create: true, edit: true, delete: true, move_status: true },
+      },
+      dataScope: { deals: DataScope.ALL },
+    };
+    const role = {
+      permissions: {
+        deals: { view: true, create: true, edit: true, delete: true, move_status: false },
+      },
+      dataScope: { deals: DataScope.ALL },
+    };
+    const result = reconcileRolePermissions(role, defWithAction);
+
+    expect(result.changed).toBe(false);
+    expect(result.permissions.deals.move_status).toBe(false);
+  });
+
   it('reports changed=false when nothing is missing', () => {
     const role = { permissions: { ...def.permissions }, dataScope: { ...def.dataScope } };
     expect(reconcileRolePermissions(role, def).changed).toBe(false);
