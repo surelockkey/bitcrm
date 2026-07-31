@@ -43,6 +43,24 @@ describe('DealsRepository', () => {
     });
   });
 
+  describe('reassignContact', () => {
+    it('should update contactId and re-point the GSI3 contact index key', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.reassignContact('deal-1', 'contact-new');
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.input.Key).toEqual({ PK: 'DEAL#deal-1', SK: 'METADATA' });
+      expect(command.input.ConditionExpression).toBe('attribute_exists(PK)');
+      expect(command.input.UpdateExpression).toContain('contactId');
+      expect(command.input.UpdateExpression).toContain('GSI3PK');
+      const values = Object.values(command.input.ExpressionAttributeValues ?? {});
+      expect(values).toContain('contact-new');
+      expect(values).toContain('CONTACT#contact-new');
+    });
+  });
+
   describe('findById', () => {
     it('should return deal when found', async () => {
       const deal = createMockDeal();

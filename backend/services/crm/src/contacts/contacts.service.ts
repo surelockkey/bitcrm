@@ -3,16 +3,18 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   Optional,
 } from '@nestjs/common';
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { ContactSource, ContactType, CrmStatus, type Contact, type JwtUser } from '@bitcrm/types';
+import { ContactSource, ContactType, CrmStatus, type Address, type Contact, type JwtUser } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { ContactsRepository } from './contacts.repository';
 import { ContactsCacheService } from './contacts-cache.service';
 import { type CreateContactDto } from './dto/create-contact.dto';
 import { type UpdateContactDto } from './dto/update-contact.dto';
 import { type FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
+import { type MergeContactsDto } from './dto/merge-contacts.dto';
 import { normalizePhone, normalizePhones } from '../common/phone-normalization.util';
 
 @Injectable()
@@ -135,6 +137,87 @@ export class ContactsService {
     return updated;
   }
 
+  async merge(dto: MergeContactsDto): Promise<Contact> {
+    const mergeIds = [...new Set(dto.mergeIds)];
+    if (mergeIds.includes(dto.primaryId)) {
+      throw new BadRequestException('primaryId cannot appear in mergeIds');
+    }
+
+    const primary = await this.requireMergeableContact(dto.primaryId);
+    const duplicates: Contact[] = [];
+    for (const id of mergeIds) {
+      duplicates.push(await this.requireMergeableContact(id));
+    }
+
+    const phones = [...primary.phones];
+    for (const dup of duplicates) {
+      for (const phone of dup.phones) {
+        if (!phones.includes(phone)) phones.push(phone);
+      }
+    }
+
+    const emails = [...primary.emails];
+    const seenEmails = new Set(emails.map((e) => e.toLowerCase()));
+    for (const dup of duplicates) {
+      for (const email of dup.emails) {
+        const key = email.toLowerCase();
+        if (!seenEmails.has(key)) {
+          seenEmails.add(key);
+          emails.push(email);
+        }
+      }
+    }
+
+    const addresses = [...primary.addresses];
+    const seenAddresses = new Set(addresses.map(this.addressKey));
+    for (const dup of duplicates) {
+      for (const address of dup.addresses) {
+        const key = this.addressKey(address);
+        if (!seenAddresses.has(key)) {
+          seenAddresses.add(key);
+          addresses.push(address);
+        }
+      }
+    }
+
+    const notes = [primary, ...duplicates]
+      .map((c) => c.notes?.trim())
+      .filter(Boolean)
+      .join('\n\n');
+    const companyId =
+      primary.companyId ?? duplicates.find((d) => d.companyId)?.companyId;
+
+    // Drop the losers' PHONE# rows before the primary claims the numbers:
+    // findByPhone queries by PK only, so a leftover row would keep resolving
+    // the number to a soft-deleted contact.
+    for (const dup of duplicates) {
+      await this.repository.updatePhoneIndex(dup.id, dup.phones, []);
+    }
+    await this.repository.updatePhoneIndex(primary.id, primary.phones, phones);
+
+    const updateAttrs: Partial<Contact> = { phones, emails, addresses };
+    if (notes) updateAttrs.notes = notes;
+    if (companyId !== undefined) updateAttrs.companyId = companyId;
+
+    const updated = await this.repository.update(primary.id, updateAttrs);
+
+    for (const dup of duplicates) {
+      await this.repository.update(dup.id, { status: CrmStatus.DELETED } as any);
+      await this.cache.invalidate(dup.id);
+      this.businessMetrics?.entityDeleted.inc({ entity_type: 'contact' });
+      this.publishEvent('contact.merged', {
+        oldContactId: dup.id,
+        newContactId: primary.id,
+      });
+    }
+
+    await this.cache.invalidate(primary.id);
+    this.businessMetrics?.entityUpdated.inc({ entity_type: 'contact' });
+    this.publishEvent('contact.updated', { contactId: primary.id });
+
+    return updated;
+  }
+
   async delete(id: string): Promise<void> {
     await this.findById(id);
     await this.repository.update(id, { status: CrmStatus.DELETED } as any);
@@ -175,6 +258,22 @@ export class ContactsService {
     this.publishEvent('contact.created', { contactId: contact.id, firstName: contact.firstName, lastName: contact.lastName });
 
     return { contact, created: true };
+  }
+
+  private async requireMergeableContact(id: string): Promise<Contact> {
+    const contact = await this.repository.findById(id);
+    if (!contact) throw new NotFoundException(`Contact ${id} not found`);
+    if (contact.status === CrmStatus.DELETED) {
+      throw new BadRequestException(`Contact ${id} is deleted and cannot be merged`);
+    }
+    return contact;
+  }
+
+  private addressKey(address: Address): string {
+    const norm = (v?: string) => (v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    return [address.street, address.unit, address.city, address.state, address.zip]
+      .map(norm)
+      .join('|');
   }
 
   private publishEvent(eventType: string, payload: Record<string, unknown>): void {

@@ -833,6 +833,42 @@ export class DealsService {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * Re-points every active deal of `oldContactId` to `newContactId` after a
+   * CRM contact merge (consumed from the `contact.merged` event). Deleted
+   * deals keep the old id — the merged contact stays in DynamoDB soft-deleted,
+   * so those references still resolve.
+   */
+  async reassignContact(oldContactId: string, newContactId: string): Promise<number> {
+    let cursor: string | undefined;
+    let count = 0;
+
+    do {
+      const page = await this.repository.findByContact(oldContactId, 100, cursor);
+      for (const deal of page.items) {
+        await this.repository.reassignContact(deal.id, newContactId);
+        await this.cache.invalidate(deal.id);
+        await this.timelineRepo.addEntry({
+          id: randomUUID(),
+          dealId: deal.id,
+          eventType: TimelineEventType.FIELD_UPDATED,
+          actorId: 'system',
+          actorName: 'CRM Service',
+          timestamp: new Date().toISOString(),
+          details: {
+            field: 'contactId',
+            oldValue: oldContactId,
+            newValue: newContactId,
+          },
+        });
+        count++;
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    return count;
+  }
+
   async updatePaymentStatus(id: string, dto: UpdatePaymentStatusDto): Promise<void> {
     await this.repository.update(id, {
       paymentStatus: 'paid',

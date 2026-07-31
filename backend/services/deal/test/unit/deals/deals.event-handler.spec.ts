@@ -7,6 +7,7 @@ describe('DealsEventHandler', () => {
   beforeEach(() => {
     service = {
       updatePaymentStatus: jest.fn().mockResolvedValue(undefined),
+      reassignContact: jest.fn().mockResolvedValue(0),
     };
     handler = new DealsEventHandler(service as any);
   });
@@ -25,9 +26,21 @@ describe('DealsEventHandler', () => {
   });
 
   describe('handleContactMerged', () => {
-    it('should log and not throw', async () => {
+    it('should re-point deals from the old contact to the new one', async () => {
       const payload = { oldContactId: 'old-1', newContactId: 'new-1' };
-      await expect(handler.handleContactMerged(payload)).resolves.not.toThrow();
+      service.reassignContact.mockResolvedValue(2);
+
+      await handler.handleContactMerged(payload);
+
+      expect(service.reassignContact).toHaveBeenCalledWith('old-1', 'new-1');
+    });
+
+    it('should rethrow when reassignment fails so SQS retries', async () => {
+      service.reassignContact.mockRejectedValue(new Error('dynamo down'));
+
+      await expect(
+        handler.handleContactMerged({ oldContactId: 'old-1', newContactId: 'new-1' }),
+      ).rejects.toThrow('dynamo down');
     });
   });
 });

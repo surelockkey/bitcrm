@@ -415,6 +415,28 @@ export class DealsRepository {
     return this.toDeal(result.Attributes!);
   }
 
+  /**
+   * Re-points a deal to another contact after a CRM contact merge. `contactId`
+   * is immutable in `update()`, so the merge flow goes through this dedicated
+   * write, which also moves the GSI3 contact index entry.
+   */
+  async reassignContact(id: string, newContactId: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        UpdateExpression:
+          'SET contactId = :contactId, GSI3PK = :gsi3pk, updatedAt = :updatedAt',
+        ExpressionAttributeValues: {
+          ':contactId': newContactId,
+          ':gsi3pk': `CONTACT#${newContactId}`,
+          ':updatedAt': new Date().toISOString(),
+        },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
+  }
+
   async softDelete(id: string): Promise<void> {
     await this.update(id, { status: DealStatus.DELETED } as any);
   }
