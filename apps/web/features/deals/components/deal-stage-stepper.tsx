@@ -197,10 +197,10 @@ export function DealStageStepper({
       <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel this deal?</AlertDialogTitle>
-            <AlertDialogDescription>A reason is required and will be recorded on the deal&apos;s timeline.</AlertDialogDescription>
+            <AlertDialogTitle>Cancel this job?</AlertDialogTitle>
+            <AlertDialogDescription>A reason is required and will be recorded on the job&apos;s timeline.</AlertDialogDescription>
           </AlertDialogHeader>
-          <Textarea rows={3} placeholder="Why is this deal being canceled?" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Textarea rows={3} placeholder="Why is this job being canceled?" value={reason} onChange={(e) => setReason(e.target.value)} />
           <AlertDialogFooter>
             <AlertDialogCancel>Back</AlertDialogCancel>
             <AlertDialogAction

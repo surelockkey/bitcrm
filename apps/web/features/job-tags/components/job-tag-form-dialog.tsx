@@ -62,7 +62,7 @@ export function JobTagFormDialog({
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${jobTag!.name}` : "New job tag"}</DialogTitle>
           <DialogDescription>
-            A colored label a deal can be tagged with (e.g. Rush, Repeat, VIP).
+            A colored label a job can be tagged with (e.g. Rush, Repeat, VIP).
           </DialogDescription>
         </DialogHeader>
 
@@ -110,7 +110,7 @@ export function JobTagFormDialog({
           <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
             <div>
               <Label>Active</Label>
-              <p className="text-xs text-muted-foreground">Only active tags show in the deal picker.</p>
+              <p className="text-xs text-muted-foreground">Only active tags show in the job picker.</p>
             </div>
             <Switch checked={active} onCheckedChange={setActive} />
           </div>

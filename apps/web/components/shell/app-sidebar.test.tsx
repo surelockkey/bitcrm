@@ -28,7 +28,7 @@ describe("AppSidebar", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
 
-    expect(screen.getByText("Deals")).toBeInTheDocument();
+    expect(screen.getByText("Jobs")).toBeInTheDocument();
     expect(screen.getByText("Contacts")).toBeInTheDocument();
     expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
@@ -46,7 +46,7 @@ describe("AppSidebar", () => {
     });
     renderSidebar();
 
-    expect(screen.getByText("Deals")).toBeInTheDocument();
+    expect(screen.getByText("Jobs")).toBeInTheDocument();
     expect(screen.getByText("Contacts")).toBeInTheDocument();
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
     expect(screen.queryByText("Products")).not.toBeInTheDocument();

@@ -67,7 +67,7 @@ export function JobSourcesPage() {
         <div>
           <h2 className="text-base font-semibold tracking-tight">Job sources</h2>
           <p className="text-sm text-muted-foreground">
-            Where your deals come from. A deal picks one when it&apos;s created.
+            Where your jobs come from. A job picks one when it&apos;s created.
           </p>
         </div>
         {canCreate ? (
@@ -87,7 +87,7 @@ export function JobSourcesPage() {
           <Megaphone className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">No job sources yet</p>
           <p className="text-sm text-muted-foreground">
-            Add your lead sources so deals can record where they came from.
+            Add your lead sources so jobs can record where they came from.
           </p>
         </div>
       ) : (
@@ -146,8 +146,8 @@ export function JobSourcesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete job source?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{deleting?.name}&rdquo; will be removed. If any deal still uses it, it&apos;s
-              archived instead — it leaves the pickers but old deals keep their label.
+              &ldquo;{deleting?.name}&rdquo; will be removed. If any job still uses it, it&apos;s
+              archived instead — it leaves the pickers but old jobs keep their label.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

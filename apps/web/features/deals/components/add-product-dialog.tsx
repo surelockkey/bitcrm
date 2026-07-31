@@ -76,7 +76,7 @@ export function AddProductDialog({
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{picked ? "Add to deal" : "Add a product"}</DialogTitle>
+          <DialogTitle>{picked ? "Add to job" : "Add a product"}</DialogTitle>
         </DialogHeader>
 
         {picked ? (

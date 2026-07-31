@@ -15,7 +15,7 @@ export type Schema = Record<string, readonly string[]>;
  * ------------------------------------------------------------------ */
 
 export const RESOURCE_LABELS: Record<string, string> = {
-  deals: "Deals",
+  deals: "Jobs",
   contacts: "Contacts",
   companies: "Companies",
   products: "Products",

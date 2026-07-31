@@ -47,7 +47,7 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
     <div className="space-y-3">
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
-          No products on this deal yet.
+          No products on this job yet.
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border">
