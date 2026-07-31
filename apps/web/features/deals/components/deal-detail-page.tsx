@@ -42,14 +42,14 @@ import { isUrgent } from "../lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
-import { DealTimelineTab } from "./deal-timeline-tab";
+import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 
-type Tab = "details" | "items" | "attachments" | "timeline";
+type Tab = "details" | "items" | "attachments";
 
 export function DealDetailPage({ dealId }: { dealId: string }) {
   const router = useRouter();
@@ -66,7 +66,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const canDelete = can("deals", "delete");
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -129,7 +129,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
-        {(["details", "items", "attachments", "timeline"] as Tab[]).map((t) => (
+        {(["details", "items", "attachments"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -151,10 +151,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         {tab === "attachments" ? (
           <div className="mx-auto max-w-3xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
         ) : null}
-        {tab === "timeline" ? (
-          <div className="mx-auto max-w-2xl"><DealTimelineTab dealId={deal.id} canEdit={canEdit} /></div>
-        ) : null}
       </div>
+
+      {/* Workiz-style hanging history: handle on the right edge, opens the
+          timeline with the change log, filters and search. */}
+      <DealTimelinePanel dealId={deal.id} canEdit={canEdit} />
     </div>
   );
 }
