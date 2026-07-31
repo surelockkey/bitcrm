@@ -79,6 +79,14 @@ vi.mock("../hooks", () => ({
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: vi.fn(), isPending: false }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
+  useDealTimeline: () => ({
+    data: { pages: [] },
+    isLoading: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  }),
+  useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/features/clients/hooks", () => ({
@@ -94,5 +102,14 @@ describe("DealDetailPage", () => {
 
     const link = screen.getByRole("link", { name: /view client/i });
     expect(link).toHaveAttribute("href", "/contacts/c1");
+  });
+
+  it("hangs the timeline on the right edge instead of a tab", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    // Exactly one "timeline" button — the hanging handle, not a tab. getByRole
+    // throws if a timeline tab button were still rendered next to it.
+    const handle = screen.getByRole("button", { name: /timeline/i });
+    expect(handle).toHaveAttribute("aria-expanded", "false");
   });
 });
