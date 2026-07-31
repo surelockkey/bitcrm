@@ -40,6 +40,13 @@ export interface DealFilters {
   dealNumber?: number;
 }
 
+/**
+ * A partial deal patch. A field set to `null` CLEARS (REMOVEs) the stored
+ * attribute; `undefined` leaves it untouched. This is how a deal's sub-status
+ * is dropped when it moves to a bare super-status.
+ */
+export type DealUpdate = Partial<{ [K in keyof Deal]: Deal[K] | null }>;
+
 @Injectable()
 export class DealsRepository {
   private readonly logger = new Logger(DealsRepository.name);
@@ -350,8 +357,9 @@ export class DealsRepository {
     return ids.map((id) => byId.get(id)).filter((d): d is Deal => Boolean(d));
   }
 
-  async update(id: string, attrs: Partial<Deal>): Promise<Deal> {
+  async update(id: string, attrs: DealUpdate): Promise<Deal> {
     const setParts: string[] = [];
+    const removeParts: string[] = [];
     const expressionNames: Record<string, string> = {};
     const expressionValues: Record<string, unknown> = {};
 
@@ -360,7 +368,7 @@ export class DealsRepository {
 
     // Update GSI keys when relevant fields change. The tech index lives on the
     // assignment rows now, so metadata only owns the super-status index here.
-    if (attrs.superStatus !== undefined) {
+    if (attrs.superStatus !== undefined && attrs.superStatus !== null) {
       updates['GSI1PK'] = `STATUS#${attrs.superStatus}`;
     }
 
@@ -370,19 +378,31 @@ export class DealsRepository {
 
     for (const [key, value] of Object.entries(updates)) {
       if (immutableKeys.has(key)) continue;
-      if (value === undefined) continue;
       const attrName = `#${key}`;
+      // `null` clears the attribute: SET-to-null would leave it present (and a
+      // falsy value), so an explicit null must REMOVE it — that's how a
+      // sub-status is dropped when a deal moves to a bare super-status.
+      if (value === null) {
+        expressionNames[attrName] = key;
+        removeParts.push(attrName);
+        continue;
+      }
+      if (value === undefined) continue;
       const attrValue = `:${key}`;
       expressionNames[attrName] = key;
       expressionValues[attrValue] = value;
       setParts.push(`${attrName} = ${attrValue}`);
     }
 
+    // updatedAt is always set, so a SET clause is always present.
+    const clauses = [`SET ${setParts.join(', ')}`];
+    if (removeParts.length) clauses.push(`REMOVE ${removeParts.join(', ')}`);
+
     const result = await this.dynamoDb.client.send(
       new UpdateCommand({
         TableName: this.tableName,
         Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
-        UpdateExpression: `SET ${setParts.join(', ')}`,
+        UpdateExpression: clauses.join(' '),
         ExpressionAttributeNames: expressionNames,
         ExpressionAttributeValues: expressionValues,
         ConditionExpression: 'attribute_exists(PK)',

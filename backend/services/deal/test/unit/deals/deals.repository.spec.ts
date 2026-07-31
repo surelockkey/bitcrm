@@ -345,6 +345,20 @@ describe('DealsRepository', () => {
       expect(command.input.ConditionExpression).toBe('attribute_exists(PK)');
       expect(command.input.ReturnValues).toBe('ALL_NEW');
     });
+
+    it('REMOVEs an attribute passed as null instead of SETting it (clears subStatusId)', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Attributes: { ...createMockDeal() } });
+
+      await repository.update('deal-1', { subStatusId: null } as any);
+
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      const expr = command.input.UpdateExpression as string;
+      // Cleared via REMOVE, never SET — a SET to null would leave the attribute present.
+      expect(expr).toContain('REMOVE #subStatusId');
+      expect(expr).not.toContain('#subStatusId =');
+      expect(command.input.ExpressionAttributeValues).not.toHaveProperty(':subStatusId');
+      expect(command.input.ExpressionAttributeNames['#subStatusId']).toBe('subStatusId');
+    });
   });
 
   describe('softDelete', () => {

@@ -27,7 +27,7 @@ import {
   type JwtUser,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
-import { DealsRepository, type DealFilters } from './deals.repository';
+import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
@@ -368,11 +368,13 @@ export class DealsService {
     }
 
     const from = deal.superStatus;
-    const updates: Partial<Deal> = {
+    const updates: DealUpdate = {
       superStatus: dto.superStatus,
-      // Always reconcile the sub-status: the provided one, or cleared (a sub-status
-      // belongs to a single super-status, so moving without one drops the old).
-      subStatusId: dto.subStatusId || undefined,
+      // Always reconcile the sub-status: the provided one, or cleared. `null`
+      // (not undefined) so the repository REMOVEs it — a sub-status belongs to a
+      // single super-status, so moving without one must drop the old, and
+      // `update()` skips undefined (which left the stale sub-status attached).
+      subStatusId: dto.subStatusId || null,
     };
     if (dto.cancellationReason) {
       updates.cancellationReason = dto.cancellationReason;
