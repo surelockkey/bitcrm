@@ -203,15 +203,17 @@ export function DealTimelinePanel({ dealId, canEdit }: { dealId: string; canEdit
     <>
       <button
         type="button"
-        aria-label="Timeline"
         aria-expanded={open}
         onClick={toggle}
         className={cn(
-          "fixed top-44 z-40 grid size-11 place-items-center rounded-l-xl bg-brand text-brand-foreground shadow-lg transition-[right] duration-300 ease-in-out hover:bg-brand/90",
+          "fixed top-44 z-40 flex flex-col items-center gap-1.5 rounded-l-xl bg-brand px-2 py-2.5 text-brand-foreground shadow-lg transition-[right] duration-300 ease-in-out hover:bg-brand/90",
           open ? "right-95 max-[447px]:right-[85vw]" : "right-0",
         )}
       >
         <History className="size-4.5" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">
+          Timeline
+        </span>
       </button>
       <aside
         aria-label="Job timeline"
