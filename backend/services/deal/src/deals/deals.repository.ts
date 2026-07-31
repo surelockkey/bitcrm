@@ -430,6 +430,7 @@ export class DealsRepository {
       internalNotes: item.internalNotes as string | undefined,
       cancellationReason: item.cancellationReason as string | undefined,
       tagIds: (item.tagIds as string[]) || [],
+      subStatusId: (item.subStatusId as string) || undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
       paymentStatus: item.paymentStatus as string | undefined,

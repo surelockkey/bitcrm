@@ -38,6 +38,7 @@ import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
 import { JobTagsService } from '../job-tags/job-tags.service';
+import { JobStatusesService } from '../job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
 import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
@@ -64,6 +65,7 @@ export class DealsService {
     private readonly jobTypes: JobTypesService,
     private readonly jobSources: JobSourcesService,
     private readonly jobTags: JobTagsService,
+    private readonly jobStatuses: JobStatusesService,
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
@@ -311,6 +313,9 @@ export class DealsService {
         if (!known.has(tagId)) throw new BadRequestException(`Job tag ${tagId} not found`);
       }
     }
+    // Sub-status: archived allowed on update so an old deal stays editable; only
+    // existence is enforced. An empty string clears it (findById would 404).
+    if (updates.subStatusId) await this.jobStatuses.findById(updates.subStatusId);
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);

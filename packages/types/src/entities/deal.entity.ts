@@ -37,6 +37,11 @@ export interface Deal {
   cancellationReason?: string;
   /** Catalog job-tag ids applied to this deal. */
   tagIds: string[];
+  /**
+   * Catalog job-sub-status id (a custom colored label under a super-status).
+   * Optional and independent of `stage` — a display/reporting label only.
+   */
+  subStatusId?: string;
   estimatedTotal?: number;
   actualTotal?: number;
   paymentStatus?: string;

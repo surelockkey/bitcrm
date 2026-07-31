@@ -11,6 +11,7 @@ import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
+import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
@@ -72,6 +73,7 @@ describe('DealsService', () => {
         { provide: JobTypesService, useValue: jobTypes },
         { provide: JobSourcesService, useValue: jobSources },
         { provide: JobTagsService, useValue: jobTags },
+        { provide: JobStatusesService, useValue: { findById: jest.fn() } },
         { provide: TechnicianEligibilityRepository, useValue: eligibility },
       ],
     }).compile();

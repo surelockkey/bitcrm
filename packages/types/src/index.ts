@@ -32,6 +32,7 @@ export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.e
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';
+export { DealSubStatus } from './entities/deal-sub-status.entity';
 export {
   ServiceArea,
   ServiceAreaDefinition,
