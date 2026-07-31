@@ -25,7 +25,7 @@ const TODAY = "2026-07-14";
 function deal(overrides: Partial<Deal> = {}): Deal {
   return {
     id: "deal-1",
-    dealNumber: 1,
+    dealNumber: "1",
     contactId: "contact-1",
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Atlanta Metro",

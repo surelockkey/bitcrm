@@ -28,7 +28,7 @@ const today = new Date().toISOString().slice(0, 10);
 
 const DEAL = {
   id: "deal-1",
-  dealNumber: 101,
+  dealNumber: "101",
   contactId: "contact-1",
   clientType: "residential",
   serviceArea: "Austin",

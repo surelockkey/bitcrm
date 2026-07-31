@@ -25,7 +25,7 @@ const grid: Grid = { startHour: 7, endHour: 19, hourPx: 56, minBlockPx: 24 };
 function deal(over: Partial<Deal>): Deal {
   return {
     id: "d1",
-    dealNumber: 1,
+    dealNumber: "1",
     contactId: "c1",
     clientType: "residential" as Deal["clientType"],
     serviceArea: "TX",

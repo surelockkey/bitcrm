@@ -206,7 +206,9 @@ export function filterDeals(
   contactNames: Map<string, string>,
 ): Deal[] {
   const q = (filter.search ?? "").trim().toLowerCase();
-  const qDigits = q.replace(/[^\d]/g, "");
+  // Job IDs are 6-char letter+digit codes (legacy ones pure digits); strip
+  // everything else so "#K4T9ZW" and "k4t9zw" both match the stored code.
+  const qAlnum = q.replace(/[^a-z0-9]/g, "");
   return deals.filter((d) => {
     if (filter.superStatus && d.superStatus !== filter.superStatus) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
@@ -225,8 +227,8 @@ export function filterDeals(
     if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;
     if (q) {
       const name = (contactNames.get(d.contactId) ?? "").toLowerCase();
-      const num = String(d.dealNumber);
-      const matchesNum = qDigits.length > 0 && num.includes(qDigits);
+      const num = String(d.dealNumber).toLowerCase();
+      const matchesNum = qAlnum.length > 0 && num.includes(qAlnum);
       const matchesName = name.includes(q);
       const matchesArea = d.serviceArea.toLowerCase().includes(q);
       if (!matchesNum && !matchesName && !matchesArea) return false;
