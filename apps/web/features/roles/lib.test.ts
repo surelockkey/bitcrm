@@ -16,6 +16,10 @@ import {
   toggleTransition,
   toggleWildcardTo,
   toggleAllTransitions,
+  groupedResources,
+  RESOURCE_GROUPS,
+  RESOURCE_LABELS,
+  STANDARD_ACTIONS,
 } from "./lib";
 
 const schema = {
@@ -23,6 +27,26 @@ const schema = {
   settings: ["view", "edit"],
   skills: ["view", "propose", "approve", "revoke"],
 } as const;
+
+describe("resource grouping completeness", () => {
+  // The matrix renders its rows from groupedResources(schema). A resource that
+  // has a label but is missing from RESOURCE_GROUPS silently falls into the
+  // "Other" bucket — which is how job_statuses shipped with no home. Guard every
+  // labeled resource against that.
+  it("places every labeled resource in a named group — nothing falls into 'Other'", () => {
+    const schema = Object.fromEntries(
+      Object.keys(RESOURCE_LABELS).map((r) => [r, STANDARD_ACTIONS]),
+    );
+    const labels = groupedResources(schema).map((g) => g.label);
+    expect(labels).not.toContain("Other");
+  });
+
+  it("every RESOURCE_GROUPS resource has a label (no orphan group entries)", () => {
+    const grouped = RESOURCE_GROUPS.flatMap((g) => g.resources);
+    const unlabeled = grouped.filter((r) => !(r in RESOURCE_LABELS));
+    expect(unlabeled).toEqual([]);
+  });
+});
 
 describe("matrix cells", () => {
   it("treats missing keys as denied (deny-by-default)", () => {
