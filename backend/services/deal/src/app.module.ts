@@ -10,6 +10,7 @@ import {
   MetricsModule,
   HealthModule,
   ConnectivityModule,
+  StorageModule,
 } from '@bitcrm/shared';
 import { UserEventType } from '@bitcrm/types';
 import { AppController } from './app.controller';
@@ -49,6 +50,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     RedisModule,
     GeocodingModule,
     AuthModule,
+    StorageModule,
     EventsModule.forRoot({
       publisher: {
         region: AWS_REGION,

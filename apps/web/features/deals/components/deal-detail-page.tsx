@@ -42,12 +42,13 @@ import { StageMenu } from "./stage-menu";
 import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelineTab } from "./deal-timeline-tab";
+import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 
-type Tab = "details" | "items" | "timeline";
+type Tab = "details" | "items" | "attachments" | "timeline";
 
 export function DealDetailPage({ dealId }: { dealId: string }) {
   const router = useRouter();
@@ -103,7 +104,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
-        {(["details", "items", "timeline"] as Tab[]).map((t) => (
+        {(["details", "items", "attachments", "timeline"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -121,6 +122,9 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         {tab === "details" ? <DetailsTab deal={deal} canEdit={canEdit} /> : null}
         {tab === "items" ? (
           <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+        ) : null}
+        {tab === "attachments" ? (
+          <div className="mx-auto max-w-3xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
         ) : null}
         {tab === "timeline" ? (
           <div className="mx-auto max-w-2xl"><DealTimelineTab dealId={deal.id} canEdit={canEdit} /></div>

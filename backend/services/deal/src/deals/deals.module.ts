@@ -13,10 +13,14 @@ import { DealProductsRepository } from '../products/deal-products.repository';
 import { DealProductsBackfill } from '../products/deal-products.backfill';
 import { InternalHttpService } from '../common/services/internal-http.service';
 import { DealsEventHandler } from './deals.event-handler';
+import { DealAttachmentsController } from './attachments/deal-attachments.controller';
+import { DealAttachmentsService } from './attachments/deal-attachments.service';
+import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, TechnicianEligibilityModule],
-  controllers: [DealsController],
+  // Attachments controller before Deals so `/:id/attachments` isn't shadowed by `/:id`.
+  controllers: [DealAttachmentsController, DealsController],
   providers: [
     DealsService,
     DealsRepository,
@@ -26,6 +30,8 @@ import { DealsEventHandler } from './deals.event-handler';
     DealProductsBackfill,
     InternalHttpService,
     DealsEventHandler,
+    DealAttachmentsService,
+    DealAttachmentsRepository,
   ],
   exports: [DealsService, DealsEventHandler],
 })

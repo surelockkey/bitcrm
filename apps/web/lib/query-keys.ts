@@ -21,6 +21,7 @@ export const queryKeys = {
     allowedStages: (id: string) => ["deals", id, "allowed-stages"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
     products: (id: string) => ["deals", id, "products"] as const,
+    attachments: (id: string) => ["deals", id, "attachments"] as const,
   },
 
   serviceAreas: {
