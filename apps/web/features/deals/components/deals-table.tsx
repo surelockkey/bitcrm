@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { contactName, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
 import { formatSchedule, isUrgent, scheduleRelative } from "../lib";
@@ -45,7 +44,6 @@ export function DealsTable({
             <TableHead>Location</TableHead>
             <TableHead>Scheduled</TableHead>
             <TableHead>Job type</TableHead>
-            <TableHead className="w-10"><span className="sr-only">Open in new tab</span></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -63,7 +61,24 @@ export function DealsTable({
                 className="cursor-pointer align-top"
                 onClick={() => onOpen(d)}
               >
-                <TableCell className="font-mono text-xs text-muted-foreground">#{d.dealNumber}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {/* The number doubles as the open-in-new-tab link so it's
+                      reachable right next to the nav, not across the row;
+                      stopPropagation keeps the row click (preview drawer)
+                      from also firing. */}
+                  <Link
+                    href={`/deals/${d.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Open job #${d.dealNumber} in new tab`}
+                    title="Open in new tab"
+                    onClick={(e) => e.stopPropagation()}
+                    className="-mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground underline-offset-2 hover:bg-accent hover:text-foreground hover:underline"
+                  >
+                    #{d.dealNumber}
+                    <ExternalLink className="size-3" />
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{contact ? contactName(contact) : "—"}</span>
@@ -99,27 +114,6 @@ export function DealsTable({
                   ) : null}
                 </TableCell>
                 <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
-                <TableCell className="text-right">
-                  {/* Opens the full job in a new tab; stopPropagation keeps the
-                      row click (which opens the preview drawer) from also firing. */}
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 text-muted-foreground hover:text-foreground"
-                    title="Open in new tab"
-                  >
-                    <Link
-                      href={`/deals/${d.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Open job #${d.dealNumber} in new tab`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ExternalLink className="size-4" />
-                    </Link>
-                  </Button>
-                </TableCell>
               </TableRow>
             );
           })}
