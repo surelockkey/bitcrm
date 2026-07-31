@@ -96,7 +96,7 @@ describe("UserPermissionsPage access gating", () => {
     expect(switches.some((s) => !(s as HTMLButtonElement).disabled)).toBe(true);
     expect(screen.queryByText(/Unsaved changes/)).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("switch", { name: "Deals Delete" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Jobs Delete" }));
     expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument();
     expect(screen.getByText(/1 cell overridden \(1 granted, 0 revoked\)/)).toBeInTheDocument();
   });
