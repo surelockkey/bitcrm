@@ -8,7 +8,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, DealStage, User } from "@bitcrm/types";
+import type { Contact, Deal, DealStage, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
@@ -136,6 +136,35 @@ export function useUpdateDeal(id: string) {
       toast.success("Deal saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/**
+ * Sub-status auto-saves immediately (no Save button), like tags. Optimistic so
+ * the new status paints before the server round-trip; the success toast is left
+ * to the caller. Pass "" to clear the status.
+ */
+export function useSetDealSubStatus(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (subStatusId: string) => api.updateDeal(id, { subStatusId }),
+    onMutate: async (subStatusId) => {
+      await qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) });
+      const previous = qc.getQueryData<Deal>(queryKeys.deals.detail(id));
+      if (previous) {
+        qc.setQueryData<Deal>(queryKeys.deals.detail(id), {
+          ...previous,
+          subStatusId: subStatusId || undefined,
+        });
+      }
+      return { previous };
+    },
+    onError: (e, _subStatusId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
   });
 }
 
