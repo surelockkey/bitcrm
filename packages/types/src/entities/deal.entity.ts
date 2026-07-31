@@ -6,7 +6,12 @@ import { type DealStatus } from '../enums/deal-status.enum';
 
 export interface Deal {
   id: string;
-  dealNumber: number;
+  /**
+   * Human-facing Job ID: a random 6-char code of uppercase letters + digits
+   * (e.g. "K4T9ZW"), unique across the table. Legacy deals carry their old
+   * sequential number coerced to a string ("1042").
+   */
+  dealNumber: string;
   contactId: string;
   companyId?: string;
   clientType: ClientType;

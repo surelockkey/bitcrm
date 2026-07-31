@@ -101,13 +101,13 @@ describe('DealsService', () => {
     };
 
     it('should create deal with auto-generated fields', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       const result = await service.create(dto as any, caller);
 
       expect(result.id).toBeDefined();
-      expect(result.dealNumber).toBe(1001);
+      expect(result.dealNumber).toBe('K4T9ZW');
       expect(result.superStatus).toBe(JobSuperStatus.SUBMITTED);
       expect(result.status).toBe(DealStatus.ACTIVE);
       expect(result.assignedDispatcherId).toBe('dispatcher-1');
@@ -117,7 +117,7 @@ describe('DealsService', () => {
     });
 
     it('persists a platinum work-order link and PO number', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       const result = await service.create(
@@ -133,7 +133,7 @@ describe('DealsService', () => {
     });
 
     it('auto-resolves serviceAreaId and label from the geocoded address', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
       serviceAreas.resolvePoint.mockResolvedValue({ id: 'area-9', name: 'North Metro' });
 
@@ -145,7 +145,7 @@ describe('DealsService', () => {
     });
 
     it('falls back to the provided label when no area covers the address', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
       serviceAreas.resolvePoint.mockResolvedValue(null);
 
@@ -156,7 +156,7 @@ describe('DealsService', () => {
     });
 
     it('should use provided priority and tags', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1002);
+      repo.reserveDealNumber.mockResolvedValue('X7B2QP');
       repo.create.mockResolvedValue(undefined);
       jobTags.list.mockResolvedValue([createMockJobTag({ id: 'tag-vip', active: true })]);
 
@@ -175,7 +175,7 @@ describe('DealsService', () => {
     });
 
     it('should add CREATED timeline entry', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       await service.create(dto as any, caller);
@@ -186,7 +186,7 @@ describe('DealsService', () => {
     });
 
     it('should publish deal.created event', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       await service.create(dto as any, caller);
@@ -313,13 +313,43 @@ describe('DealsService', () => {
       );
     });
 
-    it('should parse a "#1042" search into a dealNumber filter', async () => {
+    it('should parse a "#1042" search into a legacy numeric dealNumber filter', async () => {
       repo.findAll.mockResolvedValue(mockResult);
       await service.list({ search: '#1042' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
         undefined,
         expect.objectContaining({ dealNumber: 1042 }),
+      );
+    });
+
+    it('should parse a "#K4T9ZW" search into a code dealNumber filter', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: '#K4T9ZW' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: 'K4T9ZW' }),
+      );
+    });
+
+    it('should uppercase a bare lowercase code search', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: 'k4t9zw' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: 'K4T9ZW' }),
+      );
+    });
+
+    it('should NOT treat a pure-letter word as a dealNumber filter', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: 'SMITHS' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: undefined }),
       );
     });
 
@@ -907,7 +937,7 @@ describe('DealsService', () => {
   describe('publishEvent (error handling)', () => {
     it('should not crash when SNS publish fails', async () => {
       sns.publish.mockRejectedValue(new Error('Topic not found'));
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       const caller = createMockJwtUser({ id: 'dispatcher-1' });

@@ -23,7 +23,7 @@ export function createMockAddress(overrides?: Partial<Address>): Address {
 export function createMockDeal(overrides?: Partial<Deal>): Deal {
   return {
     id: 'deal-1',
-    dealNumber: 1001,
+    dealNumber: 'AB12CD',
     contactId: 'contact-1',
     clientType: ClientType.RESIDENTIAL,
     scheduledDate: '2026-04-20',
@@ -158,7 +158,7 @@ export function createMockDealsRepository() {
     findAll: jest.fn(),
     update: jest.fn(),
     softDelete: jest.fn(),
-    getNextDealNumber: jest.fn(),
+    reserveDealNumber: jest.fn(),
     addAssignment: jest.fn(),
     removeAssignment: jest.fn(),
     listAssignmentTechIds: jest.fn().mockResolvedValue([]),

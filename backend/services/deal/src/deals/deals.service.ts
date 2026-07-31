@@ -28,6 +28,7 @@ import {
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
+import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
@@ -129,7 +130,7 @@ export class DealsService {
       throw new BadRequestException(`Contact ${dto.contactId} not found`);
     }
 
-    const dealNumber = await this.repository.getNextDealNumber();
+    const dealNumber = await this.repository.reserveDealNumber();
     const now = new Date().toISOString();
     const id = randomUUID();
 
@@ -255,8 +256,7 @@ export class DealsService {
       tagIds: query.tagIds
         ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
         : undefined,
-      dealNumber:
-        search && /^#?\d+$/.test(search) ? Number(search.replace('#', '')) : undefined,
+      dealNumber: this.parseDealNumberSearch(search),
     };
 
     if (query.superStatus) {
@@ -276,6 +276,19 @@ export class DealsService {
       status: query.status,
       ...filters,
     });
+  }
+
+  /**
+   * "#1042"/"1042" → legacy sequential id (number, matches the stored numeric
+   * attribute); "#K4T9ZW"/"k4t9zw" → random 6-char code, uppercased. Anything
+   * else (names, partial words) is not a Job ID search.
+   */
+  private parseDealNumberSearch(search?: string): string | number | undefined {
+    if (!search) return undefined;
+    const token = search.replace(/^#/, '');
+    if (/^\d+$/.test(token)) return Number(token);
+    if (isDealNumberCode(token)) return token.toUpperCase();
+    return undefined;
   }
 
   async update(id: string, dto: UpdateDealDto, caller: JwtUser): Promise<Deal> {
