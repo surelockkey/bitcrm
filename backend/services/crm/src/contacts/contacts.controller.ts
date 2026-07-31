@@ -16,6 +16,7 @@ import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { ListContactsQueryDto } from './dto/list-contacts-query.dto';
 import { FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
+import { MergeContactsDto } from './dto/merge-contacts.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 
 @ApiTags('Contacts')
@@ -86,6 +87,20 @@ export class ContactsController {
     @Body() dto: UpdateContactDto,
   ) {
     const data = await this.contactsService.update(id, dto);
+    return { success: true, data };
+  }
+
+  @Post('merge')
+  @RequirePermission('contacts', 'delete')
+  @ApiOperation({
+    summary: 'Merge duplicate contacts into one',
+    description:
+      '**Guard:** `contacts.delete` permission required (the duplicates are soft-deleted). '
+      + 'Folds 1-4 duplicates into the primary contact: phones, emails, addresses and notes are '
+      + 'unioned; the duplicates are soft-deleted and a `contact.merged` event is published per duplicate.',
+  })
+  async merge(@Body() dto: MergeContactsDto) {
+    const data = await this.contactsService.merge(dto);
     return { success: true, data };
   }
 

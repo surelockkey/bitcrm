@@ -56,6 +56,8 @@ invalidates that cache on these events.
 
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
+`contact.merged` (`{oldContactId, newContactId}`) is emitted once per absorbed duplicate by
+`ContactsService.merge`; deal-service re-points the old contact's active deals to the survivor.
 
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
 - **inventory-service** ← `user.activated`, `user.role-changed` → `ContainersEventHandler`

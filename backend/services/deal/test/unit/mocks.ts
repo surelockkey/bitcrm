@@ -157,6 +157,7 @@ export function createMockDealsRepository() {
     findByDispatcher: jest.fn(),
     findAll: jest.fn(),
     update: jest.fn(),
+    reassignContact: jest.fn(),
     softDelete: jest.fn(),
     reserveDealNumber: jest.fn(),
     addAssignment: jest.fn(),
