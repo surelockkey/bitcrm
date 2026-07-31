@@ -44,7 +44,7 @@ export function JobSidebar({
     <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l">
       <div className="flex items-center gap-2 border-b px-4 py-3">
         <span className="text-sm font-semibold">#{deal.dealNumber}</span>
-        <StageBadge stage={deal.stage} />
+        <StageBadge status={deal.superStatus} />
         <Button
           size="icon"
           variant="ghost"

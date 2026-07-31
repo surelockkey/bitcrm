@@ -54,7 +54,7 @@ function JobRow({
       </div>
 
       <div className="flex items-center gap-2 pl-5">
-        <StageBadge stage={deal.stage} />
+        <StageBadge status={deal.superStatus} />
         <span className="truncate text-xs text-muted-foreground">
           {jobTypeName(deal.jobTypeId)}
         </span>

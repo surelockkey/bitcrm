@@ -1,19 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { DealStageGroup } from "@bitcrm/types";
+import { JobSuperStatus } from "@bitcrm/types";
 import { jobStatusFormSchema, toJobStatusBody } from "./schemas";
 
 describe("jobStatusFormSchema", () => {
   it("accepts a valid form and coerces priority", () => {
     const parsed = jobStatusFormSchema.parse({
       name: "Job Done",
-      group: DealStageGroup.IN_PROGRESS,
+      group: JobSuperStatus.IN_PROGRESS,
       color: "green",
       priority: "5",
       active: true,
     });
     expect(parsed).toEqual({
       name: "Job Done",
-      group: DealStageGroup.IN_PROGRESS,
+      group: JobSuperStatus.IN_PROGRESS,
       color: "green",
       priority: 5,
       active: true,
@@ -30,12 +30,12 @@ describe("jobStatusFormSchema", () => {
 
   it("trims the name and rejects an empty one", () => {
     expect(
-      jobStatusFormSchema.safeParse({ name: "   ", group: DealStageGroup.PENDING }).success,
+      jobStatusFormSchema.safeParse({ name: "   ", group: JobSuperStatus.PENDING }).success,
     ).toBe(false);
   });
 
   it("defaults color to slate, priority to 0 and active to true", () => {
-    const parsed = jobStatusFormSchema.parse({ name: "Will Call Back", group: DealStageGroup.PENDING });
+    const parsed = jobStatusFormSchema.parse({ name: "Will Call Back", group: JobSuperStatus.PENDING });
     expect(parsed.color).toBe("slate");
     expect(parsed.priority).toBe(0);
     expect(parsed.active).toBe(true);
@@ -44,14 +44,14 @@ describe("jobStatusFormSchema", () => {
   it("maps to the request body", () => {
     const body = toJobStatusBody({
       name: "NO ANSWER",
-      group: DealStageGroup.PENDING,
+      group: JobSuperStatus.PENDING,
       color: "blue",
       priority: 3,
       active: false,
     });
     expect(body).toEqual({
       name: "NO ANSWER",
-      group: DealStageGroup.PENDING,
+      group: JobSuperStatus.PENDING,
       color: "blue",
       priority: 3,
       active: false,

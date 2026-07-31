@@ -1,4 +1,4 @@
-import type { DealStageGroup, DealSubStatus } from "@bitcrm/types";
+import type { JobSuperStatus, DealSubStatus } from "@bitcrm/types";
 import { GROUP_ORDER, groupLabel } from "@/features/deals/lib";
 import { TAG_COLOR_CLASSES, TAG_SWATCH_CLASSES, tagColorClasses } from "@/features/job-tags/lib";
 import { useJobStatuses } from "./hooks";
@@ -35,7 +35,7 @@ export function activeJobStatuses(list: DealSubStatus[] | undefined): DealSubSta
 
 /** A super-status with its sub-statuses, for grouped rendering. */
 export interface JobStatusGroup {
-  group: DealStageGroup;
+  group: JobSuperStatus;
   label: string;
   statuses: DealSubStatus[];
 }

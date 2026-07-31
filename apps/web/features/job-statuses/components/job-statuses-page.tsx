@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
-import type { DealStageGroup, DealSubStatus } from "@bitcrm/types";
+import type { JobSuperStatus, DealSubStatus } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,7 @@ export function JobStatusesPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<DealSubStatus | undefined>();
-  const [addGroup, setAddGroup] = useState<DealStageGroup | undefined>();
+  const [addGroup, setAddGroup] = useState<JobSuperStatus | undefined>();
   const [deleting, setDeleting] = useState<DealSubStatus | undefined>();
 
   const canCreate = can("job_statuses", "create");
@@ -47,7 +47,7 @@ export function JobStatusesPage() {
     );
   }
 
-  const openNew = (group: DealStageGroup) => {
+  const openNew = (group: JobSuperStatus) => {
     setEditing(undefined);
     setAddGroup(group);
     setFormOpen(true);

@@ -39,7 +39,7 @@ export function JobBlock({
       </div>
       <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
         <span className="truncate">{deal.scheduledTimeSlot}</span>
-        <StageBadge stage={deal.stage} className="scale-90" />
+        <StageBadge status={deal.superStatus} className="scale-90" />
       </div>
       {block.overflowCount > 0 ? (
         <button

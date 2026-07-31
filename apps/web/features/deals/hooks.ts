@@ -8,7 +8,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, Deal, DealStage, User } from "@bitcrm/types";
+import type { Contact, Deal, JobSuperStatus, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
@@ -22,7 +22,7 @@ import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./sch
 export const DEALS_POLL_MS = 30_000;
 
 export function useDeals(
-  params: { stage?: DealStage; techId?: string } = {},
+  params: { superStatus?: JobSuperStatus; techId?: string } = {},
   options: { poll?: boolean } = {},
 ) {
   return useQuery({
@@ -55,12 +55,6 @@ export function useDealTimeline(id: string) {
   });
 }
 
-export function useAllowedStages(id: string) {
-  return useQuery({
-    queryKey: queryKeys.deals.allowedStages(id),
-    queryFn: () => api.getAllowedStages(id),
-  });
-}
 
 export function useQualifiedTechs(id: string, enabled: boolean) {
   return useQuery({
@@ -110,7 +104,6 @@ function useInvalidateDeal(id?: string) {
       qc.invalidateQueries({ queryKey: queryKeys.deals.detail(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.products(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(id) });
-      qc.invalidateQueries({ queryKey: queryKeys.deals.allowedStages(id) });
     }
   };
 }
@@ -140,27 +133,28 @@ export function useUpdateDeal(id: string) {
 }
 
 /**
- * Sub-status auto-saves immediately (no Save button), like tags. Optimistic so
- * the new status paints before the server round-trip; the success toast is left
- * to the caller. Pass "" to clear the status.
+ * Move a deal's status (super-status + optional sub-status). Auto-saves and is
+ * optimistic so the new status paints before the round-trip; the success toast
+ * is left to the caller. Gated server-side by deals.move_status.
  */
-export function useSetDealSubStatus(id: string) {
+export function useMoveStatus(id: string) {
   const qc = useQueryClient();
   const invalidate = useInvalidateDeal(id);
   return useMutation({
-    mutationFn: (subStatusId: string) => api.updateDeal(id, { subStatusId }),
-    onMutate: async (subStatusId) => {
+    mutationFn: (body: api.MoveStatusBody) => api.moveStatus(id, body),
+    onMutate: async (body) => {
       await qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) });
       const previous = qc.getQueryData<Deal>(queryKeys.deals.detail(id));
       if (previous) {
         qc.setQueryData<Deal>(queryKeys.deals.detail(id), {
           ...previous,
-          subStatusId: subStatusId || undefined,
+          superStatus: body.superStatus,
+          subStatusId: body.subStatusId || undefined,
         });
       }
       return { previous };
     },
-    onError: (e, _subStatusId, ctx) => {
+    onError: (e, _body, ctx) => {
       if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
       toast.error(getApiErrorMessage(e));
     },
@@ -176,16 +170,6 @@ export function useDeleteDeal() {
       invalidate();
       toast.success("Deal deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
-  });
-}
-
-export function useChangeStage(id: string) {
-  const invalidate = useInvalidateDeal(id);
-  return useMutation({
-    mutationFn: ({ stage, cancellationReason }: { stage: DealStage; cancellationReason?: string }) =>
-      api.changeStage(id, stage, cancellationReason),
-    onSuccess: () => invalidate(),
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }

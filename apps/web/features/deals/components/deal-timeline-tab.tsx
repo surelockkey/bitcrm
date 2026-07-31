@@ -18,11 +18,12 @@ import type { TimelineEntry } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { stageLabel } from "../lib";
+import { stageLabel, superStatusLabel } from "../lib";
 import { useAddNote, useDealTimeline } from "../hooks";
 
 const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> = {
   [TimelineEventType.CREATED]: { icon: Sparkles, label: "Job created" },
+  [TimelineEventType.STATUS_CHANGED]: { icon: ArrowRight, label: "Status changed" },
   [TimelineEventType.STAGE_CHANGED]: { icon: ArrowRight, label: "Stage changed" },
   [TimelineEventType.FIELD_UPDATED]: { icon: Pencil, label: "Field updated" },
   [TimelineEventType.NOTE_ADDED]: { icon: MessageSquare, label: "Note" },
@@ -34,6 +35,11 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
 
 function detail(entry: TimelineEntry): string | null {
   const d = entry.details ?? {};
+  if (entry.eventType === TimelineEventType.STATUS_CHANGED) {
+    const from = d.fromStatus as string | undefined;
+    const to = d.toStatus as string | undefined;
+    if (from && to) return `${superStatusLabel(from as never)} → ${superStatusLabel(to as never)}`;
+  }
   if (entry.eventType === TimelineEventType.STAGE_CHANGED) {
     const from = d.fromStage as string | undefined;
     const to = d.toStage as string | undefined;

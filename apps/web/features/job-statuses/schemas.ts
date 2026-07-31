@@ -1,13 +1,13 @@
 import { z } from "zod";
-import { JOB_TAG_COLORS, DealStageGroup } from "@bitcrm/types";
+import { JOB_TAG_COLORS, JobSuperStatus } from "@bitcrm/types";
 
 /**
  * A job sub-status form: a colored label filed under a fixed super-status
- * (DealStageGroup). Reuses the shared color palette (JOB_TAG_COLORS).
+ * (JobSuperStatus). Reuses the shared color palette (JOB_TAG_COLORS).
  */
 export const jobStatusFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
-  group: z.nativeEnum(DealStageGroup),
+  group: z.nativeEnum(JobSuperStatus),
   color: z.enum(JOB_TAG_COLORS).default("slate"),
   priority: z.coerce.number().int().min(0).default(0),
   active: z.boolean().default(true),

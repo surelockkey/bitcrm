@@ -1,24 +1,21 @@
 import { describe, it, expect } from "vitest";
 import {
-  DealStage,
-  DealStageGroup,
+  JobSuperStatus,
   DealPriority,
   DealStatus,
   ClientType,
 } from "@bitcrm/types";
 import type { Deal, DealProduct } from "@bitcrm/types";
 import {
-  stageLabel,
-  stageGroup,
+  superStatusLabel,
   groupLabel,
-  STAGE_ORDER,
+  isTerminalStatus,
   priorityLabel,
   isUrgent,
   formatMoney,
   dealTotal,
   priceRange,
   isPriceInBand,
-  isTerminal,
   filterDeals,
   datePresetRange,
   scheduleRelative,
@@ -37,7 +34,7 @@ function deal(over: Partial<Deal> = {}): Deal {
     serviceArea: "Phoenix",
     address: { street: "1 Main", city: "Phoenix", state: "AZ", zip: "85001" },
     jobTypeId: "jt-lockout",
-    stage: DealStage.NEW_LEAD,
+    superStatus: JobSuperStatus.SUBMITTED,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
     assignedTechIds: [],
@@ -65,27 +62,21 @@ function product(over: Partial<DealProduct> = {}): DealProduct {
   };
 }
 
-describe("stage helpers", () => {
-  it("labels stages", () => {
-    expect(stageLabel(DealStage.NEW_LEAD)).toBe("New Lead");
-    expect(stageLabel(DealStage.WORK_IN_PROGRESS)).toBe("Work In Progress");
-    expect(stageLabel(DealStage.PENDING_PAYMENT)).toBe("Pending Payment");
+describe("super-status helpers", () => {
+  it("labels super-statuses", () => {
+    expect(superStatusLabel(JobSuperStatus.SUBMITTED)).toBe("Submitted");
+    expect(superStatusLabel(JobSuperStatus.IN_PROGRESS)).toBe("In Progress");
+    expect(superStatusLabel(JobSuperStatus.DONE_PENDING_APPROVAL)).toBe("Done Pending Approval");
   });
-  it("maps stages to groups", () => {
-    expect(stageGroup(DealStage.NEW_LEAD)).toBe(DealStageGroup.SUBMITTED);
-    expect(stageGroup(DealStage.EN_ROUTE)).toBe(DealStageGroup.IN_PROGRESS);
-    expect(stageGroup(DealStage.ON_HOLD)).toBe(DealStageGroup.PENDING);
-    expect(stageGroup(DealStage.COMPLETED)).toBe(DealStageGroup.CLOSED);
+  it("groupLabel aliases the super-status labels", () => {
+    expect(groupLabel(JobSuperStatus.PENDING)).toBe("Pending");
+    expect(groupLabel(JobSuperStatus.CANCELED)).toBe("Canceled");
   });
-  it("labels groups and orders all 13 stages", () => {
-    expect(groupLabel(DealStageGroup.IN_PROGRESS)).toBe("In Progress");
-    expect(STAGE_ORDER).toHaveLength(13);
-    expect(STAGE_ORDER[0]).toBe(DealStage.NEW_LEAD);
-  });
-  it("knows terminal stages", () => {
-    expect(isTerminal(DealStage.COMPLETED)).toBe(true);
-    expect(isTerminal(DealStage.CANCELED)).toBe(true);
-    expect(isTerminal(DealStage.ASSIGNED)).toBe(false);
+  it("knows terminal super-statuses", () => {
+    expect(isTerminalStatus(JobSuperStatus.DONE)).toBe(true);
+    expect(isTerminalStatus(JobSuperStatus.DONE_PENDING_APPROVAL)).toBe(true);
+    expect(isTerminalStatus(JobSuperStatus.CANCELED)).toBe(true);
+    expect(isTerminalStatus(JobSuperStatus.IN_PROGRESS)).toBe(false);
   });
 });
 
@@ -125,14 +116,14 @@ describe("price band (±15%)", () => {
 describe("filterDeals", () => {
   const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
   const list = [
-    deal({ id: "a", dealNumber: 1042, contactId: "c1", stage: DealStage.NEW_LEAD, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
-    deal({ id: "b", dealNumber: 1040, contactId: "c2", stage: DealStage.ASSIGNED, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
+    deal({ id: "a", dealNumber: 1042, contactId: "c1", superStatus: JobSuperStatus.SUBMITTED, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
+    deal({ id: "b", dealNumber: 1040, contactId: "c2", superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
   ];
   it("returns all with no filters", () => {
     expect(filterDeals(list, {}, names)).toHaveLength(2);
   });
-  it("filters by stage and priority", () => {
-    expect(filterDeals(list, { stage: DealStage.NEW_LEAD }, names).map((d) => d.id)).toEqual(["a"]);
+  it("filters by super-status and priority", () => {
+    expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { priority: DealPriority.URGENT }, names).map((d) => d.id)).toEqual(["a"]);
   });
   it("searches by deal number and client name", () => {
@@ -144,15 +135,15 @@ describe("filterDeals", () => {
   it("filters by service area (exact)", () => {
     const areas = [
       deal({ id: "atl", serviceArea: "Atlanta Metro" }),
-      deal({ id: "ngа", serviceArea: "North GA" }),
+      deal({ id: "nga", serviceArea: "North GA" }),
     ];
-    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["ngа"]);
+    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["nga"]);
   });
 
   it("filters by status group", () => {
-    // a = NEW_LEAD (Submitted), b = ASSIGNED (In Progress)
+    // a = Submitted, b = In Progress
     expect(
-      filterDeals(list, { statusGroups: [DealStageGroup.SUBMITTED] }, names).map((d) => d.id),
+      filterDeals(list, { statusGroups: [JobSuperStatus.SUBMITTED] }, names).map((d) => d.id),
     ).toEqual(["a"]);
     expect(filterDeals(list, { statusGroups: [] }, names)).toHaveLength(2);
   });
@@ -178,39 +169,41 @@ describe("filterDeals", () => {
 
 describe("status tabs", () => {
   const names = new Map<string, string>();
-  it("orders the 4 groups then unscheduled, and labels them", () => {
+  it("orders the 6 super-statuses then unscheduled, and labels them", () => {
     expect(JOB_TABS).toEqual([
-      DealStageGroup.SUBMITTED,
-      DealStageGroup.IN_PROGRESS,
-      DealStageGroup.PENDING,
-      DealStageGroup.CLOSED,
+      JobSuperStatus.SUBMITTED,
+      JobSuperStatus.IN_PROGRESS,
+      JobSuperStatus.DONE,
+      JobSuperStatus.PENDING,
+      JobSuperStatus.DONE_PENDING_APPROVAL,
+      JobSuperStatus.CANCELED,
       "unscheduled",
     ]);
-    expect(jobTabLabel(DealStageGroup.IN_PROGRESS)).toBe("In Progress");
+    expect(jobTabLabel(JobSuperStatus.IN_PROGRESS)).toBe("In Progress");
     expect(jobTabLabel("unscheduled")).toBe("Unscheduled");
   });
 
-  it("matchesTab: status groups by stage, unscheduled by missing date", () => {
-    const submittedDated = deal({ stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" });
-    const submittedUndated = deal({ stage: DealStage.NEW_LEAD });
-    expect(matchesTab(submittedDated, DealStageGroup.SUBMITTED)).toBe(true);
+  it("matchesTab: super-status by status, unscheduled by missing date", () => {
+    const submittedDated = deal({ superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" });
+    const submittedUndated = deal({ superStatus: JobSuperStatus.SUBMITTED });
+    expect(matchesTab(submittedDated, JobSuperStatus.SUBMITTED)).toBe(true);
     expect(matchesTab(submittedDated, "unscheduled")).toBe(false);
     expect(matchesTab(submittedUndated, "unscheduled")).toBe(true);
-    // Unscheduled overlaps its status group — a deal can appear in both tabs.
-    expect(matchesTab(submittedUndated, DealStageGroup.SUBMITTED)).toBe(true);
+    // Unscheduled overlaps its status tab — a deal can appear in both.
+    expect(matchesTab(submittedUndated, JobSuperStatus.SUBMITTED)).toBe(true);
   });
 
   it("tabCounts counts each tab independently (overlapping)", () => {
     const list = [
-      deal({ stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" }), // submitted, scheduled
-      deal({ stage: DealStage.NEW_LEAD }), // submitted, unscheduled
-      deal({ stage: DealStage.ASSIGNED, scheduledDate: "2026-07-14" }), // in progress
-      deal({ stage: DealStage.COMPLETED }), // closed, unscheduled
+      deal({ superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" }), // submitted, scheduled
+      deal({ superStatus: JobSuperStatus.SUBMITTED }), // submitted, unscheduled
+      deal({ superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: "2026-07-14" }), // in progress
+      deal({ superStatus: JobSuperStatus.DONE }), // done, unscheduled
     ];
     const c = tabCounts(list);
-    expect(c[DealStageGroup.SUBMITTED]).toBe(2);
-    expect(c[DealStageGroup.IN_PROGRESS]).toBe(1);
-    expect(c[DealStageGroup.CLOSED]).toBe(1);
+    expect(c[JobSuperStatus.SUBMITTED]).toBe(2);
+    expect(c[JobSuperStatus.IN_PROGRESS]).toBe(1);
+    expect(c[JobSuperStatus.DONE]).toBe(1);
     expect(c.unscheduled).toBe(2);
   });
 
@@ -225,10 +218,10 @@ describe("status tabs", () => {
 
   it("filterDeals honors a single tab", () => {
     const list = [
-      deal({ id: "a", stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" }),
-      deal({ id: "b", stage: DealStage.ASSIGNED }),
+      deal({ id: "a", superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" }),
+      deal({ id: "b", superStatus: JobSuperStatus.IN_PROGRESS }),
     ];
-    expect(filterDeals(list, { tab: DealStageGroup.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { tab: "unscheduled" }, names).map((d) => d.id)).toEqual(["b"]);
   });
 });

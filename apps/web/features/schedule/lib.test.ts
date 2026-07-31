@@ -31,7 +31,7 @@ function deal(over: Partial<Deal>): Deal {
     serviceArea: "TX",
     address: { street: "1 Main", city: "Austin", state: "TX", zip: "78701" },
     jobTypeId: "jt-lockout",
-    stage: "assigned" as Deal["stage"],
+    superStatus: "in_progress" as Deal["superStatus"],
     assignedTechIds: [],
     assignedDispatcherId: "disp1",
     priority: "normal" as Deal["priority"],

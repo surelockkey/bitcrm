@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapsProvider } from "@/components/maps/maps-provider";
 import { Briefcase, KeyRound, Layers, Loader2, Map as MapIcon, RefreshCw, TriangleAlert, Wrench } from "lucide-react";
-import { DealStageGroup } from "@bitcrm/types";
+import { JobSuperStatus } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -58,7 +58,7 @@ interface DispatchFilters {
   serviceArea: string;
   datePreset: DatePreset;
   jobTypeId: string;
-  statusGroups: DealStageGroup[];
+  statusGroups: JobSuperStatus[];
 }
 
 const DEFAULT_FILTERS: DispatchFilters = {
@@ -112,7 +112,7 @@ export function DispatchPage() {
   const { search, serviceArea, datePreset, jobTypeId, statusGroups } = filters;
   const { data: jobTypes } = useJobTypes();
   const patch = (p: Partial<DispatchFilters>) => setFilters((f) => ({ ...f, ...p }));
-  const toggleGroup = (g: DealStageGroup) =>
+  const toggleGroup = (g: JobSuperStatus) =>
     patch({
       statusGroups: statusGroups.includes(g)
         ? statusGroups.filter((x) => x !== g)

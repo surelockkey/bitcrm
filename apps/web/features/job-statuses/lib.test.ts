@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { DealStageGroup, type DealSubStatus } from "@bitcrm/types";
+import { JobSuperStatus, type DealSubStatus } from "@bitcrm/types";
 import { jobStatusName, jobStatusMap, activeJobStatuses, groupJobStatuses } from "./lib";
 
 const st = (over: Partial<DealSubStatus>): DealSubStatus => ({
   id: "s-1",
   name: "Will Call Back",
-  group: DealStageGroup.PENDING,
+  group: JobSuperStatus.PENDING,
   color: "red",
   priority: 0,
   active: true,
@@ -18,7 +18,7 @@ const st = (over: Partial<DealSubStatus>): DealSubStatus => ({
 describe("jobStatusName", () => {
   const catalog = [
     st({ id: "s-1", name: "Will Call Back" }),
-    st({ id: "s-2", name: "Job Done", group: DealStageGroup.IN_PROGRESS }),
+    st({ id: "s-2", name: "Job Done", group: JobSuperStatus.IN_PROGRESS }),
   ];
 
   it("resolves an id to its name", () => {
@@ -31,7 +31,7 @@ describe("jobStatusName", () => {
     expect(jobStatusName(undefined, catalog)).toBe("—");
   });
   it("builds an id → status map", () => {
-    expect(jobStatusMap(catalog).get("s-1")?.group).toBe(DealStageGroup.PENDING);
+    expect(jobStatusMap(catalog).get("s-1")?.group).toBe(JobSuperStatus.PENDING);
   });
 });
 
@@ -49,18 +49,18 @@ describe("activeJobStatuses", () => {
 
 describe("groupJobStatuses", () => {
   const list = [
-    st({ id: "p1", name: "Will Call Back", group: DealStageGroup.PENDING, priority: 1 }),
-    st({ id: "i1", name: "Job Done", group: DealStageGroup.IN_PROGRESS, priority: 2 }),
-    st({ id: "i2", name: "Job Accepted", group: DealStageGroup.IN_PROGRESS, priority: 5 }),
-    st({ id: "old", name: "Archived", group: DealStageGroup.PENDING, active: false }),
+    st({ id: "p1", name: "Will Call Back", group: JobSuperStatus.PENDING, priority: 1 }),
+    st({ id: "i1", name: "Job Done", group: JobSuperStatus.IN_PROGRESS, priority: 2 }),
+    st({ id: "i2", name: "Job Accepted", group: JobSuperStatus.IN_PROGRESS, priority: 5 }),
+    st({ id: "old", name: "Archived", group: JobSuperStatus.PENDING, active: false }),
   ];
 
   it("orders groups by pipeline order and nests sorted, active statuses", () => {
     const groups = groupJobStatuses(list, { activeOnly: true });
     // Only groups with active statuses, in pipeline order (In Progress before Pending).
     expect(groups.map((g) => g.group)).toEqual([
-      DealStageGroup.IN_PROGRESS,
-      DealStageGroup.PENDING,
+      JobSuperStatus.IN_PROGRESS,
+      JobSuperStatus.PENDING,
     ]);
     expect(groups[0].label).toBe("In Progress");
     expect(groups[0].statuses.map((s) => s.id)).toEqual(["i2", "i1"]); // priority 5 before 2
@@ -70,17 +70,19 @@ describe("groupJobStatuses", () => {
   it("includeEmpty keeps every super-status even with no statuses", () => {
     const groups = groupJobStatuses([], { includeEmpty: true });
     expect(groups.map((g) => g.group)).toEqual([
-      DealStageGroup.SUBMITTED,
-      DealStageGroup.IN_PROGRESS,
-      DealStageGroup.PENDING,
-      DealStageGroup.CLOSED,
+      JobSuperStatus.SUBMITTED,
+      JobSuperStatus.IN_PROGRESS,
+      JobSuperStatus.DONE,
+      JobSuperStatus.PENDING,
+      JobSuperStatus.DONE_PENDING_APPROVAL,
+      JobSuperStatus.CANCELED,
     ]);
     expect(groups.every((g) => g.statuses.length === 0)).toBe(true);
   });
 
   it("without activeOnly includes archived statuses (for settings)", () => {
     const groups = groupJobStatuses(list, { includeEmpty: true });
-    const pending = groups.find((g) => g.group === DealStageGroup.PENDING)!;
+    const pending = groups.find((g) => g.group === JobSuperStatus.PENDING)!;
     expect(pending.statuses.map((s) => s.name).sort()).toEqual(["Archived", "Will Call Back"]);
   });
 });

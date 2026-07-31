@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import {
   JOB_TAG_COLORS,
-  DealStageGroup,
+  JobSuperStatus,
   type DealSubStatus,
   type JobTagColor,
 } from "@bitcrm/types";
@@ -41,7 +41,7 @@ export function JobStatusFormDialog({
 }: {
   status?: DealSubStatus;
   /** Pre-select the super-status when adding from a group section. */
-  defaultGroup?: DealStageGroup;
+  defaultGroup?: JobSuperStatus;
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
@@ -51,8 +51,8 @@ export function JobStatusFormDialog({
   const pending = create.isPending || update.isPending;
 
   const [name, setName] = useState(status?.name ?? "");
-  const [group, setGroup] = useState<DealStageGroup>(
-    status?.group ?? defaultGroup ?? DealStageGroup.SUBMITTED,
+  const [group, setGroup] = useState<JobSuperStatus>(
+    status?.group ?? defaultGroup ?? JobSuperStatus.SUBMITTED,
   );
   const [color, setColor] = useState<JobTagColor>(status?.color ?? "slate");
   const [priority, setPriority] = useState(String(status?.priority ?? 0));
@@ -88,7 +88,7 @@ export function JobStatusFormDialog({
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
             <Label>Super-status</Label>
-            <Select value={group} onValueChange={(v) => setGroup(v as DealStageGroup)}>
+            <Select value={group} onValueChange={(v) => setGroup(v as JobSuperStatus)}>
               <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>

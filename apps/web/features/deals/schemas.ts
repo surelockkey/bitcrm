@@ -51,7 +51,7 @@ export type CreateDealValues = DealJobValues & {
 
 /** API update body (subset of deal fields the PUT accepts). */
 export type UpdateDealValues = Partial<
-  Omit<DealJobValues, "clientType"> & { internalNotes: string; subStatusId: string }
+  Omit<DealJobValues, "clientType"> & { internalNotes: string }
 >;
 
 export const changeStageSchema = z.object({
