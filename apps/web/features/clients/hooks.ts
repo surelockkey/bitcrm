@@ -75,6 +75,22 @@ export function useUpdateContact() {
   });
 }
 
+export function useMergeContacts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: api.MergeContactsBody) => api.mergeContacts(body),
+    onSuccess: (c) => {
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.all() });
+      qc.invalidateQueries({ queryKey: queryKeys.companies.all() });
+      // The duplicates' deals are re-pointed to the survivor server-side
+      // (contact.merged event), so cached deal lists go stale too.
+      qc.invalidateQueries({ queryKey: queryKeys.deals.all() });
+      toast.success(`Contacts merged into “${contactName(c)}”`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useDeleteContact() {
   const invalidate = useInvalidateClients();
   return useMutation({
