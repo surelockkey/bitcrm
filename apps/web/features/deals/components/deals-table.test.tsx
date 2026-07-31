@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -66,13 +66,46 @@ const contactMap = new Map([[contact.id, contact]]);
 const userMap = new Map<string, User>();
 
 describe("DealsTable", () => {
-  it("opens the preview when a row is clicked", async () => {
+  let openSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    openSpy.mockRestore();
+  });
+
+  it("left-clicking a row opens the full job in a new tab, not the preview", async () => {
     const onOpen = vi.fn();
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} />,
     );
     await userEvent.click(screen.getByText("Jane Smith"));
+    expect(openSpy).toHaveBeenCalledWith("/deals/d1", "_blank", "noopener,noreferrer");
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("right-clicking a row opens the preview and suppresses the browser menu", () => {
+    const onOpen = vi.fn();
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} />,
+    );
+    // fireEvent returns false when preventDefault was called — the native
+    // context menu must not appear.
+    const menuShown = fireEvent.contextMenu(screen.getByText("Jane Smith"));
+    expect(menuShown).toBe(false);
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the browser's own context menu on the job-number link", () => {
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    // A real link's right-click menu (copy address, etc.) stays native.
+    const menuShown = fireEvent.contextMenu(screen.getByRole("link", { name: /new tab/i }));
+    expect(menuShown).toBe(true);
   });
 
   it("the job number itself is the new-tab link, sitting in the first column", () => {
