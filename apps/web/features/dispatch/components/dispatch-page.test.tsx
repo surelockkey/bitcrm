@@ -84,7 +84,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 const LOCATED = {
   id: "deal-1",
-  dealNumber: 101,
+  dealNumber: "101",
   contactId: "contact-1",
   clientType: "residential",
   serviceArea: "Atlanta Metro",
@@ -104,7 +104,7 @@ const LOCATED = {
 const UNLOCATED = {
   ...LOCATED,
   id: "deal-2",
-  dealNumber: 102,
+  dealNumber: "102",
   address: { street: "9 Unknown Way", city: "Atlanta", state: "GA", zip: "30303" },
 };
 

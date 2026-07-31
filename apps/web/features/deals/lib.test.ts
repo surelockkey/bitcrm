@@ -28,7 +28,7 @@ import {
 function deal(over: Partial<Deal> = {}): Deal {
   return {
     id: "d1",
-    dealNumber: 1042,
+    dealNumber: "1042",
     contactId: "c1",
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Phoenix",
@@ -116,8 +116,8 @@ describe("price band (±15%)", () => {
 describe("filterDeals", () => {
   const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
   const list = [
-    deal({ id: "a", dealNumber: 1042, contactId: "c1", superStatus: JobSuperStatus.SUBMITTED, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
-    deal({ id: "b", dealNumber: 1040, contactId: "c2", superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
+    deal({ id: "a", dealNumber: "1042", contactId: "c1", superStatus: JobSuperStatus.SUBMITTED, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
+    deal({ id: "b", dealNumber: "1040", contactId: "c2", superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
   ];
   it("returns all with no filters", () => {
     expect(filterDeals(list, {}, names)).toHaveLength(2);
@@ -130,6 +130,16 @@ describe("filterDeals", () => {
     expect(filterDeals(list, { search: "1040" }, names).map((d) => d.id)).toEqual(["b"]);
     expect(filterDeals(list, { search: "jane" }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { search: "#1042" }, names).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("searches by random job id code, case-insensitively and with # prefix", () => {
+    const codes = [
+      deal({ id: "x", dealNumber: "K4T9ZW", contactId: "c1" }),
+      deal({ id: "y", dealNumber: "X7B2QP", contactId: "c2" }),
+    ];
+    expect(filterDeals(codes, { search: "k4t9" }, names).map((d) => d.id)).toEqual(["x"]);
+    expect(filterDeals(codes, { search: "#X7B2QP" }, names).map((d) => d.id)).toEqual(["y"]);
+    expect(filterDeals(codes, { search: "x7b2qp" }, names).map((d) => d.id)).toEqual(["y"]);
   });
 
   it("filters by service area (exact)", () => {

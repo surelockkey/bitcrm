@@ -43,7 +43,7 @@ const contact: Contact = {
 function deal(over: Partial<Deal> = {}): Deal {
   return {
     id: "d1",
-    dealNumber: 1042,
+    dealNumber: "1042",
     contactId: "c1",
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Phoenix",
