@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/deals/d1",
 }));
 
 // next/link needs the App Router context; swap it for a plain anchor. The
@@ -125,6 +126,7 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 
 import { DealDetailPage } from "./deal-detail-page";
+import { usePageHistoryStore } from "@/stores/page-history-store";
 
 beforeEach(() => {
   mocks.perms.deals = false;
@@ -157,6 +159,17 @@ describe("DealDetailPage (read only)", () => {
 
     const link = screen.getByRole("link", { name: /view client/i });
     expect(link).toHaveAttribute("href", "/contacts/c1");
+  });
+
+  it("upgrades the visit-history label to the job number", () => {
+    usePageHistoryStore.setState({
+      visits: [{ path: "/deals/d1", label: "Job" }],
+    });
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(usePageHistoryStore.getState().visits).toEqual([
+      { path: "/deals/d1", label: "Job (1042)" },
+    ]);
   });
 
   it("hangs the timeline on the right edge instead of a tab", () => {

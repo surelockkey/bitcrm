@@ -57,6 +57,7 @@ import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 import { useUnsavedChanges } from "./use-unsaved-changes";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 
 type Tab = "details" | "items" | "attachments";
 
@@ -68,6 +69,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const tagUpdate = useUpdateDeal(dealId);
   const moveStatus = useMoveStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
+  usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
