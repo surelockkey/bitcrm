@@ -115,4 +115,21 @@ describe("DealTimelinePanel", () => {
 
     expect(screen.getByPlaceholderText(/add a note/i)).toBeInTheDocument();
   });
+
+  it("keeps the chosen filter when the panel is closed and reopened", async () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    const handle = screen.getByRole("button", { name: /timeline/i });
+
+    await userEvent.click(handle);
+    await userEvent.click(screen.getByRole("button", { name: /^calls$/i }));
+    expect(screen.getByText(/in progress/i)).toBeInTheDocument();
+
+    // The panel slides away (stays mounted for the animation) but must leave
+    // the accessibility tree; its state survives the round trip.
+    await userEvent.click(screen.getByRole("button", { name: /close timeline/i }));
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+
+    await userEvent.click(handle);
+    expect(screen.getByRole("button", { name: /^calls$/i })).toHaveAttribute("aria-pressed", "true");
+  });
 });

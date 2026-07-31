@@ -66,7 +66,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const canDelete = can("deals", "delete");
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">

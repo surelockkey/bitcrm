@@ -189,24 +189,43 @@ function mockHaystack(mock: MockTimelineItem): string {
  */
 export function DealTimelinePanel({ dealId, canEdit }: { dealId: string; canEdit: boolean }) {
   const [open, setOpen] = useState(false);
+  // The body (and its timeline query) mounts on first open and then stays
+  // mounted, so the slide animation has something to slide and the chosen
+  // filter/search survive a close–reopen round trip.
+  const [hasOpened, setHasOpened] = useState(false);
+
+  const toggle = () => {
+    setOpen((o) => !o);
+    setHasOpened(true);
+  };
 
   return (
     <>
       <button
         type="button"
+        aria-label="Timeline"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         className={cn(
-          "absolute top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-l-lg border border-r-0 bg-card px-1.5 py-3 text-muted-foreground shadow-sm transition-all hover:text-foreground",
-          open ? "right-[380px] max-[447px]:right-[85vw]" : "right-0",
+          "fixed top-44 z-40 grid size-11 place-items-center rounded-l-xl bg-brand text-brand-foreground shadow-lg transition-[right] duration-300 ease-in-out hover:bg-brand/90",
+          open ? "right-95 max-[447px]:right-[85vw]" : "right-0",
         )}
       >
-        <History className="size-4" />
-        <span className="text-[10px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">
-          Timeline
-        </span>
+        <History className="size-4.5" />
       </button>
-      {open ? <PanelBody dealId={dealId} canEdit={canEdit} onClose={() => setOpen(false)} /> : null}
+      <aside
+        aria-label="Job timeline"
+        aria-hidden={!open}
+        inert={!open}
+        className={cn(
+          "fixed inset-y-0 right-0 z-40 flex w-95 max-w-[85vw] flex-col border-l bg-background shadow-xl transition-transform duration-300 ease-in-out",
+          open ? "translate-x-0" : "translate-x-full",
+        )}
+      >
+        {hasOpened ? (
+          <PanelBody dealId={dealId} canEdit={canEdit} onClose={() => setOpen(false)} />
+        ) : null}
+      </aside>
     </>
   );
 }
@@ -270,10 +289,7 @@ function PanelBody({
   const mockFilterLabel = FILTERS.find((f) => f.key === filter)?.label;
 
   return (
-    <aside
-      aria-label="Job timeline"
-      className="absolute inset-y-0 right-0 z-20 flex w-[380px] max-w-[85vw] flex-col border-l bg-background shadow-xl"
-    >
+    <>
       {/* Header */}
       <div className="flex items-center gap-2 border-b px-4 py-3">
         <History className="size-4 text-muted-foreground" />
@@ -375,7 +391,7 @@ function PanelBody({
           </Button>
         ) : null}
       </div>
-    </aside>
+    </>
   );
 }
 
