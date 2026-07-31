@@ -107,7 +107,13 @@ function QuickViewBody({ dealId }: { dealId: string }) {
         <Row label="Client">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <div className="font-medium">{contact ? contactName(contact) : "—"}</div>
+              {contact ? (
+                <Link href={`/contacts/${contact.id}`} className="font-medium hover:underline">
+                  {contactName(contact)}
+                </Link>
+              ) : (
+                <div className="font-medium">—</div>
+              )}
               {phone ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   {formatPhone(phone)}
