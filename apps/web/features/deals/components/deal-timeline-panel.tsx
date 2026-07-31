@@ -9,6 +9,7 @@ import {
   MessageSquare,
   MessagesSquare,
   PackageMinus,
+  PackageOpen,
   PackagePlus,
   Pencil,
   Phone,
@@ -39,6 +40,7 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.TECH_ASSIGNED]: { icon: UserPlus, label: "Technician assigned" },
   [TimelineEventType.TECH_UNASSIGNED]: { icon: UserMinus, label: "Technician unassigned" },
   [TimelineEventType.PRODUCT_ADDED]: { icon: PackagePlus, label: "Product added" },
+  [TimelineEventType.PRODUCT_UPDATED]: { icon: PackageOpen, label: "Product updated" },
   [TimelineEventType.PRODUCT_REMOVED]: { icon: PackageMinus, label: "Product removed" },
 };
 
@@ -105,6 +107,14 @@ function detail(entry: TimelineEntry): string | null {
     const name = (d.productName ?? d.name) as string | undefined;
     const qty = (d.quantity ?? d.qty) as number | undefined;
     if (name) return qty ? `${name} ×${qty}` : name;
+  }
+  if (entry.eventType === TimelineEventType.PRODUCT_UPDATED) {
+    const name = d.productName as string | undefined;
+    const prev = d.previousProductName as string | undefined;
+    const qty = d.quantity as number | undefined;
+    // A swap names both products; an in-place edit just the one.
+    const label = prev && prev !== name ? `${prev} → ${name}` : name;
+    if (label) return qty ? `${label} ×${qty}` : label;
   }
   return null;
 }

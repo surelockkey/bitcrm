@@ -38,6 +38,9 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
   const remove = useRemoveProduct(deal.id);
   const markOrdered = useMarkProductOrdered(deal.id);
   const [adding, setAdding] = useState(false);
+  // Clicking a row edits that line in the same dialog (change qty/price or
+  // swap the item for another catalog product).
+  const [editing, setEditing] = useState<DealProduct | null>(null);
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   const items = products ?? [];
@@ -63,19 +66,35 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
             </thead>
             <tbody>
               {items.map((p) => (
-                <tr key={p.productId} className="border-b last:border-0">
+                <tr
+                  key={p.productId}
+                  className={cn("border-b last:border-0", canEdit && "cursor-pointer hover:bg-accent/30")}
+                  onClick={canEdit ? () => setEditing(p) : undefined}
+                >
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{p.name}</span>
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditing(p); }}
+                          aria-label={`Edit ${p.name}`}
+                          className="font-medium hover:underline"
+                        >
+                          {p.name}
+                        </button>
+                      ) : (
+                        <span className="font-medium">{p.name}</span>
+                      )}
                       <FulfillmentBadge product={p} />
                     </div>
                     <div className="font-mono text-[11px] text-muted-foreground">{p.sku} · tech {formatMoney(p.costForTech)}</div>
                     {canEdit && (p.fulfillment ?? "sourced") === "to_order" ? (
                       <button
                         type="button"
-                        onClick={() =>
-                          markOrdered.mutate({ productId: p.productId, ordered: !p.orderedAt })
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          markOrdered.mutate({ productId: p.productId, ordered: !p.orderedAt });
+                        }}
                         disabled={markOrdered.isPending}
                         className={cn(
                           "mt-1 inline-flex items-center gap-1 text-[11px] font-medium",
@@ -94,7 +113,7 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"
-                        onClick={() => remove.mutate(p.productId)}
+                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.productId); }}
                         disabled={remove.isPending}
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${p.name}`}
@@ -121,7 +140,20 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
         <span className="font-mono text-sm font-semibold tabular-nums">Total {formatMoney(total)}</span>
       </div>
 
-      <AddProductDialog dealId={deal.id} techIds={deal.assignedTechIds} open={adding} onOpenChange={setAdding} />
+      <AddProductDialog
+        dealId={deal.id}
+        techIds={deal.assignedTechIds}
+        open={adding || !!editing}
+        editing={editing ?? undefined}
+        onOpenChange={(v) => {
+          if (!v) {
+            setAdding(false);
+            setEditing(null);
+          } else {
+            setAdding(true);
+          }
+        }}
+      />
     </div>
   );
 }
