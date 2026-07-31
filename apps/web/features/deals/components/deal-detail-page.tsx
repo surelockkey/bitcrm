@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContact, useUpdateContact } from "@/features/clients/hooks";
@@ -35,7 +36,8 @@ import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { useDeal, useDeleteDeal, useUpdateDeal } from "../hooks";
+import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { useDeal, useDeleteDeal, useUpdateDeal, useSetDealSubStatus } from "../hooks";
 import { isUrgent } from "../lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import { StageMenu } from "./stage-menu";
@@ -56,6 +58,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
   const tagUpdate = useUpdateDeal(dealId);
+  const subStatusUpdate = useSetDealSubStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
@@ -102,6 +105,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           </AlertDialog>
         ) : null}
       </div>
+
+      {/* Status — above the tags, a grouped select of custom sub-statuses */}
+      {canEdit || deal.subStatusId ? (
+        <div className="flex items-center gap-2 border-b px-6 py-2.5">
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <JobStatusSelect
+            value={deal.subStatusId}
+            onChange={(id) =>
+              subStatusUpdate.mutate(id, {
+                onSuccess: () => toast.success(id ? "Status updated" : "Status cleared"),
+              })
+            }
+            disabled={!canEdit}
+          />
+        </div>
+      ) : null}
 
       {/* Tags — top-left, with a "+" to quickly add existing tags */}
       {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (

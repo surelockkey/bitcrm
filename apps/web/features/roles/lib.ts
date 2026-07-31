@@ -30,6 +30,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   job_types: "Job Types",
   job_sources: "Job Sources",
   job_tags: "Job Tags",
+  job_statuses: "Job Statuses",
   service_areas: "Service Areas",
   commission: "Commission",
   documents: "Documents",
