@@ -59,7 +59,14 @@ export function DealsTable({
               <TableRow
                 key={d.id}
                 className="cursor-pointer align-top"
-                onClick={() => onOpen(d)}
+                // Left click anywhere on the row jumps straight into the job in
+                // a new tab; right click opens the quick-view drawer in place
+                // of the browser menu.
+                onClick={() => window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onOpen(d);
+                }}
               >
                 <TableCell className="font-mono text-xs">
                   {/* The number doubles as the open-in-new-tab link so it's
@@ -73,6 +80,9 @@ export function DealsTable({
                     aria-label={`Open job #${d.dealNumber} in new tab`}
                     title="Open in new tab"
                     onClick={(e) => e.stopPropagation()}
+                    // A real link keeps its native right-click menu (copy
+                    // address, etc.) — don't swallow it with the row preview.
+                    onContextMenu={(e) => e.stopPropagation()}
                     className="-mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground underline-offset-2 hover:bg-accent hover:text-foreground hover:underline"
                   >
                     #{d.dealNumber}
