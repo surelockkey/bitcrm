@@ -1,12 +1,12 @@
+import Image from "next/image";
+import icon from "@/app/icon.png";
 import { cn } from "@/lib/utils";
 
-/** BitCRM wordmark: black rounded square "B" + name. */
+/** BitCRM wordmark: blob logo + name. */
 export function BrandLogo({ className }: { className?: string }) {
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <div className="flex size-11 items-center justify-center rounded-xl bg-foreground">
-        <span className="text-xl font-bold text-background">B</span>
-      </div>
+      <Image src={icon} alt="" width={44} height={44} className="size-11" />
       <span className="text-2xl font-bold tracking-tight">BitCRM</span>
     </div>
   );

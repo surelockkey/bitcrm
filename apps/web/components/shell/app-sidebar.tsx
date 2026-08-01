@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import icon from "@/app/icon.png";
 import { usePathname } from "next/navigation";
 import {
   Sidebar,
@@ -58,9 +60,13 @@ export function AppSidebar() {
           className="flex items-center gap-2 px-1 py-1.5"
           aria-label="BitCRM home"
         >
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground text-sm font-bold text-background">
-            B
-          </div>
+          <Image
+            src={icon}
+            alt=""
+            width={28}
+            height={28}
+            className="size-7 shrink-0"
+          />
           <span className="text-base font-bold tracking-tight group-data-[collapsible=icon]:hidden">
             BitCRM
           </span>
