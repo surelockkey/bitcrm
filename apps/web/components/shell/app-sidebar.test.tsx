@@ -24,6 +24,14 @@ function renderSidebar() {
 }
 
 describe("AppSidebar", () => {
+  it("renders the brand logo image in the header home link", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const homeLink = screen.getByRole("link", { name: "BitCRM home" });
+    expect(homeLink.querySelector("img")).not.toBeNull();
+  });
+
   it("shows the permitted full nav and hides coming-soon items", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
