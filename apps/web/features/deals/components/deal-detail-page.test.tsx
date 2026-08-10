@@ -68,6 +68,32 @@ vi.mock("./schedule-field", () => ({
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
 
+// One applicable custom field (scoped to all job types) so the details tab
+// renders a real control we can edit; the catalog hook is stubbed to avoid a
+// QueryClient/network in this focused unit test.
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({
+    data: [
+      {
+        id: "cf-gate",
+        name: "Gate Code",
+        type: "text",
+        group: "Access",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ],
+  }),
+}));
+
 const contact: Contact = {
   id: "c1",
   firstName: "Jane",
@@ -286,6 +312,24 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toHaveProperty("address");
     expect(mocks.updateContact).not.toHaveBeenCalled();
+  });
+
+  it("marks the page dirty when an applicable custom field is edited and sends it on Save", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    const gate = screen.getByLabelText("Gate Code");
+    expect(saveButton()).toBeDisabled();
+
+    await u.type(gate, "4417");
+    // Editing a custom field must not auto-commit — it rides the single Save.
+    expect(mocks.updateDeal).not.toHaveBeenCalled();
+    expect(saveButton()).toBeEnabled();
+
+    await u.click(saveButton());
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ customFields: { "cf-gate": "4417" } });
   });
 
   it("keeps unsaved draft edits when an instant action refetches the deal (updatedAt bump)", async () => {

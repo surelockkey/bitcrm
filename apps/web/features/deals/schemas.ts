@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { ClientType, DealPriority, DealStage } from "@bitcrm/types";
 
+/** A single custom-field answer: string | number | boolean | string[]. */
+const customFieldValue = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.string()),
+]);
+/** Answer map keyed by CustomFieldDefinition id. */
+export const customFieldsSchema = z.record(z.string(), customFieldValue);
+
 export const addressSchema = z.object({
   street: z.string().trim().min(1, "Street is required"),
   unit: z.string().trim().optional(),
@@ -34,6 +44,8 @@ export const dealJobSchema = z.object({
   // Optional platinum / work-order fields.
   poNumber: z.string().trim().optional(),
   workOrderId: z.string().trim().optional(),
+  // User-defined field answers, keyed by CustomFieldDefinition id.
+  customFields: customFieldsSchema.optional(),
 });
 export type DealJobValues = z.infer<typeof dealJobSchema>;
 

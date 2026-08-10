@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import type { Contact, Deal, JobSuperStatus, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
@@ -156,7 +156,16 @@ export function useMoveStatus(id: string) {
     },
     onError: (e, _body, ctx) => {
       if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
-      toast.error(getApiErrorMessage(e));
+      // A required-to-close gate (422) rolls the status back and tells the user
+      // exactly which custom fields to fill — they stay on the job to fill them
+      // (in the Custom fields section) and retry. Any other error is plain.
+      const missing = getMissingCloseFields(e);
+      if (missing) {
+        const names = missing.map((f) => f.name).join(", ");
+        toast.error(`Fill these required fields before closing the job: ${names}`);
+      } else {
+        toast.error(getApiErrorMessage(e));
+      }
     },
     onSettled: () => invalidate(),
   });

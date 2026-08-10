@@ -13,6 +13,9 @@ import { dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { TechChips } from "./assigned-techs";
 
@@ -23,8 +26,10 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
   const { map: companyMap } = useCompanyMap();
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(deal.id);
+  const { data: customFieldDefs } = useCustomFields();
   const unassign = useUnassignTech(deal.id);
   const [assignOpen, setAssignOpen] = useState(false);
+  const hasCustomFields = applicableFields(customFieldDefs, deal.jobTypeId).length > 0;
 
   const contact = contactMap.get(deal.contactId);
   const company = deal.companyId ? companyMap.get(deal.companyId) : undefined;
@@ -101,6 +106,20 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
           />
         </dl>
       </Card>
+
+      {/* Custom fields — read-only view of the job's applicable answers. */}
+      {hasCustomFields ? (
+        <div className="sm:col-span-2">
+          <Card icon={<Briefcase className="size-3.5" />} title="Custom fields">
+            <CustomFieldsSection
+              jobTypeId={deal.jobTypeId}
+              value={deal.customFields ?? {}}
+              onChange={() => {}}
+              disabled
+            />
+          </Card>
+        </div>
+      ) : null}
 
       <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open={assignOpen} onOpenChange={setAssignOpen} />
     </div>

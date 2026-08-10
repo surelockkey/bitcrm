@@ -5,7 +5,14 @@ import {
   SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
 } from "@bitcrm/types";
-import type { Address, Contact, Deal, DealProduct } from "@bitcrm/types";
+import type {
+  Address,
+  Contact,
+  CustomFieldDefinition,
+  CustomFieldValue,
+  Deal,
+  DealProduct,
+} from "@bitcrm/types";
 import { addressInList } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { UpdateDealValues } from "./schemas";
@@ -201,6 +208,8 @@ export interface DealDraft {
   scheduledTimeSlot: string;
   notes: string;
   internalNotes: string;
+  /** User-defined field answers, keyed by CustomFieldDefinition id. */
+  customFields: Record<string, CustomFieldValue>;
 }
 
 /** Editable snapshot of the client card. `email` is the first email only. */
@@ -232,6 +241,7 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
     scheduledTimeSlot: d.scheduledTimeSlot ?? "",
     notes: d.notes ?? "",
     internalNotes: d.internalNotes ?? "",
+    customFields: { ...(d.customFields ?? {}) },
   };
 }
 
@@ -252,6 +262,31 @@ const sameAddress = (a: Address, b: Address): boolean =>
   a.zip === b.zip &&
   a.lat === b.lat &&
   a.lng === b.lng;
+
+const sameAnswer = (a: CustomFieldValue, b: CustomFieldValue): boolean => {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => v === b[i])
+    );
+  }
+  return a === b;
+};
+
+/** Deep-ish equality over two answer maps (array answers compared elementwise). */
+const sameCustomFields = (
+  a: Record<string, CustomFieldValue>,
+  b: Record<string, CustomFieldValue>,
+): boolean => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (!(k in a) || !(k in b)) return false;
+    if (!sameAnswer(a[k], b[k])) return false;
+  }
+  return true;
+};
 
 /** Optional string fields where an emptied draft value means "clear it". */
 const OPTIONAL_DEAL_FIELDS = [
@@ -278,6 +313,12 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   for (const key of ["notes", "internalNotes"] as const) {
     const next = draft[key].trim();
     if (next !== base[key]) { patch[key] = next; dirty = true; }
+  }
+  // Custom-field answers ride the same single Save: send the whole current
+  // answer map (like `address`) only when something actually changed.
+  if (!sameCustomFields(draft.customFields, base.customFields)) {
+    patch.customFields = draft.customFields;
+    dirty = true;
   }
 
   return dirty ? patch : null;
@@ -338,16 +379,23 @@ export interface DealFilter {
   search?: string;
 }
 
+/** Flatten a custom-field answer to its searchable string form. */
+const customFieldText = (v: CustomFieldValue): string =>
+  Array.isArray(v) ? v.join(" ") : String(v);
+
 /** Client-side filtering + search over loaded deals (the server barely filters). */
 export function filterDeals(
   deals: Deal[],
   filter: DealFilter,
   contactNames: Map<string, string>,
+  customFieldDefs: CustomFieldDefinition[] = [],
 ): Deal[] {
   const q = (filter.search ?? "").trim().toLowerCase();
   // Job IDs are 6-char letter+digit codes (legacy ones pure digits); strip
   // everything else so "#K4T9ZW" and "k4t9zw" both match the stored code.
   const qAlnum = q.replace(/[^a-z0-9]/g, "");
+  // Only searchable definitions contribute their answers to free-text search.
+  const searchableFieldIds = customFieldDefs.filter((f) => f.searchable).map((f) => f.id);
   return deals.filter((d) => {
     if (filter.superStatus && d.superStatus !== filter.superStatus) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
@@ -370,7 +418,11 @@ export function filterDeals(
       const matchesNum = qAlnum.length > 0 && num.includes(qAlnum);
       const matchesName = name.includes(q);
       const matchesArea = d.serviceArea.toLowerCase().includes(q);
-      if (!matchesNum && !matchesName && !matchesArea) return false;
+      const matchesCustomField = searchableFieldIds.some((id) => {
+        const v = d.customFields?.[id];
+        return v !== undefined && customFieldText(v).toLowerCase().includes(q);
+      });
+      if (!matchesNum && !matchesName && !matchesArea && !matchesCustomField) return false;
     }
     return true;
   });

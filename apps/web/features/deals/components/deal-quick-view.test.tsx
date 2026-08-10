@@ -42,6 +42,9 @@ vi.mock("@/features/job-types/lib", () => ({
 vi.mock("@/features/job-tags/components/job-tag-chips", () => ({ JobTagChips: () => null }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
+// Custom-fields catalog fetches via react-query; stub it (empty catalog → the
+// read-only custom-fields row stays hidden) so the drawer renders sans QueryClient.
+vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
 
 const contact: Contact = {
   id: "c1",
