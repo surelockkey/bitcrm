@@ -30,10 +30,14 @@ import { ResolvedAreaField } from "@/features/service-areas/components/resolved-
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagPicker } from "@/features/job-tags/components/job-tag-picker";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
 
 
 export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: boolean; onOpenChange: (v: boolean) => void }) {
   const update = useUpdateDeal(deal.id);
+  const { data: customFieldDefs } = useCustomFields();
 
   const form = useForm<EditDealValues>({
     resolver: zodResolver(editDealSchema),
@@ -57,6 +61,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       notes: deal.notes ?? "",
       internalNotes: deal.internalNotes ?? "",
       tagIds: deal.tagIds,
+      customFields: deal.customFields ?? {},
     },
   });
 
@@ -71,6 +76,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         notes: v.notes || undefined,
         internalNotes: v.internalNotes || undefined,
         tagIds: v.tagIds,
+        customFields: v.customFields ?? {},
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -81,6 +87,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const sourceId = useWatch({ control: form.control, name: "sourceId" });
   const tagIds = useWatch({ control: form.control, name: "tagIds" }) ?? [];
   const priority = useWatch({ control: form.control, name: "priority" });
+  const customFields = useWatch({ control: form.control, name: "customFields" }) ?? {};
   const street = useWatch({ control: form.control, name: "address.street" });
   const lat = useWatch({ control: form.control, name: "address.lat" });
   const lng = useWatch({ control: form.control, name: "address.lng" });
@@ -138,6 +145,17 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} {...form.register("notes")} /></div>
             <div className="space-y-1.5"><Label>Internal notes</Label><Textarea rows={2} {...form.register("internalNotes")} /></div>
+            {applicableFields(customFieldDefs, jobTypeId).length > 0 ? (
+              <div className="space-y-3 border-t pt-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Custom fields</div>
+                <CustomFieldsSection
+                  jobTypeId={jobTypeId}
+                  value={customFields}
+                  onChange={(cf) => form.setValue("customFields", cf)}
+                  dealId={deal.id}
+                />
+              </div>
+            ) : null}
           </div>
           <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>

@@ -7,7 +7,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronLeft, Loader2, UserPlus, X } from "lucide-react";
 import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
-import type { Contact } from "@bitcrm/types";
+import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +30,9 @@ import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox"
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
 
 export function NewDealPage() {
   const [contact, setContact] = useState<Contact | null>(null);
@@ -67,6 +70,12 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
   const createDeal = useCreateDeal();
   const updateContact = useUpdateContact();
   const { map: companyMap } = useCompanyMap();
+  const { data: customFieldDefs } = useCustomFields();
+
+  // Custom-field answers live outside the zod form: their applicability and
+  // required-ness are data-driven from the catalog, so they're validated inline.
+  const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
+  const [cfError, setCfError] = useState<string | null>(null);
 
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
@@ -88,6 +97,20 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
 
   const submit = form.handleSubmit((values) => {
     if (!contact) return;
+    // Required custom fields block submit just like other required deal fields.
+    const missing = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, customFields);
+    if (missing.length) {
+      setCfError(`Fill required field${missing.length > 1 ? "s" : ""}: ${missing.map((f) => f.name).join(", ")}`);
+      return;
+    }
+    setCfError(null);
+    // Only send answers for fields that apply to the chosen job type — switching
+    // job type mid-form can leave answers for now-inapplicable fields, which the
+    // backend would (correctly) reject.
+    const applicableIds = new Set(applicableFields(customFieldDefs, values.jobTypeId).map((f) => f.id));
+    const cleanCustomFields = Object.fromEntries(
+      Object.entries(customFields).filter(([id]) => applicableIds.has(id)),
+    );
     createDeal.mutate(
       {
         contactId: contact.id,
@@ -99,6 +122,7 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
         notes: values.notes || undefined,
         poNumber: values.poNumber || undefined,
         workOrderId: values.workOrderId || undefined,
+        customFields: Object.keys(cleanCustomFields).length ? cleanCustomFields : undefined,
       },
       {
         onSuccess: (deal) => {
@@ -194,6 +218,21 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
           </div>
           <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
         </Section>
+
+        {/* Custom fields — job-type scoped; file fields prompt to save first
+            (no dealId yet). Required ones block submit via the inline check. */}
+        {applicableFields(customFieldDefs, v.jobTypeId).length > 0 ? (
+          <div className="lg:col-span-2">
+            <Section title="Custom fields">
+              <CustomFieldsSection
+                jobTypeId={v.jobTypeId}
+                value={customFields}
+                onChange={setCustomFields}
+              />
+              {cfError ? <p className="text-xs text-destructive">{cfError}</p> : null}
+            </Section>
+          </div>
+        ) : null}
       </div>
 
       {/* Sticky footer */}

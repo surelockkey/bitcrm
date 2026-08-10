@@ -8,7 +8,7 @@ import {
   ContactType,
   CrmStatus,
 } from "@bitcrm/types";
-import type { Address, Contact, Deal, DealProduct } from "@bitcrm/types";
+import type { Address, Contact, CustomFieldDefinition, Deal, DealProduct } from "@bitcrm/types";
 import {
   superStatusLabel,
   groupLabel,
@@ -47,6 +47,25 @@ function deal(over: Partial<Deal> = {}): Deal {
     assignedTechIds: [],
     tagIds: [],
     status: DealStatus.ACTIVE,
+    createdBy: "u1",
+    createdAt: "",
+    updatedAt: "",
+    ...over,
+  };
+}
+
+function cfDef(over: Partial<CustomFieldDefinition> = {}): CustomFieldDefinition {
+  return {
+    id: "cf-1",
+    name: "Gate Code",
+    type: "text",
+    group: "Access",
+    jobTypeIds: [],
+    required: false,
+    requiredToClose: false,
+    searchable: true,
+    priority: 0,
+    active: true,
     createdBy: "u1",
     createdAt: "",
     updatedAt: "",
@@ -147,6 +166,32 @@ describe("filterDeals", () => {
     expect(filterDeals(codes, { search: "k4t9" }, names).map((d) => d.id)).toEqual(["x"]);
     expect(filterDeals(codes, { search: "#X7B2QP" }, names).map((d) => d.id)).toEqual(["y"]);
     expect(filterDeals(codes, { search: "x7b2qp" }, names).map((d) => d.id)).toEqual(["y"]);
+  });
+
+  it("matches the string form of a searchable custom-field value", () => {
+    const defs = [cfDef({ id: "cf-gate", searchable: true })];
+    const withCf = [
+      deal({ id: "g", contactId: "c1", customFields: { "cf-gate": "Ring twice #4471" } }),
+      deal({ id: "h", contactId: "c2" }),
+    ];
+    expect(
+      filterDeals(withCf, { search: "4471" }, names, defs).map((d) => d.id),
+    ).toEqual(["g"]);
+    // Array (multi_select) values match on any member.
+    const multi = [
+      deal({ id: "m", contactId: "c1", customFields: { "cf-gate": ["North Gate", "Loading Dock"] } }),
+    ];
+    expect(
+      filterDeals(multi, { search: "loading" }, names, [cfDef({ id: "cf-gate", type: "multi_select", searchable: true })]).map((d) => d.id),
+    ).toEqual(["m"]);
+  });
+
+  it("does NOT match a custom-field value on a non-searchable definition", () => {
+    const defs = [cfDef({ id: "cf-gate", searchable: false })];
+    const withCf = [
+      deal({ id: "g", contactId: "c1", customFields: { "cf-gate": "Ring twice #4471" } }),
+    ];
+    expect(filterDeals(withCf, { search: "4471" }, names, defs)).toHaveLength(0);
   });
 
   it("filters by service area (exact)", () => {
@@ -317,6 +362,72 @@ describe("buildDealPatch", () => {
     expect(patch).not.toBeNull();
     expect(Object.keys(patch!)).toEqual(["notes"]);
     expect(patch!.notes).toBe("changed");
+  });
+});
+
+describe("custom fields (single-save draft)", () => {
+  it("dealDraftFromDeal copies the deal's customFields into a fresh map", () => {
+    const d = deal({ customFields: { "cf-a": "x", "cf-n": 2, "cf-m": ["A", "B"] } });
+    const draft = dealDraftFromDeal(d);
+    expect(draft.customFields).toEqual({ "cf-a": "x", "cf-n": 2, "cf-m": ["A", "B"] });
+    // A fresh object — mutating the draft must not touch the deal.
+    expect(draft.customFields).not.toBe(d.customFields);
+  });
+
+  it("dealDraftFromDeal defaults customFields to {} when the deal has none", () => {
+    expect(dealDraftFromDeal(deal()).customFields).toEqual({});
+  });
+
+  it("is clean when the customFields answers are unchanged (round-trip)", () => {
+    const d = deal({ customFields: { "cf-a": "x", "cf-m": ["A", "B"] } });
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+  });
+
+  it("emits a customFields patch keyed only on customFields when one answer changes", () => {
+    const d = deal({ customFields: { "cf-a": "x", "cf-n": 1 } });
+    const patch = buildDealPatch(d, {
+      ...dealDraftFromDeal(d),
+      customFields: { "cf-a": "y", "cf-n": 1 },
+    });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["customFields"]);
+    expect(patch!.customFields).toEqual({ "cf-a": "y", "cf-n": 1 });
+  });
+
+  it("emits customFields when an answer is added to a deal that had none", () => {
+    const d = deal();
+    const patch = buildDealPatch(d, {
+      ...dealDraftFromDeal(d),
+      customFields: { "cf-new": true },
+    });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["customFields"]);
+    expect(patch!.customFields).toEqual({ "cf-new": true });
+  });
+
+  it("emits an empty customFields map when the last answer is cleared", () => {
+    const d = deal({ customFields: { "cf-a": "x" } });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), customFields: {} });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["customFields"]);
+    expect(patch!.customFields).toEqual({});
+  });
+
+  it("treats identical array answers as clean but a reordered/extended array as changed", () => {
+    const d = deal({ customFields: { "cf-m": ["A", "B"] } });
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+
+    const patch = buildDealPatch(d, {
+      ...dealDraftFromDeal(d),
+      customFields: { "cf-m": ["A", "B", "C"] },
+    });
+    expect(patch!.customFields).toEqual({ "cf-m": ["A", "B", "C"] });
+  });
+
+  it("keeps customFields out of the patch when only a plain field changed", () => {
+    const d = deal({ customFields: { "cf-a": "x" } });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
+    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
   });
 });
 

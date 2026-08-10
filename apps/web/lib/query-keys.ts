@@ -54,6 +54,12 @@ export const queryKeys = {
     detail: (id: string) => ["job-statuses", "detail", id] as const,
   },
 
+  customFields: {
+    all: () => ["custom-fields"] as const,
+    list: () => ["custom-fields", "list"] as const,
+    detail: (id: string) => ["custom-fields", "detail", id] as const,
+  },
+
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,

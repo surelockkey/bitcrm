@@ -37,6 +37,9 @@ import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDeleteDeal, useUpdateDeal, useMoveStatus } from "../hooks";
 import {
   buildContactBody,
@@ -193,6 +196,7 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const { can, isTechnician } = usePermissions();
   const { data: contact } = useContact(deal.contactId);
+  const { data: customFieldDefs } = useCustomFields();
   const update = useUpdateDeal(deal.id);
   const updateContact = useUpdateContact();
   const [assigning, setAssigning] = useState(false);
@@ -229,6 +233,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   }, [contact?.id, contact?.updatedAt]);
 
   const setDeal = (patch: Partial<DealDraft>) => setDealDraft((d) => ({ ...d, ...patch }));
+
+  // Recomputes as the draft's job type changes — the applicable set is scoped to it.
+  const hasCustomFields = applicableFields(customFieldDefs, dealDraft.jobTypeId).length > 0;
 
   const dealPatch = buildDealPatch(deal, dealDraft);
   // A changed service address is also offered to the client's saved list — but
@@ -340,6 +347,22 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           </Field>
         </div>
       </Section>
+
+      {/* Custom fields — user-defined answers, held in the same draft and saved
+          by the single Save below. Job-type scoped, so it re-renders on type change. */}
+      {hasCustomFields ? (
+        <div className="lg:col-span-2">
+          <Section title="Custom fields">
+            <CustomFieldsSection
+              jobTypeId={dealDraft.jobTypeId}
+              value={dealDraft.customFields}
+              onChange={(cf) => setDeal({ customFields: cf })}
+              dealId={deal.id}
+              disabled={!canEdit}
+            />
+          </Section>
+        </div>
+      ) : null}
 
       {/* Notes — directly editable; the single Save below persists them */}
       <div className="lg:col-span-2">

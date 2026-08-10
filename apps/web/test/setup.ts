@@ -14,6 +14,18 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
+// jsdom lacks the Pointer Capture API — Radix Select calls it on open/select.
+if (typeof Element !== "undefined" && !Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+}
+// jsdom lacks elementFromPoint — input-otp (used by the auth OTP field) calls it
+// from a timer, which would otherwise surface as an unhandled error and fail the
+// whole run even though every test passes.
+if (typeof document !== "undefined" && !document.elementFromPoint) {
+  document.elementFromPoint = () => null;
+}
 
 // jsdom lacks matchMedia — polyfill for components that read it (e.g. Sidebar).
 if (typeof window !== "undefined" && !window.matchMedia) {

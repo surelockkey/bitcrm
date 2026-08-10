@@ -23,6 +23,9 @@ import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDealProducts, useContactMap, useUpdateDeal, useMoveStatus, useUserMap } from "../hooks";
 import { dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
@@ -64,6 +67,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
   const update = useUpdateDeal(dealId);
   const moveStatus = useMoveStatus(dealId);
   const jobTypeName = useJobTypeName();
+  const { data: customFieldDefs } = useCustomFields();
 
   if (isLoading || !deal) {
     return (
@@ -162,6 +166,17 @@ function QuickViewBody({ dealId }: { dealId: string }) {
         <Row label="Team">
           <TechChips techIds={deal.assignedTechIds} userMap={userMap} emptyText="Unassigned" />
         </Row>
+
+        {applicableFields(customFieldDefs, deal.jobTypeId).length > 0 ? (
+          <Row label="Custom fields">
+            <CustomFieldsSection
+              jobTypeId={deal.jobTypeId}
+              value={deal.customFields ?? {}}
+              onChange={() => {}}
+              disabled
+            />
+          </Row>
+        ) : null}
 
         {deal.notes ? (
           <Row label="Description">

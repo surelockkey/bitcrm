@@ -32,6 +32,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
+import { useCustomFields } from "@/features/custom-fields/hooks";
 import { DealsTable } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
 
@@ -44,6 +45,7 @@ export function DealsPage() {
   const { map: userMap } = useUserMap();
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
+  const customFieldsQuery = useCustomFields();
 
   const [tab, setTab] = useState<JobTab>(JOB_TABS[0]);
   const [search, setSearch] = useState("");
@@ -92,9 +94,15 @@ export function DealsPage() {
     [search, techId, jobTypeId, serviceArea, tagId],
   );
 
+  // Searchable custom-field definitions let free-text search match their answers.
+  const searchableFields = useMemo(
+    () => (customFieldsQuery.data ?? []).filter((f) => f.searchable),
+    [customFieldsQuery.data],
+  );
+
   const base = useMemo(
-    () => filterDeals(deals, baseFilter, contactNames),
-    [deals, baseFilter, contactNames],
+    () => filterDeals(deals, baseFilter, contactNames, searchableFields),
+    [deals, baseFilter, contactNames, searchableFields],
   );
   const counts = useMemo(() => tabCounts(base), [base]);
   const visible = useMemo(() => base.filter((d) => matchesTab(d, tab)), [base, tab]);
