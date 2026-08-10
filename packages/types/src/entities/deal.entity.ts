@@ -3,6 +3,7 @@ import { type ClientType } from '../enums/client-type.enum';
 import { type DealStage, type JobSuperStatus } from '../enums/deal-stage.enum';
 import { type DealPriority } from '../enums/deal-priority.enum';
 import { type DealStatus } from '../enums/deal-status.enum';
+import { type CustomFieldValue } from './custom-field.entity';
 
 export interface Deal {
   id: string;
@@ -63,6 +64,8 @@ export interface Deal {
   workOrderId?: string;
   /** Client PO number (required when the company has poRequired). */
   poNumber?: string;
+  /** User-defined field answers, keyed by CustomFieldDefinition id (not name). */
+  customFields?: Record<string, CustomFieldValue>;
   status: DealStatus;
   createdBy: string;
   createdAt: string;

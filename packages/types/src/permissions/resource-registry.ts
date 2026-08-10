@@ -27,6 +27,7 @@ export const RESOURCE_REGISTRY = {
   job_sources: ['view', 'create', 'edit', 'delete'],
   job_tags: ['view', 'create', 'edit', 'delete'],
   job_statuses: ['view', 'create', 'edit', 'delete'],
+  custom_fields: ['view', 'create', 'edit', 'delete'],
   work_orders: ['view', 'create', 'edit', 'delete'],
   commission: ['view', 'edit'],
   documents: ['view', 'upload', 'delete'],

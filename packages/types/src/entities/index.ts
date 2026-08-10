@@ -8,6 +8,7 @@ export { Address } from './address.entity';
 export { Deal } from './deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './deal-attachment.entity';
 export { DealSubStatus } from './deal-sub-status.entity';
+export { CustomFieldDefinition, CustomFieldValue } from './custom-field.entity';
 export { DealProduct } from './deal-product.entity';
 export { TimelineEntry } from './timeline-entry.entity';
 export { CalendarEvent } from './calendar-event.entity';

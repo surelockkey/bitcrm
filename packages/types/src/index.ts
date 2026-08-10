@@ -24,6 +24,12 @@ export { TimelineEventType } from './enums/timeline-event-type.enum';
 export { CalendarEventType } from './enums/calendar-event-type.enum';
 export { ServiceAreaType } from './enums/service-area-type.enum';
 export { JOB_TAG_COLORS, JobTagColor } from './enums/job-tag-color.enum';
+export {
+  CUSTOM_FIELD_TYPES,
+  CustomFieldType,
+  OPTION_CUSTOM_FIELD_TYPES,
+  isOptionCustomFieldType,
+} from './enums/custom-field-type.enum';
 
 // Entities
 export { User } from './entities/user.entity';
@@ -39,6 +45,10 @@ export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';
 export { DealSubStatus } from './entities/deal-sub-status.entity';
+export {
+  CustomFieldDefinition,
+  CustomFieldValue,
+} from './entities/custom-field.entity';
 export {
   ServiceArea,
   ServiceAreaDefinition,

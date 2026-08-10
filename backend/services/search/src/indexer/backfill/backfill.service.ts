@@ -89,11 +89,13 @@ export class BackfillService {
                 this.catalogNames.nameOf('job-tags', id),
               ),
             ]);
+            const customFieldDefs = await this.catalogNames.customFieldDefs();
             return routeToDocument(
               type,
               e,
               jobTypeName,
               tagNames.filter((n): n is string => Boolean(n)),
+              customFieldDefs,
             );
           }),
         )

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { CustomFieldSearchDef } from './mappers/mapper-input';
 
 const DEAL_SERVICE_URL = process.env.DEAL_SERVICE_URL || 'http://localhost:4003';
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
@@ -24,10 +25,42 @@ interface CachedCatalog {
 export class CatalogNamesService {
   private readonly logger = new Logger(CatalogNamesService.name);
   private readonly cache = new Map<CatalogKind, CachedCatalog>();
+  private customFields?: { defs: CustomFieldSearchDef[]; fetchedAt: number };
 
   /** Drop a cached catalog so the next lookup refetches it. */
   invalidate(kind: CatalogKind): void {
     this.cache.delete(kind);
+  }
+
+  /** Drop the cached custom-field definitions so the next lookup refetches them. */
+  invalidateCustomFields(): void {
+    this.customFields = undefined;
+  }
+
+  /**
+   * Searchable custom-field definitions (id + searchable flag) the deal mapper
+   * folds a deal's answers against. Like the name catalogs, these change rarely,
+   * so they are cached in memory rather than fetched per document.
+   */
+  async customFieldDefs(): Promise<CustomFieldSearchDef[]> {
+    const cached = this.customFields;
+    if (cached && Date.now() - cached.fetchedAt < TTL_MS) return cached.defs;
+
+    try {
+      const res = await fetch(`${DEAL_SERVICE_URL}/api/deals/custom-fields/internal`, {
+        headers: { 'x-internal-secret': INTERNAL_SECRET },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const body = (await res.json()) as { data?: Array<{ id: string; searchable?: boolean }> };
+      const defs = (body.data ?? []).map((f) => ({ id: f.id, searchable: Boolean(f.searchable) }));
+      this.customFields = { defs, fetchedAt: Date.now() };
+      return defs;
+    } catch (err) {
+      // A stale def set beats an unindexed document; an empty one beats a crash.
+      this.logger.warn(`Failed to load custom-field defs: ${(err as Error).message}`);
+      return cached?.defs ?? [];
+    }
   }
 
   /** The catalog entry's name, or undefined if the id is unknown. */
