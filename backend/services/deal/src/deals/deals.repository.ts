@@ -499,6 +499,7 @@ export class DealsRepository {
       internalNotes: item.internalNotes as string | undefined,
       cancellationReason: item.cancellationReason as string | undefined,
       tagIds: (item.tagIds as string[]) || [],
+      customFields: item.customFields as Deal['customFields'] | undefined,
       subStatusId: (item.subStatusId as string) || undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,

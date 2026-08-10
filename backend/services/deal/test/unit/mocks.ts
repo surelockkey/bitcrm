@@ -3,6 +3,7 @@ import {
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
   type ServiceArea, type JobType, type JobSource, type JobTag,
+  type CustomFieldDefinition,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,28 @@ export function createMockJobTag(overrides?: Partial<JobTag>): JobTag {
     id: 'jobtag-1',
     name: 'Rush',
     color: 'red',
+    priority: 0,
+    active: true,
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockCustomField(
+  overrides?: Partial<CustomFieldDefinition>,
+): CustomFieldDefinition {
+  return {
+    id: 'customfield-1',
+    name: 'Gate Code',
+    type: 'text',
+    group: 'Access',
+    options: [],
+    jobTypeIds: [],
+    required: false,
+    requiredToClose: false,
+    searchable: false,
     priority: 0,
     active: true,
     createdBy: 'admin-1',
@@ -258,6 +281,28 @@ export function createMockJobTagsRepository() {
     get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
     isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockCustomFieldsRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockCustomFieldsService() {
+  return {
+    // Empty catalog by default so deals with no custom fields validate as a no-op.
+    list: jest.fn().mockResolvedValue([]),
+    findById: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
     remove: jest.fn(),
   };
 }

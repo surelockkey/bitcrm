@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsArray,
-  ValidateNested, Matches, IsDateString,
+  ValidateNested, Matches, IsDateString, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
@@ -77,4 +77,12 @@ export class UpdateDealDto {
   @IsArray()
   @IsString({ each: true })
   tagIds?: string[];
+
+  @ApiPropertyOptional({
+    example: { 'field-uuid': 'Behind the gate' },
+    description: 'User-defined field answers to patch, keyed by CustomFieldDefinition id. Only supplied keys are validated and merged.',
+  })
+  @IsOptional()
+  @IsObject()
+  customFields?: Record<string, unknown>;
 }

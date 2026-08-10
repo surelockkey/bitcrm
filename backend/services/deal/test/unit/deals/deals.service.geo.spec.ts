@@ -12,6 +12,7 @@ import { JobSourcesService } from 'src/job-sources/job-sources.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
 import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
+import { CustomFieldsService } from 'src/custom-fields/custom-fields.service';
 import {
   createMockDeal,
   createMockAddress,
@@ -27,6 +28,7 @@ import {
   createMockJobSource,
   createMockJobTag,
   createMockTechnicianEligibilityRepository,
+  createMockCustomFieldsService,
 } from '../mocks';
 
 /**
@@ -67,6 +69,7 @@ describe('DealsService — address geocoding', () => {
         { provide: JobTagsService, useValue: { list: jest.fn().mockResolvedValue([]) } },
         { provide: JobStatusesService, useValue: { findById: jest.fn() } },
         { provide: TechnicianEligibilityRepository, useValue: createMockTechnicianEligibilityRepository() },
+        { provide: CustomFieldsService, useValue: createMockCustomFieldsService() },
       ],
     }).compile();
 

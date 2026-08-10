@@ -18,3 +18,9 @@ export { DealPriority } from './deal-priority.enum';
 export { DealStatus } from './deal-status.enum';
 export { TimelineEventType } from './timeline-event-type.enum';
 export { CalendarEventType } from './calendar-event-type.enum';
+export {
+  CUSTOM_FIELD_TYPES,
+  CustomFieldType,
+  OPTION_CUSTOM_FIELD_TYPES,
+  isOptionCustomFieldType,
+} from './custom-field-type.enum';

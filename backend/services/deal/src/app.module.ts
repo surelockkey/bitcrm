@@ -21,6 +21,7 @@ import { JobTypesModule } from './job-types/job-types.module';
 import { JobSourcesModule } from './job-sources/job-sources.module';
 import { JobTagsModule } from './job-tags/job-tags.module';
 import { JobStatusesModule } from './job-statuses/job-statuses.module';
+import { CustomFieldsModule } from './custom-fields/custom-fields.module';
 import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
 import { TechnicianEligibilityEventHandler } from './technician-eligibility/technician-eligibility.event-handler';
 
@@ -79,6 +80,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     JobSourcesModule,
     JobTagsModule,
     JobStatusesModule,
+    CustomFieldsModule,
     DealsModule,
     TechnicianEligibilityModule,
   ],

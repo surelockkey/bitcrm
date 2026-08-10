@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsArray,
-  IsUUID, ValidateNested, Matches, IsDateString,
+  IsUUID, ValidateNested, Matches, IsDateString, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -86,4 +86,12 @@ export class CreateDealDto {
   @IsArray()
   @IsString({ each: true })
   tagIds?: string[];
+
+  @ApiPropertyOptional({
+    example: { 'field-uuid': 'Behind the gate' },
+    description: 'User-defined field answers, keyed by CustomFieldDefinition id. Validated against the catalog.',
+  })
+  @IsOptional()
+  @IsObject()
+  customFields?: Record<string, unknown>;
 }

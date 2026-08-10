@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   HttpException,
+  UnprocessableEntityException,
   Optional,
 } from '@nestjs/common';
 import {
@@ -25,6 +26,9 @@ import {
   type DealProductFulfillment,
   type TimelineEntry,
   type JwtUser,
+  type CustomFieldDefinition,
+  type CustomFieldValue,
+  type CustomFieldType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
@@ -38,6 +42,7 @@ import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
 import { JobTagsService } from '../job-tags/job-tags.service';
 import { JobStatusesService } from '../job-statuses/job-statuses.service';
+import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
 import { distanceMiles } from '../common/utils/haversine';
 import { type CreateDealDto } from './dto/create-deal.dto';
@@ -64,6 +69,7 @@ export class DealsService {
     private readonly jobSources: JobSourcesService,
     private readonly jobTags: JobTagsService,
     private readonly jobStatuses: JobStatusesService,
+    private readonly customFields: CustomFieldsService,
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
@@ -124,6 +130,135 @@ export class DealsService {
     return { serviceAreaId: area.id, serviceArea: area.name };
   }
 
+  /** An answer counts as "not filled" when it is absent, blank, or an empty list. */
+  private isEmptyCustomFieldValue(value: unknown): boolean {
+    return (
+      value === undefined ||
+      value === null ||
+      value === '' ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  }
+
+  /** Runtime shape check for a single answer against its definition's type. */
+  private isValidCustomFieldValue(
+    type: CustomFieldType,
+    value: unknown,
+    options: string[],
+  ): boolean {
+    switch (type) {
+      case 'text':
+      case 'large_text':
+      case 'date':
+      case 'file': // attachment id
+        return typeof value === 'string';
+      case 'number':
+        return typeof value === 'number' && Number.isFinite(value);
+      case 'checkbox':
+        return typeof value === 'boolean';
+      case 'dropdown':
+        return typeof value === 'string' && options.includes(value);
+      case 'multi_select':
+        return (
+          Array.isArray(value) &&
+          value.every((v) => typeof v === 'string' && options.includes(v as string))
+        );
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Validate a bag of custom-field answers against the active catalog. Every
+   * supplied key must name an active definition that applies to this deal's job
+   * type (a definition applies iff its `jobTypeIds` is empty or includes the
+   * deal's job type), and its value must match the definition's type. On create,
+   * every applicable required field must carry a non-empty value.
+   *
+   * Returns the active-definition map so callers (update) can label timeline
+   * diffs with the field's human name instead of its raw id.
+   */
+  private async validateCustomFields(
+    customFields: Record<string, unknown>,
+    jobTypeId: string,
+    { forCreate }: { forCreate: boolean },
+  ): Promise<Map<string, CustomFieldDefinition>> {
+    const defs = new Map(
+      (await this.customFields.list())
+        .filter((d) => d.active)
+        .map((d) => [d.id, d] as const),
+    );
+
+    const applies = (def: CustomFieldDefinition) =>
+      def.jobTypeIds.length === 0 || def.jobTypeIds.includes(jobTypeId);
+
+    for (const [id, value] of Object.entries(customFields)) {
+      const def = defs.get(id);
+      if (!def) {
+        throw new BadRequestException(`Unknown or inactive custom field ${id}`);
+      }
+      if (!applies(def)) {
+        throw new BadRequestException(
+          `Custom field "${def.name}" does not apply to this deal's job type`,
+        );
+      }
+      // A cleared answer is allowed through here; required-ness is enforced below.
+      if (this.isEmptyCustomFieldValue(value)) continue;
+      if (!this.isValidCustomFieldValue(def.type, value, def.options ?? [])) {
+        throw new BadRequestException(
+          `Custom field "${def.name}" has an invalid value for type "${def.type}"`,
+        );
+      }
+    }
+
+    if (forCreate) {
+      const missing = [...defs.values()]
+        .filter(
+          (def) =>
+            def.required &&
+            applies(def) &&
+            this.isEmptyCustomFieldValue(customFields[def.id]),
+        )
+        .map((def) => def.name);
+      if (missing.length) {
+        throw new BadRequestException(
+          `Missing required custom field(s): ${missing.join(', ')}`,
+        );
+      }
+    }
+
+    return defs;
+  }
+
+  /**
+   * The required-to-close gate. Before a deal reaches a terminal super-status,
+   * every active custom-field definition that (a) applies to this deal's job
+   * type and (b) is flagged `requiredToClose` must carry a non-empty answer on
+   * the deal. Any that don't are reported together as a 422 whose payload lists
+   * their ids AND names, so the web client can name exactly what to fill.
+   */
+  private async assertRequiredToCloseFilled(deal: Deal): Promise<void> {
+    const applies = (def: CustomFieldDefinition) =>
+      def.jobTypeIds.length === 0 || def.jobTypeIds.includes(deal.jobTypeId);
+
+    const missing = (await this.customFields.list())
+      .filter(
+        (def) =>
+          def.active &&
+          def.requiredToClose &&
+          applies(def) &&
+          this.isEmptyCustomFieldValue(deal.customFields?.[def.id]),
+      )
+      .map((def) => ({ id: def.id, name: def.name }));
+
+    if (missing.length) {
+      throw new UnprocessableEntityException({
+        message: `Fill required field(s) before closing: ${missing.map((f) => f.name).join(', ')}`,
+        missingFields: missing,
+      });
+    }
+  }
+
   async create(dto: CreateDealDto, caller: JwtUser): Promise<Deal> {
     const contactExists = await this.internalHttp.validateContact(dto.contactId);
     if (!contactExists) {
@@ -170,6 +305,10 @@ export class DealsService {
       }
     }
 
+    // Custom-field answers: validated against the active catalog. Runs even when
+    // none were supplied so a required applicable field can't be skipped.
+    await this.validateCustomFields(dto.customFields ?? {}, dto.jobTypeId, { forCreate: true });
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -191,6 +330,7 @@ export class DealsService {
       poNumber: dto.poNumber,
       notes: dto.notes,
       tagIds,
+      customFields: dto.customFields as Record<string, CustomFieldValue> | undefined,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
       createdAt: now,
@@ -324,6 +464,21 @@ export class DealsService {
       }
     }
 
+    // Custom fields patch: validate only the supplied keys (against the target
+    // job type), then merge onto the stored bag so untouched answers survive —
+    // DynamoDB writes `customFields` as one whole map, so a partial write would
+    // otherwise drop every key not present in this request.
+    const customFieldsPatch = dto.customFields;
+    let customFieldDefs: Map<string, CustomFieldDefinition> | undefined;
+    if (customFieldsPatch) {
+      customFieldDefs = await this.validateCustomFields(
+        customFieldsPatch,
+        updates.jobTypeId ?? existing.jobTypeId,
+        { forCreate: false },
+      );
+      updates.customFields = { ...(existing.customFields ?? {}), ...customFieldsPatch };
+    }
+
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
 
@@ -342,6 +497,8 @@ export class DealsService {
     // final write payload so auto-derived fields (service area) are covered too.
     for (const [key, value] of Object.entries(updates as Record<string, unknown>)) {
       if (value === undefined) continue;
+      // Custom fields are diffed per-answer below, labeled by their human name.
+      if (key === 'customFields') continue;
       const previous = (existing as unknown as Record<string, unknown>)[key];
       if (this.valuesEqual(previous, value)) continue;
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
@@ -349,6 +506,21 @@ export class DealsService {
         oldValue: previous ?? null,
         newValue: value,
       });
+    }
+
+    // One timeline entry per changed custom-field answer, labeled with the
+    // definition's name (not the raw id) so the history reads for humans.
+    if (customFieldsPatch && customFieldDefs) {
+      for (const [fieldId, newValue] of Object.entries(customFieldsPatch)) {
+        const previous = existing.customFields?.[fieldId];
+        if (this.valuesEqual(previous, newValue)) continue;
+        const def = customFieldDefs.get(fieldId);
+        await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+          field: def?.name ?? fieldId,
+          oldValue: previous ?? null,
+          newValue,
+        });
+      }
     }
 
     return result;
@@ -382,6 +554,12 @@ export class DealsService {
           `Sub-status "${sub.name}" does not belong to super-status ${dto.superStatus}`,
         );
       }
+    }
+
+    // Closing the deal (any terminal super-status) enforces the required-to-close
+    // gate: every applicable requiredToClose custom field must carry an answer.
+    if (TERMINAL_SUPER_STATUSES.has(dto.superStatus)) {
+      await this.assertRequiredToCloseFilled(deal);
     }
 
     const from = deal.superStatus;

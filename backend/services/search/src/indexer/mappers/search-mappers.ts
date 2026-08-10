@@ -9,8 +9,9 @@ import {
   Transfer,
   SearchDocument,
   SearchDocStatus,
+  CustomFieldValue,
 } from '@bitcrm/types';
-import { TechnicianSearchInput } from './mapper-input';
+import { CustomFieldSearchDef, TechnicianSearchInput } from './mapper-input';
 import { phoneSearchKey, compactUnique } from '../../common/utils/search-normalize.util';
 
 /** Normalize any entity's lifecycle string to the search doc status. */
@@ -26,12 +27,48 @@ function toDocStatus(status: string | undefined): SearchDocStatus {
   }
 }
 
+/** Coerce a stored custom-field answer to a single searchable token/string. */
+function stringifyCustomFieldValue(value: CustomFieldValue): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  // multi_select stores an array — join so every option stays searchable.
+  if (Array.isArray(value)) return value.filter(Boolean).join(' ') || undefined;
+  // number / date / checkbox / dropdown all coerce cleanly to text.
+  return String(value);
+}
+
+/**
+ * Fold a deal's stored custom-field answers into search text. Only definitions
+ * flagged `searchable` contribute; ids with no matching (or non-searchable) def
+ * are dropped, so unindexed answers never leak into the document.
+ */
+function customFieldKeywords(
+  customFields: Record<string, CustomFieldValue> | undefined,
+  defs: CustomFieldSearchDef[],
+): string[] {
+  if (!customFields) return [];
+  const searchable = new Set(defs.filter((d) => d.searchable).map((d) => d.id));
+  const out: string[] = [];
+  for (const [id, value] of Object.entries(customFields)) {
+    if (!searchable.has(id)) continue;
+    const text = stringifyCustomFieldValue(value);
+    if (text) out.push(text);
+  }
+  return out;
+}
+
 /**
  * `jobTypeName` is resolved from `deal.jobTypeId` by the caller (see
  * CatalogNamesService) — the deal itself only stores the catalog id, and a raw
- * uuid in the subtitle would be useless to a searcher.
+ * uuid in the subtitle would be useless to a searcher. `customFieldDefs` is
+ * resolved the same way, so the mapper can fold only the searchable answers
+ * (`deal.customFields` stores raw values keyed by definition id).
  */
-export function mapDeal(deal: Deal, jobTypeName?: string, tagNames: string[] = []): SearchDocument {
+export function mapDeal(
+  deal: Deal,
+  jobTypeName?: string,
+  tagNames: string[] = [],
+  customFieldDefs: CustomFieldSearchDef[] = [],
+): SearchDocument {
   const addr = deal.address;
   return {
     docId: `deal#${deal.id}`,
@@ -53,6 +90,7 @@ export function mapDeal(deal: Deal, jobTypeName?: string, tagNames: string[] = [
       addr?.state,
       addr?.zip,
       ...tagNames,
+      ...customFieldKeywords(deal.customFields, customFieldDefs),
     ]),
     body: deal.notes,
     url: `/deals/${deal.id}`,
