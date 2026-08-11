@@ -11,6 +11,7 @@ import {
   DealStatus,
 } from "@bitcrm/types";
 import type { Contact, Deal, User } from "@bitcrm/types";
+import { DEFAULT_VISIBLE, JOB_FIELDS, type VisibleFields } from "../fields";
 import { DealsTable } from "./deals-table";
 
 // Resolve job-type ids to names without a QueryClient/live catalog.
@@ -129,6 +130,47 @@ describe("DealsTable", () => {
     );
     expect(screen.getAllByRole("columnheader")).toHaveLength(7);
     expect(screen.queryByText("Open in new tab")).toBeNull();
+  });
+
+  it("hides a column's header and cells when its field is toggled off", () => {
+    render(
+      <DealsTable
+        deals={[deal({ tagIds: ["t1"] })]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ ...DEFAULT_VISIBLE, tags: false }}
+      />,
+    );
+    expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    // Cells stay aligned with the remaining headers.
+    const row = screen.getByText("Jane Smith").closest("tr")!;
+    expect(row.querySelectorAll("td")).toHaveLength(6);
+  });
+
+  it("renders every column when no visibility is passed", () => {
+    render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+  });
+
+  it("keeps the job number even when every optional field is hidden", () => {
+    const none = Object.fromEntries(
+      JOB_FIELDS.map((f) => [f.id, false]),
+    ) as VisibleFields;
+    render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={none}
+      />,
+    );
+    expect(screen.getAllByRole("columnheader")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /new tab/i })).toHaveTextContent("#1042");
   });
 
   it("does not open the preview when the new-tab link is clicked", async () => {
