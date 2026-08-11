@@ -17,7 +17,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, user, crm, deal, inventory, search]
+        options: [all, user, crm, deal, inventory, search, telephony]
         default: all
 
 env:
@@ -57,6 +57,8 @@ jobs:
               - 'backend/services/inventory/**'
             search:
               - 'backend/services/search/**'
+            telephony:
+              - 'backend/services/telephony/**'
 
       - name: Decide service matrix
         id: set
@@ -68,9 +70,10 @@ jobs:
           DEAL:      ${{ steps.filter.outputs.deal }}
           INVENTORY: ${{ steps.filter.outputs.inventory }}
           SEARCH:    ${{ steps.filter.outputs.search }}
+          TELEPHONY: ${{ steps.filter.outputs.telephony }}
         run: |
           set -euo pipefail
-          ALL='["user","crm","deal","inventory","search"]'
+          ALL='["user","crm","deal","inventory","search","telephony"]'
 
           # Manual dispatch overrides path filtering
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -95,6 +98,7 @@ jobs:
           [[ "$DEAL"      == "true" ]] && changed+=("deal")
           [[ "$INVENTORY" == "true" ]] && changed+=("inventory")
           [[ "$SEARCH"    == "true" ]] && changed+=("search")
+          [[ "$TELEPHONY" == "true" ]] && changed+=("telephony")
 
           if [[ ${#changed[@]} -eq 0 ]]; then
             echo "services=[]" >> "$GITHUB_OUTPUT"
@@ -170,6 +174,13 @@ jobs:
           JWT_SIGNING_KEY:        ${{ secrets.JWT_SIGNING_KEY }}
           COGNITO_CLIENT_SECRET:  ${{ secrets.COGNITO_CLIENT_SECRET }}
           INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
+          # Twilio — consumed only when SERVICE is telephony.
+          TWILIO_ACCOUNT_SID:     ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN:      ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_API_KEY:         ${{ secrets.TWILIO_API_KEY }}
+          TWILIO_API_SECRET:      ${{ secrets.TWILIO_API_SECRET }}
+          TWILIO_TWIML_APP_SID:   ${{ secrets.TWILIO_TWIML_APP_SID }}
+          TWILIO_CALLER_ID:       ${{ vars.TWILIO_CALLER_ID }}
         run: |
           set -euo pipefail
           bash backend/scripts/render-taskdef.sh > /tmp/taskdef.json

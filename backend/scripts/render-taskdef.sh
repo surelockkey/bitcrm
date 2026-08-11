@@ -2,7 +2,7 @@
 # Render an ECS task definition for the given service.
 #
 # Required env vars (typically provided by the GH Actions workflow):
-#   SERVICE              - user | crm | deal | inventory
+#   SERVICE              - user | crm | deal | inventory | search | telephony
 #   IMAGE                - full ECR image URI with tag
 #   EXECUTION_ROLE_ARN   - ECS task execution role ARN
 #   TASK_ROLE_ARN        - per-service task role ARN
@@ -11,6 +11,10 @@
 #   JWT_SIGNING_KEY
 #   COGNITO_CLIENT_SECRET
 #   INTERNAL_SERVICE_TOKEN
+#   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_API_KEY /
+#     TWILIO_API_SECRET / TWILIO_TWIML_APP_SID / TWILIO_CALLER_ID
+#                        - telephony only; the service boots without them but
+#                          refuses to mint tokens or place calls
 #   GIT_SHA              - commit SHA for /health version reporting
 #
 # All non-secret runtime config is read from SSM Parameter Store under /bitcrm/dev/.
@@ -20,7 +24,7 @@
 
 set -euo pipefail
 
-: "${SERVICE:?SERVICE is required (user|crm|deal|inventory)}"
+: "${SERVICE:?SERVICE is required (user|crm|deal|inventory|search|telephony)}"
 : "${IMAGE:?IMAGE is required}"
 : "${EXECUTION_ROLE_ARN:?EXECUTION_ROLE_ARN is required}"
 : "${TASK_ROLE_ARN:?TASK_ROLE_ARN is required}"
@@ -31,6 +35,7 @@ case "$SERVICE" in
   deal)      PORT=4003; PORT_ENV=DEAL_SERVICE_PORT ;;
   inventory) PORT=4004; PORT_ENV=INVENTORY_SERVICE_PORT ;;
   search)    PORT=4005; PORT_ENV=SEARCH_SERVICE_PORT ;;
+  telephony) PORT=4006; PORT_ENV=TELEPHONY_SERVICE_PORT ;;
   *) echo "unknown service: $SERVICE" >&2; exit 1 ;;
 esac
 
@@ -91,6 +96,12 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg cognito_secret "${COGNITO_CLIENT_SECRET:-}" \
   --arg internal_token "${INTERNAL_SERVICE_TOKEN:-}" \
   --arg api_gateway_url "$API_GATEWAY_URL" \
+  --arg twilio_account_sid "${TWILIO_ACCOUNT_SID:-}" \
+  --arg twilio_auth_token "${TWILIO_AUTH_TOKEN:-}" \
+  --arg twilio_api_key "${TWILIO_API_KEY:-}" \
+  --arg twilio_api_secret "${TWILIO_API_SECRET:-}" \
+  --arg twilio_twiml_app_sid "${TWILIO_TWIML_APP_SID:-}" \
+  --arg twilio_caller_id "${TWILIO_CALLER_ID:-}" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -102,7 +113,8 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: "USER_SERVICE_URL",      value: "http://user:4001"},
     {name: "CRM_SERVICE_URL",       value: "http://crm:4002"},
     {name: "DEAL_SERVICE_URL",      value: "http://deal:4003"},
-    {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"}
+    {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"},
+    {name: "TELEPHONY_SERVICE_URL", value: "http://telephony:4006"}
   ]
   + (if $api_gateway_url != "" then [{name: "API_GATEWAY_URL",        value: $api_gateway_url}] else [] end)
   + (if $jwt_key         != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]         else [] end)
@@ -112,6 +124,18 @@ EXTRA_ENV_JSON=$(jq -n \
       # Guards (deal/inventory/user InternalGuard) read INTERNAL_SERVICE_SECRET — same value.
       {name: "INTERNAL_SERVICE_SECRET", value: $internal_token}
     ] else [] end)
+  # Twilio credentials + the public URL its webhooks call back on. Only the
+  # telephony task gets them, and only the ones actually configured — an empty
+  # GitHub secret must not overwrite anything with "".
+  + (if $service == "telephony" then
+      [{name: "PUBLIC_BASE_URL", value: $api_gateway_url}]
+      + (if $twilio_account_sid   != "" then [{name: "TWILIO_ACCOUNT_SID",   value: $twilio_account_sid}]   else [] end)
+      + (if $twilio_auth_token    != "" then [{name: "TWILIO_AUTH_TOKEN",    value: $twilio_auth_token}]    else [] end)
+      + (if $twilio_api_key       != "" then [{name: "TWILIO_API_KEY",       value: $twilio_api_key}]       else [] end)
+      + (if $twilio_api_secret    != "" then [{name: "TWILIO_API_SECRET",    value: $twilio_api_secret}]    else [] end)
+      + (if $twilio_twiml_app_sid != "" then [{name: "TWILIO_TWIML_APP_SID", value: $twilio_twiml_app_sid}] else [] end)
+      + (if $twilio_caller_id     != "" then [{name: "TWILIO_CALLER_ID",     value: $twilio_caller_id}]     else [] end)
+    else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   # search runs an idempotent index backfill on boot.

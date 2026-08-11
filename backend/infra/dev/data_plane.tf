@@ -23,6 +23,13 @@ locals {
       { name = "ContactIndex", n = 3 },
       { name = "DispatcherIndex", n = 4 },
     ] }
+    # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
+    # own history; AllCallsIndex is the global time-ordered log the calls page
+    # pages through (GSI2PK is the constant 'CALL#ALL').
+    calls = { gsis = [
+      { name = "AgentIndex", n = 1 },
+      { name = "AllCallsIndex", n = 2 },
+    ] }
     deal-products    = { gsis = [] }
     timeline-entries = { gsis = [] }
     addresses        = { gsis = [] } # currently unused by code, kept for parity
@@ -162,6 +169,9 @@ module "sns_sqs" {
     # Published by inventory-service (Phase 2); the search indexer subscribes now
     # so it starts indexing inventory the moment those events go live.
     inventory-events = {}
+    # call.started / call.completed / call.recording_ready from telephony-service.
+    # No consumers yet — the live calls UI is fed by SSE, not SNS (see EVENTS.md).
+    call-events = {}
   }
 
   queues = {

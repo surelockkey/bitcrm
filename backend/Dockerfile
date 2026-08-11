@@ -53,7 +53,7 @@ RUN apk add --no-cache --virtual .cp-deps coreutils \
 USER app
 WORKDIR /app/backend/services/${SERVICE}
 
-# All 4 services listen on 4001-4004; ECS task def picks the right port via PORT env
-EXPOSE 4001 4002 4003 4004
+# Services listen on 4001-4006; the ECS task def picks the right port via PORT env
+EXPOSE 4001 4002 4003 4004 4005 4006
 
 CMD ["node", "dist/main.js"]

@@ -41,6 +41,9 @@ locals {
     deal      = { port = 4003, priority = 300, path_pattern = "/api/deals/*" }
     inventory = { port = 4004, priority = 400, path_pattern = "/api/inventory/*" }
     search    = { port = 4005, priority = 500, path_pattern = "/api/search/*" }
+    # Twilio calls this one directly (voice webhooks under /api/telephony/voice),
+    # so the rule must stay public — auth is the X-Twilio-Signature guard.
+    telephony = { port = 4006, priority = 600, path_pattern = "/api/telephony/*" }
   }
 }
 

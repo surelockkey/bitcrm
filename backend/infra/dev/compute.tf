@@ -291,6 +291,49 @@ data "aws_iam_policy_document" "task_search" {
   }
 }
 
+# telephony-svc: DDB calls + SNS call-events publish
+data "aws_iam_policy_document" "task_telephony" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_read_dev.json]
+
+  statement {
+    sid    = "DDBCalls"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [
+      module.ddb["calls"].arn,
+      "${module.ddb["calls"].arn}/index/*",
+    ]
+  }
+
+  # The service self-heals its schema at boot (DbSetupService → ensure-gsi2),
+  # which adds AllCallsIndex to tables that predate it. Terraform owns the
+  # table, so this is a no-op here — but without UpdateTable the boot check
+  # logs a permissions error on every start.
+  statement {
+    sid       = "DDBCallsIndexMaintenance"
+    effect    = "Allow"
+    actions   = ["dynamodb:UpdateTable"]
+    resources = [module.ddb["calls"].arn]
+  }
+
+  statement {
+    sid       = "PublishCallEvents"
+    effect    = "Allow"
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
+    resources = [module.sns_sqs.topic_arns["call-events"]]
+  }
+}
+
 locals {
   task_role_policies = {
     user      = data.aws_iam_policy_document.task_user.json
@@ -298,6 +341,7 @@ locals {
     deal      = data.aws_iam_policy_document.task_deal.json
     inventory = data.aws_iam_policy_document.task_inventory.json
     search    = data.aws_iam_policy_document.task_search.json
+    telephony = data.aws_iam_policy_document.task_telephony.json
   }
 }
 
