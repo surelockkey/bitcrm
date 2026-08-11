@@ -7,6 +7,7 @@ import {
   LogOut,
   Monitor,
   Moon,
+  Phone,
   Settings,
   Sun,
   UserRound,
@@ -28,6 +29,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useLogout } from "@/features/auth/hooks";
+import { useSoftphoneStore } from "@/features/telephony/softphone-store";
 
 function initials(first?: string, last?: string): string {
   const value = `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
@@ -38,6 +40,7 @@ export function NavUser() {
   const { me, roleName, can } = usePermissions();
   const { setTheme } = useTheme();
   const signOut = useLogout();
+  const setDialerOpen = useSoftphoneStore((s) => s.setDialerOpen);
 
   if (!me) return <Skeleton className="size-8 rounded-full" />;
 
@@ -74,6 +77,10 @@ export function NavUser() {
         </div>
 
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setDialerOpen(true)}>
+          <Phone />
+          Open dialer
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/profile">
             <UserRound />

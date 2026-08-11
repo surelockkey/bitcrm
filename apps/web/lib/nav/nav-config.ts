@@ -91,7 +91,7 @@ export const MAIN_NAV: NavGroup[] = [
   {
     label: "Communications",
     items: [
-      { label: "Active Calls", href: "/calls", icon: Phone, status: "coming-soon" },
+      { label: "Calls", href: "/calls", icon: Phone, resource: "calls" },
       { label: "SMS", href: "/sms", icon: MessageSquare, status: "coming-soon" },
       { label: "Messages", href: "/messages", icon: MessagesSquare, status: "coming-soon" },
     ],

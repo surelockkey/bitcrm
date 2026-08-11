@@ -5,6 +5,7 @@ import { AppSidebar } from "./app-sidebar";
 import { AppHeader } from "./app-header";
 import { CommandMenu } from "./command-menu";
 import { LocationBroadcaster } from "@/features/technicians/components/location-broadcaster";
+import { SoftphoneProvider } from "@/features/telephony/components/softphone-provider";
 
 /** Authenticated app chrome: sidebar + header + command palette. */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -18,6 +19,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CommandMenu />
       {/* Streams a technician's live location while they're online (renders nothing). */}
       <LocationBroadcaster />
+      {/* Twilio softphone: drives the Device from the phone on/off toggle and
+          renders the floating dialer overlay. */}
+      <SoftphoneProvider />
     </SidebarProvider>
   );
 }

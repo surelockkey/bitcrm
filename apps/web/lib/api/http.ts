@@ -70,7 +70,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
-/** Reads an error message from common shapes: {message}, {message:[]}, {error}. */
+/**
+ * Reads an error message from common shapes: {message}, {message:[]}, {error},
+ * and our API error envelope {error:{code, message}}.
+ */
 function extractMessage(body: unknown): string | null {
   if (!isRecord(body)) return null;
   const { message, error } = body;
@@ -80,6 +83,15 @@ function extractMessage(body: unknown): string | null {
     if (parts.length) return parts.join(", ");
   }
   if (typeof error === "string" && error) return error;
+  // Backend envelope: { success:false, error:{ code, message } }
+  if (isRecord(error)) {
+    const nested = error.message;
+    if (typeof nested === "string" && nested) return nested;
+    if (Array.isArray(nested)) {
+      const parts = nested.filter((m): m is string => typeof m === "string");
+      if (parts.length) return parts.join(", ");
+    }
+  }
   return null;
 }
 

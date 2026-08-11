@@ -6,6 +6,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useUiStore } from "@/stores/ui-store";
+import { SoftphoneControls } from "@/features/telephony/components/softphone-controls";
 import { NavUser } from "./nav-user";
 
 export function AppHeader() {
@@ -39,6 +40,7 @@ export function AppHeader() {
             </Link>
           </Button>
         ) : null}
+        <SoftphoneControls />
         <NavUser />
       </div>
     </header>

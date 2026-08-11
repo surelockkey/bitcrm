@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search, TriangleAlert, UserPlus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useRoles, useUsers } from "../hooks";
+import { useRoles, useUser, useUsers } from "../hooks";
 import type { UserFilter } from "../api";
 import { CreateUserSheet } from "./create-user-sheet";
 import { UserDetailSheet } from "./user-detail-sheet";
@@ -27,6 +28,8 @@ function matches(u: User, q: string): boolean {
 
 export function UsersPage() {
   const { can } = usePermissions();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [filter, setFilter] = useState<UserFilter>({});
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -43,13 +46,28 @@ export function UsersPage() {
   );
   const visible = search ? users.filter((u) => matches(u, search)) : users;
 
+  // Deep link (`?user=<id>`, e.g. from a name in the call log): open that
+  // user's sheet — fetched directly, since they may sit past the loaded pages.
+  const linkedId = searchParams.get("user") ?? undefined;
+  const { data: linkedUser } = useUser(
+    linkedId && !users.some((u) => u.id === linkedId) ? linkedId : undefined,
+  );
+
   // Keep the open detail sheet showing the freshest copy from the list.
-  const currentUser = selected
-    ? (users.find((u) => u.id === selected.user.id) ?? selected.user)
+  const activeId = selected?.user.id ?? linkedId;
+  const currentUser = activeId
+    ? (users.find((u) => u.id === activeId) ??
+      (selected?.user.id === activeId ? selected.user : linkedUser) ??
+      null)
     : null;
 
   const openUser = (user: User, tab = "profile") =>
     setSelected({ user, tab });
+
+  const closeUser = () => {
+    setSelected(null);
+    if (linkedId) router.replace("/admin/users");
+  };
 
   if (!can("users", "view")) {
     return (
@@ -168,7 +186,7 @@ export function UsersPage() {
           key={currentUser.id}
           user={currentUser}
           defaultTab={selected?.tab}
-          onClose={() => setSelected(null)}
+          onClose={closeUser}
         />
       ) : null}
     </div>

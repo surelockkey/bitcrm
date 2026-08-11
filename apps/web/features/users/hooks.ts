@@ -22,6 +22,18 @@ export function useUsers(filter: UserFilter) {
   });
 }
 
+/**
+ * A single user — for deep links (`/admin/users?user=<id>`) that land on
+ * someone who isn't in the loaded pages yet.
+ */
+export function useUser(id?: string) {
+  return useQuery({
+    queryKey: queryKeys.users.detail(id ?? ""),
+    queryFn: () => api.getUser(id as string),
+    enabled: !!id,
+  });
+}
+
 export function useRoles() {
   return useQuery({
     queryKey: queryKeys.roles.list(),

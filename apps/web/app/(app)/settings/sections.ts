@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { MapPin, SlidersHorizontal, Wrench, Megaphone, Tags } from "lucide-react";
+import { MapPin, SlidersHorizontal, Wrench, Megaphone, Tags, Phone } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
 export interface SettingsSection {
@@ -45,5 +45,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Colored labels for deals. A deal can carry many.",
     icon: Tags,
     resource: "job_tags",
+  },
+  {
+    label: "Phone Numbers",
+    href: "/settings/phone-numbers",
+    description: "Buy, list, and release the numbers you call and receive on.",
+    icon: Phone,
+    resource: "settings",
   },
 ];

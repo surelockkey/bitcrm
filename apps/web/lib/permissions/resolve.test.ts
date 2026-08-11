@@ -46,6 +46,20 @@ describe("resolvePermissions", () => {
     expect(scopeOf(r, "deals")).toBe(DataScope.ASSIGNED_ONLY);
   });
 
+  it("gates calls supervision by role tier (join = supervisors only)", () => {
+    const admin = resolvePermissions(user("role-admin"));
+    expect(can(admin, "calls", "view")).toBe(true);
+    expect(can(admin, "calls", "join")).toBe(true);
+
+    const dispatcher = resolvePermissions(user("role-dispatcher"));
+    expect(can(dispatcher, "calls", "view")).toBe(true);
+    expect(can(dispatcher, "calls", "join")).toBe(false);
+
+    const technician = resolvePermissions(user("role-technician"));
+    expect(can(technician, "calls", "view")).toBe(false);
+    expect(can(technician, "calls", "join")).toBe(false);
+  });
+
   it("merges per-user overrides on top of the role (user wins)", () => {
     const r = resolvePermissions(
       user("role-dispatcher", { permissions: { commission: { view: true } } }),

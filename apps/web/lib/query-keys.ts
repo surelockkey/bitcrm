@@ -9,6 +9,21 @@
 export const queryKeys = {
   me: () => ["me"] as const,
 
+  telephony: {
+    numbers: () => ["telephony", "numbers"] as const,
+    available: (params?: unknown) =>
+      ["telephony", "numbers", "available", params] as const,
+  },
+
+  calls: {
+    all: () => ["calls"] as const,
+    /** Prefix for every filtered list — use for invalidation. */
+    lists: () => ["calls", "list"] as const,
+    list: (filters?: unknown) => ["calls", "list", filters] as const,
+    detail: (id: string) => ["calls", "detail", id] as const,
+    live: () => ["calls", "live"] as const,
+  },
+
   search: {
     global: (q: string, mode: string) => ["search", mode, q] as const,
   },
