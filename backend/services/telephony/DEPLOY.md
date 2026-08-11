@@ -45,7 +45,7 @@ The deploy job runs in the `dev` environment, so set these on that environment
 | `TWILIO_AUTH_TOKEN` | Twilio console home | signature validation fails → all webhooks 403 |
 | `TWILIO_API_KEY` | Account → API keys (`SK…`) | access tokens can't be minted → softphone never connects |
 | `TWILIO_API_SECRET` | shown **once** when the key is created | same as above |
-| `TWILIO_TWIML_APP_SID` | Voice → TwiML Apps (`AP…`) | outbound dialling from the browser fails |
+| `TWILIO_TWIML_APP_SID` | Voice → TwiML Apps (`AP…`) — **the environment's own app**, not the one pointed at a local tunnel | outbound dialling from the browser fails, or dials through the wrong environment |
 
 Optional repo/environment **variable** (not a secret): `TWILIO_CALLER_ID`, an
 E.164 default caller ID. Unset → the service falls back to the account's first
@@ -75,13 +75,22 @@ aws ecs describe-services --cluster bitcrm-dev \
 
 Base URL: `https://api.bitcrm.tech-slk.com/api/telephony`
 
-1. **TwiML App** (Voice → TwiML Apps → your app):
+1. **TwiML App** (Voice → TwiML Apps → the `bitcrm-dev` app):
    - Voice Request URL → `<base>/voice/outbound`, method `POST`
+   - Leave the app's Status Callback URL **empty**. The service attaches
+     per-call status and recording callbacks to the conference itself; the
+     app-level callback only reports browser-SDK legs (`From=client:…`,
+     `To=""`), which `CallsService.recordStatus` deliberately discards.
+   - Use a TwiML app per environment. Local ngrok development needs its own,
+     since the URL is a single field.
 2. **Each phone number** (Phone Numbers → Manage → Active numbers):
    - A call comes in → Webhook → `<base>/voice/inbound`, method `POST`
-   - Call status changes → `<base>/voice/status`, method `POST`
-   - Settings › Phone numbers in the app does this for you on purchase; existing
-     numbers bought outside the app need it set manually.
+   - Nothing else: no per-number status callback is required.
+   - Settings › Phone numbers in the app sets this on purchase; numbers bought
+     outside the app need it set manually.
+   - A number points at exactly one environment. A number wired to a local
+     ngrok tunnel will not ring the deployed app, so keep at least one number
+     dedicated to dev.
 
 Webhook routes are `@Public()` (no Cognito) and authenticated by the
 `X-Twilio-Signature` guard, which recomputes the signature over
