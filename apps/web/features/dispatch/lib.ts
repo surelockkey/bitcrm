@@ -1,12 +1,10 @@
-import { DealStage } from "@bitcrm/types";
+import { JobSuperStatus } from "@bitcrm/types";
 import type { Deal, TechnicianProfile, TechnicianLocation } from "@bitcrm/types";
 import { hasCoords } from "@/lib/geo/geo";
 
-/** Stages where the technician is actively on the job right now. */
-export const ACTIVE_STAGES: ReadonlySet<DealStage> = new Set([
-  DealStage.EN_ROUTE,
-  DealStage.ON_SITE,
-  DealStage.WORK_IN_PROGRESS,
+/** Super-status where the technician is actively working the job right now. */
+export const ACTIVE_STATUSES: ReadonlySet<JobSuperStatus> = new Set([
+  JobSuperStatus.IN_PROGRESS,
 ]);
 
 /** A live fix older than this is real but aging — flagged so dispatch knows. */
@@ -220,7 +218,7 @@ export function technicianAvailability(
   position: TechnicianPosition | undefined,
 ): TechAvailability {
   if (!position) return "offline";
-  if (jobs.some((d) => ACTIVE_STAGES.has(d.stage))) return "on_job";
+  if (jobs.some((d) => ACTIVE_STATUSES.has(d.superStatus))) return "on_job";
   return "available";
 }
 
@@ -231,8 +229,8 @@ export function technicianAvailability(
  */
 export function techJobProgress(jobs: Deal[]): { current: number; total: number } {
   const total = jobs.length;
-  const activeIdx = jobs.findIndex((d) => ACTIVE_STAGES.has(d.stage));
+  const activeIdx = jobs.findIndex((d) => ACTIVE_STATUSES.has(d.superStatus));
   if (activeIdx >= 0) return { current: activeIdx + 1, total };
-  const done = jobs.filter((d) => d.stage === DealStage.COMPLETED).length;
+  const done = jobs.filter((d) => d.superStatus === JobSuperStatus.DONE).length;
   return { current: done, total };
 }

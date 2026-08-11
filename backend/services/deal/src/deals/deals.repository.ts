@@ -9,7 +9,13 @@ import {
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { DealStatus, type Deal } from '@bitcrm/types';
+import {
+  DealStatus,
+  JobSuperStatus,
+  STAGE_TO_SUPER_STATUS,
+  type Deal,
+  type DealStage,
+} from '@bitcrm/types';
 import {
   DEALS_TABLE,
   DEALS_GSI1_NAME,
@@ -17,6 +23,7 @@ import {
   DEALS_GSI3_NAME,
   DEALS_GSI4_NAME,
 } from '../common/constants/dynamo.constants';
+import { generateDealNumberCode } from './deal-number.util';
 
 export interface PaginatedResult {
   items: Deal[];
@@ -31,8 +38,16 @@ export interface DealFilters {
   clientType?: string;
   priority?: string;
   tagIds?: string[];
-  dealNumber?: number;
+  /** Random 6-char code (string) or legacy sequential id (number, stored as-is). */
+  dealNumber?: string | number;
 }
+
+/**
+ * A partial deal patch. A field set to `null` CLEARS (REMOVEs) the stored
+ * attribute; `undefined` leaves it untouched. This is how a deal's sub-status
+ * is dropped when it moves to a bare super-status.
+ */
+export type DealUpdate = Partial<{ [K in keyof Deal]: Deal[K] | null }>;
 
 @Injectable()
 export class DealsRepository {
@@ -90,7 +105,7 @@ export class DealsRepository {
     if (filters?.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
     if (filters?.clientType && deal.clientType !== filters.clientType) return false;
     if (filters?.priority && deal.priority !== filters.priority) return false;
-    if (filters?.dealNumber !== undefined && deal.dealNumber !== filters.dealNumber) return false;
+    if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     return true;
   }
@@ -103,7 +118,7 @@ export class DealsRepository {
         Item: {
           PK: `DEAL#${deal.id}`,
           SK: 'METADATA',
-          GSI1PK: `STAGE#${deal.stage}`,
+          GSI1PK: `STATUS#${deal.superStatus}`,
           GSI1SK: `${deal.createdAt}#DEAL#${deal.id}`,
           GSI3PK: `CONTACT#${deal.contactId}`,
           GSI3SK: `${deal.createdAt}#DEAL#${deal.id}`,
@@ -128,8 +143,8 @@ export class DealsRepository {
     return this.toDeal(result.Item);
   }
 
-  async findByStage(
-    stage: string,
+  async findBySuperStatus(
+    superStatus: string,
     limit: number,
     cursor?: string,
     filters?: DealFilters,
@@ -141,7 +156,7 @@ export class DealsRepository {
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
         FilterExpression: f.expression,
-        ExpressionAttributeValues: { ':pk': `STAGE#${stage}`, ...f.values },
+        ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...f.values },
         ExpressionAttributeNames: f.names,
         ScanIndexForward: false,
         Limit: limit,
@@ -344,8 +359,9 @@ export class DealsRepository {
     return ids.map((id) => byId.get(id)).filter((d): d is Deal => Boolean(d));
   }
 
-  async update(id: string, attrs: Partial<Deal>): Promise<Deal> {
+  async update(id: string, attrs: DealUpdate): Promise<Deal> {
     const setParts: string[] = [];
+    const removeParts: string[] = [];
     const expressionNames: Record<string, string> = {};
     const expressionValues: Record<string, unknown> = {};
 
@@ -353,9 +369,9 @@ export class DealsRepository {
     const updates: Record<string, unknown> = { ...attrs, updatedAt: now };
 
     // Update GSI keys when relevant fields change. The tech index lives on the
-    // assignment rows now, so metadata only owns the stage index here.
-    if (attrs.stage !== undefined) {
-      updates['GSI1PK'] = `STAGE#${attrs.stage}`;
+    // assignment rows now, so metadata only owns the super-status index here.
+    if (attrs.superStatus !== undefined && attrs.superStatus !== null) {
+      updates['GSI1PK'] = `STATUS#${attrs.superStatus}`;
     }
 
     const immutableKeys = new Set([
@@ -364,19 +380,31 @@ export class DealsRepository {
 
     for (const [key, value] of Object.entries(updates)) {
       if (immutableKeys.has(key)) continue;
-      if (value === undefined) continue;
       const attrName = `#${key}`;
+      // `null` clears the attribute: SET-to-null would leave it present (and a
+      // falsy value), so an explicit null must REMOVE it — that's how a
+      // sub-status is dropped when a deal moves to a bare super-status.
+      if (value === null) {
+        expressionNames[attrName] = key;
+        removeParts.push(attrName);
+        continue;
+      }
+      if (value === undefined) continue;
       const attrValue = `:${key}`;
       expressionNames[attrName] = key;
       expressionValues[attrValue] = value;
       setParts.push(`${attrName} = ${attrValue}`);
     }
 
+    // updatedAt is always set, so a SET clause is always present.
+    const clauses = [`SET ${setParts.join(', ')}`];
+    if (removeParts.length) clauses.push(`REMOVE ${removeParts.join(', ')}`);
+
     const result = await this.dynamoDb.client.send(
       new UpdateCommand({
         TableName: this.tableName,
         Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
-        UpdateExpression: `SET ${setParts.join(', ')}`,
+        UpdateExpression: clauses.join(' '),
         ExpressionAttributeNames: expressionNames,
         ExpressionAttributeValues: expressionValues,
         ConditionExpression: 'attribute_exists(PK)',
@@ -387,28 +415,63 @@ export class DealsRepository {
     return this.toDeal(result.Attributes!);
   }
 
+  /**
+   * Re-points a deal to another contact after a CRM contact merge. `contactId`
+   * is immutable in `update()`, so the merge flow goes through this dedicated
+   * write, which also moves the GSI3 contact index entry.
+   */
+  async reassignContact(id: string, newContactId: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        UpdateExpression:
+          'SET contactId = :contactId, GSI3PK = :gsi3pk, updatedAt = :updatedAt',
+        ExpressionAttributeValues: {
+          ':contactId': newContactId,
+          ':gsi3pk': `CONTACT#${newContactId}`,
+          ':updatedAt': new Date().toISOString(),
+        },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
+  }
+
   async softDelete(id: string): Promise<void> {
     await this.update(id, { status: DealStatus.DELETED } as any);
   }
 
-  async getNextDealNumber(): Promise<number> {
-    const result = await this.dynamoDb.client.send(
-      new UpdateCommand({
-        TableName: this.tableName,
-        Key: { PK: 'COUNTER', SK: 'DEAL_NUMBER' },
-        UpdateExpression: 'ADD dealNumber :inc',
-        ExpressionAttributeValues: { ':inc': 1 },
-        ReturnValues: 'ALL_NEW',
-      }),
-    );
-
-    return result.Attributes!.dealNumber as number;
+  /**
+   * Reserves a random 6-char Job ID (uppercase letters + digits) by writing a
+   * `DEALNUM#<code>` marker row guarded with attribute_not_exists. A collision
+   * (the code already reserved) regenerates and retries; anything else rethrows.
+   */
+  async reserveDealNumber(): Promise<string> {
+    const MAX_ATTEMPTS = 5;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const code = generateDealNumberCode();
+      try {
+        await this.dynamoDb.client.send(
+          new PutCommand({
+            TableName: this.tableName,
+            Item: { PK: `DEALNUM#${code}`, SK: 'UNIQUE' },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          }),
+        );
+        return code;
+      } catch (error) {
+        if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+        this.logger.warn(`Deal number ${code} already taken (attempt ${attempt}/${MAX_ATTEMPTS})`);
+      }
+    }
+    throw new Error(`Could not reserve a unique deal number after ${MAX_ATTEMPTS} attempts`);
   }
 
   private toDeal(item: Record<string, unknown>): Deal {
     return {
       id: item.id as string,
-      dealNumber: item.dealNumber as number,
+      // Legacy deals store a sequential number; new ones a 6-char code. Always a string in the domain.
+      dealNumber: String(item.dealNumber ?? ''),
       contactId: item.contactId as string,
       companyId: item.companyId as string | undefined,
       clientType: item.clientType as Deal['clientType'],
@@ -418,6 +481,12 @@ export class DealsRepository {
       serviceAreaId: item.serviceAreaId as string | undefined,
       address: item.address as Deal['address'],
       jobTypeId: item.jobTypeId as string,
+      // Prefer the stored super-status; derive it from the legacy stage for rows
+      // not yet backfilled, so reads are correct before/after migration.
+      superStatus:
+        (item.superStatus as JobSuperStatus) ??
+        STAGE_TO_SUPER_STATUS[item.stage as DealStage] ??
+        JobSuperStatus.SUBMITTED,
       stage: item.stage as Deal['stage'],
       assignedTechIds: (item.assignedTechIds as string[]) || [],
       assignedDispatcherId: item.assignedDispatcherId as string,
@@ -430,6 +499,8 @@ export class DealsRepository {
       internalNotes: item.internalNotes as string | undefined,
       cancellationReason: item.cancellationReason as string | undefined,
       tagIds: (item.tagIds as string[]) || [],
+      customFields: item.customFields as Deal['customFields'] | undefined,
+      subStatusId: (item.subStatusId as string) || undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
       paymentStatus: item.paymentStatus as string | undefined,

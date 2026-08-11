@@ -14,6 +14,7 @@ describe('ContactsController', () => {
       findById: jest.fn(),
       list: jest.fn(),
       update: jest.fn(),
+      merge: jest.fn(),
       delete: jest.fn(),
       searchByPhone: jest.fn(),
       findOrCreate: jest.fn(),
@@ -125,6 +126,19 @@ describe('ContactsController', () => {
 
       expect(result).toEqual({ success: true, data: contact });
       expect(service.update).toHaveBeenCalledWith('contact-1', { firstName: 'Jane' });
+    });
+  });
+
+  describe('merge', () => {
+    it('should return success wrapper with the merged contact', async () => {
+      const contact = createMockContact();
+      service.merge.mockResolvedValue(contact);
+      const dto = { primaryId: 'contact-1', mergeIds: ['contact-2', 'contact-3'] };
+
+      const result = await controller.merge(dto as any);
+
+      expect(result).toEqual({ success: true, data: contact });
+      expect(service.merge).toHaveBeenCalledWith(dto);
     });
   });
 

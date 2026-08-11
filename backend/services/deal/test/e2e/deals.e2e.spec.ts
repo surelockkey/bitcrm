@@ -1,6 +1,6 @@
 import { type INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { DealStage, ClientType, type JwtUser } from '@bitcrm/types';
+import { JobSuperStatus, ClientType, type JwtUser } from '@bitcrm/types';
 import {
   setupApp,
   teardownApp,
@@ -70,7 +70,7 @@ describe('Deals E2E', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBeDefined();
       expect(res.body.data.dealNumber).toBeDefined();
-      expect(res.body.data.stage).toBe(DealStage.NEW_LEAD);
+      expect(res.body.data.superStatus).toBe(JobSuperStatus.SUBMITTED);
       expect(res.body.data.contactId).toBe(validDealPayload().contactId);
     });
 
@@ -233,10 +233,10 @@ describe('Deals E2E', () => {
     });
   });
 
-  // ─── STAGE TRANSITIONS ────────────────────────────────
+  // ─── STATUS MOVES ─────────────────────────────────────
 
-  describe('PUT /api/deals/:id/stage', () => {
-    it('should allow admin to transition any stage', async () => {
+  describe('PUT /api/deals/:id/status', () => {
+    it('should allow a user with move_status to move the super-status', async () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
@@ -244,26 +244,26 @@ describe('Deals E2E', () => {
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
-        .put(`${BASE}/${id}/stage`)
+        .put(`${BASE}/${id}/status`)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ stage: DealStage.ASSIGNED })
+        .send({ superStatus: JobSuperStatus.IN_PROGRESS })
         .expect(200);
 
-      expect(res.body.data.stage).toBe(DealStage.ASSIGNED);
+      expect(res.body.data.superStatus).toBe(JobSuperStatus.IN_PROGRESS);
     });
 
-    it('should reject unauthorized transition (403)', async () => {
+    it('should reject a user without move_status (403)', async () => {
       const created = await request(app.getHttpServer())
         .post(BASE)
         .set('x-test-user', createTestUserHeader(adminUser))
         .send(validDealPayload());
       const id = created.body.data.id;
 
-      // Read-only user has empty transitions
+      // Read-only user lacks deals.move_status.
       await request(app.getHttpServer())
-        .put(`${BASE}/${id}/stage`)
+        .put(`${BASE}/${id}/status`)
         .set('x-test-user', createTestUserHeader(readOnlyUser))
-        .send({ stage: DealStage.ASSIGNED })
+        .send({ superStatus: JobSuperStatus.IN_PROGRESS })
         .expect(403);
     });
 
@@ -275,9 +275,9 @@ describe('Deals E2E', () => {
       const id = created.body.data.id;
 
       await request(app.getHttpServer())
-        .put(`${BASE}/${id}/stage`)
+        .put(`${BASE}/${id}/status`)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ stage: DealStage.CANCELED })
+        .send({ superStatus: JobSuperStatus.CANCELED })
         .expect(400);
     });
 
@@ -289,12 +289,12 @@ describe('Deals E2E', () => {
       const id = created.body.data.id;
 
       const res = await request(app.getHttpServer())
-        .put(`${BASE}/${id}/stage`)
+        .put(`${BASE}/${id}/status`)
         .set('x-test-user', createTestUserHeader(adminUser))
-        .send({ stage: DealStage.CANCELED, cancellationReason: 'Client resolved' })
+        .send({ superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved' })
         .expect(200);
 
-      expect(res.body.data.stage).toBe(DealStage.CANCELED);
+      expect(res.body.data.superStatus).toBe(JobSuperStatus.CANCELED);
     });
   });
 
@@ -362,7 +362,7 @@ describe('Deals E2E', () => {
         .expect(201);
 
       expect(res.body.data.assignedTechIds).toEqual(expect.arrayContaining([TECH_1, TECH_2]));
-      expect(res.body.data.stage).toBe(DealStage.ASSIGNED);
+      expect(res.body.data.superStatus).toBe(JobSuperStatus.IN_PROGRESS);
     });
   });
 

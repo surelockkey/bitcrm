@@ -1,8 +1,9 @@
 import {
-  ClientType, DealStage, DealPriority, DealStatus, TimelineEventType,
+  ClientType, DealStage, JobSuperStatus, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
   type ServiceArea, type JobType, type JobSource, type JobTag,
+  type CustomFieldDefinition,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -23,7 +24,7 @@ export function createMockAddress(overrides?: Partial<Address>): Address {
 export function createMockDeal(overrides?: Partial<Deal>): Deal {
   return {
     id: 'deal-1',
-    dealNumber: 1001,
+    dealNumber: 'AB12CD',
     contactId: 'contact-1',
     clientType: ClientType.RESIDENTIAL,
     scheduledDate: '2026-04-20',
@@ -31,6 +32,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
     serviceArea: 'Atlanta Metro',
     address: createMockAddress(),
     jobTypeId: 'jobtype-1',
+    superStatus: JobSuperStatus.SUBMITTED,
     stage: DealStage.NEW_LEAD,
     assignedTechIds: [],
     assignedDispatcherId: 'dispatcher-1',
@@ -130,6 +132,28 @@ export function createMockJobTag(overrides?: Partial<JobTag>): JobTag {
   };
 }
 
+export function createMockCustomField(
+  overrides?: Partial<CustomFieldDefinition>,
+): CustomFieldDefinition {
+  return {
+    id: 'customfield-1',
+    name: 'Gate Code',
+    type: 'text',
+    group: 'Access',
+    options: [],
+    jobTypeIds: [],
+    required: false,
+    requiredToClose: false,
+    searchable: false,
+    priority: 0,
+    active: true,
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export function createMockJwtUser(overrides?: Partial<JwtUser>): JwtUser {
   return {
     id: 'admin-1',
@@ -148,7 +172,7 @@ export function createMockDealsRepository() {
   return {
     create: jest.fn(),
     findById: jest.fn(),
-    findByStage: jest.fn(),
+    findBySuperStatus: jest.fn(),
     // Empty page by default so the assign/unassign renumber step is a no-op
     // unless a test sets up a schedule explicitly.
     findByTech: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
@@ -156,8 +180,9 @@ export function createMockDealsRepository() {
     findByDispatcher: jest.fn(),
     findAll: jest.fn(),
     update: jest.fn(),
+    reassignContact: jest.fn(),
     softDelete: jest.fn(),
-    getNextDealNumber: jest.fn(),
+    reserveDealNumber: jest.fn(),
     addAssignment: jest.fn(),
     removeAssignment: jest.fn(),
     listAssignmentTechIds: jest.fn().mockResolvedValue([]),
@@ -256,6 +281,28 @@ export function createMockJobTagsRepository() {
     get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
     isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockCustomFieldsRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockCustomFieldsService() {
+  return {
+    // Empty catalog by default so deals with no custom fields validate as a no-op.
+    list: jest.fn().mockResolvedValue([]),
+    findById: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
     remove: jest.fn(),
   };
 }

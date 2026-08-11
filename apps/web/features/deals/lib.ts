@@ -1,30 +1,59 @@
 import {
   DealPriority,
   DealStage,
-  DealStageGroup,
-  STAGE_GROUPS,
-  TERMINAL_STAGES,
+  JobSuperStatus,
+  SUPER_STATUS_ORDER,
+  TERMINAL_SUPER_STATUSES,
 } from "@bitcrm/types";
-import type { Deal, DealProduct } from "@bitcrm/types";
+import type {
+  Address,
+  Contact,
+  CustomFieldDefinition,
+  CustomFieldValue,
+  Deal,
+  DealProduct,
+} from "@bitcrm/types";
+import { addressInList } from "@/features/clients/lib";
+import type { UpdateContactValues } from "@/features/clients/schemas";
+import type { UpdateDealValues } from "./schemas";
 
-/* ------------------------------------------------------------------ stages */
+/* ----------------------------------------------------------- super-statuses */
 
-export const STAGE_ORDER: DealStage[] = [
-  DealStage.NEW_LEAD,
-  DealStage.ESTIMATE_SENT,
-  DealStage.APPROVED,
-  DealStage.ASSIGNED,
-  DealStage.EN_ROUTE,
-  DealStage.ON_SITE,
-  DealStage.WORK_IN_PROGRESS,
-  DealStage.PENDING_PAYMENT,
-  DealStage.PENDING_PARTS,
-  DealStage.FOLLOW_UP,
-  DealStage.ON_HOLD,
-  DealStage.COMPLETED,
-  DealStage.CANCELED,
-];
+const SUPER_STATUS_LABEL: Record<JobSuperStatus, string> = {
+  [JobSuperStatus.SUBMITTED]: "Submitted",
+  [JobSuperStatus.IN_PROGRESS]: "In Progress",
+  [JobSuperStatus.DONE]: "Done",
+  [JobSuperStatus.PENDING]: "Pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "Done Pending Approval",
+  [JobSuperStatus.CANCELED]: "Canceled",
+};
+export const superStatusLabel = (s: JobSuperStatus): string => SUPER_STATUS_LABEL[s] ?? s;
 
+export const isTerminalStatus = (s: JobSuperStatus): boolean => TERMINAL_SUPER_STATUSES.has(s);
+
+/** Tone token per super-status; the badge maps these to colours. */
+export type SuperStatusTone =
+  | "submitted" | "progress" | "done" | "pending" | "done_pending" | "canceled";
+const SUPER_STATUS_TONE: Record<JobSuperStatus, SuperStatusTone> = {
+  [JobSuperStatus.SUBMITTED]: "submitted",
+  [JobSuperStatus.IN_PROGRESS]: "progress",
+  [JobSuperStatus.DONE]: "done",
+  [JobSuperStatus.PENDING]: "pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "done_pending",
+  [JobSuperStatus.CANCELED]: "canceled",
+};
+export const superStatusTone = (s: JobSuperStatus): SuperStatusTone =>
+  SUPER_STATUS_TONE[s] ?? "submitted";
+
+// The sub-status catalog files each custom status under a super-status, so its
+// grouping reuses the same order/labels.
+export const GROUP_ORDER = SUPER_STATUS_ORDER;
+export const groupLabel = superStatusLabel;
+
+/**
+ * Legacy 13-stage labels, kept ONLY so historical `stage_changed` timeline
+ * entries still render a readable name. Nothing else should use this.
+ */
 const STAGE_LABEL: Record<DealStage, string> = {
   [DealStage.NEW_LEAD]: "New Lead",
   [DealStage.ESTIMATE_SENT]: "Estimate Sent",
@@ -40,57 +69,29 @@ const STAGE_LABEL: Record<DealStage, string> = {
   [DealStage.COMPLETED]: "Completed",
   [DealStage.CANCELED]: "Canceled",
 };
-export const stageLabel = (s: DealStage): string => STAGE_LABEL[s] ?? s;
-
-export const stageGroup = (s: DealStage): DealStageGroup => STAGE_GROUPS[s];
-export const isTerminal = (s: DealStage): boolean => TERMINAL_STAGES.has(s);
-
-export const GROUP_ORDER: DealStageGroup[] = [
-  DealStageGroup.SUBMITTED,
-  DealStageGroup.IN_PROGRESS,
-  DealStageGroup.PENDING,
-  DealStageGroup.CLOSED,
-];
-
-const GROUP_LABEL: Record<DealStageGroup, string> = {
-  [DealStageGroup.SUBMITTED]: "Submitted",
-  [DealStageGroup.IN_PROGRESS]: "In Progress",
-  [DealStageGroup.PENDING]: "Pending",
-  [DealStageGroup.CLOSED]: "Closed",
-};
-export const groupLabel = (g: DealStageGroup): string => GROUP_LABEL[g] ?? g;
-
-/** Tailwind-ish token key per group; the badge/board map these to colours. */
-export const GROUP_TONE: Record<DealStageGroup, "submitted" | "progress" | "pending" | "closed"> = {
-  [DealStageGroup.SUBMITTED]: "submitted",
-  [DealStageGroup.IN_PROGRESS]: "progress",
-  [DealStageGroup.PENDING]: "pending",
-  [DealStageGroup.CLOSED]: "closed",
-};
-export const stageTone = (s: DealStage) =>
-  s === DealStage.CANCELED ? ("canceled" as const) : GROUP_TONE[stageGroup(s)];
+export const stageLabel = (s: DealStage | undefined): string =>
+  s ? STAGE_LABEL[s] ?? s : "—";
 
 /* -------------------------------------------------------------- status tabs */
 
 /**
- * A jobs-list tab. The first four are the real stage groups; `unscheduled` is a
+ * A jobs-list tab: one of the six super-statuses, plus `unscheduled` — a
  * schedule-state pseudo-tab (deals with no `scheduledDate`) that overlaps the
- * status tabs — an undated Submitted deal shows under both Submitted and
- * Unscheduled, matching how the pipeline is triaged.
+ * status tabs, so an undated Submitted deal shows under both.
  */
-export type JobTab = DealStageGroup | "unscheduled";
+export type JobTab = JobSuperStatus | "unscheduled";
 
-export const JOB_TABS: JobTab[] = [...GROUP_ORDER, "unscheduled"];
+export const JOB_TABS: JobTab[] = [...SUPER_STATUS_ORDER, "unscheduled"];
 
 export const jobTabLabel = (t: JobTab): string =>
-  t === "unscheduled" ? "Unscheduled" : groupLabel(t);
+  t === "unscheduled" ? "Unscheduled" : superStatusLabel(t);
 
-export function matchesTab(d: Pick<Deal, "stage" | "scheduledDate">, tab: JobTab): boolean {
-  return tab === "unscheduled" ? !d.scheduledDate : stageGroup(d.stage) === tab;
+export function matchesTab(d: Pick<Deal, "superStatus" | "scheduledDate">, tab: JobTab): boolean {
+  return tab === "unscheduled" ? !d.scheduledDate : d.superStatus === tab;
 }
 
 /** Count how many deals fall under each tab. Tabs overlap, so counts sum to ≥ deals.length. */
-export function tabCounts(deals: Pick<Deal, "stage" | "scheduledDate">[]): Record<JobTab, number> {
+export function tabCounts(deals: Pick<Deal, "superStatus" | "scheduledDate">[]): Record<JobTab, number> {
   const counts = Object.fromEntries(JOB_TABS.map((t) => [t, 0])) as Record<JobTab, number>;
   for (const d of deals) {
     for (const t of JOB_TABS) if (matchesTab(d, t)) counts[t]++;
@@ -188,17 +189,187 @@ export function datePresetRange(
   return {};
 }
 
+/* ------------------- single-save drafts (one Save button on the job page) --- */
+
+/**
+ * Editable snapshot of the details tab. Optional deal fields are held as ""
+ * while empty so plain controlled inputs can drive them; `buildDealPatch`
+ * turns "" back into `undefined` on save (today's commit semantics).
+ */
+export interface DealDraft {
+  address: Address;
+  serviceArea: string;
+  jobTypeId: string;
+  sourceId: string;
+  priority: DealPriority;
+  poNumber: string;
+  workOrderId: string;
+  scheduledDate: string;
+  scheduledTimeSlot: string;
+  notes: string;
+  internalNotes: string;
+  /** User-defined field answers, keyed by CustomFieldDefinition id. */
+  customFields: Record<string, CustomFieldValue>;
+}
+
+/** Editable snapshot of the client card. `email` is the first email only. */
+export interface ClientDraft {
+  firstName: string;
+  lastName: string;
+  phones: string[];
+  email: string;
+}
+
+export function dealDraftFromDeal(d: Deal): DealDraft {
+  return {
+    address: {
+      street: d.address?.street ?? "",
+      unit: d.address?.unit ?? "",
+      city: d.address?.city ?? "",
+      state: d.address?.state ?? "",
+      zip: d.address?.zip ?? "",
+      lat: d.address?.lat,
+      lng: d.address?.lng,
+    },
+    serviceArea: d.serviceArea ?? "",
+    jobTypeId: d.jobTypeId,
+    sourceId: d.sourceId ?? "",
+    priority: d.priority,
+    poNumber: d.poNumber ?? "",
+    workOrderId: d.workOrderId ?? "",
+    scheduledDate: d.scheduledDate ?? "",
+    scheduledTimeSlot: d.scheduledTimeSlot ?? "",
+    notes: d.notes ?? "",
+    internalNotes: d.internalNotes ?? "",
+    customFields: { ...(d.customFields ?? {}) },
+  };
+}
+
+export function clientDraftFromContact(c: Contact): ClientDraft {
+  return {
+    firstName: c.firstName,
+    lastName: c.lastName,
+    phones: c.phones.length ? [...c.phones] : [""],
+    email: c.emails[0] ?? "",
+  };
+}
+
+const sameAddress = (a: Address, b: Address): boolean =>
+  a.street === b.street &&
+  (a.unit ?? "") === (b.unit ?? "") &&
+  a.city === b.city &&
+  a.state === b.state &&
+  a.zip === b.zip &&
+  a.lat === b.lat &&
+  a.lng === b.lng;
+
+const sameAnswer = (a: CustomFieldValue, b: CustomFieldValue): boolean => {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => v === b[i])
+    );
+  }
+  return a === b;
+};
+
+/** Deep-ish equality over two answer maps (array answers compared elementwise). */
+const sameCustomFields = (
+  a: Record<string, CustomFieldValue>,
+  b: Record<string, CustomFieldValue>,
+): boolean => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (!(k in a) || !(k in b)) return false;
+    if (!sameAnswer(a[k], b[k])) return false;
+  }
+  return true;
+};
+
+/** Optional string fields where an emptied draft value means "clear it". */
+const OPTIONAL_DEAL_FIELDS = [
+  "sourceId", "poNumber", "workOrderId", "scheduledDate", "scheduledTimeSlot",
+] as const;
+
+/**
+ * Diff a draft against the server deal → the PUT patch with only the changed
+ * keys, or null when nothing changed. Emptied optional fields patch to
+ * `undefined`; notes are trimmed, so whitespace-only edits aren't changes.
+ */
+export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues | null {
+  const base = dealDraftFromDeal(deal);
+  const patch: UpdateDealValues = {};
+  let dirty = false;
+
+  if (!sameAddress(draft.address, base.address)) { patch.address = draft.address; dirty = true; }
+  if (draft.serviceArea !== base.serviceArea) { patch.serviceArea = draft.serviceArea; dirty = true; }
+  if (draft.jobTypeId !== base.jobTypeId) { patch.jobTypeId = draft.jobTypeId; dirty = true; }
+  if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
+  for (const key of OPTIONAL_DEAL_FIELDS) {
+    if (draft[key] !== base[key]) { patch[key] = draft[key] || undefined; dirty = true; }
+  }
+  for (const key of ["notes", "internalNotes"] as const) {
+    const next = draft[key].trim();
+    if (next !== base[key]) { patch[key] = next; dirty = true; }
+  }
+  // Custom-field answers ride the same single Save: send the whole current
+  // answer map (like `address`) only when something actually changed.
+  if (!sameCustomFields(draft.customFields, base.customFields)) {
+    patch.customFields = draft.customFields;
+    dirty = true;
+  }
+
+  return dirty ? patch : null;
+}
+
+/**
+ * Diff a client draft against the contact → the full PUT body (the endpoint
+ * replaces, not merges), or null when clean. A `newAddress` not yet on the
+ * client is appended for next time; duplicates (per `addressInList`) aren't.
+ * Phones are trimmed with empties dropped; an emptied-out draft keeps the
+ * contact's phones. Only the first email is editable — the rest are preserved.
+ */
+export function buildContactBody(
+  c: Contact,
+  draft: ClientDraft,
+  newAddress?: Address,
+): UpdateContactValues | null {
+  const phones = draft.phones.map((p) => p.trim()).filter(Boolean);
+  const email = draft.email.trim();
+  const appendAddress = !!newAddress && !addressInList(newAddress, c.addresses);
+  const dirty =
+    draft.firstName !== c.firstName ||
+    draft.lastName !== c.lastName ||
+    JSON.stringify(phones) !== JSON.stringify(c.phones) ||
+    email !== (c.emails[0] ?? "");
+  if (!dirty && !appendAddress) return null;
+
+  return {
+    firstName: draft.firstName.trim(),
+    lastName: draft.lastName.trim(),
+    phones: phones.length ? phones : c.phones,
+    emails: email ? [email, ...c.emails.slice(1)] : c.emails.slice(1),
+    addresses: appendAddress && newAddress ? [...c.addresses, newAddress] : c.addresses,
+    companyId: c.companyId,
+    type: c.type,
+    title: c.title,
+    notes: c.notes,
+  };
+}
+
 /* ------------------------------------------------------------------ filter */
 
 export interface DealFilter {
-  stage?: DealStage;
+  superStatus?: JobSuperStatus;
   priority?: DealPriority;
   jobTypeId?: string;
   sourceId?: string;
   serviceArea?: string;
-  /** Keep only deals whose stage falls in one of these groups (empty/undefined = all). */
-  statusGroups?: DealStageGroup[];
-  /** Active jobs-list tab — a stage group or the `unscheduled` pseudo-tab. */
+  /** Keep only deals in one of these super-statuses (empty/undefined = all). */
+  statusGroups?: JobSuperStatus[];
+  /** Active jobs-list tab — a super-status or the `unscheduled` pseudo-tab. */
   tab?: JobTab;
   /** Inclusive scheduledDate range, `YYYY-MM-DD`. A deal with no date is excluded when set. */
   dateFrom?: string;
@@ -208,21 +379,30 @@ export interface DealFilter {
   search?: string;
 }
 
+/** Flatten a custom-field answer to its searchable string form. */
+const customFieldText = (v: CustomFieldValue): string =>
+  Array.isArray(v) ? v.join(" ") : String(v);
+
 /** Client-side filtering + search over loaded deals (the server barely filters). */
 export function filterDeals(
   deals: Deal[],
   filter: DealFilter,
   contactNames: Map<string, string>,
+  customFieldDefs: CustomFieldDefinition[] = [],
 ): Deal[] {
   const q = (filter.search ?? "").trim().toLowerCase();
-  const qDigits = q.replace(/[^\d]/g, "");
+  // Job IDs are 6-char letter+digit codes (legacy ones pure digits); strip
+  // everything else so "#K4T9ZW" and "k4t9zw" both match the stored code.
+  const qAlnum = q.replace(/[^a-z0-9]/g, "");
+  // Only searchable definitions contribute their answers to free-text search.
+  const searchableFieldIds = customFieldDefs.filter((f) => f.searchable).map((f) => f.id);
   return deals.filter((d) => {
-    if (filter.stage && d.stage !== filter.stage) return false;
+    if (filter.superStatus && d.superStatus !== filter.superStatus) return false;
     if (filter.priority && d.priority !== filter.priority) return false;
     if (filter.jobTypeId && d.jobTypeId !== filter.jobTypeId) return false;
     if (filter.sourceId && d.sourceId !== filter.sourceId) return false;
     if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
-    if (filter.statusGroups?.length && !filter.statusGroups.includes(stageGroup(d.stage)))
+    if (filter.statusGroups?.length && !filter.statusGroups.includes(d.superStatus))
       return false;
     if (filter.tab && !matchesTab(d, filter.tab)) return false;
     if (filter.dateFrom || filter.dateTo) {
@@ -234,11 +414,15 @@ export function filterDeals(
     if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;
     if (q) {
       const name = (contactNames.get(d.contactId) ?? "").toLowerCase();
-      const num = String(d.dealNumber);
-      const matchesNum = qDigits.length > 0 && num.includes(qDigits);
+      const num = String(d.dealNumber).toLowerCase();
+      const matchesNum = qAlnum.length > 0 && num.includes(qAlnum);
       const matchesName = name.includes(q);
       const matchesArea = d.serviceArea.toLowerCase().includes(q);
-      if (!matchesNum && !matchesName && !matchesArea) return false;
+      const matchesCustomField = searchableFieldIds.some((id) => {
+        const v = d.customFields?.[id];
+        return v !== undefined && customFieldText(v).toLowerCase().includes(q);
+      });
+      if (!matchesNum && !matchesName && !matchesArea && !matchesCustomField) return false;
     }
     return true;
   });

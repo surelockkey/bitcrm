@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Users } from "lucide-react";
+import { Merge, Plus, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,12 +17,14 @@ import { useContacts, useCompanyMap } from "../hooks";
 import { searchContacts } from "../lib";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
+import { MergeContactsDialog } from "./merge-contacts-dialog";
 
 export function ContactsPage() {
   const router = useRouter();
   const { can } = usePermissions();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
+  const [merging, setMerging] = useState(false);
 
   const contactsQuery = useContacts();
   const { map: companyMap } = useCompanyMap();
@@ -43,11 +45,19 @@ export function ContactsPage() {
             People — residents and company representatives.
           </p>
         </div>
-        {can("contacts", "create") ? (
-          <Button variant="brand" className="gap-1.5" onClick={() => setCreating(true)}>
-            <Plus className="size-4" /> New contact
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {/* Merge soft-deletes the duplicates, so it follows the delete permission (backend guard). */}
+          {can("contacts", "delete") ? (
+            <Button variant="outline" className="gap-1.5" onClick={() => setMerging(true)}>
+              <Merge className="size-4" /> Merge
+            </Button>
+          ) : null}
+          {can("contacts", "create") ? (
+            <Button variant="brand" className="gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="size-4" /> New contact
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
@@ -78,6 +88,12 @@ export function ContactsPage() {
           <ContactsTable contacts={filtered} companyMap={companyMap} />
         )}
       </div>
+
+      <MergeContactsDialog
+        open={merging}
+        onOpenChange={setMerging}
+        contacts={contactsQuery.data ?? []}
+      />
 
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">

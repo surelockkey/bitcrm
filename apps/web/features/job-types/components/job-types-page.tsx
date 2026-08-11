@@ -67,7 +67,7 @@ export function JobTypesPage() {
         <div>
           <h2 className="text-base font-semibold tracking-tight">Job types</h2>
           <p className="text-sm text-muted-foreground">
-            The kinds of work you dispatch. Deals pick one; technicians are approved for them.
+            The kinds of work you dispatch. Jobs pick one; technicians are approved for them.
           </p>
         </div>
         {canCreate ? (
@@ -87,7 +87,7 @@ export function JobTypesPage() {
           <Wrench className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">No job types yet</p>
           <p className="text-sm text-muted-foreground">
-            Create one so deals can be categorised and technicians approved for it.
+            Create one so jobs can be categorised and technicians approved for it.
           </p>
         </div>
       ) : (
@@ -146,8 +146,8 @@ export function JobTypesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete job type?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{deleting?.name}&rdquo; will be removed. If any deal still uses it, it&apos;s
-              archived instead — it leaves the pickers but old deals keep their label.
+              &ldquo;{deleting?.name}&rdquo; will be removed. If any job still uses it, it&apos;s
+              archived instead — it leaves the pickers but old jobs keep their label.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

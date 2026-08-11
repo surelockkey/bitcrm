@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   HttpException,
+  UnprocessableEntityException,
   Optional,
 } from '@nestjs/common';
 import {
@@ -14,22 +15,24 @@ import {
   formatAddress,
 } from '@bitcrm/shared';
 import {
-  DealStage,
-  DealStageGroup,
+  JobSuperStatus,
+  TERMINAL_SUPER_STATUSES,
   DealStatus,
   DealPriority,
   TimelineEventType,
   ProductType,
-  STAGE_GROUPS,
-  TERMINAL_STAGES,
   type Address,
   type Deal,
   type DealProductFulfillment,
   type TimelineEntry,
   type JwtUser,
+  type CustomFieldDefinition,
+  type CustomFieldValue,
+  type CustomFieldType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
-import { DealsRepository, type DealFilters } from './deals.repository';
+import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
+import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
@@ -38,12 +41,13 @@ import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
 import { JobTagsService } from '../job-tags/job-tags.service';
+import { JobStatusesService } from '../job-statuses/job-statuses.service';
+import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { TechnicianEligibilityRepository } from '../technician-eligibility/technician-eligibility.repository';
-import { canTransition, getAllowedNextStages } from '../common/constants/stage-transitions';
 import { distanceMiles } from '../common/utils/haversine';
 import { type CreateDealDto } from './dto/create-deal.dto';
 import { type UpdateDealDto } from './dto/update-deal.dto';
-import { type ChangeStageDto } from './dto/change-stage.dto';
+import { type MoveStatusDto } from './dto/move-status.dto';
 import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
@@ -64,6 +68,8 @@ export class DealsService {
     private readonly jobTypes: JobTypesService,
     private readonly jobSources: JobSourcesService,
     private readonly jobTags: JobTagsService,
+    private readonly jobStatuses: JobStatusesService,
+    private readonly customFields: CustomFieldsService,
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
@@ -124,13 +130,142 @@ export class DealsService {
     return { serviceAreaId: area.id, serviceArea: area.name };
   }
 
+  /** An answer counts as "not filled" when it is absent, blank, or an empty list. */
+  private isEmptyCustomFieldValue(value: unknown): boolean {
+    return (
+      value === undefined ||
+      value === null ||
+      value === '' ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  }
+
+  /** Runtime shape check for a single answer against its definition's type. */
+  private isValidCustomFieldValue(
+    type: CustomFieldType,
+    value: unknown,
+    options: string[],
+  ): boolean {
+    switch (type) {
+      case 'text':
+      case 'large_text':
+      case 'date':
+      case 'file': // attachment id
+        return typeof value === 'string';
+      case 'number':
+        return typeof value === 'number' && Number.isFinite(value);
+      case 'checkbox':
+        return typeof value === 'boolean';
+      case 'dropdown':
+        return typeof value === 'string' && options.includes(value);
+      case 'multi_select':
+        return (
+          Array.isArray(value) &&
+          value.every((v) => typeof v === 'string' && options.includes(v as string))
+        );
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Validate a bag of custom-field answers against the active catalog. Every
+   * supplied key must name an active definition that applies to this deal's job
+   * type (a definition applies iff its `jobTypeIds` is empty or includes the
+   * deal's job type), and its value must match the definition's type. On create,
+   * every applicable required field must carry a non-empty value.
+   *
+   * Returns the active-definition map so callers (update) can label timeline
+   * diffs with the field's human name instead of its raw id.
+   */
+  private async validateCustomFields(
+    customFields: Record<string, unknown>,
+    jobTypeId: string,
+    { forCreate }: { forCreate: boolean },
+  ): Promise<Map<string, CustomFieldDefinition>> {
+    const defs = new Map(
+      (await this.customFields.list())
+        .filter((d) => d.active)
+        .map((d) => [d.id, d] as const),
+    );
+
+    const applies = (def: CustomFieldDefinition) =>
+      def.jobTypeIds.length === 0 || def.jobTypeIds.includes(jobTypeId);
+
+    for (const [id, value] of Object.entries(customFields)) {
+      const def = defs.get(id);
+      if (!def) {
+        throw new BadRequestException(`Unknown or inactive custom field ${id}`);
+      }
+      if (!applies(def)) {
+        throw new BadRequestException(
+          `Custom field "${def.name}" does not apply to this deal's job type`,
+        );
+      }
+      // A cleared answer is allowed through here; required-ness is enforced below.
+      if (this.isEmptyCustomFieldValue(value)) continue;
+      if (!this.isValidCustomFieldValue(def.type, value, def.options ?? [])) {
+        throw new BadRequestException(
+          `Custom field "${def.name}" has an invalid value for type "${def.type}"`,
+        );
+      }
+    }
+
+    if (forCreate) {
+      const missing = [...defs.values()]
+        .filter(
+          (def) =>
+            def.required &&
+            applies(def) &&
+            this.isEmptyCustomFieldValue(customFields[def.id]),
+        )
+        .map((def) => def.name);
+      if (missing.length) {
+        throw new BadRequestException(
+          `Missing required custom field(s): ${missing.join(', ')}`,
+        );
+      }
+    }
+
+    return defs;
+  }
+
+  /**
+   * The required-to-close gate. Before a deal reaches a terminal super-status,
+   * every active custom-field definition that (a) applies to this deal's job
+   * type and (b) is flagged `requiredToClose` must carry a non-empty answer on
+   * the deal. Any that don't are reported together as a 422 whose payload lists
+   * their ids AND names, so the web client can name exactly what to fill.
+   */
+  private async assertRequiredToCloseFilled(deal: Deal): Promise<void> {
+    const applies = (def: CustomFieldDefinition) =>
+      def.jobTypeIds.length === 0 || def.jobTypeIds.includes(deal.jobTypeId);
+
+    const missing = (await this.customFields.list())
+      .filter(
+        (def) =>
+          def.active &&
+          def.requiredToClose &&
+          applies(def) &&
+          this.isEmptyCustomFieldValue(deal.customFields?.[def.id]),
+      )
+      .map((def) => ({ id: def.id, name: def.name }));
+
+    if (missing.length) {
+      throw new UnprocessableEntityException({
+        message: `Fill required field(s) before closing: ${missing.map((f) => f.name).join(', ')}`,
+        missingFields: missing,
+      });
+    }
+  }
+
   async create(dto: CreateDealDto, caller: JwtUser): Promise<Deal> {
     const contactExists = await this.internalHttp.validateContact(dto.contactId);
     if (!contactExists) {
       throw new BadRequestException(`Contact ${dto.contactId} not found`);
     }
 
-    const dealNumber = await this.repository.getNextDealNumber();
+    const dealNumber = await this.repository.reserveDealNumber();
     const now = new Date().toISOString();
     const id = randomUUID();
 
@@ -170,6 +305,10 @@ export class DealsService {
       }
     }
 
+    // Custom-field answers: validated against the active catalog. Runs even when
+    // none were supplied so a required applicable field can't be skipped.
+    await this.validateCustomFields(dto.customFields ?? {}, dto.jobTypeId, { forCreate: true });
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -182,7 +321,7 @@ export class DealsService {
       serviceAreaId,
       address,
       jobTypeId: dto.jobTypeId,
-      stage: DealStage.NEW_LEAD,
+      superStatus: JobSuperStatus.SUBMITTED,
       assignedTechIds: [],
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
@@ -191,6 +330,7 @@ export class DealsService {
       poNumber: dto.poNumber,
       notes: dto.notes,
       tagIds,
+      customFields: dto.customFields as Record<string, CustomFieldValue> | undefined,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
       createdAt: now,
@@ -207,7 +347,7 @@ export class DealsService {
       dealNumber: deal.dealNumber,
       contactId: deal.contactId,
       jobTypeId: deal.jobTypeId,
-      stage: deal.stage,
+      superStatus: deal.superStatus,
       createdBy: caller.id,
     });
 
@@ -256,12 +396,11 @@ export class DealsService {
       tagIds: query.tagIds
         ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
         : undefined,
-      dealNumber:
-        search && /^#?\d+$/.test(search) ? Number(search.replace('#', '')) : undefined,
+      dealNumber: this.parseDealNumberSearch(search),
     };
 
-    if (query.stage) {
-      return this.repository.findByStage(query.stage, limit, query.cursor, filters);
+    if (query.superStatus) {
+      return this.repository.findBySuperStatus(query.superStatus, limit, query.cursor, filters);
     }
     if (query.techId) {
       return this.repository.findByTech(query.techId, limit, query.cursor, filters);
@@ -277,6 +416,19 @@ export class DealsService {
       status: query.status,
       ...filters,
     });
+  }
+
+  /**
+   * "#1042"/"1042" → legacy sequential id (number, matches the stored numeric
+   * attribute); "#K4T9ZW"/"k4t9zw" → random 6-char code, uppercased. Anything
+   * else (names, partial words) is not a Job ID search.
+   */
+  private parseDealNumberSearch(search?: string): string | number | undefined {
+    if (!search) return undefined;
+    const token = search.replace(/^#/, '');
+    if (/^\d+$/.test(token)) return Number(token);
+    if (isDealNumberCode(token)) return token.toUpperCase();
+    return undefined;
   }
 
   async update(id: string, dto: UpdateDealDto, caller: JwtUser): Promise<Deal> {
@@ -312,6 +464,21 @@ export class DealsService {
       }
     }
 
+    // Custom fields patch: validate only the supplied keys (against the target
+    // job type), then merge onto the stored bag so untouched answers survive —
+    // DynamoDB writes `customFields` as one whole map, so a partial write would
+    // otherwise drop every key not present in this request.
+    const customFieldsPatch = dto.customFields;
+    let customFieldDefs: Map<string, CustomFieldDefinition> | undefined;
+    if (customFieldsPatch) {
+      customFieldDefs = await this.validateCustomFields(
+        customFieldsPatch,
+        updates.jobTypeId ?? existing.jobTypeId,
+        { forCreate: false },
+      );
+      updates.customFields = { ...(existing.customFields ?? {}), ...customFieldsPatch };
+    }
+
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
 
@@ -325,12 +492,33 @@ export class DealsService {
       }
     }
 
-    // Track field changes in timeline
-    for (const [key, value] of Object.entries(dto)) {
-      if (value !== undefined) {
+    // Track field changes in timeline: one entry per field that actually
+    // changed, carrying both the previous and the new value. Diffed against the
+    // final write payload so auto-derived fields (service area) are covered too.
+    for (const [key, value] of Object.entries(updates as Record<string, unknown>)) {
+      if (value === undefined) continue;
+      // Custom fields are diffed per-answer below, labeled by their human name.
+      if (key === 'customFields') continue;
+      const previous = (existing as unknown as Record<string, unknown>)[key];
+      if (this.valuesEqual(previous, value)) continue;
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: key,
+        oldValue: previous ?? null,
+        newValue: value,
+      });
+    }
+
+    // One timeline entry per changed custom-field answer, labeled with the
+    // definition's name (not the raw id) so the history reads for humans.
+    if (customFieldsPatch && customFieldDefs) {
+      for (const [fieldId, newValue] of Object.entries(customFieldsPatch)) {
+        const previous = existing.customFields?.[fieldId];
+        if (this.valuesEqual(previous, newValue)) continue;
+        const def = customFieldDefs.get(fieldId);
         await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
-          field: key,
-          newValue: value,
+          field: def?.name ?? fieldId,
+          oldValue: previous ?? null,
+          newValue,
         });
       }
     }
@@ -344,48 +532,68 @@ export class DealsService {
     await this.cache.invalidate(id);
   }
 
-  async changeStage(
-    id: string,
-    dto: ChangeStageDto,
-    caller: JwtUser,
-    dealStageTransitions: string[],
-  ): Promise<Deal> {
+  /**
+   * Move a deal's status: set its fixed super-status plus an optional custom
+   * sub-status filed under it. Gated at the controller by `deals.move_status`
+   * (a single matrix permission — the old per-transition `dealStageTransitions`
+   * rules are gone). Omitting `subStatusId` clears any existing sub-status.
+   */
+  async moveStatus(id: string, dto: MoveStatusDto, caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
 
-    // Validate transition
-    if (!canTransition(dealStageTransitions, deal.stage, dto.stage)) {
-      throw new ForbiddenException(
-        `Cannot transition from ${deal.stage} to ${dto.stage}`,
-      );
-    }
-
-    // Require cancellation reason
-    if (dto.stage === DealStage.CANCELED && !dto.cancellationReason) {
+    // Require a cancellation reason when moving to Canceled.
+    if (dto.superStatus === JobSuperStatus.CANCELED && !dto.cancellationReason) {
       throw new BadRequestException('cancellationReason is required when canceling a deal');
     }
 
-    const updates: Partial<Deal> = { stage: dto.stage };
+    // A sub-status, if supplied, must belong to the target super-status.
+    if (dto.subStatusId) {
+      const sub = await this.jobStatuses.findById(dto.subStatusId);
+      if (sub.group !== dto.superStatus) {
+        throw new BadRequestException(
+          `Sub-status "${sub.name}" does not belong to super-status ${dto.superStatus}`,
+        );
+      }
+    }
+
+    // Closing the deal (any terminal super-status) enforces the required-to-close
+    // gate: every applicable requiredToClose custom field must carry an answer.
+    if (TERMINAL_SUPER_STATUSES.has(dto.superStatus)) {
+      await this.assertRequiredToCloseFilled(deal);
+    }
+
+    const from = deal.superStatus;
+    const updates: DealUpdate = {
+      superStatus: dto.superStatus,
+      // Always reconcile the sub-status: the provided one, or cleared. `null`
+      // (not undefined) so the repository REMOVEs it — a sub-status belongs to a
+      // single super-status, so moving without one must drop the old, and
+      // `update()` skips undefined (which left the stale sub-status attached).
+      subStatusId: dto.subStatusId || null,
+    };
     if (dto.cancellationReason) {
       updates.cancellationReason = dto.cancellationReason;
     }
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
-    this.businessMetrics?.dealStageTransitions.inc({ from_stage: deal.stage, to_stage: dto.stage });
+    this.businessMetrics?.dealStageTransitions.inc({ from_stage: from, to_stage: dto.superStatus });
 
-    await this.addTimelineEntry(id, TimelineEventType.STAGE_CHANGED, caller, {
-      fromStage: deal.stage,
-      toStage: dto.stage,
+    await this.addTimelineEntry(id, TimelineEventType.STATUS_CHANGED, caller, {
+      fromStatus: from,
+      toStatus: dto.superStatus,
+      fromSubStatusId: deal.subStatusId ?? null,
+      subStatusId: dto.subStatusId || null,
     });
 
-    this.publishEvent('deal.stage_changed', {
+    this.publishEvent('deal.status_changed', {
       dealId: id,
-      oldStage: deal.stage,
-      newStage: dto.stage,
+      oldStatus: from,
+      newStatus: dto.superStatus,
       changedBy: caller.id,
     });
 
-    if (dto.stage === DealStage.COMPLETED) {
+    if (dto.superStatus === JobSuperStatus.DONE) {
       this.publishEvent('deal.completed', {
         dealId: id,
         completedAt: new Date().toISOString(),
@@ -393,11 +601,6 @@ export class DealsService {
     }
 
     return result;
-  }
-
-  async getAllowedStages(id: string, dealStageTransitions: string[]) {
-    const deal = await this.findById(id);
-    return getAllowedNextStages(dealStageTransitions, deal.stage);
   }
 
   async getTimeline(dealId: string, limit = 20, cursor?: string) {
@@ -487,13 +690,13 @@ export class DealsService {
     const nextRoster = [...requested];
     const updates: Partial<Deal> = { assignedTechIds: nextRoster };
 
-    // Empty → non-assigned transition (first assignment) advances the stage.
+    // First assignment advances a still-Submitted deal into In Progress.
     if (
       deal.assignedTechIds.length === 0 &&
       nextRoster.length > 0 &&
-      STAGE_GROUPS[deal.stage] === DealStageGroup.SUBMITTED
+      deal.superStatus === JobSuperStatus.SUBMITTED
     ) {
-      updates.stage = DealStage.ASSIGNED;
+      updates.superStatus = JobSuperStatus.IN_PROGRESS;
     }
 
     // Drop removed techs' per-tech sequence entries.
@@ -563,7 +766,7 @@ export class DealsService {
       all.push(...page.items);
       cursor = page.nextCursor;
     } while (cursor && all.length < 500);
-    return all.filter((d) => !TERMINAL_STAGES.has(d.stage));
+    return all.filter((d) => !TERMINAL_SUPER_STATUSES.has(d.superStatus));
   }
 
   /**
@@ -623,13 +826,15 @@ export class DealsService {
     }
   }
 
-  async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
-    const deal = await this.findById(id);
-    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
-
-    // Validate the referenced product exists and that its inventory type matches
-    // the requested fulfillment: a `service`-type product can only be a service
-    // line, and a stockable product can only be `sourced` / `to_order`.
+  /**
+   * The referenced product must exist in inventory and its type must match the
+   * requested fulfillment: a `service`-type product can only be a service line,
+   * and a stockable product can only be `sourced` / `to_order`.
+   */
+  private async validateProductFulfillment(
+    dto: { productId: string; name: string },
+    fulfillment: DealProductFulfillment,
+  ): Promise<void> {
     const product = await this.internalHttp.getProduct(dto.productId);
     if (!product) {
       throw new BadRequestException(
@@ -647,6 +852,13 @@ export class DealsService {
         `"${dto.name}" is a stockable product and cannot be added as a service line`,
       );
     }
+  }
+
+  async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
+    const deal = await this.findById(id);
+    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+
+    await this.validateProductFulfillment(dto, fulfillment);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -716,6 +928,138 @@ export class DealsService {
     this.publishEvent('deal.product_added', {
       dealId: id,
       productId: dto.productId,
+      quantity: dto.quantity,
+      fulfillment,
+    });
+  }
+
+  /**
+   * Replace a line item in place — edit its quantity/price or swap it for a
+   * different catalog product. The dto is the complete new line. Stock is
+   * reconciled restore-first: the old sourced line goes back to its source
+   * technician before the new sourced line is deducted, so raising a quantity
+   * only needs the delta in the van. If the new deduction is refused, the
+   * restore is compensated (re-deducted) so containers end where they started.
+   */
+  async replaceProduct(
+    id: string,
+    productId: string,
+    dto: AddDealProductDto,
+    caller: JwtUser,
+  ): Promise<void> {
+    const deal = await this.findById(id);
+
+    const existing = await this.productsRepo.findProduct(id, productId);
+    if (!existing) {
+      throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
+    }
+
+    const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
+    const isSwap = dto.productId !== productId;
+
+    // A deal keys one line per product — swapping onto a product that already
+    // has its own line would silently merge the two rows.
+    if (isSwap && (await this.productsRepo.findProduct(id, dto.productId))) {
+      throw new BadRequestException(
+        `"${dto.name}" is already on this deal — edit that line instead`,
+      );
+    }
+
+    await this.validateProductFulfillment(dto, fulfillment);
+
+    if (fulfillment === 'sourced') {
+      if (deal.assignedTechIds.length === 0) {
+        throw new BadRequestException(
+          'Cannot add products without an assigned technician',
+        );
+      }
+      if (!dto.sourceTechId || !deal.assignedTechIds.includes(dto.sourceTechId)) {
+        throw new BadRequestException(
+          'The chosen technician is not assigned to this deal',
+        );
+      }
+    }
+
+    // Same restore-target rule as removeProduct: legacy sourced rows without a
+    // recorded source fall back to the sole assigned tech, if any.
+    const restoreTo =
+      (existing.fulfillment ?? 'sourced') === 'sourced'
+        ? existing.sourceTechId ??
+          (deal.assignedTechIds.length === 1 ? deal.assignedTechIds[0] : undefined)
+        : undefined;
+    const oldItems = [
+      { productId: existing.productId, productName: existing.name, quantity: existing.quantity },
+    ];
+    const stockMeta = { dealId: id, performedBy: caller.id, performedByName: caller.email };
+
+    if (restoreTo) {
+      await this.internalHttp.restoreStock({ containerId: restoreTo, items: oldItems, ...stockMeta });
+    }
+
+    if (fulfillment === 'sourced') {
+      try {
+        await this.internalHttp.deductStock({
+          containerId: dto.sourceTechId!,
+          items: [{ productId: dto.productId, productName: dto.name, quantity: dto.quantity }],
+          ...stockMeta,
+        });
+      } catch (error) {
+        // Undo the restore so the van holds exactly what it did before the edit.
+        if (restoreTo) {
+          await this.internalHttp.deductStock({ containerId: restoreTo, items: oldItems, ...stockMeta });
+        }
+        if (
+          error instanceof HttpException &&
+          error.getStatus() >= 400 &&
+          error.getStatus() < 500
+        ) {
+          throw new BadRequestException(
+            `The selected technician doesn't have enough "${dto.name}" in their container to add to this deal.`,
+          );
+        }
+        throw error;
+      }
+    }
+
+    if (isSwap) {
+      await this.productsRepo.removeProduct(id, productId);
+    }
+    await this.productsRepo.addProduct(id, {
+      productId: dto.productId,
+      name: dto.name,
+      sku: dto.sku,
+      quantity: dto.quantity,
+      costCompany: dto.costCompany,
+      costForTech: dto.costForTech,
+      priceClient: dto.priceClient,
+      fulfillment,
+      // Only a sourced line records which technician supplied it.
+      ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
+      // An in-place to-order edit keeps its ordered stamp; a swap starts fresh.
+      ...(!isSwap &&
+        fulfillment === 'to_order' &&
+        existing.orderedAt && { orderedAt: existing.orderedAt }),
+      addedBy: existing.addedBy,
+      addedAt: existing.addedAt,
+      updatedBy: caller.id,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.PRODUCT_UPDATED, caller, {
+      productId: dto.productId,
+      productName: dto.name,
+      previousProductId: existing.productId,
+      previousProductName: existing.name,
+      quantity: dto.quantity,
+      fulfillment,
+    });
+
+    this.publishEvent('deal.product_updated', {
+      dealId: id,
+      productId: dto.productId,
+      previousProductId: existing.productId,
       quantity: dto.quantity,
       fulfillment,
     });
@@ -808,6 +1152,42 @@ export class DealsService {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * Re-points every active deal of `oldContactId` to `newContactId` after a
+   * CRM contact merge (consumed from the `contact.merged` event). Deleted
+   * deals keep the old id — the merged contact stays in DynamoDB soft-deleted,
+   * so those references still resolve.
+   */
+  async reassignContact(oldContactId: string, newContactId: string): Promise<number> {
+    let cursor: string | undefined;
+    let count = 0;
+
+    do {
+      const page = await this.repository.findByContact(oldContactId, 100, cursor);
+      for (const deal of page.items) {
+        await this.repository.reassignContact(deal.id, newContactId);
+        await this.cache.invalidate(deal.id);
+        await this.timelineRepo.addEntry({
+          id: randomUUID(),
+          dealId: deal.id,
+          eventType: TimelineEventType.FIELD_UPDATED,
+          actorId: 'system',
+          actorName: 'CRM Service',
+          timestamp: new Date().toISOString(),
+          details: {
+            field: 'contactId',
+            oldValue: oldContactId,
+            newValue: newContactId,
+          },
+        });
+        count++;
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    return count;
+  }
+
   async updatePaymentStatus(id: string, dto: UpdatePaymentStatusDto): Promise<void> {
     await this.repository.update(id, {
       paymentStatus: 'paid',
@@ -832,6 +1212,29 @@ export class DealsService {
   }
 
   // Private helpers
+
+  /**
+   * Structural equality for timeline diffing (primitives, arrays, plain
+   * objects). Undefined-valued keys are ignored so a re-sent object that merely
+   * omits optional keys isn't logged as a change.
+   */
+  private valuesEqual(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((v, i) => this.valuesEqual(v, b[i]));
+    }
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      const objA = a as Record<string, unknown>;
+      const objB = b as Record<string, unknown>;
+      const keysA = Object.keys(objA).filter((k) => objA[k] !== undefined);
+      const keysB = Object.keys(objB).filter((k) => objB[k] !== undefined);
+      return (
+        keysA.length === keysB.length &&
+        keysA.every((k) => this.valuesEqual(objA[k], objB[k]))
+      );
+    }
+    return false;
+  }
 
   private async addTimelineEntry(
     dealId: string,

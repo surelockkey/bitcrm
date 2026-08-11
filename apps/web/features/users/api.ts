@@ -4,6 +4,8 @@ import type {
   CreateUserRequest,
   UpdateUserRequest,
   PaginatedResponse,
+  ResolvedPermissions,
+  UserPermissionOverrides,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
@@ -62,4 +64,21 @@ export function reactivateUser(id: string): Promise<null> {
 
 export function listRoles(): Promise<Role[]> {
   return http.get<Role[]>("/users/roles");
+}
+
+/** Merged role base + per-user overrides, as the backend resolves them. */
+export function getUserPermissions(id: string): Promise<ResolvedPermissions> {
+  return http.get<ResolvedPermissions>(`/users/${id}/permissions`);
+}
+
+/** Replaces the user's stored overrides with the given sparse object (flat body). */
+export function setUserPermissions(
+  id: string,
+  body: UserPermissionOverrides,
+): Promise<User> {
+  return http.put<User>(`/users/${id}/permissions`, body);
+}
+
+export function clearUserPermissions(id: string): Promise<User> {
+  return http.delete<User>(`/users/${id}/permissions`);
 }

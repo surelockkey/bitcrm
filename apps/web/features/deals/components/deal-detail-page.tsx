@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
+import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
 import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,34 +27,52 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContact, useUpdateContact } from "@/features/clients/hooks";
-import { addressInList, contactName, formatPhone } from "@/features/clients/lib";
+import { contactName, formatPhone } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { useDeal, useDeleteDeal, useUpdateDeal } from "../hooks";
-import { isUrgent } from "../lib";
+import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
+import { useDeal, useDeleteDeal, useUpdateDeal, useMoveStatus } from "../hooks";
+import {
+  buildContactBody,
+  buildDealPatch,
+  clientDraftFromContact,
+  dealDraftFromDeal,
+  isUrgent,
+  type ClientDraft,
+  type DealDraft,
+} from "../lib";
 import { PriorityFlag, StageBadge } from "./deal-badges";
-import { StageMenu } from "./stage-menu";
 import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
-import { DealTimelineTab } from "./deal-timeline-tab";
+import { DealTimelinePanel } from "./deal-timeline-panel";
+import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
+import { useUnsavedChanges } from "./use-unsaved-changes";
+import { usePageHistoryLabel } from "@/components/shell/page-history";
 
-type Tab = "details" | "items" | "timeline";
+type Tab = "details" | "items" | "attachments";
 
 export function DealDetailPage({ dealId }: { dealId: string }) {
   const router = useRouter();
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
+  const tagUpdate = useUpdateDeal(dealId);
+  const moveStatus = useMoveStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
+  usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
@@ -69,14 +87,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           <ChevronLeft className="size-4" /> Jobs
         </Link>
         <span className="font-mono text-base font-semibold">#{deal.dealNumber}</span>
-        <StageBadge stage={deal.stage} />
+        <StageBadge status={deal.superStatus} />
         {isUrgent(deal) ? <PriorityFlag /> : null}
         <span className="flex-1" />
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           {canEdit ? <UserCog className="size-3.5" /> : <Lock className="size-3.5" />}
           {canEdit ? "You can edit" : "Read only"}
         </span>
-        {canEdit ? <StageMenu dealId={deal.id} /> : null}
         {canDelete ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -101,9 +118,32 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ) : null}
       </div>
 
+      {/* Status — above the tags: a grouped super-status + sub-status select */}
+      <div className="flex items-center gap-2 border-b px-6 py-2.5">
+        <span className="text-xs font-medium text-muted-foreground">Status</span>
+        <JobStatusSelect
+          value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
+          onChange={(v) =>
+            moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
+          }
+          disabled={!canEdit}
+        />
+      </div>
+
+      {/* Tags — top-left, with a "+" to quickly add existing tags */}
+      {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
+        <div className="flex items-center gap-2 border-b px-6 py-2.5">
+          <JobTagCombobox
+            value={deal.tagIds ?? []}
+            onChange={(ids) => tagUpdate.mutate({ tagIds: ids })}
+            disabled={!canEdit}
+          />
+        </div>
+      ) : null}
+
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
-        {(["details", "items", "timeline"] as Tab[]).map((t) => (
+        {(["details", "items", "attachments"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -118,14 +158,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {tab === "details" ? <DetailsTab deal={deal} canEdit={canEdit} /> : null}
+        {/* Details stays mounted (just hidden) so its unsaved draft survives
+            a hop to the other tabs. */}
+        <div className={cn(tab !== "details" && "hidden")}>
+          <DetailsTab deal={deal} canEdit={canEdit} />
+        </div>
         {tab === "items" ? (
           <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
         ) : null}
-        {tab === "timeline" ? (
-          <div className="mx-auto max-w-2xl"><DealTimelineTab dealId={deal.id} canEdit={canEdit} /></div>
+        {tab === "attachments" ? (
+          <div className="mx-auto max-w-3xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
         ) : null}
       </div>
+
+      {/* Workiz-style hanging history: handle on the right edge, opens the
+          timeline with the change log, filters and search. */}
+      <DealTimelinePanel dealId={deal.id} canEdit={canEdit} />
     </div>
   );
 }
@@ -146,19 +194,88 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 }
 
 function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
-  const { can } = usePermissions();
+  const { can, isTechnician } = usePermissions();
   const { data: contact } = useContact(deal.contactId);
+  const { data: customFieldDefs } = useCustomFields();
   const update = useUpdateDeal(deal.id);
+  const updateContact = useUpdateContact();
   const [assigning, setAssigning] = useState(false);
+  const canEditClient = can("contacts", "edit");
 
-  const commit = (patch: Record<string, unknown>) => update.mutate(patch);
+  // One draft per side — every field below is a controlled input writing here,
+  // and the single Save at the bottom persists whatever actually changed.
+  const [dealDraft, setDealDraft] = useState<DealDraft>(() => dealDraftFromDeal(deal));
+  const syncedDealId = useRef(deal.id);
+  useEffect(() => {
+    // Re-sync the draft from the server, but never clobber unsaved edits. A
+    // fresh deal (id change) always adopts server values; a same-deal refetch —
+    // an instant action like status/tag/assign bumps updatedAt — only re-syncs
+    // when the draft has no pending changes.
+    const freshDeal = syncedDealId.current !== deal.id;
+    syncedDealId.current = deal.id;
+    if (!freshDeal && buildDealPatch(deal, dealDraft)) return;
+    setDealDraft(dealDraftFromDeal(deal));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deal.id, deal.updatedAt]);
+
+  const [clientDraft, setClientDraft] = useState<ClientDraft | null>(() =>
+    contact ? clientDraftFromContact(contact) : null,
+  );
+  const syncedContactId = useRef(contact?.id);
+  useEffect(() => {
+    // Same guarded re-sync as the deal draft: keep unsaved client edits across a
+    // plain contact refetch; adopt server values only for a different contact.
+    const freshContact = syncedContactId.current !== contact?.id;
+    syncedContactId.current = contact?.id;
+    if (!freshContact && contact && clientDraft && buildContactBody(contact, clientDraft)) return;
+    setClientDraft(contact ? clientDraftFromContact(contact) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact?.id, contact?.updatedAt]);
+
+  const setDeal = (patch: Partial<DealDraft>) => setDealDraft((d) => ({ ...d, ...patch }));
+
+  // Recomputes as the draft's job type changes — the applicable set is scoped to it.
+  const hasCustomFields = applicableFields(customFieldDefs, dealDraft.jobTypeId).length > 0;
+
+  const dealPatch = buildDealPatch(deal, dealDraft);
+  // A changed service address is also offered to the client's saved list — but
+  // that's a contact write, so it (and any client-field edit) is gated on
+  // `contacts.edit`. Without it, a deals-only editor never touches the contact.
+  const contactBody =
+    canEditClient && contact && clientDraft
+      ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined)
+      : null;
+  const dirty = !!dealPatch || !!contactBody;
+  const pending = update.isPending || updateContact.isPending;
+
+  const { confirm } = useUnsavedChanges(dirty);
+
+  const save = () => {
+    if (dealPatch) update.mutate(dealPatch);
+    if (contact && contactBody) updateContact.mutate({ id: contact.id, body: contactBody });
+  };
+  const reset = () => {
+    setDealDraft(dealDraftFromDeal(deal));
+    setClientDraft(contact ? clientDraftFromContact(contact) : null);
+  };
 
   return (
     <div className="mx-auto grid max-w-5xl grid-cols-1 items-start gap-4 lg:grid-cols-2">
       {/* Client */}
-      <Section title="Client">
-        {contact ? (
-          <ClientEditor contact={contact} canEdit={can("contacts", "edit")} />
+      <Section
+        title="Client"
+        action={
+          contact ? (
+            <Button asChild variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+              <Link href={`/contacts/${contact.id}`}>
+                <ExternalLink className="size-3.5" /> View client
+              </Link>
+            </Button>
+          ) : null
+        }
+      >
+        {contact && clientDraft ? (
+          <ClientEditor contact={contact} draft={clientDraft} onChange={setClientDraft} canEdit={canEditClient} />
         ) : (
           <Skeleton className="h-24 w-full" />
         )}
@@ -167,11 +284,11 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       {/* Schedule + Team */}
       <Section title="Schedule">
         <ScheduleField
-          date={deal.scheduledDate || undefined}
-          slot={deal.scheduledTimeSlot || undefined}
+          date={dealDraft.scheduledDate || undefined}
+          slot={dealDraft.scheduledTimeSlot || undefined}
           disabled={!canEdit}
-          onDate={(d) => commit({ scheduledDate: d || undefined })}
-          onSlot={(s) => commit({ scheduledTimeSlot: s || undefined })}
+          onDate={(d) => setDeal({ scheduledDate: d ?? "" })}
+          onSlot={(s) => setDeal({ scheduledTimeSlot: s })}
         />
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -188,24 +305,29 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
       {/* Service location */}
       <Section title="Service location">
-        <DealAddressEditor deal={deal} contact={contact ?? null} canEdit={canEdit} />
+        <DealAddressEditor
+          value={dealDraft.address}
+          onChange={(a) => setDeal({ address: a })}
+          clientAddresses={contact?.addresses}
+          canEdit={canEdit}
+        />
         <Field label="Service area">
-          <Input className="h-9" defaultValue={deal.serviceArea ?? ""} disabled={!canEdit}
-            onBlur={(e) => { if (e.target.value !== (deal.serviceArea ?? "")) commit({ serviceArea: e.target.value }); }} />
+          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
+            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
         </Field>
       </Section>
 
       {/* Job */}
       <Section title="Job">
         <Field label="Job type">
-          <JobTypeSelect value={deal.jobTypeId} onChange={(val) => commit({ jobTypeId: val })} disabled={!canEdit} />
+          <JobTypeSelect value={dealDraft.jobTypeId} onChange={(val) => setDeal({ jobTypeId: val })} disabled={!canEdit} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Source">
-            <JobSourceSelect value={deal.sourceId ?? ""} onChange={(val) => commit({ sourceId: val || undefined })} disabled={!canEdit} />
+            <JobSourceSelect value={dealDraft.sourceId} onChange={(val) => setDeal({ sourceId: val })} disabled={!canEdit} />
           </Field>
           <Field label="Priority">
-            <Select value={deal.priority} onValueChange={(val) => commit({ priority: val as DealPriority })} disabled={!canEdit}>
+            <Select value={dealDraft.priority} onValueChange={(val) => setDeal({ priority: val as DealPriority })} disabled={!canEdit}>
               <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={DealPriority.NORMAL}>Normal</SelectItem>
@@ -214,23 +336,56 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
-        <Field label="Tags">
-          <JobTagCombobox value={deal.tagIds ?? []} onChange={(ids) => commit({ tagIds: ids })} disabled={!canEdit} />
-        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="PO number">
-            <Input className="h-9" defaultValue={deal.poNumber ?? ""} disabled={!canEdit} placeholder="C-PO / VPO"
-              onBlur={(e) => { if (e.target.value !== (deal.poNumber ?? "")) commit({ poNumber: e.target.value || undefined }); }} />
+            <Input className="h-9" value={dealDraft.poNumber} disabled={!canEdit} placeholder="C-PO / VPO"
+              onChange={(e) => setDeal({ poNumber: e.target.value })} />
           </Field>
           <Field label="Work order link">
-            <Input className="h-9" defaultValue={deal.workOrderId ?? ""} disabled={!canEdit} placeholder="https://…"
-              onBlur={(e) => { if (e.target.value !== (deal.workOrderId ?? "")) commit({ workOrderId: e.target.value || undefined }); }} />
+            <Input className="h-9" value={dealDraft.workOrderId} disabled={!canEdit} placeholder="https://…"
+              onChange={(e) => setDeal({ workOrderId: e.target.value })} />
           </Field>
         </div>
       </Section>
 
-      {/* Notes (reuses the existing inline notes card) */}
-      <div className="lg:col-span-2"><DealNotesCard deal={deal} /></div>
+      {/* Custom fields — user-defined answers, held in the same draft and saved
+          by the single Save below. Job-type scoped, so it re-renders on type change. */}
+      {hasCustomFields ? (
+        <div className="lg:col-span-2">
+          <Section title="Custom fields">
+            <CustomFieldsSection
+              jobTypeId={dealDraft.jobTypeId}
+              value={dealDraft.customFields}
+              onChange={(cf) => setDeal({ customFields: cf })}
+              dealId={deal.id}
+              disabled={!canEdit}
+            />
+          </Section>
+        </div>
+      ) : null}
+
+      {/* Notes — directly editable; the single Save below persists them */}
+      <div className="lg:col-span-2">
+        <DealNotesCard
+          notes={dealDraft.notes}
+          internalNotes={dealDraft.internalNotes}
+          editable={canEdit && !isTechnician}
+          onNotesChange={(v) => setDeal({ notes: v })}
+          onInternalNotesChange={(v) => setDeal({ internalNotes: v })}
+        />
+      </div>
+
+      {/* The one Save for the whole page */}
+      {canEdit || canEditClient ? (
+        <div className="flex justify-end gap-2 lg:col-span-2">
+          <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
+          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
+          </Button>
+        </div>
+      ) : null}
+
+      {confirm}
 
       {assigning ? (
         <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open={assigning} onOpenChange={setAssigning} />
@@ -241,97 +396,43 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
 /* ------------------------------------------------------- service address edit */
 
-function DealAddressEditor({ deal, contact, canEdit }: { deal: Deal; contact: Contact | null; canEdit: boolean }) {
-  const update = useUpdateDeal(deal.id);
-  const updateContact = useUpdateContact();
-  const initial: DealAddressValue = {
-    street: deal.address?.street ?? "",
-    unit: deal.address?.unit ?? "",
-    city: deal.address?.city ?? "",
-    state: deal.address?.state ?? "",
-    zip: deal.address?.zip ?? "",
-    lat: deal.address?.lat,
-    lng: deal.address?.lng,
-  };
-  const [draft, setDraft] = useState<DealAddressValue>(initial);
-  useEffect(() => { setDraft(initial); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [deal.id, deal.updatedAt]);
-
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
-
-  const save = () => {
-    update.mutate({ address: draft });
-    // A brand-new address is also saved to the client for next time.
-    if (contact && !addressInList(draft, contact.addresses)) {
-      updateContact.mutate({
-        id: contact.id,
-        body: {
-          firstName: contact.firstName, lastName: contact.lastName,
-          phones: contact.phones, emails: contact.emails,
-          addresses: [...contact.addresses, draft],
-          companyId: contact.companyId, type: contact.type, title: contact.title, notes: contact.notes,
-        },
-      });
-    }
-  };
-
+function DealAddressEditor({
+  value,
+  onChange,
+  clientAddresses,
+  canEdit,
+}: {
+  value: DealAddressValue;
+  onChange: (a: DealAddressValue) => void;
+  clientAddresses?: Contact["addresses"];
+  canEdit: boolean;
+}) {
   if (!canEdit) {
     return (
       <div className="text-sm text-muted-foreground">
-        {[draft.street, draft.unit].filter(Boolean).join(", ")}
-        {draft.city ? <div>{draft.city}, {draft.state} {draft.zip}</div> : null}
+        {[value.street, value.unit].filter(Boolean).join(", ")}
+        {value.city ? <div>{value.city}, {value.state} {value.zip}</div> : null}
       </div>
     );
   }
 
-  return (
-    <div className="space-y-2">
-      <DealAddressFields value={draft} onChange={setDraft} clientAddresses={contact?.addresses} />
-      {dirty ? (
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setDraft(initial)}>Reset</Button>
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={update.isPending} onClick={save}>
-            {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save address
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
+  return <DealAddressFields value={value} onChange={onChange} clientAddresses={clientAddresses} />;
 }
 
 /* ------------------------------------------------------------- client editor */
 
-function ClientEditor({ contact, canEdit }: { contact: Contact; canEdit: boolean }) {
-  const update = useUpdateContact();
-  const [first, setFirst] = useState(contact.firstName);
-  const [last, setLast] = useState(contact.lastName);
-  const [phones, setPhones] = useState<string[]>(contact.phones.length ? contact.phones : [""]);
-  const [email, setEmail] = useState(contact.emails[0] ?? "");
-
-  useEffect(() => {
-    setFirst(contact.firstName); setLast(contact.lastName);
-    setPhones(contact.phones.length ? contact.phones : [""]);
-    setEmail(contact.emails[0] ?? "");
-  }, [contact.id, contact.updatedAt]);
-
-  const cleanPhones = phones.map((p) => p.trim()).filter(Boolean);
-  const emails = email.trim() ? [email.trim(), ...contact.emails.slice(1)] : contact.emails.slice(1);
-  const dirty =
-    first !== contact.firstName || last !== contact.lastName ||
-    JSON.stringify(cleanPhones) !== JSON.stringify(contact.phones) ||
-    (email.trim() || "") !== (contact.emails[0] ?? "");
-
-  const save = () => {
-    update.mutate({
-      id: contact.id,
-      body: {
-        firstName: first.trim(), lastName: last.trim(),
-        phones: cleanPhones.length ? cleanPhones : contact.phones,
-        emails,
-        addresses: contact.addresses, companyId: contact.companyId,
-        type: contact.type, title: contact.title, notes: contact.notes,
-      },
-    });
-  };
+function ClientEditor({
+  contact,
+  draft,
+  onChange,
+  canEdit,
+}: {
+  contact: Contact;
+  draft: ClientDraft;
+  onChange: (d: ClientDraft) => void;
+  canEdit: boolean;
+}) {
+  const set = (patch: Partial<ClientDraft>) => onChange({ ...draft, ...patch });
 
   if (!canEdit) {
     return (
@@ -351,36 +452,29 @@ function ClientEditor({ contact, canEdit }: { contact: Contact; canEdit: boolean
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
-        <Field label="First name"><Input className="h-9" value={first} onChange={(e) => setFirst(e.target.value)} /></Field>
-        <Field label="Last name"><Input className="h-9" value={last} onChange={(e) => setLast(e.target.value)} /></Field>
+        <Field label="First name"><Input className="h-9" value={draft.firstName} onChange={(e) => set({ firstName: e.target.value })} /></Field>
+        <Field label="Last name"><Input className="h-9" value={draft.lastName} onChange={(e) => set({ lastName: e.target.value })} /></Field>
       </div>
       <Field label="Phones">
         <div className="space-y-2">
-          {phones.map((p, i) => (
+          {draft.phones.map((p, i) => (
             <div key={i} className="flex items-center gap-2">
               <PhoneInput
                 className="flex-1"
                 value={p}
-                onChange={(v) => setPhones((arr) => arr.map((x, j) => (j === i ? v : x)))}
+                onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
               />
               {i === 0 ? <PrimaryBadge /> : null}
-              {phones.length > 1 ? (
-                <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => setPhones((arr) => arr.filter((_, j) => j !== i))} aria-label="Remove phone"><X className="size-4" /></Button>
+              {draft.phones.length > 1 ? (
+                <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
               ) : null}
             </div>
           ))}
-          <button type="button" className="text-xs font-medium text-brand" onClick={() => setPhones((arr) => [...arr, ""])}>＋ Add phone</button>
+          <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""] })}>＋ Add phone</button>
         </div>
         <p className="text-xs text-muted-foreground">The first phone is the client&apos;s primary number.</p>
       </Field>
-      <Field label="Email"><Input className="h-9" value={email} placeholder="name@example.com" onChange={(e) => setEmail(e.target.value)} /></Field>
-      {dirty ? (
-        <div className="flex justify-end">
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={update.isPending} onClick={save}>
-            {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save client
-          </Button>
-        </div>
-      ) : null}
+      <Field label="Email"><Input className="h-9" value={draft.email} placeholder="name@example.com" onChange={(e) => set({ email: e.target.value })} /></Field>
     </div>
   );
 }

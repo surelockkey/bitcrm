@@ -1,13 +1,13 @@
 import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { DealStage, DealPriority, DealStatus, ClientType } from '@bitcrm/types';
+import { JobSuperStatus, DealPriority, DealStatus, ClientType } from '@bitcrm/types';
 
 export class ListDealsQueryDto {
-  @ApiPropertyOptional({ enum: DealStage })
+  @ApiPropertyOptional({ enum: JobSuperStatus })
   @IsOptional()
-  @IsEnum(DealStage)
-  stage?: DealStage;
+  @IsEnum(JobSuperStatus)
+  superStatus?: JobSuperStatus;
 
   @ApiPropertyOptional()
   @IsOptional()

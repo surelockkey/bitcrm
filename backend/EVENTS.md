@@ -56,6 +56,8 @@ invalidates that cache on these events.
 
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
+`contact.merged` (`{oldContactId, newContactId}`) is emitted once per absorbed duplicate by
+`ContactsService.merge`; deal-service re-points the old contact's active deals to the survivor.
 
 ## Topic: `call-events` (published by telephony-service)
 

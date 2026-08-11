@@ -30,10 +30,14 @@ import { ResolvedAreaField } from "@/features/service-areas/components/resolved-
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagPicker } from "@/features/job-tags/components/job-tag-picker";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
 
 
 export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: boolean; onOpenChange: (v: boolean) => void }) {
   const update = useUpdateDeal(deal.id);
+  const { data: customFieldDefs } = useCustomFields();
 
   const form = useForm<EditDealValues>({
     resolver: zodResolver(editDealSchema),
@@ -53,9 +57,11 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       scheduledTimeSlot: deal.scheduledTimeSlot ?? "",
       priority: deal.priority,
       sourceId: deal.sourceId ?? "",
+      poNumber: deal.poNumber ?? "",
       notes: deal.notes ?? "",
       internalNotes: deal.internalNotes ?? "",
       tagIds: deal.tagIds,
+      customFields: deal.customFields ?? {},
     },
   });
 
@@ -66,9 +72,11 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         sourceId: v.sourceId || undefined,
+        poNumber: v.poNumber || undefined,
         notes: v.notes || undefined,
         internalNotes: v.internalNotes || undefined,
         tagIds: v.tagIds,
+        customFields: v.customFields ?? {},
       },
       { onSuccess: () => onOpenChange(false) },
     );
@@ -79,6 +87,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const sourceId = useWatch({ control: form.control, name: "sourceId" });
   const tagIds = useWatch({ control: form.control, name: "tagIds" }) ?? [];
   const priority = useWatch({ control: form.control, name: "priority" });
+  const customFields = useWatch({ control: form.control, name: "customFields" }) ?? {};
   const street = useWatch({ control: form.control, name: "address.street" });
   const lat = useWatch({ control: form.control, name: "address.lat" });
   const lng = useWatch({ control: form.control, name: "address.lng" });
@@ -86,7 +95,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg">
-        <SheetHeader className="border-b px-5 py-4"><SheetTitle>Edit deal #{deal.dealNumber}</SheetTitle></SheetHeader>
+        <SheetHeader className="border-b px-5 py-4"><SheetTitle>Edit job #{deal.dealNumber}</SheetTitle></SheetHeader>
         <form onSubmit={form.handleSubmit(submit)} className="flex flex-1 flex-col">
           <div className="flex-1 space-y-4 px-5 py-5">
             <div className="grid grid-cols-2 gap-3">
@@ -131,10 +140,22 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={sourceId} onChange={(v) => form.setValue("sourceId", v ?? "")} /></div>
+              <div className="space-y-1.5"><Label>PO number</Label><Input className="h-9" placeholder="PO-12345" {...form.register("poNumber")} /></div>
               <div className="space-y-1.5"><Label>Tags</Label><JobTagPicker value={tagIds} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
             </div>
             <div className="space-y-1.5"><Label>Notes</Label><Textarea rows={2} {...form.register("notes")} /></div>
             <div className="space-y-1.5"><Label>Internal notes</Label><Textarea rows={2} {...form.register("internalNotes")} /></div>
+            {applicableFields(customFieldDefs, jobTypeId).length > 0 ? (
+              <div className="space-y-3 border-t pt-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Custom fields</div>
+                <CustomFieldsSection
+                  jobTypeId={jobTypeId}
+                  value={customFields}
+                  onChange={(cf) => form.setValue("customFields", cf)}
+                  dealId={deal.id}
+                />
+              </div>
+            ) : null}
           </div>
           <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>

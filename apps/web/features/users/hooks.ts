@@ -7,9 +7,14 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { CreateUserRequest, UpdateUserRequest } from "@bitcrm/types";
+import type {
+  CreateUserRequest,
+  UpdateUserRequest,
+  UserPermissionOverrides,
+} from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { useMe } from "@/features/auth/use-me";
 import * as api from "./api";
 import type { UserFilter } from "./api";
 
@@ -23,8 +28,9 @@ export function useUsers(filter: UserFilter) {
 }
 
 /**
- * A single user — for deep links (`/admin/users?user=<id>`) that land on
- * someone who isn't in the loaded pages yet.
+ * A single user. `id` is optional so callers can hold the query idle — the
+ * `?user=<id>` deep link only fetches when that user isn't already in the
+ * loaded pages.
  */
 export function useUser(id?: string) {
   return useQuery({
@@ -42,9 +48,56 @@ export function useRoles() {
   });
 }
 
+export function useUserPermissions(id: string) {
+  return useQuery({
+    queryKey: queryKeys.users.permissions(id),
+    queryFn: () => api.getUserPermissions(id),
+  });
+}
+
 function useInvalidateUsers() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+}
+
+/**
+ * Overrides mutations also refresh `me` when the caller edits themselves —
+ * the client-side gates merge `me.permissionOverrides` (backend currently
+ * rejects self-edits, but the cache must not go stale if that ever changes).
+ */
+function useInvalidatePermissions() {
+  const qc = useQueryClient();
+  const { data: me } = useMe();
+  return (userId: string) => {
+    // Prefix ["users"] covers the list, detail(id) and permissions(id) keys.
+    qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+    if (userId === me?.id) qc.invalidateQueries({ queryKey: queryKeys.me() });
+  };
+}
+
+export function useSetUserPermissions() {
+  const invalidate = useInvalidatePermissions();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UserPermissionOverrides }) =>
+      api.setUserPermissions(id, body),
+    onSuccess: (_u, { id }) => {
+      invalidate(id);
+      toast.success("Permissions updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useClearUserPermissions() {
+  const invalidate = useInvalidatePermissions();
+  return useMutation({
+    mutationFn: (id: string) => api.clearUserPermissions(id),
+    onSuccess: (_u, id) => {
+      invalidate(id);
+      toast.success("Overrides cleared — role defaults restored");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
 }
 
 export function useCreateUser() {

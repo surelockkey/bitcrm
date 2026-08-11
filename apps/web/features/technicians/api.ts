@@ -34,6 +34,8 @@ export interface AuditRecord {
   action: string;
   resource: string;
   timestamp: string;
+  /** Resolved server-side; absent for unknown actors or older backends. */
+  actorName?: string;
 }
 export interface UpdateProfileBody {
   phone?: string;
@@ -44,6 +46,9 @@ export interface UpdateProfileBody {
   gpsTrackingEnabled?: boolean;
   mobileAppInstalled?: boolean;
   status?: TechnicianProfileStatus;
+  workingDays?: number[];
+  workStart?: string;
+  workEnd?: string;
 }
 /** A technician's job types + service areas with their review statuses. */
 export interface TechnicianAssignments {

@@ -16,7 +16,7 @@ import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { DealsService } from './deals.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
-import { ChangeStageDto } from './dto/change-stage.dto';
+import { MoveStatusDto } from './dto/move-status.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { AssignTechsDto } from './dto/assign-techs.dto';
@@ -108,35 +108,21 @@ export class DealsController {
     return { success: true, data: { id, deleted: true } };
   }
 
-  @Put(':id/stage')
-  @RequirePermission('deals', 'edit')
+  @Put(':id/status')
+  @RequirePermission('deals', 'move_status')
   @ApiOperation({
-    summary: 'Change deal pipeline stage',
-    description: '**Guard:** `deals.edit` permission required. Stage transitions validated per role.',
+    summary: 'Move a deal\'s status (super-status + optional sub-status)',
+    description:
+      '**Guard:** `deals.move_status`. Sets the fixed super-status and an optional custom ' +
+      'sub-status (which must belong to that super-status). A cancellation reason is required ' +
+      'when moving to Canceled.',
   })
-  async changeStage(
+  async moveStatus(
     @Param('id') id: string,
-    @Body() dto: ChangeStageDto,
+    @Body() dto: MoveStatusDto,
     @CurrentUser() user: JwtUser,
-    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const transitions = perms?.dealStageTransitions || [];
-    const data = await this.dealsService.changeStage(id, dto, user, transitions);
-    return { success: true, data };
-  }
-
-  @Get(':id/allowed-stages')
-  @RequirePermission('deals', 'view')
-  @ApiOperation({
-    summary: 'Get allowed next stages for current user',
-    description: '**Guard:** `deals.view` permission required.',
-  })
-  async getAllowedStages(
-    @Param('id') id: string,
-    @ResolvedPerms() perms: ResolvedPermissions,
-  ) {
-    const transitions = perms?.dealStageTransitions || [];
-    const data = await this.dealsService.getAllowedStages(id, transitions);
+    const data = await this.dealsService.moveStatus(id, dto, user);
     return { success: true, data };
   }
 
@@ -252,6 +238,27 @@ export class DealsController {
   ) {
     await this.dealsService.addProduct(id, dto, user);
     return { success: true, data: { added: true } };
+  }
+
+  @Put(':id/products/:productId')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Edit a line item (or swap it for another catalog product)',
+    description:
+      '**Guard:** `deals.edit` permission required. The body is the complete ' +
+      'new line — same shape and validation as add. Stock is reconciled: the ' +
+      "old sourced line is restored to its source technician's container " +
+      'before the new sourced line is deducted from the chosen one, so raising ' +
+      'a quantity only needs the delta in the van.',
+  })
+  async replaceProduct(
+    @Param('id') id: string,
+    @Param('productId') productId: string,
+    @Body() dto: AddDealProductDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.dealsService.replaceProduct(id, productId, dto, user);
+    return { success: true, data: { updated: true } };
   }
 
   @Patch(':id/products/:productId/ordered')

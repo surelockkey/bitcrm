@@ -30,10 +30,21 @@ export class DealsEventHandler {
   }
 
   async handleContactMerged(payload: any): Promise<void> {
-    this.logger.log(
-      `Contact merged: ${payload.oldContactId} -> ${payload.newContactId}`,
-    );
-    // TODO: Update contactId references on affected deals
-    // This requires a query by old contactId and batch update
+    const timer = this.businessMetrics?.sqsProcessingDuration.startTimer({ event_type: 'contact.merged' });
+    try {
+      const count = await this.dealsService.reassignContact(
+        payload.oldContactId,
+        payload.newContactId,
+      );
+      this.logger.log(
+        `Contact merged: ${payload.oldContactId} -> ${payload.newContactId} (${count} deals re-pointed)`,
+      );
+      timer?.();
+      this.businessMetrics?.sqsMessagesProcessed.inc({ event_type: 'contact.merged', status: 'success' });
+    } catch (error) {
+      timer?.();
+      this.businessMetrics?.sqsMessagesProcessed.inc({ event_type: 'contact.merged', status: 'error' });
+      throw error;
+    }
   }
 }

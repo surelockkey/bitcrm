@@ -32,8 +32,11 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { useJobFieldsStore } from "../fields-store";
 import { DealsTable } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
+import { FieldsMenu } from "./fields-menu";
 
 const ALL = "all";
 
@@ -44,6 +47,7 @@ export function DealsPage() {
   const { map: userMap } = useUserMap();
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
+  const customFieldsQuery = useCustomFields();
 
   const [tab, setTab] = useState<JobTab>(JOB_TABS[0]);
   const [search, setSearch] = useState("");
@@ -52,6 +56,7 @@ export function DealsPage() {
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
   const [openId, setOpenId] = useState<string | null>(null);
+  const visibleFields = useJobFieldsStore((s) => s.visible);
 
   const contactNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -92,9 +97,15 @@ export function DealsPage() {
     [search, techId, jobTypeId, serviceArea, tagId],
   );
 
+  // Searchable custom-field definitions let free-text search match their answers.
+  const searchableFields = useMemo(
+    () => (customFieldsQuery.data ?? []).filter((f) => f.searchable),
+    [customFieldsQuery.data],
+  );
+
   const base = useMemo(
-    () => filterDeals(deals, baseFilter, contactNames),
-    [deals, baseFilter, contactNames],
+    () => filterDeals(deals, baseFilter, contactNames, searchableFields),
+    [deals, baseFilter, contactNames, searchableFields],
   );
   const counts = useMemo(() => tabCounts(base), [base]);
   const visible = useMemo(() => base.filter((d) => matchesTab(d, tab)), [base, tab]);
@@ -133,6 +144,9 @@ export function DealsPage() {
         <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All job types" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={160} />
         <FilterSelect value={serviceArea} onChange={setServiceArea} allLabel="All areas" options={areaOptions} width={150} />
         <FilterSelect value={tagId} onChange={setTagId} allLabel="Any tag" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={130} />
+        <div className="ml-auto">
+          <FieldsMenu />
+        </div>
       </div>
 
       {/* Status tabs */}
@@ -185,7 +199,7 @@ export function DealsPage() {
             }
           />
         ) : (
-          <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} />
+          <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} visibleFields={visibleFields} />
         )}
       </div>
 

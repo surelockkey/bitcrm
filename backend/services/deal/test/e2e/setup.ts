@@ -23,6 +23,7 @@ import {
   RedisModule,
   GeocodingModule,
   GeocodingService,
+  StorageModule,
   PermissionGuard,
   PermissionCacheReader,
   HttpExceptionFilter,
@@ -32,6 +33,7 @@ import { DealsModule } from 'src/deals/deals.module';
 import { ServiceAreasModule } from 'src/service-areas/service-areas.module';
 import { JobTypesModule } from 'src/job-types/job-types.module';
 import { JobTypesService } from 'src/job-types/job-types.service';
+import { CustomFieldsModule } from 'src/custom-fields/custom-fields.module';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
 import {
   createTestTables,
@@ -126,6 +128,7 @@ const superAdminPermissions = {
     job_types: { view: true, create: true, edit: true, delete: true },
     job_sources: { view: true, create: true, edit: true, delete: true },
     job_tags: { view: true, create: true, edit: true, delete: true },
+    custom_fields: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -138,6 +141,7 @@ const adminPermissions = {
     job_types: { view: true, create: true, edit: true, delete: true },
     job_sources: { view: true, create: true, edit: true, delete: true },
     job_tags: { view: true, create: true, edit: true, delete: true },
+    custom_fields: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -150,6 +154,7 @@ const dispatcherPermissions = {
     job_types: { view: true, create: false, edit: false, delete: false },
     job_sources: { view: true, create: false, edit: false, delete: false },
     job_tags: { view: true, create: false, edit: false, delete: false },
+    custom_fields: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'department' },
   dealStageTransitions: [
@@ -165,6 +170,7 @@ const techPermissions = {
     job_types: { view: true, create: false, edit: false, delete: false },
     job_sources: { view: true, create: false, edit: false, delete: false },
     job_tags: { view: true, create: false, edit: false, delete: false },
+    custom_fields: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'assigned_only' },
   dealStageTransitions: [
@@ -180,6 +186,7 @@ const readOnlyPermissions = {
     job_types: { view: true, create: false, edit: false, delete: false },
     job_sources: { view: true, create: false, edit: false, delete: false },
     job_tags: { view: true, create: false, edit: false, delete: false },
+    custom_fields: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: [],
@@ -205,11 +212,13 @@ export async function setupApp(): Promise<INestApplication> {
       DynamoDbModule,
       RedisModule,
       GeocodingModule,
+      StorageModule,
       TestPermissionModule,
       // Register before DealsModule so GET /service-areas isn't shadowed by
       // DealsController's GET /:id (see app.module.ts for the rationale).
       ServiceAreasModule,
       JobTypesModule,
+      CustomFieldsModule,
       DealsModule,
     ],
     providers: [

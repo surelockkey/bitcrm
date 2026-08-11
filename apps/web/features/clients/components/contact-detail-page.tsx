@@ -94,9 +94,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               ) : (
                 <p className="text-sm text-muted-foreground">Residential — no company.</p>
               )}
-              <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Deals</div>
+              <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Jobs</div>
               <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-                Their jobs appear here once Deals ships.
+                Their jobs appear here once Jobs ships.
               </div>
             </div>
           </div>

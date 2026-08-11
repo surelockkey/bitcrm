@@ -59,7 +59,7 @@ export function JobSourceFormDialog({
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${jobSource!.name}` : "New job source"}</DialogTitle>
           <DialogDescription>
-            A lead source a deal can be tagged with (e.g. Google Ads, Referral).
+            A lead source a job can be tagged with (e.g. Google Ads, Referral).
           </DialogDescription>
         </DialogHeader>
 
@@ -78,7 +78,7 @@ export function JobSourceFormDialog({
           <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
             <div>
               <Label>Active</Label>
-              <p className="text-xs text-muted-foreground">Only active sources show in the deal picker.</p>
+              <p className="text-xs text-muted-foreground">Only active sources show in the job picker.</p>
             </div>
             <Switch checked={active} onCheckedChange={setActive} />
           </div>

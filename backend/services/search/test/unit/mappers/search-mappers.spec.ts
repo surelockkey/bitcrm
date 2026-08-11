@@ -18,7 +18,7 @@ import {
   Warehouse,
   Container,
   Transfer,
-  DealStage,
+  JobSuperStatus,
   DealStatus,
   DealPriority,
   ClientType,
@@ -35,14 +35,14 @@ describe('search-mappers', () => {
   describe('mapDeal', () => {
     const deal: Deal = {
       id: 'd1',
-      dealNumber: 1042,
+      dealNumber: 'K4T9ZW',
       contactId: 'c1',
       companyId: 'co1',
       clientType: ClientType.RESIDENTIAL,
       serviceArea: 'Brooklyn',
       address: { street: '5 Main St', city: 'NYC', state: 'NY', zip: '11201' } as any,
       jobTypeId: 'jt-install',
-      stage: DealStage.ASSIGNED,
+      superStatus: JobSuperStatus.IN_PROGRESS,
       assignedTechIds: ['tech1', 'tech2'],
       assignedDispatcherId: 'disp1',
       priority: DealPriority.URGENT,
@@ -72,7 +72,7 @@ describe('search-mappers', () => {
 
     it('builds title, keywords and deep link', () => {
       const doc = mapDeal(deal, 'Install', ['vip', 'rush']);
-      expect(doc.title).toContain('1042');
+      expect(doc.title).toContain('K4T9ZW');
       expect(doc.keywords).toEqual(expect.arrayContaining(['Brooklyn', 'vip', 'Install']));
       expect(doc.url).toBe('/deals/d1');
       expect(doc.status).toBe('active');
@@ -81,6 +81,38 @@ describe('search-mappers', () => {
     it('never indexes internal notes', () => {
       const doc = mapDeal(deal);
       expect(JSON.stringify(doc)).not.toContain('do-not-index-secret');
+    });
+
+    it('folds searchable custom-field values into keywords and drops non-searchable ones', () => {
+      const withFields = {
+        ...deal,
+        customFields: {
+          'cf-warranty': 'AllState Gold', // searchable text
+          'cf-secret': 'hidden-internal', // searchable=false → excluded
+          'cf-gate': 4210, // searchable number
+          'cf-installed': true, // searchable checkbox
+          'cf-tools': ['drill', 'saw'], // searchable multi_select
+        },
+      } as Deal;
+      const defs = [
+        { id: 'cf-warranty', searchable: true },
+        { id: 'cf-secret', searchable: false },
+        { id: 'cf-gate', searchable: true },
+        { id: 'cf-installed', searchable: true },
+        { id: 'cf-tools', searchable: true },
+      ];
+      const doc = mapDeal(withFields, 'Install', [], defs);
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['AllState Gold', '4210', 'true', 'drill saw']),
+      );
+      expect(doc.keywords).not.toContain('hidden-internal');
+      expect(JSON.stringify(doc)).not.toContain('hidden-internal');
+    });
+
+    it('ignores custom-field ids that have no matching definition', () => {
+      const withFields = { ...deal, customFields: { 'cf-unknown': 'ghost' } } as Deal;
+      const doc = mapDeal(withFields, undefined, [], [{ id: 'cf-warranty', searchable: true }]);
+      expect(doc.keywords).not.toContain('ghost');
     });
 
     it('maps a deleted deal status', () => {

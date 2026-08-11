@@ -10,6 +10,7 @@ import {
   MetricsModule,
   HealthModule,
   ConnectivityModule,
+  StorageModule,
 } from '@bitcrm/shared';
 import { UserEventType } from '@bitcrm/types';
 import { AppController } from './app.controller';
@@ -19,6 +20,8 @@ import { ServiceAreasModule } from './service-areas/service-areas.module';
 import { JobTypesModule } from './job-types/job-types.module';
 import { JobSourcesModule } from './job-sources/job-sources.module';
 import { JobTagsModule } from './job-tags/job-tags.module';
+import { JobStatusesModule } from './job-statuses/job-statuses.module';
+import { CustomFieldsModule } from './custom-fields/custom-fields.module';
 import { TechnicianEligibilityModule } from './technician-eligibility/technician-eligibility.module';
 import { TechnicianEligibilityEventHandler } from './technician-eligibility/technician-eligibility.event-handler';
 
@@ -49,6 +52,7 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     RedisModule,
     GeocodingModule,
     AuthModule,
+    StorageModule,
     EventsModule.forRoot({
       publisher: {
         region: AWS_REGION,
@@ -75,6 +79,8 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     JobTypesModule,
     JobSourcesModule,
     JobTagsModule,
+    JobStatusesModule,
+    CustomFieldsModule,
     DealsModule,
     TechnicianEligibilityModule,
   ],

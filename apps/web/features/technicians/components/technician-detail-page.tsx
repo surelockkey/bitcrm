@@ -21,7 +21,7 @@ import { DocumentsTab } from "./documents-tab";
 
 export function TechnicianDetailPage({ technicianId }: { technicianId: string }) {
   const router = useRouter();
-  const { can } = usePermissions();
+  const { can, me } = usePermissions();
   const query = useProfile(technicianId);
   const { data: userMap } = useUserMap();
   const [tab, setTab] = useState("overview");
@@ -55,7 +55,9 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
   }
 
   const profile = query.data;
-  const u = techUser(technicianId, userMap ?? new Map());
+  // `me` fallback: a technician viewing their own page has no users.view,
+  // so the map is empty — but their own name is already in the session.
+  const u = techUser(technicianId, userMap ?? new Map(), me);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -69,7 +71,7 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
         </Avatar>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-lg font-semibold tracking-tight">
-            {techName(technicianId, userMap ?? new Map())}
+            {techName(technicianId, userMap ?? new Map(), me)}
           </h1>
           {u?.email ? <div className="truncate text-xs text-muted-foreground">{u.email}</div> : null}
         </div>

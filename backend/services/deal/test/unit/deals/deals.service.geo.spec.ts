@@ -10,7 +10,9 @@ import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
+import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
+import { CustomFieldsService } from 'src/custom-fields/custom-fields.service';
 import {
   createMockDeal,
   createMockAddress,
@@ -26,6 +28,7 @@ import {
   createMockJobSource,
   createMockJobTag,
   createMockTechnicianEligibilityRepository,
+  createMockCustomFieldsService,
 } from '../mocks';
 
 /**
@@ -64,7 +67,9 @@ describe('DealsService — address geocoding', () => {
         { provide: JobTypesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobType()) } },
         { provide: JobSourcesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobSource()) } },
         { provide: JobTagsService, useValue: { list: jest.fn().mockResolvedValue([]) } },
+        { provide: JobStatusesService, useValue: { findById: jest.fn() } },
         { provide: TechnicianEligibilityRepository, useValue: createMockTechnicianEligibilityRepository() },
+        { provide: CustomFieldsService, useValue: createMockCustomFieldsService() },
       ],
     }).compile();
 
@@ -92,7 +97,7 @@ describe('DealsService — address geocoding', () => {
 
   describe('create', () => {
     it('geocodes an address that arrives without coordinates', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1);
+      repo.reserveDealNumber.mockResolvedValue('GE0AB1');
       geocoding.geocode.mockResolvedValue({ lat: 34.1, lng: -84.2 });
 
       const deal = await service.create(createDto, caller);
@@ -103,7 +108,7 @@ describe('DealsService — address geocoding', () => {
     });
 
     it('trusts coordinates the caller already supplied and does not re-geocode', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1);
+      repo.reserveDealNumber.mockResolvedValue('GE0AB1');
 
       const deal = await service.create(
         { ...createDto, address: { ...createDto.address, lat: 1, lng: 2 } },
@@ -116,7 +121,7 @@ describe('DealsService — address geocoding', () => {
     });
 
     it('still creates the deal when the address cannot be geocoded', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1);
+      repo.reserveDealNumber.mockResolvedValue('GE0AB1');
       geocoding.geocode.mockResolvedValue(null);
 
       const deal = await service.create(createDto, caller);

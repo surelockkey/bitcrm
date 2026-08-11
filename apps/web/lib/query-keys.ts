@@ -33,9 +33,9 @@ export const queryKeys = {
     list: (filters?: unknown) => ["deals", "list", filters] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
-    allowedStages: (id: string) => ["deals", id, "allowed-stages"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
     products: (id: string) => ["deals", id, "products"] as const,
+    attachments: (id: string) => ["deals", id, "attachments"] as const,
   },
 
   serviceAreas: {
@@ -63,6 +63,18 @@ export const queryKeys = {
     detail: (id: string) => ["job-tags", "detail", id] as const,
   },
 
+  jobStatuses: {
+    all: () => ["job-statuses"] as const,
+    list: () => ["job-statuses", "list"] as const,
+    detail: (id: string) => ["job-statuses", "detail", id] as const,
+  },
+
+  customFields: {
+    all: () => ["custom-fields"] as const,
+    list: () => ["custom-fields", "list"] as const,
+    detail: (id: string) => ["custom-fields", "detail", id] as const,
+  },
+
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,
@@ -75,6 +87,13 @@ export const queryKeys = {
     list: (filters?: unknown) => ["companies", "list", filters] as const,
     detail: (id: string) => ["companies", "detail", id] as const,
     contacts: (id: string) => ["companies", id, "contacts"] as const,
+    documents: (id: string) => ["companies", id, "documents"] as const,
+  },
+
+  workOrders: {
+    all: () => ["work-orders"] as const,
+    list: (filters?: unknown) => ["work-orders", "list", filters] as const,
+    detail: (id: string) => ["work-orders", "detail", id] as const,
   },
 
   inventory: {
@@ -138,5 +157,11 @@ export const queryKeys = {
     audit: (id: string) => ["technicians", id, "audit"] as const,
     userMap: () => ["users", "all-map"] as const,
     locations: () => ["technicians", "locations"] as const,
+  },
+
+  calendarEvents: {
+    all: () => ["calendar-events"] as const,
+    range: (techIds: string[], from: string, to: string) =>
+      ["calendar-events", "range", techIds, from, to] as const,
   },
 } as const;

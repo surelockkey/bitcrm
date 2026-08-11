@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { ClientType, Company, Contact } from "@bitcrm/types";
+import type { ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
@@ -70,6 +70,22 @@ export function useUpdateContact() {
     onSuccess: () => {
       invalidate();
       toast.success("Contact saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useMergeContacts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: api.MergeContactsBody) => api.mergeContacts(body),
+    onSuccess: (c) => {
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.all() });
+      qc.invalidateQueries({ queryKey: queryKeys.companies.all() });
+      // The duplicates' deals are re-pointed to the survivor server-side
+      // (contact.merged event), so cached deal lists go stale too.
+      qc.invalidateQueries({ queryKey: queryKeys.deals.all() });
+      toast.success(`Contacts merged into “${contactName(c)}”`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -153,6 +169,43 @@ export function useDeleteCompany() {
     onSuccess: () => {
       invalidate();
       toast.success("Company deleted");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/* -------------------------------------------- company compliance documents */
+
+export function useCompanyDocuments(id: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.companies.documents(id),
+    queryFn: () => api.listCompanyDocuments(id),
+    enabled: enabled && Boolean(id),
+  });
+}
+
+export function useUploadCompanyDocument(companyId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ docType, file }: { docType: CompanyDocumentType; file: File }) => {
+      const { uploadUrl, headers } = await api.getCompanyDocumentUploadUrl(companyId, docType, file.type);
+      await api.uploadCompanyDocumentBytes(uploadUrl, file, headers);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.companies.documents(companyId) });
+      toast.success("Document uploaded");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeleteCompanyDocument(companyId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docType: CompanyDocumentType) => api.deleteCompanyDocument(companyId, docType),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.companies.documents(companyId) });
+      toast.success("Document removed");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

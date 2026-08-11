@@ -3,6 +3,8 @@ import { ServiceAreasModule } from '../service-areas/service-areas.module';
 import { JobTypesModule } from '../job-types/job-types.module';
 import { JobSourcesModule } from '../job-sources/job-sources.module';
 import { JobTagsModule } from '../job-tags/job-tags.module';
+import { JobStatusesModule } from '../job-statuses/job-statuses.module';
+import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 import { TechnicianEligibilityModule } from '../technician-eligibility/technician-eligibility.module';
 import { DealsController } from './deals.controller';
 import { DealsService } from './deals.service';
@@ -13,10 +15,14 @@ import { DealProductsRepository } from '../products/deal-products.repository';
 import { DealProductsBackfill } from '../products/deal-products.backfill';
 import { InternalHttpService } from '../common/services/internal-http.service';
 import { DealsEventHandler } from './deals.event-handler';
+import { DealAttachmentsController } from './attachments/deal-attachments.controller';
+import { DealAttachmentsService } from './attachments/deal-attachments.service';
+import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, TechnicianEligibilityModule],
-  controllers: [DealsController],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, JobStatusesModule, CustomFieldsModule, TechnicianEligibilityModule],
+  // Attachments controller before Deals so `/:id/attachments` isn't shadowed by `/:id`.
+  controllers: [DealAttachmentsController, DealsController],
   providers: [
     DealsService,
     DealsRepository,
@@ -26,6 +32,8 @@ import { DealsEventHandler } from './deals.event-handler';
     DealProductsBackfill,
     InternalHttpService,
     DealsEventHandler,
+    DealAttachmentsService,
+    DealAttachmentsRepository,
   ],
   exports: [DealsService, DealsEventHandler],
 })

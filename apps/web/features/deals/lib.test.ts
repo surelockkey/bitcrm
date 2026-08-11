@@ -1,24 +1,24 @@
 import { describe, it, expect } from "vitest";
 import {
-  DealStage,
-  DealStageGroup,
+  JobSuperStatus,
   DealPriority,
   DealStatus,
   ClientType,
+  ContactSource,
+  ContactType,
+  CrmStatus,
 } from "@bitcrm/types";
-import type { Deal, DealProduct } from "@bitcrm/types";
+import type { Address, Contact, CustomFieldDefinition, Deal, DealProduct } from "@bitcrm/types";
 import {
-  stageLabel,
-  stageGroup,
+  superStatusLabel,
   groupLabel,
-  STAGE_ORDER,
+  isTerminalStatus,
   priorityLabel,
   isUrgent,
   formatMoney,
   dealTotal,
   priceRange,
   isPriceInBand,
-  isTerminal,
   filterDeals,
   datePresetRange,
   scheduleRelative,
@@ -26,23 +26,46 @@ import {
   jobTabLabel,
   matchesTab,
   tabCounts,
+  dealDraftFromDeal,
+  buildDealPatch,
+  clientDraftFromContact,
+  buildContactBody,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
   return {
     id: "d1",
-    dealNumber: 1042,
+    dealNumber: "1042",
     contactId: "c1",
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Phoenix",
     address: { street: "1 Main", city: "Phoenix", state: "AZ", zip: "85001" },
     jobTypeId: "jt-lockout",
-    stage: DealStage.NEW_LEAD,
+    superStatus: JobSuperStatus.SUBMITTED,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
     assignedTechIds: [],
     tagIds: [],
     status: DealStatus.ACTIVE,
+    createdBy: "u1",
+    createdAt: "",
+    updatedAt: "",
+    ...over,
+  };
+}
+
+function cfDef(over: Partial<CustomFieldDefinition> = {}): CustomFieldDefinition {
+  return {
+    id: "cf-1",
+    name: "Gate Code",
+    type: "text",
+    group: "Access",
+    jobTypeIds: [],
+    required: false,
+    requiredToClose: false,
+    searchable: true,
+    priority: 0,
+    active: true,
     createdBy: "u1",
     createdAt: "",
     updatedAt: "",
@@ -65,27 +88,21 @@ function product(over: Partial<DealProduct> = {}): DealProduct {
   };
 }
 
-describe("stage helpers", () => {
-  it("labels stages", () => {
-    expect(stageLabel(DealStage.NEW_LEAD)).toBe("New Lead");
-    expect(stageLabel(DealStage.WORK_IN_PROGRESS)).toBe("Work In Progress");
-    expect(stageLabel(DealStage.PENDING_PAYMENT)).toBe("Pending Payment");
+describe("super-status helpers", () => {
+  it("labels super-statuses", () => {
+    expect(superStatusLabel(JobSuperStatus.SUBMITTED)).toBe("Submitted");
+    expect(superStatusLabel(JobSuperStatus.IN_PROGRESS)).toBe("In Progress");
+    expect(superStatusLabel(JobSuperStatus.DONE_PENDING_APPROVAL)).toBe("Done Pending Approval");
   });
-  it("maps stages to groups", () => {
-    expect(stageGroup(DealStage.NEW_LEAD)).toBe(DealStageGroup.SUBMITTED);
-    expect(stageGroup(DealStage.EN_ROUTE)).toBe(DealStageGroup.IN_PROGRESS);
-    expect(stageGroup(DealStage.ON_HOLD)).toBe(DealStageGroup.PENDING);
-    expect(stageGroup(DealStage.COMPLETED)).toBe(DealStageGroup.CLOSED);
+  it("groupLabel aliases the super-status labels", () => {
+    expect(groupLabel(JobSuperStatus.PENDING)).toBe("Pending");
+    expect(groupLabel(JobSuperStatus.CANCELED)).toBe("Canceled");
   });
-  it("labels groups and orders all 13 stages", () => {
-    expect(groupLabel(DealStageGroup.IN_PROGRESS)).toBe("In Progress");
-    expect(STAGE_ORDER).toHaveLength(13);
-    expect(STAGE_ORDER[0]).toBe(DealStage.NEW_LEAD);
-  });
-  it("knows terminal stages", () => {
-    expect(isTerminal(DealStage.COMPLETED)).toBe(true);
-    expect(isTerminal(DealStage.CANCELED)).toBe(true);
-    expect(isTerminal(DealStage.ASSIGNED)).toBe(false);
+  it("knows terminal super-statuses", () => {
+    expect(isTerminalStatus(JobSuperStatus.DONE)).toBe(true);
+    expect(isTerminalStatus(JobSuperStatus.DONE_PENDING_APPROVAL)).toBe(true);
+    expect(isTerminalStatus(JobSuperStatus.CANCELED)).toBe(true);
+    expect(isTerminalStatus(JobSuperStatus.IN_PROGRESS)).toBe(false);
   });
 });
 
@@ -125,14 +142,14 @@ describe("price band (±15%)", () => {
 describe("filterDeals", () => {
   const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
   const list = [
-    deal({ id: "a", dealNumber: 1042, contactId: "c1", stage: DealStage.NEW_LEAD, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
-    deal({ id: "b", dealNumber: 1040, contactId: "c2", stage: DealStage.ASSIGNED, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
+    deal({ id: "a", dealNumber: "1042", contactId: "c1", superStatus: JobSuperStatus.SUBMITTED, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
+    deal({ id: "b", dealNumber: "1040", contactId: "c2", superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
   ];
   it("returns all with no filters", () => {
     expect(filterDeals(list, {}, names)).toHaveLength(2);
   });
-  it("filters by stage and priority", () => {
-    expect(filterDeals(list, { stage: DealStage.NEW_LEAD }, names).map((d) => d.id)).toEqual(["a"]);
+  it("filters by super-status and priority", () => {
+    expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { priority: DealPriority.URGENT }, names).map((d) => d.id)).toEqual(["a"]);
   });
   it("searches by deal number and client name", () => {
@@ -141,18 +158,54 @@ describe("filterDeals", () => {
     expect(filterDeals(list, { search: "#1042" }, names).map((d) => d.id)).toEqual(["a"]);
   });
 
+  it("searches by random job id code, case-insensitively and with # prefix", () => {
+    const codes = [
+      deal({ id: "x", dealNumber: "K4T9ZW", contactId: "c1" }),
+      deal({ id: "y", dealNumber: "X7B2QP", contactId: "c2" }),
+    ];
+    expect(filterDeals(codes, { search: "k4t9" }, names).map((d) => d.id)).toEqual(["x"]);
+    expect(filterDeals(codes, { search: "#X7B2QP" }, names).map((d) => d.id)).toEqual(["y"]);
+    expect(filterDeals(codes, { search: "x7b2qp" }, names).map((d) => d.id)).toEqual(["y"]);
+  });
+
+  it("matches the string form of a searchable custom-field value", () => {
+    const defs = [cfDef({ id: "cf-gate", searchable: true })];
+    const withCf = [
+      deal({ id: "g", contactId: "c1", customFields: { "cf-gate": "Ring twice #4471" } }),
+      deal({ id: "h", contactId: "c2" }),
+    ];
+    expect(
+      filterDeals(withCf, { search: "4471" }, names, defs).map((d) => d.id),
+    ).toEqual(["g"]);
+    // Array (multi_select) values match on any member.
+    const multi = [
+      deal({ id: "m", contactId: "c1", customFields: { "cf-gate": ["North Gate", "Loading Dock"] } }),
+    ];
+    expect(
+      filterDeals(multi, { search: "loading" }, names, [cfDef({ id: "cf-gate", type: "multi_select", searchable: true })]).map((d) => d.id),
+    ).toEqual(["m"]);
+  });
+
+  it("does NOT match a custom-field value on a non-searchable definition", () => {
+    const defs = [cfDef({ id: "cf-gate", searchable: false })];
+    const withCf = [
+      deal({ id: "g", contactId: "c1", customFields: { "cf-gate": "Ring twice #4471" } }),
+    ];
+    expect(filterDeals(withCf, { search: "4471" }, names, defs)).toHaveLength(0);
+  });
+
   it("filters by service area (exact)", () => {
     const areas = [
       deal({ id: "atl", serviceArea: "Atlanta Metro" }),
-      deal({ id: "ngа", serviceArea: "North GA" }),
+      deal({ id: "nga", serviceArea: "North GA" }),
     ];
-    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["ngа"]);
+    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["nga"]);
   });
 
   it("filters by status group", () => {
-    // a = NEW_LEAD (Submitted), b = ASSIGNED (In Progress)
+    // a = Submitted, b = In Progress
     expect(
-      filterDeals(list, { statusGroups: [DealStageGroup.SUBMITTED] }, names).map((d) => d.id),
+      filterDeals(list, { statusGroups: [JobSuperStatus.SUBMITTED] }, names).map((d) => d.id),
     ).toEqual(["a"]);
     expect(filterDeals(list, { statusGroups: [] }, names)).toHaveLength(2);
   });
@@ -178,39 +231,41 @@ describe("filterDeals", () => {
 
 describe("status tabs", () => {
   const names = new Map<string, string>();
-  it("orders the 4 groups then unscheduled, and labels them", () => {
+  it("orders the 6 super-statuses then unscheduled, and labels them", () => {
     expect(JOB_TABS).toEqual([
-      DealStageGroup.SUBMITTED,
-      DealStageGroup.IN_PROGRESS,
-      DealStageGroup.PENDING,
-      DealStageGroup.CLOSED,
+      JobSuperStatus.SUBMITTED,
+      JobSuperStatus.IN_PROGRESS,
+      JobSuperStatus.DONE,
+      JobSuperStatus.PENDING,
+      JobSuperStatus.DONE_PENDING_APPROVAL,
+      JobSuperStatus.CANCELED,
       "unscheduled",
     ]);
-    expect(jobTabLabel(DealStageGroup.IN_PROGRESS)).toBe("In Progress");
+    expect(jobTabLabel(JobSuperStatus.IN_PROGRESS)).toBe("In Progress");
     expect(jobTabLabel("unscheduled")).toBe("Unscheduled");
   });
 
-  it("matchesTab: status groups by stage, unscheduled by missing date", () => {
-    const submittedDated = deal({ stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" });
-    const submittedUndated = deal({ stage: DealStage.NEW_LEAD });
-    expect(matchesTab(submittedDated, DealStageGroup.SUBMITTED)).toBe(true);
+  it("matchesTab: super-status by status, unscheduled by missing date", () => {
+    const submittedDated = deal({ superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" });
+    const submittedUndated = deal({ superStatus: JobSuperStatus.SUBMITTED });
+    expect(matchesTab(submittedDated, JobSuperStatus.SUBMITTED)).toBe(true);
     expect(matchesTab(submittedDated, "unscheduled")).toBe(false);
     expect(matchesTab(submittedUndated, "unscheduled")).toBe(true);
-    // Unscheduled overlaps its status group — a deal can appear in both tabs.
-    expect(matchesTab(submittedUndated, DealStageGroup.SUBMITTED)).toBe(true);
+    // Unscheduled overlaps its status tab — a deal can appear in both.
+    expect(matchesTab(submittedUndated, JobSuperStatus.SUBMITTED)).toBe(true);
   });
 
   it("tabCounts counts each tab independently (overlapping)", () => {
     const list = [
-      deal({ stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" }), // submitted, scheduled
-      deal({ stage: DealStage.NEW_LEAD }), // submitted, unscheduled
-      deal({ stage: DealStage.ASSIGNED, scheduledDate: "2026-07-14" }), // in progress
-      deal({ stage: DealStage.COMPLETED }), // closed, unscheduled
+      deal({ superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" }), // submitted, scheduled
+      deal({ superStatus: JobSuperStatus.SUBMITTED }), // submitted, unscheduled
+      deal({ superStatus: JobSuperStatus.IN_PROGRESS, scheduledDate: "2026-07-14" }), // in progress
+      deal({ superStatus: JobSuperStatus.DONE }), // done, unscheduled
     ];
     const c = tabCounts(list);
-    expect(c[DealStageGroup.SUBMITTED]).toBe(2);
-    expect(c[DealStageGroup.IN_PROGRESS]).toBe(1);
-    expect(c[DealStageGroup.CLOSED]).toBe(1);
+    expect(c[JobSuperStatus.SUBMITTED]).toBe(2);
+    expect(c[JobSuperStatus.IN_PROGRESS]).toBe(1);
+    expect(c[JobSuperStatus.DONE]).toBe(1);
     expect(c.unscheduled).toBe(2);
   });
 
@@ -225,10 +280,224 @@ describe("status tabs", () => {
 
   it("filterDeals honors a single tab", () => {
     const list = [
-      deal({ id: "a", stage: DealStage.NEW_LEAD, scheduledDate: "2026-07-13" }),
-      deal({ id: "b", stage: DealStage.ASSIGNED }),
+      deal({ id: "a", superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" }),
+      deal({ id: "b", superStatus: JobSuperStatus.IN_PROGRESS }),
     ];
-    expect(filterDeals(list, { tab: DealStageGroup.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { tab: "unscheduled" }, names).map((d) => d.id)).toEqual(["b"]);
+  });
+});
+
+/* ------------------- single-save drafts (one Save button on the job page) --- */
+
+// Imported with their real signatures so these cases type-check the actual
+// UpdateDealValues / UpdateContactValues shapes, not a loosened stand-in.
+
+function contact(over: Partial<Contact> = {}): Contact {
+  return {
+    id: "c1",
+    firstName: "Jane",
+    lastName: "Smith",
+    phones: ["+14045551234"],
+    emails: ["jane@example.com", "billing@example.com"],
+    addresses: [{ street: "1 Main St", city: "Phoenix", state: "AZ", zip: "85001" }],
+    companyId: "co1",
+    type: ContactType.COMPANY_REPRESENTATIVE,
+    title: "Office manager",
+    source: ContactSource.PHONE_CALL,
+    notes: "VIP",
+    status: CrmStatus.ACTIVE,
+    createdBy: "u1",
+    createdAt: "",
+    updatedAt: "",
+    ...over,
+  };
+}
+
+describe("buildDealPatch", () => {
+  it("returns null for a clean draft (sparse and fully-populated deals)", () => {
+    const sparse = deal();
+    expect(buildDealPatch(sparse, dealDraftFromDeal(sparse))).toBeNull();
+
+    const full = deal({
+      poNumber: "PO-1",
+      workOrderId: "wo-1",
+      sourceId: "src-1",
+      scheduledDate: "2026-08-01",
+      scheduledTimeSlot: "08:00-10:00",
+      notes: "hello",
+      internalNotes: "internal",
+    });
+    expect(buildDealPatch(full, dealDraftFromDeal(full))).toBeNull();
+  });
+
+  it("returns only the changed key", () => {
+    const d = deal();
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
+    expect(patch!.serviceArea).toBe("North GA");
+  });
+
+  it("clears an emptied optional field with undefined (today's commit semantics)", () => {
+    const d = deal({ poNumber: "PO-1" });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), poNumber: "" });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["poNumber"]);
+    expect(patch!.poNumber).toBeUndefined();
+  });
+
+  it("treats empty draft values over absent optional fields as clean", () => {
+    const d = deal(); // no poNumber / sourceId / scheduledDate
+    expect(
+      buildDealPatch(d, { ...dealDraftFromDeal(d), poNumber: "", sourceId: "", scheduledDate: "" }),
+    ).toBeNull();
+  });
+
+  it("trims notes and ignores whitespace-only changes", () => {
+    const d = deal({ notes: "hello" });
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "  hello  " })).toBeNull();
+
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), notes: "  changed  " });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["notes"]);
+    expect(patch!.notes).toBe("changed");
+  });
+});
+
+describe("custom fields (single-save draft)", () => {
+  it("dealDraftFromDeal copies the deal's customFields into a fresh map", () => {
+    const d = deal({ customFields: { "cf-a": "x", "cf-n": 2, "cf-m": ["A", "B"] } });
+    const draft = dealDraftFromDeal(d);
+    expect(draft.customFields).toEqual({ "cf-a": "x", "cf-n": 2, "cf-m": ["A", "B"] });
+    // A fresh object — mutating the draft must not touch the deal.
+    expect(draft.customFields).not.toBe(d.customFields);
+  });
+
+  it("dealDraftFromDeal defaults customFields to {} when the deal has none", () => {
+    expect(dealDraftFromDeal(deal()).customFields).toEqual({});
+  });
+
+  it("is clean when the customFields answers are unchanged (round-trip)", () => {
+    const d = deal({ customFields: { "cf-a": "x", "cf-m": ["A", "B"] } });
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+  });
+
+  it("emits a customFields patch keyed only on customFields when one answer changes", () => {
+    const d = deal({ customFields: { "cf-a": "x", "cf-n": 1 } });
+    const patch = buildDealPatch(d, {
+      ...dealDraftFromDeal(d),
+      customFields: { "cf-a": "y", "cf-n": 1 },
+    });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["customFields"]);
+    expect(patch!.customFields).toEqual({ "cf-a": "y", "cf-n": 1 });
+  });
+
+  it("emits customFields when an answer is added to a deal that had none", () => {
+    const d = deal();
+    const patch = buildDealPatch(d, {
+      ...dealDraftFromDeal(d),
+      customFields: { "cf-new": true },
+    });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["customFields"]);
+    expect(patch!.customFields).toEqual({ "cf-new": true });
+  });
+
+  it("emits an empty customFields map when the last answer is cleared", () => {
+    const d = deal({ customFields: { "cf-a": "x" } });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), customFields: {} });
+    expect(patch).not.toBeNull();
+    expect(Object.keys(patch!)).toEqual(["customFields"]);
+    expect(patch!.customFields).toEqual({});
+  });
+
+  it("treats identical array answers as clean but a reordered/extended array as changed", () => {
+    const d = deal({ customFields: { "cf-m": ["A", "B"] } });
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+
+    const patch = buildDealPatch(d, {
+      ...dealDraftFromDeal(d),
+      customFields: { "cf-m": ["A", "B", "C"] },
+    });
+    expect(patch!.customFields).toEqual({ "cf-m": ["A", "B", "C"] });
+  });
+
+  it("keeps customFields out of the patch when only a plain field changed", () => {
+    const d = deal({ customFields: { "cf-a": "x" } });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
+    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
+  });
+});
+
+describe("buildContactBody", () => {
+  it("returns null when nothing changed and there is no new address", () => {
+    const c = contact();
+    expect(buildContactBody(c, clientDraftFromContact(c))).toBeNull();
+  });
+
+  it("returns the full body on a name change, preserving company/type/title/notes and extra emails", () => {
+    const c = contact();
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" });
+    expect(body).toEqual({
+      firstName: "Janet",
+      lastName: "Smith",
+      phones: ["+14045551234"],
+      emails: ["jane@example.com", "billing@example.com"],
+      addresses: c.addresses,
+      companyId: "co1",
+      type: ContactType.COMPANY_REPRESENTATIVE,
+      title: "Office manager",
+      notes: "VIP",
+    });
+  });
+
+  it("replaces only the first email, keeping the rest", () => {
+    const c = contact();
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), email: "new@example.com" });
+    expect(body).not.toBeNull();
+    expect(body!.emails).toEqual(["new@example.com", "billing@example.com"]);
+  });
+
+  it("cleans phones (trim, drop empties) and treats a no-op cleanup as clean", () => {
+    const c = contact();
+    expect(
+      buildContactBody(c, { ...clientDraftFromContact(c), phones: [" +14045551234 ", "", "  "] }),
+    ).toBeNull();
+  });
+
+  it("keeps the existing phones when the draft would empty them all", () => {
+    const c = contact();
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      firstName: "Janet",
+      phones: ["", "  "],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phones).toEqual(["+14045551234"]);
+  });
+
+  it("appends a brand-new address once, even with an otherwise clean draft", () => {
+    const c = contact();
+    const addr: Address = { street: "22 Oak Ave", unit: "B", city: "Tempe", state: "AZ", zip: "85281" };
+    const body = buildContactBody(c, clientDraftFromContact(c), addr);
+    expect(body).not.toBeNull();
+    expect(body!.addresses).toEqual([...c.addresses, addr]);
+  });
+
+  it("does not re-append an address already on the client (normalized match)", () => {
+    const c = contact();
+    // Same address modulo case/whitespace/empty unit — addressInList must match.
+    const dup: Address = { street: " 1 main st", unit: "", city: "PHOENIX", state: "az", zip: "85001" };
+    expect(buildContactBody(c, clientDraftFromContact(c), dup)).toBeNull();
+  });
+
+  it("keeps the address list unchanged when a dirty draft comes with a duplicate address", () => {
+    const c = contact();
+    const dup: Address = { street: "1 Main St", unit: "", city: "Phoenix", state: "AZ", zip: "85001" };
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" }, dup);
+    expect(body).not.toBeNull();
+    expect(body!.addresses).toEqual(c.addresses);
   });
 });

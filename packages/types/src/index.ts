@@ -12,12 +12,24 @@ export { PaymentTerms } from './enums/payment-terms.enum';
 export { WorkOrderStatus } from './enums/work-order-status.enum';
 export { CompanyDocumentType } from './enums/company-document-type.enum';
 export { DealStage, DealStageGroup, STAGE_GROUPS, TERMINAL_STAGES } from './enums/deal-stage.enum';
+export {
+  JobSuperStatus,
+  SUPER_STATUS_ORDER,
+  TERMINAL_SUPER_STATUSES,
+  STAGE_TO_SUPER_STATUS,
+} from './enums/deal-stage.enum';
 export { DealPriority } from './enums/deal-priority.enum';
 export { DealStatus } from './enums/deal-status.enum';
 export { TimelineEventType } from './enums/timeline-event-type.enum';
 export { CalendarEventType } from './enums/calendar-event-type.enum';
 export { ServiceAreaType } from './enums/service-area-type.enum';
 export { JOB_TAG_COLORS, JobTagColor } from './enums/job-tag-color.enum';
+export {
+  CUSTOM_FIELD_TYPES,
+  CustomFieldType,
+  OPTION_CUSTOM_FIELD_TYPES,
+  isOptionCustomFieldType,
+} from './enums/custom-field-type.enum';
 
 // Entities
 export { User } from './entities/user.entity';
@@ -28,9 +40,15 @@ export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
+export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';
+export { DealSubStatus } from './entities/deal-sub-status.entity';
+export {
+  CustomFieldDefinition,
+  CustomFieldValue,
+} from './entities/custom-field.entity';
 export {
   ServiceArea,
   ServiceAreaDefinition,

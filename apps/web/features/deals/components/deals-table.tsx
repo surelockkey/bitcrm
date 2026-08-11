@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -10,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { contactName, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
+import { DEFAULT_VISIBLE, type VisibleFields } from "../fields";
 import { formatSchedule, isUrgent, scheduleRelative } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
@@ -21,11 +24,13 @@ export function DealsTable({
   contactMap,
   userMap,
   onOpen,
+  visibleFields = DEFAULT_VISIBLE,
 }: {
   deals: Deal[];
   contactMap: Map<string, Contact>;
   userMap: Map<string, User>;
   onOpen: (deal: Deal) => void;
+  visibleFields?: VisibleFields;
 }) {
   const jobTypeName = useJobTypeName();
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -36,12 +41,12 @@ export function DealsTable({
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-16">Job&nbsp;#</TableHead>
-            <TableHead>Client</TableHead>
-            <TableHead>Tech</TableHead>
-            <TableHead>Tags</TableHead>
-            <TableHead>Location</TableHead>
-            <TableHead>Scheduled</TableHead>
-            <TableHead>Job type</TableHead>
+            {visibleFields.client ? <TableHead>Client</TableHead> : null}
+            {visibleFields.tech ? <TableHead>Tech</TableHead> : null}
+            {visibleFields.tags ? <TableHead>Tags</TableHead> : null}
+            {visibleFields.location ? <TableHead>Location</TableHead> : null}
+            {visibleFields.scheduled ? <TableHead>Scheduled</TableHead> : null}
+            {visibleFields.jobType ? <TableHead>Job type</TableHead> : null}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -57,44 +62,83 @@ export function DealsTable({
               <TableRow
                 key={d.id}
                 className="cursor-pointer align-top"
-                onClick={() => onOpen(d)}
+                // Left click anywhere on the row jumps straight into the job in
+                // a new tab; right click opens the quick-view drawer in place
+                // of the browser menu.
+                onClick={() => window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onOpen(d);
+                }}
               >
-                <TableCell className="font-mono text-xs text-muted-foreground">#{d.dealNumber}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{contact ? contactName(contact) : "—"}</span>
-                    {isUrgent(d) ? <PriorityFlag /> : null}
-                  </div>
-                  {phone ? (
-                    <div className="text-xs text-muted-foreground">{formatPhone(phone)}</div>
-                  ) : email ? (
-                    <div className="text-xs text-muted-foreground">{email}</div>
-                  ) : null}
+                <TableCell className="font-mono text-xs">
+                  {/* The number doubles as the open-in-new-tab link so it's
+                      reachable right next to the nav, not across the row;
+                      stopPropagation keeps the row click (preview drawer)
+                      from also firing. */}
+                  <Link
+                    href={`/deals/${d.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Open job #${d.dealNumber} in new tab`}
+                    title="Open in new tab"
+                    onClick={(e) => e.stopPropagation()}
+                    // A real link keeps its native right-click menu (copy
+                    // address, etc.) — don't swallow it with the row preview.
+                    onContextMenu={(e) => e.stopPropagation()}
+                    className="-mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground underline-offset-2 hover:bg-accent hover:text-foreground hover:underline"
+                  >
+                    #{d.dealNumber}
+                    <ExternalLink className="size-3" />
+                  </Link>
                 </TableCell>
-                <TableCell>
-                  <TechChips techIds={d.assignedTechIds} userMap={userMap} size="xs" emptyText="—" />
-                </TableCell>
-                <TableCell>
-                  {d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} /> : <span className="text-muted-foreground">—</span>}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">{loc}</TableCell>
-                <TableCell className="text-sm">
-                  <div>{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</div>
-                  {rel ? (
-                    <div
-                      className={
-                        rel.tone === "overdue"
-                          ? "text-xs text-red-600 dark:text-red-400"
-                          : rel.tone === "soon"
-                            ? "text-xs text-amber-600 dark:text-amber-400"
-                            : "text-xs text-muted-foreground"
-                      }
-                    >
-                      {rel.label}
+                {visibleFields.client ? (
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{contact ? contactName(contact) : "—"}</span>
+                      {isUrgent(d) ? <PriorityFlag /> : null}
                     </div>
-                  ) : null}
-                </TableCell>
-                <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
+                    {phone ? (
+                      <div className="text-xs text-muted-foreground">{formatPhone(phone)}</div>
+                    ) : email ? (
+                      <div className="text-xs text-muted-foreground">{email}</div>
+                    ) : null}
+                  </TableCell>
+                ) : null}
+                {visibleFields.tech ? (
+                  <TableCell>
+                    <TechChips techIds={d.assignedTechIds} userMap={userMap} size="xs" emptyText="—" />
+                  </TableCell>
+                ) : null}
+                {visibleFields.tags ? (
+                  <TableCell>
+                    {d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} /> : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                ) : null}
+                {visibleFields.location ? (
+                  <TableCell className="text-sm text-muted-foreground">{loc}</TableCell>
+                ) : null}
+                {visibleFields.scheduled ? (
+                  <TableCell className="text-sm">
+                    <div>{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</div>
+                    {rel ? (
+                      <div
+                        className={
+                          rel.tone === "overdue"
+                            ? "text-xs text-red-600 dark:text-red-400"
+                            : rel.tone === "soon"
+                              ? "text-xs text-amber-600 dark:text-amber-400"
+                              : "text-xs text-muted-foreground"
+                        }
+                      >
+                        {rel.label}
+                      </div>
+                    ) : null}
+                  </TableCell>
+                ) : null}
+                {visibleFields.jobType ? (
+                  <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
+                ) : null}
               </TableRow>
             );
           })}

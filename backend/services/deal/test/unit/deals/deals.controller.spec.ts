@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { DealStage } from '@bitcrm/types';
+import { JobSuperStatus } from '@bitcrm/types';
 import { DealsController } from 'src/deals/deals.controller';
 import { DealsService } from 'src/deals/deals.service';
 import { createMockDeal, createMockDealProduct, createMockJwtUser, createMockTimelineEntry } from '../mocks';
@@ -16,8 +16,7 @@ describe('DealsController', () => {
       list: jest.fn(),
       update: jest.fn(),
       softDelete: jest.fn(),
-      changeStage: jest.fn(),
-      getAllowedStages: jest.fn(),
+      moveStatus: jest.fn(),
       getTimeline: jest.fn(),
       addNote: jest.fn(),
       getQualifiedTechs: jest.fn(),
@@ -113,45 +112,38 @@ describe('DealsController', () => {
     });
   });
 
-  describe('changeStage', () => {
-    it('should pass dealStageTransitions from resolved permissions', async () => {
-      const deal = createMockDeal({ stage: DealStage.ASSIGNED });
+  describe('moveStatus', () => {
+    it('should delegate to the service and wrap the result', async () => {
+      const deal = createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS });
       const caller = createMockJwtUser();
-      const perms = { dealStageTransitions: ['*->*'] };
-      service.changeStage.mockResolvedValue(deal);
+      service.moveStatus.mockResolvedValue(deal);
 
-      const result = await controller.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, perms as any);
+      const result = await controller.moveStatus(
+        'deal-1', { superStatus: JobSuperStatus.IN_PROGRESS } as any, caller,
+      );
 
       expect(result).toEqual({ success: true, data: deal });
-      expect(service.changeStage).toHaveBeenCalledWith('deal-1', { stage: DealStage.ASSIGNED }, caller, ['*->*']);
+      expect(service.moveStatus).toHaveBeenCalledWith(
+        'deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller,
+      );
     });
 
-    it('should default to empty transitions when perms is undefined', async () => {
-      const deal = createMockDeal();
+    it('should forward a sub-status and cancellation reason', async () => {
+      const deal = createMockDeal({ superStatus: JobSuperStatus.CANCELED });
       const caller = createMockJwtUser();
-      service.changeStage.mockResolvedValue(deal);
+      service.moveStatus.mockResolvedValue(deal);
 
-      await controller.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, undefined as any);
+      await controller.moveStatus(
+        'deal-1',
+        { superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved' } as any,
+        caller,
+      );
 
-      expect(service.changeStage).toHaveBeenCalledWith('deal-1', { stage: DealStage.ASSIGNED }, caller, []);
-    });
-  });
-
-  describe('getAllowedStages', () => {
-    it('should return allowed stages', async () => {
-      const perms = { dealStageTransitions: ['assigned->en_route'] };
-      service.getAllowedStages.mockResolvedValue([DealStage.EN_ROUTE]);
-
-      const result = await controller.getAllowedStages('deal-1', perms as any);
-
-      expect(result).toEqual({ success: true, data: [DealStage.EN_ROUTE] });
-      expect(service.getAllowedStages).toHaveBeenCalledWith('deal-1', ['assigned->en_route']);
-    });
-
-    it('should default to empty transitions when perms is undefined', async () => {
-      service.getAllowedStages.mockResolvedValue([]);
-      await controller.getAllowedStages('deal-1', undefined as any);
-      expect(service.getAllowedStages).toHaveBeenCalledWith('deal-1', []);
+      expect(service.moveStatus).toHaveBeenCalledWith(
+        'deal-1',
+        { superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved' },
+        caller,
+      );
     });
   });
 

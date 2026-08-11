@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Ban, Loader2, MailPlus, MoreHorizontal, RotateCcw, ShieldCheck } from "lucide-react";
+import { Ban, Loader2, MailPlus, MoreHorizontal, RotateCcw } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -60,6 +60,7 @@ import {
 import { useHierarchy } from "../use-can-manage";
 import { initials, formatDate, roleName } from "../lib";
 import { UserStatusBadge } from "./status-badge";
+import { UserPermissionsSummary } from "./user-permissions-summary";
 
 export function UserDetailSheet({
   user,
@@ -266,21 +267,14 @@ export function UserDetailSheet({
             </div>
           </TabsContent>
 
-          {/* Permissions (placeholder) */}
+          {/* Permissions */}
           <TabsContent value="permissions" className="flex-1 overflow-y-auto p-4">
-            <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed p-6">
-              <ShieldCheck className="size-6 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium">Per-user permission overrides</div>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                  Grant or deny specific actions for this user on top of their role.
-                  The overrides editor is coming soon.
-                </p>
-              </div>
-              <Button variant="outline" disabled>
-                Manage permissions
-              </Button>
-            </div>
+            <UserPermissionsSummary
+              user={user}
+              roleLabel={roleName(user.roleId, roles)}
+              canEdit={canEdit}
+              onClose={onClose}
+            />
           </TabsContent>
 
           {/* Activity */}

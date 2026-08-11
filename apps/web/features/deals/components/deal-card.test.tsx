@@ -7,7 +7,7 @@ import {
   ContactType,
   CrmStatus,
   DealPriority,
-  DealStage,
+  JobSuperStatus,
   DealStatus,
   UserStatus,
 } from "@bitcrm/types";
@@ -60,13 +60,13 @@ const tech: User = {
 function deal(over: Partial<Deal> = {}): Deal {
   return {
     id: "d1",
-    dealNumber: 1042,
+    dealNumber: "1042",
     contactId: "c1",
     clientType: ClientType.RESIDENTIAL,
     serviceArea: "Phoenix",
     address: { street: "1 Main", city: "Phoenix", state: "AZ", zip: "85001" },
     jobTypeId: "jt-lockout",
-    stage: DealStage.NEW_LEAD,
+    superStatus: JobSuperStatus.SUBMITTED,
     assignedDispatcherId: "u1",
     priority: DealPriority.NORMAL,
     assignedTechIds: [],

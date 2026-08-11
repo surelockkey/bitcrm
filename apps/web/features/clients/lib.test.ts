@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { ClientType, ContactSource, ContactType, CrmStatus } from "@bitcrm/types";
+import { ClientType, ContactSource, ContactType, CrmStatus, PaymentTerms } from "@bitcrm/types";
 import type { Contact, Company } from "@bitcrm/types";
 import {
   formatPhone,
   contactName,
+  findDuplicateGroups,
   primaryPhone,
   primaryEmail,
   initials,
@@ -15,6 +16,9 @@ import {
   formatAddress,
   addressKey,
   addressInList,
+  coiStatus,
+  paymentTermsLabel,
+  dueDateFrom,
 } from "./lib";
 
 function contact(over: Partial<Contact> = {}): Contact {
@@ -144,5 +148,105 @@ describe("address helpers", () => {
     expect(addressInList({ ...a, street: "999 New Rd" }, [a])).toBe(false);
     // empty street → nothing to save
     expect(addressInList({ street: "", city: "", state: "", zip: "" }, [a])).toBe(true);
+  });
+});
+
+describe("coiStatus", () => {
+  const now = new Date("2026-07-24T00:00:00Z");
+  it("is 'none' when no expiry is set", () => {
+    expect(coiStatus(undefined, now)).toBe("none");
+    expect(coiStatus("", now)).toBe("none");
+  });
+  it("is 'expired' when the date is in the past", () => {
+    expect(coiStatus("2026-07-01", now)).toBe("expired");
+  });
+  it("is 'expiring' within 30 days", () => {
+    expect(coiStatus("2026-08-10", now)).toBe("expiring"); // 17 days out
+    expect(coiStatus("2026-08-23", now)).toBe("expiring"); // 30 days out
+  });
+  it("is 'valid' beyond 30 days", () => {
+    expect(coiStatus("2026-12-31", now)).toBe("valid");
+  });
+});
+
+describe("paymentTermsLabel", () => {
+  it("labels standard terms", () => {
+    expect(paymentTermsLabel(PaymentTerms.NET_30)).toBe("Net-30");
+    expect(paymentTermsLabel(PaymentTerms.CASH)).toBe("Cash");
+  });
+  it("labels custom terms with the day count", () => {
+    expect(paymentTermsLabel(PaymentTerms.CUSTOM, 45)).toBe("Net-45 (custom)");
+  });
+  it("returns a dash when unset", () => {
+    expect(paymentTermsLabel(undefined)).toBe("—");
+  });
+});
+
+describe("dueDateFrom", () => {
+  it("adds the net days to the invoice date", () => {
+    expect(dueDateFrom("2026-07-01", PaymentTerms.NET_30)).toBe("2026-07-31");
+  });
+  it("uses customTermsDays for CUSTOM", () => {
+    expect(dueDateFrom("2026-07-01", PaymentTerms.CUSTOM, 45)).toBe("2026-08-15");
+  });
+  it("is same-day for CASH", () => {
+    expect(dueDateFrom("2026-07-01", PaymentTerms.CASH)).toBe("2026-07-01");
+  });
+});
+
+describe("findDuplicateGroups", () => {
+  it("groups contacts sharing a phone regardless of formatting", () => {
+    const a = contact({ id: "a", phones: ["+14045551234"] });
+    const b = contact({ id: "b", phones: ["(404) 555-1234", "+14049998888"] });
+    const c = contact({ id: "c", phones: ["+14040000000"] });
+
+    const groups = findDuplicateGroups([a, b, c], "phone");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].contacts.map((x) => x.id)).toEqual(["a", "b"]);
+  });
+
+  it("groups by normalized address and labels with the display line", () => {
+    const a = contact({
+      id: "a",
+      addresses: [{ street: "123 Main St", city: "Atlanta", state: "GA", zip: "30301" }],
+    });
+    const b = contact({
+      id: "b",
+      phones: ["+14042222222"],
+      addresses: [{ street: "123 main st", city: "atlanta", state: "ga", zip: "30301" }],
+    });
+    const c = contact({
+      id: "c",
+      phones: ["+14043333333"],
+      addresses: [{ street: "9 Peachtree Rd", city: "Atlanta", state: "GA", zip: "30305" }],
+    });
+
+    const groups = findDuplicateGroups([a, b, c], "address");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].contacts.map((x) => x.id)).toEqual(["a", "b"]);
+    expect(groups[0].label).toBe("123 Main St, Atlanta, GA 30301");
+  });
+
+  it("groups by full name case-insensitively", () => {
+    const a = contact({ id: "a", firstName: "John", lastName: "Doe", phones: ["+14041111111"] });
+    const b = contact({ id: "b", firstName: "JOHN", lastName: "doe", phones: ["+14042222222"] });
+
+    const groups = findDuplicateGroups([a, b], "name");
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("John Doe");
+    expect(groups[0].contacts.map((x) => x.id)).toEqual(["a", "b"]);
+  });
+
+  it("returns nothing when there are no duplicates", () => {
+    expect(findDuplicateGroups([contact()], "phone")).toEqual([]);
+    expect(findDuplicateGroups([], "name")).toEqual([]);
+  });
+
+  it("does not pair a contact with itself when it repeats the same phone", () => {
+    const a = contact({ id: "a", phones: ["+14045551234", "(404) 555-1234"] });
+    expect(findDuplicateGroups([a], "phone")).toEqual([]);
   });
 });

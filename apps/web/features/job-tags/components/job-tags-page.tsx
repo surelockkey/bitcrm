@@ -89,7 +89,7 @@ export function JobTagsPage() {
           <Tags className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">No job tags yet</p>
           <p className="text-sm text-muted-foreground">
-            Create colored tags so deals can be labeled and filtered.
+            Create colored tags so jobs can be labeled and filtered.
           </p>
         </div>
       ) : (
@@ -157,8 +157,8 @@ export function JobTagsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete job tag?</AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{deleting?.name}&rdquo; will be removed. If any deal still uses it, it&apos;s
-              archived instead — it leaves the pickers but old deals keep their label.
+              &ldquo;{deleting?.name}&rdquo; will be removed. If any job still uses it, it&apos;s
+              archived instead — it leaves the pickers but old jobs keep their label.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

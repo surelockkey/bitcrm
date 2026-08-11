@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Package, PackageX, Search, TriangleAlert, Wrench } from "lucide-react";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
-import type { Product } from "@bitcrm/types";
+import type { DealProduct, Product } from "@bitcrm/types";
 import type { AddProductValues } from "../schemas";
 import {
   Dialog,
@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
-import { useUserMap, useAddProduct } from "../hooks";
+import { useUserMap, useAddProduct, useReplaceProduct } from "../hooks";
 import { fetchTechStock } from "../tech-stock";
 import { formatMoney, isPriceInBand, priceRange } from "../lib";
 
@@ -27,16 +27,28 @@ export function AddProductDialog({
   techIds,
   open,
   onOpenChange,
+  editing,
 }: {
   dealId: string;
   /** The deal's assigned technicians — the product is pulled from one of them. */
   techIds: string[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** When set, the dialog edits this existing line instead of adding a new one. */
+  editing?: DealProduct;
 }) {
-  // Which assigned tech supplies this product; defaults to the first.
+  const isEdit = !!editing;
+  // Which assigned tech supplies this product; an edited line keeps its source.
   const [techId, setTechId] = useState<string | undefined>(techIds[0]);
-  useEffect(() => { if (open) setTechId(techIds[0]); }, [open, techIds]);
+  useEffect(() => {
+    if (open) {
+      setTechId(
+        editing?.sourceTechId && techIds.includes(editing.sourceTechId)
+          ? editing.sourceTechId
+          : techIds[0],
+      );
+    }
+  }, [open, techIds, editing]);
   const catalog = useQuery({
     queryKey: queryKeys.inventory.products.map(),
     queryFn: fetchAllProducts,
@@ -50,10 +62,22 @@ export function AddProductDialog({
   });
   const { map: userMap } = useUserMap();
   const add = useAddProduct(dealId);
+  const replace = useReplaceProduct(dealId);
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Product | null>(null);
+  // Edit mode opens straight on the configure step for the line's catalog
+  // product; "Change item" clears this and drops back to the picker.
+  const [changingItem, setChangingItem] = useState(false);
 
-  const reset = () => { setPicked(null); setSearch(""); };
+  const reset = () => { setPicked(null); setSearch(""); setChangingItem(false); };
+
+  // The catalog entry behind the line being edited (null while loading, or if
+  // the product has since left the catalog — then the picker shows instead).
+  const editingProduct = useMemo(
+    () => (editing ? ((catalog.data ?? []).find((p) => p.id === editing.productId) ?? null) : null),
+    [editing, catalog.data],
+  );
+  const current = picked ?? (isEdit && !changingItem ? editingProduct : null);
 
   const tech = techId ? userMap.get(techId) : undefined;
   const techName = tech ? `${tech.firstName} ${tech.lastName}` : "the assigned technician";
@@ -70,25 +94,53 @@ export function AddProductDialog({
     return [...filtered].sort((a, b) => (stockMap.get(b.id) ?? 0) - (stockMap.get(a.id) ?? 0));
   }, [catalog.data, search, stockMap]);
 
-  const pickedAvail = picked ? availOf(picked.id) : 0;
+  // When editing the same sourced line from the same tech, the units already on
+  // the line come back to the van before the new quantity is pulled (the server
+  // reconciles restore-first) — so they count toward what can be sourced.
+  const stockCredit =
+    editing &&
+    current?.id === editing.productId &&
+    (editing.fulfillment ?? "sourced") === "sourced" &&
+    techId === editing.sourceTechId
+      ? editing.quantity
+      : 0;
+
+  const close = () => { onOpenChange(false); reset(); };
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{picked ? "Add to deal" : "Add a product"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit item" : current ? "Add to job" : "Add a product"}</DialogTitle>
         </DialogHeader>
 
-        {picked ? (
+        {current ? (
           <Configure
-            product={picked}
-            available={pickedAvail}
+            key={current.id}
+            product={current}
+            available={availOf(current.id) + stockCredit}
+            stockCredit={stockCredit}
             stockKnown={stockKnown}
             techName={techName}
             techId={techId}
-            pending={add.isPending}
-            onBack={() => setPicked(null)}
-            onAdd={(v) => add.mutate(v, { onSuccess: () => { onOpenChange(false); reset(); } })}
+            pending={isEdit ? replace.isPending : add.isPending}
+            // The unswapped line offers "Change item" (the Workiz flow); a
+            // swapped pick backs out to the picker it came from.
+            backLabel={editing && current.id === editing.productId ? "Change item" : undefined}
+            submitLabel={isEdit ? "Save" : undefined}
+            initial={
+              editing && current.id === editing.productId
+                ? { quantity: editing.quantity, price: editing.priceClient }
+                : undefined
+            }
+            onBack={() => { setPicked(null); setChangingItem(true); }}
+            onAdd={(v) => {
+              if (editing) {
+                replace.mutate({ productId: editing.productId, body: v }, { onSuccess: close });
+              } else {
+                add.mutate(v, { onSuccess: close });
+              }
+            }}
           />
         ) : (
           <>
@@ -186,25 +238,36 @@ export function AddProductDialog({
 function Configure({
   product,
   available,
+  stockCredit = 0,
   stockKnown,
   techName,
   techId,
   pending,
+  backLabel,
+  submitLabel,
+  initial,
   onBack,
   onAdd,
 }: {
   product: Product;
+  /** Units the tech can source — van stock plus any credit from the edited line. */
   available: number;
+  /** The share of `available` that is the edited line itself, for the copy. */
+  stockCredit?: number;
   stockKnown: boolean;
   techName: string;
   techId: string | undefined;
   pending: boolean;
+  backLabel?: string;
+  submitLabel?: string;
+  /** Prefill when reconfiguring an existing line (edit mode, same product). */
+  initial?: { quantity: number; price: number };
   onBack: () => void;
   onAdd: (v: AddProductValues) => void;
 }) {
   const isService = product.type === ProductType.SERVICE;
-  const [qty, setQty] = useState(1);
-  const [price, setPrice] = useState(product.priceClient);
+  const [qty, setQty] = useState(initial?.quantity ?? 1);
+  const [price, setPrice] = useState(initial?.price ?? product.priceClient);
   const { min, max } = priceRange(product.priceClient);
   const inBand = isPriceInBand(price, product.priceClient);
 
@@ -233,7 +296,7 @@ function Configure({
     }
   };
 
-  const label = isService ? "Add service" : mustOrder ? "Add to order" : "Add";
+  const label = submitLabel ?? (isService ? "Add service" : mustOrder ? "Add to order" : "Add");
 
   return (
     <div className="space-y-4">
@@ -244,7 +307,8 @@ function Configure({
           <div className="mt-1 text-[11px] text-muted-foreground">Service — not stocked; added directly to the job.</div>
         ) : stockKnown ? (
           <div className={cn("mt-1 text-[11px]", available > 0 ? "text-muted-foreground" : "text-destructive")}>
-            {techName} has {available} in their van
+            {techName} has {available - stockCredit} in their van
+            {stockCredit > 0 ? ` (+${stockCredit} on this line)` : ""}
           </div>
         ) : null}
       </div>
@@ -273,7 +337,7 @@ function Configure({
         </div>
       ) : null}
       <div className="flex items-center justify-between border-t pt-3">
-        <Button variant="ghost" size="sm" onClick={onBack}>← Back</Button>
+        <Button variant="ghost" size="sm" onClick={onBack}>{backLabel ?? "← Back"}</Button>
         <div className="flex items-center gap-3">
           <span className="font-mono text-sm tabular-nums">{formatMoney(price * qty)}</span>
           <Button variant="brand" size="sm" className="gap-1.5" disabled={pending || !inBand}

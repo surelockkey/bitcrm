@@ -24,17 +24,25 @@ function renderSidebar() {
 }
 
 describe("AppSidebar", () => {
+  it("renders the brand logo image in the header home link", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const homeLink = screen.getByRole("link", { name: "BitCRM home" });
+    expect(homeLink.querySelector("img")).not.toBeNull();
+  });
+
   it("shows the permitted full nav and hides coming-soon items", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
 
-    expect(screen.getByText("Deals")).toBeInTheDocument();
+    expect(screen.getByText("Jobs")).toBeInTheDocument();
     expect(screen.getByText("Contacts")).toBeInTheDocument();
     expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Dispatch Map")).toBeInTheDocument();
+    expect(screen.getByText("Schedule")).toBeInTheDocument();
     // coming-soon, hidden by default:
-    expect(screen.queryByText("Schedule")).not.toBeInTheDocument();
     expect(screen.queryByText("Invoices")).not.toBeInTheDocument();
   });
 
@@ -46,7 +54,7 @@ describe("AppSidebar", () => {
     });
     renderSidebar();
 
-    expect(screen.getByText("Deals")).toBeInTheDocument();
+    expect(screen.getByText("Jobs")).toBeInTheDocument();
     expect(screen.getByText("Contacts")).toBeInTheDocument();
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
     expect(screen.queryByText("Products")).not.toBeInTheDocument();

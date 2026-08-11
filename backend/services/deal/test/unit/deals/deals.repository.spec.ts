@@ -1,4 +1,4 @@
-import { DealStage, DealStatus } from '@bitcrm/types';
+import { DealStage, JobSuperStatus, DealStatus } from '@bitcrm/types';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { createMockDeal, createMockDynamoDbService } from '../mocks';
 
@@ -25,7 +25,7 @@ describe('DealsRepository', () => {
       const item = command.input.Item;
       expect(item.PK).toBe('DEAL#deal-1');
       expect(item.SK).toBe('METADATA');
-      expect(item.GSI1PK).toBe('STAGE#new_lead');
+      expect(item.GSI1PK).toBe('STATUS#submitted');
       // The tech index (GSI2) lives on ASSIGN# rows, not deal metadata.
       expect(item.GSI2PK).toBeUndefined();
       expect(item.GSI3PK).toBe('CONTACT#contact-1');
@@ -40,6 +40,24 @@ describe('DealsRepository', () => {
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.ConditionExpression).toBe('attribute_not_exists(PK)');
+    });
+  });
+
+  describe('reassignContact', () => {
+    it('should update contactId and re-point the GSI3 contact index key', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.reassignContact('deal-1', 'contact-new');
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      expect(command.input.Key).toEqual({ PK: 'DEAL#deal-1', SK: 'METADATA' });
+      expect(command.input.ConditionExpression).toBe('attribute_exists(PK)');
+      expect(command.input.UpdateExpression).toContain('contactId');
+      expect(command.input.UpdateExpression).toContain('GSI3PK');
+      const values = Object.values(command.input.ExpressionAttributeValues ?? {});
+      expect(values).toContain('contact-new');
+      expect(values).toContain('CONTACT#contact-new');
     });
   });
 
@@ -84,15 +102,15 @@ describe('DealsRepository', () => {
     });
   });
 
-  describe('findByStage', () => {
-    it('should query GSI1 with correct stage key', async () => {
+  describe('findBySuperStatus', () => {
+    it('should query GSI1 with correct super-status key', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [], Count: 0 });
 
-      await repository.findByStage(DealStage.NEW_LEAD, 20);
+      await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 20);
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.IndexName).toBe('StageIndex');
-      expect(command.input.ExpressionAttributeValues[':pk']).toBe('STAGE#new_lead');
+      expect(command.input.ExpressionAttributeValues[':pk']).toBe('STATUS#submitted');
       expect(command.input.ScanIndexForward).toBe(false);
     });
 
@@ -103,7 +121,7 @@ describe('DealsRepository', () => {
         LastEvaluatedKey: { PK: 'x', SK: 'y' },
       });
 
-      const result = await repository.findByStage(DealStage.NEW_LEAD, 20);
+      const result = await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 20);
 
       expect(result.items.length).toBe(1);
       expect(result.items[0].id).toBe('deal-1');
@@ -114,7 +132,7 @@ describe('DealsRepository', () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [] });
       const cursor = Buffer.from(JSON.stringify({ PK: 'x', SK: 'y' })).toString('base64url');
 
-      await repository.findByStage(DealStage.NEW_LEAD, 10, cursor);
+      await repository.findBySuperStatus(JobSuperStatus.SUBMITTED, 10, cursor);
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.ExclusiveStartKey).toEqual({ PK: 'x', SK: 'y' });
@@ -294,17 +312,17 @@ describe('DealsRepository', () => {
   });
 
   describe('update', () => {
-    it('should update GSI keys when stage changes', async () => {
+    it('should update GSI keys when super-status changes', async () => {
       dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...createMockDeal({ stage: DealStage.ASSIGNED }) },
+        Attributes: { ...createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS }) },
       });
 
-      await repository.update('deal-1', { stage: DealStage.ASSIGNED });
+      await repository.update('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS });
 
       const command = dynamoDb.client.send.mock.calls[0][0];
       const expr = command.input.UpdateExpression;
       expect(expr).toContain('#GSI1PK');
-      expect(command.input.ExpressionAttributeValues[':GSI1PK']).toBe('STAGE#assigned');
+      expect(command.input.ExpressionAttributeValues[':GSI1PK']).toBe('STATUS#in_progress');
     });
 
     it('writes assignedTechIds and sequences as plain attributes (no metadata GSI2)', async () => {
@@ -345,6 +363,20 @@ describe('DealsRepository', () => {
       expect(command.input.ConditionExpression).toBe('attribute_exists(PK)');
       expect(command.input.ReturnValues).toBe('ALL_NEW');
     });
+
+    it('REMOVEs an attribute passed as null instead of SETting it (clears subStatusId)', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Attributes: { ...createMockDeal() } });
+
+      await repository.update('deal-1', { subStatusId: null } as any);
+
+      const command = dynamoDb.client.send.mock.calls[0][0];
+      const expr = command.input.UpdateExpression as string;
+      // Cleared via REMOVE, never SET — a SET to null would leave the attribute present.
+      expect(expr).toContain('REMOVE #subStatusId');
+      expect(expr).not.toContain('#subStatusId =');
+      expect(command.input.ExpressionAttributeValues).not.toHaveProperty(':subStatusId');
+      expect(command.input.ExpressionAttributeNames['#subStatusId']).toBe('subStatusId');
+    });
   });
 
   describe('softDelete', () => {
@@ -361,19 +393,55 @@ describe('DealsRepository', () => {
     });
   });
 
-  describe('getNextDealNumber', () => {
-    it('should return incremented deal number', async () => {
-      dynamoDb.client.send.mockResolvedValue({
-        Attributes: { dealNumber: 1002 },
-      });
+  describe('reserveDealNumber', () => {
+    const conditionalFailure = () => {
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      return err;
+    };
 
-      const result = await repository.getNextDealNumber();
+    it('reserves a random 6-char code with an attribute_not_exists marker row', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
 
-      expect(result).toBe(1002);
+      const code = await repository.reserveDealNumber();
+
+      expect(code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(code).toMatch(/[A-Z]/);
+      expect(code).toMatch(/[0-9]/);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       const command = dynamoDb.client.send.mock.calls[0][0];
-      expect(command.input.Key.PK).toBe('COUNTER');
-      expect(command.input.Key.SK).toBe('DEAL_NUMBER');
-      expect(command.input.ReturnValues).toBe('ALL_NEW');
+      expect(command.input.Item.PK).toBe(`DEALNUM#${code}`);
+      expect(command.input.Item.SK).toBe('UNIQUE');
+      expect(command.input.ConditionExpression).toBe('attribute_not_exists(PK)');
+    });
+
+    it('retries with a fresh code when the reservation collides', async () => {
+      dynamoDb.client.send
+        .mockRejectedValueOnce(conditionalFailure())
+        .mockResolvedValueOnce({});
+
+      const code = await repository.reserveDealNumber();
+
+      expect(code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      const first = dynamoDb.client.send.mock.calls[0][0].input.Item.PK;
+      const second = dynamoDb.client.send.mock.calls[1][0].input.Item.PK;
+      expect(second).toBe(`DEALNUM#${code}`);
+      expect(first).not.toBe(second);
+    });
+
+    it('gives up after exhausting retries on persistent collisions', async () => {
+      dynamoDb.client.send.mockRejectedValue(conditionalFailure());
+
+      await expect(repository.reserveDealNumber()).rejects.toThrow(/deal number/i);
+      expect(dynamoDb.client.send.mock.calls.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('propagates non-collision errors immediately', async () => {
+      dynamoDb.client.send.mockRejectedValue(new Error('network down'));
+
+      await expect(repository.reserveDealNumber()).rejects.toThrow('network down');
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
     });
   });
 });

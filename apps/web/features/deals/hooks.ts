@@ -8,9 +8,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, DealStage, User } from "@bitcrm/types";
+import type { Contact, Deal, JobSuperStatus, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
@@ -22,7 +22,7 @@ import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./sch
 export const DEALS_POLL_MS = 30_000;
 
 export function useDeals(
-  params: { stage?: DealStage; techId?: string } = {},
+  params: { superStatus?: JobSuperStatus; techId?: string } = {},
   options: { poll?: boolean } = {},
 ) {
   return useQuery({
@@ -55,12 +55,6 @@ export function useDealTimeline(id: string) {
   });
 }
 
-export function useAllowedStages(id: string) {
-  return useQuery({
-    queryKey: queryKeys.deals.allowedStages(id),
-    queryFn: () => api.getAllowedStages(id),
-  });
-}
 
 export function useQualifiedTechs(id: string, enabled: boolean) {
   return useQuery({
@@ -110,7 +104,6 @@ function useInvalidateDeal(id?: string) {
       qc.invalidateQueries({ queryKey: queryKeys.deals.detail(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.products(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(id) });
-      qc.invalidateQueries({ queryKey: queryKeys.deals.allowedStages(id) });
     }
   };
 }
@@ -139,6 +132,45 @@ export function useUpdateDeal(id: string) {
   });
 }
 
+/**
+ * Move a deal's status (super-status + optional sub-status). Auto-saves and is
+ * optimistic so the new status paints before the round-trip; the success toast
+ * is left to the caller. Gated server-side by deals.move_status.
+ */
+export function useMoveStatus(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (body: api.MoveStatusBody) => api.moveStatus(id, body),
+    onMutate: async (body) => {
+      await qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) });
+      const previous = qc.getQueryData<Deal>(queryKeys.deals.detail(id));
+      if (previous) {
+        qc.setQueryData<Deal>(queryKeys.deals.detail(id), {
+          ...previous,
+          superStatus: body.superStatus,
+          subStatusId: body.subStatusId || undefined,
+        });
+      }
+      return { previous };
+    },
+    onError: (e, _body, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
+      // A required-to-close gate (422) rolls the status back and tells the user
+      // exactly which custom fields to fill — they stay on the job to fill them
+      // (in the Custom fields section) and retry. Any other error is plain.
+      const missing = getMissingCloseFields(e);
+      if (missing) {
+        const names = missing.map((f) => f.name).join(", ");
+        toast.error(`Fill these required fields before closing the job: ${names}`);
+      } else {
+        toast.error(getApiErrorMessage(e));
+      }
+    },
+    onSettled: () => invalidate(),
+  });
+}
+
 export function useDeleteDeal() {
   const invalidate = useInvalidateDeal();
   return useMutation({
@@ -147,16 +179,6 @@ export function useDeleteDeal() {
       invalidate();
       toast.success("Deal deleted");
     },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
-  });
-}
-
-export function useChangeStage(id: string) {
-  const invalidate = useInvalidateDeal(id);
-  return useMutation({
-    mutationFn: ({ stage, cancellationReason }: { stage: DealStage; cancellationReason?: string }) =>
-      api.changeStage(id, stage, cancellationReason),
-    onSuccess: () => invalidate(),
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
@@ -215,6 +237,19 @@ export function useAddProduct(id: string) {
     onSuccess: () => {
       invalidate();
       toast.success("Product added");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useReplaceProduct(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ productId, body }: { productId: string; body: AddProductValues }) =>
+      api.replaceDealProduct(id, productId, body),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Item updated");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

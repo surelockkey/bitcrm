@@ -16,15 +16,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { toast } from "sonner";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { contactName, formatAddress, formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { useDeal, useDealProducts, useContactMap, useUpdateDeal, useUserMap } from "../hooks";
+import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
+import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { useCustomFields } from "@/features/custom-fields/hooks";
+import { applicableFields } from "@/features/custom-fields/lib";
+import { useDeal, useDealProducts, useContactMap, useUpdateDeal, useMoveStatus, useUserMap } from "../hooks";
 import { dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
-import { PriorityFlag, StageBadge } from "./deal-badges";
-import { StageMenu } from "./stage-menu";
+import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
 
 export function DealQuickView({
@@ -61,7 +65,9 @@ function QuickViewBody({ dealId }: { dealId: string }) {
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(dealId);
   const update = useUpdateDeal(dealId);
+  const moveStatus = useMoveStatus(dealId);
   const jobTypeName = useJobTypeName();
+  const { data: customFieldDefs } = useCustomFields();
 
   if (isLoading || !deal) {
     return (
@@ -90,18 +96,28 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
         <Row label="Status">
-          <div className="flex items-center gap-2">
-            <StageBadge stage={deal.stage} />
+          <div className="flex flex-wrap items-center gap-2">
             {isUrgent(deal) ? <PriorityFlag /> : null}
-            <span className="flex-1" />
-            {canEdit ? <StageMenu dealId={deal.id} /> : null}
+            <JobStatusSelect
+              value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
+              onChange={(v) =>
+                moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
+              }
+              disabled={!canEdit}
+            />
           </div>
         </Row>
 
         <Row label="Client">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
-              <div className="font-medium">{contact ? contactName(contact) : "—"}</div>
+              {contact ? (
+                <Link href={`/contacts/${contact.id}`} className="font-medium hover:underline">
+                  {contactName(contact)}
+                </Link>
+              ) : (
+                <div className="font-medium">—</div>
+              )}
               {phone ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   {formatPhone(phone)}
@@ -151,6 +167,17 @@ function QuickViewBody({ dealId }: { dealId: string }) {
           <TechChips techIds={deal.assignedTechIds} userMap={userMap} emptyText="Unassigned" />
         </Row>
 
+        {applicableFields(customFieldDefs, deal.jobTypeId).length > 0 ? (
+          <Row label="Custom fields">
+            <CustomFieldsSection
+              jobTypeId={deal.jobTypeId}
+              value={deal.customFields ?? {}}
+              onChange={() => {}}
+              disabled
+            />
+          </Row>
+        ) : null}
+
         {deal.notes ? (
           <Row label="Description">
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">{deal.notes}</p>
@@ -174,7 +201,9 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
       <div className="border-t p-4">
         <Button asChild variant="brand" className="w-full gap-1.5">
-          <Link href={`/deals/${deal.id}`}>Open full job <ExternalLink className="size-4" /></Link>
+          <Link href={`/deals/${deal.id}`} target="_blank" rel="noopener noreferrer">
+            Open full job <ExternalLink className="size-4" />
+          </Link>
         </Button>
       </div>
     </>

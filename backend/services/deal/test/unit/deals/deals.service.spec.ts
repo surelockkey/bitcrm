@@ -1,6 +1,6 @@
 import { NotFoundException, BadRequestException, ForbiddenException, HttpException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { DealStage, DealStageGroup, DealStatus, TimelineEventType, DealPriority, ClientType } from '@bitcrm/types';
+import { DealStage, DealStageGroup, JobSuperStatus, DealStatus, TimelineEventType, DealPriority, ClientType } from '@bitcrm/types';
 import { DealsService } from 'src/deals/deals.service';
 import { DealsRepository } from 'src/deals/deals.repository';
 import { DealsCacheService } from 'src/deals/deals-cache.service';
@@ -11,7 +11,9 @@ import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
+import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
+import { CustomFieldsService } from 'src/custom-fields/custom-fields.service';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
   createMockDeal,
@@ -29,6 +31,7 @@ import {
   createMockJobSource,
   createMockJobTag,
   createMockTechnicianEligibilityRepository,
+  createMockCustomFieldsService,
 } from '../mocks';
 
 describe('DealsService', () => {
@@ -43,6 +46,7 @@ describe('DealsService', () => {
   let jobTypes: { findById: jest.Mock };
   let jobSources: { findById: jest.Mock };
   let jobTags: { list: jest.Mock };
+  let jobStatuses: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
 
   beforeEach(async () => {
@@ -56,6 +60,7 @@ describe('DealsService', () => {
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
     jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
     jobTags = { list: jest.fn().mockResolvedValue([]) };
+    jobStatuses = { findById: jest.fn() };
     eligibility = createMockTechnicianEligibilityRepository();
 
     const module = await Test.createTestingModule({
@@ -72,6 +77,8 @@ describe('DealsService', () => {
         { provide: JobTypesService, useValue: jobTypes },
         { provide: JobSourcesService, useValue: jobSources },
         { provide: JobTagsService, useValue: jobTags },
+        { provide: JobStatusesService, useValue: jobStatuses },
+        { provide: CustomFieldsService, useValue: createMockCustomFieldsService() },
         { provide: TechnicianEligibilityRepository, useValue: eligibility },
       ],
     }).compile();
@@ -97,14 +104,14 @@ describe('DealsService', () => {
     };
 
     it('should create deal with auto-generated fields', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       const result = await service.create(dto as any, caller);
 
       expect(result.id).toBeDefined();
-      expect(result.dealNumber).toBe(1001);
-      expect(result.stage).toBe(DealStage.NEW_LEAD);
+      expect(result.dealNumber).toBe('K4T9ZW');
+      expect(result.superStatus).toBe(JobSuperStatus.SUBMITTED);
       expect(result.status).toBe(DealStatus.ACTIVE);
       expect(result.assignedDispatcherId).toBe('dispatcher-1');
       expect(result.priority).toBe(DealPriority.NORMAL);
@@ -113,7 +120,7 @@ describe('DealsService', () => {
     });
 
     it('persists a platinum work-order link and PO number', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       const result = await service.create(
@@ -129,7 +136,7 @@ describe('DealsService', () => {
     });
 
     it('auto-resolves serviceAreaId and label from the geocoded address', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
       serviceAreas.resolvePoint.mockResolvedValue({ id: 'area-9', name: 'North Metro' });
 
@@ -141,7 +148,7 @@ describe('DealsService', () => {
     });
 
     it('falls back to the provided label when no area covers the address', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
       serviceAreas.resolvePoint.mockResolvedValue(null);
 
@@ -152,7 +159,7 @@ describe('DealsService', () => {
     });
 
     it('should use provided priority and tags', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1002);
+      repo.reserveDealNumber.mockResolvedValue('X7B2QP');
       repo.create.mockResolvedValue(undefined);
       jobTags.list.mockResolvedValue([createMockJobTag({ id: 'tag-vip', active: true })]);
 
@@ -171,7 +178,7 @@ describe('DealsService', () => {
     });
 
     it('should add CREATED timeline entry', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       await service.create(dto as any, caller);
@@ -182,7 +189,7 @@ describe('DealsService', () => {
     });
 
     it('should publish deal.created event', async () => {
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       await service.create(dto as any, caller);
@@ -226,10 +233,10 @@ describe('DealsService', () => {
     const caller = createMockJwtUser({ id: 'user-1' });
     const mockResult = { items: [createMockDeal()], nextCursor: undefined };
 
-    it('should query by stage when provided', async () => {
-      repo.findByStage.mockResolvedValue(mockResult);
-      await service.list({ stage: DealStage.NEW_LEAD } as any, caller);
-      expect(repo.findByStage).toHaveBeenCalledWith(DealStage.NEW_LEAD, 20, undefined, expect.any(Object));
+    it('should query by super-status when provided', async () => {
+      repo.findBySuperStatus.mockResolvedValue(mockResult);
+      await service.list({ superStatus: JobSuperStatus.SUBMITTED } as any, caller);
+      expect(repo.findBySuperStatus).toHaveBeenCalledWith(JobSuperStatus.SUBMITTED, 20, undefined, expect.any(Object));
     });
 
     it('should query by techId when provided', async () => {
@@ -299,23 +306,53 @@ describe('DealsService', () => {
     });
 
     it('should split comma-separated tag ids into an array', async () => {
-      repo.findByStage.mockResolvedValue(mockResult);
-      await service.list({ stage: DealStage.NEW_LEAD, tagIds: 'tag-1, tag-2' } as any, caller);
-      expect(repo.findByStage).toHaveBeenCalledWith(
-        DealStage.NEW_LEAD,
+      repo.findBySuperStatus.mockResolvedValue(mockResult);
+      await service.list({ superStatus: JobSuperStatus.SUBMITTED, tagIds: 'tag-1, tag-2' } as any, caller);
+      expect(repo.findBySuperStatus).toHaveBeenCalledWith(
+        JobSuperStatus.SUBMITTED,
         20,
         undefined,
         expect.objectContaining({ tagIds: ['tag-1', 'tag-2'] }),
       );
     });
 
-    it('should parse a "#1042" search into a dealNumber filter', async () => {
+    it('should parse a "#1042" search into a legacy numeric dealNumber filter', async () => {
       repo.findAll.mockResolvedValue(mockResult);
       await service.list({ search: '#1042' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
         undefined,
         expect.objectContaining({ dealNumber: 1042 }),
+      );
+    });
+
+    it('should parse a "#K4T9ZW" search into a code dealNumber filter', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: '#K4T9ZW' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: 'K4T9ZW' }),
+      );
+    });
+
+    it('should uppercase a bare lowercase code search', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: 'k4t9zw' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: 'K4T9ZW' }),
+      );
+    });
+
+    it('should NOT treat a pure-letter word as a dealNumber filter', async () => {
+      repo.findAll.mockResolvedValue(mockResult);
+      await service.list({ search: 'SMITHS' } as any, caller);
+      expect(repo.findAll).toHaveBeenCalledWith(
+        20,
+        undefined,
+        expect.objectContaining({ dealNumber: undefined }),
       );
     });
 
@@ -339,6 +376,74 @@ describe('DealsService', () => {
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: TimelineEventType.FIELD_UPDATED }),
+      );
+    });
+
+    it('records oldValue and newValue for a changed field', async () => {
+      const deal = mockFindById(createMockDeal({ priority: DealPriority.NORMAL }));
+      repo.update.mockResolvedValue({ ...deal, priority: DealPriority.URGENT });
+
+      await service.update('deal-1', { priority: DealPriority.URGENT } as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.FIELD_UPDATED,
+          details: { field: 'priority', oldValue: DealPriority.NORMAL, newValue: DealPriority.URGENT },
+        }),
+      );
+    });
+
+    it('records null as oldValue when the field was previously unset', async () => {
+      const deal = mockFindById(createMockDeal({ poNumber: undefined }));
+      repo.update.mockResolvedValue({ ...deal, poNumber: 'PO-77' });
+
+      await service.update('deal-1', { poNumber: 'PO-77' } as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: { field: 'poNumber', oldValue: null, newValue: 'PO-77' },
+        }),
+      );
+    });
+
+    it('does not log a field whose value did not change', async () => {
+      const deal = mockFindById(createMockDeal({ priority: DealPriority.NORMAL }));
+      repo.update.mockResolvedValue(deal);
+
+      await service.update('deal-1', { priority: DealPriority.NORMAL } as any, caller);
+
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+    });
+
+    it('does not log a deep-equal unchanged array', async () => {
+      const deal = mockFindById(createMockDeal({ tagIds: ['tag-1'] }));
+      jobTags.list.mockResolvedValue([createMockJobTag({ id: 'tag-1' })]);
+      repo.update.mockResolvedValue(deal);
+
+      await service.update('deal-1', { tagIds: ['tag-1'] } as any, caller);
+
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+    });
+
+    it('logs an address change with the old and new address', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue(deal);
+
+      await service.update(
+        'deal-1',
+        { address: { street: '456 Oak', city: 'Marietta', state: 'GA', zip: '30060' } } as any,
+        caller,
+      );
+
+      expect(timeline.addEntry).toHaveBeenCalledTimes(1);
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            field: 'address',
+            oldValue: expect.objectContaining({ street: '123 Main St' }),
+            newValue: expect.objectContaining({ street: '456 Oak' }),
+          }),
+        }),
       );
     });
 
@@ -378,87 +483,134 @@ describe('DealsService', () => {
     });
   });
 
-  describe('changeStage', () => {
+  describe('moveStatus', () => {
     const caller = createMockJwtUser({ id: 'admin-1', roleId: 'role-admin' });
 
-    it('should change stage and add timeline entry', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.ASSIGNED });
+    it('should move super-status and add a STATUS_CHANGED timeline entry', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
 
-      await service.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, ['*->*']);
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ stage: DealStage.ASSIGNED }));
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ superStatus: JobSuperStatus.IN_PROGRESS }));
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({
-          eventType: TimelineEventType.STAGE_CHANGED,
-          details: expect.objectContaining({ fromStage: DealStage.NEW_LEAD, toStage: DealStage.ASSIGNED }),
+          eventType: TimelineEventType.STATUS_CHANGED,
+          details: expect.objectContaining({ fromStatus: JobSuperStatus.SUBMITTED, toStatus: JobSuperStatus.IN_PROGRESS }),
         }),
       );
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
     });
 
-    it('should publish deal.stage_changed event', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.ASSIGNED });
+    it('should publish deal.status_changed event', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
 
-      await service.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, ['*->*']);
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
 
-      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.stage_changed', expect.objectContaining({
-        dealId: 'deal-1', oldStage: DealStage.NEW_LEAD, newStage: DealStage.ASSIGNED,
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.status_changed', expect.objectContaining({
+        dealId: 'deal-1', oldStatus: JobSuperStatus.SUBMITTED, newStatus: JobSuperStatus.IN_PROGRESS,
       }));
     });
 
     it('should require cancellationReason when moving to canceled', async () => {
-      mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
+      mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
       await expect(
-        service.changeStage('deal-1', { stage: DealStage.CANCELED } as any, caller, ['*->*']),
+        service.moveStatus('deal-1', { superStatus: JobSuperStatus.CANCELED }, caller),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should allow canceled with reason', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.CANCELED });
+    it('should allow canceled with a reason', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.CANCELED });
 
-      await service.changeStage(
-        'deal-1', { stage: DealStage.CANCELED, cancellationReason: 'Client resolved' } as any, caller, ['*->*'],
+      await service.moveStatus(
+        'deal-1', { superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved' }, caller,
       );
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
-        stage: DealStage.CANCELED, cancellationReason: 'Client resolved',
+        superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved',
       }));
     });
 
-    it('should reject unauthorized transitions', async () => {
-      mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      await expect(
-        service.changeStage('deal-1', { stage: DealStage.COMPLETED } as any, caller, []),
-      ).rejects.toThrow(ForbiddenException);
+    it('should set a sub-status that belongs to the target super-status', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-1', name: 'Job Done', group: JobSuperStatus.IN_PROGRESS });
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' }, caller);
+
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1',
+      }));
     });
 
-    it('should publish deal.completed event for completed stage', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.PENDING_PAYMENT }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.COMPLETED });
+    it('should reject a sub-status that belongs to a different super-status', async () => {
+      mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-1', name: 'Will Call Back', group: JobSuperStatus.PENDING });
 
-      await service.changeStage('deal-1', { stage: DealStage.COMPLETED } as any, caller, ['*->*']);
+      await expect(
+        service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'sub-1' }, caller),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('records the previous and next sub-status on the timeline entry', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'old-sub' }));
+      jobStatuses.findById.mockResolvedValue({ id: 'sub-2', name: 'Parts Ordered', group: JobSuperStatus.PENDING });
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.PENDING, subStatusId: 'sub-2' });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.PENDING, subStatusId: 'sub-2' }, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.STATUS_CHANGED,
+          details: expect.objectContaining({ fromSubStatusId: 'old-sub', subStatusId: 'sub-2' }),
+        }),
+      );
+    });
+
+    it('records a null fromSubStatusId when the deal had no sub-status', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({ fromSubStatusId: null, subStatusId: null }),
+        }),
+      );
+    });
+
+    it('should clear the sub-status when none is provided', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'old-sub' }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.PENDING });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.PENDING }, caller);
+
+      // null (not undefined) so the repository REMOVEs the stale sub-status —
+      // undefined is skipped by update(), leaving the old sub-status attached.
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        superStatus: JobSuperStatus.PENDING, subStatusId: null,
+      }));
+    });
+
+    it('should publish deal.completed when moving to Done', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.PENDING }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.DONE });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE }, caller);
 
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.completed', expect.any(Object));
     });
 
-    it('should not publish deal.completed for non-completed stage', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD }));
-      repo.update.mockResolvedValue({ ...deal, stage: DealStage.ASSIGNED });
+    it('should not publish deal.completed for a non-Done move', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
 
-      await service.changeStage('deal-1', { stage: DealStage.ASSIGNED } as any, caller, ['*->*']);
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
 
       expect(sns.publish).not.toHaveBeenCalledWith('deal-events', 'deal.completed', expect.any(Object));
-    });
-  });
-
-  describe('getAllowedStages', () => {
-    it('should return allowed stages based on transitions', async () => {
-      mockFindById(createMockDeal({ stage: DealStage.ASSIGNED }));
-      const result = await service.getAllowedStages('deal-1', ['assigned->en_route']);
-      expect(result).toEqual([DealStage.EN_ROUTE]);
     });
   });
 
@@ -588,17 +740,17 @@ describe('DealsService', () => {
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.tech_assigned', expect.objectContaining({ techId: 'tech-2' }));
     });
 
-    it('auto-transitions to ASSIGNED on the first assignment', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.NEW_LEAD, assignedTechIds: [] }));
+    it('auto-transitions to In Progress on the first assignment', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED, assignedTechIds: [] }));
       repo.update.mockResolvedValue(deal);
 
       await service.assignTechs('deal-1', ['tech-1'], caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ stage: DealStage.ASSIGNED }));
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ superStatus: JobSuperStatus.IN_PROGRESS }));
     });
 
     it('does not re-transition when techs are already assigned', async () => {
-      const deal = mockFindById(createMockDeal({ stage: DealStage.ASSIGNED, assignedTechIds: ['tech-1'] }));
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, assignedTechIds: ['tech-1'] }));
       repo.update.mockResolvedValue(deal);
 
       await service.assignTechs('deal-1', ['tech-1', 'tech-2'], caller);
@@ -834,6 +986,236 @@ describe('DealsService', () => {
     });
   });
 
+  describe('replaceProduct', () => {
+    const caller = createMockJwtUser({ id: 'dispatcher-1' });
+    // The replacement line — a different catalog product by default.
+    const dto = {
+      sourceTechId: 'tech-1',
+      productId: 'product-2', name: 'Schlage Deadbolt', sku: 'SC-002',
+      quantity: 2, costCompany: 18, costForTech: 24, priceClient: 60,
+    };
+
+    beforeEach(() => {
+      http.getProduct.mockResolvedValue({
+        id: 'product-2', name: 'Schlage Deadbolt', sku: 'SC-002', type: 'product',
+      });
+      // The line being edited exists; the swap target does not (no duplicate).
+      products.findProduct.mockImplementation(async (_dealId: string, productId: string) =>
+        productId === 'product-1' ? createMockDealProduct({ sourceTechId: 'tech-2' }) : null,
+      );
+    });
+
+    it('swaps a sourced line: restores the old stock, deducts the new, rewrites the row', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      // The old line goes back to the tech it was pulled from…
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({
+        containerId: 'tech-2',
+        items: [expect.objectContaining({ productId: 'product-1', quantity: 1 })],
+      }));
+      // …the replacement is pulled from the chosen tech…
+      expect(http.deductStock).toHaveBeenCalledWith(expect.objectContaining({
+        containerId: 'tech-1',
+        items: [expect.objectContaining({ productId: 'product-2', quantity: 2 })],
+      }));
+      // …and the row moves to the new product id.
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
+      }));
+      expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
+    });
+
+    it('preserves the original addedBy/addedAt and stamps the editor', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        productId === 'product-1'
+          ? createMockDealProduct({ sourceTechId: 'tech-1', addedBy: 'tech-9', addedAt: '2026-01-01T00:00:00.000Z' })
+          : null,
+      );
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        addedBy: 'tech-9', addedAt: '2026-01-01T00:00:00.000Z',
+        updatedBy: 'dispatcher-1', updatedAt: expect.any(String),
+      }));
+    });
+
+    it('edits a sourced line in place: restores before deducting so only the delta must fit', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ sourceTechId: 'tech-1', quantity: 2 }),
+      );
+      http.getProduct.mockResolvedValue({
+        id: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', type: 'product',
+      });
+      const order: string[] = [];
+      http.restoreStock.mockImplementation(async () => { order.push('restore'); });
+      http.deductStock.mockImplementation(async () => { order.push('deduct'); });
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, productId: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', quantity: 3 } as any,
+        caller,
+      );
+
+      expect(order).toEqual(['restore', 'deduct']);
+      // Same product id — the row is overwritten, never deleted.
+      expect(products.removeProduct).not.toHaveBeenCalled();
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        productId: 'product-1', quantity: 3,
+      }));
+    });
+
+    it('re-deducts the old line when the new deduction fails, naming the product', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+      http.deductStock.mockRejectedValueOnce(new HttpException('Insufficient stock', 400));
+
+      const err = await service.replaceProduct('deal-1', 'product-1', dto as any, caller).catch((e) => e);
+
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.message).toMatch(/Schlage Deadbolt/);
+      // The compensating deduct puts the restored old stock back where it was.
+      expect(http.deductStock).toHaveBeenCalledTimes(2);
+      expect(http.deductStock).toHaveBeenLastCalledWith(expect.objectContaining({
+        containerId: 'tech-2',
+        items: [expect.objectContaining({ productId: 'product-1', quantity: 1 })],
+      }));
+      expect(products.addProduct).not.toHaveBeenCalled();
+      expect(products.removeProduct).not.toHaveBeenCalled();
+    });
+
+    it('throws if the line is not on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockResolvedValue(null);
+
+      await expect(
+        service.replaceProduct('deal-1', 'nonexistent', dto as any, caller),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects when the replacement product does not exist in inventory', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      http.getProduct.mockResolvedValue(null);
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+    });
+
+    it('rejects swapping onto a product that is already a line on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        createMockDealProduct({ productId, sourceTechId: 'tech-1' }),
+      );
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.addProduct).not.toHaveBeenCalled();
+    });
+
+    it('rejects a sourced replacement whose tech is not on the deal', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-2'] }));
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(http.restoreStock).not.toHaveBeenCalled();
+    });
+
+    it('swapping a sourced part to a service line restores stock and deducts nothing', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      http.getProduct.mockResolvedValue({ id: 'product-3', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, productId: 'product-3', name: 'Rekey', sku: 'SVC-1', fulfillment: 'service', sourceTechId: undefined } as any,
+        caller,
+      );
+
+      expect(http.restoreStock).toHaveBeenCalledWith(expect.objectContaining({ containerId: 'tech-2' }));
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).toHaveBeenCalledWith(
+        'deal-1',
+        expect.objectContaining({ fulfillment: 'service' }),
+      );
+      expect(products.addProduct.mock.calls[0][1].sourceTechId).toBeUndefined();
+    });
+
+    it('rejects a service-type product replaced in as a sourced line', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      http.getProduct.mockResolvedValue({ id: 'product-2', name: 'Rekey', sku: 'SVC-1', type: 'service' });
+
+      await expect(
+        service.replaceProduct('deal-1', 'product-1', { ...dto, fulfillment: 'sourced' } as any, caller),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('keeps orderedAt when a to-order line is edited in place', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: [] }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({
+        fulfillment: 'to_order', sourceTechId: undefined, orderedAt: '2026-05-01T00:00:00.000Z',
+      }));
+      http.getProduct.mockResolvedValue({
+        id: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', type: 'product',
+      });
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, productId: 'product-1', name: 'Kwikset Deadbolt', sku: 'KW-DB-001', fulfillment: 'to_order', sourceTechId: undefined, quantity: 5 } as any,
+        caller,
+      );
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(http.deductStock).not.toHaveBeenCalled();
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        quantity: 5, orderedAt: '2026-05-01T00:00:00.000Z',
+      }));
+    });
+
+    it('drops orderedAt when the product is swapped', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: [] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        productId === 'product-1'
+          ? createMockDealProduct({ fulfillment: 'to_order', sourceTechId: undefined, orderedAt: '2026-05-01T00:00:00.000Z' })
+          : null,
+      );
+
+      await service.replaceProduct(
+        'deal-1', 'product-1',
+        { ...dto, fulfillment: 'to_order', sourceTechId: undefined } as any,
+        caller,
+      );
+
+      expect(products.addProduct.mock.calls[0][1].orderedAt).toBeUndefined();
+    });
+
+    it('writes a product_updated timeline entry naming both products', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.PRODUCT_UPDATED,
+          details: expect.objectContaining({
+            productId: 'product-2',
+            productName: 'Schlage Deadbolt',
+            previousProductId: 'product-1',
+            previousProductName: 'Kwikset Deadbolt',
+            quantity: 2,
+          }),
+        }),
+      );
+    });
+  });
+
   describe('getProducts', () => {
     it('should return products for deal', async () => {
       mockFindById();
@@ -884,7 +1266,7 @@ describe('DealsService', () => {
   describe('publishEvent (error handling)', () => {
     it('should not crash when SNS publish fails', async () => {
       sns.publish.mockRejectedValue(new Error('Topic not found'));
-      repo.getNextDealNumber.mockResolvedValue(1001);
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
 
       const caller = createMockJwtUser({ id: 'dispatcher-1' });
