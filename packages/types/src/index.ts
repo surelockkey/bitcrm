@@ -84,6 +84,14 @@ export type {
   SensitiveAccessedEvent,
 } from './events/user-events';
 
+// Event contract (call-events topic)
+export { CALL_EVENT_TOPIC, CallEventType } from './events/call-events';
+export type {
+  CallStartedEvent,
+  CallCompletedEvent,
+  CallRecordingReadyEvent,
+} from './events/call-events';
+
 // Permissions
 export {
   PermissionMatrix,

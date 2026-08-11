@@ -92,4 +92,18 @@ describe('DEFAULT_ROLES <-> RESOURCE_REGISTRY consistency', () => {
     // department-scoped, not global
     expect(dm.dataScope.technicians).toBe('department');
   });
+
+  it('grants calls per the supervision policy (join = supervisory roles only)', () => {
+    expect(RESOURCE_REGISTRY.calls).toEqual(['view', 'join']);
+    const byId = (id: string) => DEFAULT_ROLES.find((r) => r.id === id)!;
+    // supervisory tiers may listen/join live calls
+    for (const id of ['role-super-admin', 'role-admin', 'role-dept-manager']) {
+      expect(byId(id).permissions.calls).toMatchObject({ view: true, join: true });
+    }
+    // dispatcher and read-only see history, never join
+    expect(byId('role-dispatcher').permissions.calls).toMatchObject({ view: true, join: false });
+    expect(byId('role-read-only').permissions.calls).toMatchObject({ view: true, join: false });
+    // technicians have no access to the calls section
+    expect(byId('role-technician').permissions.calls).toMatchObject({ view: false, join: false });
+  });
 });

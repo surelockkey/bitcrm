@@ -57,6 +57,22 @@ invalidates that cache on these events.
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
 
+## Topic: `call-events` (published by telephony-service)
+
+Contracts in `@bitcrm/types` (`events/call-events.ts`). Emitted fire-and-forget
+by `CallsService.applyLifecycle` (the single call-record writer), gated on
+`CALL_EVENTS_TOPIC_ARN`.
+
+| eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
+|---|---|---|---|
+| `call.started` | `CallStartedEvent` `{callSid, direction, from, to, agentId, answeredAt}` | both parties connected (first `answeredAt`) | — (reporting/CRM activity, future) |
+| `call.completed` | `CallCompletedEvent` `{callSid, …, status, durationSeconds, startedAt, endedAt}` | first terminal status (completed/busy/no-answer/failed/canceled) | — |
+| `call.recording_ready` | `CallRecordingReadyEvent` `{callSid, recordingSid, recordingDurationSeconds}` | conference recording processed | — |
+
+Live-UI updates deliberately do **not** go through SNS: the calls page streams
+them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub
+(`telephony:call-events`) so every service instance sees every webhook.
+
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
 - **inventory-service** ← `user.activated`, `user.role-changed` → `ContainersEventHandler`
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`

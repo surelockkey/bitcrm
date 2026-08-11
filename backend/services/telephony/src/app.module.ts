@@ -1,0 +1,58 @@
+import { Module } from '@nestjs/common';
+import {
+  DynamoDbModule,
+  RedisModule,
+  AuthModule,
+  EventsModule,
+  LoggerModule,
+  MetricsModule,
+  HealthModule,
+  ConnectivityModule,
+} from '@bitcrm/shared';
+import { AppController } from './app.controller';
+import { TelephonyModule } from './telephony/telephony.module';
+import { PresenceModule } from './presence/presence.module';
+import { CallsModule } from './calls/calls.module';
+import { VoiceModule } from './voice/voice.module';
+import { NumbersModule } from './numbers/numbers.module';
+import { DbSetupService } from './common/db-setup.service';
+import { CALLS_TABLE } from './common/constants/dynamo.constants';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({ serviceName: 'telephony-service' }),
+    MetricsModule.forRoot({ serviceName: 'telephony-service' }),
+    HealthModule.forRoot({
+      dynamoTables: [CALLS_TABLE],
+    }),
+    ConnectivityModule.forRoot({
+      serviceName: 'telephony-service',
+      failFast: [],
+      dynamodb: {
+        tables: [CALLS_TABLE],
+      },
+      redis: true,
+    }),
+    DynamoDbModule,
+    RedisModule,
+    AuthModule,
+    EventsModule.forRoot({
+      publisher: {
+        region: process.env.AWS_REGION,
+        endpoint: process.env.AWS_ENDPOINT,
+        source: 'telephony-service',
+        topicArns: process.env.CALL_EVENTS_TOPIC_ARN
+          ? { 'call-events': process.env.CALL_EVENTS_TOPIC_ARN }
+          : {},
+      },
+    }),
+    TelephonyModule,
+    PresenceModule,
+    CallsModule,
+    VoiceModule,
+    NumbersModule,
+  ],
+  controllers: [AppController],
+  providers: [DbSetupService],
+})
+export class AppModule {}

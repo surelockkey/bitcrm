@@ -29,6 +29,9 @@ export const RESOURCE_REGISTRY = {
   work_orders: ['view', 'create', 'edit', 'delete'],
   commission: ['view', 'edit'],
   documents: ['view', 'upload', 'delete'],
+  // Telephony call history + live supervision. `view` gates the calls list,
+  // call detail and recording playback; `join` gates live listen/join.
+  calls: ['view', 'join'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;
