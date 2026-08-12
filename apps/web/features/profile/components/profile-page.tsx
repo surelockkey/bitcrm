@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,7 +29,8 @@ import { useMe } from "@/features/auth/use-me";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useLogout, useRequestReset } from "@/features/auth/hooks";
 import { initials, formatDate } from "@/features/users/lib";
-import { useUpdateUser } from "@/features/users/hooks";
+import { formatPhone, isValidPhone } from "@/lib/phone";
+import { useUpdateUser, useUpdateMyPhone } from "@/features/users/hooks";
 import { updateUserSchema, type UpdateUserValues } from "@/features/users/schemas";
 import { useOnboarding } from "@/features/technicians/hooks";
 import { onboardingPct } from "@/features/technicians/lib";
@@ -138,7 +140,8 @@ function AccountCard({
               <Row label="Email" value={<span>{me.email} <span className="ml-1 rounded-full border px-1.5 text-[10px] text-muted-foreground">login</span></span>} />
               <Row label="Department" value={me.department || "—"} />
               <Row label="Role" value={roleName} />
-              <Row label="Member since" value={formatDate(me.createdAt)} last />
+              <Row label="Member since" value={formatDate(me.createdAt)} />
+              <PhoneRow phone={me.phone} />
             </dl>
             {!canEdit ? (
               <p className="mt-2 text-xs text-muted-foreground">
@@ -149,6 +152,73 @@ function AccountCard({
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * Your own phone, always editable — this is your profile, so it needs no
+ * `users.edit`; a technician has to be able to set it. Calls to or from it
+ * are attributed to you in the call log.
+ */
+function PhoneRow({ phone }: { phone?: string }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(phone ?? "");
+  const update = useUpdateMyPhone();
+
+  const save = () => {
+    if (value.trim() && !isValidPhone(value)) return;
+    update.mutate(value.trim(), { onSuccess: () => setEditing(false) });
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex items-center justify-between gap-3 py-2">
+        <dt className="text-muted-foreground">Phone</dt>
+        <dd className="flex items-center gap-2 font-medium">
+          {phone ? formatPhone(phone) : <span className="text-muted-foreground">—</span>}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setValue(phone ?? "");
+              setEditing(true);
+            }}
+          >
+            {phone ? "Change" : "Add"}
+          </Button>
+        </dd>
+      </div>
+    );
+  }
+
+  const invalid = !!value.trim() && !isValidPhone(value);
+
+  return (
+    <div className="space-y-1.5 py-2">
+      <dt className="text-muted-foreground">Phone</dt>
+      <dd className="flex items-center gap-2">
+        <PhoneInput className="h-9" value={value} onChange={setValue} />
+        <Button
+          variant="brand"
+          size="sm"
+          disabled={update.isPending || invalid}
+          onClick={save}
+          className="gap-1.5"
+        >
+          {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+          Save
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </dd>
+      <p className="text-xs text-muted-foreground">
+        {invalid
+          ? "Enter a valid phone number."
+          : "Calls to or from this number are shown as reaching you."}
+      </p>
+    </div>
   );
 }
 

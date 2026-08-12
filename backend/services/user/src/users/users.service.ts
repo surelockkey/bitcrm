@@ -397,6 +397,36 @@ export class UsersService implements OnModuleInit {
   }
 
   /**
+   * Point a user's phone at `raw` (blank clears it), maintaining the lookup
+   * index: claim the new number, then drop the old item so it stops
+   * resolving. Returns the value to persist on the user.
+   */
+  private async applyPhoneChange(
+    userId: string,
+    currentPhone: string | undefined,
+    raw: string,
+  ): Promise<string | undefined> {
+    const next = raw.trim() ? await this.claimPhone(raw, userId) : undefined;
+    if (currentPhone && currentPhone !== next) {
+      await this.repository.deletePhoneIndex(currentPhone);
+    }
+    return next;
+  }
+
+  /**
+   * Your own phone, settable by anyone for themselves — a technician has no
+   * `users.edit` permission but must still be reachable on their own number,
+   * which is the whole point of the field.
+   */
+  async updateOwnPhone(userId: string, raw: string): Promise<User> {
+    const existing = await this.findById(userId);
+    const phone = await this.applyPhoneChange(userId, existing.phone, raw);
+    const updated = await this.repository.update(userId, { phone });
+    await this.cache.invalidateUser(userId);
+    return updated;
+  }
+
+  /**
    * Reserve a phone for a user: normalize, reject a number another user
    * already holds (the index maps one number to one person), and write the
    * lookup item. Returns the stored E.164 form.
@@ -448,17 +478,13 @@ export class UsersService implements OnModuleInit {
   ): Promise<User> {
     const existingUser = await this.findById(id);
 
-    // Phone edits maintain the lookup index: claim the new number (rejecting
-    // one that's taken), then drop the old item so it stops resolving.
     const attrs: Partial<User> & UpdateUserDto = { ...dto };
     if (dto.phone !== undefined) {
-      const next = dto.phone.trim()
-        ? await this.claimPhone(dto.phone, id)
-        : undefined;
-      attrs.phone = next;
-      if (existingUser.phone && existingUser.phone !== next) {
-        await this.repository.deletePhoneIndex(existingUser.phone);
-      }
+      attrs.phone = await this.applyPhoneChange(
+        id,
+        existingUser.phone,
+        dto.phone,
+      );
     }
 
     const updatedUser = await this.repository.update(id, attrs);

@@ -62,8 +62,15 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-xl space-y-5" noValidate>
       <div className="space-y-1.5">
-        <Label>Phone</Label>
+        <Label>Dispatch phone</Label>
         <PhoneInput value={phoneVal} onChange={(v) => form.setValue("phone", v, { shouldValidate: true, shouldDirty: true })} />
+        {/* Distinct from the account phone above: this one rides on the
+            technician record (dispatch, onboarding), that one identifies you
+            in the call log. They can be the same number. */}
+        <p className="text-xs text-muted-foreground">
+          Shown on your technician record for dispatch. To be recognised in the
+          call log, set the phone on your account above.
+        </p>
         {form.formState.errors.phone ? <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p> : null}
       </div>
       <div className="space-y-1.5">

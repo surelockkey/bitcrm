@@ -125,6 +125,24 @@ export function useUpdateUser() {
   });
 }
 
+/**
+ * Set your own phone. Refreshes `me` (the profile page reads it there) and the
+ * call log, whose party names are resolved from this number server-side.
+ */
+export function useUpdateMyPhone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (phone: string) => api.updateMyPhone(phone),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.me() });
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      qc.invalidateQueries({ queryKey: queryKeys.calls.all() });
+      toast.success("Phone updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useAssignRole() {
   const invalidate = useInvalidateUsers();
   return useMutation({

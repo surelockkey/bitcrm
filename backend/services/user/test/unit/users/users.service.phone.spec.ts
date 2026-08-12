@@ -86,6 +86,49 @@ describe('UsersService — personal phone', () => {
     });
   });
 
+  describe('updateOwnPhone', () => {
+    it('sets your own number without needing users.edit', async () => {
+      const { service, repository } = makeService({
+        findById: jest.fn().mockResolvedValue(existing),
+      });
+
+      await service.updateOwnPhone('u1', '(541) 283-0739');
+
+      expect(repository.putPhoneIndex).toHaveBeenCalledWith('+15412830739', 'u1');
+      expect(repository.deletePhoneIndex).toHaveBeenCalledWith('+14045551234');
+      expect(repository.update).toHaveBeenCalledWith('u1', {
+        phone: '+15412830739',
+      });
+    });
+
+    it('clears it on an empty value', async () => {
+      const { service, repository } = makeService({
+        findById: jest.fn().mockResolvedValue(existing),
+      });
+
+      await service.updateOwnPhone('u1', '  ');
+
+      expect(repository.putPhoneIndex).not.toHaveBeenCalled();
+      expect(repository.deletePhoneIndex).toHaveBeenCalledWith('+14045551234');
+      expect(repository.update).toHaveBeenCalledWith('u1', { phone: undefined });
+    });
+
+    it('still refuses a number someone else holds', async () => {
+      const { service } = makeService({
+        findById: jest.fn().mockResolvedValue(existing),
+        findByPhone: jest.fn().mockResolvedValue({
+          id: 'u2',
+          firstName: 'Tamir',
+          lastName: 'Levi',
+        }),
+      });
+
+      await expect(
+        service.updateOwnPhone('u1', '+15412830739'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
   describe('update', () => {
     it('normalizes, indexes, and drops the previous number', async () => {
       const { service, repository } = makeService({

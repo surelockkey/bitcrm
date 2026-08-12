@@ -46,6 +46,14 @@ export function updateUser(id: string, body: UpdateUserRequest): Promise<User> {
   return http.put<User>(`/users/${id}`, body);
 }
 
+/**
+ * Your own phone — the one endpoint here that needs no `users.edit`, since
+ * it only ever touches the caller's record. Empty string clears it.
+ */
+export function updateMyPhone(phone: string): Promise<User> {
+  return http.put<User>("/users/me", { phone });
+}
+
 export function assignRole(id: string, roleId: string): Promise<User> {
   return http.put<User>(`/users/${id}/role`, { roleId });
 }

@@ -16,6 +16,7 @@ import { UsersService } from "./users.service";
 import { Internal } from "../common/decorators/internal.decorator";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
+import { UpdateMyProfileDto } from "./dto/update-my-profile.dto";
 import { LookupUsersByPhonesDto } from "./dto/lookup-users-by-phones.dto";
 import { ListUsersQueryDto } from "./dto/list-users-query.dto";
 import { AssignRoleDto } from "./dto/assign-role.dto";
@@ -34,6 +35,24 @@ export class UsersController {
   })
   async getMe(@CurrentUser() user: JwtUser) {
     const data = await this.usersService.findCurrentUser(user);
+    return { success: true, data };
+  }
+
+  // Declared before `:id` — otherwise Nest matches "me" as a user id.
+  @Put("me")
+  @ApiOperation({
+    summary: "Update your own profile",
+    description:
+      "**Guard:** Authenticated (any role) — this only ever edits the caller's " +
+      "own record. Currently just the phone: a technician has no `users.edit` " +
+      "permission but still needs to be reachable on their own number. Send an " +
+      "empty string to clear it. 409 if another user already holds the number.",
+  })
+  async updateMe(
+    @Body() dto: UpdateMyProfileDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.usersService.updateOwnPhone(user.id, dto.phone);
     return { success: true, data };
   }
 
