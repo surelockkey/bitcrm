@@ -17,6 +17,21 @@ export function useCallsList(filter: CallsFilter) {
   });
 }
 
+/**
+ * Every call involving any of a client's numbers, newest first. Idle until
+ * the client's phone list is known — a query with no numbers would return the
+ * whole global log, which is emphatically not "this client's calls".
+ */
+export function useCallsForNumbers(numbers: string[]) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.calls.list({ numbers }),
+    queryFn: ({ pageParam }) => api.listCalls({ numbers }, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled: numbers.length > 0,
+  });
+}
+
 export function useLiveCalls() {
   return useQuery({
     queryKey: queryKeys.calls.live(),

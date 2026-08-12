@@ -21,6 +21,15 @@ export interface CallParticipant {
   at: string;
   /** Display name resolved by the backend. */
   name?: string;
+  /** Their system role, resolved by the backend. */
+  roleId?: string;
+}
+
+/** A party matched to a CRM contact, resolved by the backend. */
+export interface CallContactRef {
+  id: string;
+  name: string;
+  companyId?: string;
 }
 
 export interface CallRecord {
@@ -31,6 +40,10 @@ export interface CallRecord {
   status?: CallStatus;
   agentId?: string;
   agentName?: string;
+  agentRoleId?: string;
+  /** CRM contacts behind the endpoints, resolved by the backend. */
+  fromContact?: CallContactRef;
+  toContact?: CallContactRef;
   durationSeconds?: number;
   startedAt: string;
   updatedAt: string;
@@ -57,6 +70,8 @@ export interface CallsFilter {
   status?: string;
   agentId?: string;
   number?: string;
+  /** Any of these numbers, either side — one client's whole phone list. */
+  numbers?: string[];
   dateFrom?: string;
   dateTo?: string;
 }
@@ -161,11 +176,19 @@ function participantLabel(p: CallParticipant): string {
   return p.name ?? shortId(p.userId);
 }
 
-/** One side of a call: the system user on it (if any) plus the endpoint. */
+/**
+ * One side of a call. Exactly one of three things: one of our own people, a
+ * client from the CRM, or a number nobody has claimed yet.
+ */
 export interface CallParty {
-  /** Set only when this side is one of our users — links to their profile. */
+  kind: "user" | "contact" | "unknown";
+  /** Set for `user` — links to their profile. */
   userId?: string;
-  /** That user's display name (or a shortened id when unresolved). */
+  /** Set for `contact` — links to the client. */
+  contactId?: string;
+  /** The user's system role, for labelling them as one of ours. */
+  roleId?: string;
+  /** Display name (or a shortened id when a user's name is unresolved). */
   label?: string;
   /** The raw endpoint, E.164 or a legacy `client:` leg. */
   number?: string;
@@ -177,16 +200,26 @@ export interface CallParty {
  * and an internal call — our number to our number — has a user on both sides.
  * The stored agent is the fallback when no participant was recorded (e.g. a
  * call nobody picked up still points at the agent it rang).
+ *
+ * A side that isn't ours is matched against the CRM by number; failing that
+ * it's an unknown caller, which the UI offers to turn into a client.
  */
 export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
   const number = side === "from" ? call.from : call.to;
   const caller = call.participants?.find((p) => p.role === "caller");
   const answered = call.participants?.find((p) => p.role === "answered");
   const agent: CallParty | undefined = call.agentId
-    ? { userId: call.agentId, label: call.agentName ?? shortId(call.agentId) }
+    ? {
+        kind: "user",
+        userId: call.agentId,
+        roleId: call.agentRoleId,
+        label: call.agentName ?? shortId(call.agentId),
+      }
     : undefined;
   const of = (p: CallParticipant): CallParty => ({
+    kind: "user",
     userId: p.userId,
+    roleId: p.roleId,
     label: participantLabel(p),
   });
 
@@ -200,8 +233,13 @@ export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
     // Outbound to one of our own numbers — the internal call's receiving user.
     user = of(answered);
   }
+  if (user) return { ...user, number };
 
-  return { ...user, number };
+  const contact = side === "from" ? call.fromContact : call.toContact;
+  if (contact) {
+    return { kind: "contact", contactId: contact.id, label: contact.name, number };
+  }
+  return { kind: "unknown", number };
 }
 
 /**
@@ -231,7 +269,11 @@ export function filterToParams(
 ): URLSearchParams {
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(filter)) {
-    if (value) qs.set(key, value);
+    if (Array.isArray(value)) {
+      if (value.length) qs.set(key, value.join(","));
+    } else if (value) {
+      qs.set(key, value);
+    }
   }
   if (cursor) qs.set("cursor", cursor);
   if (limit) qs.set("limit", String(limit));

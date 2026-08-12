@@ -93,6 +93,35 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     expect(input.ExpressionAttributeValues[':number']).toBe('404555');
   });
 
+  it('ORs every number in a client phone list across both sides', async () => {
+    const { repo, sent } = makeRepo([{ Items: [] }]);
+    await repo.list(
+      { numbers: ['+14045551234', '+15412830739'] },
+      undefined,
+      25,
+    );
+
+    const input = sent[0].input;
+    expect(input.FilterExpression).toContain(
+      '(contains(#from, :num0) OR contains(#to, :num0) OR ' +
+        'contains(#from, :num1) OR contains(#to, :num1))',
+    );
+    expect(input.ExpressionAttributeValues[':num0']).toBe('+14045551234');
+    expect(input.ExpressionAttributeValues[':num1']).toBe('+15412830739');
+    expect(input.ExpressionAttributeNames['#from']).toBe('from');
+    expect(input.ExpressionAttributeNames['#to']).toBe('to');
+  });
+
+  it('ignores an empty number list rather than matching everything', async () => {
+    const { repo, sent } = makeRepo([{ Items: [] }]);
+    await repo.list({ numbers: [] }, undefined, 25);
+
+    // Only the internal-leg exclusion survives.
+    expect(sent[0].input.FilterExpression).toBe(
+      'attribute_not_exists(internalLegOf)',
+    );
+  });
+
   it('keeps querying internal pages until the limit is filled', async () => {
     const { repo, sent } = makeRepo([
       { Items: [item('CA1')], LastEvaluatedKey: { PK: 'CALL#CA1' } },

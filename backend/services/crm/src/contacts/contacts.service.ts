@@ -17,6 +17,14 @@ import { type FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
 import { type MergeContactsDto } from './dto/merge-contacts.dto';
 import { normalizePhone, normalizePhones } from '../common/phone-normalization.util';
 
+/** The slice of a contact a phone lookup returns — enough to name and link it. */
+export interface ContactPhoneMatch {
+  id: string;
+  firstName: string;
+  lastName: string;
+  companyId?: string;
+}
+
 @Injectable()
 export class ContactsService {
   private readonly logger = new Logger(ContactsService.name);
@@ -228,6 +236,50 @@ export class ContactsService {
   async searchByPhone(phone: string): Promise<Contact | null> {
     const normalized = normalizePhone(phone);
     return this.repository.findByPhone(normalized);
+  }
+
+  /**
+   * Resolve many phone numbers to their contacts in one round trip — the call
+   * log needs a name per number and would otherwise issue one request per row.
+   * Keyed by the caller's original string so it can map results back without
+   * re-normalizing. Unparseable numbers and misses are simply absent: a number
+   * nobody owns is the normal case here, not an error.
+   */
+  async findManyByPhone(
+    phones: string[],
+  ): Promise<Record<string, ContactPhoneMatch>> {
+    const wanted = new Map<string, string>(); // normalized -> first raw input
+    for (const raw of new Set(phones)) {
+      let normalized: string;
+      try {
+        normalized = normalizePhone(raw);
+      } catch {
+        continue; // not a dialable number (an SDK client: leg, say)
+      }
+      if (!wanted.has(normalized)) wanted.set(normalized, raw);
+    }
+
+    const found = await Promise.all(
+      [...wanted.keys()].map(async (normalized) => ({
+        normalized,
+        contact: await this.repository.findByPhone(normalized),
+      })),
+    );
+
+    const out: Record<string, ContactPhoneMatch> = {};
+    for (const { normalized, contact } of found) {
+      if (!contact) continue;
+      const match: ContactPhoneMatch = {
+        id: contact.id,
+        firstName: contact.firstName,
+        lastName: contact.lastName,
+        companyId: contact.companyId,
+      };
+      // Under both keys: callers that passed E.164 and callers that didn't.
+      out[wanted.get(normalized) as string] = match;
+      out[normalized] = match;
+    }
+    return out;
   }
 
   async findOrCreate(dto: FindOrCreateContactDto): Promise<{ contact: Contact; created: boolean }> {

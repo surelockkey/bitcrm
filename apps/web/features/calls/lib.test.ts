@@ -144,12 +144,17 @@ describe("callParty", () => {
       ],
     };
     expect(callParty(call, "from")).toEqual({
+      kind: "user",
       userId: "u1",
+      roleId: undefined,
       label: "Nazarii",
       number: "+12624061115",
     });
-    // The customer side stays a bare number.
-    expect(callParty(call, "to")).toEqual({ number: "+380958601427" });
+    // The customer side is nobody we know until the CRM says otherwise.
+    expect(callParty(call, "to")).toEqual({
+      kind: "unknown",
+      number: "+380958601427",
+    });
   });
 
   it("puts the answering user on `to` for inbound calls", () => {
@@ -162,12 +167,56 @@ describe("callParty", () => {
         { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
       ],
     };
-    expect(callParty(call, "from")).toEqual({ number: "+380958601427" });
+    expect(callParty(call, "from")).toEqual({
+      kind: "unknown",
+      number: "+380958601427",
+    });
     expect(callParty(call, "to")).toEqual({
+      kind: "user",
       userId: "u2",
+      roleId: undefined,
       label: "Tamir",
       number: "+12624061115",
     });
+  });
+
+  it("names the outside party from the CRM contact when there is one", () => {
+    const call = {
+      ...base,
+      direction: "inbound" as const,
+      from: "+380958601427",
+      to: "+12624061115",
+      fromContact: { id: "c1", name: "Jane Roe" },
+      participants: [
+        { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
+      ],
+    };
+    expect(callParty(call, "from")).toEqual({
+      kind: "contact",
+      contactId: "c1",
+      label: "Jane Roe",
+      number: "+380958601427",
+    });
+    // Our own side is still the user, never the contact.
+    expect(callParty(call, "to").kind).toBe("user");
+  });
+
+  it("carries the role through so the UI can mark our own people", () => {
+    const call = {
+      ...base,
+      direction: "outbound" as const,
+      from: "+12624061115",
+      participants: [
+        {
+          userId: "u1",
+          role: "caller" as const,
+          at: "",
+          name: "Nazarii",
+          roleId: "role-dispatcher",
+        },
+      ],
+    };
+    expect(callParty(call, "from").roleId).toBe("role-dispatcher");
   });
 
   it("resolves a user on both sides of an internal call", () => {
@@ -194,7 +243,9 @@ describe("callParty", () => {
       agentName: "Nazarii",
     };
     expect(callParty(unanswered, "to")).toEqual({
+      kind: "user",
       userId: "d47814b8-e051-706e",
+      roleId: undefined,
       label: "Nazarii",
       number: "+12624061115",
     });
@@ -203,14 +254,21 @@ describe("callParty", () => {
     ).toBe("d47814b8…");
   });
 
-  it("returns just the endpoint when no user is known", () => {
+  it("returns just the endpoint when neither a user nor a client is known", () => {
     expect(
       callParty({ ...base, direction: "inbound", from: "+380958601427" }, "from"),
-    ).toEqual({ number: "+380958601427" });
+    ).toEqual({ kind: "unknown", number: "+380958601427" });
   });
 });
 
 describe("filterToParams", () => {
+  it("joins a client's phone list into one comma-separated param", () => {
+    const qs = filterToParams({ numbers: ["+1262", "+1541"] });
+    expect(qs.get("numbers")).toBe("+1262,+1541");
+    // An empty list must not become `numbers=` — that would match everything.
+    expect(filterToParams({ numbers: [] }).has("numbers")).toBe(false);
+  });
+
   it("keeps set values, drops empties, appends cursor and limit", () => {
     const qs = filterToParams(
       { direction: "inbound", status: "", number: "404" },

@@ -38,8 +38,18 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
   const userNames = {
     resolve: jest.fn().mockResolvedValue({}),
   } as unknown as import('../../src/common/user-names.service').UserNamesService;
-  const controller = new CallsController(calls, bus, conference, userNames, CONFIG);
-  return { controller, calls, conference, subject, userNames };
+  const contacts = {
+    resolve: jest.fn().mockResolvedValue({}),
+  } as unknown as import('../../src/common/contact-lookup.service').ContactLookupService;
+  const controller = new CallsController(
+    calls,
+    bus,
+    conference,
+    userNames,
+    contacts,
+    CONFIG,
+  );
+  return { controller, calls, conference, subject, userNames, contacts };
 }
 
 function makeRes() {
@@ -170,9 +180,11 @@ describe('CallsController.stream (SSE)', () => {
     jest.useRealTimers();
   });
 
-  it('events carry participant names, matching the initial fetch', async () => {
+  it('events carry participant names and roles, matching the initial fetch', async () => {
     const { controller, subject, userNames } = makeController();
-    (userNames.resolve as jest.Mock).mockResolvedValue({ 'u-1': 'Nazarii' });
+    (userNames.resolve as jest.Mock).mockResolvedValue({
+      'u-1': { name: 'Nazarii', roleId: 'role-dispatcher' },
+    });
     const { res, chunks } = makeRes();
 
     controller.stream(res as never);
@@ -187,7 +199,86 @@ describe('CallsController.stream (SSE)', () => {
 
     const frame = JSON.parse(chunks[1].replace(/^data: /, ''));
     expect(frame.call.agentName).toBe('Nazarii');
+    expect(frame.call.agentRoleId).toBe('role-dispatcher');
     expect(frame.call.participants[0].name).toBe('Nazarii');
+    expect(frame.call.participants[0].roleId).toBe('role-dispatcher');
+  });
+
+  it('events carry the client behind the number too', async () => {
+    const { controller, subject, contacts } = makeController();
+    (contacts.resolve as jest.Mock).mockResolvedValue({
+      '+14045551234': { id: 'c1', name: 'Jane Roe' },
+    });
+    const { res, chunks } = makeRes();
+
+    controller.stream(res as never);
+    subject.next({
+      type: 'call.upserted',
+      call: record({ direction: 'inbound', from: '+14045551234', to: '+15412830739' }),
+    });
+    await flushMicrotasks();
+
+    const frame = JSON.parse(chunks[1].replace(/^data: /, ''));
+    expect(frame.call.fromContact).toEqual({ id: 'c1', name: 'Jane Roe' });
+    // Our own number isn't a client — nothing invented for the other side.
+    expect(frame.call.toContact).toBeUndefined();
+  });
+});
+
+describe('CallsController — naming the parties', () => {
+  it('asks the CRM about both endpoints and attaches what comes back', async () => {
+    const { controller, contacts } = makeController({
+      list: jest.fn().mockResolvedValue({
+        items: [
+          {
+            callSid: 'CA1',
+            direction: 'outbound',
+            from: '+15412830739',
+            to: '+14045551234',
+            startedAt: '2026-08-05T10:00:00.000Z',
+            updatedAt: '2026-08-05T10:00:00.000Z',
+          },
+        ],
+      }),
+    });
+    (contacts.resolve as jest.Mock).mockResolvedValue({
+      '+14045551234': { id: 'c1', name: 'Jane Roe' },
+    });
+
+    const res = await controller.list();
+
+    expect(contacts.resolve).toHaveBeenCalledWith([
+      '+15412830739',
+      '+14045551234',
+    ]);
+    expect(res.data[0].toContact).toEqual({ id: 'c1', name: 'Jane Roe' });
+    expect(res.data[0].fromContact).toBeUndefined();
+  });
+
+  it('serves the log unnamed when the CRM is unreachable', async () => {
+    const { controller, contacts } = makeController();
+    (contacts.resolve as jest.Mock).mockResolvedValue({});
+
+    const res = await controller.list();
+
+    expect(res.success).toBe(true);
+    expect(res.data[0].fromContact).toBeUndefined();
+  });
+
+  it('passes a comma-separated number list through as a filter', async () => {
+    const { controller, calls } = makeController();
+
+    await controller.list(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined,
+      '+14045551234, +15412830739',
+    );
+
+    expect(calls.list).toHaveBeenCalledWith(
+      expect.objectContaining({ numbers: ['+14045551234', '+15412830739'] }),
+      undefined,
+      25,
+    );
   });
 });
 

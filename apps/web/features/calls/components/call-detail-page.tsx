@@ -7,6 +7,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useCallDetail } from "../hooks";
 import { useCallStream } from "../use-call-stream";
 import {
+  callParty,
   callUsers,
   formatCallTime,
   formatDuration,
@@ -16,6 +17,7 @@ import {
   PARTICIPANT_ROLE_LABEL,
   type CallRecord,
 } from "../lib";
+import { CallPartyCell } from "./call-party-cell";
 import { CallStatusBadge } from "./call-status-badge";
 import { RecordingPlayer } from "./recording-player";
 import { LiveCalls } from "./live-calls";
@@ -96,8 +98,8 @@ export function CallDetailPage({ callId }: { callId: string }) {
       <section className="space-y-3">
         <h2 className="text-sm font-semibold">Details</h2>
         <dl className="grid grid-cols-2 gap-x-8 gap-y-4 rounded-lg border p-4 sm:grid-cols-3">
-          <Field label="From" value={formatEndpoint(call.from)} />
-          <Field label="To" value={formatEndpoint(call.to)} />
+          <Field label="From" value={<CallPartyCell party={callParty(call, "from")} />} />
+          <Field label="To" value={<CallPartyCell party={callParty(call, "to")} />} />
           <Field label="User" value={callUsers(call)} />
           <Field label="Started" value={formatCallTime(call.startedAt)} />
           <Field label="Answered" value={formatCallTime(call.answeredAt)} />

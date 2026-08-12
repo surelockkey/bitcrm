@@ -39,6 +39,15 @@ export interface CallParticipant {
   at: string;
   /** Display name, enriched at read time (never stored). */
   name?: string;
+  /** Their system role, enriched at read time (never stored). */
+  roleId?: string;
+}
+
+/** A party matched to a CRM contact, enriched at read time (never stored). */
+export interface CallContactRef {
+  id: string;
+  name: string;
+  companyId?: string;
 }
 
 export interface CallRecord {
@@ -52,6 +61,11 @@ export interface CallRecord {
   agentId?: string;
   /** Agent display name, enriched at read time (never stored). */
   agentName?: string;
+  /** The agent's system role, enriched at read time (never stored). */
+  agentRoleId?: string;
+  /** CRM contacts behind the two endpoints, enriched at read time. */
+  fromContact?: CallContactRef;
+  toContact?: CallContactRef;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;
@@ -79,6 +93,8 @@ export interface ListCallsFilter {
   agentId?: string;
   /** Substring match against either party's number. */
   number?: string;
+  /** Match any of these numbers on either side — a client's whole phone list. */
+  numbers?: string[];
   /** ISO (or prefix) lower bound on startedAt. */
   dateFrom?: string;
   /** ISO (or prefix) upper bound on startedAt — inclusive of the whole day. */
@@ -391,6 +407,17 @@ export class CallsRepository {
       names['#from'] = 'from';
       names['#to'] = 'to';
       values[':number'] = filter.number;
+    }
+    if (filter.numbers?.length) {
+      // A contact owns several numbers and may appear on either side of a
+      // call — OR every combination rather than issuing one query per number.
+      const ors = filter.numbers.map((num, i) => {
+        values[`:num${i}`] = num;
+        return `contains(#from, :num${i}) OR contains(#to, :num${i})`;
+      });
+      clauses.push(`(${ors.join(' OR ')})`);
+      names['#from'] = 'from';
+      names['#to'] = 'to';
     }
 
     return {

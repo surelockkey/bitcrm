@@ -25,7 +25,11 @@ import {
   type CallStatus,
 } from './calls.repository';
 import { ConferenceService, type MonitorMode } from '../voice/conference.service';
-import { UserNamesService } from '../common/user-names.service';
+import { UserNamesService, type UserSummary } from '../common/user-names.service';
+import {
+  ContactLookupService,
+  type CallContact,
+} from '../common/contact-lookup.service';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
@@ -46,34 +50,56 @@ export class CallsController {
     private readonly bus: CallEventsBus,
     private readonly conferenceService: ConferenceService,
     private readonly userNames: UserNamesService,
+    private readonly contacts: ContactLookupService,
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
   ) {}
 
   /**
-   * Attach display names for every referenced system user (agent +
-   * participants) — resolved via the user-service internal API, best-effort.
+   * Name both sides of every call: system users (agent + participants) from
+   * the user-service, and the outside party from the CRM's contacts. Both
+   * lookups are batched across the whole page and best-effort — a party we
+   * can't name renders as a bare number, which is what the UI shows anyway
+   * before enrichment.
    */
   private async withNames(records: CallRecord[]): Promise<CallRecord[]> {
     const ids = records.flatMap((r) => [
       ...(r.agentId ? [r.agentId] : []),
       ...(r.participants?.map((p) => p.userId) ?? []),
     ]);
-    if (ids.length === 0) return records;
-    const names = await this.userNames.resolve(ids);
-    return records.map((r) => ({
-      ...r,
-      ...(r.agentId && names[r.agentId]
-        ? { agentName: names[r.agentId] }
-        : {}),
-      ...(r.participants
-        ? {
-            participants: r.participants.map((p) => ({
-              ...p,
-              ...(names[p.userId] ? { name: names[p.userId] } : {}),
-            })),
-          }
-        : {}),
-    }));
+    const phones = records.flatMap((r) => [
+      ...(r.from ? [r.from] : []),
+      ...(r.to ? [r.to] : []),
+    ]);
+    if (ids.length === 0 && phones.length === 0) return records;
+
+    const [users, contacts] = await Promise.all([
+      ids.length
+        ? this.userNames.resolve(ids)
+        : Promise.resolve<Record<string, UserSummary>>({}),
+      phones.length
+        ? this.contacts.resolve(phones)
+        : Promise.resolve<Record<string, CallContact>>({}),
+    ]);
+
+    return records.map((r) => {
+      const agent = r.agentId ? users[r.agentId] : undefined;
+      const from = r.from ? contacts[r.from] : undefined;
+      const to = r.to ? contacts[r.to] : undefined;
+      return {
+        ...r,
+        ...(agent ? { agentName: agent.name, agentRoleId: agent.roleId } : {}),
+        ...(from ? { fromContact: from } : {}),
+        ...(to ? { toContact: to } : {}),
+        ...(r.participants
+          ? {
+              participants: r.participants.map((p) => {
+                const u = users[p.userId];
+                return u ? { ...p, name: u.name, roleId: u.roleId } : p;
+              }),
+            }
+          : {}),
+      };
+    });
   }
 
   /* NOTE: static routes are declared before ':sid' so they aren't swallowed. */
@@ -85,7 +111,10 @@ export class CallsController {
     description:
       '**Guard:** `calls.view` permission required. Newest first; cursor ' +
       'pagination; filters: direction, status, agentId, number (substring), ' +
-      'dateFrom/dateTo (ISO prefixes).',
+      'numbers (comma-separated, matches any — a client\'s phone list), ' +
+      'dateFrom/dateTo (ISO instants or prefixes). Parties are named on the ' +
+      'way out: system users from user-service, outside callers from CRM ' +
+      'contacts.',
   })
   async list(
     @Query('cursor') cursor?: string,
@@ -96,11 +125,18 @@ export class CallsController {
     @Query('number') number?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    // Appended, not slotted in next to `number`: Nest injects by decorator,
+    // but direct callers (tests) pass positionally.
+    @Query('numbers') numbers?: string,
   ) {
     // Query DTOs aren't transformed in this codebase — coerce in-service.
     const parsedLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
+    // Comma-separated, capped: each number adds two contains() to the filter.
+    const parsedNumbers = numbers
+      ? numbers.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 20)
+      : undefined;
     const result = await this.callsService.list(
-      { direction, status, agentId, number, dateFrom, dateTo },
+      { direction, status, agentId, number, numbers: parsedNumbers, dateFrom, dateTo },
       cursor,
       parsedLimit,
     );

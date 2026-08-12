@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronLeft, Mail, MapPin, Pencil, Phone, Trash2 } from "lucide-react";
+import { Building2, ChevronLeft, Mail, MapPin, Pencil, Phone, PhoneCall, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
 import { clientTypeLabel, contactName, formatAddress, formatPhone, initials, sourceLabel } from "../lib";
 import { ContactTypeBadge } from "./client-badges";
@@ -78,6 +79,13 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 <Detail label="Source" value={sourceLabel(contact.source)} />
               </div>
               {contact.notes ? <Detail label="Notes" value={contact.notes} /> : null}
+
+              <div>
+                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <PhoneCall className="size-3.5" /> Calls
+                </div>
+                <ClientCallsLog phones={contact.phones} />
+              </div>
             </div>
             <div className="border-t p-6 md:border-l md:border-t-0">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company</div>

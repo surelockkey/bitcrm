@@ -28,11 +28,14 @@ import { CompanyPickerDialog } from "./company-picker-dialog";
 export function ContactForm({
   contact,
   defaultCompanyId,
+  defaultPhone,
   onDone,
   onCancel,
 }: {
   contact?: Contact;
   defaultCompanyId?: string;
+  /** Prefills the first phone — e.g. creating a client from an unknown caller. */
+  defaultPhone?: string;
   onDone?: (c: Contact) => void;
   onCancel?: () => void;
 }) {
@@ -60,12 +63,13 @@ export function ContactForm({
       : {
           firstName: "",
           lastName: "",
-          phones: [""],
+          phones: [defaultPhone ?? ""],
           emails: [],
           addresses: [],
           companyId: defaultCompanyId ?? "",
           type: ContactType.RESIDENTIAL,
-          source: ContactSource.MANUAL,
+          // A prefilled number always came from a call we just handled.
+          source: defaultPhone ? ContactSource.PHONE_CALL : ContactSource.MANUAL,
           title: "",
           notes: "",
         },

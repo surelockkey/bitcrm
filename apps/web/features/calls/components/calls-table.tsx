@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mic, PhoneIncoming, PhoneOutgoing } from "lucide-react";
 import {
@@ -18,9 +19,12 @@ import {
 } from "../lib";
 import { CallPartyCell } from "./call-party-cell";
 import { CallStatusBadge } from "./call-status-badge";
+import { NewClientFromCallDialog } from "./new-client-from-call-dialog";
 
 export function CallsTable({ calls }: { calls: CallRecord[] }) {
   const router = useRouter();
+  // The number an unknown caller is being turned into a client for.
+  const [addingFor, setAddingFor] = useState<string | null>(null);
 
   return (
     <div className="rounded-lg border">
@@ -51,10 +55,16 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
                 )}
               </TableCell>
               <TableCell>
-                <CallPartyCell party={callParty(call, "from")} />
+                <CallPartyCell
+                  party={callParty(call, "from")}
+                  onAddClient={setAddingFor}
+                />
               </TableCell>
               <TableCell>
-                <CallPartyCell party={callParty(call, "to")} />
+                <CallPartyCell
+                  party={callParty(call, "to")}
+                  onAddClient={setAddingFor}
+                />
               </TableCell>
               <TableCell>
                 <CallStatusBadge status={call.status} />
@@ -74,6 +84,11 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
           ))}
         </TableBody>
       </Table>
+
+      <NewClientFromCallDialog
+        phone={addingFor}
+        onClose={() => setAddingFor(null)}
+      />
     </div>
   );
 }

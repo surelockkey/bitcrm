@@ -17,6 +17,7 @@ import { UpdateContactDto } from './dto/update-contact.dto';
 import { ListContactsQueryDto } from './dto/list-contacts-query.dto';
 import { FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
 import { MergeContactsDto } from './dto/merge-contacts.dto';
+import { LookupContactsByPhonesDto } from './dto/lookup-contacts-by-phones.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 
 @ApiTags('Contacts')
@@ -123,6 +124,21 @@ export class ContactsController {
   })
   async findOrCreate(@Body() dto: FindOrCreateContactDto) {
     const data = await this.contactsService.findOrCreate(dto);
+    return { success: true, data };
+  }
+
+  @Post('internal/by-phones')
+  @Internal()
+  @ApiOperation({
+    summary: 'Resolve many phone numbers to contacts (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). '
+      + 'Used by telephony-service to name the parties in the call log. Look-up only — '
+      + 'unlike `find-or-create` it never creates a contact. Returns a map keyed by both '
+      + 'the submitted string and its E.164 form; numbers nobody owns are absent.',
+  })
+  async findByPhonesInternal(@Body() dto: LookupContactsByPhonesDto) {
+    const data = await this.contactsService.findManyByPhone(dto.phones);
     return { success: true, data };
   }
 
