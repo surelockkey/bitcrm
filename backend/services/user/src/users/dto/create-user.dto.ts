@@ -1,5 +1,5 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'john@example.com' })
@@ -27,4 +27,14 @@ export class CreateUserDto {
   @IsString()
   @MinLength(1)
   department!: string;
+
+  @ApiPropertyOptional({
+    example: '+14045551234',
+    description:
+      "The user's own phone, any format — stored E.164. Calls to or from it " +
+      'are attributed to them in the call log.',
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string;
 }

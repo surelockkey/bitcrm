@@ -16,6 +16,7 @@ import { UsersService } from "./users.service";
 import { Internal } from "../common/decorators/internal.decorator";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
+import { LookupUsersByPhonesDto } from "./dto/lookup-users-by-phones.dto";
 import { ListUsersQueryDto } from "./dto/list-users-query.dto";
 import { AssignRoleDto } from "./dto/assign-role.dto";
 import { SetPermissionOverridesDto } from "./dto/set-permission-overrides.dto";
@@ -118,6 +119,21 @@ export class UsersController {
       500,
     );
     const data = await this.usersService.findAll(safeLimit, cursor);
+    return { success: true, data };
+  }
+
+  @Post("internal/by-phones")
+  @Internal()
+  @ApiOperation({
+    summary: "Internal: resolve phone numbers to users",
+    description:
+      "**Guard:** Internal only (`x-internal-secret` required). Used by " +
+      "telephony-service to recognise a call that reached one of our own " +
+      "people on their personal number. Returns a map keyed by both the " +
+      "submitted string and its E.164 form; unknown numbers are absent.",
+  })
+  async internalFindByPhones(@Body() dto: LookupUsersByPhonesDto) {
+    const data = await this.usersService.findManyByPhone(dto.phones);
     return { success: true, data };
   }
 

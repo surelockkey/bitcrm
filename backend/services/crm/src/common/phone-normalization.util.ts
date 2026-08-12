@@ -1,31 +1,13 @@
-import { BadRequestException } from '@nestjs/common';
+/**
+ * Re-exported from `@bitcrm/shared` so every service normalizes identically —
+ * telephony matches call endpoints against both CRM contacts and system users,
+ * and two implementations that drift apart would silently stop matching.
+ * Kept as a module here so the existing `../common/phone-normalization.util`
+ * imports don't all have to change.
+ */
+export { normalizePhone, normalizePhones } from '@bitcrm/shared';
 
-export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-
-  if (digits.length < 10) {
-    throw new BadRequestException(`Invalid phone number: ${phone}`);
-  }
-
-  let normalized: string;
-
-  if (digits.length === 10) {
-    normalized = `+1${digits}`;
-  } else if (digits.length === 11 && digits.startsWith('1')) {
-    normalized = `+${digits}`;
-  } else if (digits.length >= 11 && digits.length <= 15) {
-    normalized = `+${digits}`;
-  } else {
-    throw new BadRequestException(`Invalid phone number: ${phone}`);
-  }
-
-  return normalized;
-}
-
-export function normalizePhones(phones: string[]): string[] {
-  return phones.map(normalizePhone);
-}
-
+/** `+14045551234` → `(404) 555-1234`. CRM-specific display helper. */
 export function formatPhoneDisplay(normalized: string): string {
   const digits = normalized.replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('1')) {

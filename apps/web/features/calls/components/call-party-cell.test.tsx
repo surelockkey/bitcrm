@@ -49,6 +49,38 @@ describe("CallPartyCell", () => {
       expect(screen.queryByRole("link")).not.toBeInTheDocument();
     });
 
+    it("marks a call that reached their own phone", () => {
+      render(
+        <CallPartyCell
+          party={{
+            kind: "user",
+            userId: "u9",
+            roleId: "role-dispatcher",
+            personal: true,
+            label: "Tamir Levi",
+            number: "+15412830739",
+          }}
+        />,
+      );
+      expect(screen.getByText("Tamir Levi")).toBeInTheDocument();
+      expect(screen.getByText("Dispatcher")).toBeInTheDocument();
+      expect(screen.getByText(/personal/)).toBeInTheDocument();
+    });
+
+    it("doesn't call a softphone leg personal", () => {
+      render(
+        <CallPartyCell
+          party={{
+            kind: "user",
+            userId: "u1",
+            label: "Nazarii",
+            number: "+12624061115",
+          }}
+        />,
+      );
+      expect(screen.queryByText(/personal/)).not.toBeInTheDocument();
+    });
+
     it("doesn't repeat a legacy client: leg as a number", () => {
       render(
         <CallPartyCell

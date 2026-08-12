@@ -88,3 +88,10 @@ export {
   ProbeResourceStatus,
   HttpServiceTarget,
 } from './connectivity/connectivity.types';
+
+// ---------- Phone ----------
+export {
+  normalizePhone,
+  normalizePhones,
+  tryNormalizePhone,
+} from './phone/normalize-phone';

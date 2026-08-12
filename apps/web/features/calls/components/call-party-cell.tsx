@@ -85,6 +85,10 @@ export function CallPartyCell({
       {number ? (
         <span className="text-xs text-muted-foreground">
           {formatEndpoint(number)}
+          {/* Their own phone, dialled by us — not their softphone. */}
+          {party.personal ? (
+            <span className="ml-1 text-muted-foreground/80">· personal</span>
+          ) : null}
         </span>
       ) : null}
     </div>

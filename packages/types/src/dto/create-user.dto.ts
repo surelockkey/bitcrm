@@ -4,4 +4,6 @@ export interface CreateUserRequest {
   lastName: string;
   roleId: string;
   department: string;
+  /** Their own phone, any format — stored E.164. Optional. */
+  phone?: string;
 }

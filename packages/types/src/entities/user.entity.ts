@@ -9,6 +9,11 @@ export interface User {
   lastName: string;
   roleId: string;
   department: string;
+  /**
+   * Their own phone, E.164. Calls to or from it are recognised as reaching
+   * that person directly rather than an unknown caller — see the call log.
+   */
+  phone?: string;
   status: UserStatus;
   permissionOverrides?: UserPermissionOverrides;
   createdAt: string;

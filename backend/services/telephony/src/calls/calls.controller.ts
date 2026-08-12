@@ -31,6 +31,10 @@ import {
   type CallContact,
 } from '../common/contact-lookup.service';
 import {
+  UserPhoneLookupService,
+  type CallUserPhone,
+} from '../common/user-phone-lookup.service';
+import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
 } from '../telephony/telephony.config';
@@ -51,15 +55,20 @@ export class CallsController {
     private readonly conferenceService: ConferenceService,
     private readonly userNames: UserNamesService,
     private readonly contacts: ContactLookupService,
+    private readonly userPhones: UserPhoneLookupService,
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
   ) {}
 
   /**
-   * Name both sides of every call: system users (agent + participants) from
-   * the user-service, and the outside party from the CRM's contacts. Both
-   * lookups are batched across the whole page and best-effort — a party we
-   * can't name renders as a bare number, which is what the UI shows anyway
-   * before enrichment.
+   * Name both sides of every call. Three lookups, all batched across the page
+   * and all best-effort — a party we can't name renders as a bare number:
+   *
+   * - system users on the call as softphone participants (agent + participants)
+   * - system users reached on their **personal** number, matched by endpoint
+   * - everyone else, matched against CRM contacts
+   *
+   * A number that belongs to one of our people is deliberately resolved as
+   * that person, not as a client, even if a contact record also carries it.
    */
   private async withNames(records: CallRecord[]): Promise<CallRecord[]> {
     const ids = records.flatMap((r) => [
@@ -72,24 +81,33 @@ export class CallsController {
     ]);
     if (ids.length === 0 && phones.length === 0) return records;
 
-    const [users, contacts] = await Promise.all([
+    const [users, contacts, personals] = await Promise.all([
       ids.length
         ? this.userNames.resolve(ids)
         : Promise.resolve<Record<string, UserSummary>>({}),
       phones.length
         ? this.contacts.resolve(phones)
         : Promise.resolve<Record<string, CallContact>>({}),
+      phones.length
+        ? this.userPhones.resolve(phones)
+        : Promise.resolve<Record<string, CallUserPhone>>({}),
     ]);
 
     return records.map((r) => {
       const agent = r.agentId ? users[r.agentId] : undefined;
-      const from = r.from ? contacts[r.from] : undefined;
-      const to = r.to ? contacts[r.to] : undefined;
+      const fromPersonal = r.from ? personals[r.from] : undefined;
+      const toPersonal = r.to ? personals[r.to] : undefined;
+      // Ours beats theirs: a number on a teammate's profile is that teammate,
+      // even if some contact record happens to carry it too.
+      const from = fromPersonal ? undefined : r.from ? contacts[r.from] : undefined;
+      const to = toPersonal ? undefined : r.to ? contacts[r.to] : undefined;
       return {
         ...r,
         ...(agent ? { agentName: agent.name, agentRoleId: agent.roleId } : {}),
         ...(from ? { fromContact: from } : {}),
         ...(to ? { toContact: to } : {}),
+        ...(fromPersonal ? { fromPersonal } : {}),
+        ...(toPersonal ? { toPersonal } : {}),
         ...(r.participants
           ? {
               participants: r.participants.map((p) => {

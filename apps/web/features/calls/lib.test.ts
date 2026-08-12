@@ -201,6 +201,44 @@ describe("callParty", () => {
     expect(callParty(call, "to").kind).toBe("user");
   });
 
+  it("recognises one of our own reached on their personal number", () => {
+    const call = {
+      ...base,
+      direction: "outbound" as const,
+      from: "+12624061115",
+      to: "+15412830739",
+      toPersonal: { id: "u9", name: "Tamir Levi", roleId: "role-technician" },
+      participants: [
+        { userId: "u1", role: "caller" as const, at: "", name: "Nazarii" },
+      ],
+    };
+    expect(callParty(call, "to")).toEqual({
+      kind: "user",
+      userId: "u9",
+      roleId: "role-technician",
+      personal: true,
+      label: "Tamir Levi",
+      number: "+15412830739",
+    });
+  });
+
+  it("prefers the softphone participant over a personal-number match", () => {
+    const call = {
+      ...base,
+      direction: "inbound" as const,
+      from: "+380958601427",
+      to: "+12624061115",
+      toPersonal: { id: "u9", name: "Tamir Levi" },
+      participants: [
+        { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
+      ],
+    };
+    // They answered at their desk — not a call to their mobile.
+    const party = callParty(call, "to");
+    expect(party.userId).toBe("u2");
+    expect(party.personal).toBeUndefined();
+  });
+
   it("carries the role through so the UI can mark our own people", () => {
     const call = {
       ...base,

@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import {
   Select,
   SelectContent,
@@ -91,6 +92,7 @@ export function UserDetailSheet({
       firstName: user.firstName,
       lastName: user.lastName,
       department: user.department,
+      phone: user.phone ?? "",
     },
   });
 
@@ -204,6 +206,29 @@ export function UserDetailSheet({
                       <FormControl>
                         <Input className="h-10" disabled={!canEdit} {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone</FormLabel>
+                      <FormControl>
+                        <PhoneInput
+                          className="h-10"
+                          disabled={!canEdit}
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                        />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Their own number — calls to or from it are attributed to
+                        them in the call log.
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}

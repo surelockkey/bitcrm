@@ -50,6 +50,16 @@ export interface CallContactRef {
   companyId?: string;
 }
 
+/**
+ * One of our own people reached on their personal number — matched by the
+ * endpoint, not by softphone participation. Enriched at read time.
+ */
+export interface CallUserPhoneRef {
+  id: string;
+  name: string;
+  roleId?: string;
+}
+
 export interface CallRecord {
   /** Primary sid: outbound = agent leg, inbound = customer leg. */
   callSid: string;
@@ -66,6 +76,9 @@ export interface CallRecord {
   /** CRM contacts behind the two endpoints, enriched at read time. */
   fromContact?: CallContactRef;
   toContact?: CallContactRef;
+  /** System users reached on their personal number, enriched at read time. */
+  fromPersonal?: CallUserPhoneRef;
+  toPersonal?: CallUserPhoneRef;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -91,6 +92,44 @@ export class UsersRepository {
       items: (result.Items || []).map(this.toUser),
       nextCursor: this.encodeCursor(result.LastEvaluatedKey),
     };
+  }
+
+  /* ---------------------------------------------------------- phone index */
+
+  /**
+   * Phone → user lookup items, mirroring the CRM's contact phone index:
+   * `PK=PHONE#<e164>, SK=USER`. An index item rather than a GSI, so no table
+   * migration — and the `begins_with(PK, 'USER#')` scans that list users skip
+   * these rows for free.
+   */
+  async putPhoneIndex(phone: string, userId: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new PutCommand({
+        TableName: USERS_TABLE,
+        Item: { PK: `PHONE#${phone}`, SK: 'USER', phone, userId },
+      }),
+    );
+  }
+
+  async deletePhoneIndex(phone: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new DeleteCommand({
+        TableName: USERS_TABLE,
+        Key: { PK: `PHONE#${phone}`, SK: 'USER' },
+      }),
+    );
+  }
+
+  /** The user who owns this (already normalized) number, if any. */
+  async findByPhone(normalizedPhone: string): Promise<User | null> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({
+        TableName: USERS_TABLE,
+        Key: { PK: `PHONE#${normalizedPhone}`, SK: 'USER' },
+      }),
+    );
+    const userId = result.Item?.userId as string | undefined;
+    return userId ? this.findById(userId) : null;
   }
 
   async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {

@@ -32,6 +32,13 @@ export interface CallContactRef {
   companyId?: string;
 }
 
+/** One of our own, matched by their personal number rather than by softphone. */
+export interface CallUserPhoneRef {
+  id: string;
+  name: string;
+  roleId?: string;
+}
+
 export interface CallRecord {
   callSid: string;
   direction?: "inbound" | "outbound";
@@ -44,6 +51,9 @@ export interface CallRecord {
   /** CRM contacts behind the endpoints, resolved by the backend. */
   fromContact?: CallContactRef;
   toContact?: CallContactRef;
+  /** System users reached on their personal number, resolved by the backend. */
+  fromPersonal?: CallUserPhoneRef;
+  toPersonal?: CallUserPhoneRef;
   durationSeconds?: number;
   startedAt: string;
   updatedAt: string;
@@ -188,6 +198,11 @@ export interface CallParty {
   contactId?: string;
   /** The user's system role, for labelling them as one of ours. */
   roleId?: string;
+  /**
+   * True when this user was reached on their own phone rather than through
+   * the softphone — i.e. our system dialled their personal number.
+   */
+  personal?: boolean;
   /** Display name (or a shortened id when a user's name is unresolved). */
   label?: string;
   /** The raw endpoint, E.164 or a legacy `client:` leg. */
@@ -201,8 +216,10 @@ export interface CallParty {
  * The stored agent is the fallback when no participant was recorded (e.g. a
  * call nobody picked up still points at the agent it rang).
  *
- * A side that isn't ours is matched against the CRM by number; failing that
- * it's an unknown caller, which the UI offers to turn into a client.
+ * A side with no softphone participant is matched by number: first against
+ * our own people's personal phones (we rang a teammate's mobile), then
+ * against CRM contacts, and failing both it's an unknown caller, which the UI
+ * offers to turn into a client.
  */
 export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
   const number = side === "from" ? call.from : call.to;
@@ -234,6 +251,19 @@ export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
     user = of(answered);
   }
   if (user) return { ...user, number };
+
+  // Their own phone, not the softphone — still one of us.
+  const personal = side === "from" ? call.fromPersonal : call.toPersonal;
+  if (personal) {
+    return {
+      kind: "user",
+      userId: personal.id,
+      roleId: personal.roleId,
+      personal: true,
+      label: personal.name,
+      number,
+    };
+  }
 
   const contact = side === "from" ? call.fromContact : call.toContact;
   if (contact) {

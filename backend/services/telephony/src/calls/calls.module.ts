@@ -5,6 +5,7 @@ import { CallsRepository } from './calls.repository';
 import { CallEventsBus } from './call-events.bus';
 import { UserNamesService } from '../common/user-names.service';
 import { ContactLookupService } from '../common/contact-lookup.service';
+import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { VoiceModule } from '../voice/voice.module';
 
@@ -19,6 +20,7 @@ import { VoiceModule } from '../voice/voice.module';
     CallEventsBus,
     UserNamesService,
     ContactLookupService,
+    UserPhoneLookupService,
   ],
   exports: [CallsService, CallEventsBus],
 })

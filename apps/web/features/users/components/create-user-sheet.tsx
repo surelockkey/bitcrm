@@ -23,10 +23,12 @@ import {
   Form,
   FormControl,
   FormField,
+  FormDescription,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { createUserSchema, type CreateUserValues } from "../schemas";
 import { useCreateUser } from "../hooks";
 import { useHierarchy } from "../use-can-manage";
@@ -50,6 +52,7 @@ export function CreateUserSheet({
       email: "",
       roleId: "",
       department: "",
+      phone: "",
     },
   });
 
@@ -165,6 +168,29 @@ export function CreateUserSheet({
                         {...field}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone (optional)</FormLabel>
+                    <FormControl>
+                      <PhoneInput
+                        className="h-10"
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Their own number. Calls to or from it are shown as
+                      reaching them directly.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

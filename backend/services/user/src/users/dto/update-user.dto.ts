@@ -23,4 +23,14 @@ export class UpdateUserDto {
   @IsString()
   @MinLength(1)
   department?: string;
+
+  @ApiPropertyOptional({
+    example: '+14045551234',
+    description:
+      "The user's own phone, any format — stored E.164. Pass an empty string " +
+      'to clear it.',
+  })
+  @IsOptional()
+  @IsString()
+  phone?: string;
 }

@@ -8,7 +8,14 @@ import {
   OnModuleInit,
   Optional,
 } from '@nestjs/common';
-import { CognitoAdminService, PermissionCacheReader, SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
+import {
+  CognitoAdminService,
+  PermissionCacheReader,
+  SnsPublisherService,
+  BusinessMetricsService,
+  normalizePhone,
+  tryNormalizePhone,
+} from '@bitcrm/shared';
 import {
   type User,
   type JwtUser,
@@ -289,6 +296,8 @@ export class UsersService implements OnModuleInit {
       throw error;
     }
 
+    const phone = dto.phone ? await this.claimPhone(dto.phone, id) : undefined;
+
     const now = new Date().toISOString();
     const user: User = {
       id,
@@ -298,6 +307,7 @@ export class UsersService implements OnModuleInit {
       lastName: dto.lastName,
       roleId: dto.roleId,
       department: dto.department,
+      ...(phone ? { phone } : {}),
       status: UserStatus.ACTIVE,
       permissionOverrides: undefined,
       createdAt: now,
@@ -386,6 +396,51 @@ export class UsersService implements OnModuleInit {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * Reserve a phone for a user: normalize, reject a number another user
+   * already holds (the index maps one number to one person), and write the
+   * lookup item. Returns the stored E.164 form.
+   */
+  private async claimPhone(raw: string, userId: string): Promise<string> {
+    const phone = normalizePhone(raw);
+    const owner = await this.repository.findByPhone(phone);
+    if (owner && owner.id !== userId) {
+      throw new ConflictException(
+        `${phone} is already on ${owner.firstName} ${owner.lastName}'s profile`,
+      );
+    }
+    await this.repository.putPhoneIndex(phone, userId);
+    return phone;
+  }
+
+  /**
+   * Resolve phone numbers to the users who own them — telephony asks this to
+   * tell "we rang Nazarii's mobile" apart from "an unknown number called in".
+   * Misses and unparseable input are simply absent from the map.
+   */
+  async findManyByPhone(phones: string[]): Promise<Record<string, User>> {
+    const wanted = new Map<string, string>(); // normalized -> raw input
+    for (const raw of new Set(phones)) {
+      const normalized = tryNormalizePhone(raw);
+      if (normalized && !wanted.has(normalized)) wanted.set(normalized, raw);
+    }
+
+    const found = await Promise.all(
+      [...wanted.keys()].map(async (normalized) => ({
+        normalized,
+        user: await this.repository.findByPhone(normalized),
+      })),
+    );
+
+    const out: Record<string, User> = {};
+    for (const { normalized, user } of found) {
+      if (!user) continue;
+      out[wanted.get(normalized) as string] = user;
+      out[normalized] = user;
+    }
+    return out;
+  }
+
   async update(
     id: string,
     dto: UpdateUserDto,
@@ -393,7 +448,20 @@ export class UsersService implements OnModuleInit {
   ): Promise<User> {
     const existingUser = await this.findById(id);
 
-    const updatedUser = await this.repository.update(id, dto);
+    // Phone edits maintain the lookup index: claim the new number (rejecting
+    // one that's taken), then drop the old item so it stops resolving.
+    const attrs: Partial<User> & UpdateUserDto = { ...dto };
+    if (dto.phone !== undefined) {
+      const next = dto.phone.trim()
+        ? await this.claimPhone(dto.phone, id)
+        : undefined;
+      attrs.phone = next;
+      if (existingUser.phone && existingUser.phone !== next) {
+        await this.repository.deletePhoneIndex(existingUser.phone);
+      }
+    }
+
+    const updatedUser = await this.repository.update(id, attrs);
 
     // Sync department to Cognito if changed
     if (dto.department) {

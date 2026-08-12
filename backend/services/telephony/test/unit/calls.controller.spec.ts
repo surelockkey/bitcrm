@@ -41,15 +41,27 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
   const contacts = {
     resolve: jest.fn().mockResolvedValue({}),
   } as unknown as import('../../src/common/contact-lookup.service').ContactLookupService;
+  const userPhones = {
+    resolve: jest.fn().mockResolvedValue({}),
+  } as unknown as import('../../src/common/user-phone-lookup.service').UserPhoneLookupService;
   const controller = new CallsController(
     calls,
     bus,
     conference,
     userNames,
     contacts,
+    userPhones,
     CONFIG,
   );
-  return { controller, calls, conference, subject, userNames, contacts };
+  return {
+    controller,
+    calls,
+    conference,
+    subject,
+    userNames,
+    contacts,
+    userPhones,
+  };
 }
 
 function makeRes() {
@@ -253,6 +265,39 @@ describe('CallsController — naming the parties', () => {
     ]);
     expect(res.data[0].toContact).toEqual({ id: 'c1', name: 'Jane Roe' });
     expect(res.data[0].fromContact).toBeUndefined();
+  });
+
+  it('attributes a number on a teammate profile to them, not to a client', async () => {
+    const { controller, contacts, userPhones } = makeController({
+      list: jest.fn().mockResolvedValue({
+        items: [
+          {
+            callSid: 'CA1',
+            direction: 'outbound',
+            from: '+15412830739',
+            to: '+14045551234',
+            startedAt: '2026-08-05T10:00:00.000Z',
+            updatedAt: '2026-08-05T10:00:00.000Z',
+          },
+        ],
+      }),
+    });
+    // The same number is on a teammate's profile and on a stale contact.
+    (userPhones.resolve as jest.Mock).mockResolvedValue({
+      '+14045551234': { id: 'u9', name: 'Tamir Levi', roleId: 'role-technician' },
+    });
+    (contacts.resolve as jest.Mock).mockResolvedValue({
+      '+14045551234': { id: 'c1', name: 'Jane Roe' },
+    });
+
+    const res = await controller.list();
+
+    expect(res.data[0].toPersonal).toEqual({
+      id: 'u9',
+      name: 'Tamir Levi',
+      roleId: 'role-technician',
+    });
+    expect(res.data[0].toContact).toBeUndefined();
   });
 
   it('serves the log unnamed when the CRM is unreachable', async () => {
