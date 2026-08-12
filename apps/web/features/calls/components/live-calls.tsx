@@ -17,7 +17,13 @@ import { monitorCall } from "@/features/telephony/softphone-manager";
 import { useCallTimer } from "@/features/telephony/use-call-timer";
 import { useLiveCalls } from "../hooks";
 import { requestMonitor } from "../api";
-import { callUsers, formatEndpoint, otherParty, type CallRecord } from "../lib";
+import {
+  callParty,
+  callUsers,
+  formatEndpoint,
+  otherParty,
+  type CallRecord,
+} from "../lib";
 import { CallStatusBadge } from "./call-status-badge";
 
 function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) {
@@ -28,6 +34,9 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
   const [pending, setPending] = useState<"listen" | "join" | null>(null);
 
   const counterpart = otherParty(call);
+  // The party that isn't one of us — the side worth naming.
+  const from = callParty(call, "from");
+  const outside = from.kind === "user" ? callParty(call, "to") : from;
   const monitorReady = canJoin && softphoneOnline && !inCall;
 
   const startMonitor = async (mode: "listen" | "join") => {
@@ -55,7 +64,8 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
       )}
       <div className="min-w-0 flex-1">
         {/* Internal calls (both sides are our users) lead with the people
-            talking; customer calls lead with the customer's number. */}
+            talking; customer calls lead with whoever is calling — the client's
+            name when the CRM knows them, their number when it doesn't. */}
         {callUsers(call).includes("→") ? (
           <>
             <div className="truncate text-sm font-medium">{callUsers(call)}</div>
@@ -66,10 +76,12 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
         ) : (
           <>
             <div className="truncate text-sm font-medium">
-              {formatEndpoint(counterpart)}
+              {outside.label ?? formatEndpoint(outside.number)}
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="truncate text-xs text-muted-foreground">
               {call.direction === "inbound" ? "Incoming" : "Outgoing"}
+              {/* Named clients keep their number on the second line. */}
+              {outside.label ? ` · ${formatEndpoint(outside.number)}` : ""}
               {callUsers(call) !== "—" ? ` · ${callUsers(call)}` : ""}
             </div>
           </>
