@@ -18,17 +18,21 @@ export function useCallsList(filter: CallsFilter) {
 }
 
 /**
- * Every call involving any of a client's numbers, newest first. Idle until
- * the client's phone list is known — a query with no numbers would return the
- * whole global log, which is emphatically not "this client's calls".
+ * Every call with one client, company or teammate, newest first — served by
+ * the party index, so cost tracks their call count rather than the size of
+ * the whole log.
  */
-export function useCallsForNumbers(numbers: string[]) {
+export function useCallsForParty(
+  kind: "contact" | "company" | "user",
+  id: string | undefined,
+) {
   return useInfiniteQuery({
-    queryKey: queryKeys.calls.list({ numbers }),
-    queryFn: ({ pageParam }) => api.listCalls({ numbers }, pageParam),
+    queryKey: queryKeys.calls.byParty(kind, id ?? ""),
+    queryFn: ({ pageParam }) =>
+      api.listCallsByParty(kind, id as string, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
-    enabled: numbers.length > 0,
+    enabled: !!id,
   });
 }
 

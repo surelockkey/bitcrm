@@ -18,9 +18,9 @@ describe("CallPartyCell", () => {
         <CallPartyCell
           party={{
             kind: "user",
-            userId: "u1",
+            id: "u1",
             roleId: "role-dispatcher",
-            label: "Nazarii",
+            name: "Nazarii",
             number: "+12624061115",
           }}
         />,
@@ -35,7 +35,7 @@ describe("CallPartyCell", () => {
 
     it("still marks them as ours when the role is unresolved", () => {
       render(
-        <CallPartyCell party={{ kind: "user", userId: "u1", label: "Nazarii" }} />,
+        <CallPartyCell party={{ kind: "user", id: "u1", name: "Nazarii" }} />,
       );
       expect(screen.getByText("Team")).toBeInTheDocument();
     });
@@ -43,7 +43,7 @@ describe("CallPartyCell", () => {
     it("drops the link for viewers who can't open users", () => {
       can.mockReturnValueOnce(false);
       render(
-        <CallPartyCell party={{ kind: "user", userId: "u1", label: "Nazarii" }} />,
+        <CallPartyCell party={{ kind: "user", id: "u1", name: "Nazarii" }} />,
       );
       expect(screen.getByText("Nazarii")).toBeInTheDocument();
       expect(screen.queryByRole("link")).not.toBeInTheDocument();
@@ -54,10 +54,10 @@ describe("CallPartyCell", () => {
         <CallPartyCell
           party={{
             kind: "user",
-            userId: "u9",
+            id: "u9",
             roleId: "role-dispatcher",
             personal: true,
-            label: "Tamir Levi",
+            name: "Tamir Levi",
             number: "+15412830739",
           }}
         />,
@@ -72,8 +72,8 @@ describe("CallPartyCell", () => {
         <CallPartyCell
           party={{
             kind: "user",
-            userId: "u1",
-            label: "Nazarii",
+            id: "u1",
+            name: "Nazarii",
             number: "+12624061115",
           }}
         />,
@@ -84,7 +84,7 @@ describe("CallPartyCell", () => {
     it("doesn't repeat a legacy client: leg as a number", () => {
       render(
         <CallPartyCell
-          party={{ kind: "user", userId: "u1", label: "Nazarii", number: "client:u1" }}
+          party={{ kind: "user", id: "u1", name: "Nazarii", number: "client:u1" }}
         />,
       );
       expect(screen.queryByText("Agent")).not.toBeInTheDocument();
@@ -97,8 +97,8 @@ describe("CallPartyCell", () => {
         <CallPartyCell
           party={{
             kind: "contact",
-            contactId: "c1",
-            label: "Jane Roe",
+            id: "c1",
+            name: "Jane Roe",
             number: "+380958601427",
           }}
         />,

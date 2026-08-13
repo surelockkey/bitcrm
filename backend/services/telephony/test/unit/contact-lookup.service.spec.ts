@@ -6,7 +6,7 @@ import { ContactLookupService } from '../../src/common/contact-lookup.service';
  * call, so a miss must not be remembered for long or the feature looks broken.
  */
 describe('ContactLookupService', () => {
-  const jane = { id: 'c1', firstName: 'Jane', lastName: 'Roe' };
+  const jane = { kind: 'contact', id: 'c1', firstName: 'Jane', lastName: 'Roe' };
 
   function mockCrm(data: Record<string, unknown>) {
     return jest.fn().mockResolvedValue({
@@ -27,6 +27,7 @@ describe('ContactLookupService', () => {
     const out = await service.resolve(['+14045551234']);
 
     expect(out['+14045551234']).toEqual({
+      kind: 'contact',
       id: 'c1',
       name: 'Jane Roe',
       companyId: undefined,

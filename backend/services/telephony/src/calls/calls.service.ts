@@ -179,6 +179,19 @@ export class CallsService {
     return merged;
   }
 
+  /**
+   * Freeze who a finished call was with. One-shot at the repository level, so
+   * calling it again is harmless — which is what makes it safe to trigger
+   * from a read path.
+   */
+  freezeParties(
+    callSid: string,
+    parties: Parameters<CallsRepository['setParties']>[1],
+    startedAt: string,
+  ) {
+    return this.repo.setParties(callSid, parties, startedAt);
+  }
+
   getBySid(callSid: string) {
     return this.repo.getBySid(callSid);
   }
@@ -272,6 +285,10 @@ export class CallsService {
     };
 
     await this.repo.upsert(record);
+  }
+
+  listByParty(kind: string, id: string, limit: number, cursor?: string) {
+    return this.repo.listByParty(kind, id, limit, cursor);
   }
 
   listByAgent(agentId: string) {

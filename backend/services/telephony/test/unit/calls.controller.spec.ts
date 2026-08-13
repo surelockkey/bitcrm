@@ -29,6 +29,9 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     listLive: jest.fn().mockResolvedValue([record({ status: 'in-progress' })]),
     listByAgent: jest.fn().mockResolvedValue([]),
     getBySid: jest.fn().mockResolvedValue(record()),
+    // Freezing the association is fire-and-forget from the read path.
+    freezeParties: jest.fn().mockResolvedValue(undefined),
+    listByParty: jest.fn().mockResolvedValue({ items: [] }),
     ...over,
   } as unknown as CallsService;
   const bus = { stream: () => subject.asObservable() } as unknown as CallEventsBus;
@@ -219,7 +222,7 @@ describe('CallsController.stream (SSE)', () => {
   it('events carry the client behind the number too', async () => {
     const { controller, subject, contacts } = makeController();
     (contacts.resolve as jest.Mock).mockResolvedValue({
-      '+14045551234': { id: 'c1', name: 'Jane Roe' },
+      '+14045551234': { kind: 'contact', id: 'c1', name: 'Jane Roe' },
     });
     const { res, chunks } = makeRes();
 
@@ -231,9 +234,13 @@ describe('CallsController.stream (SSE)', () => {
     await flushMicrotasks();
 
     const frame = JSON.parse(chunks[1].replace(/^data: /, ''));
-    expect(frame.call.fromContact).toEqual({ id: 'c1', name: 'Jane Roe' });
+    expect(frame.call.fromParty).toEqual({
+      kind: 'contact',
+      id: 'c1',
+      name: 'Jane Roe',
+    });
     // Our own number isn't a client — nothing invented for the other side.
-    expect(frame.call.toContact).toBeUndefined();
+    expect(frame.call.toParty).toBeUndefined();
   });
 });
 
@@ -254,7 +261,7 @@ describe('CallsController — naming the parties', () => {
       }),
     });
     (contacts.resolve as jest.Mock).mockResolvedValue({
-      '+14045551234': { id: 'c1', name: 'Jane Roe' },
+      '+14045551234': { kind: 'contact', id: 'c1', name: 'Jane Roe' },
     });
 
     const res = await controller.list();
@@ -263,8 +270,12 @@ describe('CallsController — naming the parties', () => {
       '+15412830739',
       '+14045551234',
     ]);
-    expect(res.data[0].toContact).toEqual({ id: 'c1', name: 'Jane Roe' });
-    expect(res.data[0].fromContact).toBeUndefined();
+    expect(res.data[0].toParty).toEqual({
+      kind: 'contact',
+      id: 'c1',
+      name: 'Jane Roe',
+    });
+    expect(res.data[0].fromParty).toBeUndefined();
   });
 
   it('attributes a number on a teammate profile to them, not to a client', async () => {
@@ -287,17 +298,18 @@ describe('CallsController — naming the parties', () => {
       '+14045551234': { id: 'u9', name: 'Tamir Levi', roleId: 'role-technician' },
     });
     (contacts.resolve as jest.Mock).mockResolvedValue({
-      '+14045551234': { id: 'c1', name: 'Jane Roe' },
+      '+14045551234': { kind: 'contact', id: 'c1', name: 'Jane Roe' },
     });
 
     const res = await controller.list();
 
-    expect(res.data[0].toPersonal).toEqual({
+    expect(res.data[0].toParty).toEqual({
+      kind: 'user',
       id: 'u9',
       name: 'Tamir Levi',
       roleId: 'role-technician',
+      personal: true,
     });
-    expect(res.data[0].toContact).toBeUndefined();
   });
 
   it('serves the log unnamed when the CRM is unreachable', async () => {
@@ -307,7 +319,7 @@ describe('CallsController — naming the parties', () => {
     const res = await controller.list();
 
     expect(res.success).toBe(true);
-    expect(res.data[0].fromContact).toBeUndefined();
+    expect(res.data[0].fromParty).toBeUndefined();
   });
 
   it('passes a comma-separated number list through as a filter', async () => {

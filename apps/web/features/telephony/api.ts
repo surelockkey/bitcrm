@@ -24,23 +24,27 @@ export interface ContactMatch {
 }
 
 /**
- * Screen-pop lookup: resolve a caller/callee number to a contact. Returns null
- * on any error (missing permission, no match) — screen-pop is best-effort.
+ * Screen-pop: who is this number? Resolved by telephony through the same
+ * precedence the call log uses — one of our own people on their personal
+ * number, then a CRM contact, then a company main line — so the name that
+ * flashes on an incoming call matches the name the call log will show.
+ * Best-effort: null on any error.
  */
-export async function lookupContactByPhone(
+export interface IdentifiedParty {
+  kind: "user" | "contact" | "company";
+  id: string;
+  name?: string;
+  personal?: boolean;
+}
+
+export async function identifyNumber(
   e164: string,
-): Promise<ContactMatch | null> {
+): Promise<IdentifiedParty | null> {
   try {
-    return await http.get<ContactMatch | null>(
-      `/crm/contacts/search/by-phone?phone=${encodeURIComponent(e164)}`,
+    return await http.get<IdentifiedParty | null>(
+      `/telephony/calls/identify?phone=${encodeURIComponent(e164)}`,
     );
   } catch {
     return null;
   }
-}
-
-export function contactDisplayName(c: ContactMatch | null): string | undefined {
-  if (!c) return undefined;
-  const full = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
-  return full || c.companyName || undefined;
 }

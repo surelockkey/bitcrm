@@ -84,7 +84,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <PhoneCall className="size-3.5" /> Calls
                 </div>
-                <ClientCallsLog phones={contact.phones} />
+                <ClientCallsLog contactId={contact.id} />
               </div>
             </div>
             <div className="border-t p-6 md:border-l md:border-t-0">

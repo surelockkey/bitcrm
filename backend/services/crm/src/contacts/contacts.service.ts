@@ -258,6 +258,50 @@ export class ContactsService {
    * re-normalizing. Unparseable numbers and misses are simply absent: a number
    * nobody owns is the normal case here, not an error.
    */
+  /**
+   * Names for parties a call was already associated with. The call log stores
+   * only the id, so this is what turns a frozen association back into
+   * something readable — and why renaming a client updates old calls.
+   */
+  async findManyByRef(
+    refs: Array<{ kind: 'contact' | 'company'; id: string }>,
+  ): Promise<Record<string, { kind: string; id: string; name: string }>> {
+    const unique = new Map(refs.map((r) => [`${r.kind}:${r.id}`, r]));
+
+    const found = await Promise.all(
+      [...unique.entries()].map(async ([key, ref]) => {
+        try {
+          if (ref.kind === 'company') {
+            const company = await this.companies?.findById(ref.id);
+            return company
+              ? { key, value: { kind: ref.kind, id: ref.id, name: company.title } }
+              : null;
+          }
+          const contact = await this.repository.findById(ref.id);
+          return contact
+            ? {
+                key,
+                value: {
+                  kind: ref.kind,
+                  id: ref.id,
+                  name: `${contact.firstName} ${contact.lastName}`.trim(),
+                },
+              }
+            : null;
+        } catch {
+          // A deleted client shouldn't blank the whole page.
+          return null;
+        }
+      }),
+    );
+
+    const out: Record<string, { kind: string; id: string; name: string }> = {};
+    for (const entry of found) {
+      if (entry) out[entry.key] = entry.value;
+    }
+    return out;
+  }
+
   async findManyByPhone(
     phones: string[],
   ): Promise<Record<string, ContactPhoneMatch>> {

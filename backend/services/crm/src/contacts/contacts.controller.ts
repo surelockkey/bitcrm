@@ -18,6 +18,7 @@ import { ListContactsQueryDto } from './dto/list-contacts-query.dto';
 import { FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
 import { MergeContactsDto } from './dto/merge-contacts.dto';
 import { LookupContactsByPhonesDto } from './dto/lookup-contacts-by-phones.dto';
+import { LookupPartiesByIdsDto } from './dto/lookup-parties-by-ids.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 
 @ApiTags('Contacts')
@@ -139,6 +140,20 @@ export class ContactsController {
   })
   async findByPhonesInternal(@Body() dto: LookupContactsByPhonesDto) {
     const data = await this.contactsService.findManyByPhone(dto.phones);
+    return { success: true, data };
+  }
+
+  @Post('internal/by-ids')
+  @Internal()
+  @ApiOperation({
+    summary: 'Resolve contact/company ids to display names (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). '
+      + 'Names the parties a call is already associated with. Keyed `<kind>:<id>`; '
+      + 'ids that no longer exist are absent rather than an error.',
+  })
+  async findByRefsInternal(@Body() dto: LookupPartiesByIdsDto) {
+    const data = await this.contactsService.findManyByRef(dto.refs);
     return { success: true, data };
   }
 

@@ -40,6 +40,10 @@ interface CacheEntry {
 export class ContactLookupService {
   private readonly logger = new Logger(ContactLookupService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly nameCache = new Map<
+    string,
+    { name: string | null; expiresAt: number }
+  >();
 
   async resolve(phones: string[]): Promise<Record<string, CallContact>> {
     // `client:<id>` legs and blanks aren't numbers — never ask about them.
@@ -72,6 +76,59 @@ export class ContactLookupService {
         });
         if (contact) out[phone] = contact;
       }
+    }
+    return out;
+  }
+
+  /**
+   * Names for parties a call is already associated with. Separate cache from
+   * the by-phone one: this is keyed by identity, which is exactly the point —
+   * the number may since have moved to somebody else.
+   */
+  async resolveRefs(
+    refs: Array<{ kind: 'contact' | 'company'; id: string }>,
+  ): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    const misses: Array<{ kind: 'contact' | 'company'; id: string }> = [];
+
+    const now = Date.now();
+    for (const ref of refs) {
+      const key = `${ref.kind}:${ref.id}`;
+      const hit = this.nameCache.get(key);
+      if (hit && hit.expiresAt > now) {
+        if (hit.name) out[key] = hit.name;
+      } else {
+        misses.push(ref);
+      }
+    }
+    if (!misses.length) return out;
+
+    try {
+      const res = await fetch(
+        `${CRM_SERVICE_URL}/api/crm/contacts/internal/by-ids`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-internal-secret': INTERNAL_SECRET,
+          },
+          body: JSON.stringify({ refs: misses.slice(0, 200) }),
+        },
+      );
+      if (!res.ok) return out;
+      const body = (await res.json()) as {
+        data?: Record<string, { name?: string }>;
+      };
+      for (const ref of misses) {
+        const key = `${ref.kind}:${ref.id}`;
+        const name = body.data?.[key]?.name ?? null;
+        this.nameCache.set(key, { name, expiresAt: now + CACHE_TTL_MS });
+        if (name) out[key] = name;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `party name lookup failed: ${error instanceof Error ? error.message : error}`,
+      );
     }
     return out;
   }

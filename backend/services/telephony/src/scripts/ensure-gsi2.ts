@@ -24,6 +24,7 @@ import {
 import {
   CALLS_TABLE,
   CALLS_GSI2_NAME,
+  CALLS_GSI3_NAME,
   ALL_CALLS_PK,
   allCallsSk,
 } from '../common/constants/dynamo.constants';
@@ -32,6 +33,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface EnsureGsi2Result {
   indexCreated: boolean;
+  /** PartyIndex — calls by client/company/teammate. No backfill: its keys are
+   *  written when a call's association is frozen. */
+  partyIndexCreated: boolean;
   itemsBackfilled: number;
 }
 
@@ -64,9 +68,16 @@ async function waitActive(client: DynamoDBClient): Promise<void> {
   throw new Error('Timed out waiting for calls table/indexes to become ACTIVE');
 }
 
-/** Add the GSI when missing. Returns true when it had to be created. */
+/**
+ * Add one GSI when missing. Returns true when it had to be created.
+ *
+ * DynamoDB builds one index at a time, so callers must await each of these
+ * in turn — the wait for ACTIVE inside is what makes that safe.
+ */
 async function ensureIndex(
   client: DynamoDBClient,
+  indexName: string,
+  keyPrefix: string,
   dryRun: boolean,
   log: (msg: string) => void,
 ): Promise<boolean> {
@@ -76,30 +87,30 @@ async function ensureIndex(
   const existing = new Set(
     (Table?.GlobalSecondaryIndexes || []).map((g) => g.IndexName),
   );
-  if (existing.has(CALLS_GSI2_NAME)) {
-    log(`${CALLS_GSI2_NAME}: present`);
+  if (existing.has(indexName)) {
+    log(`${indexName}: present`);
     return false;
   }
   if (dryRun) {
-    log(`[dry-run] ${CALLS_GSI2_NAME}: would create`);
+    log(`[dry-run] ${indexName}: would create`);
     return true;
   }
 
-  log(`${CALLS_GSI2_NAME}: creating (online UpdateTable)…`);
+  log(`${indexName}: creating (online UpdateTable)…`);
   await client.send(
     new UpdateTableCommand({
       TableName: CALLS_TABLE,
       AttributeDefinitions: [
-        { AttributeName: 'GSI2PK', AttributeType: 'S' },
-        { AttributeName: 'GSI2SK', AttributeType: 'S' },
+        { AttributeName: `${keyPrefix}PK`, AttributeType: 'S' },
+        { AttributeName: `${keyPrefix}SK`, AttributeType: 'S' },
       ],
       GlobalSecondaryIndexUpdates: [
         {
           Create: {
-            IndexName: CALLS_GSI2_NAME,
+            IndexName: indexName,
             KeySchema: [
-              { AttributeName: 'GSI2PK', KeyType: 'HASH' },
-              { AttributeName: 'GSI2SK', KeyType: 'RANGE' },
+              { AttributeName: `${keyPrefix}PK`, KeyType: 'HASH' },
+              { AttributeName: `${keyPrefix}SK`, KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },
@@ -108,7 +119,7 @@ async function ensureIndex(
     }),
   );
   await waitActive(client);
-  log(`${CALLS_GSI2_NAME}: ACTIVE`);
+  log(`${indexName}: ACTIVE`);
   return true;
 }
 
@@ -178,12 +189,27 @@ export async function ensureCallsGsi2(
 
   try {
     const dryRun = options.dryRun ?? false;
-    const indexCreated = await ensureIndex(client, dryRun, log);
+    const indexCreated = await ensureIndex(
+      client,
+      CALLS_GSI2_NAME,
+      'GSI2',
+      dryRun,
+      log,
+    );
+    // Sequential on purpose: DynamoDB refuses a second index build while one
+    // is still in progress.
+    const partyIndexCreated = await ensureIndex(
+      client,
+      CALLS_GSI3_NAME,
+      'GSI3',
+      dryRun,
+      log,
+    );
     const itemsBackfilled = await backfill(doc, dryRun, log);
     if (itemsBackfilled > 0) {
       log(`backfilled GSI2 keys on ${itemsBackfilled} call record(s)`);
     }
-    return { indexCreated, itemsBackfilled };
+    return { indexCreated, partyIndexCreated, itemsBackfilled };
   } finally {
     client.destroy();
   }
@@ -201,7 +227,7 @@ if (require.main === module) {
   ensureCallsGsi2({ dryRun, log: (m) => console.log(`  ${m}`) })
     .then((r) =>
       console.log(
-        `\nDone. indexCreated=${r.indexCreated} itemsBackfilled=${r.itemsBackfilled}${dryRun ? ' (dry run)' : ''}`,
+        `\nDone. indexCreated=${r.indexCreated} partyIndexCreated=${r.partyIndexCreated} itemsBackfilled=${r.itemsBackfilled}${dryRun ? ' (dry run)' : ''}`,
       ),
     )
     .catch((err) => {

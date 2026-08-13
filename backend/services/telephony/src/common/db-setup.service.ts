@@ -25,7 +25,9 @@ export class DbSetupService implements OnApplicationBootstrap {
         log: (msg) => this.logger.log(`ensure-gsi2: ${msg}`),
       });
       this.logger.log(
-        `Calls table ready — indexCreated=${result.indexCreated} itemsBackfilled=${result.itemsBackfilled}`,
+        `Calls table ready — indexCreated=${result.indexCreated} ` +
+          `partyIndexCreated=${result.partyIndexCreated} ` +
+          `itemsBackfilled=${result.itemsBackfilled}`,
       );
     } catch (error) {
       // Don't block boot: voice webhooks + token minting still work; only the

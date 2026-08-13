@@ -29,6 +29,10 @@ locals {
     calls = { gsis = [
       { name = "AgentIndex", n = 1 },
       { name = "AllCallsIndex", n = 2 },
+      # PartyIndex: every call with one client, company or teammate, without
+      # scanning the global log. Keys are written when the association is
+      # frozen, so only associated calls appear here.
+      { name = "PartyIndex", n = 3 },
     ] }
     deal-products    = { gsis = [] }
     timeline-entries = { gsis = [] }

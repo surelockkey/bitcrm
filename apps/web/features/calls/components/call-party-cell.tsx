@@ -30,7 +30,7 @@ export function CallPartyCell({
   // A `client:` leg is the user themselves, not a number worth repeating.
   const number = isClientEndpoint(party.number) ? undefined : party.number;
 
-  if (party.kind === "unknown") {
+  if (party.kind === "unknown" || !party.name) {
     const canAdd = !!number && !!onAddClient && can("contacts", "create");
     return (
       <div className="flex flex-col items-start leading-tight">
@@ -56,13 +56,15 @@ export function CallPartyCell({
   const isClient = party.kind === "contact" || party.kind === "company";
   const href =
     party.kind === "company"
-      ? `/companies/${party.contactId}`
+      ? `/companies/${party.id}`
       : party.kind === "contact"
-        ? `/contacts/${party.contactId}`
-        : `/admin/users?user=${party.userId}`;
-  const linkable = isClient
-    ? can(party.kind === "company" ? "companies" : "contacts", "view")
-    : !!party.userId && can("users", "view");
+        ? `/contacts/${party.id}`
+        : `/admin/users?user=${party.id}`;
+  const linkable =
+    !!party.id &&
+    (isClient
+      ? can(party.kind === "company" ? "companies" : "contacts", "view")
+      : can("users", "view"));
 
   return (
     <div className="flex flex-col items-start leading-tight">
@@ -73,10 +75,10 @@ export function CallPartyCell({
             onClick={(e) => e.stopPropagation()}
             className="font-medium underline-offset-2 hover:text-brand hover:underline"
           >
-            {party.label}
+            {party.name}
           </Link>
         ) : (
-          <span className="font-medium">{party.label}</span>
+          <span className="font-medium">{party.name}</span>
         )}
         {party.kind === "company" ? (
           <span className="rounded border px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">

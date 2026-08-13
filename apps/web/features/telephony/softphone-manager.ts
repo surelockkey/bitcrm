@@ -2,9 +2,8 @@ import type { Call, Device } from "@twilio/voice-sdk";
 import { normalizePhone } from "@/lib/phone";
 import { useSoftphoneStore } from "./softphone-store";
 import {
-  contactDisplayName,
   fetchVoiceToken,
-  lookupContactByPhone,
+  identifyNumber,
   setPresence,
 } from "./api";
 
@@ -160,9 +159,8 @@ function wireCall(call: Call) {
 }
 
 async function screenPop(e164: string) {
-  const match = await lookupContactByPhone(e164);
-  const name = contactDisplayName(match);
-  if (name) store().patchCall({ contactName: name });
+  const party = await identifyNumber(e164);
+  if (party?.name) store().patchCall({ contactName: party.name });
 }
 
 async function handleIncoming(call: Call) {

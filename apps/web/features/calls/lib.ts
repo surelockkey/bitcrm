@@ -25,21 +25,6 @@ export interface CallParticipant {
   roleId?: string;
 }
 
-/** A party matched in the CRM, resolved by the backend. */
-export interface CallContactRef {
-  kind: "contact" | "company";
-  id: string;
-  name: string;
-  companyId?: string;
-}
-
-/** One of our own, matched by their personal number rather than by softphone. */
-export interface CallUserPhoneRef {
-  id: string;
-  name: string;
-  roleId?: string;
-}
-
 export interface CallRecord {
   callSid: string;
   direction?: "inbound" | "outbound";
@@ -49,12 +34,14 @@ export interface CallRecord {
   agentId?: string;
   agentName?: string;
   agentRoleId?: string;
-  /** CRM contacts behind the endpoints, resolved by the backend. */
-  fromContact?: CallContactRef;
-  toContact?: CallContactRef;
-  /** System users reached on their personal number, resolved by the backend. */
-  fromPersonal?: CallUserPhoneRef;
-  toPersonal?: CallUserPhoneRef;
+  /**
+   * Who was on each side, resolved (and, once the call has ended, frozen) by
+   * the backend. This is the single answer the UI renders — the precedence
+   * between softphone participant, personal number and CRM record lives
+   * server-side in one place.
+   */
+  fromParty?: CallParty;
+  toParty?: CallParty;
   durationSeconds?: number;
   startedAt: string;
   updatedAt: string;
@@ -167,134 +154,69 @@ export function formatEndpoint(value?: string): string {
   return formatIntl(value) || value;
 }
 
-/** The customer-facing party of a call (the non-agent side). */
-export function otherParty(
+/**
+ * The endpoint of the far side, for places that need a number rather than an
+ * identity — dialling back, or the softphone's caller-id label.
+ */
+export function otherPartyNumber(
   call: Pick<CallRecord, "direction" | "from" | "to">,
 ): string | undefined {
   const candidate = call.direction === "inbound" ? call.from : call.to;
   // Legacy records sometimes carry client: endpoints — prefer the other side.
-  if (candidate && !candidate.startsWith("client:")) return candidate;
+  if (candidate && !isClientEndpoint(candidate)) return candidate;
   const fallback = call.direction === "inbound" ? call.to : call.from;
-  return fallback && !fallback.startsWith("client:") ? fallback : candidate;
-}
-
-/** A user id with no resolved name still has to render as something. */
-function shortId(userId: string): string {
-  return `${userId.slice(0, 8)}…`;
-}
-
-function participantLabel(p: CallParticipant): string {
-  return p.name ?? shortId(p.userId);
+  return fallback && !isClientEndpoint(fallback) ? fallback : candidate;
 }
 
 /**
- * One side of a call. Exactly one of three things: one of our own people, a
- * client from the CRM, or a number nobody has claimed yet.
+ * One side of a call, exactly as the backend resolved it: one of our own
+ * people, a client (person or company), or a number nobody has claimed yet.
+ *
+ * The precedence that picks between those lives server-side — see
+ * telephony's `party-resolver`. The UI does not re-derive it, because two
+ * implementations of the same rules is how they end up disagreeing.
  */
 export interface CallParty {
   kind: "user" | "contact" | "company" | "unknown";
-  /** Set for `user` — links to their profile. */
-  userId?: string;
-  /** Set for `contact` / `company` — links to the client record. */
-  contactId?: string;
+  /** Identity within `kind`; absent for `unknown`. */
+  id?: string;
   /** The user's system role, for labelling them as one of ours. */
   roleId?: string;
   /**
-   * True when this user was reached on their own phone rather than through
+   * True when a teammate was reached on their own phone rather than through
    * the softphone — i.e. our system dialled their personal number.
    */
   personal?: boolean;
-  /** Display name (or a shortened id when a user's name is unresolved). */
-  label?: string;
+  /** Display name; absent for `unknown`. */
+  name?: string;
   /** The raw endpoint, E.164 or a legacy `client:` leg. */
   number?: string;
 }
 
 /**
- * Who is on the `from` / `to` side of a call. Outbound calls have our user on
- * `from` (whoever dialled), inbound ones have them on `to` (whoever answered),
- * and an internal call — our number to our number — has a user on both sides.
- * The stored agent is the fallback when no participant was recorded (e.g. a
- * call nobody picked up still points at the agent it rang).
- *
- * A side with no softphone participant is matched by number: first against
- * our own people's personal phones (we rang a teammate's mobile), then
- * against CRM contacts, and failing both it's an unknown caller, which the UI
- * offers to turn into a client.
+ * The party on one side of a call, ready to render. Falls back to an unknown
+ * party carrying just the number — which is what the "Add client" shortcut
+ * needs, and what an un-enriched record (CRM unreachable) looks like.
  */
 export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
   const number = side === "from" ? call.from : call.to;
-  const caller = call.participants?.find((p) => p.role === "caller");
-  const answered = call.participants?.find((p) => p.role === "answered");
-  const agent: CallParty | undefined = call.agentId
-    ? {
-        kind: "user",
-        userId: call.agentId,
-        roleId: call.agentRoleId,
-        label: call.agentName ?? shortId(call.agentId),
-      }
-    : undefined;
-  const of = (p: CallParticipant): CallParty => ({
-    kind: "user",
-    userId: p.userId,
-    roleId: p.roleId,
-    label: participantLabel(p),
-  });
+  const party = side === "from" ? call.fromParty : call.toParty;
+  if (!party) return { kind: "unknown", number };
+  return { ...party, number: party.number ?? number };
+}
 
-  let user: CallParty | undefined;
-  if (side === "from") {
-    // Inbound calls come from outside — no user on this side.
-    if (call.direction !== "inbound") user = caller ? of(caller) : agent;
-  } else if (call.direction === "inbound") {
-    user = answered ? of(answered) : agent;
-  } else if (answered && answered.userId !== caller?.userId) {
-    // Outbound to one of our own numbers — the internal call's receiving user.
-    user = of(answered);
-  }
-  if (user) return { ...user, number };
-
-  // Their own phone, not the softphone — still one of us.
-  const personal = side === "from" ? call.fromPersonal : call.toPersonal;
-  if (personal) {
-    return {
-      kind: "user",
-      userId: personal.id,
-      roleId: personal.roleId,
-      personal: true,
-      label: personal.name,
-      number,
-    };
-  }
-
-  const contact = side === "from" ? call.fromContact : call.toContact;
-  if (contact) {
-    return {
-      kind: contact.kind ?? "contact",
-      contactId: contact.id,
-      label: contact.name,
-      number,
-    };
-  }
-  return { kind: "unknown", number };
+/** True when both sides are our own people — an internal call. */
+export function isInternalCall(call: CallRecord): boolean {
+  return call.fromParty?.kind === "user" && call.toParty?.kind === "user";
 }
 
 /**
- * The system user(s) behind a call, for the table's User column:
- * outbound → who called; inbound → who answered; internal (our number to our
- * number) → "caller → answerer". Falls back to the stored agent.
+ * The party that isn't us — whoever the call was actually with. Both sides
+ * being ours means an internal call, where the answerer is the far end.
  */
-export function callUsers(call: CallRecord): string {
-  const caller = call.participants?.find((p) => p.role === "caller");
-  const answered = call.participants?.find((p) => p.role === "answered");
-
-  if (caller && answered && caller.userId !== answered.userId) {
-    return `${participantLabel(caller)} → ${participantLabel(answered)}`;
-  }
-  const main = caller ?? answered;
-  if (main) return participantLabel(main);
-  if (call.agentName) return call.agentName;
-  if (call.agentId) return `${call.agentId.slice(0, 8)}…`;
-  return "—";
+export function counterparty(call: CallRecord): CallParty {
+  const from = callParty(call, "from");
+  return from.kind === "user" ? callParty(call, "to") : from;
 }
 
 /** Filter → querystring params for GET /calls (drops empty values). */

@@ -8,12 +8,11 @@ import { useCallDetail } from "../hooks";
 import { useCallStream } from "../use-call-stream";
 import {
   callParty,
-  callUsers,
+  counterparty,
   formatCallTime,
   formatDuration,
   formatEndpoint,
   isLive,
-  otherParty,
   PARTICIPANT_ROLE_LABEL,
   type CallRecord,
 } from "../lib";
@@ -61,7 +60,7 @@ export function CallDetailPage({ callId }: { callId: string }) {
     );
   }
 
-  const counterpart = otherParty(call);
+  const counterpart = counterparty(call);
 
   return (
     <div className="flex flex-1 flex-col gap-6 p-6">
@@ -80,7 +79,7 @@ export function CallDetailPage({ callId }: { callId: string }) {
           )}
           <div>
             <h1 className="text-lg font-semibold tracking-tight">
-              {counterpart ? formatEndpoint(counterpart) : "Call"}
+              {counterpart.name ?? formatEndpoint(counterpart.number)}
             </h1>
             <p className="text-sm text-muted-foreground">
               {call.direction === "inbound" ? "Incoming call" : "Outgoing call"} ·{" "}
@@ -100,7 +99,6 @@ export function CallDetailPage({ callId }: { callId: string }) {
         <dl className="grid grid-cols-2 gap-x-8 gap-y-4 rounded-lg border p-4 sm:grid-cols-3">
           <Field label="From" value={<CallPartyCell party={callParty(call, "from")} />} />
           <Field label="To" value={<CallPartyCell party={callParty(call, "to")} />} />
-          <Field label="User" value={callUsers(call)} />
           <Field label="Started" value={formatCallTime(call.startedAt)} />
           <Field label="Answered" value={formatCallTime(call.answeredAt)} />
           <Field label="Ended" value={formatCallTime(call.endedAt)} />

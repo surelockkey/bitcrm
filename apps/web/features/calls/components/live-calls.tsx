@@ -19,9 +19,10 @@ import { useLiveCalls } from "../hooks";
 import { requestMonitor } from "../api";
 import {
   callParty,
-  callUsers,
+  counterparty,
   formatEndpoint,
-  otherParty,
+  isInternalCall,
+  otherPartyNumber,
   type CallRecord,
 } from "../lib";
 import { CallStatusBadge } from "./call-status-badge";
@@ -33,10 +34,12 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
   const inCall = useSoftphoneStore((s) => s.callState !== "idle");
   const [pending, setPending] = useState<"listen" | "join" | null>(null);
 
-  const counterpart = otherParty(call);
+  const counterpart = otherPartyNumber(call);
   // The party that isn't one of us — the side worth naming.
-  const from = callParty(call, "from");
-  const outside = from.kind === "user" ? callParty(call, "to") : from;
+  const outside = counterparty(call);
+  // Whoever of ours handled it, for the detail line.
+  const fromParty = callParty(call, "from");
+  const ours = fromParty.kind === "user" ? fromParty : callParty(call, "to");
   const monitorReady = canJoin && softphoneOnline && !inCall;
 
   const startMonitor = async (mode: "listen" | "join") => {
@@ -66,9 +69,11 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
         {/* Internal calls (both sides are our users) lead with the people
             talking; customer calls lead with whoever is calling — the client's
             name when the CRM knows them, their number when it doesn't. */}
-        {callUsers(call).includes("→") ? (
+        {isInternalCall(call) ? (
           <>
-            <div className="truncate text-sm font-medium">{callUsers(call)}</div>
+            <div className="truncate text-sm font-medium">
+              {callParty(call, "from").name} → {callParty(call, "to").name}
+            </div>
             <div className="text-xs text-muted-foreground">
               Internal · {formatEndpoint(call.from)} → {formatEndpoint(call.to)}
             </div>
@@ -76,13 +81,13 @@ function LiveCallRow({ call, canJoin }: { call: CallRecord; canJoin: boolean }) 
         ) : (
           <>
             <div className="truncate text-sm font-medium">
-              {outside.label ?? formatEndpoint(outside.number)}
+              {outside.name ?? formatEndpoint(outside.number)}
             </div>
             <div className="truncate text-xs text-muted-foreground">
               {call.direction === "inbound" ? "Incoming" : "Outgoing"}
               {/* Named clients keep their number on the second line. */}
-              {outside.label ? ` · ${formatEndpoint(outside.number)}` : ""}
-              {callUsers(call) !== "—" ? ` · ${callUsers(call)}` : ""}
+              {outside.name ? ` · ${formatEndpoint(outside.number)}` : ""}
+              {ours?.name ? ` · ${ours.name}` : ""}
             </div>
           </>
         )}

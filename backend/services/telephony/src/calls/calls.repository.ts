@@ -5,9 +5,11 @@ import {
   CALLS_TABLE,
   CALLS_GSI1_NAME,
   CALLS_GSI2_NAME,
+  CALLS_GSI3_NAME,
   ALL_CALLS_PK,
   callPk,
   agentGsiPk,
+  partyGsiPk,
   allCallsSk,
 } from '../common/constants/dynamo.constants';
 
@@ -43,24 +45,6 @@ export interface CallParticipant {
   roleId?: string;
 }
 
-/** A party matched in the CRM, enriched at read time (never stored). */
-export interface CallContactRef {
-  kind: 'contact' | 'company';
-  id: string;
-  name: string;
-  companyId?: string;
-}
-
-/**
- * One of our own people reached on their personal number — matched by the
- * endpoint, not by softphone participation. Enriched at read time.
- */
-export interface CallUserPhoneRef {
-  id: string;
-  name: string;
-  roleId?: string;
-}
-
 export interface CallRecord {
   /** Primary sid: outbound = agent leg, inbound = customer leg. */
   callSid: string;
@@ -74,12 +58,18 @@ export interface CallRecord {
   agentName?: string;
   /** The agent's system role, enriched at read time (never stored). */
   agentRoleId?: string;
-  /** CRM contacts behind the two endpoints, enriched at read time. */
-  fromContact?: CallContactRef;
-  toContact?: CallContactRef;
-  /** System users reached on their personal number, enriched at read time. */
-  fromPersonal?: CallUserPhoneRef;
-  toPersonal?: CallUserPhoneRef;
+  /**
+   * Who each side turned out to be, frozen when the call ended. Stored so the
+   * log is evidence rather than a live re-derivation: a number changing hands
+   * later must not rewrite who this call was with. Names are still resolved at
+   * read time, so a rename shows through.
+   */
+  fromPartyKind?: 'user' | 'contact' | 'company';
+  fromPartyId?: string;
+  fromPartyPersonal?: boolean;
+  toPartyKind?: 'user' | 'contact' | 'company';
+  toPartyId?: string;
+  toPartyPersonal?: boolean;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;
@@ -217,6 +207,82 @@ export class CallsRepository {
         ExpressionAttributeValues: values,
       }),
     );
+  }
+
+  /**
+   * Freeze who each side was. Written once, when the call ends or on the
+   * first read of an older record — `attribute_not_exists` keeps it that way,
+   * so a later re-resolution can never rewrite settled history.
+   */
+  async setParties(
+    callSid: string,
+    parties: {
+      from?: { kind: string; id: string; personal?: boolean };
+      to?: { kind: string; id: string; personal?: boolean };
+    },
+    startedAt: string,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const names: Record<string, string> = {};
+    const values: Record<string, unknown> = {};
+    const guards: string[] = [];
+
+    for (const side of ['from', 'to'] as const) {
+      const party = parties[side];
+      if (!party) continue;
+      const kindKey = `${side}PartyKind`;
+      const idKey = `${side}PartyId`;
+      sets.push(`#${kindKey} = :${kindKey}`, `#${idKey} = :${idKey}`);
+      names[`#${kindKey}`] = kindKey;
+      names[`#${idKey}`] = idKey;
+      values[`:${kindKey}`] = party.kind;
+      values[`:${idKey}`] = party.id;
+      guards.push(`attribute_not_exists(#${idKey})`);
+
+      if (party.personal) {
+        const personalKey = `${side}PartyPersonal`;
+        sets.push(`#${personalKey} = :${personalKey}`);
+        names[`#${personalKey}`] = personalKey;
+        values[`:${personalKey}`] = true;
+      }
+    }
+
+    // The party index keys off one side. `to` wins for outbound and `from`
+    // for inbound — i.e. whoever isn't us — and a call between two of our own
+    // is indexed under the person who answered.
+    const indexed = parties.to ?? parties.from;
+    if (indexed) {
+      sets.push('#gsi3pk = :gsi3pk', '#gsi3sk = :gsi3sk');
+      names['#gsi3pk'] = 'GSI3PK';
+      names['#gsi3sk'] = 'GSI3SK';
+      values[':gsi3pk'] = partyGsiPk(indexed.kind, indexed.id);
+      values[':gsi3sk'] = allCallsSk(startedAt, callSid);
+    }
+    if (!sets.length) return;
+
+    await this.dynamoDb.client
+      .send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: callPk(callSid), SK: 'METADATA' },
+          UpdateExpression: `SET ${sets.join(', ')}`,
+          // Both sides are written together, so guarding on either being
+          // unset is enough to make this a one-shot write.
+          ConditionExpression: guards.join(' AND '),
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }),
+      )
+      .catch((error: unknown) => {
+        // Already frozen (or raced) — that's the intended outcome, not a fault.
+        if (
+          error instanceof Error &&
+          error.name === 'ConditionalCheckFailedException'
+        ) {
+          return;
+        }
+        throw error;
+      });
   }
 
   async getBySid(callSid: string): Promise<CallRecord | null> {
@@ -357,6 +423,34 @@ export class CallsRepository {
       }),
     );
     return (res.Items ?? []).map(hydrate);
+  }
+
+  /**
+   * Every call with one client or teammate, newest first — an indexed query
+   * rather than the filter-scan the number-matching path has to do. Only
+   * covers calls whose association has been frozen (see setParties).
+   */
+  async listByParty(
+    kind: string,
+    id: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<ListCallsResult> {
+    const res = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        IndexName: CALLS_GSI3_NAME,
+        KeyConditionExpression: 'GSI3PK = :pk',
+        ExpressionAttributeValues: { ':pk': partyGsiPk(kind, id) },
+        ScanIndexForward: false,
+        Limit: limit,
+        ...(cursor && { ExclusiveStartKey: this.decodeCursor(cursor) }),
+      }),
+    );
+    return {
+      items: (res.Items ?? []).map(hydrate),
+      nextCursor: this.encodeCursor(res.LastEvaluatedKey),
+    };
   }
 
   /** An agent's recent calls, newest first. */

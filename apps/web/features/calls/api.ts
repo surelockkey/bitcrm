@@ -14,6 +14,22 @@ export function listCalls(
   return apiFetchPaginated<CallRecord>(`${BASE}?${qs.toString()}`);
 }
 
+/**
+ * Calls with one client, company or teammate — an indexed lookup rather than
+ * a filtered scan of the whole log.
+ */
+export function listCallsByParty(
+  kind: "contact" | "company" | "user",
+  id: string,
+  cursor?: string,
+): Promise<PaginatedResponse<CallRecord>> {
+  const qs = new URLSearchParams({ limit: "25" });
+  if (cursor) qs.set("cursor", cursor);
+  return apiFetchPaginated<CallRecord>(
+    `${BASE}/by-party/${kind}/${id}?${qs.toString()}`,
+  );
+}
+
 export const getCall = (sid: string): Promise<CallRecord> =>
   http.get<CallRecord>(`${BASE}/${sid}`);
 

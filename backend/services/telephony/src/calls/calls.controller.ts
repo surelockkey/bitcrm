@@ -27,6 +27,16 @@ import {
 import { ConferenceService, type MonitorMode } from '../voice/conference.service';
 import { UserNamesService, type UserSummary } from '../common/user-names.service';
 import {
+  identifyNumber,
+  partyStorage,
+  resolveParties,
+  storedParties,
+  type CallPartyRef,
+  type EnrichedCall,
+  type PartyLookups,
+  type ResolvedParties,
+} from './party-resolver';
+import {
   ContactLookupService,
   type CallContact,
 } from '../common/contact-lookup.service';
@@ -70,7 +80,7 @@ export class CallsController {
    * A number that belongs to one of our people is deliberately resolved as
    * that person, not as a client, even if a contact record also carries it.
    */
-  private async withNames(records: CallRecord[]): Promise<CallRecord[]> {
+  private async withNames(records: CallRecord[]): Promise<EnrichedCall[]> {
     const ids = records.flatMap((r) => [
       ...(r.agentId ? [r.agentId] : []),
       ...(r.participants?.map((p) => p.userId) ?? []),
@@ -93,21 +103,34 @@ export class CallsController {
         : Promise.resolve<Record<string, CallUserPhone>>({}),
     ]);
 
-    return records.map((r) => {
+    const lookups: PartyLookups = { users, personals, contacts };
+
+    // Frozen client associations carry only an id; fetch their current names
+    // so a renamed client reads correctly on calls from years ago.
+    const parties = records.map((r) => this.partiesFor(r, lookups));
+    const refs = parties.flatMap((p) =>
+      [p.from, p.to].flatMap((party) =>
+        party && party.kind !== 'user' && !party.name
+          ? [{ kind: party.kind, id: party.id }]
+          : [],
+      ),
+    );
+    const refNames = refs.length ? await this.contacts.resolveRefs(refs) : {};
+    const withName = (party?: CallPartyRef) =>
+      party && !party.name && party.kind !== 'user'
+        ? { ...party, name: refNames[`${party.kind}:${party.id}`] }
+        : party;
+
+    return records.map((r, i) => {
       const agent = r.agentId ? users[r.agentId] : undefined;
-      const fromPersonal = r.from ? personals[r.from] : undefined;
-      const toPersonal = r.to ? personals[r.to] : undefined;
-      // Ours beats theirs: a number on a teammate's profile is that teammate,
-      // even if some contact record happens to carry it too.
-      const from = fromPersonal ? undefined : r.from ? contacts[r.from] : undefined;
-      const to = toPersonal ? undefined : r.to ? contacts[r.to] : undefined;
+      const from = withName(parties[i].from);
+      const to = withName(parties[i].to);
+
       return {
         ...r,
         ...(agent ? { agentName: agent.name, agentRoleId: agent.roleId } : {}),
-        ...(from ? { fromContact: from } : {}),
-        ...(to ? { toContact: to } : {}),
-        ...(fromPersonal ? { fromPersonal } : {}),
-        ...(toPersonal ? { toPersonal } : {}),
+        ...(from ? { fromParty: from } : {}),
+        ...(to ? { toParty: to } : {}),
         ...(r.participants
           ? {
               participants: r.participants.map((p) => {
@@ -118,6 +141,43 @@ export class CallsController {
           : {}),
       };
     });
+  }
+
+  /**
+   * The parties for one record: the frozen association when there is one,
+   * otherwise resolved from the numbers — and, once the call has ended,
+   * written back so the next read and the party index use the settled answer.
+   * Fire-and-forget: naming a call must never fail on a write.
+   */
+  private partiesFor(call: CallRecord, lookups: PartyLookups): ResolvedParties {
+    const stored = storedParties(call);
+    if (stored.from || stored.to) return this.nameStored(stored, lookups);
+
+    const resolved = resolveParties(call, lookups);
+    const live = !!call.status && LIVE_STATUSES.includes(call.status);
+    if (!live && (resolved.from || resolved.to)) {
+      void this.callsService
+        .freezeParties(
+          call.callSid,
+          { from: partyStorage(resolved.from), to: partyStorage(resolved.to) },
+          call.startedAt,
+        )
+        .catch(() => undefined);
+    }
+    return resolved;
+  }
+
+  /** Put today's names on a frozen association. */
+  private nameStored(
+    stored: ResolvedParties,
+    lookups: PartyLookups,
+  ): ResolvedParties {
+    const named = (party?: CallPartyRef): CallPartyRef | undefined => {
+      if (!party || party.kind !== 'user') return party;
+      const user = lookups.users[party.id];
+      return user ? { ...party, name: user.name, roleId: user.roleId } : party;
+    };
+    return { from: named(stored.from), to: named(stored.to) };
   }
 
   /* NOTE: static routes are declared before ':sid' so they aren't swallowed. */
@@ -162,6 +222,61 @@ export class CallsController {
       success: true,
       data: await this.withNames(result.items),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
+    };
+  }
+
+  @Get('by-party/:kind/:id')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: "Calls with one client, company or teammate",
+    description:
+      '**Guard:** `calls.view` permission required. Indexed lookup (PartyIndex) ' +
+      'rather than a filtered scan of the whole log. Covers calls whose ' +
+      'association has been frozen — older records fall back to the `numbers` ' +
+      'filter on `GET /calls` until they are read once.',
+  })
+  async byParty(
+    @Param('kind') kind: string,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    if (!['contact', 'company', 'user'].includes(kind)) {
+      throw new BadRequestException('kind must be contact, company or user');
+    }
+    const parsedLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
+    const result = await this.callsService.listByParty(
+      kind,
+      id,
+      parsedLimit,
+      cursor,
+    );
+    return {
+      success: true,
+      data: await this.withNames(result.items),
+      pagination: { nextCursor: result.nextCursor, count: result.items.length },
+    };
+  }
+
+  @Get('identify')
+  @ApiOperation({
+    summary: 'Who does this number belong to?',
+    description:
+      'Any authenticated user — the softphone calls this when it rings, and a ' +
+      'technician who may not read the call log still needs to know who is ' +
+      'calling. Resolves through the same precedence as the call log: one of ' +
+      'our own people on their personal number first, then a CRM contact, ' +
+      'then a company main line.',
+  })
+  async identify(@Query('phone') phone?: string) {
+    if (!phone) throw new BadRequestException('phone is required');
+    const [personals, contacts] = await Promise.all([
+      this.userPhones.resolve([phone]),
+      this.contacts.resolve([phone]),
+    ]);
+    return {
+      success: true,
+      data: identifyNumber(phone, { personals, contacts }) ?? null,
     };
   }
 

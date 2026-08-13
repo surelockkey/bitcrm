@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   callParty,
-  callUsers,
+  counterparty,
   filterToParams,
+  isInternalCall,
+  otherPartyNumber,
   formatCallTime,
   formatDuration,
   formatEndpoint,
   isLive,
-  otherParty,
   statusTone,
 } from "./lib";
 
@@ -63,239 +64,122 @@ describe("formatEndpoint", () => {
   });
 });
 
-describe("otherParty", () => {
-  it("returns the customer side per direction", () => {
+describe("otherPartyNumber", () => {
+  it("returns the far-side endpoint per direction", () => {
     expect(
-      otherParty({ direction: "inbound", from: "+38095", to: "+1262" }),
+      otherPartyNumber({ direction: "inbound", from: "+38095", to: "+1262" }),
     ).toBe("+38095");
     expect(
-      otherParty({ direction: "outbound", from: "+1262", to: "+38095" }),
+      otherPartyNumber({ direction: "outbound", from: "+1262", to: "+38095" }),
     ).toBe("+38095");
   });
+
   it("skips legacy client: endpoints when the other side is a real number", () => {
     expect(
-      otherParty({ direction: "outbound", from: "+38095", to: "client:abc" }),
+      otherPartyNumber({
+        direction: "outbound",
+        from: "+38095",
+        to: "client:abc",
+      }),
     ).toBe("+38095");
   });
 });
 
-describe("callUsers", () => {
-  const base = {
-    callSid: "CA1",
-    startedAt: "2026-08-05T10:00:00.000Z",
-    updatedAt: "2026-08-05T10:00:00.000Z",
-  };
-
-  it("shows the caller for outbound and the answerer for inbound", () => {
-    expect(
-      callUsers({
-        ...base,
-        participants: [
-          { userId: "u1", role: "caller", at: "", name: "Nazarii" },
-        ],
-      }),
-    ).toBe("Nazarii");
-    expect(
-      callUsers({
-        ...base,
-        participants: [
-          { userId: "u2", role: "answered", at: "", name: "Tamir" },
-        ],
-      }),
-    ).toBe("Tamir");
-  });
-
-  it("shows caller → answerer for internal calls", () => {
-    expect(
-      callUsers({
-        ...base,
-        participants: [
-          { userId: "u1", role: "caller", at: "", name: "Nazarii" },
-          { userId: "u2", role: "answered", at: "", name: "Tamir" },
-        ],
-      }),
-    ).toBe("Nazarii → Tamir");
-  });
-
-  it("falls back to agentName, then a short id, then a dash", () => {
-    expect(callUsers({ ...base, agentName: "Nazarii" })).toBe("Nazarii");
-    expect(
-      callUsers({ ...base, agentId: "d47814b8-e051-706e" }),
-    ).toBe("d47814b8…");
-    expect(callUsers(base)).toBe("—");
-  });
-});
-
+/**
+ * The precedence between softphone participant, personal number and CRM
+ * record now lives server-side (telephony's party-resolver), so these cover
+ * only the mapping of that answer onto what the UI renders.
+ */
 describe("callParty", () => {
   const base = {
     callSid: "CA1",
     startedAt: "2026-08-05T10:00:00.000Z",
     updatedAt: "2026-08-05T10:00:00.000Z",
+    from: "+12624061115",
+    to: "+380958601427",
   };
 
-  it("puts the dialling user on `from` for outbound calls", () => {
+  it("renders the party the backend resolved", () => {
     const call = {
       ...base,
-      direction: "outbound" as const,
-      from: "+12624061115",
-      to: "+380958601427",
-      participants: [
-        { userId: "u1", role: "caller" as const, at: "", name: "Nazarii" },
-      ],
+      fromParty: {
+        kind: "user" as const,
+        id: "u1",
+        name: "Nazarii",
+        roleId: "role-dispatcher",
+      },
+      toParty: { kind: "contact" as const, id: "c1", name: "Jane Roe" },
     };
     expect(callParty(call, "from")).toEqual({
       kind: "user",
-      userId: "u1",
-      roleId: undefined,
-      label: "Nazarii",
+      id: "u1",
+      name: "Nazarii",
+      roleId: "role-dispatcher",
       number: "+12624061115",
     });
-    // The customer side is nobody we know until the CRM says otherwise.
-    expect(callParty(call, "to")).toEqual({
+    expect(callParty(call, "to").kind).toBe("contact");
+  });
+
+  it("falls back to an unknown party carrying the number", () => {
+    // What an un-enriched record looks like — the CRM being unreachable must
+    // still leave something dialable on screen, and "Add client" needs it.
+    expect(callParty(base, "to")).toEqual({
       kind: "unknown",
       number: "+380958601427",
     });
   });
 
-  it("puts the answering user on `to` for inbound calls", () => {
+  it("keeps the personal-number marker", () => {
     const call = {
       ...base,
-      direction: "inbound" as const,
-      from: "+380958601427",
-      to: "+12624061115",
-      participants: [
-        { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
-      ],
+      toParty: {
+        kind: "user" as const,
+        id: "u9",
+        name: "Tamir Levi",
+        personal: true,
+      },
     };
-    expect(callParty(call, "from")).toEqual({
-      kind: "unknown",
-      number: "+380958601427",
-    });
-    expect(callParty(call, "to")).toEqual({
-      kind: "user",
-      userId: "u2",
-      roleId: undefined,
-      label: "Tamir",
-      number: "+12624061115",
-    });
+    expect(callParty(call, "to").personal).toBe(true);
   });
+});
 
-  it("names the outside party from the CRM contact when there is one", () => {
-    const call = {
-      ...base,
-      direction: "inbound" as const,
-      from: "+380958601427",
-      to: "+12624061115",
-      fromContact: { kind: "contact" as const, id: "c1", name: "Jane Roe" },
-      participants: [
-        { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
-      ],
-    };
-    expect(callParty(call, "from")).toEqual({
-      kind: "contact",
-      contactId: "c1",
-      label: "Jane Roe",
-      number: "+380958601427",
-    });
-    // Our own side is still the user, never the contact.
-    expect(callParty(call, "to").kind).toBe("user");
-  });
+describe("counterparty", () => {
+  const base = {
+    callSid: "CA1",
+    startedAt: "2026-08-05T10:00:00.000Z",
+    updatedAt: "2026-08-05T10:00:00.000Z",
+  };
 
-  it("recognises one of our own reached on their personal number", () => {
-    const call = {
-      ...base,
-      direction: "outbound" as const,
-      from: "+12624061115",
-      to: "+15412830739",
-      toPersonal: { id: "u9", name: "Tamir Levi", roleId: "role-technician" },
-      participants: [
-        { userId: "u1", role: "caller" as const, at: "", name: "Nazarii" },
-      ],
-    };
-    expect(callParty(call, "to")).toEqual({
-      kind: "user",
-      userId: "u9",
-      roleId: "role-technician",
-      personal: true,
-      label: "Tamir Levi",
-      number: "+15412830739",
-    });
-  });
-
-  it("prefers the softphone participant over a personal-number match", () => {
-    const call = {
-      ...base,
-      direction: "inbound" as const,
-      from: "+380958601427",
-      to: "+12624061115",
-      toPersonal: { id: "u9", name: "Tamir Levi" },
-      participants: [
-        { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
-      ],
-    };
-    // They answered at their desk — not a call to their mobile.
-    const party = callParty(call, "to");
-    expect(party.userId).toBe("u2");
-    expect(party.personal).toBeUndefined();
-  });
-
-  it("carries the role through so the UI can mark our own people", () => {
-    const call = {
-      ...base,
-      direction: "outbound" as const,
-      from: "+12624061115",
-      participants: [
-        {
-          userId: "u1",
-          role: "caller" as const,
-          at: "",
-          name: "Nazarii",
-          roleId: "role-dispatcher",
-        },
-      ],
-    };
-    expect(callParty(call, "from").roleId).toBe("role-dispatcher");
-  });
-
-  it("resolves a user on both sides of an internal call", () => {
-    const call = {
-      ...base,
-      direction: "outbound" as const,
-      from: "+12624061115",
-      to: "+12624061116",
-      participants: [
-        { userId: "u1", role: "caller" as const, at: "", name: "Nazarii" },
-        { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
-      ],
-    };
-    expect(callParty(call, "from").label).toBe("Nazarii");
-    expect(callParty(call, "to").label).toBe("Tamir");
-  });
-
-  it("falls back to the stored agent, then to a shortened id", () => {
-    const unanswered = {
-      ...base,
-      direction: "inbound" as const,
-      to: "+12624061115",
-      agentId: "d47814b8-e051-706e",
-      agentName: "Nazarii",
-    };
-    expect(callParty(unanswered, "to")).toEqual({
-      kind: "user",
-      userId: "d47814b8-e051-706e",
-      roleId: undefined,
-      label: "Nazarii",
-      number: "+12624061115",
-    });
+  it("returns the side that isn't us", () => {
     expect(
-      callParty({ ...unanswered, agentName: undefined }, "to").label,
-    ).toBe("d47814b8…");
+      counterparty({
+        ...base,
+        fromParty: { kind: "user", id: "u1", name: "Nazarii" },
+        toParty: { kind: "contact", id: "c1", name: "Jane Roe" },
+      }).name,
+    ).toBe("Jane Roe");
+
+    expect(
+      counterparty({
+        ...base,
+        fromParty: { kind: "contact", id: "c1", name: "Jane Roe" },
+        toParty: { kind: "user", id: "u1", name: "Nazarii" },
+      }).name,
+    ).toBe("Jane Roe");
   });
 
-  it("returns just the endpoint when neither a user nor a client is known", () => {
-    expect(
-      callParty({ ...base, direction: "inbound", from: "+380958601427" }, "from"),
-    ).toEqual({ kind: "unknown", number: "+380958601427" });
+  it("on an internal call, the far end is the answerer", () => {
+    const call = {
+      ...base,
+      fromParty: { kind: "user" as const, id: "u1", name: "Nazarii" },
+      toParty: { kind: "user" as const, id: "u2", name: "Tamir" },
+    };
+    expect(isInternalCall(call)).toBe(true);
+    expect(counterparty(call).name).toBe("Tamir");
+  });
+
+  it("is unknown when nothing resolved", () => {
+    expect(counterparty({ ...base, from: "+38095" }).kind).toBe("unknown");
   });
 });
 

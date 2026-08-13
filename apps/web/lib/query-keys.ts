@@ -21,6 +21,8 @@ export const queryKeys = {
     lists: () => ["calls", "list"] as const,
     list: (filters?: unknown) => ["calls", "list", filters] as const,
     detail: (id: string) => ["calls", "detail", id] as const,
+    byParty: (kind: string, id: string) =>
+      ["calls", "party", kind, id] as const,
     live: () => ["calls", "live"] as const,
   },
 
