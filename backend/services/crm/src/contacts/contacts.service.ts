@@ -10,15 +10,25 @@ import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import { ContactSource, ContactType, CrmStatus, type Address, type Contact, type JwtUser } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { ContactsRepository } from './contacts.repository';
+import { CompaniesRepository } from '../companies/companies.repository';
 import { ContactsCacheService } from './contacts-cache.service';
 import { type CreateContactDto } from './dto/create-contact.dto';
 import { type UpdateContactDto } from './dto/update-contact.dto';
 import { type FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
 import { type MergeContactsDto } from './dto/merge-contacts.dto';
-import { normalizePhone, normalizePhones } from '../common/phone-normalization.util';
+import {
+  normalizePhone,
+  normalizePhones,
+  phoneMatchVariants,
+} from '../common/phone-normalization.util';
 
-/** The slice of a contact a phone lookup returns — enough to name and link it. */
+/**
+ * What a phone lookup returns — enough to name the party and link to it.
+ * `kind` distinguishes a person from a company main line, which live in
+ * different tables and open different pages.
+ */
 export interface ContactPhoneMatch {
+  kind: 'contact' | 'company';
   id: string;
   firstName: string;
   lastName: string;
@@ -32,6 +42,9 @@ export class ContactsService {
   constructor(
     private readonly repository: ContactsRepository,
     private readonly cache: ContactsCacheService,
+    // Optional so the many specs that construct this service directly keep
+    // working; without it, company main lines simply don't resolve.
+    @Optional() private readonly companies?: CompaniesRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
@@ -248,36 +261,65 @@ export class ContactsService {
   async findManyByPhone(
     phones: string[],
   ): Promise<Record<string, ContactPhoneMatch>> {
-    const wanted = new Map<string, string>(); // normalized -> first raw input
+    // Grouped by canonical form, not by the raw string: `+14045551234` and
+    // `(404) 555-1234` are one number and deserve one lookup. Each group
+    // carries every form it might be stored under — records written before
+    // normalization used libphonenumber can keep a national trunk prefix
+    // (`+3800958601427`), which no longer matches what we'd derive now.
+    const wanted = new Map<string, { raws: string[]; variants: string[] }>();
     for (const raw of new Set(phones)) {
-      let normalized: string;
-      try {
-        normalized = normalizePhone(raw);
-      } catch {
-        continue; // not a dialable number (an SDK client: leg, say)
-      }
-      if (!wanted.has(normalized)) wanted.set(normalized, raw);
+      const variants = phoneMatchVariants(raw);
+      if (!variants.length) continue;
+      const group = wanted.get(variants[0]) ?? { raws: [], variants };
+      group.raws.push(raw);
+      wanted.set(variants[0], group);
     }
 
     const found = await Promise.all(
-      [...wanted.keys()].map(async (normalized) => ({
-        normalized,
-        contact: await this.repository.findByPhone(normalized),
-      })),
+      [...wanted.values()].map(async ({ raws, variants }) => {
+        for (const variant of variants) {
+          // A person owns the number before a company does: reaching Jane on
+          // the office line is still reaching Jane.
+          const contact = await this.repository.findByPhone(variant);
+          if (contact) {
+            return {
+              raws,
+              variants,
+              match: {
+                kind: 'contact' as const,
+                id: contact.id,
+                firstName: contact.firstName,
+                lastName: contact.lastName,
+                companyId: contact.companyId,
+              },
+            };
+          }
+          const company = await this.companies?.findByPhone(variant);
+          if (company) {
+            return {
+              raws,
+              variants,
+              match: {
+                kind: 'company' as const,
+                id: company.id,
+                firstName: company.title,
+                lastName: '',
+                companyId: company.id,
+              },
+            };
+          }
+        }
+        return { raws, variants, match: null };
+      }),
     );
 
     const out: Record<string, ContactPhoneMatch> = {};
-    for (const { normalized, contact } of found) {
-      if (!contact) continue;
-      const match: ContactPhoneMatch = {
-        id: contact.id,
-        firstName: contact.firstName,
-        lastName: contact.lastName,
-        companyId: contact.companyId,
-      };
-      // Under both keys: callers that passed E.164 and callers that didn't.
-      out[wanted.get(normalized) as string] = match;
-      out[normalized] = match;
+    for (const { raws, variants, match } of found) {
+      if (!match) continue;
+      // Keyed by what each caller sent and by the canonical form, so either
+      // side of the lookup can find it again.
+      for (const raw of raws) out[raw] = match;
+      out[variants[0]] = match;
     }
     return out;
   }

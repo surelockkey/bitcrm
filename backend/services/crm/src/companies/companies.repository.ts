@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -50,6 +51,55 @@ export class CompaniesRepository {
 
     if (!result.Item) return null;
     return this.toCompany(result.Item);
+  }
+
+  /* ---------------------------------------------------------- phone index */
+
+  /**
+   * `PK=PHONE#<e164>, SK=COMPANY` items, mirroring the contact phone index —
+   * a company's main line has to resolve in the call log too, and without
+   * these rows the only way to find it would be a table scan. Rows live
+   * alongside the companies; the `begins_with(PK, 'COMPANY#')` listings skip
+   * them for free.
+   */
+  async syncPhoneIndex(
+    companyId: string,
+    previous: string[],
+    next: string[],
+  ): Promise<void> {
+    const removed = previous.filter((p) => !next.includes(p));
+    const added = next.filter((p) => !previous.includes(p));
+
+    await Promise.all([
+      ...removed.map((phone) =>
+        this.dynamoDb.client.send(
+          new DeleteCommand({
+            TableName: this.tableName,
+            Key: { PK: `PHONE#${phone}`, SK: 'COMPANY' },
+          }),
+        ),
+      ),
+      ...added.map((phone) =>
+        this.dynamoDb.client.send(
+          new PutCommand({
+            TableName: this.tableName,
+            Item: { PK: `PHONE#${phone}`, SK: 'COMPANY', phone, companyId },
+          }),
+        ),
+      ),
+    ]);
+  }
+
+  /** The company owning this (already normalized) number, if any. */
+  async findByPhone(normalizedPhone: string): Promise<Company | null> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { PK: `PHONE#${normalizedPhone}`, SK: 'COMPANY' },
+      }),
+    );
+    const companyId = result.Item?.companyId as string | undefined;
+    return companyId ? this.findById(companyId) : null;
   }
 
   async findByClientType(

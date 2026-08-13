@@ -186,7 +186,7 @@ describe("callParty", () => {
       direction: "inbound" as const,
       from: "+380958601427",
       to: "+12624061115",
-      fromContact: { id: "c1", name: "Jane Roe" },
+      fromContact: { kind: "contact" as const, id: "c1", name: "Jane Roe" },
       participants: [
         { userId: "u2", role: "answered" as const, at: "", name: "Tamir" },
       ],

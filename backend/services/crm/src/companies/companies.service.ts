@@ -4,13 +4,26 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
+import {
+  SnsPublisherService,
+  BusinessMetricsService,
+  tryNormalizePhone,
+} from '@bitcrm/shared';
 import { CrmStatus, type Company, type JwtUser } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { CompaniesRepository } from './companies.repository';
 import { CompaniesCacheService } from './companies-cache.service';
 import { type CreateCompanyDto } from './dto/create-company.dto';
 import { type UpdateCompanyDto } from './dto/update-company.dto';
+
+/**
+ * Company numbers are best-effort: normalize what parses so the call log can
+ * match it, keep anything else exactly as typed. Unlike a contact, a company
+ * record often carries extensions or "ask for dispatch" style notes.
+ */
+function safePhone(raw: string): string {
+  return tryNormalizePhone(raw) ?? raw;
+}
 
 @Injectable()
 export class CompaniesService {
@@ -25,10 +38,14 @@ export class CompaniesService {
 
   async create(dto: CreateCompanyDto, caller: JwtUser): Promise<Company> {
     const now = new Date().toISOString();
+    // Normalized on the way in so the call log can match the main line.
+    // Unparseable entries are kept verbatim rather than rejected — a company
+    // record is not a dialer, and people put extensions and notes in here.
+    const phones = [...new Set((dto.phones || []).map(safePhone))];
     const company: Company = {
       id: randomUUID(),
       title: dto.title,
-      phones: dto.phones || [],
+      phones,
       emails: dto.emails || [],
       address: dto.address,
       website: dto.website,
@@ -47,6 +64,7 @@ export class CompaniesService {
     };
 
     await this.repository.create(company);
+    await this.repository.syncPhoneIndex(company.id, [], company.phones);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'company' });
     this.publishEvent('company.created', { companyId: company.id, title: company.title });
 
@@ -86,8 +104,15 @@ export class CompaniesService {
   }
 
   async update(id: string, dto: UpdateCompanyDto): Promise<Company> {
-    await this.findById(id);
-    const updated = await this.repository.update(id, dto);
+    const existing = await this.findById(id);
+
+    const attrs: Partial<Company> & UpdateCompanyDto = { ...dto };
+    if (dto.phones) {
+      attrs.phones = [...new Set(dto.phones.map(safePhone))];
+      await this.repository.syncPhoneIndex(id, existing.phones, attrs.phones);
+    }
+
+    const updated = await this.repository.update(id, attrs);
     await this.cache.invalidate(id);
     this.businessMetrics?.entityUpdated.inc({ entity_type: 'company' });
     this.publishEvent('company.updated', { companyId: id });
@@ -96,7 +121,10 @@ export class CompaniesService {
   }
 
   async delete(id: string): Promise<void> {
-    await this.findById(id);
+    const existing = await this.findById(id);
+    // Drop the index rows too, or the number keeps resolving to a company
+    // nobody can open.
+    await this.repository.syncPhoneIndex(id, existing.phones, []);
     await this.repository.update(id, { status: CrmStatus.DELETED } as any);
     await this.cache.invalidate(id);
     this.businessMetrics?.entityDeleted.inc({ entity_type: 'company' });

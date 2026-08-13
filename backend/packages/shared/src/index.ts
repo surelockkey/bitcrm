@@ -94,4 +94,5 @@ export {
   normalizePhone,
   normalizePhones,
   tryNormalizePhone,
+  phoneMatchVariants,
 } from './phone/normalize-phone';

@@ -4,6 +4,9 @@ const USER_SERVICE_URL =
   process.env.USER_SERVICE_URL || 'http://localhost:4001';
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 const CACHE_TTL_MS = 5 * 60_000;
+/** Misses expire sooner — a teammate can add their number at any moment and
+ *  the call log should reflect it on the next refresh, not minutes later. */
+const MISS_TTL_MS = 20_000;
 const MAX_BATCH = 100;
 
 /** One of our own people, matched by their personal number. */
@@ -55,7 +58,10 @@ export class UserPhoneLookupService {
       if (!found) continue; // user-service unreachable — retry next time
       for (const phone of batch) {
         const user = found[phone] ?? null;
-        this.cache.set(phone, { user, expiresAt: now + CACHE_TTL_MS });
+        this.cache.set(phone, {
+          user,
+          expiresAt: now + (user ? CACHE_TTL_MS : MISS_TTL_MS),
+        });
         if (user) out[phone] = user;
       }
     }

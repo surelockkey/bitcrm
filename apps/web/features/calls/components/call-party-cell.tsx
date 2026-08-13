@@ -53,14 +53,16 @@ export function CallPartyCell({
     );
   }
 
+  const isClient = party.kind === "contact" || party.kind === "company";
   const href =
-    party.kind === "contact"
-      ? `/contacts/${party.contactId}`
-      : `/admin/users?user=${party.userId}`;
-  const linkable =
-    party.kind === "contact"
-      ? can("contacts", "view")
-      : !!party.userId && can("users", "view");
+    party.kind === "company"
+      ? `/companies/${party.contactId}`
+      : party.kind === "contact"
+        ? `/contacts/${party.contactId}`
+        : `/admin/users?user=${party.userId}`;
+  const linkable = isClient
+    ? can(party.kind === "company" ? "companies" : "contacts", "view")
+    : !!party.userId && can("users", "view");
 
   return (
     <div className="flex flex-col items-start leading-tight">
@@ -76,6 +78,11 @@ export function CallPartyCell({
         ) : (
           <span className="font-medium">{party.label}</span>
         )}
+        {party.kind === "company" ? (
+          <span className="rounded border px-1 py-px text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Company
+          </span>
+        ) : null}
         {party.kind === "user" ? (
           <span className="rounded border border-brand/30 bg-brand/10 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-brand">
             {party.roleId ? roleName(party.roleId, roles) : "Team"}

@@ -3,9 +3,11 @@ import { ContactsService } from 'src/contacts/contacts.service';
 import { ContactsRepository } from 'src/contacts/contacts.repository';
 import { ContactsCacheService } from 'src/contacts/contacts-cache.service';
 import { SnsPublisherService } from '@bitcrm/shared';
+import { CompaniesRepository } from 'src/companies/companies.repository';
 import {
   createMockContact,
   createMockContactsRepository,
+  createMockCompaniesRepository,
   createMockContactsCacheService,
   createMockSnsPublisherService,
 } from '../mocks';
@@ -17,13 +19,16 @@ import {
 describe('ContactsService.findManyByPhone', () => {
   let service: ContactsService;
   let repository: ReturnType<typeof createMockContactsRepository>;
+  let companies: ReturnType<typeof createMockCompaniesRepository>;
 
   beforeEach(async () => {
     repository = createMockContactsRepository();
+    companies = createMockCompaniesRepository();
     const module = await Test.createTestingModule({
       providers: [
         ContactsService,
         { provide: ContactsRepository, useValue: repository },
+        { provide: CompaniesRepository, useValue: companies },
         { provide: ContactsCacheService, useValue: createMockContactsCacheService() },
         { provide: SnsPublisherService, useValue: createMockSnsPublisherService() },
       ],
@@ -44,6 +49,7 @@ describe('ContactsService.findManyByPhone', () => {
     const out = await service.findManyByPhone(['+14045551234']);
 
     expect(out['+14045551234']).toEqual({
+      kind: 'contact',
       id: 'c1',
       firstName: 'Jane',
       lastName: 'Roe',
@@ -82,6 +88,48 @@ describe('ContactsService.findManyByPhone', () => {
     // Only the real number reached the repository.
     expect(repository.findByPhone).toHaveBeenCalledTimes(1);
     expect(out['+14045551234']).toBeDefined();
+  });
+
+  it('falls through to a company main line when no person owns it', async () => {
+    repository.findByPhone.mockResolvedValue(null);
+    companies.findByPhone.mockResolvedValue({
+      id: 'co1',
+      title: 'Acme Locks',
+    });
+
+    const out = await service.findManyByPhone(['+14045559999']);
+
+    expect(out['+14045559999']).toEqual({
+      kind: 'company',
+      id: 'co1',
+      firstName: 'Acme Locks',
+      lastName: '',
+      companyId: 'co1',
+    });
+  });
+
+  it('prefers the person over the company on a shared number', async () => {
+    repository.findByPhone.mockResolvedValue(jane);
+    companies.findByPhone.mockResolvedValue({ id: 'co1', title: 'Acme Locks' });
+
+    const out = await service.findManyByPhone(['+14045551234']);
+
+    // Reaching Jane on the office line is still reaching Jane.
+    expect(out['+14045551234'].kind).toBe('contact');
+    expect(companies.findByPhone).not.toHaveBeenCalled();
+  });
+
+  it('finds a number stored before trunk prefixes were stripped', async () => {
+    // Written as +380[0]95… under the old normalization; the call reports the
+    // real E.164, which would never match on an exact lookup.
+    repository.findByPhone.mockImplementation(async (phone: string) =>
+      phone === '+3800958601427' ? { ...jane, phones: [phone] } : null,
+    );
+
+    const out = await service.findManyByPhone(['+380958601427']);
+
+    expect(out['+380958601427']).toBeDefined();
+    expect(repository.findByPhone).toHaveBeenCalledWith('+3800958601427');
   });
 
   it('queries each distinct number once, however often it appears', async () => {

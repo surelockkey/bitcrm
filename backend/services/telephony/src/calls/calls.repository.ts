@@ -43,8 +43,9 @@ export interface CallParticipant {
   roleId?: string;
 }
 
-/** A party matched to a CRM contact, enriched at read time (never stored). */
+/** A party matched in the CRM, enriched at read time (never stored). */
 export interface CallContactRef {
+  kind: 'contact' | 'company';
   id: string;
   name: string;
   companyId?: string;

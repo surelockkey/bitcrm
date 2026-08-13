@@ -84,7 +84,9 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "3000:3000"
+      # 3001 on the host: the Next dev server owns 3000. Grafana still listens
+      # on 3000 inside the container, so nothing else needs to change.
+      - "3001:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

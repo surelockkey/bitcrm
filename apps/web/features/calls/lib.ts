@@ -25,8 +25,9 @@ export interface CallParticipant {
   roleId?: string;
 }
 
-/** A party matched to a CRM contact, resolved by the backend. */
+/** A party matched in the CRM, resolved by the backend. */
 export interface CallContactRef {
+  kind: "contact" | "company";
   id: string;
   name: string;
   companyId?: string;
@@ -191,10 +192,10 @@ function participantLabel(p: CallParticipant): string {
  * client from the CRM, or a number nobody has claimed yet.
  */
 export interface CallParty {
-  kind: "user" | "contact" | "unknown";
+  kind: "user" | "contact" | "company" | "unknown";
   /** Set for `user` — links to their profile. */
   userId?: string;
-  /** Set for `contact` — links to the client. */
+  /** Set for `contact` / `company` — links to the client record. */
   contactId?: string;
   /** The user's system role, for labelling them as one of ours. */
   roleId?: string;
@@ -267,7 +268,12 @@ export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
 
   const contact = side === "from" ? call.fromContact : call.toContact;
   if (contact) {
-    return { kind: "contact", contactId: contact.id, label: contact.name, number };
+    return {
+      kind: contact.kind ?? "contact",
+      contactId: contact.id,
+      label: contact.name,
+      number,
+    };
   }
   return { kind: "unknown", number };
 }

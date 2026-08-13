@@ -57,6 +57,9 @@ export function createMockCompaniesRepository() {
     findByClientType: jest.fn(),
     findAll: jest.fn(),
     update: jest.fn(),
+    // Phone index for company main lines, so calls can resolve to them.
+    syncPhoneIndex: jest.fn().mockResolvedValue(undefined),
+    findByPhone: jest.fn().mockResolvedValue(null),
   };
 }
 

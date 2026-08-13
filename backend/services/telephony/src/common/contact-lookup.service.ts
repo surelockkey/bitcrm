@@ -3,11 +3,20 @@ import { Injectable, Logger } from '@nestjs/common';
 const CRM_SERVICE_URL = process.env.CRM_SERVICE_URL || 'http://localhost:4002';
 const INTERNAL_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 const CACHE_TTL_MS = 5 * 60_000;
+/**
+ * Misses expire far sooner than hits. An unknown number becomes a client the
+ * moment someone clicks "Add client" on that very call — caching the miss for
+ * minutes makes the feature look broken, since the UI refetches immediately
+ * and gets the stale nothing back. Still long enough to absorb the burst of
+ * lookups from one page render.
+ */
+const MISS_TTL_MS = 20_000;
 /** The CRM endpoint caps the batch; stay under it. */
 const MAX_BATCH = 100;
 
-/** A caller matched to a CRM contact. */
+/** A caller matched in the CRM — a person, or a company's main line. */
 export interface CallContact {
+  kind: 'contact' | 'company';
   id: string;
   name: string;
   companyId?: string;
@@ -57,16 +66,14 @@ export class ContactLookupService {
       if (!found) continue; // CRM unreachable — leave these uncached, retry next time
       for (const phone of batch) {
         const contact = found[phone] ?? null;
-        this.cache.set(phone, { contact, expiresAt: now + CACHE_TTL_MS });
+        this.cache.set(phone, {
+          contact,
+          expiresAt: now + (contact ? CACHE_TTL_MS : MISS_TTL_MS),
+        });
         if (contact) out[phone] = contact;
       }
     }
     return out;
-  }
-
-  /** Drop a number from the cache — call after a contact is created for it. */
-  invalidate(phone: string): void {
-    this.cache.delete(phone);
   }
 
   private async fetchBatch(
@@ -91,13 +98,24 @@ export class ContactLookupService {
       const body = (await res.json()) as {
         data?: Record<
           string,
-          { id: string; firstName?: string; lastName?: string; companyId?: string }
+          {
+            kind?: 'contact' | 'company';
+            id: string;
+            firstName?: string;
+            lastName?: string;
+            companyId?: string;
+          }
         >;
       };
       const out: Record<string, CallContact> = {};
       for (const [phone, c] of Object.entries(body.data ?? {})) {
         const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
-        out[phone] = { id: c.id, name: name || 'Unnamed contact', companyId: c.companyId };
+        out[phone] = {
+          kind: c.kind ?? 'contact',
+          id: c.id,
+          name: name || 'Unnamed contact',
+          companyId: c.companyId,
+        };
       }
       return out;
     } catch (error) {

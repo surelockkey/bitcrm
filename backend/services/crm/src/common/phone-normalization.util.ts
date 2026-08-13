@@ -5,7 +5,11 @@
  * Kept as a module here so the existing `../common/phone-normalization.util`
  * imports don't all have to change.
  */
-export { normalizePhone, normalizePhones } from '@bitcrm/shared';
+export {
+  normalizePhone,
+  normalizePhones,
+  phoneMatchVariants,
+} from '@bitcrm/shared';
 
 /** `+14045551234` → `(404) 555-1234`. CRM-specific display helper. */
 export function formatPhoneDisplay(normalized: string): string {

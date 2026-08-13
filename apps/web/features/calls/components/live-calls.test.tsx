@@ -32,7 +32,7 @@ const base = {
 describe("LiveCalls", () => {
   it("leads with the client's name and keeps their number beneath", () => {
     liveCalls.mockReturnValue({
-      data: [{ ...base, fromContact: { id: "c1", name: "Jane Roe" } }],
+      data: [{ ...base, fromContact: { kind: "contact" as const, id: "c1", name: "Jane Roe" } }],
     });
     render(<LiveCalls />);
 
@@ -56,7 +56,7 @@ describe("LiveCalls", () => {
           direction: "outbound",
           from: "+15412830739",
           to: "+14045551234",
-          toContact: { id: "c1", name: "Jane Roe" },
+          toContact: { kind: "contact" as const, id: "c1", name: "Jane Roe" },
           participants: [
             { userId: "u1", role: "caller" as const, at: "", name: "Nazarii" },
           ],

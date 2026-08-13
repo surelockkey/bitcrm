@@ -49,6 +49,7 @@
     "@opentelemetry/semantic-conventions": "^1.30.0",
     "aws-jwt-verify": "^4.0.1",
     "ioredis": "^5.4.0",
+    "libphonenumber-js": "^1.12.41",
     "nestjs-pino": "~4.6.1",
     "pino": "~10.3.1",
     "pino-http": "~11.0.0",
