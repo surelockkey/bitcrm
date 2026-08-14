@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import {
+  DeleteCommand,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { type TimelineEntry } from '@bitcrm/types';
 import { DEALS_TABLE } from '../common/constants/dynamo.constants';
@@ -25,6 +31,45 @@ export class TimelineRepository {
           ...entry,
         },
       }),
+    );
+  }
+
+  /** Entries are keyed by timestamp + id, so point reads need both. */
+  private key(dealId: string, timestamp: string, id: string) {
+    return { PK: `DEAL#${dealId}`, SK: `TIMELINE#${timestamp}#${id}` };
+  }
+
+  async getEntry(
+    dealId: string,
+    timestamp: string,
+    id: string,
+  ): Promise<TimelineEntry | null> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({ TableName: this.tableName, Key: this.key(dealId, timestamp, id) }),
+    );
+    return result.Item ? this.toEntry(result.Item) : null;
+  }
+
+  async updateNote(
+    dealId: string,
+    timestamp: string,
+    id: string,
+    note: string,
+  ): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: this.key(dealId, timestamp, id),
+        UpdateExpression: 'SET #note = :note',
+        ExpressionAttributeNames: { '#note': 'note' },
+        ExpressionAttributeValues: { ':note': note },
+      }),
+    );
+  }
+
+  async deleteEntry(dealId: string, timestamp: string, id: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new DeleteCommand({ TableName: this.tableName, Key: this.key(dealId, timestamp, id) }),
     );
   }
 
