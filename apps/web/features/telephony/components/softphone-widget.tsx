@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { useActiveCall } from "@/features/calls/hooks";
 import { CallJobActions } from "@/features/calls/components/call-job-actions";
 import { TransferPanel, type TransferIntent } from "./transfer-panel";
+import { DialerDirectory } from "./dialer-directory";
 import { formatPhone } from "@/lib/phone";
 import { useSoftphoneStore } from "../softphone-store";
 import { useNumbers } from "../numbers-hooks";
@@ -275,10 +276,13 @@ export function SoftphoneWidget() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && entry) startCall(entry);
               }}
-              placeholder="Enter a number"
+              placeholder="Name or number"
               inputMode="tel"
               className="text-center text-lg tracking-wide"
             />
+            {/* Who you might mean, as you type — clients, company lines and
+                teammates' own phones. */}
+            <DialerDirectory query={entry} onPick={setEntry} />
           </div>
         )}
 
