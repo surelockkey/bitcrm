@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronLeft, Loader2, UserPlus, X } from "lucide-react";
@@ -19,10 +19,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useContactByPhone, useCreateContact, useUpdateContact, useCompanyMap } from "@/features/clients/hooks";
+import {
+  useContact,
+  useContactByPhone,
+  useCreateContact,
+  useUpdateContact,
+  useCompanyMap,
+} from "@/features/clients/hooks";
 import { addressInList, clientTypeLabel, contactName, formatPhone } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { useCreateDeal } from "../hooks";
+import { useLinkCallToDeal } from "@/features/calls/hooks";
+import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
@@ -36,6 +44,17 @@ import { applicableFields, missingRequiredCustomFields } from "@/features/custom
 
 export function NewDealPage() {
   const [contact, setContact] = useState<Contact | null>(null);
+  const params = useSearchParams();
+
+  // Opened from a call: the dialer sends the call and, when it knows them,
+  // the client — so neither has to be typed while somebody is on the line.
+  const callSid = params.get("callSid") ?? undefined;
+  const prefillContactId = params.get("contactId") ?? undefined;
+  const prefillPhone = params.get("phone") ?? undefined;
+
+  const [callsToLink, setCallsToLink] = useState<string[]>(
+    callSid ? [callSid] : [],
+  );
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -48,7 +67,15 @@ export function NewDealPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <DealForm contact={contact} onContact={setContact} />
+        <DealForm
+          contact={contact}
+          onContact={setContact}
+          prefillContactId={prefillContactId}
+          prefillPhone={prefillPhone}
+          callSid={callSid}
+          callsToLink={callsToLink}
+          onCallsToLink={setCallsToLink}
+        />
       </div>
     </div>
   );
@@ -65,9 +92,30 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function DealForm({ contact, onContact }: { contact: Contact | null; onContact: (c: Contact | null) => void }) {
+function DealForm({
+  contact,
+  onContact,
+  prefillContactId,
+  prefillPhone,
+  callSid,
+  callsToLink,
+  onCallsToLink,
+}: {
+  contact: Contact | null;
+  onContact: (c: Contact | null) => void;
+  prefillContactId?: string;
+  prefillPhone?: string;
+  callSid?: string;
+  callsToLink: string[];
+  onCallsToLink: (sids: string[]) => void;
+}) {
   const router = useRouter();
   const createDeal = useCreateDeal();
+  const linkCall = useLinkCallToDeal();
+  // A client the call already resolved to: adopt it so the client step is
+  // answered before the page even renders.
+  const prefilled = useContact(prefillContactId ?? "");
+  if (prefilled.data && !contact) onContact(prefilled.data);
   const updateContact = useUpdateContact();
   const { map: companyMap } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
@@ -126,6 +174,12 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
       },
       {
         onSuccess: (deal) => {
+          // Attach whichever calls are still switched on. Fire-and-forget:
+          // the job exists either way, and the link can be added from the
+          // call afterwards.
+          for (const sid of callsToLink) {
+            linkCall.mutate({ sid, dealId: deal.id });
+          }
           // The deal keeps its own address; a brand-new one is also saved to the
           // client so it's offered next time.
           if (!addressInList(values.address, contact.addresses)) {
@@ -157,6 +211,7 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
         <Section title="Client">
           <ClientPicker
             contact={contact}
+            initialPhone={prefillPhone}
             onResolved={(c) => {
               onContact(c);
               const ct = c.companyId ? companyMap.get(c.companyId)?.clientType : undefined;
@@ -167,6 +222,19 @@ function DealForm({ contact, onContact }: { contact: Contact | null; onContact: 
         </Section>
 
         {/* Service location */}
+        {/* Calls this job will carry. Present whenever the page was opened
+            from a call, or once a client is known and has call history. */}
+        {callSid || contact ? (
+          <Section title="Calls">
+            <CallsToLink
+              callSid={callSid}
+              contactId={contact?.id}
+              selected={callsToLink}
+              onChange={onCallsToLink}
+            />
+          </Section>
+        ) : null}
+
         <Section title="Service location">
           <DealAddressFields
             value={v.address}
@@ -257,12 +325,16 @@ function ClientPicker({
   contact,
   onResolved,
   onClear,
+  initialPhone,
 }: {
   contact: Contact | null;
   onResolved: (c: Contact) => void;
   onClear: () => void;
+  /** Seeded when the page was opened from a call with an unknown caller —
+   *  the number is already known, so the lookup runs without typing. */
+  initialPhone?: string;
 }) {
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(initialPhone ?? "");
   const trimmed = phone.trim();
   const dupe = useContactByPhone(trimmed, !contact && trimmed.length >= 7);
   const { map: companyMap } = useCompanyMap();

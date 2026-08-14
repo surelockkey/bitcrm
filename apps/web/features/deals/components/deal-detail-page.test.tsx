@@ -67,6 +67,11 @@ vi.mock("./schedule-field", () => ({
   ),
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
+// The job page carries a strip for linking the call you're on; it queries
+// telephony, which this test has no client for. Its own tests cover it.
+vi.mock("@/features/calls/components/live-call-strip", () => ({
+  LiveCallStrip: () => null,
+}));
 
 // One applicable custom field (scoped to all job types) so the details tab
 // renders a real control we can edit; the catalog hook is stubbed to avoid a

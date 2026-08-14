@@ -40,6 +40,7 @@ import { JobStatusSelect } from "@/features/job-statuses/components/job-status-s
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
+import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
 import { useDeal, useDeleteDeal, useUpdateDeal, useMoveStatus } from "../hooks";
 import {
   buildContactBody,
@@ -81,6 +82,9 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Only while a call is actually happening — that's the one moment
+          "link this call" has a subject. */}
+      <LiveCallStrip dealId={deal.id} />
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">

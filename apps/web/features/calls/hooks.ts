@@ -106,5 +106,7 @@ export function useCallDetail(sid: string) {
   return useQuery({
     queryKey: queryKeys.calls.detail(sid),
     queryFn: () => api.getCall(sid),
+    // Callers pass "" when there is no call in hand yet.
+    enabled: !!sid,
   });
 }

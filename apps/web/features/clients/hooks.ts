@@ -29,6 +29,8 @@ export function useContact(id: string) {
   return useQuery({
     queryKey: queryKeys.contacts.detail(id),
     queryFn: () => api.getContact(id),
+    // Callers pass "" when there is no contact in hand yet.
+    enabled: !!id,
   });
 }
 
