@@ -62,13 +62,13 @@ export function DealsTable({
               <TableRow
                 key={d.id}
                 className="cursor-pointer align-top"
-                // Left click anywhere on the row jumps straight into the job in
-                // a new tab; right click opens the quick-view drawer in place
-                // of the browser menu.
-                onClick={() => window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer")}
+                // Left click anywhere on the row opens the quick-view drawer;
+                // right click jumps straight into the job in a new tab in
+                // place of the browser menu.
+                onClick={() => onOpen(d)}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  onOpen(d);
+                  window.open(`/deals/${d.id}`, "_blank", "noopener,noreferrer");
                 }}
               >
                 <TableCell className="font-mono text-xs">

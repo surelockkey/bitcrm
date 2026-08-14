@@ -77,17 +77,17 @@ describe("DealsTable", () => {
     openSpy.mockRestore();
   });
 
-  it("left-clicking a row opens the full job in a new tab, not the preview", async () => {
+  it("left-clicking a row opens the preview drawer, not a new tab", async () => {
     const onOpen = vi.fn();
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} />,
     );
     await userEvent.click(screen.getByText("Jane Smith"));
-    expect(openSpy).toHaveBeenCalledWith("/deals/d1", "_blank", "noopener,noreferrer");
-    expect(onOpen).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
+    expect(openSpy).not.toHaveBeenCalled();
   });
 
-  it("right-clicking a row opens the preview and suppresses the browser menu", () => {
+  it("right-clicking a row opens the full job in a new tab and suppresses the browser menu", () => {
     const onOpen = vi.fn();
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={onOpen} />,
@@ -96,8 +96,8 @@ describe("DealsTable", () => {
     // context menu must not appear.
     const menuShown = fireEvent.contextMenu(screen.getByText("Jane Smith"));
     expect(menuShown).toBe(false);
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "d1" }));
-    expect(openSpy).not.toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith("/deals/d1", "_blank", "noopener,noreferrer");
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("keeps the browser's own context menu on the job-number link", () => {
