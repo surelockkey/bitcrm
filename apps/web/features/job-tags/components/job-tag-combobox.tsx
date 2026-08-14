@@ -10,6 +10,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from "@/components/ui/command";
 import {
   AlertDialog,
@@ -198,7 +199,10 @@ export function JobTagCombobox({
                             >
                               {tag.name}
                             </span>
-                            <span className="ml-auto flex items-center gap-0.5">
+                            {/* CommandShortcut pins the actions to the row's right edge and
+                                suppresses the wrapper's own trailing ml-auto check icon,
+                                which would otherwise split the free space with us. */}
+                            <CommandShortcut className="flex items-center gap-0.5 tracking-normal">
                               {checked ? <Check className="size-4 text-brand" /> : null}
                               {canDelete ? (
                                 <button
@@ -220,7 +224,7 @@ export function JobTagCombobox({
                                   <Pencil className="size-3.5" />
                                 </button>
                               ) : null}
-                            </span>
+                            </CommandShortcut>
                           </CommandItem>
                         );
                       })}
