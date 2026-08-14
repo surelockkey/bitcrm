@@ -40,6 +40,24 @@ export function useUploadAttachment(dealId: string) {
   });
 }
 
+export function useUpdateAttachment(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      attachmentId,
+      body,
+    }: {
+      attachmentId: string;
+      body: { fileName?: string; description?: string };
+    }) => api.updateAttachment(dealId, attachmentId, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.deals.attachments(dealId) });
+      toast.success("Attachment updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useDeleteAttachment(dealId: string) {
   const qc = useQueryClient();
   return useMutation({
