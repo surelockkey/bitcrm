@@ -19,9 +19,12 @@ import { useLinkCallToDeal } from "../hooks";
 import { counterparty, formatEndpoint, type CallRecord } from "../lib";
 
 /**
- * Pick the job a call is about. Jobs for the client on the call float to the
- * top — that's nearly always the one, and it saves typing a search that the
- * call itself already answers.
+ * Pick the job a call is about.
+ *
+ * Opens on this client's own jobs, newest first — the call already answered
+ * "whose job?", so the list starts where the answer almost always is, with no
+ * typing. Searching widens to every job in the workspace, for the calls that
+ * turn out to be about somebody else's work.
  */
 export function LinkJobDialog({
   call,
@@ -40,7 +43,11 @@ export function LinkJobDialog({
   const clientContactId = client?.kind === "contact" ? client.id : undefined;
 
   const q = query.trim().toLowerCase();
-  const matches = q
+  const searching = q.length > 0;
+
+  // Untyped, the list is this client's jobs alone. An unidentified caller has
+  // no client to narrow by, so it falls back to the workspace's latest.
+  const shown = searching
     ? (deals ?? []).filter((d) => {
         const contact = contacts.get(d.contactId);
         const name = contact ? `${contact.firstName} ${contact.lastName}` : "";
@@ -48,14 +55,18 @@ export function LinkJobDialog({
           .toLowerCase()
           .includes(q);
       })
-    : (deals ?? []);
+    : clientContactId
+      ? (deals ?? []).filter((d) => d.contactId === clientContactId)
+      : (deals ?? []);
 
-  // The client on the call sorts first — the call already told us who it's
-  // about, and that's nearly always the job being looked for.
-  const ranked = [...matches].sort((a, b) => {
-    const aMine = a.contactId === clientContactId ? 1 : 0;
-    const bMine = b.contactId === clientContactId ? 1 : 0;
-    if (aMine !== bMine) return bMine - aMine;
+  const ranked = [...shown].sort((a, b) => {
+    // Within a search, this client's jobs still come first — the rest of the
+    // workspace is there to be reached, not to bury the likely answer.
+    if (searching) {
+      const aMine = a.contactId === clientContactId ? 1 : 0;
+      const bMine = b.contactId === clientContactId ? 1 : 0;
+      if (aMine !== bMine) return bMine - aMine;
+    }
     return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
   });
 
@@ -91,11 +102,19 @@ export function LinkJobDialog({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search jobs by number, client or address…"
+            placeholder="Search all jobs by number, client or address…"
             className="h-9 pl-8"
             autoFocus
           />
         </div>
+
+        <p className="-mb-1 text-xs text-muted-foreground">
+          {searching
+            ? "All jobs"
+            : clientContactId
+              ? `${client?.name ?? "This client"} · latest jobs first`
+              : "Latest jobs"}
+        </p>
 
         <div className="max-h-80 overflow-y-auto">
           {isLoading ? (
@@ -105,13 +124,15 @@ export function LinkJobDialog({
             </div>
           ) : ranked.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No jobs match.
+              {searching
+                ? "No jobs match."
+                : "No jobs for this client yet — search to find another, or create one."}
             </p>
           ) : (
             <ul className="divide-y">
               {ranked.slice(0, 40).map((deal) => {
                 const contact = contacts.get(deal.contactId);
-                const isClientMatch = deal.contactId === clientContactId;
+                const isClientMatch = searching && deal.contactId === clientContactId;
                 return (
                   <li key={deal.id}>
                     <button
