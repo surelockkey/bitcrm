@@ -57,12 +57,13 @@ export function FieldsMenu() {
           <Columns3 className="size-4" /> Fields
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="w-[90vw] gap-0 overflow-y-auto sm:max-w-sm">
+      <SheetContent side="right" className="w-[90vw] gap-0 sm:max-w-sm">
         <SheetHeader className="pb-2">
           <SheetTitle>Visible fields</SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-4 px-4 pb-6">
+        {/* Search stays pinned; only the field list below scrolls. */}
+        <div className="px-4 pb-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -72,7 +73,9 @@ export function FieldsMenu() {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+        </div>
 
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-6">
           {group("Used fields", used)}
           {group("Unselected fields", unselected)}
           {used.length === 0 && unselected.length === 0 ? (
