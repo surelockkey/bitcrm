@@ -13,6 +13,20 @@ export function useAttachments(dealId: string) {
   });
 }
 
+/**
+ * Presigned download URL for one attachment (used as an <img> src for photo
+ * thumbnails). The URL expires in 300s, so it's cached for less than that and
+ * re-requested on the next render after expiry.
+ */
+export function useAttachmentUrl(dealId: string, attachmentId: string) {
+  return useQuery({
+    queryKey: queryKeys.deals.attachmentUrl(dealId, attachmentId),
+    queryFn: () => api.getAttachmentDownloadUrl(dealId, attachmentId),
+    staleTime: 4 * 60_000,
+    gcTime: 4 * 60_000,
+  });
+}
+
 export function useUploadAttachment(dealId: string) {
   const qc = useQueryClient();
   return useMutation({

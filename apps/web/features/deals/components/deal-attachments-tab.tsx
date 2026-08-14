@@ -11,6 +11,7 @@ import { formatDate } from "@/features/users/lib";
 import { getAttachmentDownloadUrl } from "../attachments-api";
 import {
   useAttachments,
+  useAttachmentUrl,
   useDeleteAttachment,
   useUploadAttachment,
 } from "../attachments-hooks";
@@ -59,13 +60,13 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
         <div className="divide-y rounded-lg border">
           {items.map((att) => (
             <div key={att.id} className="flex items-center gap-3 px-3 py-2.5">
-              <span className="grid size-9 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
-                {att.contentType.startsWith("image/") ? (
-                  <ImageIcon className="size-4" />
-                ) : (
+              {att.contentType.startsWith("image/") ? (
+                <AttachmentThumb dealId={dealId} attachment={att} />
+              ) : (
+                <span className="grid size-9 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
                   <FileText className="size-4" />
-                )}
-              </span>
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{att.fileName}</div>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -111,6 +112,35 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Photo thumbnail for an image attachment. The bytes live in private S3, so the
+ * src is a short-lived presigned URL. Falls back to the stub icon while the URL
+ * loads or if the bytes fail (expired URL, HEIC the browser can't decode, or a
+ * meta row whose upload never finished).
+ */
+function AttachmentThumb({ dealId, attachment }: { dealId: string; attachment: DealAttachmentMeta }) {
+  const { data } = useAttachmentUrl(dealId, attachment.id);
+  const [broken, setBroken] = useState(false);
+
+  if (!data?.downloadUrl || broken) {
+    return (
+      <span className="grid size-9 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
+        <ImageIcon className="size-4" />
+      </span>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL; next/image can't optimize it
+    <img
+      src={data.downloadUrl}
+      alt={attachment.fileName}
+      onError={() => setBroken(true)}
+      className="size-9 flex-none rounded-md object-cover"
+    />
   );
 }
 

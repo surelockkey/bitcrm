@@ -36,6 +36,8 @@ export const queryKeys = {
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
     products: (id: string) => ["deals", id, "products"] as const,
     attachments: (id: string) => ["deals", id, "attachments"] as const,
+    attachmentUrl: (id: string, attachmentId: string) =>
+      ["deals", id, "attachments", attachmentId, "url"] as const,
   },
 
   serviceAreas: {
