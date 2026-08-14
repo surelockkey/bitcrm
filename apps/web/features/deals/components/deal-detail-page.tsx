@@ -118,28 +118,26 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ) : null}
       </div>
 
-      {/* Status — above the tags: a grouped super-status + sub-status select */}
-      <div className="flex items-center gap-2 border-b px-6 py-2.5">
-        <span className="text-xs font-medium text-muted-foreground">Status</span>
-        <JobStatusSelect
-          value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
-          onChange={(v) =>
-            moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
-          }
-          disabled={!canEdit}
-        />
-      </div>
-
-      {/* Tags — top-left, with a "+" to quickly add existing tags */}
-      {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
-        <div className="flex items-center gap-2 border-b px-6 py-2.5">
+      {/* Status + tags share one row; tags wrap under the select when cramped */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-6 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <JobStatusSelect
+            value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
+            onChange={(v) =>
+              moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
+            }
+            disabled={!canEdit}
+          />
+        </div>
+        {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
           <JobTagCombobox
             value={deal.tagIds ?? []}
             onChange={(ids) => tagUpdate.mutate({ tagIds: ids })}
             disabled={!canEdit}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
