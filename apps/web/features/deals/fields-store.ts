@@ -3,14 +3,14 @@ import { persist } from "zustand/middleware";
 import {
   DEFAULT_VISIBLE,
   sanitizeVisibleFields,
-  type JobFieldId,
   type VisibleFields,
 } from "./fields";
 
 /** Which Jobs-table columns the user wants to see. Persisted per browser. */
 interface JobFieldsState {
   visible: VisibleFields;
-  toggle: (id: JobFieldId) => void;
+  /** Accepts a static field id or a `cf:<customFieldId>` column id. */
+  toggle: (id: string) => void;
 }
 
 export const useJobFieldsStore = create<JobFieldsState>()(

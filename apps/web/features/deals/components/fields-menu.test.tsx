@@ -1,8 +1,33 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DEFAULT_VISIBLE, JOB_FIELDS } from "../fields";
+import { DEFAULT_VISIBLE } from "../fields";
 import { useJobFieldsStore } from "../fields-store";
+
+// The panel lists custom fields from the catalog; pin it so no QueryClient is needed.
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({
+    data: [
+      {
+        id: "cf-gate",
+        name: "Gate Code",
+        type: "text",
+        group: "Access",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ],
+  }),
+}));
+
 import { FieldsMenu } from "./fields-menu";
 
 beforeEach(() => {
@@ -10,7 +35,7 @@ beforeEach(() => {
   useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
 });
 
-async function openMenu() {
+async function openPanel() {
   const u = userEvent.setup();
   render(<FieldsMenu />);
   await u.click(screen.getByRole("button", { name: /fields/i }));
@@ -23,40 +48,34 @@ describe("FieldsMenu", () => {
     expect(screen.getByRole("button", { name: /fields/i })).toBeInTheDocument();
   });
 
-  it("opens a menu with a checkbox per hideable field, all checked by default", async () => {
-    await openMenu();
-    const items = screen.getAllByRole("menuitemcheckbox");
-    expect(items.map((i) => i.textContent)).toEqual(JOB_FIELDS.map((f) => f.label));
-    for (const item of items) expect(item).toHaveAttribute("aria-checked", "true");
+  it("opens the Visible fields panel offering every deal field, custom included", async () => {
+    await openPanel();
+    expect(screen.getByText("Visible fields")).toBeInTheDocument();
+    // Classic column: on by default. New and custom fields: offered, off.
+    expect(screen.getByRole("checkbox", { name: "Client" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "Source" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("checkbox", { name: "Gate Code" })).toHaveAttribute("aria-checked", "false");
   });
 
-  it("unchecking a field hides it in the store; the menu stays open", async () => {
-    const u = await openMenu();
-    await u.click(screen.getByRole("menuitemcheckbox", { name: "Tags" }));
+  it("unchecking a field hides it in the store; the panel stays open", async () => {
+    const u = await openPanel();
+    await u.click(screen.getByRole("checkbox", { name: "Tags" }));
     expect(useJobFieldsStore.getState().visible.tags).toBe(false);
     // Still open so several fields can be toggled in one go.
-    expect(screen.getByRole("menuitemcheckbox", { name: "Tags" })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
+    expect(screen.getByRole("checkbox", { name: "Tags" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("reflects fields already hidden in the store", async () => {
     useJobFieldsStore.setState({
       visible: { ...DEFAULT_VISIBLE, scheduled: false },
     });
-    await openMenu();
-    expect(
-      screen.getByRole("menuitemcheckbox", { name: "Scheduled" }),
-    ).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByRole("menuitemcheckbox", { name: "Client" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
+    await openPanel();
+    expect(screen.getByRole("checkbox", { name: "Scheduled" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("checkbox", { name: "Client" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("does not offer the job number", async () => {
-    await openMenu();
-    expect(screen.queryByRole("menuitemcheckbox", { name: /job\s?#/i })).toBeNull();
+    await openPanel();
+    expect(screen.queryByRole("checkbox", { name: /job\s?#/i })).toBeNull();
   });
 });

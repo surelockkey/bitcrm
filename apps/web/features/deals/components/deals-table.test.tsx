@@ -26,6 +26,36 @@ vi.mock("@/features/job-tags/components/job-tag-chips", () => ({
   JobTagChips: () => null,
 }));
 
+// Catalog resolvers the dynamic columns lean on; pinned so no QueryClient is needed.
+vi.mock("@/features/job-sources/lib", () => ({
+  useJobSourceName: () => (id: string | undefined) => (id === "src-web" ? "Website" : "—"),
+}));
+vi.mock("@/features/job-statuses/lib", () => ({
+  useJobStatusName: () => () => "—",
+}));
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({
+    data: [
+      {
+        id: "cf-gate",
+        name: "Gate Code",
+        type: "text",
+        group: "Access",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ],
+  }),
+}));
+
 const contact: Contact = {
   id: "c1",
   firstName: "Jane",
@@ -128,7 +158,7 @@ describe("DealsTable", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(8);
     expect(screen.queryByText("Open in new tab")).toBeNull();
   });
 
@@ -143,17 +173,45 @@ describe("DealsTable", () => {
       />,
     );
     expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
-    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
     // Cells stay aligned with the remaining headers.
     const row = screen.getByText("Jane Smith").closest("tr")!;
-    expect(row.querySelectorAll("td")).toHaveLength(6);
+    expect(row.querySelectorAll("td")).toHaveLength(7);
   });
 
-  it("renders every column when no visibility is passed", () => {
+  it("renders the default columns when no visibility is passed", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
     );
-    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(8);
+  });
+
+  it("can show any deal field — e.g. Source resolved through the catalog", () => {
+    render(
+      <DealsTable
+        deals={[deal({ sourceId: "src-web" })]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ ...DEFAULT_VISIBLE, source: true }}
+      />,
+    );
+    expect(screen.getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
+    expect(screen.getByText("Website")).toBeInTheDocument();
+  });
+
+  it("renders an enabled custom field as a column with the deal's answer", () => {
+    render(
+      <DealsTable
+        deals={[deal({ customFields: { "cf-gate": "4417" } })]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ ...DEFAULT_VISIBLE, "cf:cf-gate": true }}
+      />,
+    );
+    expect(screen.getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
+    expect(screen.getByText("4417")).toBeInTheDocument();
   });
 
   it("keeps the job number even when every optional field is hidden", () => {

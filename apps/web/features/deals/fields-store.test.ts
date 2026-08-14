@@ -22,11 +22,18 @@ describe("useJobFieldsStore", () => {
   });
 
   it("toggling one field leaves the others alone", () => {
-    useJobFieldsStore.getState().toggle("location");
+    useJobFieldsStore.getState().toggle("city");
     const { visible } = useJobFieldsStore.getState();
-    for (const f of JOB_FIELDS.filter((f) => f.id !== "location")) {
-      expect(visible[f.id]).toBe(true);
+    for (const f of JOB_FIELDS.filter((f) => f.id !== "city")) {
+      expect(visible[f.id]).toBe(DEFAULT_VISIBLE[f.id]);
     }
+    expect(visible.city).toBe(!DEFAULT_VISIBLE.city);
+  });
+
+  it("toggles a custom-field column on and persists it", () => {
+    useJobFieldsStore.getState().toggle("cf:cf-gate");
+    expect(useJobFieldsStore.getState().visible["cf:cf-gate"]).toBe(true);
+    expect(JSON.parse(localStorage.getItem(KEY)!).state.visible["cf:cf-gate"]).toBe(true);
   });
 
   it("persists the choice so it survives a reload", () => {
