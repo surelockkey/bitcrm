@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   updateContact: vi.fn(),
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
+  attachments: [] as { id: string }[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -151,6 +152,13 @@ vi.mock("@/features/clients/hooks", () => ({
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
 }));
 
+// The attachments catalog feeds the tab-bar count; mutable so tests vary it.
+vi.mock("../attachments-hooks", () => ({
+  useAttachments: () => ({ data: mocks.attachments, isLoading: false }),
+  useUploadAttachment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteAttachment: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 import { DealDetailPage } from "./deal-detail-page";
 import { usePageHistoryStore } from "@/stores/page-history-store";
 
@@ -158,6 +166,7 @@ beforeEach(() => {
   mocks.perms.deals = false;
   mocks.perms.contacts = false;
   dealState = deal;
+  mocks.attachments = [];
   mocks.push.mockClear();
   mocks.updateDeal.mockClear();
   mocks.updateContact.mockClear();
@@ -205,6 +214,23 @@ describe("DealDetailPage (read only)", () => {
     // throws if a timeline tab button were still rendered next to it.
     const handle = screen.getByRole("button", { name: /timeline/i });
     expect(handle).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("DealDetailPage — attachments tab count", () => {
+  it("shows how many files are attached right on the tab", () => {
+    mocks.attachments = [{ id: "a1" }, { id: "a2" }, { id: "a3" }];
+    render(<DealDetailPage dealId="d1" />);
+
+    const tab = screen.getByRole("button", { name: /attachments/i });
+    expect(within(tab).getByText("3")).toBeInTheDocument();
+  });
+
+  it("keeps the tab plain while there are no files", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    const tab = screen.getByRole("button", { name: /attachments/i });
+    expect(within(tab).queryByText(/\d/)).toBeNull();
   });
 });
 

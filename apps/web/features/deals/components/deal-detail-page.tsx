@@ -55,6 +55,7 @@ import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
+import { useAttachments } from "../attachments-hooks";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
@@ -72,6 +73,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const tagUpdate = useUpdateDeal(dealId);
   const moveStatus = useMoveStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
+  const { data: attachments } = useAttachments(dealId);
+  const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
@@ -146,11 +149,16 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
+              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
               t === tab ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             {t}
+            {t === "attachments" && attachmentCount > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums">
+                {attachmentCount}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
