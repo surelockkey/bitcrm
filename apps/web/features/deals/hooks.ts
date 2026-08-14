@@ -133,6 +133,33 @@ export function useUpdateDeal(id: string) {
 }
 
 /**
+ * Tags auto-save immediately (no Save button) and are optimistic: the chip
+ * paints before the server round-trip, rolls back on error, reconciles on
+ * settle. The success toast is left to the caller so it can say "Tag added"
+ * vs "Tag removed".
+ */
+export function useSetDealTags(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (tagIds: string[]) => api.updateDeal(id, { tagIds }),
+    onMutate: async (tagIds) => {
+      await qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) });
+      const previous = qc.getQueryData<Deal>(queryKeys.deals.detail(id));
+      if (previous) {
+        qc.setQueryData<Deal>(queryKeys.deals.detail(id), { ...previous, tagIds });
+      }
+      return { previous };
+    },
+    onError: (e, _tagIds, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
+  });
+}
+
+/**
  * Move a deal's status (super-status + optional sub-status). Auto-saves and is
  * optimistic so the new status paints before the round-trip; the success toast
  * is left to the caller. Gated server-side by deals.move_status.

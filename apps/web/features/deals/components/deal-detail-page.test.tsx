@@ -136,6 +136,7 @@ vi.mock("../hooks", () => ({
   useDeal: () => ({ data: dealState, isLoading: false }),
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
+  useSetDealTags: () => ({ mutate: vi.fn(), isPending: false }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
   useDealTimeline: () => ({
     data: { pages: [] },

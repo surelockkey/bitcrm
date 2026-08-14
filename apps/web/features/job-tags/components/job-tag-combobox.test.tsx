@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import type { JobTag } from "@bitcrm/types";
 
-const { createMutate, updateMutate, deleteMutate, canMock } = vi.hoisted(() => ({
+const { createMutate, updateMutate, deleteMutate, canMock, catalog } = vi.hoisted(() => ({
   createMutate: vi.fn(),
   updateMutate: vi.fn(),
   deleteMutate: vi.fn(),
   canMock: vi.fn(),
+  catalog: { loading: false },
 }));
 
 const makeTag = (over: Partial<JobTag>): JobTag => ({
@@ -23,12 +24,16 @@ const makeTag = (over: Partial<JobTag>): JobTag => ({
 
 // Zebra is newest but last alphabetically, so every sort order is distinguishable.
 vi.mock("../hooks", () => ({
-  useJobTags: () => ({
-    data: [
-      makeTag({ id: "t-zebra", name: "Zebra", color: "green", createdAt: "2026-06-01T00:00:00Z" }),
-      makeTag({ id: "t-alpha", name: "Alpha", color: "blue", createdAt: "2026-01-01T00:00:00Z" }),
-    ],
-  }),
+  useJobTags: () =>
+    catalog.loading
+      ? { data: undefined, isLoading: true }
+      : {
+          data: [
+            makeTag({ id: "t-zebra", name: "Zebra", color: "green", createdAt: "2026-06-01T00:00:00Z" }),
+            makeTag({ id: "t-alpha", name: "Alpha", color: "blue", createdAt: "2026-01-01T00:00:00Z" }),
+          ],
+          isLoading: false,
+        },
   useCreateJobTag: () => ({ mutate: createMutate, isPending: false }),
   useUpdateJobTag: () => ({ mutate: updateMutate, isPending: false }),
   useDeleteJobTag: () => ({ mutate: deleteMutate, isPending: false }),
@@ -75,6 +80,15 @@ describe("JobTagCombobox — Workiz-style tag window", () => {
     deleteMutate.mockReset();
     canMock.mockReset();
     canMock.mockReturnValue(true);
+    catalog.loading = false;
+  });
+
+  it("shows a skeleton pill instead of the raw id while the catalog loads", () => {
+    catalog.loading = true;
+    const { container } = render(<JobTagCombobox value={["t-zebra"]} onChange={vi.fn()} />);
+
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+    expect(screen.queryByText("t-zebra")).not.toBeInTheDocument();
   });
 
   it("shows the available-tag count in the header", () => {

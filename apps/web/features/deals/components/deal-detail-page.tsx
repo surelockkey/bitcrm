@@ -40,7 +40,7 @@ import { JobStatusSelect } from "@/features/job-statuses/components/job-status-s
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
-import { useDeal, useDeleteDeal, useUpdateDeal, useMoveStatus } from "../hooks";
+import { useDeal, useDeleteDeal, useMoveStatus, useSetDealTags, useUpdateDeal } from "../hooks";
 import {
   buildContactBody,
   buildDealPatch,
@@ -70,7 +70,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
-  const tagUpdate = useUpdateDeal(dealId);
+  const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
   const { data: attachments } = useAttachments(dealId);
@@ -136,7 +136,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
           <JobTagCombobox
             value={deal.tagIds ?? []}
-            onChange={(ids) => tagUpdate.mutate({ tagIds: ids })}
+            onChange={(ids) => {
+              const added = ids.length > (deal.tagIds?.length ?? 0);
+              setTags.mutate(ids, {
+                onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+              });
+            }}
             disabled={!canEdit}
           />
         ) : null}
