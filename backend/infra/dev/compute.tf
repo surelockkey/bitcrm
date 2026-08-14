@@ -212,6 +212,24 @@ data "aws_iam_policy_document" "task_deal" {
     actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
     resources = [module.sns_sqs.queue_arns["user-events-to-deal"]]
   }
+
+  # Job attachments: presigned upload/download of encrypted objects in the app
+  # bucket (SSE-KMS). S3 evaluates the presigned PUT/GET against the SIGNING
+  # role's permissions, so without these grants the browser's upload gets a 403
+  # even though the ticket request succeeds.
+  statement {
+    sid       = "S3Documents"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+    resources = [module.s3_app.arn, "${module.s3_app.arn}/*"]
+  }
+
+  statement {
+    sid       = "KMSDocuments"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+    resources = [module.kms_documents.key_arn]
+  }
 }
 
 # inventory-svc: DDB single-table + S3 app bucket + SQS consume deal-events-to-inventory
