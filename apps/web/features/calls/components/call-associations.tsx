@@ -8,6 +8,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useDeal } from "@/features/deals/hooks";
 import { ChangeClientDialog } from "./change-client-dialog";
 import { LinkJobDialog } from "./link-job-dialog";
+import { useJobTypeName } from "@/features/job-types/lib";
 import { counterparty, formatEndpoint, type CallRecord } from "../lib";
 
 /**
@@ -21,6 +22,7 @@ export function CallAssociations({ call }: { call: CallRecord }) {
   const [changingClient, setChangingClient] = useState(false);
   const [changingJob, setChangingJob] = useState(false);
   const { data: deal, isLoading: dealLoading } = useDeal(call.dealId ?? "");
+  const jobTypeName = useJobTypeName();
 
   const client = counterparty(call);
   const canEditClient = can("calls", "view");
@@ -85,7 +87,7 @@ export function CallAssociations({ call }: { call: CallRecord }) {
                   href={`/deals/${deal.id}`}
                   className="underline-offset-2 hover:text-brand hover:underline"
                 >
-                  #{deal.dealNumber} — {deal.jobTypeId}
+                  #{deal.dealNumber} — {jobTypeName(deal.jobTypeId)}
                 </Link>
               ) : (
                 <span className="text-muted-foreground">

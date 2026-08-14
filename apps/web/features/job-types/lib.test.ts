@@ -19,8 +19,8 @@ describe("jobTypeName", () => {
   it("resolves an id to its name", () => {
     expect(jobTypeName("jt-2", catalog)).toBe("Rekey");
   });
-  it("falls back to the raw id for an unknown type", () => {
-    expect(jobTypeName("jt-x", catalog)).toBe("jt-x");
+  it("never leaks the raw id for a type it can't resolve", () => {
+    expect(jobTypeName("7f3a1c8e-0b2d-4e91-9a6c-5d1f2b3a4c5d", catalog)).toBe("Unknown type");
   });
   it("renders a dash for a missing id", () => {
     expect(jobTypeName(undefined, catalog)).toBe("—");

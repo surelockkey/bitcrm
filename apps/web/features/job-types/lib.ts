@@ -7,13 +7,16 @@ export function jobTypeNameMap(jobTypes: JobType[] | undefined): Map<string, str
 }
 
 /**
- * Resolve a job-type id to its display name. Falls back to the raw id (rather
- * than an empty cell) so a deal referencing a purged type still shows something.
- * The single replacement for the old hardcoded `jobTypeLabel()` + `JOB_TYPES`.
+ * Resolve a job-type id to its display name.
+ *
+ * An id that isn't in the catalog — a purged type, or the catalog still in
+ * flight — reads as "Unknown type", never as the raw uuid: a 36-character id
+ * in a job-type column tells nobody anything and reads like a bug. The single
+ * replacement for the old hardcoded `jobTypeLabel()` + `JOB_TYPES`.
  */
 export function jobTypeName(id: string | undefined, jobTypes: JobType[] | undefined): string {
   if (!id) return "—";
-  return jobTypeNameMap(jobTypes).get(id) ?? id;
+  return jobTypeNameMap(jobTypes).get(id) ?? "Unknown type";
 }
 
 /** Hook wrapper for components that only need the resolver. */
