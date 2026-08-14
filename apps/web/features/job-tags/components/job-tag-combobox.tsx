@@ -11,13 +11,16 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { useJobTags } from "../hooks";
 import { activeJobTags, jobTagMap, tagColorClasses } from "../lib";
+import { JobTagFormDialog } from "./job-tag-form-dialog";
 
 /**
  * Job-tag picker: selected tags show as removable colored chips; pressing
  * "Add tag" opens a searchable dropdown to pick more. The full catalog isn't
- * shown until you ask for it.
+ * shown until you ask for it. Users with `job_tags.create` can also create a
+ * missing tag right from the dropdown.
  */
 export function JobTagCombobox({
   value,
@@ -29,9 +32,16 @@ export function JobTagCombobox({
   disabled?: boolean;
 }) {
   const { data } = useJobTags();
+  const { can } = usePermissions();
   const active = activeJobTags(data);
   const map = jobTagMap(data);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const typed = query.trim();
+  const nameTaken = (data ?? []).some((t) => t.name.toLowerCase() === typed.toLowerCase());
+  const canCreate = can("job_tags", "create") && (typed === "" || !nameTaken);
 
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
@@ -76,7 +86,7 @@ export function JobTagCombobox({
               <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
               <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border bg-popover shadow-md">
                 <Command loop>
-                  <CommandInput autoFocus placeholder="Search tags…" className="h-9" />
+                  <CommandInput autoFocus placeholder="Search tags…" className="h-9" value={query} onValueChange={setQuery} />
                   <CommandList className="max-h-56">
                     <CommandEmpty>No tags found.</CommandEmpty>
                     <CommandGroup>
@@ -99,8 +109,32 @@ export function JobTagCombobox({
                     </CommandGroup>
                   </CommandList>
                 </Command>
+
+                {canCreate ? (
+                  <button
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="flex w-full items-center gap-1.5 border-t px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  >
+                    <Plus className="size-3" />
+                    {typed ? <>Create &ldquo;{typed}&rdquo;</> : "Create new tag"}
+                  </button>
+                ) : null}
               </div>
             </>
+          ) : null}
+
+          {creating ? (
+            <JobTagFormDialog
+              open={creating}
+              onOpenChange={setCreating}
+              initialName={typed}
+              onCreated={(tag) => {
+                onChange([...value, tag.id]);
+                setOpen(false);
+                setQuery("");
+              }}
+            />
           ) : null}
         </div>
       )}
