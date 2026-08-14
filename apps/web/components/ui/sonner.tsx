@@ -10,6 +10,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
+      // App-wide default: toasts drop in top-center, and when several queue up
+      // they all stay visible (expanded) instead of collapsing into a stack.
+      position="top-center"
+      expand
       className="toaster group"
       icons={{
         success: (
