@@ -32,6 +32,7 @@ describe('DealAttachmentsService', () => {
     create: jest.Mock;
     get: jest.Mock;
     listByDeal: jest.Mock;
+    update: jest.Mock;
     delete: jest.Mock;
   };
   let service: DealAttachmentsService;
@@ -49,9 +50,48 @@ describe('DealAttachmentsService', () => {
       create: jest.fn().mockResolvedValue(undefined),
       get: jest.fn().mockResolvedValue(storedAttachment),
       listByDeal: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue(storedAttachment),
       delete: jest.fn().mockResolvedValue(undefined),
     };
     service = new DealAttachmentsService(s3 as never, repo as never);
+  });
+
+  describe('update', () => {
+    it('renames the file and sets the description, returning meta without the s3 key', async () => {
+      repo.update.mockResolvedValue({
+        ...storedAttachment,
+        fileName: 'front door.jpg',
+        description: 'Broken latch, before repair',
+      });
+
+      const res = await service.update(
+        'd1',
+        'att-1',
+        { fileName: 'front door.jpg', description: 'Broken latch, before repair' },
+        caller,
+      );
+
+      expect(repo.update).toHaveBeenCalledWith('d1', 'att-1', {
+        fileName: 'front door.jpg',
+        description: 'Broken latch, before repair',
+      });
+      expect(res).toMatchObject({
+        id: 'att-1',
+        fileName: 'front door.jpg',
+        description: 'Broken latch, before repair',
+      });
+      expect(res).not.toHaveProperty('s3Key');
+      expect(res).not.toHaveProperty('dealId');
+    });
+
+    it('404s when the attachment does not exist', async () => {
+      repo.get.mockResolvedValue(null);
+
+      await expect(
+        service.update('d1', 'missing', { fileName: 'x.jpg' }, caller),
+      ).rejects.toThrow(NotFoundException);
+      expect(repo.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('requestUpload', () => {

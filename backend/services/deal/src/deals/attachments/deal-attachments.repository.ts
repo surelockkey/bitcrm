@@ -4,6 +4,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { type DealAttachment } from '@bitcrm/types';
@@ -51,6 +52,33 @@ export class DealAttachmentsRepository {
     return (result.Items || []).map((i) => this.toAttachment(i));
   }
 
+  async update(
+    dealId: string,
+    id: string,
+    patch: { fileName?: string; description?: string },
+  ): Promise<DealAttachment> {
+    const sets: string[] = [];
+    const names: Record<string, string> = {};
+    const values: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) continue;
+      sets.push(`#${k} = :${k}`);
+      names[`#${k}`] = k;
+      values[`:${k}`] = v;
+    }
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: DEALS_TABLE,
+        Key: this.key(dealId, id),
+        UpdateExpression: `SET ${sets.join(', ')}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return this.toAttachment(result.Attributes || {});
+  }
+
   async delete(dealId: string, id: string): Promise<void> {
     await this.dynamoDb.client.send(
       new DeleteCommand({ TableName: DEALS_TABLE, Key: this.key(dealId, id) }),
@@ -65,6 +93,7 @@ export class DealAttachmentsRepository {
       contentType: item.contentType as string,
       size: item.size as number | undefined,
       category: item.category as string | undefined,
+      description: item.description as string | undefined,
       s3Key: item.s3Key as string,
       uploadedBy: item.uploadedBy as string,
       uploadedAt: item.uploadedAt as string,

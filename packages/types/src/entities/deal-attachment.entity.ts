@@ -7,6 +7,8 @@ export interface DealAttachment {
   size?: number;
   /** Optional grouping label, e.g. "before", "after", "parts", "check". */
   category?: string;
+  /** Free-text note shown under the file name (editable after upload). */
+  description?: string;
   s3Key: string;
   uploadedBy: string;
   uploadedAt: string;
@@ -19,6 +21,7 @@ export interface DealAttachmentMeta {
   contentType: string;
   size?: number;
   category?: string;
+  description?: string;
   uploadedBy: string;
   uploadedAt: string;
 }
