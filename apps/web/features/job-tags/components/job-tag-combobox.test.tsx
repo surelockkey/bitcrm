@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import type { JobTag } from "@bitcrm/types";
 
-const { createMutate, canMock } = vi.hoisted(() => ({
+const { createMutate, updateMutate, deleteMutate, canMock } = vi.hoisted(() => ({
   createMutate: vi.fn(),
+  updateMutate: vi.fn(),
+  deleteMutate: vi.fn(),
   canMock: vi.fn(),
 }));
 
@@ -19,19 +21,24 @@ const makeTag = (over: Partial<JobTag>): JobTag => ({
   ...over,
 });
 
+// Named so priority order (Zebra first) differs from alphabetical (Alpha first).
 vi.mock("../hooks", () => ({
   useJobTags: () => ({
-    data: [makeTag({ id: "t-rush", name: "Rush" }), makeTag({ id: "t-vip", name: "VIP", color: "violet" })],
+    data: [
+      makeTag({ id: "t-zebra", name: "Zebra", color: "green", priority: 9 }),
+      makeTag({ id: "t-alpha", name: "Alpha", color: "blue", priority: 0 }),
+    ],
   }),
   useCreateJobTag: () => ({ mutate: createMutate, isPending: false }),
-  useUpdateJobTag: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateJobTag: () => ({ mutate: updateMutate, isPending: false }),
+  useDeleteJobTag: () => ({ mutate: deleteMutate, isPending: false }),
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: canMock }),
 }));
 
-// Radix portal/animation wrapper; render children directly (same pattern as
+// Radix portal/animation wrappers; render children directly (same pattern as
 // deal-quick-view.test.tsx does for the Sheet).
 vi.mock("@/components/ui/dialog", () => ({
   Dialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) =>
@@ -43,37 +50,54 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock("@/components/ui/alert-dialog", () => ({
+  AlertDialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) =>
+    open ? <div role="alertdialog">{children}</div> : null,
+  AlertDialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AlertDialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AlertDialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AlertDialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AlertDialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AlertDialogCancel: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>,
+  AlertDialogAction: ({ children, onClick }: { children: React.ReactNode; onClick?: React.MouseEventHandler }) => (
+    <button type="button" onClick={onClick}>{children}</button>
+  ),
+}));
+
 import { JobTagCombobox } from "./job-tag-combobox";
 
-const openPickerAndType = (text: string) => {
-  fireEvent.click(screen.getByRole("button", { name: /add tag/i }));
-  fireEvent.change(screen.getByPlaceholderText("Search tags…"), { target: { value: text } });
-};
+const openPicker = () => fireEvent.click(screen.getByRole("button", { name: /add tag/i }));
 
-describe("JobTagCombobox — create tag from the picker", () => {
+describe("JobTagCombobox — Workiz-style tag window", () => {
   beforeEach(() => {
     createMutate.mockReset();
+    updateMutate.mockReset();
+    deleteMutate.mockReset();
     canMock.mockReset();
     canMock.mockReturnValue(true);
   });
 
-  it("creates the typed tag through the form dialog and selects it on the job", () => {
+  it("shows the available-tag count in the header", () => {
+    render(<JobTagCombobox value={[]} onChange={vi.fn()} />);
+    openPicker();
+
+    expect(screen.getByText("Available tags (2)")).toBeInTheDocument();
+  });
+
+  it("creates a tag via Create new, prefilled with the search query, and selects it", () => {
     createMutate.mockImplementation((body: { name: string }, opts?: { onSuccess?: (t: JobTag) => void }) => {
       opts?.onSuccess?.(makeTag({ id: "t-new", name: body.name, color: "slate" }));
     });
     const onChange = vi.fn();
 
     render(<JobTagCombobox value={[]} onChange={onChange} />);
-    openPickerAndType("Emergency");
+    openPicker();
+    fireEvent.change(screen.getByPlaceholderText("Search tags…"), { target: { value: "Emergency" } });
+    fireEvent.click(screen.getByRole("button", { name: /create new/i }));
 
-    // The catalog has no "Emergency", so the picker offers to create it.
-    fireEvent.click(screen.getByRole("button", { name: /create .*Emergency/i }));
-
-    // The tag form opens prefilled with what was typed…
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByDisplayValue("Emergency")).toBeInTheDocument();
 
-    // …and submitting it creates the tag and attaches it to the job.
     fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     expect(createMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Emergency" }),
@@ -82,19 +106,57 @@ describe("JobTagCombobox — create tag from the picker", () => {
     expect(onChange).toHaveBeenCalledWith(["t-new"]);
   });
 
-  it("does not offer creation when the typed name already exists in the catalog", () => {
-    render(<JobTagCombobox value={[]} onChange={vi.fn()} />);
-    openPickerAndType("rush");
+  it("edits a tag from its row without touching the job's selection", () => {
+    const onChange = vi.fn();
+    render(<JobTagCombobox value={[]} onChange={onChange} />);
+    openPicker();
 
-    expect(screen.queryByRole("button", { name: /create/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Zebra" }));
+
+    const dialog = screen.getByRole("dialog");
+    const nameInput = within(dialog).getByDisplayValue("Zebra");
+    fireEvent.change(nameInput, { target: { value: "Zulu" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Zulu" }),
+      expect.anything(),
+    );
+    expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("hides the create option without the job_tags.create permission", () => {
-    canMock.mockReturnValue(false);
+  it("deletes a tag from its row after a confirmation", () => {
+    render(<JobTagCombobox value={[]} onChange={vi.fn()} />);
+    openPicker();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zebra" }));
+    expect(deleteMutate).not.toHaveBeenCalled();
+
+    const confirm = screen.getByRole("alertdialog");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
+    expect(deleteMutate).toHaveBeenCalledWith("t-zebra");
+  });
+
+  it("toggles between priority and alphabetical order", () => {
+    render(<JobTagCombobox value={[]} onChange={vi.fn()} />);
+    openPicker();
+
+    const names = () =>
+      screen.getAllByRole("option").map((o) => o.textContent?.replace(/Edit|Delete/g, "").trim());
+
+    expect(names()).toEqual(["Zebra", "Alpha"]);
+    fireEvent.click(screen.getByRole("button", { name: /sort/i }));
+    expect(names()).toEqual(["Alpha", "Zebra"]);
+  });
+
+  it("hides create, edit and delete without the matching job_tags permissions", () => {
+    canMock.mockImplementation((resource: string, action: string) => action === "view");
 
     render(<JobTagCombobox value={[]} onChange={vi.fn()} />);
-    openPickerAndType("Emergency");
+    openPicker();
 
-    expect(screen.queryByRole("button", { name: /create/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create new/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit /i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^delete /i })).not.toBeInTheDocument();
   });
 });
