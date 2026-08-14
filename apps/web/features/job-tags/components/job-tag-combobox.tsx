@@ -27,6 +27,27 @@ import { useDeleteJobTag, useJobTags } from "../hooks";
 import { activeJobTags, jobTagMap, tagColorClasses } from "../lib";
 import { JobTagFormDialog } from "./job-tag-form-dialog";
 
+/** Sort orders offered by the picker's "Sort by" menu, as in Workiz. */
+const SORT_OPTIONS = [
+  { key: "az", label: "A-Z" },
+  { key: "za", label: "Z-A" },
+  { key: "newest", label: "Newest first" },
+  { key: "oldest", label: "Oldest first" },
+] as const;
+type SortKey = (typeof SORT_OPTIONS)[number]["key"];
+
+function sortTags(tags: JobTag[], sort: SortKey): JobTag[] {
+  const byName = (a: JobTag, b: JobTag) => a.name.localeCompare(b.name);
+  const byCreated = (a: JobTag, b: JobTag) => a.createdAt.localeCompare(b.createdAt);
+  const sorted = [...tags];
+  switch (sort) {
+    case "az": return sorted.sort(byName);
+    case "za": return sorted.sort((a, b) => byName(b, a));
+    case "newest": return sorted.sort((a, b) => byCreated(b, a));
+    case "oldest": return sorted.sort(byCreated);
+  }
+}
+
 /**
  * Job-tag picker, mirroring the Workiz tag window so migrating users feel at
  * home: selected tags show as removable colored chips; "+" opens a popover
@@ -49,7 +70,8 @@ export function JobTagCombobox({
   const map = jobTagMap(data);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [alpha, setAlpha] = useState(false);
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [sortOpen, setSortOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<JobTag | undefined>();
   const [deleting, setDeleting] = useState<JobTag | undefined>();
@@ -59,7 +81,7 @@ export function JobTagCombobox({
   const canDelete = can("job_tags", "delete");
 
   const active = activeJobTags(data);
-  const listed = alpha ? [...active].sort((a, b) => a.name.localeCompare(b.name)) : active;
+  const listed = sortTags(active, sort);
 
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
@@ -121,18 +143,45 @@ export function JobTagCombobox({
                     <div className="flex-1">
                       <CommandInput autoFocus placeholder="Search tags…" className="h-9" value={query} onValueChange={setQuery} />
                     </div>
-                    <button
-                      type="button"
-                      aria-label="Sort tags"
-                      title={alpha ? "Sorted A→Z" : "Sorted by priority"}
-                      onClick={() => setAlpha((a) => !a)}
-                      className={cn(
-                        "grid size-8 flex-none place-items-center rounded-md hover:bg-muted/60",
-                        alpha ? "text-foreground" : "text-muted-foreground",
-                      )}
-                    >
-                      <ArrowUpDown className="size-4" />
-                    </button>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        aria-label="Sort by"
+                        title="Sort by"
+                        aria-expanded={sortOpen}
+                        onClick={() => setSortOpen((o) => !o)}
+                        className={cn(
+                          "grid size-8 flex-none place-items-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                          sortOpen && "bg-muted/60 text-foreground",
+                        )}
+                      >
+                        <ArrowUpDown className="size-4" />
+                      </button>
+
+                      {sortOpen ? (
+                        <>
+                          <button type="button" aria-label="Close" className="fixed inset-0 z-30 cursor-default" onClick={() => setSortOpen(false)} />
+                          <div role="menu" className="absolute right-0 top-full z-40 mt-1 w-40 overflow-hidden rounded-lg border bg-popover py-1 shadow-md">
+                            {SORT_OPTIONS.map((o) => (
+                              <button
+                                key={o.key}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={sort === o.key}
+                                onClick={() => { setSort(o.key); setSortOpen(false); }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/60",
+                                  sort === o.key && "bg-muted/40",
+                                )}
+                              >
+                                <Check className={cn("size-3.5", sort === o.key ? "opacity-100" : "opacity-0")} />
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                   <CommandList className="max-h-64">
                     <CommandEmpty>No tags found.</CommandEmpty>

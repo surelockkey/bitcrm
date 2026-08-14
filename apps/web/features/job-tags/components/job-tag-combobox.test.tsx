@@ -21,12 +21,12 @@ const makeTag = (over: Partial<JobTag>): JobTag => ({
   ...over,
 });
 
-// Named so priority order (Zebra first) differs from alphabetical (Alpha first).
+// Zebra is newest but last alphabetically, so every sort order is distinguishable.
 vi.mock("../hooks", () => ({
   useJobTags: () => ({
     data: [
-      makeTag({ id: "t-zebra", name: "Zebra", color: "green", priority: 9 }),
-      makeTag({ id: "t-alpha", name: "Alpha", color: "blue", priority: 0 }),
+      makeTag({ id: "t-zebra", name: "Zebra", color: "green", createdAt: "2026-06-01T00:00:00Z" }),
+      makeTag({ id: "t-alpha", name: "Alpha", color: "blue", createdAt: "2026-01-01T00:00:00Z" }),
     ],
   }),
   useCreateJobTag: () => ({ mutate: createMutate, isPending: false }),
@@ -137,15 +137,27 @@ describe("JobTagCombobox — Workiz-style tag window", () => {
     expect(deleteMutate).toHaveBeenCalledWith("t-zebra");
   });
 
-  it("toggles between priority and alphabetical order", () => {
+  it("sorts newest-first by default and offers A-Z, Z-A, newest and oldest", () => {
     render(<JobTagCombobox value={[]} onChange={vi.fn()} />);
     openPicker();
 
     const names = () =>
       screen.getAllByRole("option").map((o) => o.textContent?.replace(/Edit|Delete/g, "").trim());
+    const pick = (label: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "Sort by" }));
+      fireEvent.click(screen.getByRole("menuitemradio", { name: label }));
+    };
 
+    // Workiz default: newest first (Zebra was created last).
     expect(names()).toEqual(["Zebra", "Alpha"]);
-    fireEvent.click(screen.getByRole("button", { name: /sort/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by" }));
+    expect(screen.getByRole("menuitemradio", { name: "Newest first" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "A-Z" }));
+
+    expect(names()).toEqual(["Alpha", "Zebra"]);
+    pick("Z-A");
+    expect(names()).toEqual(["Zebra", "Alpha"]);
+    pick("Oldest first");
     expect(names()).toEqual(["Alpha", "Zebra"]);
   });
 
