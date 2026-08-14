@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Loader2, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -134,10 +135,10 @@ export function LinkJobDialog({
                 const contact = contacts.get(deal.contactId);
                 const isClientMatch = searching && deal.contactId === clientContactId;
                 return (
-                  <li key={deal.id}>
+                  <li key={deal.id} className="flex items-center gap-1">
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 px-1 py-2.5 text-left hover:bg-accent"
+                      className="flex min-w-0 flex-1 items-center gap-3 px-1 py-2.5 text-left hover:bg-accent"
                       disabled={link.isPending}
                       onClick={() => choose(deal.id)}
                     >
@@ -161,6 +162,20 @@ export function LinkJobDialog({
                         <Loader2 className="size-4 animate-spin text-muted-foreground" />
                       ) : null}
                     </button>
+                    {/* Sits outside the linking button so one row offers both
+                        answers: attach the call, or go read the job first —
+                        which is often what settles whether it's the right one.
+                        A real anchor, so cmd-click opens it in a tab and the
+                        call keeps ringing here. */}
+                    <Link
+                      href={`/deals/${deal.id}`}
+                      onClick={onClose}
+                      title="Open this job"
+                      aria-label={`Open job ${deal.dealNumber ? `#${deal.dealNumber}` : ""}`}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <ExternalLink className="size-3.5" />
+                    </Link>
                   </li>
                 );
               })}

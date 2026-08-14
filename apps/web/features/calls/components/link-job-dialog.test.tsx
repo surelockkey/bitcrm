@@ -45,6 +45,13 @@ vi.mock("@/features/deals/hooks", () => ({
   }),
 }));
 vi.mock("@/features/deals/lib", () => ({ stageLabel: () => "Submitted" }));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 vi.mock("../hooks", () => ({
   useLinkCallToDeal: () => ({ mutate: linkMutate, isPending: false }),
 }));
@@ -126,5 +133,20 @@ describe("LinkJobDialog", () => {
       { sid: "CA1", dealId: "d-new" },
       expect.anything(),
     );
+  });
+
+  it("offers to open a job as well as link it, without leaving the call", async () => {
+    const u = userEvent.setup();
+    const onClose = vi.fn();
+    render(<LinkJobDialog call={call} onClose={onClose} />);
+
+    const open = screen.getByRole("link", { name: /open job #1042/i });
+    expect(open).toHaveAttribute("href", "/deals/d-new");
+
+    // Reading the job is not the same as attaching the call to it.
+    await u.click(open);
+    expect(linkMutate).not.toHaveBeenCalled();
+    // The dialog gets out of the way of the page being navigated to.
+    expect(onClose).toHaveBeenCalled();
   });
 });
