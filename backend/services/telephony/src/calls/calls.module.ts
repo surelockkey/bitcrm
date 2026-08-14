@@ -6,6 +6,8 @@ import { CallEventsBus } from './call-events.bus';
 import { UserNamesService } from '../common/user-names.service';
 import { ContactLookupService } from '../common/contact-lookup.service';
 import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
+import { UserDirectoryService } from '../common/user-directory.service';
+import { DealLinkService } from '../common/deal-link.service';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { VoiceModule } from '../voice/voice.module';
 
@@ -21,6 +23,8 @@ import { VoiceModule } from '../voice/voice.module';
     UserNamesService,
     ContactLookupService,
     UserPhoneLookupService,
+    UserDirectoryService,
+    DealLinkService,
   ],
   exports: [CallsService, CallEventsBus],
 })

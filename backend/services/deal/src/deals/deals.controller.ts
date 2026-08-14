@@ -26,6 +26,7 @@ import { AddDealProductDto } from './dto/add-deal-product.dto';
 import { MarkProductOrderedDto } from './dto/mark-product-ordered.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { Internal } from '../common/decorators/internal.decorator';
+import { RecordCallLinkDto } from './dto/record-call-link.dto';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
 
 @ApiTags('Deals')
@@ -145,6 +146,29 @@ export class DealsController {
       data: result.items,
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
+  }
+
+  @Post(':id/call-link')
+  @Internal()
+  @ApiOperation({
+    summary: 'Record a call being attached to (or detached from) this job',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret`). ' +
+      'Written by telephony-service when someone links a call, so the job’s ' +
+      'activity feed carries calls alongside everything else — with the ' +
+      'recording available from the entry.',
+  })
+  async recordCallLink(
+    @Param('id') id: string,
+    @Body() dto: RecordCallLinkDto,
+  ) {
+    await this.dealsService.recordCallLink(
+      id,
+      dto.linked !== false,
+      dto.details ?? {},
+      { id: dto.actorId, name: dto.actorName ?? 'Someone' },
+    );
+    return { success: true, data: { recorded: true } };
   }
 
   @Post(':id/notes')

@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowRightLeft,
   GripHorizontal,
   Mic,
   MicOff,
   Phone,
   PhoneOff,
+  UserPlus,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useActiveCall } from "@/features/calls/hooks";
+import { CallJobActions } from "@/features/calls/components/call-job-actions";
+import { TransferPanel, type TransferIntent } from "./transfer-panel";
 import { formatPhone } from "@/lib/phone";
 import { useSoftphoneStore } from "../softphone-store";
 import { useNumbers } from "../numbers-hooks";
@@ -104,6 +109,11 @@ export function SoftphoneWidget() {
   // Long-press "0" → "+" state. Declared before any early return (Rules of Hooks).
   const zeroTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zeroLongPressed = useRef(false);
+  /** Which sub-panel is open over the keypad, if any. */
+  const [panel, setPanel] = useState<TransferIntent | null>(null);
+  // The record behind this call: the browser knows its own leg, the server
+  // knows which call that leg belongs to.
+  const activeCall = useActiveCall(callState !== "idle");
 
   if (!visible) return null;
 
@@ -325,20 +335,53 @@ export function SoftphoneWidget() {
             </Button>
           </div>
         ) : inCall ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              variant={muted ? "secondary" : "outline"}
-              onClick={toggleMute}
-              disabled={callState !== "active"}
-            >
-              {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-              {muted ? "Unmute" : "Mute"}
-            </Button>
-            <Button type="button" variant="destructive" onClick={hangup}>
-              <PhoneOff className="size-4" /> Hang up
-            </Button>
-          </div>
+          panel ? (
+            <TransferPanel
+              callSid={activeCall.data?.callSid as string}
+              intent={panel}
+              onClose={() => setPanel(null)}
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={muted ? "secondary" : "outline"}
+                  onClick={toggleMute}
+                  disabled={callState !== "active"}
+                >
+                  {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                  {muted ? "Unmute" : "Mute"}
+                </Button>
+                <Button type="button" variant="destructive" onClick={hangup}>
+                  <PhoneOff className="size-4" /> Hang up
+                </Button>
+              </div>
+              {/* Handing over or pulling someone in both need the call record,
+                  which the server resolves — the browser only knows its own leg. */}
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!activeCall.data?.callSid || callState !== "active"}
+                  onClick={() => setPanel("add")}
+                >
+                  <UserPlus className="size-3.5" /> Add
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!activeCall.data?.callSid || callState !== "active"}
+                  onClick={() => setPanel("transfer")}
+                >
+                  <ArrowRightLeft className="size-3.5" /> Transfer
+                </Button>
+              </div>
+              <CallJobActions call={activeCall.data ?? null} />
+            </div>
+          )
         ) : (
           <div className="grid grid-cols-1 gap-2">
             <Button

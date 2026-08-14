@@ -7,6 +7,7 @@ import {
   type CallStatus,
 } from './calls.repository';
 import { CallEventsBus } from './call-events.bus';
+import { DealLinkService } from '../common/deal-link.service';
 
 /** Raw form params Twilio POSTs to the status callback (subset we use). */
 export interface TwilioStatusParams {
@@ -77,6 +78,7 @@ export class CallsService {
   constructor(
     private readonly repo: CallsRepository,
     @Optional() private readonly bus?: CallEventsBus,
+    @Optional() private readonly dealLinks?: DealLinkService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
@@ -189,7 +191,73 @@ export class CallsService {
     parties: Parameters<CallsRepository['setParties']>[1],
     startedAt: string,
   ) {
-    return this.repo.setParties(callSid, parties, startedAt);
+    return this.repo.setParties(callSid, parties, startedAt, 'auto');
+  }
+
+  /**
+   * A person correcting who a call was with. Overwrites whatever automatic
+   * resolution decided and marks the record so it is never re-derived.
+   */
+  setPartiesManually(
+    callSid: string,
+    parties: Parameters<CallsRepository['setParties']>[1],
+    startedAt: string,
+  ) {
+    return this.repo.setParties(callSid, parties, startedAt, 'manual');
+  }
+
+  /**
+   * The live call the given user is on, if any — the browser knows its own
+   * Twilio leg, but for an inbound call that leg is a child of the record, so
+   * the server is the one that can answer this.
+   */
+  async activeCallFor(userId: string): Promise<CallRecord | null> {
+    const live = await this.listLive();
+    return (
+      live.find(
+        (call) =>
+          call.agentId === userId ||
+          call.participants?.some((p) => p.userId === userId),
+      ) ?? null
+    );
+  }
+
+  /** Attach a call to a job, or detach it, and tell the job about it. */
+  async linkDeal(
+    callSid: string,
+    dealId: string | null,
+    actor: { id: string; name?: string },
+  ): Promise<CallRecord | null> {
+    const before = await this.repo.getBySid(callSid);
+    if (!before) return null;
+
+    await this.repo.setDeal(callSid, dealId, actor.id);
+    const after = await this.repo.getBySid(callSid);
+
+    // The job's activity feed is the other half of the link. Best-effort: a
+    // deal-service hiccup must not lose the link itself.
+    void this.dealLinks
+      ?.record(dealId ?? (before.dealId as string), {
+        callSid,
+        linked: !!dealId,
+        actorId: actor.id,
+        actorName: actor.name,
+        details: {
+          callSid,
+          direction: before.direction,
+          from: before.from,
+          to: before.to,
+          startedAt: before.startedAt,
+          durationSeconds: before.durationSeconds,
+          hasRecording: !!before.recordingSid,
+        },
+      })
+      .catch(() => undefined);
+
+    if (after && !after.internalLegOf) {
+      this.bus?.publish({ type: 'call.upserted', call: after });
+    }
+    return after;
   }
 
   getBySid(callSid: string) {

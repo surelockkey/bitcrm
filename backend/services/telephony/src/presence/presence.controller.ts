@@ -1,8 +1,9 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { PresenceService } from './presence.service';
+import { UserDirectoryService } from '../common/user-directory.service';
 
 class PresenceDto {
   online!: boolean;
@@ -12,7 +13,37 @@ class PresenceDto {
 @ApiBearerAuth()
 @Controller('presence')
 export class PresenceController {
-  constructor(private readonly presence: PresenceService) {}
+  constructor(
+    private readonly presence: PresenceService,
+    private readonly directory: UserDirectoryService,
+  ) {}
+
+  @Get('online')
+  @ApiOperation({
+    summary: 'Teammates who can take a call right now',
+    description:
+      'Any authenticated user — this is the transfer / add-someone picker. ' +
+      'Returns every teammate with their name, role and personal number, ' +
+      'flagged with whether their softphone is registered. Someone offline is ' +
+      'still listed: their personal number is exactly the case where it helps.',
+  })
+  async online(@CurrentUser() user: JwtUser) {
+    const [onlineIds, everyone] = await Promise.all([
+      this.presence.listOnline(),
+      this.directory.list(),
+    ]);
+    const online = new Set(onlineIds);
+    const data = everyone
+      // No point offering to transfer a call to yourself.
+      .filter((u) => u.id !== user.id)
+      .map((u) => ({ ...u, softphoneOnline: online.has(u.id) }))
+      .sort((a, b) =>
+        a.softphoneOnline === b.softphoneOnline
+          ? a.name.localeCompare(b.name)
+          : Number(b.softphoneOnline) - Number(a.softphoneOnline),
+      );
+    return { success: true, data };
+  }
 
   @Post()
   @ApiOperation({

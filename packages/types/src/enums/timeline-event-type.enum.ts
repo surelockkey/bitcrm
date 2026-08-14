@@ -10,4 +10,7 @@ export enum TimelineEventType {
   PRODUCT_ADDED = 'product_added',
   PRODUCT_UPDATED = 'product_updated',
   PRODUCT_REMOVED = 'product_removed',
+  /** A phone call was attached to this job. */
+  CALL_LINKED = 'call_linked',
+  CALL_UNLINKED = 'call_unlinked',
 }

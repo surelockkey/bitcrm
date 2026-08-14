@@ -1,10 +1,18 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+} from '@nestjs/common';
 import { RedisService } from '@bitcrm/shared';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
 } from '../telephony/telephony.config';
 import { TwilioRest } from '../common/twilio-client';
+import { PresenceService } from '../presence/presence.service';
 import {
   CallsService,
   normalizeStatus,
@@ -45,6 +53,9 @@ export class ConferenceService {
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
     private readonly redis: RedisService,
     private readonly calls: CallsService,
+    // Optional so the conference specs can construct this without it; without
+    // presence we simply can't check whether a softphone is registered.
+    @Optional() private readonly presence?: PresenceService,
   ) {
     this.rest = new TwilioRest(config);
   }
@@ -454,6 +465,129 @@ export class ConferenceService {
   }
 
   /* ------------------------------------------------------- monitoring */
+
+
+  /* ------------------------------------------------- transfer / add party */
+
+  /**
+   * Bring one of our own people onto a live call — the mechanism behind both
+   * "Add" (everyone stays) and "Transfer" (the agent leaves afterwards).
+   *
+   * The new leg joins with `endConferenceOnExit: false`. Only the customer's
+   * leg ends the conference, so the person we add — and, later, the agent who
+   * added them — can come and go without dropping the call.
+   */
+  async addParticipant(
+    primarySid: string,
+    target: { userId: string; channel: 'softphone' | 'personal'; phone?: string },
+    addedBy: string,
+  ): Promise<{ callSid: string }> {
+    const name = confName(primarySid);
+    const conferenceSid = await this.conferenceSidOf(name);
+    if (!conferenceSid || !(await this.isConferenceLive(conferenceSid))) {
+      throw new ConflictException('This call is not live');
+    }
+
+    const to =
+      target.channel === 'softphone'
+        ? `client:${target.userId}`
+        : target.phone;
+    if (!to) {
+      throw new BadRequestException(
+        'That teammate has no personal number on their profile',
+      );
+    }
+
+    // A softphone leg must be reachable: dialling client:<id> when nobody is
+    // registered simply fails after the timeout, with the customer waiting.
+    if (target.channel === 'softphone' && this.presence) {
+      const online = await this.presence.listOnline();
+      if (!online.includes(target.userId)) {
+        throw new ConflictException('Their softphone is not online');
+      }
+    }
+
+    const record = await this.calls.getBySid(primarySid);
+    const callerId = record?.from && !record.from.startsWith('client:')
+      ? record.from
+      : this.config.callerId;
+
+    const participant = await this.rest.run((c) =>
+      c.conferences(conferenceSid).participants.create({
+        to,
+        from: target.channel === 'softphone' ? callerId : this.config.callerId,
+        earlyMedia: true,
+        // Never the leg that ends the call — see the class comment.
+        endConferenceOnExit: false,
+        label: `added-${target.userId}`,
+        timeout: 25,
+        statusCallback: this.statusUrl(name, 'agent'),
+        statusCallbackMethod: 'POST',
+        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+      }),
+    );
+
+    await this.calls.appendChildSid(primarySid, participant.callSid);
+    await this.calls.appendParticipant(primarySid, {
+      userId: target.userId,
+      role: 'joined',
+      at: new Date().toISOString(),
+    });
+    this.logger.log(
+      `Conference ${name}: ${addedBy} added ${target.userId} (${target.channel})`,
+    );
+    return { callSid: participant.callSid };
+  }
+
+  /**
+   * Let the transferring agent hang up without taking the call with them.
+   *
+   * Their leg was created with `endConferenceOnExit: true` — correct while
+   * they are the only one of us on the call, wrong the moment they hand it
+   * over. Flipping it is what makes transfer possible at all.
+   */
+  async releaseAgentLeg(primarySid: string, userId: string): Promise<void> {
+    const name = confName(primarySid);
+    const conferenceSid = await this.conferenceSidOf(name);
+    if (!conferenceSid) return;
+
+    const participants = await this.rest.run((c) =>
+      c.conferences(conferenceSid).participants.list({ limit: 20 }),
+    );
+
+    // The agent's own leg: for an outbound call it is the primary sid; for an
+    // inbound one it is whichever leg is talking to their softphone.
+    for (const participant of participants) {
+      const leg = await this.rest
+        .run((c) => c.calls(participant.callSid).fetch())
+        .catch(() => null);
+      const isTheirs =
+        participant.callSid === primarySid ||
+        leg?.to === `client:${userId}` ||
+        leg?.from === `client:${userId}`;
+      if (!isTheirs) continue;
+
+      await this.rest.run((c) =>
+        c
+          .conferences(conferenceSid)
+          .participants(participant.callSid)
+          .update({ endConferenceOnExit: false }),
+      );
+      this.logger.log(`Conference ${name}: released ${userId}'s leg`);
+      return;
+    }
+  }
+
+  /** Drop someone from a live call without ending it. */
+  async removeParticipant(primarySid: string, callSid: string): Promise<void> {
+    const conferenceSid = await this.conferenceSidOf(confName(primarySid));
+    if (!conferenceSid) return;
+    await this.rest
+      .run((c) =>
+        c.conferences(conferenceSid).participants(callSid).remove(),
+      )
+      .catch(() => undefined);
+  }
 
   async grantMonitor(
     userId: string,

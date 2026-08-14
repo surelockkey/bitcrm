@@ -608,6 +608,26 @@ export class DealsService {
     return this.timelineRepo.findByDeal(dealId, limit, cursor);
   }
 
+  /**
+   * Record on the job that a call was attached to it (or detached). Written by
+   * telephony-service, so the job's activity feed carries calls alongside
+   * everything else that happened — recording included, via `details`.
+   */
+  async recordCallLink(
+    dealId: string,
+    linked: boolean,
+    details: Record<string, unknown>,
+    actor: { id: string; name: string },
+  ): Promise<void> {
+    await this.findById(dealId);
+    await this.addTimelineEntry(
+      dealId,
+      linked ? TimelineEventType.CALL_LINKED : TimelineEventType.CALL_UNLINKED,
+      { id: actor.id, firstName: actor.name, lastName: '' } as unknown as JwtUser,
+      details,
+    );
+  }
+
   async addNote(id: string, dto: AddNoteDto, caller: JwtUser): Promise<void> {
     await this.findById(id);
     await this.addTimelineEntry(id, TimelineEventType.NOTE_ADDED, caller, {}, dto.note);

@@ -42,6 +42,12 @@ export interface CallRecord {
    */
   fromParty?: CallParty;
   toParty?: CallParty;
+  /** The job this call was linked to, if any. */
+  dealId?: string;
+  dealLinkedBy?: string;
+  dealLinkedAt?: string;
+  /** How the party was decided — a manual choice is never re-derived. */
+  partySource?: "auto" | "manual";
   durationSeconds?: number;
   startedAt: string;
   updatedAt: string;

@@ -13,6 +13,8 @@ export const queryKeys = {
     numbers: () => ["telephony", "numbers"] as const,
     available: (params?: unknown) =>
       ["telephony", "numbers", "available", params] as const,
+    /** Teammates a live call can be handed to or pulled onto. */
+    transferTargets: () => ["telephony", "transfer-targets"] as const,
   },
 
   calls: {
@@ -24,6 +26,7 @@ export const queryKeys = {
     byParty: (kind: string, id: string) =>
       ["calls", "party", kind, id] as const,
     live: () => ["calls", "live"] as const,
+    active: () => ["calls", "active"] as const,
   },
 
   search: {

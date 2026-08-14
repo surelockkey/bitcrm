@@ -37,6 +37,30 @@ export interface IdentifiedParty {
   personal?: boolean;
 }
 
+/** A teammate a live call can be handed to, or pulled onto. */
+export interface TransferTarget {
+  id: string;
+  name: string;
+  roleId?: string;
+  /** Their own number, when set — the route that works when they're away. */
+  phone?: string;
+  softphoneOnline: boolean;
+}
+
+export const listTransferTargets = (): Promise<TransferTarget[]> =>
+  http.get<TransferTarget[]>("/telephony/presence/online");
+
+/**
+ * Bring a teammate onto a live call. `handOver` releases the caller's own leg
+ * first, so they can hang up without ending the call — that's a transfer.
+ * Without it, everyone stays on.
+ */
+export const addCallParticipant = (
+  callSid: string,
+  body: { userId: string; channel: "softphone" | "personal"; handOver?: boolean },
+): Promise<{ callSid: string; handOver: boolean }> =>
+  http.post(`/telephony/calls/${callSid}/participants`, body);
+
 export async function identifyNumber(
   e164: string,
 ): Promise<IdentifiedParty | null> {

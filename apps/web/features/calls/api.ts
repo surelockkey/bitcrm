@@ -33,10 +33,35 @@ export function listCallsByParty(
 export const getCall = (sid: string): Promise<CallRecord> =>
   http.get<CallRecord>(`${BASE}/${sid}`);
 
+/**
+ * The call the signed-in user is on right now, or null. The browser knows its
+ * own Twilio leg, but on an inbound call that leg is a child of the record —
+ * so the server answers this, not the SDK.
+ */
+export const getActiveCall = (): Promise<CallRecord | null> =>
+  http.get<CallRecord | null>(`${BASE}/active`);
+
 export const getLiveCalls = (): Promise<CallRecord[]> =>
   http.get<CallRecord[]>(`${BASE}/live`);
 
 /** Ask for a listen/join grant; returns the conference to connect to. */
+/** Attach this call to a job, or detach it with null. */
+export const setCallDeal = (
+  sid: string,
+  dealId: string | null,
+): Promise<CallRecord> =>
+  http.put<CallRecord>(`${BASE}/${sid}/deal`, { dealId });
+
+/** Correct who a call was with; marks the record as set by a person. */
+export const setCallParty = (
+  sid: string,
+  body: {
+    side: "from" | "to";
+    kind: "user" | "contact" | "company" | null;
+    id: string;
+  },
+): Promise<CallRecord> => http.put<CallRecord>(`${BASE}/${sid}/party`, body);
+
 export const requestMonitor = (
   sid: string,
   mode: "listen" | "join",

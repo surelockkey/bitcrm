@@ -3,11 +3,14 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   HttpException,
+  Logger,
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
@@ -44,6 +47,7 @@ import {
   UserPhoneLookupService,
   type CallUserPhone,
 } from '../common/user-phone-lookup.service';
+import { UserDirectoryService } from '../common/user-directory.service';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
@@ -55,10 +59,31 @@ class MonitorDto {
   mode!: MonitorMode;
 }
 
+class AddParticipantDto {
+  userId!: string;
+  channel!: 'softphone' | 'personal';
+  /** True = transfer (release my leg so I can hang up), false = just add. */
+  handOver?: boolean;
+}
+
+class SetDealDto {
+  /** null detaches. */
+  dealId!: string | null;
+}
+
+class SetPartyDto {
+  side!: 'from' | 'to';
+  /** null clears the side. */
+  kind!: 'user' | 'contact' | 'company' | null;
+  id!: string;
+}
+
 @ApiTags('Telephony')
 @ApiBearerAuth()
 @Controller('calls')
 export class CallsController {
+  private readonly logger = new Logger(CallsController.name);
+
   constructor(
     private readonly callsService: CallsService,
     private readonly bus: CallEventsBus,
@@ -66,6 +91,7 @@ export class CallsController {
     private readonly userNames: UserNamesService,
     private readonly contacts: ContactLookupService,
     private readonly userPhones: UserPhoneLookupService,
+    private readonly directory: UserDirectoryService,
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
   ) {}
 
@@ -258,6 +284,22 @@ export class CallsController {
     };
   }
 
+  @Get('active')
+  @ApiOperation({
+    summary: "The call you are on right now",
+    description:
+      'Any authenticated user. The browser knows its own Twilio leg, but on an ' +
+      'inbound call that leg is a child of the record — so the server is the ' +
+      'one that can say which call you are actually on. Returns null when you ' +
+      'are not on a call.',
+  })
+  async active(@CurrentUser() user: JwtUser) {
+    const call = await this.callsService.activeCallFor(user.id);
+    if (!call) return { success: true, data: null };
+    const [enriched] = await this.withNames([call]);
+    return { success: true, data: enriched };
+  }
+
   @Get('identify')
   @ApiOperation({
     summary: 'Who does this number belong to?',
@@ -390,6 +432,128 @@ export class CallsController {
       }),
     });
     Readable.fromWeb(upstream.body as never).pipe(res);
+  }
+
+  @Post(':sid/participants')
+  @ApiOperation({
+    summary: 'Bring a teammate onto the call, or hand it over',
+    description:
+      'Any authenticated user on the call. Adds a teammate as a conference ' +
+      'participant, reachable on their softphone or the personal number on ' +
+      'their profile. With `handOver: true` the caller is released first, so ' +
+      'they can hang up without ending the call — that is a transfer. ' +
+      'Without it, everyone stays on: that is Add.',
+  })
+  async addParticipant(
+    @Param('sid') sid: string,
+    @Body() dto: AddParticipantDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const call = await this.callsService.getBySid(sid);
+    if (!call) throw new NotFoundException('Call not found');
+    if (!call.status || !LIVE_STATUSES.includes(call.status)) {
+      throw new ConflictException('This call is not live');
+    }
+    if (dto.channel !== 'softphone' && dto.channel !== 'personal') {
+      throw new BadRequestException('channel must be "softphone" or "personal"');
+    }
+
+    const target = await this.directory.find(dto.userId);
+    if (!target) throw new NotFoundException('No such teammate');
+
+    const result = await this.conferenceService.addParticipant(
+      sid,
+      { userId: target.id, channel: dto.channel, phone: target.phone },
+      user.id,
+    );
+
+    // A hand-over releases the transferring agent's leg up front: their leg
+    // was created to end the conference on exit, which is right until the
+    // moment they hand the call to somebody else.
+    if (dto.handOver) {
+      await this.conferenceService.releaseAgentLeg(sid, user.id);
+    }
+
+    return {
+      success: true,
+      data: { callSid: result.callSid, handOver: !!dto.handOver },
+    };
+  }
+
+  @Delete(':sid/participants/:legSid')
+  @ApiOperation({
+    summary: 'Drop someone from a live call',
+    description:
+      'Any authenticated user on the call. Removes that leg; the call carries ' +
+      'on for everyone else.',
+  })
+  async removeParticipant(
+    @Param('sid') sid: string,
+    @Param('legSid') legSid: string,
+  ) {
+    await this.conferenceService.removeParticipant(sid, legSid);
+    return { success: true, data: null };
+  }
+
+  @Put(':sid/party')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'Correct who a call was with',
+    description:
+      '**Guard:** `calls.view` permission required. Overwrites what automatic ' +
+      'matching decided and marks the record as set by a person, so it is ' +
+      'never re-derived. Pass `kind: null` to clear that side.',
+  })
+  async setParty(
+    @Param('sid') sid: string,
+    @Body() dto: SetPartyDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const call = await this.callsService.getBySid(sid);
+    if (!call) throw new NotFoundException('Call not found');
+    if (dto.side !== 'from' && dto.side !== 'to') {
+      throw new BadRequestException('side must be "from" or "to"');
+    }
+
+    const current = storedParties(call);
+    const next = {
+      from: partyStorage(current.from),
+      to: partyStorage(current.to),
+    };
+    next[dto.side] = dto.kind
+      ? { kind: dto.kind, id: dto.id }
+      : undefined;
+
+    await this.callsService.setPartiesManually(sid, next, call.startedAt);
+    this.logger.log(`Call ${sid}: ${dto.side} party set manually by ${user.id}`);
+
+    const updated = await this.callsService.getBySid(sid);
+    const [enriched] = await this.withNames([updated as CallRecord]);
+    return { success: true, data: enriched };
+  }
+
+  @Put(':sid/deal')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'Attach this call to a job, or detach it',
+    description:
+      '**Guard:** `calls.view` permission required. A job collects many calls, ' +
+      'so linking is a plain overwrite. The job’s activity feed gets an entry ' +
+      'either way, best-effort — the link lives on the call record.',
+  })
+  async setDeal(
+    @Param('sid') sid: string,
+    @Body() dto: SetDealDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const updated = await this.callsService.linkDeal(
+      sid,
+      dto.dealId ?? null,
+      { id: user.id },
+    );
+    if (!updated) throw new NotFoundException('Call not found');
+    const [enriched] = await this.withNames([updated]);
+    return { success: true, data: enriched };
   }
 
   @Post(':sid/monitor')

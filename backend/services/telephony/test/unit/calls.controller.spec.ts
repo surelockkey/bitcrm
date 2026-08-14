@@ -31,12 +31,17 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     getBySid: jest.fn().mockResolvedValue(record()),
     // Freezing the association is fire-and-forget from the read path.
     freezeParties: jest.fn().mockResolvedValue(undefined),
+    setPartiesManually: jest.fn().mockResolvedValue(undefined),
+    activeCallFor: jest.fn().mockResolvedValue(null),
     listByParty: jest.fn().mockResolvedValue({ items: [] }),
     ...over,
   } as unknown as CallsService;
   const bus = { stream: () => subject.asObservable() } as unknown as CallEventsBus;
   const conference = {
     grantMonitor: jest.fn().mockResolvedValue(undefined),
+    addParticipant: jest.fn().mockResolvedValue({ callSid: 'CAadded' }),
+    releaseAgentLeg: jest.fn().mockResolvedValue(undefined),
+    removeParticipant: jest.fn().mockResolvedValue(undefined),
   } as unknown as ConferenceService;
   const userNames = {
     resolve: jest.fn().mockResolvedValue({}),
@@ -47,6 +52,10 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
   const userPhones = {
     resolve: jest.fn().mockResolvedValue({}),
   } as unknown as import('../../src/common/user-phone-lookup.service').UserPhoneLookupService;
+  const directory = {
+    list: jest.fn().mockResolvedValue([]),
+    find: jest.fn().mockResolvedValue({ id: 'u9', name: 'Tamir Levi' }),
+  } as unknown as import('../../src/common/user-directory.service').UserDirectoryService;
   const controller = new CallsController(
     calls,
     bus,
@@ -54,6 +63,7 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     userNames,
     contacts,
     userPhones,
+    directory,
     CONFIG,
   );
   return {
@@ -64,6 +74,7 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     userNames,
     contacts,
     userPhones,
+    directory,
   };
 }
 
@@ -335,6 +346,177 @@ describe('CallsController — naming the parties', () => {
       expect.objectContaining({ numbers: ['+14045551234', '+15412830739'] }),
       undefined,
       25,
+    );
+  });
+});
+
+describe('CallsController — transfer and add', () => {
+  const liveCall = {
+    callSid: 'CA1',
+    status: 'in-progress',
+    direction: 'inbound',
+    from: '+14045551234',
+    to: '+15412830739',
+    startedAt: '2026-08-14T10:00:00.000Z',
+    updatedAt: '2026-08-14T10:00:00.000Z',
+  };
+
+  it('adds a teammate and leaves the caller on the call', async () => {
+    const { controller, conference, directory } = makeController({
+      getBySid: jest.fn().mockResolvedValue(liveCall),
+    });
+    (directory.find as jest.Mock).mockResolvedValue({
+      id: 'u9',
+      name: 'Tamir Levi',
+      phone: '+15550001111',
+    });
+
+    const res = await controller.addParticipant(
+      'CA1',
+      { userId: 'u9', channel: 'softphone' },
+      { id: 'u1' } as never,
+    );
+
+    expect(conference.addParticipant).toHaveBeenCalledWith(
+      'CA1',
+      { userId: 'u9', channel: 'softphone', phone: '+15550001111' },
+      'u1',
+    );
+    // Add is not a hand-over: the agent's leg is untouched.
+    expect(conference.releaseAgentLeg).not.toHaveBeenCalled();
+    expect(res.data.handOver).toBe(false);
+  });
+
+  it('releases the transferring leg on a hand-over', async () => {
+    const { controller, conference, directory } = makeController({
+      getBySid: jest.fn().mockResolvedValue(liveCall),
+    });
+    (directory.find as jest.Mock).mockResolvedValue({ id: 'u9', name: 'Tamir' });
+
+    await controller.addParticipant(
+      'CA1',
+      { userId: 'u9', channel: 'softphone', handOver: true },
+      { id: 'u1' } as never,
+    );
+
+    // Without this the agent hanging up would end the call for everyone.
+    expect(conference.releaseAgentLeg).toHaveBeenCalledWith('CA1', 'u1');
+  });
+
+  it('reaches a teammate on their personal number', async () => {
+    const { controller, conference, directory } = makeController({
+      getBySid: jest.fn().mockResolvedValue(liveCall),
+    });
+    (directory.find as jest.Mock).mockResolvedValue({
+      id: 'u9',
+      name: 'Tamir',
+      phone: '+15550001111',
+    });
+
+    await controller.addParticipant(
+      'CA1',
+      { userId: 'u9', channel: 'personal' },
+      { id: 'u1' } as never,
+    );
+
+    expect(conference.addParticipant).toHaveBeenCalledWith(
+      'CA1',
+      expect.objectContaining({ channel: 'personal', phone: '+15550001111' }),
+      'u1',
+    );
+  });
+
+  it('refuses a call that has already ended', async () => {
+    const { controller } = makeController({
+      getBySid: jest.fn().mockResolvedValue({ ...liveCall, status: 'completed' }),
+    });
+
+    await expect(
+      controller.addParticipant(
+        'CA1',
+        { userId: 'u9', channel: 'softphone' },
+        { id: 'u1' } as never,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses somebody who is not a teammate', async () => {
+    const { controller, directory } = makeController({
+      getBySid: jest.fn().mockResolvedValue(liveCall),
+    });
+    (directory.find as jest.Mock).mockResolvedValue(undefined);
+
+    await expect(
+      controller.addParticipant(
+        'CA1',
+        { userId: 'nope', channel: 'softphone' },
+        { id: 'u1' } as never,
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects a channel that is neither softphone nor personal', async () => {
+    const { controller } = makeController({
+      getBySid: jest.fn().mockResolvedValue(liveCall),
+    });
+
+    await expect(
+      controller.addParticipant(
+        'CA1',
+        { userId: 'u9', channel: 'carrier-pigeon' as never },
+        { id: 'u1' } as never,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('CallsController — correcting the party', () => {
+  it('overwrites the frozen party and marks it manual', async () => {
+    const call = {
+      callSid: 'CA1',
+      startedAt: '2026-08-14T10:00:00.000Z',
+      updatedAt: '2026-08-14T10:00:00.000Z',
+      fromPartyKind: 'contact',
+      fromPartyId: 'c1',
+    };
+    const { controller, calls } = makeController({
+      getBySid: jest.fn().mockResolvedValue(call),
+    });
+
+    await controller.setParty(
+      'CA1',
+      { side: 'from', kind: 'contact', id: 'c2' },
+      { id: 'u1' } as never,
+    );
+
+    expect(calls.setPartiesManually).toHaveBeenCalledWith(
+      'CA1',
+      expect.objectContaining({ from: { kind: 'contact', id: 'c2' } }),
+      call.startedAt,
+    );
+  });
+
+  it('clears a side when kind is null', async () => {
+    const { controller, calls } = makeController({
+      getBySid: jest.fn().mockResolvedValue({
+        callSid: 'CA1',
+        startedAt: '2026-08-14T10:00:00.000Z',
+        updatedAt: '2026-08-14T10:00:00.000Z',
+        toPartyKind: 'contact',
+        toPartyId: 'c1',
+      }),
+    });
+
+    await controller.setParty(
+      'CA1',
+      { side: 'to', kind: null, id: '' },
+      { id: 'u1' } as never,
+    );
+
+    expect(calls.setPartiesManually).toHaveBeenCalledWith(
+      'CA1',
+      expect.objectContaining({ to: undefined }),
+      expect.any(String),
     );
   });
 });

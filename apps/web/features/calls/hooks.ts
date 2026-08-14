@@ -1,6 +1,13 @@
 "use client";
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { toast } from "sonner";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/query-keys";
 import * as api from "./api";
 import type { CallsFilter } from "./lib";
@@ -36,11 +43,62 @@ export function useCallsForParty(
   });
 }
 
+/**
+ * Attach a call to a job (or detach). Refreshes the call views and the job's
+ * activity feed, which is where the link shows up on the other side.
+ */
+export function useLinkCallToDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sid, dealId }: { sid: string; dealId: string | null }) =>
+      api.setCallDeal(sid, dealId),
+    onSuccess: (_call, { dealId }) => {
+      qc.invalidateQueries({ queryKey: queryKeys.calls.all() });
+      if (dealId) qc.invalidateQueries({ queryKey: queryKeys.deals.all() });
+      toast.success(dealId ? "Linked to job" : "Unlinked from job");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** Correct who a call was with. */
+export function useSetCallParty() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      sid: string;
+      side: "from" | "to";
+      kind: "user" | "contact" | "company" | null;
+      id: string;
+    }) => api.setCallParty(args.sid, args),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.calls.all() });
+      toast.success("Client updated on this call");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useLiveCalls() {
   return useQuery({
     queryKey: queryKeys.calls.live(),
     queryFn: api.getLiveCalls,
     refetchInterval: LIVE_FALLBACK_POLL_MS,
+  });
+}
+
+/**
+ * The call this user is on, polled while the softphone says a call is up.
+ * Everything that acts on "the current call" — link to job, create job,
+ * transfer — needs the record, not just the number in the browser.
+ */
+export function useActiveCall(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.calls.active(),
+    queryFn: api.getActiveCall,
+    enabled,
+    refetchInterval: enabled ? 5_000 : false,
+    staleTime: 2_000,
   });
 }
 

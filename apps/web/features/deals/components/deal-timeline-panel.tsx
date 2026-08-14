@@ -13,6 +13,8 @@ import {
   PackagePlus,
   Pencil,
   Phone,
+  PhoneCall,
+  PhoneOff,
   Search,
   Sparkles,
   UserMinus,
@@ -26,6 +28,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { formatPhone } from "@/lib/phone";
+import { formatDuration } from "@/features/calls/lib";
 import { stageLabel, superStatusLabel } from "../lib";
 import { useAddNote, useDealTimeline } from "../hooks";
 
@@ -42,6 +46,8 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.PRODUCT_ADDED]: { icon: PackagePlus, label: "Product added" },
   [TimelineEventType.PRODUCT_UPDATED]: { icon: PackageOpen, label: "Product updated" },
   [TimelineEventType.PRODUCT_REMOVED]: { icon: PackageMinus, label: "Product removed" },
+  [TimelineEventType.CALL_LINKED]: { icon: PhoneCall, label: "Call linked" },
+  [TimelineEventType.CALL_UNLINKED]: { icon: PhoneOff, label: "Call unlinked" },
 };
 
 const FIELD_LABEL: Record<string, string> = {
@@ -107,6 +113,24 @@ function detail(entry: TimelineEntry): string | null {
     const name = (d.productName ?? d.name) as string | undefined;
     const qty = (d.quantity ?? d.qty) as number | undefined;
     if (name) return qty ? `${name} ×${qty}` : name;
+  }
+  if (
+    entry.eventType === TimelineEventType.CALL_LINKED ||
+    entry.eventType === TimelineEventType.CALL_UNLINKED
+  ) {
+    // Direction, who with, and how long — enough to recognise the call
+    // without leaving the job.
+    const direction = d.direction === "inbound" ? "Incoming" : "Outgoing";
+    const other = (d.direction === "inbound" ? d.from : d.to) as
+      | string
+      | undefined;
+    const parts = [direction];
+    if (other) parts.push(formatPhone(other));
+    if (typeof d.durationSeconds === "number") {
+      parts.push(formatDuration(d.durationSeconds));
+    }
+    if (d.hasRecording) parts.push("recorded");
+    return parts.join(" · ");
   }
   if (entry.eventType === TimelineEventType.PRODUCT_UPDATED) {
     const name = d.productName as string | undefined;

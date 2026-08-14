@@ -64,12 +64,21 @@ export interface CallRecord {
    * later must not rewrite who this call was with. Names are still resolved at
    * read time, so a rename shows through.
    */
+  /**
+   * Whether the association was worked out by the system or chosen by a
+   * person. A manual choice is never overwritten by automatic resolution.
+   */
+  partySource?: 'auto' | 'manual';
   fromPartyKind?: 'user' | 'contact' | 'company';
   fromPartyId?: string;
   fromPartyPersonal?: boolean;
   toPartyKind?: 'user' | 'contact' | 'company';
   toPartyId?: string;
   toPartyPersonal?: boolean;
+  /** The job this call is about, when someone has linked it. */
+  dealId?: string;
+  dealLinkedBy?: string;
+  dealLinkedAt?: string;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;
@@ -221,6 +230,7 @@ export class CallsRepository {
       to?: { kind: string; id: string; personal?: boolean };
     },
     startedAt: string,
+    source: 'auto' | 'manual' = 'auto',
   ): Promise<void> {
     const sets: string[] = [];
     const names: Record<string, string> = {};
@@ -250,6 +260,10 @@ export class CallsRepository {
     // The party index keys off one side. `to` wins for outbound and `from`
     // for inbound — i.e. whoever isn't us — and a call between two of our own
     // is indexed under the person who answered.
+    sets.push('#partySource = :partySource');
+    names['#partySource'] = 'partySource';
+    values[':partySource'] = source;
+
     const indexed = parties.to ?? parties.from;
     if (indexed) {
       sets.push('#gsi3pk = :gsi3pk', '#gsi3sk = :gsi3sk');
@@ -266,9 +280,12 @@ export class CallsRepository {
           TableName: this.tableName,
           Key: { PK: callPk(callSid), SK: 'METADATA' },
           UpdateExpression: `SET ${sets.join(', ')}`,
-          // Both sides are written together, so guarding on either being
-          // unset is enough to make this a one-shot write.
-          ConditionExpression: guards.join(' AND '),
+          // Automatic resolution writes once and never again. A person
+          // correcting the record has to be able to overwrite it, so the
+          // guard applies only to the automatic path.
+          ...(source === 'auto'
+            ? { ConditionExpression: guards.join(' AND ') }
+            : {}),
           ExpressionAttributeNames: names,
           ExpressionAttributeValues: values,
         }),
@@ -283,6 +300,51 @@ export class CallsRepository {
         }
         throw error;
       });
+  }
+
+  /**
+   * Attach this call to a job, or detach it. A job collects many calls, so
+   * this is a plain overwrite — there is nothing to guard against.
+   */
+  async setDeal(
+    callSid: string,
+    dealId: string | null,
+    actorId: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: callPk(callSid), SK: 'METADATA' },
+        ...(dealId
+          ? {
+              UpdateExpression:
+                'SET #dealId = :dealId, #by = :by, #at = :at, #updatedAt = :at',
+              ExpressionAttributeNames: {
+                '#dealId': 'dealId',
+                '#by': 'dealLinkedBy',
+                '#at': 'dealLinkedAt',
+                '#updatedAt': 'updatedAt',
+              },
+              ExpressionAttributeValues: {
+                ':dealId': dealId,
+                ':by': actorId,
+                ':at': now,
+              },
+            }
+          : {
+              UpdateExpression:
+                'REMOVE #dealId, #by, #at SET #updatedAt = :now',
+              ExpressionAttributeNames: {
+                '#dealId': 'dealId',
+                '#by': 'dealLinkedBy',
+                '#at': 'dealLinkedAt',
+                '#updatedAt': 'updatedAt',
+              },
+              ExpressionAttributeValues: { ':now': now },
+            }),
+      }),
+    );
   }
 
   async getBySid(callSid: string): Promise<CallRecord | null> {
