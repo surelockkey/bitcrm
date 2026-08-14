@@ -178,7 +178,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="mx-auto max-w-3xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
+          <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
         ) : null}
       </div>
 

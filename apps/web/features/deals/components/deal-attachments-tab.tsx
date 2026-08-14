@@ -59,12 +59,12 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
       {items && items.length > 0 ? (
         <div className="divide-y rounded-lg border">
           {items.map((att) => (
-            <div key={att.id} className="flex items-center gap-3 px-3 py-2.5">
+            <div key={att.id} className="flex items-center gap-4 px-4 py-3.5">
               {att.contentType.startsWith("image/") ? (
                 <AttachmentThumb dealId={dealId} attachment={att} />
               ) : (
-                <span className="grid size-9 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
-                  <FileText className="size-4" />
+                <span className="grid size-14 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
+                  <FileText className="size-6" />
                 </span>
               )}
               <div className="min-w-0 flex-1">
@@ -127,8 +127,8 @@ function AttachmentThumb({ dealId, attachment }: { dealId: string; attachment: D
 
   if (!data?.downloadUrl || broken) {
     return (
-      <span className="grid size-9 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
-        <ImageIcon className="size-4" />
+      <span className="grid size-14 flex-none place-items-center rounded-md bg-muted text-muted-foreground">
+        <ImageIcon className="size-6" />
       </span>
     );
   }
@@ -139,7 +139,7 @@ function AttachmentThumb({ dealId, attachment }: { dealId: string; attachment: D
       src={data.downloadUrl}
       alt={attachment.fileName}
       onError={() => setBroken(true)}
-      className="size-9 flex-none rounded-md object-cover"
+      className="size-14 flex-none rounded-md object-cover"
     />
   );
 }
