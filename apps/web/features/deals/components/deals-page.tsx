@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { Briefcase, Plus, Search, TriangleAlert } from "lucide-react";
+import { Briefcase, Search, TriangleAlert } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,11 +121,6 @@ export function DealsPage() {
             {isTechnician ? "Your assigned jobs." : "The job pipeline, grouped by status."}
           </p>
         </div>
-        {can("deals", "create") ? (
-          <Button asChild variant="brand" className="gap-1.5">
-            <Link href="/deals/new"><Plus className="size-4" /> New deal</Link>
-          </Button>
-        ) : null}
       </div>
 
       {/* Toolbar */}
