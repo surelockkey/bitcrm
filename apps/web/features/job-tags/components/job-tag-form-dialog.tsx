@@ -22,19 +22,25 @@ import { TAG_COLOR_CLASSES, TAG_SWATCH_CLASSES } from "../lib";
 
 export function JobTagFormDialog({
   jobTag,
+  initialName,
   open,
   onOpenChange,
+  onCreated,
 }: {
   jobTag?: JobTag;
+  /** Prefills the name when creating, e.g. from a picker's search query. */
+  initialName?: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /** Called with the new tag after a successful create (not on edit). */
+  onCreated?: (tag: JobTag) => void;
 }) {
   const editing = Boolean(jobTag);
   const create = useCreateJobTag();
   const update = useUpdateJobTag(jobTag?.id ?? "");
   const pending = create.isPending || update.isPending;
 
-  const [name, setName] = useState(jobTag?.name ?? "");
+  const [name, setName] = useState(jobTag?.name ?? initialName ?? "");
   const [color, setColor] = useState<JobTagColor>(jobTag?.color ?? "slate");
   const [priority, setPriority] = useState(String(jobTag?.priority ?? 0));
   const [active, setActive] = useState(jobTag?.active ?? true);
@@ -53,7 +59,12 @@ export function JobTagFormDialog({
     }
     const body = toJobTagBody(parsed.data);
     const mutation = editing ? update : create;
-    mutation.mutate(body, { onSuccess: () => onOpenChange(false) });
+    mutation.mutate(body, {
+      onSuccess: (saved) => {
+        if (!editing) onCreated?.(saved);
+        onOpenChange(false);
+      },
+    });
   };
 
   return (
