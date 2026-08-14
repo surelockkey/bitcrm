@@ -55,7 +55,8 @@ function useInvalidateClients() {
 export function useCreateContact() {
   const invalidate = useInvalidateClients();
   return useMutation({
-    mutationFn: (body: CreateContactValues) => api.createContact(body),
+    mutationFn: (body: CreateContactValues & { reassignPhones?: boolean }) =>
+      api.createContact(body),
     onSuccess: (c) => {
       invalidate();
       toast.success(`Contact “${contactName(c)}” created`);

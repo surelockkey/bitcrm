@@ -35,6 +35,59 @@ describe('ContactsService', () => {
     service = module.get(ContactsService);
   });
 
+  describe('create — reassigning a number', () => {
+    const caller = {
+      id: 'admin-1',
+      cognitoSub: 'sub',
+      email: 'admin@test.com',
+      roleId: 'role-admin',
+      department: 'HQ',
+    };
+    const dto = {
+      firstName: 'New',
+      lastName: 'Tenant',
+      phones: ['(404) 555-1234'],
+      emails: [],
+      type: ContactType.RESIDENTIAL,
+      source: ContactSource.PHONE_CALL,
+    };
+
+    it('refuses a number somebody already holds', async () => {
+      repository.findByPhone.mockResolvedValue(
+        createMockContact({ id: 'c-old', phones: ['+14045551234'] }),
+      );
+
+      await expect(service.create(dto as never, caller as never)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
+    it('moves the number off the previous holder when asked to', async () => {
+      const previous = createMockContact({
+        id: 'c-old',
+        phones: ['+14045551234', '+14045559999'],
+      });
+      repository.findByPhone.mockResolvedValue(previous);
+
+      await service.create(
+        { ...dto, reassignPhones: true } as never,
+        caller as never,
+      );
+
+      // Taken off the old contact — the index must never point at two people
+      // for one number.
+      expect(repository.updatePhoneIndex).toHaveBeenCalledWith(
+        'c-old',
+        ['+14045551234', '+14045559999'],
+        ['+14045559999'],
+      );
+      expect(repository.update).toHaveBeenCalledWith('c-old', {
+        phones: ['+14045559999'],
+      });
+      expect(repository.create).toHaveBeenCalled();
+    });
+  });
+
   describe('create', () => {
     const dto = {
       firstName: 'John', lastName: 'Doe',

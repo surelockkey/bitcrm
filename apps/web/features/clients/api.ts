@@ -49,8 +49,14 @@ export const getContact = (id: string): Promise<Contact> =>
 export const searchContactByPhone = (phone: string): Promise<Contact | null> =>
   http.get<Contact | null>(`/crm/contacts/search/by-phone?phone=${encodeURIComponent(phone)}`);
 
-export const createContact = (body: CreateContactValues): Promise<Contact> =>
-  http.post<Contact>("/crm/contacts", body);
+/**
+ * `reassignPhones` takes a number off whoever currently holds it. Only for
+ * when somebody has knowingly said "this is a different person now" — without
+ * it, a clash is rejected.
+ */
+export const createContact = (
+  body: CreateContactValues & { reassignPhones?: boolean },
+): Promise<Contact> => http.post<Contact>("/crm/contacts", body);
 
 export const updateContact = (id: string, body: UpdateContactValues): Promise<Contact> =>
   http.put<Contact>(`/crm/contacts/${id}`, body);

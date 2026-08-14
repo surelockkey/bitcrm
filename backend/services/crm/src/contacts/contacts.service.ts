@@ -54,13 +54,21 @@ export class ContactsService {
     // twice in one transaction, which DynamoDB rejects.
     const phones = [...new Set(normalizePhones(dto.phones))];
 
+    // A number belongs to one contact. Normally a clash is a mistake and we
+    // say so — but when somebody knowingly creates a new client from a call,
+    // the number has genuinely changed hands (new tenant, new owner), and
+    // `reassignPhones` moves it. Past calls keep pointing at whoever they
+    // were actually with, because that link is frozen when a call ends.
+    const takenFrom: Array<{ contact: Contact; phone: string }> = [];
     for (const phone of phones) {
       const existing = await this.repository.findByPhone(phone);
-      if (existing) {
+      if (!existing) continue;
+      if (!dto.reassignPhones) {
         throw new ConflictException(
           `Contact with phone ${phone} already exists (id: ${existing.id})`,
         );
       }
+      takenFrom.push({ contact: existing, phone });
     }
 
     const now = new Date().toISOString();
@@ -81,6 +89,22 @@ export class ContactsService {
       createdAt: now,
       updatedAt: now,
     };
+
+    // Take the numbers off their previous owner first, so the index never
+    // points at two contacts for the same number.
+    for (const { contact: previous, phone } of takenFrom) {
+      const remaining = previous.phones.filter((p) => p !== phone);
+      await this.repository.updatePhoneIndex(
+        previous.id,
+        previous.phones,
+        remaining,
+      );
+      await this.repository.update(previous.id, { phones: remaining });
+      await this.cache.invalidate(previous.id);
+      this.logger.log(
+        `Phone ${phone} reassigned from contact ${previous.id} to ${contact.id}`,
+      );
+    }
 
     await this.repository.create(contact);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'contact' });

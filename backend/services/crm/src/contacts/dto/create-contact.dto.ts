@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray,
+  IsString, IsOptional, IsEnum, IsArray, IsBoolean,
   ArrayMinSize, ArrayMaxSize, MinLength, IsEmail, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -8,6 +8,16 @@ import { ContactType, ContactSource } from '@bitcrm/types';
 import { ContactAddressDto } from './address.dto';
 
 export class CreateContactDto {
+  @ApiPropertyOptional({
+    description:
+      'Take any of these numbers off the contact that currently holds them. ' +
+      'For when a number has genuinely changed hands and the caller is a new ' +
+      'person — without it, a clash is rejected.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  reassignPhones?: boolean;
+
   @ApiProperty({ example: 'John' })
   @IsString()
   @MinLength(1)

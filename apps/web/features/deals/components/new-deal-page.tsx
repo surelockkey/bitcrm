@@ -28,6 +28,7 @@ import {
 } from "@/features/clients/hooks";
 import { addressInList, clientTypeLabel, contactName, formatPhone } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { ClientChangeDialog } from "@/features/clients/components/client-change-dialog";
 import { useCreateDeal } from "../hooks";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
 import { CallsToLink } from "@/features/calls/components/calls-to-link";
@@ -321,6 +322,144 @@ function DealForm({
 
 /* ------------------------------------------------------------- client picker */
 
+
+/**
+ * The client this job is for, with their details editable in place.
+ *
+ * Editing them asks a question on save that the system can't answer itself:
+ * is this the same person with a correction, or a different person now on
+ * that number? Both are common, and guessing wrong either renames somebody
+ * who did nothing or fills the CRM with duplicates.
+ */
+function ResolvedClient({
+  contact,
+  onClear,
+  onResolved,
+}: {
+  contact: Contact;
+  onClear: () => void;
+  onResolved: (c: Contact) => void;
+}) {
+  const { map: companyMap } = useCompanyMap();
+  const updateContact = useUpdateContact();
+  const createContact = useCreateContact();
+  const [editing, setEditing] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [first, setFirst] = useState(contact.firstName);
+  const [last, setLast] = useState(contact.lastName);
+  const [phone, setPhone] = useState(contact.phones[0] ?? "");
+
+  const edits = { firstName: first.trim(), lastName: last.trim(), phone: phone.trim() };
+  const changed =
+    edits.firstName !== contact.firstName ||
+    edits.lastName !== contact.lastName ||
+    (edits.phone && edits.phone !== (contact.phones[0] ?? ""));
+
+  const phones = edits.phone
+    ? [edits.phone, ...contact.phones.filter((p) => p !== contact.phones[0])]
+    : contact.phones;
+
+  const applyUpdate = () =>
+    updateContact.mutate(
+      {
+        id: contact.id,
+        body: {
+          firstName: edits.firstName,
+          lastName: edits.lastName,
+          phones,
+          emails: contact.emails,
+          addresses: contact.addresses,
+          companyId: contact.companyId,
+          type: contact.type,
+        },
+      },
+      {
+        onSuccess: (c) => {
+          onResolved(c);
+          setAsking(false);
+          setEditing(false);
+        },
+      },
+    );
+
+  const applyCreate = () =>
+    createContact.mutate(
+      {
+        firstName: edits.firstName,
+        lastName: edits.lastName,
+        phones: edits.phone ? [edits.phone] : contact.phones,
+        emails: [],
+        addresses: [],
+        companyId: contact.companyId,
+        type: contact.type,
+        source: ContactSource.PHONE_CALL,
+        // The number has genuinely changed hands; take it off its old owner.
+        reassignPhones: true,
+      },
+      {
+        onSuccess: (c) => {
+          onResolved(c);
+          setAsking(false);
+          setEditing(false);
+        },
+      },
+    );
+
+  if (!editing) {
+    return (
+      <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+        <div>
+          <div className="font-medium">{contactName(contact)}</div>
+          {contact.companyId ? <div className="text-xs text-muted-foreground">{companyMap.get(contact.companyId)?.title}</div> : null}
+          {contact.phones[0] ? <div className="text-xs text-muted-foreground">{formatPhone(contact.phones[0])}</div> : null}
+        </div>
+        <div className="flex gap-1">
+          <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={onClear}>
+            <X className="size-3.5" /> Change
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <div className="grid grid-cols-2 gap-2">
+        <Input className="h-9" value={first} onChange={(e) => setFirst(e.target.value)} placeholder="First name" />
+        <Input className="h-9" value={last} onChange={(e) => setLast(e.target.value)} placeholder="Last name" />
+      </div>
+      <PhoneInput value={phone} onChange={setPhone} placeholder="Phone" />
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="brand"
+          size="sm"
+          disabled={!changed || !edits.firstName || !edits.lastName}
+          onClick={() => setAsking(true)}
+        >
+          Save client
+        </Button>
+      </div>
+
+      <ClientChangeDialog
+        open={asking}
+        original={contact}
+        edits={edits}
+        pending={updateContact.isPending || createContact.isPending}
+        onUpdate={applyUpdate}
+        onCreate={applyCreate}
+        onCancel={() => setAsking(false)}
+      />
+    </div>
+  );
+}
+
 function ClientPicker({
   contact,
   onResolved,
@@ -337,24 +476,12 @@ function ClientPicker({
   const [phone, setPhone] = useState(initialPhone ?? "");
   const trimmed = phone.trim();
   const dupe = useContactByPhone(trimmed, !contact && trimmed.length >= 7);
-  const { map: companyMap } = useCompanyMap();
   const createContact = useCreateContact();
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
 
   if (contact) {
-    return (
-      <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
-        <div>
-          <div className="font-medium">{contactName(contact)}</div>
-          {contact.companyId ? <div className="text-xs text-muted-foreground">{companyMap.get(contact.companyId)?.title}</div> : null}
-          {contact.phones[0] ? <div className="text-xs text-muted-foreground">{formatPhone(contact.phones[0])}</div> : null}
-        </div>
-        <Button type="button" variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={onClear}>
-          <X className="size-3.5" /> Change
-        </Button>
-      </div>
-    );
+    return <ResolvedClient contact={contact} onClear={onClear} onResolved={onResolved} />;
   }
 
   const found = dupe.data ?? null;
