@@ -8,6 +8,7 @@ import {
   Body,
   Param,
   Query,
+  BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -20,6 +21,7 @@ import { MoveStatusDto } from './dto/move-status.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
+import { UpdateNoteDto } from './dto/update-note.dto';
 import { AssignTechsDto } from './dto/assign-techs.dto';
 import { UnassignTechDto } from './dto/unassign-tech.dto';
 import { ReorderDto } from './dto/reorder.dto';
@@ -203,6 +205,43 @@ export class DealsController {
   ) {
     await this.dealsService.addNote(id, dto, user);
     return { success: true, data: { added: true } };
+  }
+
+  @Patch(':id/notes/:entryId')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Edit a timeline note',
+    description:
+      '**Guard:** `deals.edit` permission required. Only note entries are editable; ' +
+      'the body carries the entry timestamp (part of its key).',
+  })
+  async updateNote(
+    @Param('id') id: string,
+    @Param('entryId') entryId: string,
+    @Body() dto: UpdateNoteDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.dealsService.updateNote(id, entryId, dto, user);
+    return { success: true, data: { updated: true } };
+  }
+
+  @Delete(':id/notes/:entryId')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Delete a timeline note',
+    description:
+      '**Guard:** `deals.edit` permission required. Only note entries can be removed; ' +
+      '`timestamp` (query) is part of the entry key.',
+  })
+  async deleteNote(
+    @Param('id') id: string,
+    @Param('entryId') entryId: string,
+    @Query('timestamp') timestamp: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!timestamp) throw new BadRequestException('timestamp query param is required');
+    await this.dealsService.deleteNote(id, entryId, timestamp, user);
+    return { success: true, data: { deleted: true } };
   }
 
   @Get(':id/qualified-techs')

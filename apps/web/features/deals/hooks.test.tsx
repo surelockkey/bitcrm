@@ -2,10 +2,12 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, delay } from "msw";
 import { JobSuperStatus } from "@bitcrm/types";
+import type { Deal } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
-import { useMoveStatus } from "./hooks";
+import { queryKeys } from "@/lib/query-keys";
+import { useMoveStatus, useSetDealTags } from "./hooks";
 
 // Capture toast calls so we can assert exactly what the user is shown.
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -27,6 +29,45 @@ function newClient() {
 beforeEach(() => {
   toast.error.mockClear();
   toast.success.mockClear();
+});
+
+describe("useSetDealTags — optimistic tag save", () => {
+  const seed = (client: QueryClient, tagIds: string[]) =>
+    client.setQueryData(queryKeys.deals.detail("d1"), { id: "d1", tagIds } as Deal);
+  const cachedTagIds = (client: QueryClient) =>
+    (client.getQueryData(queryKeys.deals.detail("d1")) as Deal | undefined)?.tagIds;
+
+  it("paints the new tag in the cache before the server answers", async () => {
+    // The server never replies — only the optimistic patch can put the tag
+    // in the cache, so this proves the chip paints before the round-trip.
+    server.use(http.put("*/deals/d1", () => delay("infinite")));
+
+    const client = newClient();
+    seed(client, []);
+    const { result } = renderHook(() => useSetDealTags("d1"), { wrapper: wrapper(client) });
+
+    result.current.mutate(["t1"]);
+
+    await waitFor(() => expect(cachedTagIds(client)).toEqual(["t1"]));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("rolls the cache back and shows the error when the save fails", async () => {
+    server.use(
+      http.put("*/deals/d1", () =>
+        HttpResponse.json({ success: false, message: "Nope" }, { status: 403 }),
+      ),
+    );
+
+    const client = newClient();
+    seed(client, ["t0"]);
+    const { result } = renderHook(() => useSetDealTags("d1"), { wrapper: wrapper(client) });
+
+    result.current.mutate(["t0", "t1"]);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nope"));
+    expect(cachedTagIds(client)).toEqual(["t0"]);
+  });
 });
 
 describe("useMoveStatus — required-to-close gate (422)", () => {

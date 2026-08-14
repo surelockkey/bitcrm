@@ -194,6 +194,9 @@ export function createMockTimelineRepository() {
   return {
     addEntry: jest.fn(),
     findByDeal: jest.fn(),
+    getEntry: jest.fn(),
+    updateNote: jest.fn(),
+    deleteEntry: jest.fn(),
   };
 }
 

@@ -17,6 +17,7 @@ import {
   PhoneOff,
   Search,
   Sparkles,
+  Trash2,
   UserMinus,
   UserPlus,
   X,
@@ -27,11 +28,28 @@ import type { TimelineEntry } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
 import { formatDuration } from "@/features/calls/lib";
 import { stageLabel, superStatusLabel } from "../lib";
-import { useAddNote, useDealTimeline } from "../hooks";
+import {
+  useAddNote,
+  useDealTimeline,
+  useDeleteNote,
+  useUpdateNote,
+  useUserMap,
+} from "../hooks";
 
 /* ----------------------------------------------------------- event meta */
 
@@ -71,6 +89,31 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 const fieldLabel = (key: string): string => FIELD_LABEL[key] ?? key;
+
+/** Item money/quantity edits logged by product_updated entries. */
+const CHANGE_LABEL: Record<string, { label: string; money: boolean }> = {
+  priceClient: { label: "Price", money: true },
+  costCompany: { label: "Cost (company)", money: true },
+  costForTech: { label: "Cost (tech)", money: true },
+  quantity: { label: "Qty", money: false },
+};
+
+/** "Price: $45.00 → $60.00" lines from a product_updated changes map. */
+function itemChangeLines(entry: TimelineEntry): string[] {
+  if (entry.eventType !== TimelineEventType.PRODUCT_UPDATED) return [];
+  const changes = entry.details?.changes as
+    | Record<string, { from: unknown; to: unknown }>
+    | undefined;
+  if (!changes) return [];
+  return Object.entries(changes)
+    .filter(([k]) => CHANGE_LABEL[k])
+    .map(([k, v]) => {
+      const meta = CHANGE_LABEL[k];
+      const fmt = (n: unknown) =>
+        meta.money && typeof n === "number" ? `$${n.toFixed(2)}` : fmtValue(n);
+      return `${meta.label}: ${fmt(v.from)} → ${fmt(v.to)}`;
+    });
+}
 
 /** Render a logged value: addresses/arrays flattened, empty as an em-dash. */
 function fmtValue(v: unknown): string {
@@ -277,9 +320,22 @@ function PanelBody({
 }) {
   const query = useDealTimeline(dealId);
   const addNote = useAddNote(dealId);
+  const updateNote = useUpdateNote(dealId);
+  const deleteNote = useDeleteNote(dealId);
+  const { map: userMap } = useUserMap();
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<TimelineEntry | null>(null);
+
+  // Entries store the actor's email; show the person's name when we know them
+  // (system actors like "Payment Service" fall back to the stored label).
+  const actorLabel = (e: TimelineEntry) => {
+    const u = userMap.get(e.actorId);
+    const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
+    return name || e.actorName;
+  };
 
   const entries = useMemo(
     () => query.data?.pages.flatMap((p) => p.data) ?? [],
@@ -407,7 +463,22 @@ function PanelBody({
           <ol className="space-y-3">
             {rows.map((row) =>
               row.type === "entry" ? (
-                <EntryRow key={row.entry.id} entry={row.entry} />
+                <EntryRow
+                  key={row.entry.id}
+                  entry={row.entry}
+                  actor={actorLabel(row.entry)}
+                  canEdit={canEdit}
+                  isEditing={editingId === row.entry.id}
+                  onStartEdit={() => setEditingId(row.entry.id)}
+                  onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(text) =>
+                    updateNote.mutate(
+                      { entryId: row.entry.id, timestamp: row.entry.timestamp, note: text },
+                      { onSuccess: () => setEditingId(null) },
+                    )
+                  }
+                  onDelete={() => setDeleting(row.entry)}
+                />
               ) : (
                 <MockRow key={row.mock.id} mock={row.mock} />
               ),
@@ -427,25 +498,119 @@ function PanelBody({
           </Button>
         ) : null}
       </div>
+
+      <AlertDialog open={Boolean(deleting)} onOpenChange={(v) => !v && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &ldquo;{deleting?.note}&rdquo; will be removed from the job timeline.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleting) {
+                  deleteNote.mutate({ entryId: deleting.id, timestamp: deleting.timestamp });
+                }
+                setDeleting(null);
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
 
-function EntryRow({ entry }: { entry: TimelineEntry }) {
+function EntryRow({
+  entry,
+  actor,
+  canEdit,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDelete,
+}: {
+  entry: TimelineEntry;
+  actor: string;
+  canEdit: boolean;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (note: string) => void;
+  onDelete: () => void;
+}) {
   const meta = META[entry.eventType] ?? { icon: Sparkles, label: entry.eventType };
   const Icon = meta.icon;
   const d = detail(entry);
+  const changeLines = itemChangeLines(entry);
+  const isNote = entry.eventType === TimelineEventType.NOTE_ADDED;
+  const [draft, setDraft] = useState(entry.note ?? "");
+
   return (
-    <li className="flex gap-3">
+    <li className="group flex gap-3">
       <span className="mt-0.5 grid size-6 flex-none place-items-center rounded-full bg-muted text-muted-foreground">
         <Icon className="size-3" />
       </span>
       <div className="min-w-0 flex-1 text-sm">
-        <span className="font-medium">{meta.label}</span>
-        {d ? <span className="text-muted-foreground"> · {d}</span> : null}
-        {entry.note ? <div className="text-muted-foreground">“{entry.note}”</div> : null}
+        <div className="flex items-start gap-1">
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">{meta.label}</span>
+            {d ? <span className="text-muted-foreground"> · {d}</span> : null}
+          </span>
+          {isNote && canEdit && !isEditing ? (
+            <span className="flex flex-none items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              <button
+                type="button"
+                aria-label="Edit note"
+                onClick={() => {
+                  setDraft(entry.note ?? "");
+                  onStartEdit();
+                }}
+                className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="size-3" />
+              </button>
+              <button
+                type="button"
+                aria-label="Delete note"
+                onClick={onDelete}
+                className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-destructive"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            </span>
+          ) : null}
+        </div>
+
+        {isNote && isEditing ? (
+          <div className="mt-1 space-y-1.5">
+            <Textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} />
+            <div className="flex gap-1.5">
+              <Button size="sm" className="h-7 text-xs" variant="brand" aria-label="Save note" disabled={!draft.trim()} onClick={() => onSaveEdit(draft.trim())}>
+                Save
+              </Button>
+              <Button size="sm" className="h-7 text-xs" variant="outline" onClick={onCancelEdit}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : entry.note ? (
+          <div className="text-muted-foreground">“{entry.note}”</div>
+        ) : null}
+
+        {changeLines.map((line) => (
+          <div key={line} className="text-muted-foreground">{line}</div>
+        ))}
+
         <div className="text-xs text-muted-foreground">
-          {when(entry.timestamp)} · {entry.actorName}
+          {when(entry.timestamp)} · {actor}
         </div>
       </div>
     </li>

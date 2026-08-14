@@ -18,6 +18,7 @@ import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
   createMockDeal,
   createMockDealProduct,
+  createMockTimelineEntry,
   createMockJwtUser,
   createMockAddress,
   createMockDealsRepository,
@@ -1213,6 +1214,126 @@ describe('DealsService', () => {
           }),
         }),
       );
+    });
+
+    it('records price/cost/quantity changes (old → new) in the timeline entry', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+
+      // Existing line: cost 15/20, price 45, qty 1. Replacement: 18/24, 60, 2.
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            changes: {
+              priceClient: { from: 45, to: 60 },
+              costCompany: { from: 15, to: 18 },
+              costForTech: { from: 20, to: 24 },
+              quantity: { from: 1, to: 2 },
+            },
+          }),
+        }),
+      );
+    });
+
+    it('logs no changes when the numbers stay the same', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1', 'tech-2'] }));
+
+      await service.replaceProduct(
+        'deal-1',
+        'product-1',
+        { ...dto, quantity: 1, costCompany: 15, costForTech: 20, priceClient: 45 } as any,
+        caller,
+      );
+
+      const entry = timeline.addEntry.mock.calls.at(-1)![0];
+      expect(entry.details.changes ?? {}).toEqual({});
+    });
+  });
+
+  describe('updateNote', () => {
+    const caller = createMockJwtUser({ id: 'dispatcher-1' });
+
+    it('rewrites the text of a note entry', async () => {
+      timeline.getEntry.mockResolvedValue(
+        createMockTimelineEntry({
+          id: 'entry-1',
+          eventType: TimelineEventType.NOTE_ADDED,
+          timestamp: '2026-08-01T10:00:00.000Z',
+          note: 'Old text',
+        }),
+      );
+
+      await service.updateNote(
+        'deal-1',
+        'entry-1',
+        { note: 'Edited text', timestamp: '2026-08-01T10:00:00.000Z' } as any,
+        caller,
+      );
+
+      expect(timeline.updateNote).toHaveBeenCalledWith(
+        'deal-1',
+        '2026-08-01T10:00:00.000Z',
+        'entry-1',
+        'Edited text',
+      );
+    });
+
+    it('404s when the entry does not exist', async () => {
+      timeline.getEntry.mockResolvedValue(null);
+
+      await expect(
+        service.updateNote('deal-1', 'missing', { note: 'x', timestamp: 't' } as any, caller),
+      ).rejects.toThrow(NotFoundException);
+      expect(timeline.updateNote).not.toHaveBeenCalled();
+    });
+
+    it('refuses to edit a non-note entry', async () => {
+      timeline.getEntry.mockResolvedValue(
+        createMockTimelineEntry({ eventType: TimelineEventType.FIELD_UPDATED }),
+      );
+
+      await expect(
+        service.updateNote('deal-1', 'entry-1', { note: 'x', timestamp: 't' } as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(timeline.updateNote).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteNote', () => {
+    const caller = createMockJwtUser({ id: 'dispatcher-1' });
+
+    it('deletes a note entry', async () => {
+      timeline.getEntry.mockResolvedValue(
+        createMockTimelineEntry({
+          id: 'entry-1',
+          eventType: TimelineEventType.NOTE_ADDED,
+          timestamp: '2026-08-01T10:00:00.000Z',
+        }),
+      );
+
+      await service.deleteNote('deal-1', 'entry-1', '2026-08-01T10:00:00.000Z', caller);
+
+      expect(timeline.deleteEntry).toHaveBeenCalledWith(
+        'deal-1',
+        '2026-08-01T10:00:00.000Z',
+        'entry-1',
+      );
+    });
+
+    it('404s when the entry does not exist and refuses non-notes', async () => {
+      timeline.getEntry.mockResolvedValue(null);
+      await expect(service.deleteNote('deal-1', 'missing', 't', caller)).rejects.toThrow(
+        NotFoundException,
+      );
+
+      timeline.getEntry.mockResolvedValue(
+        createMockTimelineEntry({ eventType: TimelineEventType.CREATED }),
+      );
+      await expect(service.deleteNote('deal-1', 'entry-1', 't', caller)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(timeline.deleteEntry).not.toHaveBeenCalled();
     });
   });
 

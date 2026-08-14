@@ -26,7 +26,7 @@ import { JobStatusSelect } from "@/features/job-statuses/components/job-status-s
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
-import { useDeal, useDealProducts, useContactMap, useUpdateDeal, useMoveStatus, useUserMap } from "../hooks";
+import { useDeal, useDealProducts, useContactMap, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
 import { dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
@@ -64,7 +64,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
   const { map: contactMap } = useContactMap();
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(dealId);
-  const update = useUpdateDeal(dealId);
+  const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
   const jobTypeName = useJobTypeName();
   const { data: customFieldDefs } = useCustomFields();
@@ -151,7 +151,15 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
         <Row label="Tags">
           {canEdit ? (
-            <JobTagCombobox value={deal.tagIds ?? []} onChange={(ids) => update.mutate({ tagIds: ids })} />
+            <JobTagCombobox
+              value={deal.tagIds ?? []}
+              onChange={(ids) => {
+                const added = ids.length > (deal.tagIds?.length ?? 0);
+                setTags.mutate(ids, {
+                  onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+                });
+              }}
+            />
           ) : deal.tagIds?.length ? (
             <JobTagChips ids={deal.tagIds} />
           ) : (

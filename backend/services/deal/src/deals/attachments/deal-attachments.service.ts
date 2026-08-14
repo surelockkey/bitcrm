@@ -1,9 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { S3Service } from '@bitcrm/shared';
-import { type DealAttachmentMeta, type JwtUser } from '@bitcrm/types';
+import { type DealAttachment, type DealAttachmentMeta, type JwtUser } from '@bitcrm/types';
 import { DealAttachmentsRepository } from './deal-attachments.repository';
 import { UploadAttachmentDto } from './dto/upload-attachment.dto';
+import { UpdateAttachmentDto } from './dto/update-attachment.dto';
 import { dealAttachmentS3Key } from '../../common/constants/dynamo.constants';
 
 /**
@@ -48,6 +49,22 @@ export class DealAttachmentsService {
     return { id, uploadUrl, s3Key, headers };
   }
 
+  async update(
+    dealId: string,
+    id: string,
+    dto: UpdateAttachmentDto,
+    caller: JwtUser,
+  ): Promise<DealAttachmentMeta> {
+    const att = await this.repository.get(dealId, id);
+    if (!att) throw new NotFoundException('Attachment not found');
+    const updated = await this.repository.update(dealId, id, {
+      fileName: dto.fileName,
+      description: dto.description,
+    });
+    this.logger.log(`Deal attachment updated: ${dealId}/${id} by ${caller.id}`);
+    return this.toMeta(updated);
+  }
+
   async getDownloadUrl(dealId: string, id: string): Promise<{ downloadUrl: string }> {
     const att = await this.repository.get(dealId, id);
     if (!att) throw new NotFoundException('Attachment not found');
@@ -58,16 +75,22 @@ export class DealAttachmentsService {
   async list(dealId: string): Promise<DealAttachmentMeta[]> {
     const items = await this.repository.listByDeal(dealId);
     return items
-      .map((a) => ({
-        id: a.id,
-        fileName: a.fileName,
-        contentType: a.contentType,
-        size: a.size,
-        category: a.category,
-        uploadedBy: a.uploadedBy,
-        uploadedAt: a.uploadedAt,
-      }))
+      .map((a) => this.toMeta(a))
       .sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt));
+  }
+
+  /** Client-facing shape — never exposes the S3 key or the deal id. */
+  private toMeta(a: DealAttachment): DealAttachmentMeta {
+    return {
+      id: a.id,
+      fileName: a.fileName,
+      contentType: a.contentType,
+      size: a.size,
+      category: a.category,
+      description: a.description,
+      uploadedBy: a.uploadedBy,
+      uploadedAt: a.uploadedAt,
+    };
   }
 
   async delete(dealId: string, id: string): Promise<void> {

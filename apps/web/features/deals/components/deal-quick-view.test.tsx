@@ -86,6 +86,7 @@ vi.mock("../hooks", () => ({
   useContactMap: () => ({ map: new Map([[contact.id, contact]]) }),
   useUserMap: () => ({ map: new Map() }),
   useUpdateDeal: () => ({ mutate: vi.fn() }),
+  useSetDealTags: () => ({ mutate: vi.fn() }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
 }));
 

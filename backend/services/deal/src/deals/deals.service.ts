@@ -50,6 +50,7 @@ import { type UpdateDealDto } from './dto/update-deal.dto';
 import { type MoveStatusDto } from './dto/move-status.dto';
 import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
+import { type UpdateNoteDto } from './dto/update-note.dto';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 
@@ -660,6 +661,38 @@ export class DealsService {
     await this.addTimelineEntry(id, TimelineEventType.NOTE_ADDED, caller, {}, dto.note);
   }
 
+  /** Only user-authored notes are editable — system events stay immutable. */
+  private async findNoteEntry(dealId: string, timestamp: string, entryId: string) {
+    const entry = await this.timelineRepo.getEntry(dealId, timestamp, entryId);
+    if (!entry) throw new NotFoundException('Timeline entry not found');
+    if (entry.eventType !== TimelineEventType.NOTE_ADDED) {
+      throw new BadRequestException('Only notes can be edited or deleted');
+    }
+    return entry;
+  }
+
+  async updateNote(
+    id: string,
+    entryId: string,
+    dto: UpdateNoteDto,
+    caller: JwtUser,
+  ): Promise<void> {
+    await this.findNoteEntry(id, dto.timestamp, entryId);
+    await this.timelineRepo.updateNote(id, dto.timestamp, entryId, dto.note);
+    this.logger.log(`Note ${entryId} on deal ${id} edited by ${caller.id}`);
+  }
+
+  async deleteNote(
+    id: string,
+    entryId: string,
+    timestamp: string,
+    caller: JwtUser,
+  ): Promise<void> {
+    await this.findNoteEntry(id, timestamp, entryId);
+    await this.timelineRepo.deleteEntry(id, timestamp, entryId);
+    this.logger.log(`Note ${entryId} on deal ${id} deleted by ${caller.id}`);
+  }
+
   /**
    * Candidates for assigning this deal, read from the local eligibility
    * projection rather than user-service — the ids there are catalog ids, so the
@@ -1094,6 +1127,13 @@ export class DealsService {
 
     await this.cache.invalidate(id);
 
+    // Money/quantity edits, old → new, so the timeline can say exactly what
+    // changed on the line (price, costs, qty) — not just that it was touched.
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
+    for (const k of ['priceClient', 'costCompany', 'costForTech', 'quantity'] as const) {
+      if (existing[k] !== dto[k]) changes[k] = { from: existing[k], to: dto[k] };
+    }
+
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_UPDATED, caller, {
       productId: dto.productId,
       productName: dto.name,
@@ -1101,6 +1141,7 @@ export class DealsService {
       previousProductName: existing.name,
       quantity: dto.quantity,
       fulfillment,
+      changes,
     });
 
     this.publishEvent('deal.product_updated', {

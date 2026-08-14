@@ -43,7 +43,30 @@ vi.mock("@/features/job-types/lib", () => ({
 vi.mock("@/features/job-tags/hooks", () => ({ useJobTags: () => ({ data: [] }) }));
 vi.mock("@/features/job-tags/lib", () => ({ activeJobTags: () => [] }));
 vi.mock("@/features/job-tags/components/job-tag-chips", () => ({ JobTagChips: () => null }));
-vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({
+    data: [
+      {
+        id: "cf-gate",
+        name: "Gate Code",
+        type: "text",
+        group: "Access",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ],
+  }),
+}));
+vi.mock("@/features/job-sources/lib", () => ({ useJobSourceName: () => () => "—" }));
+vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "—" }));
 vi.mock("./deal-quick-view", () => ({ DealQuickView: () => null }));
 
 const contact: Contact = {
@@ -74,6 +97,7 @@ const deal: Deal = {
   priority: DealPriority.NORMAL,
   assignedTechIds: [],
   tagIds: [],
+  customFields: { "cf-gate": "4417" },
   status: DealStatus.ACTIVE,
   createdBy: "u1",
   createdAt: "",
@@ -104,19 +128,48 @@ describe("DealsPage fields visibility", () => {
     expect(screen.getByRole("columnheader", { name: "Tags" })).toBeInTheDocument();
 
     await u.click(screen.getByRole("button", { name: /fields/i }));
-    await u.click(screen.getByRole("menuitemcheckbox", { name: "Tags" }));
-    // The modal menu hides the page from the a11y tree while open.
+    await u.click(screen.getByRole("checkbox", { name: "Tags" }));
+    // The modal panel hides the page from the a11y tree while open.
     await u.keyboard("{Escape}");
 
     expect(screen.queryByRole("columnheader", { name: "Tags" })).toBeNull();
     expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
   });
 
+  it("lists every deal field in the panel, searchable, grouped by used/unselected", async () => {
+    const u = userEvent.setup();
+    render(<DealsPage />);
+
+    await u.click(screen.getByRole("button", { name: /fields/i }));
+    expect(screen.getByText("Used fields")).toBeInTheDocument();
+    expect(screen.getByText("Unselected fields")).toBeInTheDocument();
+    // Any deal field is offered, not just the classic columns.
+    expect(screen.getByRole("checkbox", { name: "Source" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "PO number" })).toBeInTheDocument();
+
+    // Search narrows the list.
+    await u.type(screen.getByPlaceholderText(/search fields/i), "gate");
+    expect(screen.getByRole("checkbox", { name: "Gate Code" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Source" })).toBeNull();
+  });
+
+  it("toggling a custom field on adds its column with the deal's answer", async () => {
+    const u = userEvent.setup();
+    render(<DealsPage />);
+
+    await u.click(screen.getByRole("button", { name: /fields/i }));
+    await u.click(screen.getByRole("checkbox", { name: "Gate Code" }));
+    await u.keyboard("{Escape}");
+
+    expect(screen.getByRole("columnheader", { name: "Gate Code" })).toBeInTheDocument();
+    expect(screen.getByText("4417")).toBeInTheDocument();
+  });
+
   it("hidden fields survive a reload", async () => {
     const u = userEvent.setup();
     const first = render(<DealsPage />);
     await u.click(screen.getByRole("button", { name: /fields/i }));
-    await u.click(screen.getByRole("menuitemcheckbox", { name: "Scheduled" }));
+    await u.click(screen.getByRole("checkbox", { name: "Scheduled" }));
     first.unmount();
 
     // Simulate the reload: memory is wiped but the disk survives. Resetting

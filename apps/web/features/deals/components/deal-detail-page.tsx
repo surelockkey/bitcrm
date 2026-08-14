@@ -47,11 +47,12 @@ import { applicableFields } from "@/features/custom-fields/lib";
 import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import {
+  useChangeDealClient,
   useDeal,
   useDeleteDeal,
-  useUpdateDeal,
   useMoveStatus,
-  useChangeDealClient,
+  useSetDealTags,
+  useUpdateDeal,
 } from "../hooks";
 import {
   buildContactBody,
@@ -67,6 +68,7 @@ import { DealNotesCard } from "./deal-notes-card";
 import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
+import { useAttachments } from "../attachments-hooks";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
@@ -81,9 +83,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
-  const tagUpdate = useUpdateDeal(dealId);
+  const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
   const [tab, setTab] = useState<Tab>("details");
+  const { data: attachments } = useAttachments(dealId);
+  const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
@@ -133,28 +137,31 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ) : null}
       </div>
 
-      {/* Status — above the tags: a grouped super-status + sub-status select */}
-      <div className="flex items-center gap-2 border-b px-6 py-2.5">
-        <span className="text-xs font-medium text-muted-foreground">Status</span>
-        <JobStatusSelect
-          value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
-          onChange={(v) =>
-            moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
-          }
-          disabled={!canEdit}
-        />
-      </div>
-
-      {/* Tags — top-left, with a "+" to quickly add existing tags */}
-      {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
-        <div className="flex items-center gap-2 border-b px-6 py-2.5">
-          <JobTagCombobox
-            value={deal.tagIds ?? []}
-            onChange={(ids) => tagUpdate.mutate({ tagIds: ids })}
+      {/* Status + tags share one row; tags wrap under the select when cramped */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-6 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
+          <JobStatusSelect
+            value={{ superStatus: deal.superStatus, subStatusId: deal.subStatusId }}
+            onChange={(v) =>
+              moveStatus.mutate(v, { onSuccess: () => toast.success("Status updated") })
+            }
             disabled={!canEdit}
           />
         </div>
-      ) : null}
+        {canEdit || (deal.tagIds?.length ?? 0) > 0 ? (
+          <JobTagCombobox
+            value={deal.tagIds ?? []}
+            onChange={(ids) => {
+              const added = ids.length > (deal.tagIds?.length ?? 0);
+              setTags.mutate(ids, {
+                onSuccess: () => toast.success(added ? "Tag added" : "Tag removed"),
+              });
+            }}
+            disabled={!canEdit}
+          />
+        ) : null}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
@@ -163,11 +170,16 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
+              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
               t === tab ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
             {t}
+            {t === "attachments" && attachmentCount > 0 ? (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums">
+                {attachmentCount}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -182,7 +194,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="mx-auto max-w-3xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
+          <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
         ) : null}
       </div>
 

@@ -152,6 +152,33 @@ export function useChangeDealClient(id: string) {
 }
 
 /**
+ * Tags auto-save immediately (no Save button) and are optimistic: the chip
+ * paints before the server round-trip, rolls back on error, reconciles on
+ * settle. The success toast is left to the caller so it can say "Tag added"
+ * vs "Tag removed".
+ */
+export function useSetDealTags(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (tagIds: string[]) => api.updateDeal(id, { tagIds }),
+    onMutate: async (tagIds) => {
+      await qc.cancelQueries({ queryKey: queryKeys.deals.detail(id) });
+      const previous = qc.getQueryData<Deal>(queryKeys.deals.detail(id));
+      if (previous) {
+        qc.setQueryData<Deal>(queryKeys.deals.detail(id), { ...previous, tagIds });
+      }
+      return { previous };
+    },
+    onError: (e, _tagIds, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(id), ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
+  });
+}
+
+/**
  * Move a deal's status (super-status + optional sub-status). Auto-saves and is
  * optimistic so the new status paints before the round-trip; the success toast
  * is left to the caller. Gated server-side by deals.move_status.
@@ -245,6 +272,29 @@ export function useAddNote(id: string) {
   return useMutation({
     mutationFn: (note: string) => api.addNote(id, note),
     onSuccess: () => invalidate(),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useUpdateNote(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ entryId, timestamp, note }: { entryId: string; timestamp: string; note: string }) =>
+      api.updateNote(id, entryId, { note, timestamp }),
+    onSuccess: () => invalidate(),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeleteNote(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ entryId, timestamp }: { entryId: string; timestamp: string }) =>
+      api.deleteNote(id, entryId, timestamp),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Note deleted");
+    },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }

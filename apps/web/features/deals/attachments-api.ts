@@ -19,6 +19,14 @@ export function requestAttachmentUpload(
   return http.post<AttachmentUploadTicket>(`/deals/${dealId}/attachments`, body);
 }
 
+export function updateAttachment(
+  dealId: string,
+  attachmentId: string,
+  body: { fileName?: string; description?: string },
+): Promise<DealAttachmentMeta> {
+  return http.patch<DealAttachmentMeta>(`/deals/${dealId}/attachments/${attachmentId}`, body);
+}
+
 export function getAttachmentDownloadUrl(
   dealId: string,
   attachmentId: string,
