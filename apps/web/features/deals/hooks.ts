@@ -257,6 +257,29 @@ export function useAddNote(id: string) {
   });
 }
 
+export function useUpdateNote(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ entryId, timestamp, note }: { entryId: string; timestamp: string; note: string }) =>
+      api.updateNote(id, entryId, { note, timestamp }),
+    onSuccess: () => invalidate(),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeleteNote(id: string) {
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: ({ entryId, timestamp }: { entryId: string; timestamp: string }) =>
+      api.deleteNote(id, entryId, timestamp),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Note deleted");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useAddProduct(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({

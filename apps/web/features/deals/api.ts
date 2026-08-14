@@ -100,6 +100,23 @@ export function getTimeline(id: string, cursor?: string): Promise<PaginatedRespo
 export const addNote = (id: string, note: string): Promise<{ added: true }> =>
   http.post<{ added: true }>(`/deals/${id}/notes`, { note });
 
+/** The entry timestamp is part of the DynamoDB key, so it rides along. */
+export const updateNote = (
+  id: string,
+  entryId: string,
+  body: { note: string; timestamp: string },
+): Promise<{ updated: true }> =>
+  http.patch<{ updated: true }>(`/deals/${id}/notes/${entryId}`, body);
+
+export const deleteNote = (
+  id: string,
+  entryId: string,
+  timestamp: string,
+): Promise<{ deleted: true }> =>
+  http.delete<{ deleted: true }>(
+    `/deals/${id}/notes/${entryId}?timestamp=${encodeURIComponent(timestamp)}`,
+  );
+
 /* ------------------------------------------------------------- assignment */
 
 export const getQualifiedTechs = (id: string): Promise<QualifiedTech[]> =>
