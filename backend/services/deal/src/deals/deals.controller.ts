@@ -17,6 +17,7 @@ import { DealsService } from './deals.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { MoveStatusDto } from './dto/move-status.dto';
+import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { AssignTechsDto } from './dto/assign-techs.dto';
@@ -92,6 +93,24 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
   ) {
     const data = await this.dealsService.update(id, dto, user);
+    return { success: true, data };
+  }
+
+  @Put(':id/client')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Move a job to a different client',
+    description:
+      '**Guard:** `deals.edit` permission required. Re-points the job at another ' +
+      'contact — used when details taken during a call turn out to belong to ' +
+      'someone else. The previous client keeps the rest of their history.',
+  })
+  async changeClient(
+    @Param('id') id: string,
+    @Body() dto: ChangeDealClientDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.dealsService.changeContact(id, dto.contactId, user);
     return { success: true, data };
   }
 

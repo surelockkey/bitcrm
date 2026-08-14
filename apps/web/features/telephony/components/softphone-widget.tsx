@@ -14,13 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useActiveCall } from "@/features/calls/hooks";
 import { CallJobActions } from "@/features/calls/components/call-job-actions";
@@ -29,6 +22,7 @@ import { DialerDirectory } from "./dialer-directory";
 import { formatPhone } from "@/lib/phone";
 import { useSoftphoneStore } from "../softphone-store";
 import { useNumbers } from "../numbers-hooks";
+import { CallerIdPicker } from "./caller-id-picker";
 import { useCallTimer } from "../use-call-timer";
 import {
   acceptIncoming,
@@ -243,24 +237,14 @@ export function SoftphoneWidget() {
         ) : (
           <div className="space-y-2">
             {numbers && numbers.length > 0 ? (
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="shrink-0">From</span>
-                <Select
+                <CallerIdPicker
+                  numbers={numbers}
                   value={activeNumber ?? undefined}
-                  onValueChange={setActiveNumber}
-                >
-                  <SelectTrigger className="h-8 flex-1 text-xs">
-                    <SelectValue placeholder="Caller ID" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {numbers.map((n) => (
-                      <SelectItem key={n.sid} value={n.phoneNumber}>
-                        {formatPhone(n.phoneNumber)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
+                  onChange={setActiveNumber}
+                />
+              </div>
             ) : null}
             <Input
               value={entry}

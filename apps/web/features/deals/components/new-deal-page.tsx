@@ -26,9 +26,13 @@ import {
   useUpdateContact,
   useCompanyMap,
 } from "@/features/clients/hooks";
-import { addressInList, clientTypeLabel, contactName, formatPhone } from "@/features/clients/lib";
+import { addressInList, clientTypeLabel, contactName } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { ClientChangeDialog } from "@/features/clients/components/client-change-dialog";
+import {
+  ClientSaveDialog,
+  type ClientEdits,
+  type ClientSaveDecision,
+} from "@/features/clients/components/client-change-dialog";
 import { useCreateDeal } from "../hooks";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
 import { CallsToLink } from "@/features/calls/components/calls-to-link";
@@ -44,7 +48,6 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
 
 export function NewDealPage() {
-  const [contact, setContact] = useState<Contact | null>(null);
   const params = useSearchParams();
 
   // Opened from a call: the dialer sends the call and, when it knows them,
@@ -57,6 +60,23 @@ export function NewDealPage() {
     callSid ? [callSid] : [],
   );
 
+  // The client is derived, not assigned during render: a call arrives with one
+  // already resolved, and writing that into state while rendering is what React
+  // warns about. `cleared` lets the user drop it and pick somebody else.
+  const [chosen, setChosen] = useState<Contact | null>(null);
+  const [cleared, setCleared] = useState(false);
+  // A client created on this page needs no questions asked about them on save.
+  // Kept here rather than in the form, which remounts whenever the client changes.
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const prefilled = useContact(!cleared && prefillContactId ? prefillContactId : "");
+  const contact = chosen ?? (cleared ? null : (prefilled.data ?? null));
+
+  const setContact = (c: Contact | null, created = false) => {
+    setChosen(c);
+    setCleared(!c);
+    setCreatedId(created && c ? c.id : null);
+  };
+
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-3 border-b px-6 py-4">
@@ -68,10 +88,15 @@ export function NewDealPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {/* Keyed on the client so the form takes fresh defaults — chiefly their
+            address — when one resolves or is swapped, instead of writing to the
+            form from render. Nothing typed is lost: picking a client is the
+            first step, before any of the job fields exist. */}
         <DealForm
+          key={contact?.id ?? "no-client"}
           contact={contact}
           onContact={setContact}
-          prefillContactId={prefillContactId}
+          createdHere={!!contact && contact.id === createdId}
           prefillPhone={prefillPhone}
           callSid={callSid}
           callsToLink={callsToLink}
@@ -96,15 +121,16 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function DealForm({
   contact,
   onContact,
-  prefillContactId,
+  createdHere,
   prefillPhone,
   callSid,
   callsToLink,
   onCallsToLink,
 }: {
   contact: Contact | null;
-  onContact: (c: Contact | null) => void;
-  prefillContactId?: string;
+  onContact: (c: Contact | null, created?: boolean) => void;
+  /** The client was added on this page, so their details are already right. */
+  createdHere: boolean;
   prefillPhone?: string;
   callSid?: string;
   callsToLink: string[];
@@ -115,8 +141,6 @@ function DealForm({
   const linkCall = useLinkCallToDeal();
   // A client the call already resolved to: adopt it so the client step is
   // answered before the page even renders.
-  const prefilled = useContact(prefillContactId ?? "");
-  if (prefilled.data && !contact) onContact(prefilled.data);
   const updateContact = useUpdateContact();
   const { map: companyMap } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
@@ -125,6 +149,25 @@ function DealForm({
   // required-ness are data-driven from the catalog, so they're validated inline.
   const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
   const [cfError, setCfError] = useState<string | null>(null);
+  const createContact = useCreateContact();
+
+  // Client edits, keyed by who they're for — swapping client drops them
+  // without an effect to reset anything.
+  const [draft, setDraft] = useState<{ id: string; edits: ClientEdits } | null>(null);
+  const clientEdits: ClientEdits =
+    draft && draft.id === contact?.id
+      ? draft.edits
+      : {
+          firstName: contact?.firstName ?? "",
+          lastName: contact?.lastName ?? "",
+          phone: contact?.phones[0] ?? "",
+        };
+  const onClientEdits = (edits: ClientEdits) => {
+    if (contact) setDraft({ id: contact.id, edits });
+  };
+
+  /** Job values held back until the save-time questions are answered. */
+  const [pendingSave, setPendingSave] = useState<DealJobValues | null>(null);
 
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
@@ -132,7 +175,17 @@ function DealForm({
       clientType: ClientType.RESIDENTIAL,
       jobTypeId: "",
       serviceArea: "",
-      address: { street: "", unit: "", city: "", state: "", zip: "" },
+      address: contact?.addresses?.[0]
+        ? {
+            street: contact.addresses[0].street,
+            unit: contact.addresses[0].unit ?? "",
+            city: contact.addresses[0].city,
+            state: contact.addresses[0].state,
+            zip: contact.addresses[0].zip,
+            lat: contact.addresses[0].lat,
+            lng: contact.addresses[0].lng,
+          }
+        : { street: "", unit: "", city: "", state: "", zip: "" },
       scheduledDate: "",
       scheduledTimeSlot: "",
       priority: DealPriority.NORMAL,
@@ -143,6 +196,13 @@ function DealForm({
   });
   const err = form.formState.errors;
   const v = useWatch({ control: form.control }) as DealJobValues;
+
+  /** Details differ from what's on file. */
+  const clientChanged =
+    !!contact &&
+    (clientEdits.firstName.trim() !== contact.firstName ||
+      clientEdits.lastName.trim() !== contact.lastName ||
+      (!!clientEdits.phone && clientEdits.phone !== contact.phones[0]));
 
   const submit = form.handleSubmit((values) => {
     if (!contact) return;
@@ -160,6 +220,84 @@ function DealForm({
     const cleanCustomFields = Object.fromEntries(
       Object.entries(customFields).filter(([id]) => applicableIds.has(id)),
     );
+
+    // A client picked up mid-call is often "whoever answered this number", so
+    // an edit is as likely to mean a new person as a typo. Same for an address
+    // the client doesn't have: it might be a second property or a one-off site.
+    // Ask once, here, rather than guessing — except for a client created on
+    // this page, whose details are by definition already correct and whose
+    // first address is simply theirs.
+    const asksAboutClient = clientChanged && !createdHere;
+    const asksAboutAddress =
+      !createdHere && !addressInList(values.address, contact.addresses);
+    if (asksAboutClient || asksAboutAddress) {
+      setPendingSave(values);
+      return;
+    }
+    finish(values, cleanCustomFields, { client: "update", address: "save" });
+  });
+
+  /**
+   * Everything the save does once the questions (if any) are answered:
+   * settle the client, then create the job.
+   */
+  const finish = (
+    values: DealJobValues,
+    cleanCustomFields: Record<string, CustomFieldValue>,
+    decision: ClientSaveDecision,
+  ) => {
+    if (!contact) return;
+    const saveAddress =
+      decision.address === "save" &&
+      !addressInList(values.address, contact.addresses);
+
+    // "A different client" makes a new record and takes the number with it, so
+    // future calls from it resolve to whoever the job is actually for. The old
+    // client keeps their history untouched.
+    if (clientChanged && decision.client === "create") {
+      createContact.mutate(
+        {
+          firstName: clientEdits.firstName.trim(),
+          lastName: clientEdits.lastName.trim(),
+          phones: [clientEdits.phone || contact.phones[0]].filter(Boolean),
+          emails: [],
+          addresses: saveAddress ? [values.address] : [],
+          type: contact.type,
+          companyId: contact.companyId,
+          source: ContactSource.PHONE_CALL,
+          reassignPhones: true,
+        },
+        { onSuccess: (c) => createJob(values, cleanCustomFields, c) },
+      );
+      return;
+    }
+
+    if (clientChanged || saveAddress) {
+      updateContact.mutate({
+        id: contact.id,
+        body: {
+          firstName: clientChanged ? clientEdits.firstName.trim() : contact.firstName,
+          lastName: clientChanged ? clientEdits.lastName.trim() : contact.lastName,
+          phones: nextPhones(contact, clientChanged ? clientEdits.phone : ""),
+          emails: contact.emails,
+          addresses: saveAddress
+            ? [...contact.addresses, values.address]
+            : contact.addresses,
+          companyId: contact.companyId,
+          type: contact.type,
+          title: contact.title,
+          notes: contact.notes,
+        },
+      });
+    }
+    createJob(values, cleanCustomFields, contact);
+  };
+
+  const createJob = (
+    values: DealJobValues,
+    cleanCustomFields: Record<string, CustomFieldValue>,
+    contact: Contact,
+  ) => {
     createDeal.mutate(
       {
         contactId: contact.id,
@@ -181,44 +319,34 @@ function DealForm({
           for (const sid of callsToLink) {
             linkCall.mutate({ sid, dealId: deal.id });
           }
-          // The deal keeps its own address; a brand-new one is also saved to the
-          // client so it's offered next time.
-          if (!addressInList(values.address, contact.addresses)) {
-            updateContact.mutate({
-              id: contact.id,
-              body: {
-                firstName: contact.firstName,
-                lastName: contact.lastName,
-                phones: contact.phones,
-                emails: contact.emails,
-                addresses: [...contact.addresses, values.address],
-                companyId: contact.companyId,
-                type: contact.type,
-                title: contact.title,
-                notes: contact.notes,
-              },
-            });
-          }
           router.push(`/deals/${deal.id}`);
         },
       },
     );
-  });
+  };
 
   return (
     <form onSubmit={submit} className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6" noValidate>
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         {/* Client */}
         <Section title="Client">
+          {contact ? (
+            <ResolvedClient
+              contact={contact}
+              edits={clientEdits}
+              onEdits={onClientEdits}
+              onClear={() => onContact(null)}
+            />
+          ) : null}
           <ClientPicker
+            hidden={!!contact}
             contact={contact}
             initialPhone={prefillPhone}
-            onResolved={(c) => {
-              onContact(c);
+            onResolved={(c, created) => {
+              onContact(c, created);
               const ct = c.companyId ? companyMap.get(c.companyId)?.clientType : undefined;
               if (ct) form.setValue("clientType", ct);
             }}
-            onClear={() => onContact(null)}
           />
         </Section>
 
@@ -316,159 +444,123 @@ function DealForm({
           </Button>
         </div>
       </div>
+
+      {contact && pendingSave ? (
+        <ClientSaveDialog
+          open
+          original={contact}
+          edits={clientEdits}
+          clientChanged={clientChanged}
+          newAddress={
+            addressInList(pendingSave.address, contact.addresses)
+              ? undefined
+              : pendingSave.address
+          }
+          pending={createDeal.isPending || createContact.isPending}
+          onCancel={() => setPendingSave(null)}
+          onConfirm={(decision) => {
+            const applicableIds = new Set(
+              applicableFields(customFieldDefs, pendingSave.jobTypeId).map((f) => f.id),
+            );
+            finish(
+              pendingSave,
+              Object.fromEntries(
+                Object.entries(customFields).filter(([id]) => applicableIds.has(id)),
+              ),
+              decision,
+            );
+          }}
+        />
+      ) : null}
     </form>
   );
+}
+
+/**
+ * The edited number first, keeping the rest — a client can hold several, and
+ * correcting the one they called from shouldn't drop the others.
+ */
+function nextPhones(contact: Contact, phone: string): string[] {
+  if (!phone) return contact.phones;
+  return [phone, ...contact.phones.filter((p) => p !== phone && p !== contact.phones[0])];
 }
 
 /* ------------------------------------------------------------- client picker */
 
 
 /**
- * The client this job is for, with their details editable in place.
- *
- * Editing them asks a question on save that the system can't answer itself:
- * is this the same person with a correction, or a different person now on
- * that number? Both are common, and guessing wrong either renames somebody
- * who did nothing or fills the CRM with duplicates.
+ * The client this job is for — their details editable in place, not behind an
+ * Edit button. Nothing is written to the CRM here: edits are reported upward
+ * and settled when the job is saved, because until then it isn't clear whether
+ * this is a correction to them or a different person on their number.
  */
 function ResolvedClient({
   contact,
+  edits,
+  onEdits,
   onClear,
-  onResolved,
 }: {
   contact: Contact;
+  edits: ClientEdits;
+  onEdits: (e: ClientEdits) => void;
   onClear: () => void;
-  onResolved: (c: Contact) => void;
 }) {
   const { map: companyMap } = useCompanyMap();
-  const updateContact = useUpdateContact();
-  const createContact = useCreateContact();
-  const [editing, setEditing] = useState(false);
-  const [asking, setAsking] = useState(false);
-  const [first, setFirst] = useState(contact.firstName);
-  const [last, setLast] = useState(contact.lastName);
-  const [phone, setPhone] = useState(contact.phones[0] ?? "");
-
-  const edits = { firstName: first.trim(), lastName: last.trim(), phone: phone.trim() };
-  const changed =
-    edits.firstName !== contact.firstName ||
-    edits.lastName !== contact.lastName ||
-    (edits.phone && edits.phone !== (contact.phones[0] ?? ""));
-
-  const phones = edits.phone
-    ? [edits.phone, ...contact.phones.filter((p) => p !== contact.phones[0])]
-    : contact.phones;
-
-  const applyUpdate = () =>
-    updateContact.mutate(
-      {
-        id: contact.id,
-        body: {
-          firstName: edits.firstName,
-          lastName: edits.lastName,
-          phones,
-          emails: contact.emails,
-          addresses: contact.addresses,
-          companyId: contact.companyId,
-          type: contact.type,
-        },
-      },
-      {
-        onSuccess: (c) => {
-          onResolved(c);
-          setAsking(false);
-          setEditing(false);
-        },
-      },
-    );
-
-  const applyCreate = () =>
-    createContact.mutate(
-      {
-        firstName: edits.firstName,
-        lastName: edits.lastName,
-        phones: edits.phone ? [edits.phone] : contact.phones,
-        emails: [],
-        addresses: [],
-        companyId: contact.companyId,
-        type: contact.type,
-        source: ContactSource.PHONE_CALL,
-        // The number has genuinely changed hands; take it off its old owner.
-        reassignPhones: true,
-      },
-      {
-        onSuccess: (c) => {
-          onResolved(c);
-          setAsking(false);
-          setEditing(false);
-        },
-      },
-    );
-
-  if (!editing) {
-    return (
-      <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
-        <div>
-          <div className="font-medium">{contactName(contact)}</div>
-          {contact.companyId ? <div className="text-xs text-muted-foreground">{companyMap.get(contact.companyId)?.title}</div> : null}
-          {contact.phones[0] ? <div className="text-xs text-muted-foreground">{formatPhone(contact.phones[0])}</div> : null}
-        </div>
-        <div className="flex gap-1">
-          <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-          <Button type="button" variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={onClear}>
-            <X className="size-3.5" /> Change
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
-      <div className="grid grid-cols-2 gap-2">
-        <Input className="h-9" value={first} onChange={(e) => setFirst(e.target.value)} placeholder="First name" />
-        <Input className="h-9" value={last} onChange={(e) => setLast(e.target.value)} placeholder="Last name" />
-      </div>
-      <PhoneInput value={phone} onChange={setPhone} placeholder="Phone" />
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
-          Cancel
-        </Button>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-xs text-muted-foreground">
+          {contact.companyId
+            ? companyMap.get(contact.companyId)?.title
+            : "Residential"}
+        </div>
         <Button
           type="button"
-          variant="brand"
+          variant="ghost"
           size="sm"
-          disabled={!changed || !edits.firstName || !edits.lastName}
-          onClick={() => setAsking(true)}
+          className="-mt-1 gap-1 text-muted-foreground"
+          onClick={onClear}
         >
-          Save client
+          <X className="size-3.5" /> Change client
         </Button>
       </div>
-
-      <ClientChangeDialog
-        open={asking}
-        original={contact}
-        edits={edits}
-        pending={updateContact.isPending || createContact.isPending}
-        onUpdate={applyUpdate}
-        onCreate={applyCreate}
-        onCancel={() => setAsking(false)}
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          className="h-9"
+          value={edits.firstName}
+          onChange={(e) => onEdits({ ...edits, firstName: e.target.value })}
+          placeholder="First name"
+        />
+        <Input
+          className="h-9"
+          value={edits.lastName}
+          onChange={(e) => onEdits({ ...edits, lastName: e.target.value })}
+          placeholder="Last name"
+        />
+      </div>
+      <PhoneInput
+        value={edits.phone}
+        onChange={(v) => onEdits({ ...edits, phone: v })}
+        placeholder="Phone"
       />
+      <p className="text-xs text-muted-foreground">
+        Edits here are saved with the job — you&apos;ll be asked whether they
+        correct this client or belong to a new one.
+      </p>
     </div>
   );
 }
 
 function ClientPicker({
+  hidden,
   contact,
   onResolved,
-  onClear,
   initialPhone,
 }: {
   contact: Contact | null;
-  onResolved: (c: Contact) => void;
-  onClear: () => void;
+  hidden: boolean;
+  onResolved: (c: Contact, created: boolean) => void;
   /** Seeded when the page was opened from a call with an unknown caller —
    *  the number is already known, so the lookup runs without typing. */
   initialPhone?: string;
@@ -480,16 +572,16 @@ function ClientPicker({
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
 
-  if (contact) {
-    return <ResolvedClient contact={contact} onClear={onClear} onResolved={onResolved} />;
-  }
+
 
   const found = dupe.data ?? null;
+  // Kept mounted so a half-typed number survives glancing at the chosen client.
+  if (hidden) return null;
   const create = () => {
     if (!first.trim() || !last.trim()) return;
     createContact.mutate(
       { firstName: first, lastName: last, phones: [trimmed], emails: [], addresses: [], type: ContactType.RESIDENTIAL, source: ContactSource.PHONE_CALL },
-      { onSuccess: (c) => onResolved(c) },
+      { onSuccess: (c) => onResolved(c, true) },
     );
   };
 
@@ -507,7 +599,7 @@ function ClientPicker({
         <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
           <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><Check className="size-4" /> <b>Existing client found</b></div>
           <div className="mt-1 text-sm font-medium">{contactName(found)}</div>
-          <Button className="mt-3 w-full" variant="brand" size="sm" onClick={() => onResolved(found)}>Use this client →</Button>
+          <Button className="mt-3 w-full" variant="brand" size="sm" onClick={() => onResolved(found, false)}>Use this client →</Button>
         </div>
       ) : (
         <div className="rounded-lg border border-dashed p-3">

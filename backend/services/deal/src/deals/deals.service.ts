@@ -526,6 +526,33 @@ export class DealsService {
     return result;
   }
 
+  /**
+   * Point a job at a different client.
+   *
+   * Used when the details captured during a call turn out to belong to someone
+   * else — the CRM makes a separate client, and the job follows them. The old
+   * client keeps their own history; only this job moves.
+   */
+  async changeContact(id: string, contactId: string, caller: JwtUser): Promise<Deal> {
+    const existing = await this.findById(id);
+    if (existing.contactId === contactId) return existing;
+
+    const contactExists = await this.internalHttp.validateContact(contactId);
+    if (!contactExists) {
+      throw new BadRequestException(`Contact ${contactId} not found`);
+    }
+
+    await this.repository.reassignContact(id, contactId);
+    await this.cache.invalidate(id);
+    await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+      field: 'contactId',
+      oldValue: existing.contactId,
+      newValue: contactId,
+    });
+
+    return this.findById(id);
+  }
+
   async softDelete(id: string, caller: JwtUser): Promise<void> {
     await this.findById(id);
     await this.repository.softDelete(id);

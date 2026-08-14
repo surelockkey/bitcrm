@@ -74,6 +74,10 @@ export const createDeal = (body: CreateDealValues): Promise<Deal> =>
 export const updateDeal = (id: string, body: UpdateDealValues): Promise<Deal> =>
   http.put<Deal>(`/deals/${id}`, body);
 
+/** Move a job to a different client. Guarded by deals.edit. */
+export const changeDealClient = (id: string, contactId: string): Promise<Deal> =>
+  http.put<Deal>(`/deals/${id}/client`, { contactId });
+
 export const deleteDeal = (id: string): Promise<{ id: string; deleted: true }> =>
   http.delete<{ id: string; deleted: true }>(`/deals/${id}`);
 

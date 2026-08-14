@@ -133,6 +133,25 @@ export function useUpdateDeal(id: string) {
 }
 
 /**
+ * Re-point this job at another client — used when the details captured during a
+ * call turn out to belong to somebody else.
+ */
+export function useChangeDealClient(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (contactId: string) => api.changeDealClient(id, contactId),
+    onSuccess: () => {
+      invalidate();
+      // The new client's own job list gains this one.
+      qc.invalidateQueries({ queryKey: queryKeys.contacts.all() });
+      toast.success("Job moved to the new client");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/**
  * Move a deal's status (super-status + optional sub-status). Auto-saves and is
  * optimistic so the new status paints before the round-trip; the success toast
  * is left to the caller. Gated server-side by deals.move_status.

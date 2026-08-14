@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2, UserCog, UserPlus } from "lucide-react";
+import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import type { Contact } from "@bitcrm/types";
-import { contactName, formatPhone } from "../lib";
+import type { Address, Contact } from "@bitcrm/types";
+import { contactName, formatAddress, formatPhone } from "../lib";
 
 export interface ClientEdits {
   firstName: string;
@@ -18,32 +19,51 @@ export interface ClientEdits {
   phone: string;
 }
 
+/** What to do with the edited details. */
+export type ClientChoice = "update" | "create";
+/** What to do with an address the client doesn't have on file. */
+export type AddressChoice = "save" | "job-only";
+
+export interface ClientSaveDecision {
+  client: ClientChoice;
+  address: AddressChoice;
+}
+
 /**
- * Asked when somebody edits the client's details on a job: is this the same
- * person with a correction, or a different person on the same number?
+ * Asked once, when the job is saved — not while typing.
  *
- * Both happen. A typo in a name is a correction; a number that now belongs to
- * the new tenant is a different person. The system can't tell them apart, and
- * guessing wrong either renames a client who did nothing wrong or litters the
- * CRM with duplicates — so it asks.
+ * Two questions the system genuinely can't answer. Whether edited details are
+ * a correction to this client or a different person now on their number: both
+ * are common, and guessing wrong either renames somebody who did nothing or
+ * fills the CRM with duplicates. And whether a new address belongs on their
+ * record or only on this job: a second property is worth keeping, a one-off
+ * site visit isn't.
+ *
+ * Only the questions that actually apply are shown.
  */
-export function ClientChangeDialog({
+export function ClientSaveDialog({
   open,
   original,
   edits,
+  clientChanged,
+  newAddress,
   pending,
-  onUpdate,
-  onCreate,
+  onConfirm,
   onCancel,
 }: {
   open: boolean;
   original: Contact;
   edits: ClientEdits;
+  clientChanged: boolean;
+  /** Set when the job's address isn't already on the client. */
+  newAddress?: Address;
   pending?: boolean;
-  onUpdate: () => void;
-  onCreate: () => void;
+  onConfirm: (decision: ClientSaveDecision) => void;
   onCancel: () => void;
 }) {
+  const [client, setClient] = useState<ClientChoice>("update");
+  const [address, setAddress] = useState<AddressChoice>("save");
+
   const numberMoves =
     !!edits.phone && !original.phones.includes(edits.phone);
 
@@ -51,59 +71,120 @@ export function ClientChangeDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Same client, or a different one?</DialogTitle>
+          <DialogTitle>Before saving the job</DialogTitle>
           <DialogDescription>
-            You changed {contactName(original)} to {edits.firstName}{" "}
-            {edits.lastName}
-            {edits.phone ? ` · ${formatPhone(edits.phone)}` : ""}.
+            {clientChanged
+              ? `You changed ${contactName(original)}'s details.`
+              : "This job has an address the client doesn't have on file."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2">
-          <Button
-            variant="outline"
-            className="h-auto justify-start gap-3 py-3 text-left"
-            disabled={pending}
-            onClick={onUpdate}
-          >
-            <UserCog className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex flex-col gap-0.5">
-              <span className="font-medium">Update this client</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                Corrects {contactName(original)} everywhere they appear.
-              </span>
-            </span>
-          </Button>
-
-          <Button
-            variant="outline"
-            className="h-auto justify-start gap-3 py-3 text-left"
-            disabled={pending}
-            onClick={onCreate}
-          >
-            <UserPlus className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex flex-col gap-0.5">
-              <span className="font-medium">Create a new client</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {numberMoves
-                  ? "A separate client; this job goes to them."
-                  : `A separate client, and ${formatPhone(
+        {clientChanged ? (
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-sm font-medium">
+              {contactName(original)} → {edits.firstName} {edits.lastName}
+              {edits.phone ? ` · ${formatPhone(edits.phone)}` : ""}
+            </legend>
+            <Choice
+              checked={client === "update"}
+              onSelect={() => setClient("update")}
+              title="Same client, corrected"
+              detail={`Updates ${contactName(original)} everywhere they appear.`}
+            />
+            <Choice
+              checked={client === "create"}
+              onSelect={() => setClient("create")}
+              title="A different client"
+              detail={
+                numberMoves
+                  ? "Creates a separate client; this job goes to them."
+                  : `Creates a separate client, and ${formatPhone(
                       original.phones[0] ?? "",
-                    )} moves to them — future calls from it resolve to the new client.`}
-              </span>
-            </span>
-          </Button>
-        </div>
+                    )} moves to them — future calls from it resolve to the new client.`
+              }
+            />
+          </fieldset>
+        ) : null}
+
+        {newAddress ? (
+          <fieldset className="space-y-2">
+            <legend className="mb-1 text-sm font-medium">
+              {formatAddress(newAddress)}
+            </legend>
+            <Choice
+              checked={address === "save"}
+              onSelect={() => setAddress("save")}
+              title="Keep it on the client"
+              detail="Offered next time you book them."
+            />
+            <Choice
+              checked={address === "job-only"}
+              onSelect={() => setAddress("job-only")}
+              title="This job only"
+              detail="Their record is left alone."
+            />
+          </fieldset>
+        ) : null}
 
         <div className="flex items-center justify-between border-t pt-3">
           <span className="text-xs text-muted-foreground">
             Past calls keep whoever they were with.
           </span>
-          <Button variant="ghost" size="sm" disabled={pending} onClick={onCancel}>
-            {pending ? <Loader2 className="size-3.5 animate-spin" /> : "Cancel"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending}
+              onClick={onCancel}
+            >
+              Back
+            </Button>
+            <Button
+              variant="brand"
+              size="sm"
+              className="gap-1.5"
+              disabled={pending}
+              onClick={() => onConfirm({ client, address })}
+            >
+              {pending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Save job
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Choice({
+  checked,
+  onSelect,
+  title,
+  detail,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <label
+      className={
+        checked
+          ? "flex cursor-pointer gap-3 rounded-lg border border-brand bg-brand/5 p-3"
+          : "flex cursor-pointer gap-3 rounded-lg border p-3 hover:bg-accent"
+      }
+    >
+      <input
+        type="radio"
+        className="mt-1 accent-current"
+        checked={checked}
+        onChange={onSelect}
+      />
+      <span className="flex flex-col gap-0.5">
+        <span className="text-sm font-medium">{title}</span>
+        <span className="text-xs text-muted-foreground">{detail}</span>
+      </span>
+    </label>
   );
 }

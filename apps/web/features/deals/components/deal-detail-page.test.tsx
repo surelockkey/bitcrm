@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   updateDeal: vi.fn(),
   updateContact: vi.fn(),
+  createContact: vi.fn(),
+  changeClient: vi.fn(),
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
 }));
@@ -141,6 +143,7 @@ vi.mock("../hooks", () => ({
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
+  useChangeDealClient: () => ({ mutate: mocks.changeClient, isPending: false }),
   useDealTimeline: () => ({
     data: { pages: [] },
     isLoading: false,
@@ -154,6 +157,7 @@ vi.mock("../hooks", () => ({
 vi.mock("@/features/clients/hooks", () => ({
   useContact: () => ({ data: contact }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
+  useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
 }));
 
 import { DealDetailPage } from "./deal-detail-page";
@@ -272,6 +276,8 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.type(poInput(), "PO-9");
 
     await u.click(saveButton());
+    // Renaming the client asks who that edit is for; "same client" is preselected.
+    await u.click(screen.getByRole("button", { name: /save job/i }));
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ poNumber: "PO-9" });
@@ -280,6 +286,36 @@ describe("DealDetailPage (editable, single save)", () => {
       id: "c1",
       body: { firstName: "Janet" },
     });
+    expect(mocks.createContact).not.toHaveBeenCalled();
+  });
+
+  it("makes a separate client and moves the job when the details are somebody else's", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.type(firstNameInput(), "t"); // Jane → Janet
+    await u.click(saveButton());
+    await u.click(screen.getByRole("radio", { name: /a different client/i }));
+    await u.click(screen.getByRole("button", { name: /save job/i }));
+
+    expect(mocks.createContact).toHaveBeenCalledTimes(1);
+    expect(mocks.createContact.mock.calls[0][0]).toMatchObject({
+      firstName: "Janet",
+      reassignPhones: true,
+    });
+    // The old client is left exactly as they were.
+    expect(mocks.updateContact).not.toHaveBeenCalled();
+  });
+
+  it("only asks about the client when the client itself changed", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.type(poInput(), "PO-9");
+    await u.click(saveButton());
+
+    expect(screen.queryByText(/before saving the job/i)).not.toBeInTheDocument();
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
   });
 
   it("holds service-area, schedule and select edits in the draft until Save (no auto-commit)", async () => {

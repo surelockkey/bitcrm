@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
-import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
+import { ContactSource, DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,8 +30,12 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact, useUpdateContact } from "@/features/clients/hooks";
-import { contactName, formatPhone } from "@/features/clients/lib";
+import { useContact, useUpdateContact, useCreateContact } from "@/features/clients/hooks";
+import {
+  ClientSaveDialog,
+  type ClientSaveDecision,
+} from "@/features/clients/components/client-change-dialog";
+import { addressInList, contactName, formatPhone } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
@@ -41,7 +45,13 @@ import { CustomFieldsSection } from "@/features/custom-fields/components/custom-
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
-import { useDeal, useDeleteDeal, useUpdateDeal, useMoveStatus } from "../hooks";
+import {
+  useDeal,
+  useDeleteDeal,
+  useUpdateDeal,
+  useMoveStatus,
+  useChangeDealClient,
+} from "../hooks";
 import {
   buildContactBody,
   buildDealPatch,
@@ -203,6 +213,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const { data: customFieldDefs } = useCustomFields();
   const update = useUpdateDeal(deal.id);
   const updateContact = useUpdateContact();
+  const createContact = useCreateContact();
+  const changeClient = useChangeDealClient(deal.id);
   const [assigning, setAssigning] = useState(false);
   const canEditClient = can("contacts", "edit");
 
@@ -250,13 +262,69 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined)
       : null;
   const dirty = !!dealPatch || !!contactBody;
-  const pending = update.isPending || updateContact.isPending;
+  const pending = update.isPending || updateContact.isPending || createContact.isPending;
 
   const { confirm } = useUnsavedChanges(dirty);
 
+  // Who the client is, changed — as opposed to filling in an email or fixing a
+  // typo'd unit number.
+  const clientChanged =
+    !!contact &&
+    !!clientDraft &&
+    (clientDraft.firstName !== contact.firstName ||
+      clientDraft.lastName !== contact.lastName ||
+      JSON.stringify(clientDraft.phones.map((p) => p.trim()).filter(Boolean)) !==
+        JSON.stringify(contact.phones));
+  // A service location the client doesn't have on file yet.
+  const newAddress =
+    contact && dealPatch?.address && !addressInList(dealDraft.address, contact.addresses)
+      ? dealDraft.address
+      : undefined;
+
+  const [asking, setAsking] = useState(false);
+
   const save = () => {
+    // Same question the job's creation asks: is this the same client corrected,
+    // or someone else — and does a new address belong on their record? Skipped
+    // when nothing about the client itself moved.
+    if (canEditClient && contact && (clientChanged || newAddress)) {
+      setAsking(true);
+      return;
+    }
+    commit({ client: "update", address: "job-only" });
+  };
+
+  const commit = (decision: ClientSaveDecision) => {
+    setAsking(false);
     if (dealPatch) update.mutate(dealPatch);
-    if (contact && contactBody) updateContact.mutate({ id: contact.id, body: contactBody });
+    if (!contact || !clientDraft || !canEditClient) return;
+
+    if (clientChanged && decision.client === "create") {
+      // The number follows the new client, so future calls from it resolve to
+      // whoever this job is actually for; the job moves with them.
+      createContact.mutate(
+        {
+          firstName: clientDraft.firstName.trim(),
+          lastName: clientDraft.lastName.trim(),
+          phones: clientDraft.phones.map((p) => p.trim()).filter(Boolean),
+          emails: clientDraft.email.trim() ? [clientDraft.email.trim()] : [],
+          addresses: decision.address === "save" && newAddress ? [newAddress] : [],
+          type: contact.type,
+          companyId: contact.companyId,
+          source: ContactSource.PHONE_CALL,
+          reassignPhones: true,
+        },
+        { onSuccess: (c) => changeClient.mutate(c.id) },
+      );
+      return;
+    }
+
+    const body = buildContactBody(
+      contact,
+      clientDraft,
+      decision.address === "save" ? newAddress : undefined,
+    );
+    if (body) updateContact.mutate({ id: contact.id, body });
   };
   const reset = () => {
     setDealDraft(dealDraftFromDeal(deal));
@@ -390,6 +458,23 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       ) : null}
 
       {confirm}
+
+      {contact && clientDraft && asking ? (
+        <ClientSaveDialog
+          open
+          original={contact}
+          edits={{
+            firstName: clientDraft.firstName,
+            lastName: clientDraft.lastName,
+            phone: clientDraft.phones[0] ?? "",
+          }}
+          clientChanged={clientChanged}
+          newAddress={newAddress}
+          pending={pending}
+          onCancel={() => setAsking(false)}
+          onConfirm={commit}
+        />
+      ) : null}
 
       {assigning ? (
         <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open={assigning} onOpenChange={setAssigning} />

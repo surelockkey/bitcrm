@@ -34,11 +34,13 @@ describe('DealsService.reassignContact', () => {
   let repo: ReturnType<typeof createMockDealsRepository>;
   let cache: ReturnType<typeof createMockDealsCacheService>;
   let timeline: ReturnType<typeof createMockTimelineRepository>;
+  let internalHttp: ReturnType<typeof createMockInternalHttpService>;
 
   beforeEach(async () => {
     repo = createMockDealsRepository();
     cache = createMockDealsCacheService();
     timeline = createMockTimelineRepository();
+    internalHttp = createMockInternalHttpService();
 
     const module = await Test.createTestingModule({
       providers: [
@@ -48,7 +50,7 @@ describe('DealsService.reassignContact', () => {
         { provide: TimelineRepository, useValue: timeline },
         { provide: DealProductsRepository, useValue: createMockDealProductsRepository() },
         { provide: SnsPublisherService, useValue: createMockSnsPublisherService() },
-        { provide: InternalHttpService, useValue: createMockInternalHttpService() },
+        { provide: InternalHttpService, useValue: internalHttp },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
         { provide: JobTypesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobType()) } },
@@ -112,5 +114,48 @@ describe('DealsService.reassignContact', () => {
     expect(count).toBe(0);
     expect(repo.reassignContact).not.toHaveBeenCalled();
     expect(timeline.addEntry).not.toHaveBeenCalled();
+  });
+
+  describe('changeContact — one job moved by hand', () => {
+    const caller = { id: 'u1', name: 'Dana', email: 'd@x.co' } as never;
+
+    it('re-points the job, drops the cache and records who moved it', async () => {
+      const deal = createMockDeal({ id: 'deal-a', contactId: 'contact-old' });
+      repo.findById.mockResolvedValue(deal);
+
+      await service.changeContact('deal-a', 'contact-new', caller);
+
+      expect(repo.reassignContact).toHaveBeenCalledWith('deal-a', 'contact-new');
+      expect(cache.invalidate).toHaveBeenCalledWith('deal-a');
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dealId: 'deal-a',
+          details: expect.objectContaining({
+            field: 'contactId',
+            oldValue: 'contact-old',
+            newValue: 'contact-new',
+          }),
+        }),
+      );
+    });
+
+    it('refuses a contact the CRM does not have', async () => {
+      repo.findById.mockResolvedValue(createMockDeal({ id: 'deal-a', contactId: 'contact-old' }));
+      internalHttp.validateContact.mockResolvedValue(false);
+
+      await expect(service.changeContact('deal-a', 'ghost', caller)).rejects.toThrow(
+        /not found/,
+      );
+      expect(repo.reassignContact).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the job is already theirs', async () => {
+      repo.findById.mockResolvedValue(createMockDeal({ id: 'deal-a', contactId: 'contact-old' }));
+
+      await service.changeContact('deal-a', 'contact-old', caller);
+
+      expect(repo.reassignContact).not.toHaveBeenCalled();
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+    });
   });
 });
