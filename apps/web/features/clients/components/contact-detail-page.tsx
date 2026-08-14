@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
+import { CallClientButton } from "@/features/telephony/components/call-client-button";
+import { FieldList } from "./field-list";
 import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
 import { clientTypeLabel, contactName, formatAddress, formatPhone, initials, sourceLabel } from "../lib";
 import { ContactTypeBadge } from "./client-badges";
@@ -69,7 +71,18 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         ) : (
           <div className="grid gap-0 md:grid-cols-[1fr_300px]">
             <div className="space-y-5 p-6">
-              <FieldList label="Phones" icon={Phone} values={contact.phones.map(formatPhone)} primaryFirst />
+              {/* Formatted for reading, but each row keeps its own raw number
+                  so the call button dials what's on file. */}
+              <FieldList
+                label="Phones"
+                icon={Phone}
+                values={contact.phones}
+                format={formatPhone}
+                primaryFirst
+                action={(phone) => (
+                  <CallClientButton to={phone} partyId={contact.id} />
+                )}
+              />
               <FieldList label="Emails" icon={Mail} values={contact.emails} />
               {contact.addresses?.length ? (
                 <FieldList label="Addresses" icon={MapPin} values={contact.addresses.map(formatAddress)} />
@@ -119,39 +132,6 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         pending={del.isPending}
         onConfirm={remove}
       />
-    </div>
-  );
-}
-
-function FieldList({
-  label,
-  icon: Icon,
-  values,
-  primaryFirst = false,
-}: {
-  label: string;
-  icon: typeof Phone;
-  values: string[];
-  primaryFirst?: boolean;
-}) {
-  return (
-    <div>
-      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      {values.length === 0 ? (
-        <p className="text-sm text-muted-foreground">—</p>
-      ) : (
-        <div className="space-y-1">
-          {values.map((v, i) => (
-            <div key={`${v}-${i}`} className="flex items-center gap-2 text-sm">
-              <Icon className="size-3.5 text-muted-foreground" />
-              <span className="font-mono text-[13px]">{v}</span>
-              {primaryFirst && i === 0 ? (
-                <span className="rounded-full border border-green-500/40 px-1.5 text-[10px] text-green-600 dark:text-green-500">primary</span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

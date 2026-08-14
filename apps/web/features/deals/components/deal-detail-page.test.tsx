@@ -74,6 +74,13 @@ vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () =>
 vi.mock("@/features/calls/components/live-call-strip", () => ({
   LiveCallStrip: () => null,
 }));
+// Calling a client queries telephony for our numbers and their call history;
+// this test has no client for either. Its own tests cover the picker.
+vi.mock("@/features/telephony/components/call-client-button", () => ({
+  CallClientButton: ({ to }: { to: string }) => (
+    <button type="button" aria-label={`Call ${to}`} />
+  ),
+}));
 
 // One applicable custom field (scoped to all job types) so the details tab
 // renders a real control we can edit; the catalog hook is stubbed to avoid a

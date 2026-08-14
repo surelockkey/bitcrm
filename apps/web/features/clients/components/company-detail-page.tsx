@@ -22,6 +22,8 @@ import { CompanyComplianceTab } from "./company-compliance-tab";
 import { ContactForm } from "./contact-form";
 import { ContactsTable } from "./contacts-table";
 import { DeleteClientDialog } from "./delete-client-dialog";
+import { FieldList } from "./field-list";
+import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { EmptyState } from "./contacts-page";
 
 export function CompanyDetailPage({ companyId }: { companyId: string }) {
@@ -89,7 +91,16 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
 
             <TabsContent value="overview" className="mt-0 p-6">
               <div className="grid max-w-2xl gap-5">
-                <FieldList label="Phones" icon={Phone} values={company.phones.map(formatPhone)} primaryFirst />
+                <FieldList
+                  label="Phones"
+                  icon={Phone}
+                  values={company.phones}
+                  format={formatPhone}
+                  primaryFirst
+                  action={(phone) => (
+                    <CallClientButton to={phone} partyId={company.id} kind="company" />
+                  )}
+                />
                 <FieldList label="Emails" icon={Mail} values={company.emails} />
                 <div className="grid grid-cols-2 gap-4">
                   <Detail label="Address" value={company.address || "—"} />
@@ -147,39 +158,6 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
           />
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function FieldList({
-  label,
-  icon: Icon,
-  values,
-  primaryFirst = false,
-}: {
-  label: string;
-  icon: typeof Phone;
-  values: string[];
-  primaryFirst?: boolean;
-}) {
-  return (
-    <div>
-      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      {values.length === 0 ? (
-        <p className="text-sm text-muted-foreground">—</p>
-      ) : (
-        <div className="space-y-1">
-          {values.map((v, i) => (
-            <div key={`${v}-${i}`} className="flex items-center gap-2 text-sm">
-              <Icon className="size-3.5 text-muted-foreground" />
-              <span className="font-mono text-[13px]">{v}</span>
-              {primaryFirst && i === 0 ? (
-                <span className="rounded-full border border-green-500/40 px-1.5 text-[10px] text-green-600 dark:text-green-500">primary</span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

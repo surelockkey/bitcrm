@@ -143,6 +143,74 @@ export function formatCallTime(iso?: string): string {
   });
 }
 
+/** ISO → "12m ago" / "yesterday" / "5d ago"; older than a fortnight reads as a date. */
+export function formatCallAgo(iso?: string): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const mins = Math.floor((Date.now() - then) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days}d ago`;
+  return formatCallTime(iso);
+}
+
+/** One of our numbers, and the last time it was on a call with someone. */
+export interface CallerIdUse {
+  /** Our number, E.164. */
+  number: string;
+  /** When it was last used with them. */
+  lastAt: string;
+  /** Which way that last call went. */
+  direction: CallRecord["direction"];
+}
+
+/**
+ * Which of our numbers this client has actually been speaking to, most recent
+ * first.
+ *
+ * Calling back from the number they already know is the difference between an
+ * answered call and an ignored one, so history — not the workspace's default
+ * — is what the picker offers first. Our side of a call is whichever end we
+ * weren't dialling: the `to` of an inbound call, the `from` of an outbound.
+ *
+ * `withNumber` narrows to one of the client's numbers when they have several;
+ * a number with no history of its own falls back to the client's as a whole,
+ * since the same person answers either way.
+ */
+export function recentCallerIds(
+  calls: CallRecord[],
+  withNumber?: string,
+): CallerIdUse[] {
+  const digits = (v?: string) => (v ?? "").replace(/\D/g, "");
+  const theirs = (c: CallRecord) => (c.direction === "inbound" ? c.from : c.to);
+  const ours = (c: CallRecord) => (c.direction === "inbound" ? c.to : c.from);
+
+  const wanted = digits(withNumber);
+  const forNumber = wanted
+    ? calls.filter((c) => digits(theirs(c)).endsWith(wanted.slice(-10)))
+    : [];
+  const pool = forNumber.length ? forNumber : calls;
+
+  const latest = new Map<string, CallerIdUse>();
+  for (const call of pool) {
+    const number = ours(call);
+    // A browser leg is a person, not a number anyone can be called back from.
+    if (!number || isClientEndpoint(number)) continue;
+    const at = call.startedAt ?? call.updatedAt;
+    const seen = latest.get(number);
+    if (!seen || (at ?? "") > seen.lastAt) {
+      latest.set(number, { number, lastAt: at ?? "", direction: call.direction });
+    }
+  }
+
+  return [...latest.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+}
+
 /** The legacy `client:<userId>` endpoints — an agent's browser leg, not a number. */
 export function isClientEndpoint(value?: string): boolean {
   return !!value && value.startsWith("client:");

@@ -45,6 +45,7 @@ import { CustomFieldsSection } from "@/features/custom-fields/components/custom-
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
+import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import {
   useDeal,
   useDeleteDeal,
@@ -530,6 +531,7 @@ function ClientEditor({
         {contact.phones.map((p, i) => (
           <div key={p} className="flex items-center gap-2 text-muted-foreground">
             {formatPhone(p)}{i === 0 ? <PrimaryBadge /> : null}
+            <CallClientButton to={p} partyId={contact.id} />
           </div>
         ))}
         {contact.emails[0] ? <div className="text-muted-foreground">{contact.emails[0]}</div> : null}
@@ -554,6 +556,10 @@ function ClientEditor({
                 onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
               />
               {i === 0 ? <PrimaryBadge /> : null}
+              {/* Dials what's on file, not the half-typed draft. */}
+              {contact.phones.includes(p) ? (
+                <CallClientButton to={p} partyId={contact.id} />
+              ) : null}
               {draft.phones.length > 1 ? (
                 <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
               ) : null}
