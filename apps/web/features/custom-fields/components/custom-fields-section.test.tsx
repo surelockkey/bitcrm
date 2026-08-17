@@ -71,6 +71,22 @@ beforeEach(() => {
 });
 
 describe("CustomFieldsSection", () => {
+  it("renders a single group without its inner heading when onlyGroup is set", async () => {
+    mockFields([
+      field({ id: "cf-a", name: "Gate Code", group: "Access" }),
+      field({ id: "cf-b", name: "Alarm Code", group: "Security" }),
+    ]);
+    render(
+      <CustomFieldsSection jobTypeId="jt-1" value={{}} onChange={vi.fn()} onlyGroup="Access" />,
+      { wrapper },
+    );
+
+    expect(await screen.findByText("Gate Code")).toBeInTheDocument();
+    expect(screen.queryByText("Alarm Code")).not.toBeInTheDocument();
+    // The surrounding card already carries the group name.
+    expect(screen.queryByRole("heading", { name: "Access" })).not.toBeInTheDocument();
+  });
+
   it("renders only the fields applicable to the given jobTypeId", async () => {
     render(
       <CustomFieldsSection jobTypeId="jt-1" value={{}} onChange={vi.fn()} dealId="d1" />,

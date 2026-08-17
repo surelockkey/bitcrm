@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   createContact: vi.fn(),
   updateContact: vi.fn(),
   linkCall: vi.fn(),
+  customFieldDefs: [] as unknown[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -61,7 +62,9 @@ vi.mock("@/features/calls/hooks", () => ({
 vi.mock("@/features/calls/components/calls-to-link", () => ({
   CallsToLink: () => null,
 }));
-vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({ data: mocks.customFieldDefs }),
+}));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
   ResolvedAreaField: () => null,
@@ -100,9 +103,60 @@ import { NewDealPage } from "./new-deal-page";
 const user = () => userEvent.setup();
 const submit = () => screen.getByRole("button", { name: /create job/i });
 
+describe("NewDealPage — Workiz layout", () => {
+  beforeEach(() => {
+    mocks.customFieldDefs = [];
+  });
+
+  it("lays the form out in Workiz-titled cards", () => {
+    render(<NewDealPage />);
+
+    for (const title of ["Client Details", "Service Location", "Job Details", "Scheduled"]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    }
+  });
+
+  it("renders each custom-field group as its own card, Workiz-ordered", () => {
+    const def = (id: string, name: string, group: string) => ({
+      id,
+      name,
+      type: "text",
+      group,
+      options: [],
+      jobTypeIds: [],
+      required: false,
+      requiredToClose: false,
+      searchable: false,
+      priority: 0,
+      active: true,
+      createdBy: "u1",
+      createdAt: "",
+      updatedAt: "",
+    });
+    mocks.customFieldDefs = [
+      def("cf-t", "Check Image Front", "Tech"),
+      def("cf-e", "Jobs Dispatch", "Extra Info"),
+    ];
+    render(<NewDealPage />);
+
+    const titles = screen.getAllByText(/^(Extra Info|Tech)$/).map((el) => el.textContent);
+    // Extra Info comes before Tech, as on the Workiz form.
+    expect(titles).toEqual(["Extra Info", "Tech"]);
+    expect(screen.getByText("Check Image Front")).toBeInTheDocument();
+    expect(screen.getByText("Jobs Dispatch")).toBeInTheDocument();
+    // No single monolithic "Custom fields" card anymore.
+    expect(screen.queryByText(/^Custom fields$/)).not.toBeInTheDocument();
+  });
+});
+
 describe("NewDealPage — client details", () => {
   beforeEach(() => {
-    for (const m of Object.values(mocks)) m.mockClear();
+    mocks.customFieldDefs = [];
+    for (const m of Object.values(mocks)) {
+      if (typeof (m as { mockClear?: () => void }).mockClear === "function") {
+        (m as { mockClear: () => void }).mockClear();
+      }
+    }
   });
 
   const fillJob = async (u: ReturnType<typeof user>) => {

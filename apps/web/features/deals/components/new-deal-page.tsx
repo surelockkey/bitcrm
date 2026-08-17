@@ -45,7 +45,18 @@ import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
-import { applicableFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
+import { applicableFields, groupFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
+
+/** Card order of the custom-field groups on the Workiz New Job form. */
+const WORKIZ_GROUP_ORDER = [
+  "Extra Info",
+  "Other Contact",
+  "Dispatchers",
+  "Tech",
+  "Platinum",
+  "Company",
+  "Need To Order",
+];
 
 export function NewDealPage() {
   const params = useSearchParams();
@@ -325,11 +336,20 @@ function DealForm({
     );
   };
 
+  // One card per custom-field group, in the Workiz form order; groups the
+  // catalog grew beyond that list follow alphabetically (groupFields' order).
+  const cfGroups = groupFields(applicableFields(customFieldDefs, v.jobTypeId));
+  const orderedCfGroups = [...cfGroups].sort((a, b) => {
+    const ia = WORKIZ_GROUP_ORDER.indexOf(a.group);
+    const ib = WORKIZ_GROUP_ORDER.indexOf(b.group);
+    return (ia === -1 ? WORKIZ_GROUP_ORDER.length : ia) - (ib === -1 ? WORKIZ_GROUP_ORDER.length : ib);
+  });
+
   return (
     <form onSubmit={submit} className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6" noValidate>
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        {/* Client */}
-        <Section title="Client">
+        {/* Row 1 — Client Details | Service Location, as on the Workiz form. */}
+        <Section title="Client Details">
           {contact ? (
             <ResolvedClient
               contact={contact}
@@ -350,7 +370,61 @@ function DealForm({
           />
         </Section>
 
-        {/* Service location */}
+        <Section title="Service Location">
+          <DealAddressFields
+            value={v.address}
+            onChange={(a) => form.setValue("address", a, { shouldValidate: true })}
+            clientAddresses={contact?.addresses}
+            error={err.address?.street?.message}
+          />
+          <ResolvedAreaField lat={v.address?.lat} lng={v.address?.lng} />
+        </Section>
+
+        {/* Row 2 — Job Details | Scheduled. */}
+        <Section title="Job Details">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Job type</Label>
+              <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
+              {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Job source</Label>
+              <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
+            <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
+          </div>
+          <div className="space-y-1.5"><Label>Job description</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
+          <div className="space-y-1.5"><Label>Tags</Label><JobTagCombobox value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
+        </Section>
+
+        <Section title="Scheduled">
+          <ScheduleField
+            date={v.scheduledDate || undefined}
+            slot={v.scheduledTimeSlot || undefined}
+            onDate={(d) => form.setValue("scheduledDate", d ?? "")}
+            onSlot={(s) => form.setValue("scheduledTimeSlot", s, { shouldValidate: true })}
+          />
+          {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
+          <p className="text-xs text-muted-foreground">Assign technicians and add line items on the job page after creating.</p>
+        </Section>
+
+        {/* Custom-field groups, one Workiz-style card each. File fields prompt
+            to save first (no dealId yet); required ones block submit inline. */}
+        {orderedCfGroups.map(({ group }) => (
+          <Section key={group} title={group}>
+            <CustomFieldsSection
+              jobTypeId={v.jobTypeId}
+              value={customFields}
+              onChange={setCustomFields}
+              onlyGroup={group}
+            />
+          </Section>
+        ))}
+
         {/* Calls this job will carry. Present whenever the page was opened
             from a call, or once a client is known and has call history. */}
         {callSid || contact ? (
@@ -364,49 +438,6 @@ function DealForm({
           </Section>
         ) : null}
 
-        <Section title="Service location">
-          <DealAddressFields
-            value={v.address}
-            onChange={(a) => form.setValue("address", a, { shouldValidate: true })}
-            clientAddresses={contact?.addresses}
-            error={err.address?.street?.message}
-          />
-          <ResolvedAreaField lat={v.address?.lat} lng={v.address?.lng} />
-        </Section>
-
-        {/* Job details */}
-        <Section title="Job details">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Job type</Label>
-              <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
-              {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Source</Label>
-              <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
-            <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
-          </div>
-          <div className="space-y-1.5"><Label>Description / notes</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
-          <div className="space-y-1.5"><Label>Tags</Label><JobTagCombobox value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
-        </Section>
-
-        {/* Schedule */}
-        <Section title="Schedule">
-          <ScheduleField
-            date={v.scheduledDate || undefined}
-            slot={v.scheduledTimeSlot || undefined}
-            onDate={(d) => form.setValue("scheduledDate", d ?? "")}
-            onSlot={(s) => form.setValue("scheduledTimeSlot", s, { shouldValidate: true })}
-          />
-          {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
-          <p className="text-xs text-muted-foreground">Assign technicians and add line items on the job page after creating.</p>
-        </Section>
-
         {/* Work order / Platinum */}
         <Section title="Work order / Platinum">
           <div className="grid grid-cols-2 gap-3">
@@ -415,22 +446,9 @@ function DealForm({
           </div>
           <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
         </Section>
-
-        {/* Custom fields — job-type scoped; file fields prompt to save first
-            (no dealId yet). Required ones block submit via the inline check. */}
-        {applicableFields(customFieldDefs, v.jobTypeId).length > 0 ? (
-          <div className="lg:col-span-2">
-            <Section title="Custom fields">
-              <CustomFieldsSection
-                jobTypeId={v.jobTypeId}
-                value={customFields}
-                onChange={setCustomFields}
-              />
-              {cfError ? <p className="text-xs text-destructive">{cfError}</p> : null}
-            </Section>
-          </div>
-        ) : null}
       </div>
+
+      {cfError ? <p className="text-sm text-destructive">{cfError}</p> : null}
 
       {/* Sticky footer */}
       <div className="sticky bottom-0 -mx-6 flex items-center justify-between gap-3 border-t bg-background/90 px-6 py-3 backdrop-blur">

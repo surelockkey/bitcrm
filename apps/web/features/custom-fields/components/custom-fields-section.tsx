@@ -37,6 +37,11 @@ interface CustomFieldsSectionProps {
   disabled?: boolean;
   /** Required to attach files — presigned uploads are scoped to a saved deal. */
   dealId?: string;
+  /**
+   * Render just this one group, without its inner heading — for pages that
+   * give every group its own card (the Workiz-style New Job form).
+   */
+  onlyGroup?: string;
 }
 
 /**
@@ -50,13 +55,14 @@ export function CustomFieldsSection({
   onChange,
   disabled,
   dealId,
+  onlyGroup,
 }: CustomFieldsSectionProps) {
   const { data } = useCustomFields();
 
-  const groups = useMemo(
-    () => groupFields(applicableFields(data, jobTypeId)),
-    [data, jobTypeId],
-  );
+  const groups = useMemo(() => {
+    const all = groupFields(applicableFields(data, jobTypeId));
+    return onlyGroup ? all.filter((g) => g.group === onlyGroup) : all;
+  }, [data, jobTypeId, onlyGroup]);
 
   const write = (id: string, next: CustomFieldValue | undefined) => {
     const copy = { ...value };
@@ -71,9 +77,11 @@ export function CustomFieldsSection({
     <div className="space-y-6">
       {groups.map(({ group, fields }) => (
         <div key={group} className="space-y-3">
-          <h3 className="text-sm font-semibold tracking-tight text-muted-foreground">
-            {group}
-          </h3>
+          {onlyGroup ? null : (
+            <h3 className="text-sm font-semibold tracking-tight text-muted-foreground">
+              {group}
+            </h3>
+          )}
           <div className="space-y-4">
             {fields.map((field) => (
               <FieldControl
