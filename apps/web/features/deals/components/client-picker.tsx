@@ -46,6 +46,7 @@ export function ClientPicker({
   initialPhone?: string;
 }) {
   const [query, setQuery] = useState(initialPhone ?? "");
+  const [listOpen, setListOpen] = useState(true);
   const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
 
@@ -109,8 +110,39 @@ export function ClientPicker({
             autoFocus
             placeholder="Search by name, phone, email or company…"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setListOpen(true);
+            }}
+            onFocus={() => setListOpen(true)}
           />
+
+          {/* Suggestions drop over the form as an overlay, not in the flow. */}
+          {listOpen && trimmed.length >= MIN_QUERY && matches.length > 0 ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close suggestions"
+                className="fixed inset-0 z-10 cursor-default"
+                onClick={() => setListOpen(false)}
+              />
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border bg-popover shadow-md">
+                {matches.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onResolved(c, false)}
+                    className="flex w-full flex-col items-start border-b px-3 py-2 text-left last:border-0 hover:bg-muted/50"
+                  >
+                    <span className="text-sm font-medium">{contactName(c)}</span>
+                    {secondary(c) ? (
+                      <span className="text-xs text-muted-foreground">{secondary(c)}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -118,23 +150,7 @@ export function ClientPicker({
         <p className="text-xs text-muted-foreground">
           Type at least {MIN_QUERY} characters to search the client book.
         </p>
-      ) : matches.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border">
-          {matches.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => onResolved(c, false)}
-              className="flex w-full flex-col items-start border-b px-3 py-2 text-left last:border-0 hover:bg-muted/50"
-            >
-              <span className="text-sm font-medium">{contactName(c)}</span>
-              {secondary(c) ? (
-                <span className="text-xs text-muted-foreground">{secondary(c)}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : (
+      ) : matches.length > 0 ? null : (
         <div className="rounded-lg border border-dashed p-3">
           <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
             <UserPlus className="size-4" /> No client found — fill in the details and they&apos;ll
