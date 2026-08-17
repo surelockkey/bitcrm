@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   updateContact: vi.fn(),
   linkCall: vi.fn(),
   customFieldDefs: [] as unknown[],
+  requiredFields: {} as Record<string, boolean>,
   searchParams: "contactId=c1&callSid=CA1",
 }));
 
@@ -66,6 +67,9 @@ vi.mock("@/features/calls/components/calls-to-link", () => ({
 vi.mock("@/features/custom-fields/hooks", () => ({
   useCustomFields: () => ({ data: mocks.customFieldDefs }),
 }));
+vi.mock("@/features/job-field-settings/hooks", () => ({
+  useJobFieldSettings: () => ({ data: { requiredFields: mocks.requiredFields }, isLoading: false }),
+}));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
   ResolvedAreaField: () => null,
@@ -104,10 +108,38 @@ import { NewDealPage } from "./new-deal-page";
 const user = () => userEvent.setup();
 const submit = () => screen.getByRole("button", { name: /create job/i });
 
+describe("NewDealPage — admin-required fields", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = { source: true };
+    mocks.createDeal.mockReset();
+  });
+
+  it("blocks Create job and names the empty required field", async () => {
+    const u = user();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Fill required field.*Job source/)).toBeInTheDocument();
+  });
+
+  it("marks the required field with an asterisk", () => {
+    render(<NewDealPage />);
+
+    const label = screen.getByText("Job source");
+    expect(label.textContent).toContain("*");
+  });
+});
+
 describe("NewDealPage — auto-create client", () => {
   beforeEach(() => {
     mocks.searchParams = "";
     mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
     mocks.createContact.mockReset();
     mocks.createDeal.mockReset();
   });
@@ -157,6 +189,7 @@ describe("NewDealPage — Workiz layout", () => {
   beforeEach(() => {
     mocks.searchParams = "contactId=c1&callSid=CA1";
     mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
   });
 
   it("lays the form out in Workiz-titled cards", () => {
@@ -204,6 +237,7 @@ describe("NewDealPage — client details", () => {
   beforeEach(() => {
     mocks.searchParams = "contactId=c1&callSid=CA1";
     mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
     for (const m of Object.values(mocks)) {
       if (typeof (m as { mockClear?: () => void }).mockClear === "function") {
         (m as { mockClear: () => void }).mockClear();

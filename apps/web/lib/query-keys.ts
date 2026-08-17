@@ -9,6 +9,8 @@
 export const queryKeys = {
   me: () => ["me"] as const,
 
+  jobFieldSettings: () => ["job-field-settings"] as const,
+
   telephony: {
     numbers: () => ["telephony", "numbers"] as const,
     available: (params?: unknown) =>

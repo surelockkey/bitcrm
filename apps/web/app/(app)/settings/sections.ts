@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Asterisk,
   MapPin,
   SlidersHorizontal,
   Wrench,
@@ -54,6 +55,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Colored labels for deals. A deal can carry many.",
     icon: Tags,
     resource: "job_tags",
+  },
+  {
+    label: "Job Fields",
+    href: "/settings/job-fields",
+    description: "Which fields are required when creating a job — default and custom.",
+    icon: Asterisk,
+    resource: "settings",
   },
   {
     label: "Job Statuses",

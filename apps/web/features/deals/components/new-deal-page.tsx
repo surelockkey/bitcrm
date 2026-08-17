@@ -45,6 +45,8 @@ import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
+import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
+import { missingRequiredJobFields } from "@/features/job-field-settings/lib";
 import { applicableFields, groupFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
 
 /** Card order of the custom-field groups on the Workiz New Job form. */
@@ -155,6 +157,11 @@ function DealForm({
   const updateContact = useUpdateContact();
   const { map: companyMap } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
+  const { data: fieldSettings } = useJobFieldSettings();
+
+  /** Red asterisk for a field the admin marked required (Settings → Job Fields). */
+  const req = (id: string) =>
+    fieldSettings?.requiredFields[id] ? <span className="text-destructive">*</span> : null;
 
   // Custom-field answers live outside the zod form: their applicability and
   // required-ness are data-driven from the catalog, so they're validated inline.
@@ -224,6 +231,17 @@ function DealForm({
     const missing = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, customFields);
     if (missing.length) {
       setCfError(`Fill required field${missing.length > 1 ? "s" : ""}: ${missing.map((f) => f.name).join(", ")}`);
+      return;
+    }
+    // Admin-required built-in fields block submit the same way (the backend
+    // double-checks with a 422 naming the fields).
+    const missingBuiltin = missingRequiredJobFields(fieldSettings, {
+      values,
+      clientPhone: contact?.phones[0] ?? clientDraft?.phone,
+      clientEmail: contact?.emails[0] ?? clientDraft?.email,
+    });
+    if (missingBuiltin.length) {
+      setCfError(`Fill required field${missingBuiltin.length > 1 ? "s" : ""}: ${missingBuiltin.join(", ")}`);
       return;
     }
     setCfError(null);
@@ -423,7 +441,7 @@ function DealForm({
               {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
             </div>
             <div className="space-y-1.5">
-              <Label>Job source</Label>
+              <Label>Job source{req("source")}</Label>
               <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
             </div>
           </div>
@@ -431,8 +449,8 @@ function DealForm({
             <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
-          <div className="space-y-1.5"><Label>Job description</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
-          <div className="space-y-1.5"><Label>Tags</Label><JobTagCombobox value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
+          <div className="space-y-1.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
+          <div className="space-y-1.5"><Label>Tags{req("tags")}</Label><JobTagCombobox value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
         </Section>
 
         <Section title="Scheduled">
@@ -475,7 +493,7 @@ function DealForm({
         {/* Work order / Platinum */}
         <Section title="Work order / Platinum">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>PO number</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
+            <div className="space-y-1.5"><Label>PO number{req("poNumber")}</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
             <div className="space-y-1.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
           </div>
           <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
