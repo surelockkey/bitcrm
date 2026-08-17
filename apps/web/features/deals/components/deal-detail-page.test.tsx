@@ -389,6 +389,14 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.updateContact).not.toHaveBeenCalled();
   });
 
+  it("splits custom fields into per-group cards instead of one Custom fields block", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    // The field's group is the card title; the monolithic block is gone.
+    expect(screen.getByText("Access")).toBeInTheDocument();
+    expect(screen.queryByText(/^Custom fields$/)).toBeNull();
+  });
+
   it("marks the page dirty when an applicable custom field is edited and sends it on Save", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);

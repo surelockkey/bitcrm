@@ -43,7 +43,7 @@ import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox"
 import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
-import { applicableFields } from "@/features/custom-fields/lib";
+import { applicableFields, workizOrderedGroups } from "@/features/custom-fields/lib";
 import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import {
@@ -265,7 +265,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const setDeal = (patch: Partial<DealDraft>) => setDealDraft((d) => ({ ...d, ...patch }));
 
   // Recomputes as the draft's job type changes — the applicable set is scoped to it.
-  const hasCustomFields = applicableFields(customFieldDefs, dealDraft.jobTypeId).length > 0;
+  // One card per custom-field group, Workiz-ordered — same as the New Job form.
+  const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId));
 
   const dealPatch = buildDealPatch(deal, dealDraft);
   // A changed service address is also offered to the client's saved list — but
@@ -436,19 +437,18 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
       {/* Custom fields — user-defined answers, held in the same draft and saved
           by the single Save below. Job-type scoped, so it re-renders on type change. */}
-      {hasCustomFields ? (
-        <div className="lg:col-span-2">
-          <Section title="Custom fields">
-            <CustomFieldsSection
-              jobTypeId={dealDraft.jobTypeId}
-              value={dealDraft.customFields}
-              onChange={(cf) => setDeal({ customFields: cf })}
-              dealId={deal.id}
-              disabled={!canEdit}
-            />
-          </Section>
-        </div>
-      ) : null}
+      {orderedCfGroups.map(({ group }) => (
+        <Section key={group} title={group}>
+          <CustomFieldsSection
+            jobTypeId={dealDraft.jobTypeId}
+            value={dealDraft.customFields}
+            onChange={(cf) => setDeal({ customFields: cf })}
+            dealId={deal.id}
+            disabled={!canEdit}
+            onlyGroup={group}
+          />
+        </Section>
+      ))}
 
       {/* Notes — directly editable; the single Save below persists them */}
       <div className="lg:col-span-2">

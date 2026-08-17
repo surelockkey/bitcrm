@@ -47,18 +47,11 @@ import { CustomFieldsSection } from "@/features/custom-fields/components/custom-
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
 import { missingRequiredJobFields } from "@/features/job-field-settings/lib";
-import { applicableFields, groupFields, missingRequiredCustomFields } from "@/features/custom-fields/lib";
-
-/** Card order of the custom-field groups on the Workiz New Job form. */
-const WORKIZ_GROUP_ORDER = [
-  "Extra Info",
-  "Other Contact",
-  "Dispatchers",
-  "Tech",
-  "Platinum",
-  "Company",
-  "Need To Order",
-];
+import {
+  applicableFields,
+  missingRequiredCustomFields,
+  workizOrderedGroups,
+} from "@/features/custom-fields/lib";
 
 export function NewDealPage() {
   const params = useSearchParams();
@@ -390,12 +383,7 @@ function DealForm({
 
   // One card per custom-field group, in the Workiz form order; groups the
   // catalog grew beyond that list follow alphabetically (groupFields' order).
-  const cfGroups = groupFields(applicableFields(customFieldDefs, v.jobTypeId));
-  const orderedCfGroups = [...cfGroups].sort((a, b) => {
-    const ia = WORKIZ_GROUP_ORDER.indexOf(a.group);
-    const ib = WORKIZ_GROUP_ORDER.indexOf(b.group);
-    return (ia === -1 ? WORKIZ_GROUP_ORDER.length : ia) - (ib === -1 ? WORKIZ_GROUP_ORDER.length : ib);
-  });
+  const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, v.jobTypeId));
 
   return (
     <form onSubmit={submit} className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6" noValidate>
