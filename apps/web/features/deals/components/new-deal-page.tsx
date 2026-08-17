@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronLeft, Loader2, X } from "lucide-react";
-import { ClientType, ContactSource, DealPriority } from "@bitcrm/types";
+import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
 import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,7 @@ import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
-import { ClientPicker } from "./client-picker";
+import { ClientPicker, type ClientDraft } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
@@ -162,6 +162,9 @@ function DealForm({
   const [cfError, setCfError] = useState<string | null>(null);
   const createContact = useCreateContact();
 
+  // New-client details typed into the picker, created together with the job.
+  const [clientDraft, setClientDraft] = useState<ClientDraft | null>(null);
+
   // Client edits, keyed by who they're for — swapping client drops them
   // without an effect to reset anything.
   const [draft, setDraft] = useState<{ id: string; edits: ClientEdits } | null>(null);
@@ -216,7 +219,7 @@ function DealForm({
       (!!clientEdits.phone && clientEdits.phone !== contact.phones[0]));
 
   const submit = form.handleSubmit((values) => {
-    if (!contact) return;
+    if (!contact && !clientDraft) return;
     // Required custom fields block submit just like other required deal fields.
     const missing = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, customFields);
     if (missing.length) {
@@ -231,6 +234,36 @@ function DealForm({
     const cleanCustomFields = Object.fromEntries(
       Object.entries(customFields).filter(([id]) => applicableIds.has(id)),
     );
+
+    // Fresh details typed straight into the picker: adopt an exact-phone match
+    // instead of duplicating them, otherwise create the client (with the job's
+    // address as their first one) and then the job under them — one click.
+    if (!contact && clientDraft) {
+      if (clientDraft.existing) {
+        onContact(clientDraft.existing, false);
+        createJob(values, cleanCustomFields, clientDraft.existing);
+      } else {
+        createContact.mutate(
+          {
+            firstName: clientDraft.firstName,
+            lastName: clientDraft.lastName,
+            phones: clientDraft.phone ? [clientDraft.phone] : [],
+            emails: clientDraft.email ? [clientDraft.email] : [],
+            addresses: values.address?.street ? [values.address] : [],
+            type: ContactType.RESIDENTIAL,
+            source: ContactSource.PHONE_CALL,
+          },
+          {
+            onSuccess: (c) => {
+              onContact(c, true);
+              createJob(values, cleanCustomFields, c);
+            },
+          },
+        );
+      }
+      return;
+    }
+    if (!contact) return;
 
     // A client picked up mid-call is often "whoever answered this number", so
     // an edit is as likely to mean a new person as a typo. Same for an address
@@ -362,6 +395,7 @@ function DealForm({
             hidden={!!contact}
             contact={contact}
             initialPhone={prefillPhone}
+            onDraft={setClientDraft}
             onResolved={(c, created) => {
               onContact(c, created);
               const ct = c.companyId ? companyMap.get(c.companyId)?.clientType : undefined;
@@ -453,12 +487,21 @@ function DealForm({
       {/* Sticky footer */}
       <div className="sticky bottom-0 -mx-6 flex items-center justify-between gap-3 border-t bg-background/90 px-6 py-3 backdrop-blur">
         <span className="text-xs text-muted-foreground">
-          {contact ? `Client: ${contactName(contact)}` : "Pick or create a client to continue."}
+          {contact
+            ? `Client: ${contactName(contact)}`
+            : clientDraft
+              ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
+              : "Pick a client or type new details to continue."}
         </span>
         <div className="flex gap-2">
           <Button type="button" variant="ghost" asChild><Link href="/deals">Cancel</Link></Button>
-          <Button type="submit" variant="brand" className="gap-1.5" disabled={!contact || createDeal.isPending}>
-            {createDeal.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Create job
+          <Button
+            type="submit"
+            variant="brand"
+            className="gap-1.5"
+            disabled={(!contact && !clientDraft) || createDeal.isPending || createContact.isPending}
+          >
+            {createDeal.isPending || createContact.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Create job
           </Button>
         </div>
       </div>

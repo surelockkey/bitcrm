@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ClientType, ContactSource, ContactType, CrmStatus } from "@bitcrm/types";
+import { ContactSource, ContactType, CrmStatus } from "@bitcrm/types";
 import type { Contact } from "@bitcrm/types";
 
 const { createContactMutate } = vi.hoisted(() => ({ createContactMutate: vi.fn() }));

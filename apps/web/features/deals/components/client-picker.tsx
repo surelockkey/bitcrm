@@ -1,45 +1,58 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2, Search, UserPlus } from "lucide-react";
-import { ContactSource, ContactType } from "@bitcrm/types";
+import { useEffect, useState } from "react";
+import { Check, Search, UserPlus } from "lucide-react";
 import type { Contact } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { useContactByPhone, useCreateContact, useCompanyMap } from "@/features/clients/hooks";
+import { useContactByPhone, useCompanyMap } from "@/features/clients/hooks";
 import { contactName, formatPhone, primaryPhone, searchContacts } from "@/features/clients/lib";
 import { useContactMap } from "../hooks";
 
 const MIN_QUERY = 3;
 const MAX_SUGGESTIONS = 8;
 
+/** New-client details typed into the picker, ready to be created with the job. */
+export interface ClientDraft {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  /** An exact-phone match — adopt them instead of creating a duplicate. */
+  existing: Contact | null;
+}
+
 /**
  * Workiz-style client lookup for the New Job page: one box that searches the
  * whole book from 3 characters — by name, phone (any formatting), email or
- * company — with a create-new fallback when nothing matches.
+ * company. When nothing matches, the typed details become a draft new client
+ * that is created together with the job (reported upward via onDraft).
  */
 export function ClientPicker({
   hidden,
   contact,
   onResolved,
+  onDraft,
   initialPhone,
 }: {
   contact: Contact | null;
   hidden: boolean;
   onResolved: (c: Contact, created: boolean) => void;
+  /** Fires with the current new-client draft, or null when there isn't one. */
+  onDraft?: (draft: ClientDraft | null) => void;
   /** Seeded when the page was opened from a call with an unknown caller. */
   initialPhone?: string;
 }) {
   const [query, setQuery] = useState(initialPhone ?? "");
   const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
-  const createContact = useCreateContact();
 
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
 
   const trimmed = query.trim();
   const queryDigits = trimmed.replace(/\D/g, "");
@@ -48,6 +61,7 @@ export function ClientPicker({
   // Exact-phone dupe guard for the create path (search itself is client-side).
   const newPhone = phone.trim() || (queryIsPhone ? trimmed : "");
   const dupe = useContactByPhone(newPhone, !contact && newPhone.length >= 7);
+  const exactDupe = dupe.data ?? null;
 
   const companyNames = new Map(
     [...companyMap.values()].map((co) => [co.id, co.title] as [string, string]),
@@ -57,25 +71,26 @@ export function ClientPicker({
       ? searchContacts([...contactMap.values()], trimmed, companyNames).slice(0, MAX_SUGGESTIONS)
       : [];
 
+  const draftOpen = !contact && trimmed.length >= MIN_QUERY && matches.length === 0;
+  const draftReady = draftOpen && Boolean(first.trim() && last.trim());
+
+  useEffect(() => {
+    onDraft?.(
+      draftReady
+        ? {
+            firstName: first.trim(),
+            lastName: last.trim(),
+            phone: newPhone,
+            email: email.trim(),
+            existing: exactDupe,
+          }
+        : null,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- report on data changes only
+  }, [draftReady, first, last, newPhone, email, exactDupe]);
+
   // Kept mounted so a half-typed query survives glancing at the chosen client.
   if (hidden) return null;
-
-  const exactDupe = dupe.data ?? null;
-  const create = () => {
-    if (!first.trim() || !last.trim()) return;
-    createContact.mutate(
-      {
-        firstName: first,
-        lastName: last,
-        phones: newPhone ? [newPhone] : [],
-        emails: [],
-        addresses: [],
-        type: ContactType.RESIDENTIAL,
-        source: ContactSource.PHONE_CALL,
-      },
-      { onSuccess: (c) => onResolved(c, true) },
-    );
-  };
 
   const secondary = (c: Contact) => {
     const p = primaryPhone(c);
@@ -122,18 +137,20 @@ export function ClientPicker({
       ) : (
         <div className="rounded-lg border border-dashed p-3">
           <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-            <UserPlus className="size-4" /> No client found — create one
+            <UserPlus className="size-4" /> No client found — fill in the details and they&apos;ll
+            be created with the job
           </div>
           <div className="grid grid-cols-2 gap-2">
             <Input className="h-9" placeholder="First name" value={first} onChange={(e) => setFirst(e.target.value)} />
             <Input className="h-9" placeholder="Last name" value={last} onChange={(e) => setLast(e.target.value)} />
           </div>
-          <div className="mt-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <PhoneInput
               value={phone || (queryIsPhone ? trimmed : "")}
               onChange={setPhone}
               placeholder="Phone…"
             />
+            <Input className="h-9" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           {exactDupe ? (
             <div className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
@@ -145,17 +162,7 @@ export function ClientPicker({
                 Use this client →
               </Button>
             </div>
-          ) : (
-            <Button
-              className="mt-3 w-full gap-1.5"
-              variant="brand"
-              size="sm"
-              disabled={!first.trim() || !last.trim() || createContact.isPending}
-              onClick={create}
-            >
-              {createContact.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Create client
-            </Button>
-          )}
+          ) : null}
         </div>
       )}
     </div>

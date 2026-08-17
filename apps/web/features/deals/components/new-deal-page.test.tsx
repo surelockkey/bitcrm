@@ -15,11 +15,12 @@ const mocks = vi.hoisted(() => ({
   updateContact: vi.fn(),
   linkCall: vi.fn(),
   customFieldDefs: [] as unknown[],
+  searchParams: "contactId=c1&callSid=CA1",
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("contactId=c1&callSid=CA1"),
+  useSearchParams: () => new URLSearchParams(mocks.searchParams),
 }));
 vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
@@ -103,8 +104,58 @@ import { NewDealPage } from "./new-deal-page";
 const user = () => userEvent.setup();
 const submit = () => screen.getByRole("button", { name: /create job/i });
 
+describe("NewDealPage — auto-create client", () => {
+  beforeEach(() => {
+    mocks.searchParams = "";
+    mocks.customFieldDefs = [];
+    mocks.createContact.mockReset();
+    mocks.createDeal.mockReset();
+  });
+
+  it("creates the client first, then the job under them, in one click", async () => {
+    mocks.createContact.mockImplementation(
+      (body: { firstName: string; lastName: string }, opts?: { onSuccess?: (c: unknown) => void }) =>
+        opts?.onSuccess?.({ ...contact, id: "c-new", firstName: body.firstName, lastName: body.lastName }),
+    );
+    const u = user();
+    render(<NewDealPage />);
+
+    // Nobody matches — the picker opens its new-client block.
+    await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
+    await u.type(screen.getByPlaceholderText("First name"), "Nova");
+    await u.type(screen.getByPlaceholderText("Last name"), "Client");
+
+    await u.type(screen.getByLabelText("street"), "9 Elm");
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(screen.getByRole("button", { name: /create job/i }));
+
+    expect(mocks.createContact).toHaveBeenCalledWith(
+      expect.objectContaining({ firstName: "Nova", lastName: "Client" }),
+      expect.anything(),
+    );
+    expect(mocks.createDeal).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: "c-new" }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps Create job disabled until a client is picked or typed", async () => {
+    const u = user();
+    render(<NewDealPage />);
+
+    expect(submit()).toBeDisabled();
+
+    await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
+    await u.type(screen.getByPlaceholderText("First name"), "Nova");
+    await u.type(screen.getByPlaceholderText("Last name"), "Client");
+
+    expect(submit()).toBeEnabled();
+  });
+});
+
 describe("NewDealPage — Workiz layout", () => {
   beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
     mocks.customFieldDefs = [];
   });
 
@@ -151,6 +202,7 @@ describe("NewDealPage — Workiz layout", () => {
 
 describe("NewDealPage — client details", () => {
   beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
     mocks.customFieldDefs = [];
     for (const m of Object.values(mocks)) {
       if (typeof (m as { mockClear?: () => void }).mockClear === "function") {
