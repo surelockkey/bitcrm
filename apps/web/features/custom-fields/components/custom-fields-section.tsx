@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Check, Eye, Loader2, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, FileText, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import {
   requestAttachmentUpload,
   uploadAttachmentBytes,
 } from "@/features/deals/attachments-api";
+import { useAttachmentUrl } from "@/features/deals/attachments-hooks";
 import { useCustomFields } from "../hooks";
 import { applicableFields, groupFields } from "../lib";
 
@@ -493,71 +494,152 @@ function FileControl({
         }}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-start gap-2.5">
+        {deferred
+          ? held.map((file, i) => (
+              <PendingFileTile
+                key={`${file.name}-${i}`}
+                file={file}
+                disabled={disabled}
+                onRemove={() => onPendingFiles!(held.filter((_, j) => j !== i))}
+              />
+            ))
+          : ids.map((id, i) => (
+              <SavedFileTile
+                key={id}
+                index={i}
+                attachmentId={id}
+                dealId={dealId!}
+                disabled={disabled}
+                onView={() => view(id)}
+                onRemove={() => {
+                  const next = ids.filter((x) => x !== id);
+                  onChange(next.length ? next : undefined);
+                }}
+              />
+            ))}
+
         {!full ? (
           <button
             type="button"
             aria-label="Attach file"
             disabled={disabled || uploading}
             onClick={() => inputRef.current?.click()}
-            className="grid size-11 flex-none place-items-center rounded-md border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            className="grid size-14 flex-none place-items-center rounded-lg border-2 border-dashed text-muted-foreground transition-colors hover:border-brand/60 hover:bg-brand/5 hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-5" />}
           </button>
         ) : null}
-
-        {deferred
-          ? held.map((file, i) => (
-              <span
-                key={`${file.name}-${i}`}
-                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground"
-              >
-                {file.name}
-                {!disabled ? (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${file.name}`}
-                    onClick={() => onPendingFiles!(held.filter((_, j) => j !== i))}
-                    className="rounded p-0.5 hover:bg-muted hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                ) : null}
-              </span>
-            ))
-          : ids.map((id, i) => (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground"
-              >
-                <button
-                  type="button"
-                  aria-label={`View file ${i + 1}`}
-                  onClick={() => view(id)}
-                  className="inline-flex items-center gap-1 hover:text-foreground"
-                >
-                  <Eye className="size-3" /> File {i + 1}
-                </button>
-                {!disabled ? (
-                  <button
-                    type="button"
-                    aria-label={`Remove file ${i + 1}`}
-                    onClick={() => {
-                      const next = ids.filter((x) => x !== id);
-                      onChange(next.length ? next : undefined);
-                    }}
-                    className="rounded p-0.5 hover:bg-muted hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                ) : null}
-              </span>
-            ))}
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-[11px] text-muted-foreground">
         You can choose up to {MAX_FILES} files{deferred ? " — they upload when the job is created" : ""}.
       </p>
+    </div>
+  );
+}
+
+/** A file held in memory for a job that isn't created yet: thumb + name + ×. */
+function PendingFileTile({
+  file,
+  disabled,
+  onRemove,
+}: {
+  file: File;
+  disabled?: boolean;
+  onRemove: () => void;
+}) {
+  // jsdom has no createObjectURL — degrade to the icon there and in tests.
+  const url = useMemo(
+    () =>
+      file.type.startsWith("image/") && typeof URL.createObjectURL === "function"
+        ? URL.createObjectURL(file)
+        : null,
+    [file],
+  );
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
+
+  return (
+    <div className="relative w-14 flex-none">
+      <div className="grid size-14 place-items-center overflow-hidden rounded-lg border bg-muted/30">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element -- local object URL
+          <img src={url} alt={file.name} className="size-full object-cover" />
+        ) : (
+          <FileText className="size-5 text-muted-foreground" />
+        )}
+      </div>
+      {!disabled ? (
+        <button
+          type="button"
+          aria-label={`Remove ${file.name}`}
+          onClick={onRemove}
+          className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border bg-background shadow-sm hover:text-destructive"
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
+      <p className="mt-1 truncate text-center text-[10px] text-muted-foreground" title={file.name}>
+        {file.name}
+      </p>
+    </div>
+  );
+}
+
+/** An uploaded attachment: presigned thumbnail, click to open, × to detach. */
+function SavedFileTile({
+  attachmentId,
+  dealId,
+  index,
+  disabled,
+  onView,
+  onRemove,
+}: {
+  attachmentId: string;
+  dealId: string;
+  index: number;
+  disabled?: boolean;
+  onView: () => void;
+  onRemove: () => void;
+}) {
+  const { data } = useAttachmentUrl(dealId, attachmentId);
+  const [broken, setBroken] = useState(false);
+
+  return (
+    <div className="relative w-14 flex-none">
+      <button
+        type="button"
+        aria-label={`View file ${index + 1}`}
+        onClick={onView}
+        className="grid size-14 w-full place-items-center overflow-hidden rounded-lg border bg-muted/30 transition-opacity hover:opacity-80"
+      >
+        {data?.downloadUrl && !broken ? (
+          // eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL
+          <img
+            src={data.downloadUrl}
+            alt={`File ${index + 1}`}
+            onError={() => setBroken(true)}
+            className="size-full object-cover"
+          />
+        ) : (
+          <FileText className="size-5 text-muted-foreground" />
+        )}
+      </button>
+      {!disabled ? (
+        <button
+          type="button"
+          aria-label={`Remove file ${index + 1}`}
+          onClick={onRemove}
+          className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border bg-background shadow-sm hover:text-destructive"
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
+      <p className="mt-1 truncate text-center text-[10px] text-muted-foreground">File {index + 1}</p>
     </div>
   );
 }
