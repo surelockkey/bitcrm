@@ -51,6 +51,7 @@ import { type MoveStatusDto } from './dto/move-status.dto';
 import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
 import { type UpdateNoteDto } from './dto/update-note.dto';
+import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 
@@ -74,6 +75,7 @@ export class DealsService {
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly jobFieldSettings?: JobFieldSettingsService,
   ) {}
 
   /**
@@ -264,6 +266,17 @@ export class DealsService {
     const contactExists = await this.internalHttp.validateContact(dto.contactId);
     if (!contactExists) {
       throw new BadRequestException(`Contact ${dto.contactId} not found`);
+    }
+
+    // Admin-configured required fields (Settings → Job Fields) — same 422
+    // shape as the close gate so clients can name the exact fields.
+    const missingRequired =
+      (await this.jobFieldSettings?.missingRequiredForCreate(dto)) ?? [];
+    if (missingRequired.length) {
+      throw new UnprocessableEntityException({
+        message: `Fill required field(s): ${missingRequired.map((f) => f.label).join(', ')}`,
+        missingFields: missingRequired.map((f) => ({ id: f.id, name: f.label })),
+      });
     }
 
     const dealNumber = await this.repository.reserveDealNumber();
