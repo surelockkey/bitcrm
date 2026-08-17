@@ -153,8 +153,15 @@ export class DealsService {
       case 'text':
       case 'large_text':
       case 'date':
-      case 'file': // attachment id
         return typeof value === 'string';
+      case 'file':
+        // One attachment id, or (Workiz-style) up to 5 of them.
+        return (
+          typeof value === 'string' ||
+          (Array.isArray(value) &&
+            value.length <= 5 &&
+            value.every((v) => typeof v === 'string'))
+        );
       case 'number':
         return typeof value === 'number' && Number.isFinite(value);
       case 'checkbox':
