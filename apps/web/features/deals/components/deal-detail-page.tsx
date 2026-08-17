@@ -209,7 +209,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
+    // h-full: cards in a grid row stretch to the tallest neighbour.
+    <div className="h-full rounded-xl border bg-card p-4">
       <div className="mb-3 flex items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
         <span className="h-px flex-1 bg-border" />
@@ -345,7 +346,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   };
 
   return (
-    <div className="mx-auto grid max-w-5xl grid-cols-1 items-start gap-4 lg:grid-cols-2">
+    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2">
       {/* Client */}
       <Section
         title="Client"

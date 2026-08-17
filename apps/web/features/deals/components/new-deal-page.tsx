@@ -122,7 +122,8 @@ export function NewDealPage() {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
+    // h-full: cards in a grid row stretch to the tallest neighbour.
+    <div className="h-full rounded-xl border bg-card p-4">
       <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}<span className="h-px flex-1 bg-border" />
       </div>
@@ -398,7 +399,7 @@ function DealForm({
 
   return (
     <form onSubmit={submit} className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6" noValidate>
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Row 1 — Client Details | Service Location, as on the Workiz form. */}
         <Section title="Client Details">
           {contact ? (
