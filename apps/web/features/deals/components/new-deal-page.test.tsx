@@ -212,7 +212,7 @@ describe("NewDealPage — deferred file uploads", () => {
     expect(mocks.uploadBytes).toHaveBeenCalled();
     await waitFor(() =>
       expect(mocks.updateDealApi).toHaveBeenCalledWith("d-new", {
-        customFields: expect.objectContaining({ "cf-file": "att-1" }),
+        customFields: expect.objectContaining({ "cf-file": ["att-1"] }),
       }),
     );
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new"));

@@ -164,48 +164,53 @@ describe("CustomFieldsSection", () => {
     expect(onChange).toHaveBeenLastCalledWith({ "cf-multi": ["A"] });
   });
 
-  it("holds a picked file in memory before the job exists (deferred upload)", async () => {
+  it("holds picked files in memory before the job exists (Workiz tile, up to 5)", async () => {
     mockFields([field({ id: "cf-file", name: "Photo", type: "file", group: "Details" })]);
-    const onPendingFile = vi.fn();
+    const onPendingFiles = vi.fn();
     const { container } = render(
       <CustomFieldsSection
         jobTypeId="jt-1"
         value={{}}
         onChange={vi.fn()}
-        onPendingFile={onPendingFile}
+        onPendingFiles={onPendingFiles}
         pendingFiles={{}}
       />,
       { wrapper },
     );
 
     await screen.findByText("Photo");
-    // No "save first" nag — the field accepts a file straight away.
+    // No "save first" nag — the tile accepts files straight away.
     expect(screen.queryByText(/save the job first/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/up to 5 files/i)).toBeInTheDocument();
 
     const file = new File(["bytes"], "before.jpg", { type: "image/jpeg" });
     const input = container.querySelector('input[type="file"]')!;
     fireEvent.change(input, { target: { files: [file] } });
 
-    expect(onPendingFile).toHaveBeenCalledWith("cf-file", file);
+    expect(onPendingFiles).toHaveBeenCalledWith("cf-file", [file]);
   });
 
-  it("shows the held file's name and lets it be removed", async () => {
+  it("shows the held files' names and lets one be removed", async () => {
     mockFields([field({ id: "cf-file", name: "Photo", type: "file", group: "Details" })]);
-    const onPendingFile = vi.fn();
+    const onPendingFiles = vi.fn();
+    const kept = new File(["a"], "front.jpg", { type: "image/jpeg" });
     render(
       <CustomFieldsSection
         jobTypeId="jt-1"
         value={{}}
         onChange={vi.fn()}
-        onPendingFile={onPendingFile}
-        pendingFiles={{ "cf-file": new File(["b"], "before.jpg", { type: "image/jpeg" }) }}
+        onPendingFiles={onPendingFiles}
+        pendingFiles={{
+          "cf-file": [kept, new File(["b"], "back.jpg", { type: "image/jpeg" })],
+        }}
       />,
       { wrapper },
     );
 
-    expect(await screen.findByText("before.jpg")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /remove file/i }));
-    expect(onPendingFile).toHaveBeenCalledWith("cf-file", undefined);
+    expect(await screen.findByText("front.jpg")).toBeInTheDocument();
+    expect(screen.getByText("back.jpg")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove back.jpg" }));
+    expect(onPendingFiles).toHaveBeenCalledWith("cf-file", [kept]);
   });
 
   it("lets an attached file be previewed on a saved job", async () => {
@@ -229,7 +234,7 @@ describe("CustomFieldsSection", () => {
         { wrapper },
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: /view file/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /view file 1/i }));
 
       expect(openSpy).toHaveBeenCalled();
       await waitFor(() =>

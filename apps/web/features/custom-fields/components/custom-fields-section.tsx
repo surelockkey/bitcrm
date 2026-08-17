@@ -1,14 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Check, Eye, Loader2, Plus, Upload, X } from "lucide-react";
+import { Check, Eye, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -47,11 +46,11 @@ interface CustomFieldsSectionProps {
   onlyGroup?: string;
   /**
    * Deferred uploads for a job that doesn't exist yet: picked files are held
-   * here (keyed by field id) and reported via onPendingFile; the caller
-   * uploads them right after the job is created.
+   * here (keyed by field id, up to 5 each) and reported via onPendingFiles;
+   * the caller uploads them right after the job is created.
    */
-  pendingFiles?: Record<string, File>;
-  onPendingFile?: (fieldId: string, file: File | undefined) => void;
+  pendingFiles?: Record<string, File[]>;
+  onPendingFiles?: (fieldId: string, files: File[]) => void;
 }
 
 /**
@@ -67,7 +66,7 @@ export function CustomFieldsSection({
   dealId,
   onlyGroup,
   pendingFiles,
-  onPendingFile,
+  onPendingFiles,
 }: CustomFieldsSectionProps) {
   const { data } = useCustomFields();
 
@@ -103,8 +102,8 @@ export function CustomFieldsSection({
                 onChange={(v) => write(field.id, v)}
                 disabled={disabled}
                 dealId={dealId}
-                pendingFile={pendingFiles?.[field.id]}
-                onPendingFile={onPendingFile ? (f) => onPendingFile(field.id, f) : undefined}
+                pendingFiles={pendingFiles?.[field.id]}
+                onPendingFiles={onPendingFiles ? (f) => onPendingFiles(field.id, f) : undefined}
               />
             ))}
           </div>
@@ -121,16 +120,16 @@ function FieldControl({
   onChange,
   disabled,
   dealId,
-  pendingFile,
-  onPendingFile,
+  pendingFiles,
+  onPendingFiles,
 }: {
   field: CustomFieldDefinition;
   value: CustomFieldValue | undefined;
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
-  pendingFile?: File;
-  onPendingFile?: (file: File | undefined) => void;
+  pendingFiles?: File[];
+  onPendingFiles?: (files: File[]) => void;
 }) {
   const labelId = `cf-${field.id}`;
 
@@ -179,8 +178,8 @@ function FieldControl({
         onChange={onChange}
         disabled={disabled}
         dealId={dealId}
-        pendingFile={pendingFile}
-        onPendingFile={onPendingFile}
+        pendingFiles={pendingFiles}
+        onPendingFiles={onPendingFiles}
       />
     </div>
   );
@@ -194,8 +193,8 @@ function FieldInput({
   onChange,
   disabled,
   dealId,
-  pendingFile,
-  onPendingFile,
+  pendingFiles,
+  onPendingFiles,
 }: {
   field: CustomFieldDefinition;
   labelId: string;
@@ -203,8 +202,8 @@ function FieldInput({
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
-  pendingFile?: File;
-  onPendingFile?: (file: File | undefined) => void;
+  pendingFiles?: File[];
+  onPendingFiles?: (files: File[]) => void;
 }) {
   switch (field.type) {
     case "large_text":
@@ -273,12 +272,12 @@ function FieldInput({
     case "file":
       return (
         <FileControl
-          value={typeof value === "string" ? value : undefined}
+          value={value}
           disabled={disabled}
           dealId={dealId}
           onChange={onChange}
-          pendingFile={pendingFile}
-          onPendingFile={onPendingFile}
+          pendingFiles={pendingFiles}
+          onPendingFiles={onPendingFiles}
         />
       );
 
@@ -393,74 +392,39 @@ function OptionsCombobox({
 }
 
 /**
- * File field: uploads through the deal's presigned-upload flow and stores the
- * resulting attachment id as the value. Uploads need a saved deal, so on a new
- * job (no `dealId`) it shows a "save the job first" affordance instead.
+ * File field, Workiz-style: a square "+" tile that takes up to 5 files, each
+ * shown as a chip. On a saved job every pick uploads through the presigned
+ * flow and the value stores the attachment ids; on a new job (no dealId)
+ * files are held in memory via onPendingFiles and upload right after create.
  */
+const MAX_FILES = 5;
+
 function FileControl({
   value,
   onChange,
   disabled,
   dealId,
-  pendingFile,
-  onPendingFile,
+  pendingFiles,
+  onPendingFiles,
 }: {
-  value: string | undefined;
-  onChange: (next: string | undefined) => void;
+  value: CustomFieldValue | undefined;
+  onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
-  pendingFile?: File;
-  onPendingFile?: (file: File | undefined) => void;
+  pendingFiles?: File[];
+  onPendingFiles?: (files: File[]) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
-  // No saved job yet, but the caller collects files for a post-create upload:
-  // hold the pick in memory and show it as attached.
-  if (!dealId && onPendingFile) {
-    return (
-      <div className="flex items-center gap-2">
-        <input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onPendingFile(f);
-            e.target.value = "";
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
-        >
-          <Upload className="size-3.5" />
-          {pendingFile ? "Replace file" : "Attach file"}
-        </Button>
-        {pendingFile ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            {pendingFile.name}
-            <button
-              type="button"
-              aria-label="Remove file"
-              onClick={() => onPendingFile(undefined)}
-              className="rounded p-0.5 hover:bg-muted hover:text-foreground"
-            >
-              <X className="size-3" />
-            </button>
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">Uploads when the job is created.</span>
-        )}
-      </div>
-    );
-  }
+  // Stored value may be a single legacy id or a list.
+  const ids = Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : [];
+  const held = pendingFiles ?? [];
+  const deferred = !dealId && Boolean(onPendingFiles);
+  const count = deferred ? held.length : ids.length;
+  const full = count >= MAX_FILES;
 
-  if (!dealId) {
+  if (!dealId && !onPendingFiles) {
     return (
       <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
         Save the job first to attach a file.
@@ -468,14 +432,14 @@ function FileControl({
     );
   }
 
-  /** Open the attached file — popup-safe: the tab opens inside the click. */
-  const view = () => {
-    if (!value) return;
+  /** Open a stored attachment — popup-safe: the tab opens inside the click. */
+  const view = (attachmentId: string) => {
+    if (!dealId) return;
     const tab = window.open("", "_blank");
     if (tab) tab.opener = null;
     void (async () => {
       try {
-        const { downloadUrl } = await getAttachmentDownloadUrl(dealId, value);
+        const { downloadUrl } = await getAttachmentDownloadUrl(dealId, attachmentId);
         if (tab) tab.location.replace(downloadUrl);
         else window.open(downloadUrl, "_blank", "noopener,noreferrer");
       } catch (e) {
@@ -485,17 +449,23 @@ function FileControl({
     })();
   };
 
-  const pick = async (file: File) => {
+  const uploadNow = async (files: File[]) => {
+    if (!dealId) return;
     setUploading(true);
     try {
-      const ticket = await requestAttachmentUpload(dealId, {
-        fileName: file.name,
-        contentType: file.type,
-        size: file.size,
-      });
-      await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
-      onChange(ticket.id);
-      toast.success("File uploaded");
+      const newIds: string[] = [];
+      for (const file of files) {
+        const ticket = await requestAttachmentUpload(dealId, {
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        });
+        await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
+        newIds.push(ticket.id);
+      }
+      const next = [...ids, ...newIds].slice(0, MAX_FILES);
+      onChange(next.length ? next : undefined);
+      toast.success(newIds.length > 1 ? "Files uploaded" : "File uploaded");
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
@@ -503,40 +473,91 @@ function FileControl({
     }
   };
 
+  const picked = (list: FileList | null) => {
+    const files = [...(list ?? [])].slice(0, MAX_FILES - count);
+    if (!files.length) return;
+    if (deferred) onPendingFiles!([...held, ...files].slice(0, MAX_FILES));
+    else void uploadNow(files);
+  };
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="space-y-1.5">
       <input
         ref={inputRef}
         type="file"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void pick(f);
+          picked(e.target.files);
           e.target.value = "";
         }}
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        disabled={disabled || uploading}
-        onClick={() => inputRef.current?.click()}
-      >
-        {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-        {value ? "Replace file" : "Upload"}
-      </Button>
-      {value ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-muted-foreground hover:text-foreground"
-          onClick={view}
-        >
-          <Eye className="size-3.5" /> View file
-        </Button>
-      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {!full ? (
+          <button
+            type="button"
+            aria-label="Attach file"
+            disabled={disabled || uploading}
+            onClick={() => inputRef.current?.click()}
+            className="grid size-11 flex-none place-items-center rounded-md border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+          </button>
+        ) : null}
+
+        {deferred
+          ? held.map((file, i) => (
+              <span
+                key={`${file.name}-${i}`}
+                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground"
+              >
+                {file.name}
+                {!disabled ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() => onPendingFiles!(held.filter((_, j) => j !== i))}
+                    className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                ) : null}
+              </span>
+            ))
+          : ids.map((id, i) => (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground"
+              >
+                <button
+                  type="button"
+                  aria-label={`View file ${i + 1}`}
+                  onClick={() => view(id)}
+                  className="inline-flex items-center gap-1 hover:text-foreground"
+                >
+                  <Eye className="size-3" /> File {i + 1}
+                </button>
+                {!disabled ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove file ${i + 1}`}
+                    onClick={() => {
+                      const next = ids.filter((x) => x !== id);
+                      onChange(next.length ? next : undefined);
+                    }}
+                    className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                ) : null}
+              </span>
+            ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        You can choose up to {MAX_FILES} files{deferred ? " — they upload when the job is created" : ""}.
+      </p>
     </div>
   );
 }

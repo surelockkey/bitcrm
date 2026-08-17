@@ -165,13 +165,13 @@ function DealForm({
   // required-ness are data-driven from the catalog, so they're validated inline.
   const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
   const [cfError, setCfError] = useState<string | null>(null);
-  // Files picked for file-type custom fields before the job exists. Held in
-  // memory and uploaded to S3 right after the job is created.
-  const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
-  const setPendingFile = (fieldId: string, file: File | undefined) =>
+  // Files picked for file-type custom fields before the job exists (up to 5
+  // per field). Held in memory and uploaded to S3 right after create.
+  const [pendingFiles, setPendingFiles] = useState<Record<string, File[]>>({});
+  const setPendingFilesFor = (fieldId: string, files: File[]) =>
     setPendingFiles((prev) => {
       const next = { ...prev };
-      if (file) next[fieldId] = file;
+      if (files.length) next[fieldId] = files;
       else delete next[fieldId];
       return next;
     });
@@ -402,14 +402,18 @@ function DealForm({
             if (entries.length) {
               try {
                 const fileValues: Record<string, CustomFieldValue> = {};
-                for (const [fieldId, file] of entries) {
-                  const ticket = await requestAttachmentUpload(deal.id, {
-                    fileName: file.name,
-                    contentType: file.type || "application/octet-stream",
-                    size: file.size,
-                  });
-                  await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
-                  fileValues[fieldId] = ticket.id;
+                for (const [fieldId, files] of entries) {
+                  const fieldIds: string[] = [];
+                  for (const file of files) {
+                    const ticket = await requestAttachmentUpload(deal.id, {
+                      fileName: file.name,
+                      contentType: file.type || "application/octet-stream",
+                      size: file.size,
+                    });
+                    await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
+                    fieldIds.push(ticket.id);
+                  }
+                  fileValues[fieldId] = fieldIds;
                 }
                 await updateDealApi(deal.id, {
                   customFields: { ...cleanCustomFields, ...fileValues },
@@ -509,7 +513,7 @@ function DealForm({
               onChange={setCustomFields}
               onlyGroup={group}
               pendingFiles={pendingFiles}
-              onPendingFile={setPendingFile}
+              onPendingFiles={setPendingFilesFor}
             />
           </Section>
         ))}
