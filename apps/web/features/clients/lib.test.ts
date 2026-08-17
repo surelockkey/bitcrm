@@ -113,6 +113,18 @@ describe("searchContacts", () => {
     // "60" is inside Marcus's number, but a 2-digit query must not phone-match.
     expect(searchContacts(list, "60")).toHaveLength(0);
   });
+
+  it("matches by company name when a company resolver is provided", () => {
+    const withCompany = [
+      contact({ id: "a", firstName: "Jane", lastName: "Smith", companyId: "co-1", emails: [], phones: [] }),
+      contact({ id: "b", firstName: "Marcus", lastName: "Reyes", emails: [], phones: [] }),
+    ];
+    const companyNames = new Map([["co-1", "Acme Storage"]]);
+
+    expect(searchContacts(withCompany, "acme", companyNames).map((c) => c.id)).toEqual(["a"]);
+    // Without the resolver the company name is unknown — no match.
+    expect(searchContacts(withCompany, "acme")).toHaveLength(0);
+  });
 });
 
 describe("searchCompanies", () => {

@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, ChevronLeft, Loader2, UserPlus, X } from "lucide-react";
-import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
+import { ChevronLeft, Loader2, X } from "lucide-react";
+import { ClientType, ContactSource, DealPriority } from "@bitcrm/types";
 import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import {
   useContact,
-  useContactByPhone,
   useCreateContact,
   useUpdateContact,
   useCompanyMap,
@@ -41,6 +40,7 @@ import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
+import { ClientPicker } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
@@ -548,71 +548,6 @@ function ResolvedClient({
         Edits here are saved with the job — you&apos;ll be asked whether they
         correct this client or belong to a new one.
       </p>
-    </div>
-  );
-}
-
-function ClientPicker({
-  hidden,
-  contact,
-  onResolved,
-  initialPhone,
-}: {
-  contact: Contact | null;
-  hidden: boolean;
-  onResolved: (c: Contact, created: boolean) => void;
-  /** Seeded when the page was opened from a call with an unknown caller —
-   *  the number is already known, so the lookup runs without typing. */
-  initialPhone?: string;
-}) {
-  const [phone, setPhone] = useState(initialPhone ?? "");
-  const trimmed = phone.trim();
-  const dupe = useContactByPhone(trimmed, !contact && trimmed.length >= 7);
-  const createContact = useCreateContact();
-  const [first, setFirst] = useState("");
-  const [last, setLast] = useState("");
-
-
-
-  const found = dupe.data ?? null;
-  // Kept mounted so a half-typed number survives glancing at the chosen client.
-  if (hidden) return null;
-  const create = () => {
-    if (!first.trim() || !last.trim()) return;
-    createContact.mutate(
-      { firstName: first, lastName: last, phones: [trimmed], emails: [], addresses: [], type: ContactType.RESIDENTIAL, source: ContactSource.PHONE_CALL },
-      { onSuccess: (c) => onResolved(c, true) },
-    );
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="space-y-1.5">
-        <Label>Find or add a client</Label>
-        <PhoneInput value={phone} onChange={setPhone} placeholder="Client phone…" autoFocus />
-      </div>
-      {trimmed.length < 7 ? (
-        <p className="text-xs text-muted-foreground">Enter a phone to find an existing client or create a new one.</p>
-      ) : dupe.isFetching ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Looking up…</div>
-      ) : found ? (
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/40">
-          <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"><Check className="size-4" /> <b>Existing client found</b></div>
-          <div className="mt-1 text-sm font-medium">{contactName(found)}</div>
-          <Button className="mt-3 w-full" variant="brand" size="sm" onClick={() => onResolved(found, false)}>Use this client →</Button>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed p-3">
-          <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground"><UserPlus className="size-4" /> No client with this phone — create one</div>
-          <div className="grid grid-cols-2 gap-2">
-            <Input className="h-9" placeholder="First name" value={first} onChange={(e) => setFirst(e.target.value)} />
-            <Input className="h-9" placeholder="Last name" value={last} onChange={(e) => setLast(e.target.value)} />
-          </div>
-          <Button className="mt-3 w-full gap-1.5" variant="brand" size="sm" disabled={!first.trim() || !last.trim() || createContact.isPending} onClick={create}>
-            {createContact.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Create client
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

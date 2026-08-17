@@ -52,6 +52,8 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
+  // The extracted ClientPicker searches the loaded contact book.
+  useContactMap: () => ({ map: new Map() }),
 }));
 vi.mock("@/features/calls/hooks", () => ({
   useLinkCallToDeal: () => ({ mutate: mocks.linkCall, isPending: false }),
