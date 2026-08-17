@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ContactSource,
@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   customFieldDefs: [] as unknown[],
   requiredFields: {} as Record<string, boolean>,
   searchParams: "contactId=c1&callSid=CA1",
+  requestUpload: vi.fn(),
+  uploadBytes: vi.fn(),
+  updateDealApi: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -69,6 +72,13 @@ vi.mock("@/features/custom-fields/hooks", () => ({
 }));
 vi.mock("@/features/job-field-settings/hooks", () => ({
   useJobFieldSettings: () => ({ data: { requiredFields: mocks.requiredFields }, isLoading: false }),
+}));
+vi.mock("../attachments-api", () => ({
+  requestAttachmentUpload: (...args: unknown[]) => mocks.requestUpload(...args),
+  uploadAttachmentBytes: (...args: unknown[]) => mocks.uploadBytes(...args),
+}));
+vi.mock("../api", () => ({
+  updateDeal: (...args: unknown[]) => mocks.updateDealApi(...args),
 }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
@@ -132,6 +142,80 @@ describe("NewDealPage — admin-required fields", () => {
 
     const label = screen.getByText("Job source");
     expect(label.textContent).toContain("*");
+  });
+});
+
+describe("NewDealPage — deferred file uploads", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
+    mocks.requiredFields = {};
+    mocks.customFieldDefs = [
+      {
+        id: "cf-file",
+        name: "Check Image Front",
+        type: "file",
+        group: "Tech",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    mocks.createDeal.mockReset();
+    mocks.push.mockReset();
+    mocks.requestUpload.mockReset();
+    mocks.uploadBytes.mockReset();
+    mocks.updateDealApi.mockReset();
+  });
+
+  it("holds the picked file and uploads it right after the job is created", async () => {
+    mocks.requestUpload.mockResolvedValue({
+      id: "att-1",
+      uploadUrl: "https://s3/upload",
+      s3Key: "k",
+      headers: { "Content-Type": "image/jpeg" },
+    });
+    mocks.uploadBytes.mockResolvedValue(undefined);
+    mocks.updateDealApi.mockResolvedValue({});
+    mocks.createDeal.mockImplementation(
+      (_body: unknown, opts?: { onSuccess?: (d: unknown) => void }) =>
+        opts?.onSuccess?.({ id: "d-new" }),
+    );
+
+    const u = user();
+    const { container } = render(<NewDealPage />);
+
+    // No "save first" nag; the file is picked straight on the form.
+    expect(screen.queryByText(/save the job first/i)).not.toBeInTheDocument();
+    const file = new File(["bytes"], "check.jpg", { type: "image/jpeg" });
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [file] },
+    });
+    expect(await screen.findByText("check.jpg")).toBeInTheDocument();
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(screen.getByRole("button", { name: /create job/i }));
+
+    // Chain: job created → bytes uploaded under it → field patched → navigate.
+    await waitFor(() =>
+      expect(mocks.requestUpload).toHaveBeenCalledWith(
+        "d-new",
+        expect.objectContaining({ fileName: "check.jpg" }),
+      ),
+    );
+    expect(mocks.uploadBytes).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.updateDealApi).toHaveBeenCalledWith("d-new", {
+        customFields: expect.objectContaining({ "cf-file": "att-1" }),
+      }),
+    );
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new"));
   });
 });
 

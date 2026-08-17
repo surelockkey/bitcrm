@@ -32,7 +32,11 @@ import {
   type ClientEdits,
   type ClientSaveDecision,
 } from "@/features/clients/components/client-change-dialog";
+import { toast } from "sonner";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useCreateDeal } from "../hooks";
+import { updateDeal as updateDealApi } from "../api";
+import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
 import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
@@ -161,6 +165,16 @@ function DealForm({
   // required-ness are data-driven from the catalog, so they're validated inline.
   const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
   const [cfError, setCfError] = useState<string | null>(null);
+  // Files picked for file-type custom fields before the job exists. Held in
+  // memory and uploaded to S3 right after the job is created.
+  const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
+  const setPendingFile = (fieldId: string, file: File | undefined) =>
+    setPendingFiles((prev) => {
+      const next = { ...prev };
+      if (file) next[fieldId] = file;
+      else delete next[fieldId];
+      return next;
+    });
   const createContact = useCreateContact();
 
   // New-client details typed into the picker, created together with the job.
@@ -222,7 +236,12 @@ function DealForm({
   const submit = form.handleSubmit((values) => {
     if (!contact && !clientDraft) return;
     // Required custom fields block submit just like other required deal fields.
-    const missing = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, customFields);
+    // A file held for post-create upload counts as answered.
+    const effectiveCustomFields: Record<string, CustomFieldValue> = {
+      ...customFields,
+      ...Object.fromEntries(Object.keys(pendingFiles).map((id) => [id, "pending"])),
+    };
+    const missing = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, effectiveCustomFields);
     if (missing.length) {
       setCfError(`Fill required field${missing.length > 1 ? "s" : ""}: ${missing.map((f) => f.name).join(", ")}`);
       return;
@@ -375,7 +394,34 @@ function DealForm({
           for (const sid of callsToLink) {
             linkCall.mutate({ sid, dealId: deal.id });
           }
-          router.push(`/deals/${deal.id}`);
+          void (async () => {
+            // Files picked on the form upload now, under the fresh job, and
+            // land in their custom fields. A failure doesn't lose the job —
+            // the file can be re-attached on the job page.
+            const entries = Object.entries(pendingFiles);
+            if (entries.length) {
+              try {
+                const fileValues: Record<string, CustomFieldValue> = {};
+                for (const [fieldId, file] of entries) {
+                  const ticket = await requestAttachmentUpload(deal.id, {
+                    fileName: file.name,
+                    contentType: file.type || "application/octet-stream",
+                    size: file.size,
+                  });
+                  await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
+                  fileValues[fieldId] = ticket.id;
+                }
+                await updateDealApi(deal.id, {
+                  customFields: { ...cleanCustomFields, ...fileValues },
+                });
+              } catch (e) {
+                toast.error(
+                  `Job created, but a file failed to upload (${getApiErrorMessage(e)}). Attach it on the job page.`,
+                );
+              }
+            }
+            router.push(`/deals/${deal.id}`);
+          })();
         },
       },
     );
@@ -462,6 +508,8 @@ function DealForm({
               value={customFields}
               onChange={setCustomFields}
               onlyGroup={group}
+              pendingFiles={pendingFiles}
+              onPendingFile={setPendingFile}
             />
           </Section>
         ))}

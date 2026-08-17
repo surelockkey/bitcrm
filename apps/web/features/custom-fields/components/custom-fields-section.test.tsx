@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -162,6 +162,50 @@ describe("CustomFieldsSection", () => {
     await u.click(await screen.findByRole("option", { name: "A" }));
 
     expect(onChange).toHaveBeenLastCalledWith({ "cf-multi": ["A"] });
+  });
+
+  it("holds a picked file in memory before the job exists (deferred upload)", async () => {
+    mockFields([field({ id: "cf-file", name: "Photo", type: "file", group: "Details" })]);
+    const onPendingFile = vi.fn();
+    const { container } = render(
+      <CustomFieldsSection
+        jobTypeId="jt-1"
+        value={{}}
+        onChange={vi.fn()}
+        onPendingFile={onPendingFile}
+        pendingFiles={{}}
+      />,
+      { wrapper },
+    );
+
+    await screen.findByText("Photo");
+    // No "save first" nag — the field accepts a file straight away.
+    expect(screen.queryByText(/save the job first/i)).not.toBeInTheDocument();
+
+    const file = new File(["bytes"], "before.jpg", { type: "image/jpeg" });
+    const input = container.querySelector('input[type="file"]')!;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(onPendingFile).toHaveBeenCalledWith("cf-file", file);
+  });
+
+  it("shows the held file's name and lets it be removed", async () => {
+    mockFields([field({ id: "cf-file", name: "Photo", type: "file", group: "Details" })]);
+    const onPendingFile = vi.fn();
+    render(
+      <CustomFieldsSection
+        jobTypeId="jt-1"
+        value={{}}
+        onChange={vi.fn()}
+        onPendingFile={onPendingFile}
+        pendingFiles={{ "cf-file": new File(["b"], "before.jpg", { type: "image/jpeg" }) }}
+      />,
+      { wrapper },
+    );
+
+    expect(await screen.findByText("before.jpg")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /remove file/i }));
+    expect(onPendingFile).toHaveBeenCalledWith("cf-file", undefined);
   });
 
   it("prompts to save the job first for a file field when no dealId is set", async () => {

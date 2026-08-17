@@ -42,6 +42,13 @@ interface CustomFieldsSectionProps {
    * give every group its own card (the Workiz-style New Job form).
    */
   onlyGroup?: string;
+  /**
+   * Deferred uploads for a job that doesn't exist yet: picked files are held
+   * here (keyed by field id) and reported via onPendingFile; the caller
+   * uploads them right after the job is created.
+   */
+  pendingFiles?: Record<string, File>;
+  onPendingFile?: (fieldId: string, file: File | undefined) => void;
 }
 
 /**
@@ -56,6 +63,8 @@ export function CustomFieldsSection({
   disabled,
   dealId,
   onlyGroup,
+  pendingFiles,
+  onPendingFile,
 }: CustomFieldsSectionProps) {
   const { data } = useCustomFields();
 
@@ -91,6 +100,8 @@ export function CustomFieldsSection({
                 onChange={(v) => write(field.id, v)}
                 disabled={disabled}
                 dealId={dealId}
+                pendingFile={pendingFiles?.[field.id]}
+                onPendingFile={onPendingFile ? (f) => onPendingFile(field.id, f) : undefined}
               />
             ))}
           </div>
@@ -107,12 +118,16 @@ function FieldControl({
   onChange,
   disabled,
   dealId,
+  pendingFile,
+  onPendingFile,
 }: {
   field: CustomFieldDefinition;
   value: CustomFieldValue | undefined;
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  pendingFile?: File;
+  onPendingFile?: (file: File | undefined) => void;
 }) {
   const labelId = `cf-${field.id}`;
 
@@ -161,6 +176,8 @@ function FieldControl({
         onChange={onChange}
         disabled={disabled}
         dealId={dealId}
+        pendingFile={pendingFile}
+        onPendingFile={onPendingFile}
       />
     </div>
   );
@@ -174,6 +191,8 @@ function FieldInput({
   onChange,
   disabled,
   dealId,
+  pendingFile,
+  onPendingFile,
 }: {
   field: CustomFieldDefinition;
   labelId: string;
@@ -181,6 +200,8 @@ function FieldInput({
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  pendingFile?: File;
+  onPendingFile?: (file: File | undefined) => void;
 }) {
   switch (field.type) {
     case "large_text":
@@ -253,6 +274,8 @@ function FieldInput({
           disabled={disabled}
           dealId={dealId}
           onChange={onChange}
+          pendingFile={pendingFile}
+          onPendingFile={onPendingFile}
         />
       );
 
@@ -376,14 +399,63 @@ function FileControl({
   onChange,
   disabled,
   dealId,
+  pendingFile,
+  onPendingFile,
 }: {
   value: string | undefined;
   onChange: (next: string | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  pendingFile?: File;
+  onPendingFile?: (file: File | undefined) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  // No saved job yet, but the caller collects files for a post-create upload:
+  // hold the pick in memory and show it as attached.
+  if (!dealId && onPendingFile) {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onPendingFile(f);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          disabled={disabled}
+          onClick={() => inputRef.current?.click()}
+        >
+          <Upload className="size-3.5" />
+          {pendingFile ? "Replace file" : "Attach file"}
+        </Button>
+        {pendingFile ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            {pendingFile.name}
+            <button
+              type="button"
+              aria-label="Remove file"
+              onClick={() => onPendingFile(undefined)}
+              className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Uploads when the job is created.</span>
+        )}
+      </div>
+    );
+  }
 
   if (!dealId) {
     return (
