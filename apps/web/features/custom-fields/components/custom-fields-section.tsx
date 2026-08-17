@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Check, Loader2, Plus, Upload, X } from "lucide-react";
+import { Check, Eye, Loader2, Plus, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
 import { Input } from "@/components/ui/input";
@@ -25,8 +25,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { cn } from "@/lib/utils";
-import { requestAttachmentUpload, uploadAttachmentBytes } from "@/features/deals/attachments-api";
+import {
+  getAttachmentDownloadUrl,
+  requestAttachmentUpload,
+  uploadAttachmentBytes,
+} from "@/features/deals/attachments-api";
 import { useCustomFields } from "../hooks";
 import { applicableFields, groupFields } from "../lib";
 
@@ -465,6 +468,23 @@ function FileControl({
     );
   }
 
+  /** Open the attached file — popup-safe: the tab opens inside the click. */
+  const view = () => {
+    if (!value) return;
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+    void (async () => {
+      try {
+        const { downloadUrl } = await getAttachmentDownloadUrl(dealId, value);
+        if (tab) tab.location.replace(downloadUrl);
+        else window.open(downloadUrl, "_blank", "noopener,noreferrer");
+      } catch (e) {
+        tab?.close();
+        toast.error(getApiErrorMessage(e));
+      }
+    })();
+  };
+
   const pick = async (file: File) => {
     setUploading(true);
     try {
@@ -506,7 +526,17 @@ function FileControl({
         {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
         {value ? "Replace file" : "Upload"}
       </Button>
-      {value ? <span className={cn("text-xs text-muted-foreground")}>File attached</span> : null}
+      {value ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-muted-foreground hover:text-foreground"
+          onClick={view}
+        >
+          <Eye className="size-3.5" /> View file
+        </Button>
+      ) : null}
     </div>
   );
 }

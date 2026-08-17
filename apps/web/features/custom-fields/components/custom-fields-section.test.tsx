@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -206,6 +206,38 @@ describe("CustomFieldsSection", () => {
     expect(await screen.findByText("before.jpg")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /remove file/i }));
     expect(onPendingFile).toHaveBeenCalledWith("cf-file", undefined);
+  });
+
+  it("lets an attached file be previewed on a saved job", async () => {
+    mockFields([field({ id: "cf-file", name: "Photo", type: "file", group: "Details" })]);
+    server.use(
+      http.get("*/deals/d1/attachments/att-1", () =>
+        HttpResponse.json({ success: true, data: { downloadUrl: "https://s3.example/file.jpg" } }),
+      ),
+    );
+    const tab = { location: { replace: vi.fn() }, opener: null, close: vi.fn() };
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(tab as never);
+
+    try {
+      render(
+        <CustomFieldsSection
+          jobTypeId="jt-1"
+          value={{ "cf-file": "att-1" }}
+          onChange={vi.fn()}
+          dealId="d1"
+        />,
+        { wrapper },
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: /view file/i }));
+
+      expect(openSpy).toHaveBeenCalled();
+      await waitFor(() =>
+        expect(tab.location.replace).toHaveBeenCalledWith("https://s3.example/file.jpg"),
+      );
+    } finally {
+      openSpy.mockRestore();
+    }
   });
 
   it("prompts to save the job first for a file field when no dealId is set", async () => {
