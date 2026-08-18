@@ -163,6 +163,19 @@ describe("DateTimeRangePicker", () => {
     expect(seen.at(-1)?.to).toContain("T");
   });
 
+  it("has a visible All time preset that clears the range and is marked active", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={{ from: toIsoInstant("2026-08-01", DAY_START), to: toIsoInstant("2026-08-05", DAY_END) }} />);
+    await open(user);
+
+    const all = screen.getByRole("button", { name: "All time" });
+    await user.click(all);
+    expect(screen.getByText("Any date")).toBeInTheDocument();
+
+    // The panel stays open; with no range, All time is the active choice.
+    expect(all).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("applies presets and clears back to any date", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
