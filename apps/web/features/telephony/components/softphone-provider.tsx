@@ -18,12 +18,17 @@ import { SoftphoneWidget } from "./softphone-widget";
  */
 export function SoftphoneProvider() {
   const phoneOn = useSoftphoneStore((s) => s.phoneOn);
+  const callState = useSoftphoneStore((s) => s.callState);
   const isOwner = useTabOwner();
 
   useEffect(() => {
-    if (phoneOn && isOwner) void enableSoftphone();
+    // The audio wins over the lock: a tab that is on a call keeps its Device
+    // even if ownership has moved, or taking a call into a new tab would tear
+    // down the very Device that just took it. It gives the Device up when the
+    // call ends.
+    if (phoneOn && (isOwner || callState !== "idle")) void enableSoftphone();
     else void disableSoftphone();
-  }, [phoneOn, isOwner]);
+  }, [phoneOn, isOwner, callState]);
 
   // Tear down on full unmount (e.g. logout).
   useEffect(() => () => void disableSoftphone(), []);

@@ -1,33 +1,49 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * Ownership is a Web Locks lock held for the tab's lifetime. These cover the
- * two things that actually matter: exactly one tab wins, and a browser without
- * Web Locks keeps working the way it does today.
+ * Ownership is a Web Locks lock. These cover what actually matters: exactly one
+ * tab wins, the phone moves to whichever tab wants to dial, a tab on a call
+ * keeps it, and a browser without Web Locks works the way it always did.
  */
 describe("tab-coordinator", () => {
   const realLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
 
-  /** A LockManager where each name can be held by one caller at a time. */
+  /**
+   * A LockManager where each name is held by one caller at a time, queueing
+   * the rest — and where releasing hands it to the next in line, which is the
+   * behaviour the polite hand-over depends on.
+   */
   function fakeLocks() {
     const held = new Set<string>();
     const waiting: Array<() => void> = [];
-    return {
-      manager: {
-        request: (name: string, fn: () => Promise<unknown>) => {
-          if (held.has(name)) {
-            // Queued behind the holder, exactly like the real thing.
-            return new Promise(() => waiting.push(() => void fn()));
-          }
-          held.add(name);
-          return fn();
-        },
-      },
-      release: (name: string) => {
+
+    type Cb = () => Promise<unknown>;
+    const request = (
+      name: string,
+      optionsOrCb: { steal?: boolean } | Cb,
+      maybeCb?: Cb,
+    ) => {
+      const options = typeof optionsOrCb === "function" ? {} : optionsOrCb;
+      const cb = (typeof optionsOrCb === "function" ? optionsOrCb : maybeCb)!;
+
+      const grant = () => {
+        held.add(name);
+        // The holder's promise resolving is what releases the lock.
+        return cb().then(() => {
+          held.delete(name);
+          waiting.shift()?.();
+        });
+      };
+
+      if (options.steal) {
         held.delete(name);
-        waiting.shift()?.();
-      },
+        return grant();
+      }
+      if (held.has(name)) return new Promise(() => waiting.push(() => void grant()));
+      return grant();
     };
+
+    return { manager: { request } };
   }
 
   beforeEach(() => vi.resetModules());
@@ -107,5 +123,79 @@ describe("tab-coordinator", () => {
     } finally {
       globalThis.BroadcastChannel = real;
     }
+  });
+
+  describe("moving the phone to the tab that wants to dial", () => {
+    /**
+     * A stand-in for the other tab: holds the lock and answers on its own
+     * BroadcastChannel — a channel never receives its own posts, so the reply
+     * has to come from a separate instance to reach the tab under test.
+     */
+    function otherTabOwning(opts: { busy: boolean }) {
+      let release: (() => void) | null = null;
+      void (navigator.locks as unknown as {
+        request: (n: string, o: unknown, cb: () => Promise<unknown>) => unknown;
+      }).request("bitcrm-softphone-owner", {}, () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const channel = new BroadcastChannel("bitcrm-softphone");
+      channel.addEventListener("message", (event: MessageEvent) => {
+        if (event.data?.type !== "yield-phone") return;
+        if (opts.busy) channel.postMessage({ type: "phone-busy" });
+        else release?.();
+      });
+      return () => channel.close();
+    }
+
+    it("hands the phone over when the other tab is idle", async () => {
+      Object.defineProperty(navigator, "locks", {
+        value: fakeLocks().manager,
+        configurable: true,
+      });
+      const mod = await import("./tab-coordinator");
+      const stop = otherTabOwning({ busy: false });
+
+      mod.claimOwnership();
+      await Promise.resolve();
+      expect(mod.isOwnerTab()).toBe(false);
+
+      // Dialling here asks for the phone; the idle owner lets it go.
+      const got = await mod.requestPhone();
+      expect(got).toBe(true);
+      expect(mod.isOwnerTab()).toBe(true);
+      stop();
+    });
+
+    it("refuses while the other tab is on a call — taking the call is the way", async () => {
+      Object.defineProperty(navigator, "locks", {
+        value: fakeLocks().manager,
+        configurable: true,
+      });
+      const mod = await import("./tab-coordinator");
+      const stop = otherTabOwning({ busy: true });
+
+      mod.claimOwnership();
+      await Promise.resolve();
+
+      const got = await mod.requestPhone();
+      expect(got).toBe(false);
+      expect(mod.isOwnerTab()).toBe(false);
+      stop();
+    });
+
+    it("is a no-op for the tab that already has it", async () => {
+      Object.defineProperty(navigator, "locks", {
+        value: fakeLocks().manager,
+        configurable: true,
+      });
+      const mod = await import("./tab-coordinator");
+      mod.claimOwnership();
+      await Promise.resolve();
+
+      await expect(mod.requestPhone()).resolves.toBe(true);
+    });
   });
 });

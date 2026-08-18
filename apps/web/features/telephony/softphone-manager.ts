@@ -7,6 +7,7 @@ import {
   setPresence,
 } from "./api";
 import { completeTakeCall, requestTakeCall } from "@/features/calls/api";
+import { broadcast, requestPhone } from "./tab-coordinator";
 
 /**
  * Imperative singleton that owns the Twilio Device and the active Call. React
@@ -144,6 +145,9 @@ export async function disableSoftphone(): Promise<void> {
 function endCall() {
   currentCall = null;
   store().setCall("idle", null);
+  // The server's "call you're on" is what every other tab reads; tell them to
+  // recheck now rather than letting them offer to rejoin a call that's over.
+  broadcast({ type: "call-changed" });
 }
 
 function wireCall(call: Call) {
@@ -174,6 +178,20 @@ async function handleIncoming(call: Call) {
 }
 
 export async function startCall(rawNumber: string): Promise<void> {
+  // Any tab can dial. If this one doesn't hold the phone it asks for it — the
+  // owner hands over unless it's on a call, in which case taking the call over
+  // is the right move rather than pulling the Device out from under it.
+  if (!device) {
+    const got = await requestPhone();
+    if (!got) {
+      store().setStatus(
+        "error",
+        "The phone is on a call in another tab — take that call over first.",
+      );
+      return;
+    }
+    await enableSoftphone();
+  }
   if (!device) return;
   const e164 = normalizePhone(rawNumber);
   if (!e164) {
@@ -246,6 +264,9 @@ export async function takeCallHere(
 ): Promise<void> {
   if (currentCall) return;
   if (!device) {
+    // Deliberately without waiting for ownership: the tab that has the call is
+    // the owner and won't yield while it's on one. Two Devices exist for the
+    // few seconds of the hand-over — that is what a hand-over is.
     await enableSoftphone();
     if (!device) return;
   }
@@ -283,6 +304,11 @@ export async function takeCallHere(
       "Took the call, but the other tab is still connected — hang up there.",
     );
   }
+
+  // The old tab's leg is gone, so it is idle and will hand the phone over.
+  // Ownership follows the audio; otherwise this tab would lose its Device the
+  // next time anything re-evaluated who owns the phone.
+  void requestPhone();
 }
 
 export function acceptIncoming() {

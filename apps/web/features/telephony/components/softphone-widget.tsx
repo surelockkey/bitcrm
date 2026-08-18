@@ -16,8 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
 import { useActiveCall } from "@/features/calls/hooks";
-import { counterparty } from "@/features/calls/lib";
+import { counterparty, isLive } from "@/features/calls/lib";
+import { onMessage } from "../tab-coordinator";
 import { useTabOwner } from "../use-tab-owner";
 import { CallJobActions } from "@/features/calls/components/call-job-actions";
 import { TransferPanel, type TransferIntent } from "./transfer-panel";
@@ -70,8 +73,34 @@ export function SoftphoneWidget() {
   // What the server says this user is on — true in every tab, not just the one
   // holding the audio. A follower has no Device and no local call state, so
   // this is the only thing that knows a call is happening at all.
-  const { data: serverCall } = useActiveCall(!inCall);
-  const elsewhere = !inCall && !!serverCall?.callSid;
+  // Kept on during a call too, so hanging up here can name the call it ended.
+  const { data: serverCall } = useActiveCall(true);
+  const qc = useQueryClient();
+
+  // Hanging up is instant locally but takes a moment to reach the server, so
+  // for a second or two `/calls/active` still reports the call this tab just
+  // ended — which read as "your call is in another tab, want it back?".
+  // Remembering the sid we hung up on is exact where a time window would be a
+  // guess; a call that ends any other way is caught by the liveness check.
+  const [endedSid, setEndedSid] = useState<string | null>(null);
+
+  // When another tab is the one that hung up, its broadcast gets us there
+  // without waiting out the poll.
+  useEffect(
+    () =>
+      onMessage((message) => {
+        if (message.type === "call-changed") {
+          void qc.invalidateQueries({ queryKey: queryKeys.calls.active() });
+        }
+      }),
+    [qc],
+  );
+
+  const elsewhere =
+    !inCall &&
+    !!serverCall?.callSid &&
+    isLive(serverCall) &&
+    serverCall.callSid !== endedSid;
   const elsewhereParty = serverCall ? counterparty(serverCall) : null;
   const elsewhereTimer = useCallTimer(serverCall?.answeredAt);
   const [taking, setTaking] = useState(false);
@@ -397,7 +426,14 @@ export function SoftphoneWidget() {
                   {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
                   {muted ? "Unmute" : "Mute"}
                 </Button>
-                <Button type="button" variant="destructive" onClick={hangup}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    setEndedSid(serverCall?.callSid ?? null);
+                    hangup();
+                  }}
+                >
                   <PhoneOff className="size-4" /> Hang up
                 </Button>
               </div>
