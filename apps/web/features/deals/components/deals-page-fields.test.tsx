@@ -145,6 +145,31 @@ describe("DealsPage day/hour ranges", () => {
     mocks.deals = [deal];
   });
 
+  it("the By: switch drives the day range — schedule vs created", () => {
+    // Midday-UTC createdAt keeps the local day stable across timezones.
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", createdAt: "2026-08-10T12:00:00.000Z" },
+      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-10", createdAt: "2026-08-18T12:00:00.000Z" },
+    ];
+    render(<DealsPage />);
+
+    const dayButton = (day: string) =>
+      screen.getAllByRole("button", { name: day }).find((b) => b.classList.contains("size-8"))!;
+    // Pick Aug 18 as a same-day range.
+    fireEvent.click(screen.getByRole("button", { name: "Days" }));
+    fireEvent.click(dayButton("18"));
+    fireEvent.click(dayButton("18"));
+
+    // Default basis = Job date: the job scheduled on the 18th (A).
+    expect(screen.getByText(/A11111/)).toBeInTheDocument();
+    expect(screen.queryByText(/B22222/)).not.toBeInTheDocument();
+
+    // Switch to Job created: now the job created on the 18th (B) shows instead.
+    fireEvent.change(screen.getByLabelText("Date basis"), { target: { value: "createdAt" } });
+    expect(screen.getByText(/B22222/)).toBeInTheDocument();
+    expect(screen.queryByText(/A11111/)).not.toBeInTheDocument();
+  });
+
   it("narrows the table by a day range and an hour range", () => {
     mocks.deals = [
       { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },

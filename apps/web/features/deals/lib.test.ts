@@ -31,6 +31,8 @@ import {
   clientDraftFromContact,
   buildContactBody,
   sortJobs,
+  jobDayKey,
+  jobHourKey,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -559,5 +561,30 @@ describe("filterDeals — hour range", () => {
     expect(
       filterDeals(rows, { dateFrom: "2026-08-21", dateTo: "2026-08-21", hourFrom: "14:00" }, names).map((d) => d.id),
     ).toEqual(["c"]);
+  });
+});
+
+describe("jobDayKey / jobHourKey — one basis for both filters", () => {
+  it("schedule basis: day from scheduledDate, hour from the slot start", () => {
+    const d = deal({ scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00", createdAt: "2026-08-01T22:30:00.000Z" });
+    expect(jobDayKey(d, "scheduledDate")).toBe("2026-08-20");
+    expect(jobHourKey(d, "scheduledDate")).toBe("14:00");
+  });
+
+  it("created basis: day and hour are LOCAL, not the UTC string slice", () => {
+    // A fixed instant; compare against what the viewer's own clock shows.
+    const iso = "2026-08-20T14:00:00.000Z";
+    const local = new Date(iso);
+    const dd = String(local.getDate()).padStart(2, "0");
+    const mm = String(local.getMonth() + 1).padStart(2, "0");
+    const hh = String(local.getHours()).padStart(2, "0");
+    const min = String(local.getMinutes()).padStart(2, "0");
+    const d = deal({ createdAt: iso });
+    expect(jobDayKey(d, "createdAt")).toBe(`${local.getFullYear()}-${mm}-${dd}`);
+    expect(jobHourKey(d, "createdAt")).toBe(`${hh}:${min}`);
+  });
+
+  it("returns empty hour key for a slotless scheduled job", () => {
+    expect(jobHourKey(deal({ scheduledDate: "2026-08-20", scheduledTimeSlot: undefined }), "scheduledDate")).toBe("");
   });
 });

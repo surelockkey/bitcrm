@@ -243,6 +243,8 @@ export function JobsReportPage() {
           dateTo: range.to,
           hourFrom: hourFrom || undefined,
           hourTo: hourTo || undefined,
+          // The hour window reads the same timestamp as the "By:" switch.
+          hourBasis: dateField,
         },
         contactNames,
         searchableFields,
