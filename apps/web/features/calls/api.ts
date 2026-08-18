@@ -68,6 +68,27 @@ export const requestMonitor = (
 ): Promise<{ conferenceName: string }> =>
   http.post<{ conferenceName: string }>(`${BASE}/${sid}/monitor`, { mode });
 
+/**
+ * Move the call you're on into this tab. Two steps on purpose: only the
+ * browser knows when its new leg is actually in the conference, and dropping
+ * the old one before that would put the customer on hold music.
+ */
+export const requestTakeCall = (
+  sid: string,
+): Promise<{ conferenceName: string; previousLegs: string[] }> =>
+  http.post<{ conferenceName: string; previousLegs: string[] }>(
+    `${BASE}/${sid}/take`,
+    {},
+  );
+
+export const completeTakeCall = (
+  sid: string,
+  previousLegs: string[],
+): Promise<{ sid: string; movedTo: string[] }> =>
+  http.post<{ sid: string; movedTo: string[] }>(`${BASE}/${sid}/take/complete`, {
+    previousLegs,
+  });
+
 /** The SSE stream path (opened with fetch so the Bearer header can be sent). */
 export const CALLS_STREAM_PATH = `${BASE}/stream`;
 

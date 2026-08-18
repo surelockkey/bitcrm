@@ -6,6 +6,8 @@ import {
   identifyNumber,
   setPresence,
 } from "./api";
+import { completeTakeCall, requestTakeCall } from "@/features/calls/api";
+import { broadcast } from "./tab-coordinator";
 
 /**
  * Imperative singleton that owns the Twilio Device and the active Call. React
@@ -143,6 +145,9 @@ export async function disableSoftphone(): Promise<void> {
 function endCall() {
   currentCall = null;
   store().setCall("idle", null);
+  // The server's "call you're on" is what every other tab reads; tell them to
+  // recheck now rather than letting them offer to rejoin a call that's over.
+  broadcast({ type: "call-changed" });
 }
 
 function wireCall(call: Call) {
@@ -173,6 +178,8 @@ async function handleIncoming(call: Call) {
 }
 
 export async function startCall(rawNumber: string): Promise<void> {
+  // Every tab has its own Device, but the phone may simply be off here.
+  if (!device) await enableSoftphone();
   if (!device) return;
   const e164 = normalizePhone(rawNumber);
   if (!e164) {
@@ -226,6 +233,63 @@ export async function monitorCall(
     store().setStatus("error", message);
     endCall();
   }
+}
+
+/**
+ * Take a call this user is already on into this tab.
+ *
+ * The audio can't be moved — but every BitCRM call is a conference, so this
+ * tab joins it and the previous tab's leg is dropped afterwards. Join first,
+ * drop second: the customer stays in a conference that never empties, so they
+ * hear no gap and no hold music.
+ *
+ * The Device has to be up first — a follower tab doesn't register one until it
+ * needs to, which is now.
+ */
+export async function takeCallHere(
+  callSid: string,
+  label?: string,
+): Promise<void> {
+  if (currentCall) return;
+  if (!device) {
+    await enableSoftphone();
+    if (!device) return;
+  }
+
+  let previousLegs: string[] = [];
+  try {
+    const grant = await requestTakeCall(callSid);
+    previousLegs = grant.previousLegs;
+
+    store().setCall("connecting", {
+      direction: "outbound",
+      number: label ?? grant.conferenceName,
+    });
+    store().setDialerOpen(true);
+
+    const call = await device.connect({
+      params: { Monitor: grant.conferenceName, MonitorMode: "join" },
+    });
+    wireCall(call);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not take the call";
+    store().setStatus("error", message);
+    endCall();
+    return;
+  }
+
+  // Only now is this tab genuinely on the call. Failing here leaves the old
+  // tab connected too — both hear the customer, which is recoverable by
+  // hanging up one of them; dropping first would not have been.
+  try {
+    await completeTakeCall(callSid, previousLegs);
+  } catch {
+    store().setStatus(
+      "error",
+      "Took the call, but the other tab is still connected — hang up there.",
+    );
+  }
+
 }
 
 export function acceptIncoming() {

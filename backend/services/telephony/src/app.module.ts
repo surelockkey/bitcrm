@@ -15,21 +15,23 @@ import { PresenceModule } from './presence/presence.module';
 import { CallsModule } from './calls/calls.module';
 import { VoiceModule } from './voice/voice.module';
 import { NumbersModule } from './numbers/numbers.module';
+import { CallGroupsModule } from './call-groups/call-groups.module';
 import { DbSetupService } from './common/db-setup.service';
 import { CALLS_TABLE } from './common/constants/dynamo.constants';
+import { CALL_GROUPS_TABLE } from './call-groups/call-groups.constants';
 
 @Module({
   imports: [
     LoggerModule.forRoot({ serviceName: 'telephony-service' }),
     MetricsModule.forRoot({ serviceName: 'telephony-service' }),
     HealthModule.forRoot({
-      dynamoTables: [CALLS_TABLE],
+      dynamoTables: [CALLS_TABLE, CALL_GROUPS_TABLE],
     }),
     ConnectivityModule.forRoot({
       serviceName: 'telephony-service',
       failFast: [],
       dynamodb: {
-        tables: [CALLS_TABLE],
+        tables: [CALLS_TABLE, CALL_GROUPS_TABLE],
       },
       redis: true,
     }),
@@ -51,6 +53,7 @@ import { CALLS_TABLE } from './common/constants/dynamo.constants';
     CallsModule,
     VoiceModule,
     NumbersModule,
+    CallGroupsModule,
   ],
   controllers: [AppController],
   providers: [DbSetupService],

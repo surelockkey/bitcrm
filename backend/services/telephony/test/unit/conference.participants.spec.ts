@@ -70,3 +70,58 @@ describe('ConferenceService — internal (our-number-to-our-number) calls', () =
     ]);
   });
 });
+
+describe('ConferenceService — nobody left but the customer', () => {
+  /**
+   * Twilio keeps a one-participant conference alive, and the flag that ends it
+   * moves between legs on transfer, monitor and tab hand-over. Whatever the
+   * path, a customer must never be left on an open line.
+   */
+  it('ends the conference when only the customer is still in it', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initOutbound('CAout', 'agent-A', '+380958601427', '+15412830739');
+    // The customer leg the service dialled is CAcustomerLeg (harness default).
+    await service.onParticipantJoin('conf-CAout', 'CF1', 'CAout');
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAcustomerLeg' }]);
+
+    await service.onParticipantLeave('conf-CAout', 'CF1');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+
+  it('leaves the call alone while one of ours is still on it', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initOutbound('CAout', 'agent-A', '+380958601427', '+15412830739');
+    await service.onParticipantJoin('conf-CAout', 'CF1', 'CAout');
+    // A transfer target is still talking to the customer.
+    twilio.participantsList.mockResolvedValue([
+      { callSid: 'CAcustomerLeg' },
+      { callSid: 'CAtransferTarget' },
+    ]);
+
+    await service.onParticipantLeave('conf-CAout', 'CF1');
+
+    expect(twilio.conferenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('ends an inbound call when the answering agent is the one who left', async () => {
+    const { service, twilio } = makeHarness();
+    // Inbound: the customer IS the call that made the conference.
+    await service.initInbound('CAin', '+380958601427', '+15412830739', ['agent-B']);
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF2');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+
+  it('does nothing when the room is already empty', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initOutbound('CAout', 'agent-A', '+380958601427', '+15412830739');
+    twilio.participantsList.mockResolvedValue([]);
+
+    await service.onParticipantLeave('conf-CAout', 'CF1');
+
+    expect(twilio.conferenceUpdate).not.toHaveBeenCalled();
+  });
+});

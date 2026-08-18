@@ -70,6 +70,8 @@ export class FakeRedis {
 /** Mock of the Twilio REST surface ConferenceService touches. */
 export function makeFakeTwilio() {
   const participantsCreate = jest.fn().mockResolvedValue({ callSid: 'CAcustomerLeg' });
+  /** Who is in the room — set per test to drive the participant-leave sweep. */
+  const participantsList = jest.fn().mockResolvedValue([]);
   const conferenceUpdate = jest.fn().mockResolvedValue({});
   const conferenceFetch = jest.fn().mockResolvedValue({ status: 'in-progress' });
   const callsCreate = jest.fn().mockImplementation(async ({ to }: { to: string }) => ({
@@ -80,7 +82,10 @@ export function makeFakeTwilio() {
   const client = {
     conferences: Object.assign(
       (sid: string) => ({
-        participants: { create: participantsCreate },
+        participants: Object.assign(
+          (callSid: string) => ({ update: jest.fn().mockResolvedValue({}), remove: jest.fn().mockResolvedValue({}), callSid }),
+          { create: participantsCreate, list: participantsList },
+        ),
         update: conferenceUpdate,
         fetch: conferenceFetch,
         sid,
@@ -92,7 +97,15 @@ export function makeFakeTwilio() {
     }),
   };
 
-  return { client, participantsCreate, conferenceUpdate, conferenceFetch, callsCreate, callUpdate };
+  return {
+    client,
+    participantsCreate,
+    participantsList,
+    conferenceUpdate,
+    conferenceFetch,
+    callsCreate,
+    callUpdate,
+  };
 }
 
 export function makeHarness() {

@@ -41,6 +41,15 @@ export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
+export {
+  CallGroup,
+  CallGroupChannel,
+  CallGroupMember,
+  CallGroupType,
+  CallGroupWithMembers,
+  ResolvedCallGroupMember,
+} from './entities/call-group.entity';
+export { CALL_GROUP_LIMITS } from './entities/call-group.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';

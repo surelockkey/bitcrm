@@ -34,6 +34,9 @@ locals {
       # frozen, so only associated calls appear here.
       { name = "PartyIndex", n = 3 },
     ] }
+    # Call groups: PK='GROUP', SK='GROUP#<id>' — one partition holds every
+    # group, so listing is a single Query. Tens of items, never thousands.
+    call-groups      = { gsis = [] }
     deal-products    = { gsis = [] }
     timeline-entries = { gsis = [] }
     addresses        = { gsis = [] } # currently unused by code, kept for parity
