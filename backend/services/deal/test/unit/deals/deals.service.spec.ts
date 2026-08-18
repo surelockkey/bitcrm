@@ -563,6 +563,31 @@ describe('DealsService', () => {
       }));
     });
 
+    it('uses the Canceled sub-status name as the cancellation reason', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.CANCELED });
+      jobStatuses.findById.mockResolvedValue({
+        id: 'ss-high-price',
+        name: 'High Price',
+        group: JobSuperStatus.CANCELED,
+        color: 'red',
+        priority: 0,
+        active: true,
+      });
+
+      await service.moveStatus(
+        'deal-1',
+        { superStatus: JobSuperStatus.CANCELED, subStatusId: 'ss-high-price' },
+        caller,
+      );
+
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        superStatus: JobSuperStatus.CANCELED,
+        subStatusId: 'ss-high-price',
+        cancellationReason: 'High Price',
+      }));
+    });
+
     it('should set a sub-status that belongs to the target super-status', async () => {
       const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
       jobStatuses.findById.mockResolvedValue({ id: 'sub-1', name: 'Job Done', group: JobSuperStatus.IN_PROGRESS });

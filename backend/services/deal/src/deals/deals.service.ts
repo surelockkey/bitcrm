@@ -589,17 +589,26 @@ export class DealsService {
   async moveStatus(id: string, dto: MoveStatusDto, caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
 
-    // Require a cancellation reason when moving to Canceled.
-    if (dto.superStatus === JobSuperStatus.CANCELED && !dto.cancellationReason) {
-      throw new BadRequestException('cancellationReason is required when canceling a deal');
-    }
-
     // A sub-status, if supplied, must belong to the target super-status.
+    let sub;
     if (dto.subStatusId) {
-      const sub = await this.jobStatuses.findById(dto.subStatusId);
+      sub = await this.jobStatuses.findById(dto.subStatusId);
       if (sub.group !== dto.superStatus) {
         throw new BadRequestException(
           `Sub-status "${sub.name}" does not belong to super-status ${dto.superStatus}`,
+        );
+      }
+    }
+
+    // Canceling needs a reason. A Canceled sub-status IS the reason (the
+    // catalog mirrors the old CRM's cancellation list), so its name fills in
+    // when none was typed; without either the move is rejected.
+    let cancellationReason = dto.cancellationReason;
+    if (dto.superStatus === JobSuperStatus.CANCELED && !cancellationReason) {
+      if (sub) cancellationReason = sub.name;
+      else {
+        throw new BadRequestException(
+          'Pick a cancellation sub-status or provide a cancellation reason',
         );
       }
     }
@@ -619,8 +628,8 @@ export class DealsService {
       // `update()` skips undefined (which left the stale sub-status attached).
       subStatusId: dto.subStatusId || null,
     };
-    if (dto.cancellationReason) {
-      updates.cancellationReason = dto.cancellationReason;
+    if (cancellationReason) {
+      updates.cancellationReason = cancellationReason;
     }
 
     const result = await this.repository.update(id, updates);
