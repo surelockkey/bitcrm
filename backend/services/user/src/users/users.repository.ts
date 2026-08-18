@@ -258,6 +258,12 @@ export class UsersRepository {
       lastName: item.lastName as string,
       roleId: (item.roleId as string) || '',
       department: item.department as string,
+      // Their own number. Every read goes through here, so omitting it didn't
+      // just hide the field: an edit form defaulting from it would clear the
+      // stored number, and `applyPhoneChange` — which compares against what it
+      // reads here — never deleted the old lookup item when a number changed,
+      // leaving numbers that could never be claimed again.
+      phone: item.phone as string | undefined,
       status: item.status as User['status'],
       permissionOverrides: item.permissionOverrides as User['permissionOverrides'],
       createdAt: item.createdAt as string,

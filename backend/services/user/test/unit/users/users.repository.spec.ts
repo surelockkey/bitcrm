@@ -55,6 +55,39 @@ describe('UsersRepository', () => {
       expect(input.Key).toEqual({ PK: 'USER#user-1', SK: 'METADATA' });
     });
 
+    /**
+     * Regression: the mapper listed fields one by one and left `phone` out, so
+     * the number was stored but never read back. It hid the field on the
+     * profile, let an edit form default to blank and clear it, and stopped the
+     * old lookup item being deleted when somebody changed their number.
+     */
+    it('returns the personal phone that is stored on the item', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: {
+          PK: 'USER#user-1',
+          SK: 'METADATA',
+          ...user,
+          phone: '+380958601427',
+        },
+      });
+
+      const result = await repository.findById('user-1');
+
+      expect(result?.phone).toBe('+380958601427');
+    });
+
+    it('leaves the phone undefined for somebody who has not set one', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user },
+      });
+
+      const result = await repository.findById('user-1');
+
+      expect(result?.phone).toBeUndefined();
+    });
+
     it('should return null when item does not exist', async () => {
       dbClient.send.mockResolvedValue({ Item: undefined });
 
@@ -132,6 +165,19 @@ describe('UsersRepository', () => {
   });
 
   describe('findAll', () => {
+    it('carries the phone through the list mapping too', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Items: [{ PK: 'USER#user-1', SK: 'METADATA', ...user, phone: '+14045551234' }],
+      });
+
+      const result = await repository.findAll(20);
+
+      // The users list feeds the edit form's defaults — a blank here is what
+      // wiped somebody's number when an admin saved an unrelated change.
+      expect(result.items[0].phone).toBe('+14045551234');
+    });
+
     it('should scan with begins_with filter', async () => {
       dbClient.send.mockResolvedValue({ Items: [] });
 
