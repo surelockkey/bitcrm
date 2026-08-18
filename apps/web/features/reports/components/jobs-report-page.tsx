@@ -8,6 +8,8 @@ import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
+import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
 import {
   Select,
   SelectContent,
@@ -364,19 +366,19 @@ export function JobsReportPage() {
             <option value="all">All time</option>
             <option value="custom">Custom</option>
           </select>
-          <Input
-            type="date"
-            aria-label="From date"
-            className="h-9 w-36"
-            value={preset === "custom" ? customFrom : (range.from ?? "")}
-            onChange={(e) => { setPreset("custom"); setCustomFrom(e.target.value); setCustomTo(range.to ?? customTo); setPage(1); }}
-          />
-          <Input
-            type="date"
-            aria-label="To date"
-            className="h-9 w-36"
-            value={preset === "custom" ? customTo : (range.to ?? "")}
-            onChange={(e) => { setPreset("custom"); setCustomTo(e.target.value); setCustomFrom(range.from ?? customFrom); setPage(1); }}
+          <DateTimeRangePicker
+            dateOnly
+            label="Days"
+            value={{
+              from: range.from ? toIsoInstant(range.from, DAY_START) : undefined,
+              to: range.to ? toIsoInstant(range.to, DAY_END) : undefined,
+            }}
+            onChange={(r) => {
+              setPreset("custom");
+              setCustomFrom(toLocalParts(r.from)?.date ?? "");
+              setCustomTo(toLocalParts(r.to)?.date ?? "");
+              setPage(1);
+            }}
           />
           <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => { setHourFrom(e.target.value); setPage(1); }} />
           <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => { setHourTo(e.target.value); setPage(1); }} />

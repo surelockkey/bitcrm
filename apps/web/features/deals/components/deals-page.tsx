@@ -34,6 +34,8 @@ import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
+import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
+import { toLocalParts, type DateTimeRange } from "@/lib/date-range";
 import { useJobFieldsStore } from "../fields-store";
 import { DealsTable } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
@@ -57,11 +59,12 @@ export function DealsPage() {
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
   const [sortSel, setSortSel] = useState("none");
-  // Range filters: days (scheduled date) and, separately, time of day.
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Range filters: one calendar range for the days, plus a time-of-day window.
+  const [dayRange, setDayRange] = useState<DateTimeRange>({});
   const [hourFrom, setHourFrom] = useState("");
   const [hourTo, setHourTo] = useState("");
+  const dateFrom = toLocalParts(dayRange.from)?.date ?? "";
+  const dateTo = toLocalParts(dayRange.to)?.date ?? "";
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
@@ -167,8 +170,7 @@ export function DealsPage() {
           <option value="hour_asc">Hour &#8593;</option>
           <option value="hour_desc">Hour &#8595;</option>
         </select>
-        <Input type="date" aria-label="From date" className="h-9 w-36" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-        <Input type="date" aria-label="To date" className="h-9 w-36" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <DateTimeRangePicker dateOnly label="Days" value={dayRange} onChange={setDayRange} />
         <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => setHourFrom(e.target.value)} />
         <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => setHourTo(e.target.value)} />
         <div className="ml-auto">

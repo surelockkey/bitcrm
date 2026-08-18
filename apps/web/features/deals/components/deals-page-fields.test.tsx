@@ -155,15 +155,17 @@ describe("DealsPage day/hour ranges", () => {
     expect(screen.getByText(/A11111/)).toBeInTheDocument();
     expect(screen.getByText(/B22222/)).toBeInTheDocument();
 
-    // Day range keeps only the 18th…
-    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-08-18" } });
-    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-08-18" } });
+    // One calendar, one range: pick the 18th twice to close a same-day range.
+    const dayButton = (day: string) =>
+      screen.getAllByRole("button", { name: day }).find((b) => b.classList.contains("size-8"))!;
+    fireEvent.click(screen.getByRole("button", { name: "Days" }));
+    fireEvent.click(dayButton("18"));
+    fireEvent.click(dayButton("18"));
     expect(screen.getByText(/A11111/)).toBeInTheDocument();
     expect(screen.queryByText(/B22222/)).not.toBeInTheDocument();
 
     // …reset days, then the hour range keeps only the afternoon job.
-    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Clear date filter" }));
     fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "12:00" } });
     expect(screen.queryByText(/A11111/)).not.toBeInTheDocument();
     expect(screen.getByText(/B22222/)).toBeInTheDocument();
