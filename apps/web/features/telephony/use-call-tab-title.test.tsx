@@ -1,33 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
-import type { CallRecord } from "@/features/calls/lib";
 import { useCallTabTitle } from "./use-call-tab-title";
 
-const mocks = vi.hoisted(() => ({
+const state = vi.hoisted(() => ({
   callState: "idle" as string,
-  call: null as CallRecord | null,
+  call: null as { number: string; contactName?: string } | null,
 }));
 
 vi.mock("./softphone-store", () => ({
-  useSoftphoneStore: (sel: (s: unknown) => unknown) =>
-    sel({ callState: mocks.callState }),
+  useSoftphoneStore: (sel: (s: unknown) => unknown) => sel(state),
 }));
-vi.mock("@/features/calls/hooks", () => ({
-  useActiveCall: () => ({ data: mocks.call }),
-}));
-
-const call = (over: Partial<CallRecord> = {}): CallRecord =>
-  ({
-    callSid: "CA1",
-    direction: "inbound",
-    from: "+14045551234",
-    to: "+15412830739",
-    status: "in-progress",
-    startedAt: "2026-08-18T10:00:00.000Z",
-    updatedAt: "2026-08-18T10:00:00.000Z",
-    fromParty: { kind: "contact", id: "c1", name: "Jane Roe" },
-    ...over,
-  }) as CallRecord;
 
 function Probe() {
   useCallTabTitle();
@@ -36,53 +18,61 @@ function Probe() {
 
 describe("useCallTabTitle", () => {
   beforeEach(() => {
-    mocks.callState = "idle";
-    mocks.call = null;
+    state.callState = "idle";
+    state.call = null;
     document.title = "BitCRM";
   });
 
-  it("names who you're on the call with", () => {
-    mocks.call = call();
+  it("names who this tab is on the call with", () => {
+    state.callState = "active";
+    state.call = { number: "+14045551234", contactName: "Jane Roe" };
     render(<Probe />);
     expect(document.title).toBe("Call with Jane Roe · BitCRM");
   });
 
   it("falls back to the number when the caller isn't a known client", () => {
-    mocks.call = call({ fromParty: undefined });
+    state.callState = "active";
+    state.call = { number: "+14045551234" };
     render(<Probe />);
     expect(document.title).toMatch(/Call with .*404.*555.*1234 · BitCRM/);
   });
 
-  it("says a call is coming in, in the tab that is ringing", () => {
-    mocks.callState = "incoming";
-    mocks.call = call({ status: "ringing" });
+  it("says a call is coming in, while it rings", () => {
+    state.callState = "incoming";
+    state.call = { number: "+14045551234", contactName: "Jane Roe" };
     render(<Probe />);
     expect(document.title).toBe("Incoming — Jane Roe · BitCRM");
   });
 
-  it("leaves the title alone when there is no call", () => {
+  it("labels the tab while the call is still connecting", () => {
+    state.callState = "connecting";
+    state.call = { number: "+14045551234", contactName: "Jane Roe" };
     render(<Probe />);
-    expect(document.title).toBe("BitCRM");
+    expect(document.title).toBe("Call with Jane Roe · BitCRM");
   });
 
-  it("ignores a call that has already ended", () => {
-    mocks.call = call({ status: "completed" });
+  it("leaves a tab that has no call alone, even during somebody else's", () => {
+    // The other tabs know about the call from the server — but the title is
+    // how you find the tab with the audio, so only that one is labelled.
     render(<Probe />);
     expect(document.title).toBe("BitCRM");
   });
 
   it("gives the title back when the call ends", () => {
-    mocks.call = call();
+    state.callState = "active";
+    state.call = { number: "+14045551234", contactName: "Jane Roe" };
     const { rerender } = render(<Probe />);
     expect(document.title).toBe("Call with Jane Roe · BitCRM");
 
-    mocks.call = null;
+    state.callState = "idle";
+    state.call = null;
     rerender(<Probe />);
     expect(document.title).toBe("BitCRM");
   });
 
   it("wins over a navigation that retitles the page mid-call", async () => {
-    mocks.call = call();
+    state.callState = "active";
+    state.call = { number: "+14045551234", contactName: "Jane Roe" };
     render(<Probe />);
 
     // What Next does on a route change.

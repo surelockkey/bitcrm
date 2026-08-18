@@ -1,17 +1,16 @@
 "use client";
 
 import { useEffect } from "react";
-import { useActiveCall } from "@/features/calls/hooks";
-import { counterparty, formatEndpoint, isLive } from "@/features/calls/lib";
+import { formatPhone } from "@/lib/phone";
 import { useSoftphoneStore } from "./softphone-store";
 
 /**
  * Put the call in the browser tab's title.
  *
- * A call is the one thing worth finding a tab for, and by the time you're
- * hunting for it you have half a dozen open — all of them saying "BitCRM".
- * Reads the call from the server, so every tab is labelled, not just the one
- * holding the audio.
+ * Only in the tab that actually has the call — the one with the audio. The
+ * point of the title is to find that tab among a dozen others, so labelling
+ * all of them would defeat it: it's read from this tab's own softphone rather
+ * than from the server's "you are on a call", which is true everywhere.
  *
  * Next sets the title again on every navigation, so the title element is
  * watched: a route change during a call is re-overridden, and the title the
@@ -19,18 +18,19 @@ import { useSoftphoneStore } from "./softphone-store";
  */
 export function useCallTabTitle(): void {
   const callState = useSoftphoneStore((s) => s.callState);
-  const { data: call } = useActiveCall(true);
+  const call = useSoftphoneStore((s) => s.call);
 
-  const ringingHere = callState === "incoming";
-  const party = call ? counterparty(call) : null;
-  const who = party?.name ?? formatEndpoint(party?.number) ?? "";
-  const onACall = !!call?.callSid && isLive(call);
+  const who =
+    call?.contactName ||
+    (call?.number ? formatPhone(call.number) : "") ||
+    "unknown";
 
-  const title = ringingHere
-    ? `Incoming — ${who || "unknown caller"} · BitCRM`
-    : onACall
-      ? `Call with ${who || "unknown"} · BitCRM`
-      : null;
+  const title =
+    callState === "incoming"
+      ? `Incoming — ${who} · BitCRM`
+      : callState === "active" || callState === "connecting"
+        ? `Call with ${who} · BitCRM`
+        : null;
 
   useEffect(() => {
     if (typeof document === "undefined" || !title) return;
@@ -47,9 +47,7 @@ export function useCallTabTitle(): void {
     apply();
 
     const node = document.querySelector("title");
-    const observer = node
-      ? new MutationObserver(apply)
-      : null;
+    const observer = node ? new MutationObserver(apply) : null;
     observer?.observe(node!, { childList: true });
 
     return () => {

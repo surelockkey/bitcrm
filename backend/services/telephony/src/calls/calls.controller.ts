@@ -602,6 +602,27 @@ export class CallsController {
     await this.mustBeMyLiveCall(sid, user.id);
     const previous = new Set(dto.previousLegs ?? []);
 
+    // The new leg has to be in the conference before the old one goes. The
+    // browser resolving `device.connect()` only means a call was created — if
+    // its TwiML then refused the join, completing anyway would remove the only
+    // leg we had and leave the customer alone on the line.
+    //
+    // Retried because a leg takes a moment to show up in the participant list
+    // after it joins; refusing on the first empty read would fail hand-overs
+    // that are actually fine.
+    let arrived: string[] = [];
+    for (let attempt = 0; attempt < 4 && arrived.length === 0; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+      const legs = await this.conferenceService.legsOf(sid, user.id);
+      arrived = legs.filter((legSid) => !previous.has(legSid));
+    }
+    if (arrived.length === 0) {
+      throw new ConflictException(
+        'The call did not move — this tab never joined it, so the original ' +
+          'tab still has it',
+      );
+    }
+
     for (const legSid of previous) {
       // Released first: a leg removed while it still owns the conference
       // lifecycle would take the customer down with it.
@@ -609,14 +630,11 @@ export class CallsController {
       await this.conferenceService.removeParticipant(sid, legSid);
     }
 
-    const remaining = (await this.conferenceService.legsOf(sid, user.id)).filter(
-      (legSid) => !previous.has(legSid),
-    );
-    for (const legSid of remaining) {
+    for (const legSid of arrived) {
       await this.conferenceService.promoteLeg(sid, legSid);
     }
 
-    return { success: true, data: { sid, movedTo: remaining } };
+    return { success: true, data: { sid, movedTo: arrived } };
   }
 
   /**

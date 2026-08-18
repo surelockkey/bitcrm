@@ -133,7 +133,11 @@ export function useUpdateMyPhone() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (phone: string) => api.updateMyPhone(phone),
-    onSuccess: () => {
+    onSuccess: (user) => {
+      // Show what the server saved, rather than waiting on a refetch to say
+      // the same thing — the number appearing is the only confirmation the
+      // save worked.
+      qc.setQueryData(queryKeys.me(), user);
       qc.invalidateQueries({ queryKey: queryKeys.me() });
       qc.invalidateQueries({ queryKey: queryKeys.users.all() });
       qc.invalidateQueries({ queryKey: queryKeys.calls.all() });

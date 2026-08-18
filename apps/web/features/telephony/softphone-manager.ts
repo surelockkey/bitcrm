@@ -271,6 +271,17 @@ export async function takeCallHere(
       params: { Monitor: grant.conferenceName, MonitorMode: "join" },
     });
     wireCall(call);
+    // `connect()` resolving only means Twilio created a leg — the TwiML on the
+    // other end may still refuse it. Wait for media before claiming the call
+    // moved.
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        call.off("accept", done);
+        resolve();
+      };
+      call.on("accept", done);
+      setTimeout(done, 8_000);
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not take the call";
     store().setStatus("error", message);
@@ -278,16 +289,18 @@ export async function takeCallHere(
     return;
   }
 
-  // Only now is this tab genuinely on the call. Failing here leaves the old
-  // tab connected too — both hear the customer, which is recoverable by
-  // hanging up one of them; dropping first would not have been.
+  // The server decides whether this actually worked: it drops the old legs only
+  // once it can see this tab's leg in the conference. A refusal here means the
+  // call never moved and the original tab still has it — which is the outcome
+  // to want, because the alternative was removing the only leg on the call.
   try {
     await completeTakeCall(callSid, previousLegs);
   } catch {
     store().setStatus(
       "error",
-      "Took the call, but the other tab is still connected — hang up there.",
+      "The call stayed in the other tab — nothing was moved.",
     );
+    hangup();
   }
 
 }

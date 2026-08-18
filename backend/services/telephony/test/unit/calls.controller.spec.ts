@@ -660,14 +660,47 @@ describe('CallsController — taking a call into another tab', () => {
     expect(res.data).toEqual({ sid: 'CA1', movedTo: ['CAnew'] });
   });
 
+  it('refuses to drop the old leg when the new one never joined', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+      // The join was refused, so the only leg on the call is still the old one.
+      conference: { legsOf: jest.fn().mockResolvedValue(['CAold']) },
+    });
+
+    await expect(
+      controller.takeComplete('CA1', { previousLegs: ['CAold'] }, USER),
+    ).rejects.toThrow(/did not move/i);
+
+    // Nothing touched: removing CAold would have left the customer alone.
+    expect(conference.releaseLeg).not.toHaveBeenCalled();
+    expect(conference.removeParticipant).not.toHaveBeenCalled();
+  });
+
+  it('waits for a leg that is slow to appear rather than refusing', async () => {
+    const legsOf = jest
+      .fn()
+      .mockResolvedValueOnce(['CAold'])
+      .mockResolvedValue(['CAold', 'CAnew']);
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+      conference: { legsOf },
+    });
+
+    const res = await controller.takeComplete('CA1', { previousLegs: ['CAold'] }, USER);
+
+    expect(res.data).toEqual({ sid: 'CA1', movedTo: ['CAnew'] });
+    expect(conference.removeParticipant).toHaveBeenCalledWith('CA1', 'CAold');
+  });
+
   it('never promotes a leg it was told to drop', async () => {
     const { controller, conference } = makeController({
       activeCallFor: jest.fn().mockResolvedValue(live),
-      conference: { legsOf: jest.fn().mockResolvedValue(['CAold']) },
+      conference: { legsOf: jest.fn().mockResolvedValue(['CAold', 'CAnew']) },
     });
 
     await controller.takeComplete('CA1', { previousLegs: ['CAold'] }, USER);
 
-    expect(conference.promoteLeg).not.toHaveBeenCalled();
+    expect(conference.promoteLeg).toHaveBeenCalledTimes(1);
+    expect(conference.promoteLeg).toHaveBeenCalledWith('CA1', 'CAnew');
   });
 });
