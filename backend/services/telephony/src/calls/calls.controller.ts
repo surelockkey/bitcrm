@@ -475,9 +475,11 @@ export class CallsController {
 
     // A hand-over releases the transferring agent's leg up front: their leg
     // was created to end the conference on exit, which is right until the
-    // moment they hand the call to somebody else.
+    // moment they hand the call to somebody else — and the person taking the
+    // call inherits that, or nobody's hang-up would end it.
     if (dto.handOver) {
       await this.conferenceService.releaseAgentLeg(sid, user.id);
+      await this.conferenceService.promoteLeg(sid, result.callSid);
     }
 
     return {

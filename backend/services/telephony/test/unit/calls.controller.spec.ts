@@ -391,6 +391,23 @@ describe('CallsController — transfer and add', () => {
     expect(res.data.handOver).toBe(false);
   });
 
+  it('hands the conference lifecycle to whoever took the call', async () => {
+    const { controller, conference } = makeController({
+      getBySid: jest.fn().mockResolvedValue(record({ status: 'in-progress' })),
+    });
+
+    await controller.addParticipant(
+      'CA1',
+      { userId: 'u9', channel: 'softphone', handOver: true },
+      USER,
+    );
+
+    // Released the old leg AND promoted the new one: releasing alone leaves
+    // nobody whose hang-up ends the call, and the customer sits there.
+    expect(conference.releaseAgentLeg).toHaveBeenCalledWith('CA1', 'sup-1');
+    expect(conference.promoteLeg).toHaveBeenCalledWith('CA1', 'CAadded');
+  });
+
   it('releases the transferring leg on a hand-over', async () => {
     const { controller, conference, directory } = makeController({
       getBySid: jest.fn().mockResolvedValue(liveCall),

@@ -247,6 +247,41 @@ export class ConferenceService {
     }
   }
 
+  /**
+   * Somebody left. If the only one still in the room is the customer, end the
+   * conference — otherwise they sit there listening to nothing.
+   *
+   * Twilio ends a conference when a participant with `endConferenceOnExit`
+   * leaves, and keeps a one-participant conference alive otherwise. That flag
+   * moves around: a transfer releases the transferring agent's leg, a
+   * supervisor joins without it, a tab hand-over swaps which leg carries it.
+   * Every one of those paths has a way to leave nobody holding it — and the
+   * cost of getting it wrong is a customer left on an open line, so this
+   * checks the room rather than trusting the flag.
+   */
+  async onParticipantLeave(name: string, conferenceSid: string): Promise<void> {
+    const meta = await this.redis.client.hgetall(this.metaKey(name));
+    // Outbound: the customer is the leg we dialled. Inbound: they are the call
+    // that created the conference.
+    const customerSid =
+      meta.customerSid || (meta.type === 'inbound' ? meta.primarySid : undefined);
+
+    const participants = await this.rest
+      .run((c) => c.conferences(conferenceSid).participants.list({ limit: 20 }))
+      .catch(() => null);
+    if (!participants || participants.length === 0) return; // already ending
+
+    const stillOurs = customerSid
+      ? participants.filter((p) => p.callSid !== customerSid)
+      : // Without meta we can't name the customer; a lone participant is
+        // nobody worth keeping a conference open for either way.
+        participants.slice(1);
+    if (stillOurs.length > 0) return;
+
+    this.logger.log(`Conference ${name}: nobody of ours left — ending the call`);
+    await this.completeConference(conferenceSid);
+  }
+
   /** Conference began mixing (second participant arrived). Bookkeeping only. */
   async onConferenceStart(name: string, conferenceSid: string): Promise<void> {
     const primarySid = primarySidOf(name);

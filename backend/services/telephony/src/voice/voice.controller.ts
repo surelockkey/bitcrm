@@ -82,6 +82,13 @@ export class VoiceController {
         body.CallSid,
       );
     } else if (
+      body.StatusCallbackEvent === 'participant-leave' &&
+      body.ConferenceSid
+    ) {
+      // Subscribed since the conference was introduced, but never acted on —
+      // which is how a customer could be left alone on the line.
+      await this.conferenceService.onParticipantLeave(name, body.ConferenceSid);
+    } else if (
       body.StatusCallbackEvent === 'conference-start' &&
       body.ConferenceSid
     ) {
