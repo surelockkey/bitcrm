@@ -311,7 +311,7 @@ export function JobsReportPage() {
   );
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-6 py-4">
         <div>
           <div className="flex items-center gap-2">
@@ -388,7 +388,7 @@ export function JobsReportPage() {
         <FilterSelect value={companyId} onChange={(v) => { setCompanyId(v); setPage(1); }} allLabel="All companies" width={170} options={[...companyMap.values()].map((co) => ({ value: co.id, label: co.title }))} />
       </div>
 
-      <div className="space-y-3 p-6">
+      <div className="min-w-0 space-y-3 p-6">
         {pager(true)}
 
         <div className="overflow-x-auto rounded-xl border">
