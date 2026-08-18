@@ -145,6 +145,36 @@ describe('DealsService — custom fields', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('accepts a list of attachment ids for a file field (Workiz allows up to 5)', async () => {
+      customFields.list.mockResolvedValue([
+        createMockCustomField({ id: 'cf-file', type: 'file' }),
+      ]);
+
+      const result = await service.create(
+        { ...baseDto, customFields: { 'cf-file': ['att-1', 'att-2'] } } as any,
+        caller,
+      );
+
+      expect(result.customFields).toEqual({ 'cf-file': ['att-1', 'att-2'] });
+    });
+
+    it('rejects a file field with more than 5 files or non-string entries', async () => {
+      customFields.list.mockResolvedValue([
+        createMockCustomField({ id: 'cf-file', type: 'file' }),
+      ]);
+
+      await expect(
+        service.create(
+          { ...baseDto, customFields: { 'cf-file': ['1', '2', '3', '4', '5', '6'] } } as any,
+          caller,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.create({ ...baseDto, customFields: { 'cf-file': [7] } } as any, caller),
+      ).rejects.toThrow(BadRequestException);
+      expect(repo.create).not.toHaveBeenCalled();
+    });
+
     it('accepts valid values and passes them to repository.create', async () => {
       customFields.list.mockResolvedValue([
         createMockCustomField({ id: 'cf-text', type: 'text' }),

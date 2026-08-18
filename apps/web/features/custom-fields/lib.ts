@@ -39,6 +39,31 @@ export function groupFields(
     }));
 }
 
+/** Card order of the custom-field groups on the Workiz job forms. */
+export const WORKIZ_GROUP_ORDER = [
+  "Extra Info",
+  "Other Contact",
+  "Dispatchers",
+  "Tech",
+  "Platinum",
+  "Company",
+  "Need To Order",
+];
+
+/**
+ * groupFields, reordered as on the Workiz form — its known groups first, in
+ * its order; anything else keeps groupFields' alphabetical tail.
+ */
+export function workizOrderedGroups(
+  fields: CustomFieldDefinition[],
+): { group: string; fields: CustomFieldDefinition[] }[] {
+  const rank = (g: string) => {
+    const i = WORKIZ_GROUP_ORDER.indexOf(g);
+    return i === -1 ? WORKIZ_GROUP_ORDER.length : i;
+  };
+  return [...groupFields(fields)].sort((a, b) => rank(a.group) - rank(b.group));
+}
+
 /**
  * Whether a stored answer counts as "unfilled". Blank/whitespace strings, empty
  * arrays and an unchecked checkbox (`false`) are empty; `0` and `true` are real

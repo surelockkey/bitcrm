@@ -48,12 +48,15 @@ export function DateTimeRangePicker({
   onChange,
   className,
   label = "Date & time",
+  dateOnly = false,
 }: {
   value: DateTimeRange;
   onChange: (range: DateTimeRange) => void;
   className?: string;
   /** Accessible name for the trigger. */
   label?: string;
+  /** Hide the time-of-day fields — a pure day-range picker. */
+  dateOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -264,20 +267,22 @@ export function DateTimeRangePicker({
                 </div>
 
                 {/* Time of day on each bound */}
-                <div className="mt-3 grid gap-3 border-t pt-3 md:grid-cols-2">
-                  <TimeField
-                    label="Start time"
-                    value={from?.time}
-                    disabled={!from}
-                    onChange={(t) => setTime("from", t)}
-                  />
-                  <TimeField
-                    label="End time"
-                    value={to?.time}
-                    disabled={!to}
-                    onChange={(t) => setTime("to", t)}
-                  />
-                </div>
+                {dateOnly ? null : (
+                  <div className="mt-3 grid gap-3 border-t pt-3 md:grid-cols-2">
+                    <TimeField
+                      label="Start time"
+                      value={from?.time}
+                      disabled={!from}
+                      onChange={(t) => setTime("from", t)}
+                    />
+                    <TimeField
+                      label="End time"
+                      value={to?.time}
+                      disabled={!to}
+                      onChange={(t) => setTime("to", t)}
+                    />
+                  </div>
+                )}
                 <p className="mt-2 text-xs text-muted-foreground">
                   {from && !to
                     ? "Pick the end day to close the range."

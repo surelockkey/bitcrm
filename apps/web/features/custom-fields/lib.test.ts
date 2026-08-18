@@ -5,6 +5,7 @@ import {
   groupFields,
   isCustomFieldAnswerEmpty,
   missingRequiredCustomFields,
+  workizOrderedGroups,
 } from "./lib";
 
 function field(over: Partial<CustomFieldDefinition>): CustomFieldDefinition {
@@ -63,6 +64,18 @@ describe("groupFields", () => {
     expect(groups.map((g) => g.group)).toEqual(["Alpha", "Zeta", "Other"]);
     // Same priority → name ascending.
     expect(groups[0].fields.map((f) => f.name)).toEqual(["Alfie", "Alpha"]);
+  });
+});
+
+describe("workizOrderedGroups", () => {
+  it("orders groups as on the Workiz form, unknown groups after", () => {
+    const groups = workizOrderedGroups([
+      field({ id: "n", name: "Item", group: "Need To Order" }),
+      field({ id: "z", name: "Custom", group: "Zeta" }),
+      field({ id: "t", name: "Parts Image", group: "Tech" }),
+      field({ id: "e", name: "Jobs Dispatch", group: "Extra Info" }),
+    ]);
+    expect(groups.map((g) => g.group)).toEqual(["Extra Info", "Tech", "Need To Order", "Zeta"]);
   });
 });
 

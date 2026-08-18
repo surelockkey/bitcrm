@@ -14,6 +14,7 @@ import { JobTagsService } from 'src/job-tags/job-tags.service';
 import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
 import { CustomFieldsService } from 'src/custom-fields/custom-fields.service';
+import { JobFieldSettingsService } from 'src/job-field-settings/job-field-settings.service';
 import { SnsPublisherService, GeocodingService } from '@bitcrm/shared';
 import {
   createMockDeal,
@@ -49,6 +50,7 @@ describe('DealsService', () => {
   let jobTags: { list: jest.Mock };
   let jobStatuses: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
+  let jobFieldSettings: { missingRequiredForCreate: jest.Mock };
 
   beforeEach(async () => {
     repo = createMockDealsRepository();
@@ -63,6 +65,7 @@ describe('DealsService', () => {
     jobTags = { list: jest.fn().mockResolvedValue([]) };
     jobStatuses = { findById: jest.fn() };
     eligibility = createMockTechnicianEligibilityRepository();
+    jobFieldSettings = { missingRequiredForCreate: jest.fn().mockResolvedValue([]) };
 
     const module = await Test.createTestingModule({
       providers: [
@@ -81,6 +84,7 @@ describe('DealsService', () => {
         { provide: JobStatusesService, useValue: jobStatuses },
         { provide: CustomFieldsService, useValue: createMockCustomFieldsService() },
         { provide: TechnicianEligibilityRepository, useValue: eligibility },
+        { provide: JobFieldSettingsService, useValue: jobFieldSettings },
       ],
     }).compile();
 
@@ -96,6 +100,31 @@ describe('DealsService', () => {
 
   describe('create', () => {
     const caller = createMockJwtUser({ id: 'dispatcher-1', roleId: 'role-dispatcher' });
+
+    it('422s with the exact fields when admin-required ones are empty', async () => {
+      http.validateContact.mockResolvedValue(true);
+      jobFieldSettings.missingRequiredForCreate.mockResolvedValue([
+        { id: 'source', label: 'Job source' },
+      ]);
+
+      await expect(
+        service.create(
+          {
+            contactId: 'contact-1',
+            clientType: ClientType.RESIDENTIAL,
+            serviceArea: 'Atlanta Metro',
+            address: { street: '123 Main', city: 'Atlanta', state: 'GA', zip: '30301' },
+            jobTypeId: 'jobtype-1',
+          } as never,
+          caller,
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          missingFields: [{ id: 'source', name: 'Job source' }],
+        }),
+      });
+      expect(repo.create).not.toHaveBeenCalled();
+    });
     const dto = {
       contactId: 'contact-1',
       clientType: ClientType.RESIDENTIAL,
@@ -531,6 +560,31 @@ describe('DealsService', () => {
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
         superStatus: JobSuperStatus.CANCELED, cancellationReason: 'Client resolved',
+      }));
+    });
+
+    it('uses the Canceled sub-status name as the cancellation reason', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.CANCELED });
+      jobStatuses.findById.mockResolvedValue({
+        id: 'ss-high-price',
+        name: 'High Price',
+        group: JobSuperStatus.CANCELED,
+        color: 'red',
+        priority: 0,
+        active: true,
+      });
+
+      await service.moveStatus(
+        'deal-1',
+        { superStatus: JobSuperStatus.CANCELED, subStatusId: 'ss-high-price' },
+        caller,
+      );
+
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        superStatus: JobSuperStatus.CANCELED,
+        subStatusId: 'ss-high-price',
+        cancellationReason: 'High Price',
       }));
     });
 

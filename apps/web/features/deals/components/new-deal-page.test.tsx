@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ContactSource,
@@ -14,11 +14,17 @@ const mocks = vi.hoisted(() => ({
   createContact: vi.fn(),
   updateContact: vi.fn(),
   linkCall: vi.fn(),
+  customFieldDefs: [] as unknown[],
+  requiredFields: {} as Record<string, boolean>,
+  searchParams: "contactId=c1&callSid=CA1",
+  requestUpload: vi.fn(),
+  uploadBytes: vi.fn(),
+  updateDealApi: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push, replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("contactId=c1&callSid=CA1"),
+  useSearchParams: () => new URLSearchParams(mocks.searchParams),
 }));
 vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
@@ -52,6 +58,8 @@ vi.mock("@/features/clients/hooks", () => ({
 }));
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
+  // The extracted ClientPicker searches the loaded contact book.
+  useContactMap: () => ({ map: new Map() }),
 }));
 vi.mock("@/features/calls/hooks", () => ({
   useLinkCallToDeal: () => ({ mutate: mocks.linkCall, isPending: false }),
@@ -59,7 +67,19 @@ vi.mock("@/features/calls/hooks", () => ({
 vi.mock("@/features/calls/components/calls-to-link", () => ({
   CallsToLink: () => null,
 }));
-vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
+vi.mock("@/features/custom-fields/hooks", () => ({
+  useCustomFields: () => ({ data: mocks.customFieldDefs }),
+}));
+vi.mock("@/features/job-field-settings/hooks", () => ({
+  useJobFieldSettings: () => ({ data: { requiredFields: mocks.requiredFields }, isLoading: false }),
+}));
+vi.mock("../attachments-api", () => ({
+  requestAttachmentUpload: (...args: unknown[]) => mocks.requestUpload(...args),
+  uploadAttachmentBytes: (...args: unknown[]) => mocks.uploadBytes(...args),
+}));
+vi.mock("../api", () => ({
+  updateDeal: (...args: unknown[]) => mocks.updateDealApi(...args),
+}));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
   ResolvedAreaField: () => null,
@@ -98,9 +118,215 @@ import { NewDealPage } from "./new-deal-page";
 const user = () => userEvent.setup();
 const submit = () => screen.getByRole("button", { name: /create job/i });
 
+describe("NewDealPage — admin-required fields", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = { source: true };
+    mocks.createDeal.mockReset();
+  });
+
+  it("blocks Create job and names the empty required field", async () => {
+    const u = user();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Fill required field.*Job source/)).toBeInTheDocument();
+  });
+
+  it("marks the required field with an asterisk", () => {
+    render(<NewDealPage />);
+
+    const label = screen.getByText("Job source");
+    expect(label.textContent).toContain("*");
+  });
+});
+
+describe("NewDealPage — deferred file uploads", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
+    mocks.requiredFields = {};
+    mocks.customFieldDefs = [
+      {
+        id: "cf-file",
+        name: "Check Image Front",
+        type: "file",
+        group: "Tech",
+        options: [],
+        jobTypeIds: [],
+        required: false,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    mocks.createDeal.mockReset();
+    mocks.push.mockReset();
+    mocks.requestUpload.mockReset();
+    mocks.uploadBytes.mockReset();
+    mocks.updateDealApi.mockReset();
+  });
+
+  it("holds the picked file and uploads it right after the job is created", async () => {
+    mocks.requestUpload.mockResolvedValue({
+      id: "att-1",
+      uploadUrl: "https://s3/upload",
+      s3Key: "k",
+      headers: { "Content-Type": "image/jpeg" },
+    });
+    mocks.uploadBytes.mockResolvedValue(undefined);
+    mocks.updateDealApi.mockResolvedValue({});
+    mocks.createDeal.mockImplementation(
+      (_body: unknown, opts?: { onSuccess?: (d: unknown) => void }) =>
+        opts?.onSuccess?.({ id: "d-new" }),
+    );
+
+    const u = user();
+    const { container } = render(<NewDealPage />);
+
+    // No "save first" nag; the file is picked straight on the form.
+    expect(screen.queryByText(/save the job first/i)).not.toBeInTheDocument();
+    const file = new File(["bytes"], "check.jpg", { type: "image/jpeg" });
+    fireEvent.change(container.querySelector('input[type="file"]')!, {
+      target: { files: [file] },
+    });
+    expect(await screen.findByText("check.jpg")).toBeInTheDocument();
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(screen.getByRole("button", { name: /create job/i }));
+
+    // Chain: job created → bytes uploaded under it → field patched → navigate.
+    await waitFor(() =>
+      expect(mocks.requestUpload).toHaveBeenCalledWith(
+        "d-new",
+        expect.objectContaining({ fileName: "check.jpg" }),
+      ),
+    );
+    expect(mocks.uploadBytes).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.updateDealApi).toHaveBeenCalledWith("d-new", {
+        customFields: expect.objectContaining({ "cf-file": ["att-1"] }),
+      }),
+    );
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new"));
+  });
+});
+
+describe("NewDealPage — auto-create client", () => {
+  beforeEach(() => {
+    mocks.searchParams = "";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    mocks.createContact.mockReset();
+    mocks.createDeal.mockReset();
+  });
+
+  it("creates the client first, then the job under them, in one click", async () => {
+    mocks.createContact.mockImplementation(
+      (body: { firstName: string; lastName: string }, opts?: { onSuccess?: (c: unknown) => void }) =>
+        opts?.onSuccess?.({ ...contact, id: "c-new", firstName: body.firstName, lastName: body.lastName }),
+    );
+    const u = user();
+    render(<NewDealPage />);
+
+    // Nobody matches — the picker opens its new-client block.
+    await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
+    await u.type(screen.getByPlaceholderText("First name"), "Nova");
+    await u.type(screen.getByPlaceholderText("Last name"), "Client");
+
+    await u.type(screen.getByLabelText("street"), "9 Elm");
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(screen.getByRole("button", { name: /create job/i }));
+
+    expect(mocks.createContact).toHaveBeenCalledWith(
+      expect.objectContaining({ firstName: "Nova", lastName: "Client" }),
+      expect.anything(),
+    );
+    expect(mocks.createDeal).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: "c-new" }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps Create job disabled until a client is picked or typed", async () => {
+    const u = user();
+    render(<NewDealPage />);
+
+    expect(submit()).toBeDisabled();
+
+    await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
+    await u.type(screen.getByPlaceholderText("First name"), "Nova");
+    await u.type(screen.getByPlaceholderText("Last name"), "Client");
+
+    expect(submit()).toBeEnabled();
+  });
+});
+
+describe("NewDealPage — Workiz layout", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+  });
+
+  it("lays the form out in Workiz-titled cards", () => {
+    render(<NewDealPage />);
+
+    for (const title of ["Client Details", "Service Location", "Job Details", "Scheduled"]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    }
+  });
+
+  it("renders each custom-field group as its own card, Workiz-ordered", () => {
+    const def = (id: string, name: string, group: string) => ({
+      id,
+      name,
+      type: "text",
+      group,
+      options: [],
+      jobTypeIds: [],
+      required: false,
+      requiredToClose: false,
+      searchable: false,
+      priority: 0,
+      active: true,
+      createdBy: "u1",
+      createdAt: "",
+      updatedAt: "",
+    });
+    mocks.customFieldDefs = [
+      def("cf-t", "Check Image Front", "Tech"),
+      def("cf-e", "Jobs Dispatch", "Extra Info"),
+    ];
+    render(<NewDealPage />);
+
+    const titles = screen.getAllByText(/^(Extra Info|Tech)$/).map((el) => el.textContent);
+    // Extra Info comes before Tech, as on the Workiz form.
+    expect(titles).toEqual(["Extra Info", "Tech"]);
+    expect(screen.getByText("Check Image Front")).toBeInTheDocument();
+    expect(screen.getByText("Jobs Dispatch")).toBeInTheDocument();
+    // No single monolithic "Custom fields" card anymore.
+    expect(screen.queryByText(/^Custom fields$/)).not.toBeInTheDocument();
+  });
+});
+
 describe("NewDealPage — client details", () => {
   beforeEach(() => {
-    for (const m of Object.values(mocks)) m.mockClear();
+    mocks.searchParams = "contactId=c1&callSid=CA1";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    for (const m of Object.values(mocks)) {
+      if (typeof (m as { mockClear?: () => void }).mockClear === "function") {
+        (m as { mockClear: () => void }).mockClear();
+      }
+    }
   });
 
   const fillJob = async (u: ReturnType<typeof user>) => {

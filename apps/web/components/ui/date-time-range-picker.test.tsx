@@ -134,6 +134,35 @@ describe("DateTimeRangePicker", () => {
     expect(start).toHaveValue("9:30 AM");
   });
 
+  it("dateOnly mode: one calendar range, no time fields", async () => {
+    const user = userEvent.setup();
+    const seen: DateTimeRange[] = [];
+    function DateOnlyHarness() {
+      const [range, setRange] = useState<DateTimeRange>({});
+      return (
+        <DateTimeRangePicker
+          value={range}
+          onChange={(r) => {
+            setRange(r);
+            seen.push(r);
+          }}
+          dateOnly
+          label="Days"
+        />
+      );
+    }
+    render(<DateOnlyHarness />);
+
+    await user.click(screen.getByRole("button", { name: "Days" }));
+    expect(screen.queryByRole("combobox", { name: "Start time" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "End time" })).not.toBeInTheDocument();
+
+    await user.click(dayButton("5"));
+    await user.click(dayButton("8"));
+    expect(seen.at(-1)?.from).toContain("T");
+    expect(seen.at(-1)?.to).toContain("T");
+  });
+
   it("applies presets and clears back to any date", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

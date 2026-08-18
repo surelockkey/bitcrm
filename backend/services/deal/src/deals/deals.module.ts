@@ -4,6 +4,7 @@ import { JobTypesModule } from '../job-types/job-types.module';
 import { JobSourcesModule } from '../job-sources/job-sources.module';
 import { JobTagsModule } from '../job-tags/job-tags.module';
 import { JobStatusesModule } from '../job-statuses/job-statuses.module';
+import { JobFieldSettingsModule } from '../job-field-settings/job-field-settings.module';
 import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 import { TechnicianEligibilityModule } from '../technician-eligibility/technician-eligibility.module';
 import { DealsController } from './deals.controller';
@@ -20,7 +21,7 @@ import { DealAttachmentsService } from './attachments/deal-attachments.service';
 import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, JobStatusesModule, CustomFieldsModule, TechnicianEligibilityModule],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule],
   // Attachments controller before Deals so `/:id/attachments` isn't shadowed by `/:id`.
   controllers: [DealAttachmentsController, DealsController],
   providers: [

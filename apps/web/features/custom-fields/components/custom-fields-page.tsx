@@ -113,13 +113,15 @@ export function CustomFieldsPage() {
                 {group}
               </h3>
               <div className="rounded-lg border">
-                <Table>
+                {/* Fixed layout so the columns land at the same x in every
+                    group's table — auto-sizing let them drift per group. */}
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Flags</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="w-40">Type</TableHead>
+                      <TableHead className="w-44">Flags</TableHead>
+                      <TableHead className="w-28">Status</TableHead>
                       <TableHead className="w-24 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>

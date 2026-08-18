@@ -66,10 +66,15 @@ const onlyDigits = (s: string) => s.replace(/\D/g, "");
 
 /**
  * Client-side search over already-loaded contacts — the list endpoint has no
- * text search. Matches name / title / email substrings, and phone by digits
- * (≥3, formatting-agnostic).
+ * text search. Matches name / title / email substrings, phone by digits
+ * (≥3, formatting-agnostic), and — when a `companyNames` resolver is passed —
+ * the contact's company name.
  */
-export function searchContacts(list: Contact[], query: string): Contact[] {
+export function searchContacts(
+  list: Contact[],
+  query: string,
+  companyNames?: Map<string, string>,
+): Contact[] {
   const s = query.trim().toLowerCase();
   if (!s) return list;
   const digits = onlyDigits(query);
@@ -78,6 +83,8 @@ export function searchContacts(list: Contact[], query: string): Contact[] {
     if (c.title?.toLowerCase().includes(s)) return true;
     if (c.emails.some((e) => e.toLowerCase().includes(s))) return true;
     if (digits.length >= 3 && c.phones.some((p) => onlyDigits(p).includes(digits))) return true;
+    const company = c.companyId ? companyNames?.get(c.companyId) : undefined;
+    if (company?.toLowerCase().includes(s)) return true;
     return false;
   });
 }

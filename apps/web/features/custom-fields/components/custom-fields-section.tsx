@@ -1,14 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Check, Loader2, Plus, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, FileText, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -25,8 +24,12 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { cn } from "@/lib/utils";
-import { requestAttachmentUpload, uploadAttachmentBytes } from "@/features/deals/attachments-api";
+import {
+  getAttachmentDownloadUrl,
+  requestAttachmentUpload,
+  uploadAttachmentBytes,
+} from "@/features/deals/attachments-api";
+import { useAttachmentUrl } from "@/features/deals/attachments-hooks";
 import { useCustomFields } from "../hooks";
 import { applicableFields, groupFields } from "../lib";
 
@@ -37,6 +40,18 @@ interface CustomFieldsSectionProps {
   disabled?: boolean;
   /** Required to attach files — presigned uploads are scoped to a saved deal. */
   dealId?: string;
+  /**
+   * Render just this one group, without its inner heading — for pages that
+   * give every group its own card (the Workiz-style New Job form).
+   */
+  onlyGroup?: string;
+  /**
+   * Deferred uploads for a job that doesn't exist yet: picked files are held
+   * here (keyed by field id, up to 5 each) and reported via onPendingFiles;
+   * the caller uploads them right after the job is created.
+   */
+  pendingFiles?: Record<string, File[]>;
+  onPendingFiles?: (fieldId: string, files: File[]) => void;
 }
 
 /**
@@ -50,13 +65,16 @@ export function CustomFieldsSection({
   onChange,
   disabled,
   dealId,
+  onlyGroup,
+  pendingFiles,
+  onPendingFiles,
 }: CustomFieldsSectionProps) {
   const { data } = useCustomFields();
 
-  const groups = useMemo(
-    () => groupFields(applicableFields(data, jobTypeId)),
-    [data, jobTypeId],
-  );
+  const groups = useMemo(() => {
+    const all = groupFields(applicableFields(data, jobTypeId));
+    return onlyGroup ? all.filter((g) => g.group === onlyGroup) : all;
+  }, [data, jobTypeId, onlyGroup]);
 
   const write = (id: string, next: CustomFieldValue | undefined) => {
     const copy = { ...value };
@@ -71,9 +89,11 @@ export function CustomFieldsSection({
     <div className="space-y-6">
       {groups.map(({ group, fields }) => (
         <div key={group} className="space-y-3">
-          <h3 className="text-sm font-semibold tracking-tight text-muted-foreground">
-            {group}
-          </h3>
+          {onlyGroup ? null : (
+            <h3 className="text-sm font-semibold tracking-tight text-muted-foreground">
+              {group}
+            </h3>
+          )}
           <div className="space-y-4">
             {fields.map((field) => (
               <FieldControl
@@ -83,6 +103,8 @@ export function CustomFieldsSection({
                 onChange={(v) => write(field.id, v)}
                 disabled={disabled}
                 dealId={dealId}
+                pendingFiles={pendingFiles?.[field.id]}
+                onPendingFiles={onPendingFiles ? (f) => onPendingFiles(field.id, f) : undefined}
               />
             ))}
           </div>
@@ -99,12 +121,16 @@ function FieldControl({
   onChange,
   disabled,
   dealId,
+  pendingFiles,
+  onPendingFiles,
 }: {
   field: CustomFieldDefinition;
   value: CustomFieldValue | undefined;
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  pendingFiles?: File[];
+  onPendingFiles?: (files: File[]) => void;
 }) {
   const labelId = `cf-${field.id}`;
 
@@ -153,6 +179,8 @@ function FieldControl({
         onChange={onChange}
         disabled={disabled}
         dealId={dealId}
+        pendingFiles={pendingFiles}
+        onPendingFiles={onPendingFiles}
       />
     </div>
   );
@@ -166,6 +194,8 @@ function FieldInput({
   onChange,
   disabled,
   dealId,
+  pendingFiles,
+  onPendingFiles,
 }: {
   field: CustomFieldDefinition;
   labelId: string;
@@ -173,6 +203,8 @@ function FieldInput({
   onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  pendingFiles?: File[];
+  onPendingFiles?: (files: File[]) => void;
 }) {
   switch (field.type) {
     case "large_text":
@@ -241,10 +273,12 @@ function FieldInput({
     case "file":
       return (
         <FileControl
-          value={typeof value === "string" ? value : undefined}
+          value={value}
           disabled={disabled}
           dealId={dealId}
           onChange={onChange}
+          pendingFiles={pendingFiles}
+          onPendingFiles={onPendingFiles}
         />
       );
 
@@ -359,25 +393,39 @@ function OptionsCombobox({
 }
 
 /**
- * File field: uploads through the deal's presigned-upload flow and stores the
- * resulting attachment id as the value. Uploads need a saved deal, so on a new
- * job (no `dealId`) it shows a "save the job first" affordance instead.
+ * File field, Workiz-style: a square "+" tile that takes up to 5 files, each
+ * shown as a chip. On a saved job every pick uploads through the presigned
+ * flow and the value stores the attachment ids; on a new job (no dealId)
+ * files are held in memory via onPendingFiles and upload right after create.
  */
+const MAX_FILES = 5;
+
 function FileControl({
   value,
   onChange,
   disabled,
   dealId,
+  pendingFiles,
+  onPendingFiles,
 }: {
-  value: string | undefined;
-  onChange: (next: string | undefined) => void;
+  value: CustomFieldValue | undefined;
+  onChange: (next: CustomFieldValue | undefined) => void;
   disabled?: boolean;
   dealId?: string;
+  pendingFiles?: File[];
+  onPendingFiles?: (files: File[]) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
-  if (!dealId) {
+  // Stored value may be a single legacy id or a list.
+  const ids = Array.isArray(value) ? value.map(String) : typeof value === "string" && value ? [value] : [];
+  const held = pendingFiles ?? [];
+  const deferred = !dealId && Boolean(onPendingFiles);
+  const count = deferred ? held.length : ids.length;
+  const full = count >= MAX_FILES;
+
+  if (!dealId && !onPendingFiles) {
     return (
       <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
         Save the job first to attach a file.
@@ -385,17 +433,40 @@ function FileControl({
     );
   }
 
-  const pick = async (file: File) => {
+  /** Open a stored attachment — popup-safe: the tab opens inside the click. */
+  const view = (attachmentId: string) => {
+    if (!dealId) return;
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+    void (async () => {
+      try {
+        const { downloadUrl } = await getAttachmentDownloadUrl(dealId, attachmentId);
+        if (tab) tab.location.replace(downloadUrl);
+        else window.open(downloadUrl, "_blank", "noopener,noreferrer");
+      } catch (e) {
+        tab?.close();
+        toast.error(getApiErrorMessage(e));
+      }
+    })();
+  };
+
+  const uploadNow = async (files: File[]) => {
+    if (!dealId) return;
     setUploading(true);
     try {
-      const ticket = await requestAttachmentUpload(dealId, {
-        fileName: file.name,
-        contentType: file.type,
-        size: file.size,
-      });
-      await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
-      onChange(ticket.id);
-      toast.success("File uploaded");
+      const newIds: string[] = [];
+      for (const file of files) {
+        const ticket = await requestAttachmentUpload(dealId, {
+          fileName: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        });
+        await uploadAttachmentBytes(ticket.uploadUrl, file, ticket.headers);
+        newIds.push(ticket.id);
+      }
+      const next = [...ids, ...newIds].slice(0, MAX_FILES);
+      onChange(next.length ? next : undefined);
+      toast.success(newIds.length > 1 ? "Files uploaded" : "File uploaded");
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
@@ -403,30 +474,172 @@ function FileControl({
     }
   };
 
+  const picked = (list: FileList | null) => {
+    const files = [...(list ?? [])].slice(0, MAX_FILES - count);
+    if (!files.length) return;
+    if (deferred) onPendingFiles!([...held, ...files].slice(0, MAX_FILES));
+    else void uploadNow(files);
+  };
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="space-y-1.5">
       <input
         ref={inputRef}
         type="file"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void pick(f);
+          picked(e.target.files);
           e.target.value = "";
         }}
       />
-      <Button
+
+      <div className="flex flex-wrap items-start gap-2.5">
+        {deferred
+          ? held.map((file, i) => (
+              <PendingFileTile
+                key={`${file.name}-${i}`}
+                file={file}
+                disabled={disabled}
+                onRemove={() => onPendingFiles!(held.filter((_, j) => j !== i))}
+              />
+            ))
+          : ids.map((id, i) => (
+              <SavedFileTile
+                key={id}
+                index={i}
+                attachmentId={id}
+                dealId={dealId!}
+                disabled={disabled}
+                onView={() => view(id)}
+                onRemove={() => {
+                  const next = ids.filter((x) => x !== id);
+                  onChange(next.length ? next : undefined);
+                }}
+              />
+            ))}
+
+        {!full ? (
+          <button
+            type="button"
+            aria-label="Attach file"
+            disabled={disabled || uploading}
+            onClick={() => inputRef.current?.click()}
+            className="grid size-14 flex-none place-items-center rounded-lg border-2 border-dashed text-muted-foreground transition-colors hover:border-brand/60 hover:bg-brand/5 hover:text-brand disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uploading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-5" />}
+          </button>
+        ) : null}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        You can choose up to {MAX_FILES} files{deferred ? " — they upload when the job is created" : ""}.
+      </p>
+    </div>
+  );
+}
+
+/** A file held in memory for a job that isn't created yet: thumb + name + ×. */
+function PendingFileTile({
+  file,
+  disabled,
+  onRemove,
+}: {
+  file: File;
+  disabled?: boolean;
+  onRemove: () => void;
+}) {
+  // jsdom has no createObjectURL — degrade to the icon there and in tests.
+  const url = useMemo(
+    () =>
+      file.type.startsWith("image/") && typeof URL.createObjectURL === "function"
+        ? URL.createObjectURL(file)
+        : null,
+    [file],
+  );
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
+
+  return (
+    <div className="relative w-14 flex-none">
+      <div className="grid size-14 place-items-center overflow-hidden rounded-lg border bg-muted/30">
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element -- local object URL
+          <img src={url} alt={file.name} className="size-full object-cover" />
+        ) : (
+          <FileText className="size-5 text-muted-foreground" />
+        )}
+      </div>
+      {!disabled ? (
+        <button
+          type="button"
+          aria-label={`Remove ${file.name}`}
+          onClick={onRemove}
+          className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border bg-background shadow-sm hover:text-destructive"
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
+      <p className="mt-1 truncate text-center text-[10px] text-muted-foreground" title={file.name}>
+        {file.name}
+      </p>
+    </div>
+  );
+}
+
+/** An uploaded attachment: presigned thumbnail, click to open, × to detach. */
+function SavedFileTile({
+  attachmentId,
+  dealId,
+  index,
+  disabled,
+  onView,
+  onRemove,
+}: {
+  attachmentId: string;
+  dealId: string;
+  index: number;
+  disabled?: boolean;
+  onView: () => void;
+  onRemove: () => void;
+}) {
+  const { data } = useAttachmentUrl(dealId, attachmentId);
+  const [broken, setBroken] = useState(false);
+
+  return (
+    <div className="relative w-14 flex-none">
+      <button
         type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        disabled={disabled || uploading}
-        onClick={() => inputRef.current?.click()}
+        aria-label={`View file ${index + 1}`}
+        onClick={onView}
+        className="grid size-14 w-full place-items-center overflow-hidden rounded-lg border bg-muted/30 transition-opacity hover:opacity-80"
       >
-        {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-        {value ? "Replace file" : "Upload"}
-      </Button>
-      {value ? <span className={cn("text-xs text-muted-foreground")}>File attached</span> : null}
+        {data?.downloadUrl && !broken ? (
+          // eslint-disable-next-line @next/next/no-img-element -- presigned S3 URL
+          <img
+            src={data.downloadUrl}
+            alt={`File ${index + 1}`}
+            onError={() => setBroken(true)}
+            className="size-full object-cover"
+          />
+        ) : (
+          <FileText className="size-5 text-muted-foreground" />
+        )}
+      </button>
+      {!disabled ? (
+        <button
+          type="button"
+          aria-label={`Remove file ${index + 1}`}
+          onClick={onRemove}
+          className="absolute -right-1.5 -top-1.5 grid size-5 place-items-center rounded-full border bg-background shadow-sm hover:text-destructive"
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
+      <p className="mt-1 truncate text-center text-[10px] text-muted-foreground">File {index + 1}</p>
     </div>
   );
 }

@@ -51,6 +51,7 @@ import { type MoveStatusDto } from './dto/move-status.dto';
 import { type ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { type AddNoteDto } from './dto/add-note.dto';
 import { type UpdateNoteDto } from './dto/update-note.dto';
+import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 
@@ -74,6 +75,7 @@ export class DealsService {
     private readonly eligibility: TechnicianEligibilityRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly jobFieldSettings?: JobFieldSettingsService,
   ) {}
 
   /**
@@ -151,8 +153,15 @@ export class DealsService {
       case 'text':
       case 'large_text':
       case 'date':
-      case 'file': // attachment id
         return typeof value === 'string';
+      case 'file':
+        // One attachment id, or (Workiz-style) up to 5 of them.
+        return (
+          typeof value === 'string' ||
+          (Array.isArray(value) &&
+            value.length <= 5 &&
+            value.every((v) => typeof v === 'string'))
+        );
       case 'number':
         return typeof value === 'number' && Number.isFinite(value);
       case 'checkbox':
@@ -264,6 +273,17 @@ export class DealsService {
     const contactExists = await this.internalHttp.validateContact(dto.contactId);
     if (!contactExists) {
       throw new BadRequestException(`Contact ${dto.contactId} not found`);
+    }
+
+    // Admin-configured required fields (Settings → Job Fields) — same 422
+    // shape as the close gate so clients can name the exact fields.
+    const missingRequired =
+      (await this.jobFieldSettings?.missingRequiredForCreate(dto)) ?? [];
+    if (missingRequired.length) {
+      throw new UnprocessableEntityException({
+        message: `Fill required field(s): ${missingRequired.map((f) => f.label).join(', ')}`,
+        missingFields: missingRequired.map((f) => ({ id: f.id, name: f.label })),
+      });
     }
 
     const dealNumber = await this.repository.reserveDealNumber();
@@ -569,17 +589,26 @@ export class DealsService {
   async moveStatus(id: string, dto: MoveStatusDto, caller: JwtUser): Promise<Deal> {
     const deal = await this.findById(id);
 
-    // Require a cancellation reason when moving to Canceled.
-    if (dto.superStatus === JobSuperStatus.CANCELED && !dto.cancellationReason) {
-      throw new BadRequestException('cancellationReason is required when canceling a deal');
-    }
-
     // A sub-status, if supplied, must belong to the target super-status.
+    let sub;
     if (dto.subStatusId) {
-      const sub = await this.jobStatuses.findById(dto.subStatusId);
+      sub = await this.jobStatuses.findById(dto.subStatusId);
       if (sub.group !== dto.superStatus) {
         throw new BadRequestException(
           `Sub-status "${sub.name}" does not belong to super-status ${dto.superStatus}`,
+        );
+      }
+    }
+
+    // Canceling needs a reason. A Canceled sub-status IS the reason (the
+    // catalog mirrors the old CRM's cancellation list), so its name fills in
+    // when none was typed; without either the move is rejected.
+    let cancellationReason = dto.cancellationReason;
+    if (dto.superStatus === JobSuperStatus.CANCELED && !cancellationReason) {
+      if (sub) cancellationReason = sub.name;
+      else {
+        throw new BadRequestException(
+          'Pick a cancellation sub-status or provide a cancellation reason',
         );
       }
     }
@@ -599,8 +628,8 @@ export class DealsService {
       // `update()` skips undefined (which left the stale sub-status attached).
       subStatusId: dto.subStatusId || null,
     };
-    if (dto.cancellationReason) {
-      updates.cancellationReason = dto.cancellationReason;
+    if (cancellationReason) {
+      updates.cancellationReason = cancellationReason;
     }
 
     const result = await this.repository.update(id, updates);

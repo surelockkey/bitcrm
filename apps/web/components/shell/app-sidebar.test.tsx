@@ -42,6 +42,8 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Dispatch Map")).toBeInTheDocument();
     expect(screen.getByText("Schedule")).toBeInTheDocument();
+    // The reports hub is a real page now, not a roadmap stub.
+    expect(screen.getByText("Reports")).toBeInTheDocument();
     // coming-soon, hidden by default:
     expect(screen.queryByText("Invoices")).not.toBeInTheDocument();
   });

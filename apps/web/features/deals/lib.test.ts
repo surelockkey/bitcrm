@@ -30,6 +30,7 @@ import {
   buildDealPatch,
   clientDraftFromContact,
   buildContactBody,
+  sortJobs,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -499,5 +500,64 @@ describe("buildContactBody", () => {
     const body = buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" }, dup);
     expect(body).not.toBeNull();
     expect(body!.addresses).toEqual(c.addresses);
+  });
+});
+
+describe("sortJobs", () => {
+  const rows = [
+    deal({ id: "a", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00", createdAt: "2026-08-01T08:30:00.000Z" }),
+    deal({ id: "b", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00", createdAt: "2026-08-02T16:00:00.000Z" }),
+    deal({ id: "c", scheduledDate: "2026-08-19", scheduledTimeSlot: undefined, createdAt: "2026-08-03T12:15:00.000Z" }),
+    deal({ id: "d", scheduledDate: undefined, scheduledTimeSlot: undefined, createdAt: "2026-08-04T09:00:00.000Z" }),
+  ];
+
+  it("sorts by day, both directions, undated always last", () => {
+    expect(sortJobs(rows, { key: "day", dir: "asc" }).map((d) => d.id)).toEqual(["b", "c", "a", "d"]);
+    expect(sortJobs(rows, { key: "day", dir: "desc" }).map((d) => d.id)).toEqual(["a", "c", "b", "d"]);
+  });
+
+  it("sorts by hour of day across dates, timeless jobs last", () => {
+    // 08:00 (b) before 14:00 (a), even though b's day is later in the desc case.
+    expect(sortJobs(rows, { key: "hour", dir: "asc" }).map((d) => d.id)).toEqual(["b", "a", "c", "d"]);
+    expect(sortJobs(rows, { key: "hour", dir: "desc" }).map((d) => d.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("keys off createdAt when asked — day and hour alike", () => {
+    expect(sortJobs(rows, { key: "day", dir: "asc" }, "createdAt").map((d) => d.id)).toEqual(["a", "b", "c", "d"]);
+    // Hours of createdAt: 08:30 (a), 09:00 (d), 12:15 (c), 16:00 (b).
+    expect(sortJobs(rows, { key: "hour", dir: "asc" }, "createdAt").map((d) => d.id)).toEqual(["a", "d", "c", "b"]);
+  });
+
+  it("does not mutate the input", () => {
+    const before = rows.map((d) => d.id);
+    sortJobs(rows, { key: "day", dir: "desc" });
+    expect(rows.map((d) => d.id)).toEqual(before);
+  });
+});
+
+describe("filterDeals — hour range", () => {
+  const rows = [
+    deal({ id: "a", scheduledDate: "2026-08-20", scheduledTimeSlot: "08:00-09:00" }),
+    deal({ id: "b", scheduledDate: "2026-08-20", scheduledTimeSlot: "11:30-12:30" }),
+    deal({ id: "c", scheduledDate: "2026-08-21", scheduledTimeSlot: "15:00-16:00" }),
+    deal({ id: "d", scheduledDate: "2026-08-21", scheduledTimeSlot: undefined }),
+  ];
+  const names = new Map<string, string>();
+
+  it("keeps only jobs whose slot starts inside the inclusive hour window", () => {
+    expect(filterDeals(rows, { hourFrom: "08:00", hourTo: "11:30" }, names).map((d) => d.id)).toEqual(["a", "b"]);
+    expect(filterDeals(rows, { hourFrom: "12:00" }, names).map((d) => d.id)).toEqual(["c"]);
+    expect(filterDeals(rows, { hourTo: "09:00" }, names).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("drops slotless jobs when an hour window is set, keeps them otherwise", () => {
+    expect(filterDeals(rows, { hourFrom: "00:00", hourTo: "23:59" }, names).map((d) => d.id)).toEqual(["a", "b", "c"]);
+    expect(filterDeals(rows, {}, names)).toHaveLength(4);
+  });
+
+  it("combines with the day range", () => {
+    expect(
+      filterDeals(rows, { dateFrom: "2026-08-21", dateTo: "2026-08-21", hourFrom: "14:00" }, names).map((d) => d.id),
+    ).toEqual(["c"]);
   });
 });

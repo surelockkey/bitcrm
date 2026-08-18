@@ -26,12 +26,16 @@ import {
   JOB_TABS,
   type DealFilter,
   type JobTab,
+  sortJobs,
+  type JobSort,
 } from "../lib";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
+import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
+import { toLocalParts, type DateTimeRange } from "@/lib/date-range";
 import { useJobFieldsStore } from "../fields-store";
 import { DealsTable } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
@@ -54,6 +58,13 @@ export function DealsPage() {
   const [jobTypeId, setJobTypeId] = useState(ALL);
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
+  const [sortSel, setSortSel] = useState("none");
+  // Range filters: one calendar range for the days, plus a time-of-day window.
+  const [dayRange, setDayRange] = useState<DateTimeRange>({});
+  const [hourFrom, setHourFrom] = useState("");
+  const [hourTo, setHourTo] = useState("");
+  const dateFrom = toLocalParts(dayRange.from)?.date ?? "";
+  const dateTo = toLocalParts(dayRange.to)?.date ?? "";
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
@@ -88,12 +99,16 @@ export function DealsPage() {
   const baseFilter: DealFilter = useMemo(
     () => ({
       search: search || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      hourFrom: hourFrom || undefined,
+      hourTo: hourTo || undefined,
       techId: techId === ALL ? undefined : techId,
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
       serviceArea: serviceArea === ALL ? undefined : serviceArea,
       tagId: tagId === ALL ? undefined : tagId,
     }),
-    [search, techId, jobTypeId, serviceArea, tagId],
+    [search, techId, jobTypeId, serviceArea, tagId, dateFrom, dateTo, hourFrom, hourTo],
   );
 
   // Searchable custom-field definitions let free-text search match their answers.
@@ -107,7 +122,12 @@ export function DealsPage() {
     [deals, baseFilter, contactNames, searchableFields],
   );
   const counts = useMemo(() => tabCounts(base), [base]);
-  const visible = useMemo(() => base.filter((d) => matchesTab(d, tab)), [base, tab]);
+  const visible = useMemo(() => {
+    const rows = base.filter((d) => matchesTab(d, tab));
+    if (sortSel === "none") return rows;
+    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
+    return sortJobs(rows, { key, dir });
+  }, [base, tab, sortSel]);
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -138,6 +158,21 @@ export function DealsPage() {
         <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All job types" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={160} />
         <FilterSelect value={serviceArea} onChange={setServiceArea} allLabel="All areas" options={areaOptions} width={150} />
         <FilterSelect value={tagId} onChange={setTagId} allLabel="Any tag" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={130} />
+        <select
+          aria-label="Sort jobs"
+          className="h-9 rounded-md border bg-transparent px-2 text-sm"
+          value={sortSel}
+          onChange={(e) => setSortSel(e.target.value)}
+        >
+          <option value="none">Sort: default</option>
+          <option value="day_asc">Day &#8593;</option>
+          <option value="day_desc">Day &#8595;</option>
+          <option value="hour_asc">Hour &#8593;</option>
+          <option value="hour_desc">Hour &#8595;</option>
+        </select>
+        <DateTimeRangePicker dateOnly label="Days" value={dayRange} onChange={setDayRange} />
+        <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => setHourFrom(e.target.value)} />
+        <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => setHourTo(e.target.value)} />
         <div className="ml-auto">
           <FieldsMenu />
         </div>

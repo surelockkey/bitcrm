@@ -53,6 +53,12 @@ export { CALL_GROUP_LIMITS } from './entities/call-group.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';
+export {
+  JOB_REQUIRABLE_FIELDS,
+  DEFAULT_JOB_FIELD_SETTINGS,
+  JobRequirableFieldId,
+  JobFieldSettings,
+} from './entities/job-field-settings.entity';
 export { DealSubStatus } from './entities/deal-sub-status.entity';
 export {
   CustomFieldDefinition,
