@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Banknote,
   BarChart3,
@@ -25,9 +26,9 @@ import { toast } from "sonner";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { usePermissions } from "@/features/auth/use-permissions";
 
-/** The Workiz reports catalog, in its on-screen order. All mocked for now. */
-export const REPORT_TILES: { name: string; icon: LucideIcon }[] = [
-  { name: "Jobs", icon: Briefcase },
+/** The Workiz reports catalog, in its on-screen order. `href` = built. */
+export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] = [
+  { name: "Jobs", icon: Briefcase, href: "/reports/jobs" },
   { name: "Tips", icon: Wallet },
   { name: "Job Statistics", icon: BarChart3 },
   { name: "Leads Report", icon: Banknote },
@@ -65,19 +66,32 @@ export function ReportsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2 xl:grid-cols-3">
-        {REPORT_TILES.map(({ name, icon: Icon }) => (
-          <button
-            key={name}
-            type="button"
-            onClick={() =>
-              toast.info(`The ${name} report is on the way — reports are in progress.`)
-            }
-            className="flex items-center justify-between rounded-lg border border-l-4 border-l-foreground/70 bg-card px-4 py-3.5 text-left shadow-xs transition-colors hover:bg-muted/40"
-          >
-            <span className="text-sm font-medium">{name}</span>
-            <Icon className="size-5 text-muted-foreground" aria-hidden />
-          </button>
-        ))}
+        {REPORT_TILES.map(({ name, icon: Icon, href }) => {
+          const inner = (
+            <>
+              <span className="text-sm font-medium">{name}</span>
+              <Icon className="size-5 text-muted-foreground" aria-hidden />
+            </>
+          );
+          const tileClass =
+            "flex items-center justify-between rounded-lg border border-l-4 border-l-foreground/70 bg-card px-4 py-3.5 text-left shadow-xs transition-colors hover:bg-muted/40";
+          return href ? (
+            <Link key={name} href={href} className={tileClass}>
+              {inner}
+            </Link>
+          ) : (
+            <button
+              key={name}
+              type="button"
+              onClick={() =>
+                toast.info(`The ${name} report is on the way — reports are in progress.`)
+              }
+              className={tileClass}
+            >
+              {inner}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

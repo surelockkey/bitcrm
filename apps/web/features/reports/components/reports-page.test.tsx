@@ -44,17 +44,20 @@ describe("ReportsPage", () => {
     render(<ReportsPage />);
 
     for (const name of WORKIZ_REPORTS) {
-      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name }) ?? screen.getByRole("link", { name }),
+      ).toBeInTheDocument();
     }
     expect(REPORT_TILES).toHaveLength(WORKIZ_REPORTS.length);
   });
 
-  it("tiles are mocked for now — clicking says the report is on the way", () => {
+  it("the Jobs tile opens the built report; unbuilt tiles say they're coming", () => {
     render(<ReportsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Jobs" }));
+    expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute("href", "/reports/jobs");
 
-    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Jobs"));
+    fireEvent.click(screen.getByRole("button", { name: "Tips" }));
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Tips"));
   });
 
   it("blocks users without the reports permission", () => {
@@ -62,6 +65,6 @@ describe("ReportsPage", () => {
     render(<ReportsPage />);
 
     expect(screen.getByText(/no access/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Jobs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Jobs" })).not.toBeInTheDocument();
   });
 });
