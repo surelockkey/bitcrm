@@ -330,6 +330,7 @@ data "aws_iam_policy_document" "task_telephony" {
     resources = [
       module.ddb["calls"].arn,
       "${module.ddb["calls"].arn}/index/*",
+      module.ddb["call-groups"].arn,
     ]
   }
 

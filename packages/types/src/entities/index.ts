@@ -7,6 +7,15 @@ export { CompanyDocument } from './company-document.entity';
 export { Address } from './address.entity';
 export { Deal } from './deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './deal-attachment.entity';
+export {
+  CallGroup,
+  CallGroupChannel,
+  CallGroupMember,
+  CallGroupType,
+  CallGroupWithMembers,
+  ResolvedCallGroupMember,
+} from './call-group.entity';
+export { CALL_GROUP_LIMITS } from './call-group.entity';
 export { DealSubStatus } from './deal-sub-status.entity';
 export { CustomFieldDefinition, CustomFieldValue } from './custom-field.entity';
 export { DealProduct } from './deal-product.entity';
