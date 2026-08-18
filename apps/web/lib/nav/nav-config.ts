@@ -105,8 +105,10 @@ export const MAIN_NAV: NavGroup[] = [
     ],
   },
   {
-    label: "Reports",
+    label: "Insights",
     items: [
+      // The Workiz-style reports hub (tiles are mocked while reports land).
+      { label: "Reports", href: "/reports", icon: BarChart3, resource: "reports" },
       { label: "Commission", href: "/reports/commission", icon: BarChart3, resource: "reports", status: "coming-soon" },
       { label: "Analytics", href: "/reports/analytics", icon: BarChart3, resource: "reports", status: "coming-soon" },
     ],
