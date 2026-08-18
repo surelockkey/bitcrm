@@ -191,7 +191,9 @@ export function JobsReportPage() {
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const [dateField, setDateField] = useState<JobsReportDateField>("createdAt");
-  const [preset, setPreset] = useState<DatePreset>("this_week");
+  // "All time" by default — a fresh report should show everything;
+  // the Workiz-style weekly window is one click away in the presets.
+  const [preset, setPreset] = useState<DatePreset>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const range = preset === "custom"
