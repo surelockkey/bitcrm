@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import twilio from 'twilio';
 import {
   TELEPHONY_CONFIG,
@@ -33,6 +33,7 @@ export interface InboundBody {
 
 @Injectable()
 export class VoiceService {
+  private readonly logger = new Logger(VoiceService.name);
   /** Cached fallback caller id resolved from owned numbers. */
   private cachedDefaultCallerId: string | null = null;
   /** Cached set of our own numbers (internal-call detection). */
@@ -147,6 +148,14 @@ export class VoiceService {
     const confSid = await this.conference.conferenceSidOf(name);
     const live = confSid ? await this.conference.isConferenceLive(confSid) : false;
     if (!live) {
+      // Two different failures wore the same message, which made a refused
+      // join impossible to tell from a call that genuinely ended.
+      this.logger.warn(
+        `Join refused for ${identity} on ${name}: ` +
+          (confSid
+            ? `conference ${confSid} is not in progress`
+            : 'no conference sid known for that name'),
+      );
       twiml.say('That call has already ended.');
       twiml.hangup();
       return twiml.toString();
