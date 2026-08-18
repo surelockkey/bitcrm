@@ -206,6 +206,9 @@ export function JobsReportPage() {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(50);
   const [sortSel, setSortSel] = useState("none");
+  // Time-of-day window, matched against the slot start on any date.
+  const [hourFrom, setHourFrom] = useState("");
+  const [hourTo, setHourTo] = useState("");
 
   const contactNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -236,12 +239,14 @@ export function JobsReportPage() {
           dateField,
           dateFrom: range.from,
           dateTo: range.to,
+          hourFrom: hourFrom || undefined,
+          hourTo: hourTo || undefined,
         },
         contactNames,
         searchableFields,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- range derives from preset/custom values
-    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, contactNames, searchableFields],
+    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactNames, searchableFields],
   );
 
   const sorted = useMemo(() => {
@@ -373,6 +378,8 @@ export function JobsReportPage() {
             value={preset === "custom" ? customTo : (range.to ?? "")}
             onChange={(e) => { setPreset("custom"); setCustomTo(e.target.value); setCustomFrom(range.from ?? customFrom); setPage(1); }}
           />
+          <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => { setHourFrom(e.target.value); setPage(1); }} />
+          <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => { setHourTo(e.target.value); setPage(1); }} />
         </div>
       </div>
 

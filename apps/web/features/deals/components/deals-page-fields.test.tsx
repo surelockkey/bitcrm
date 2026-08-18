@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
@@ -137,6 +137,36 @@ describe("DealsPage sorting", () => {
     });
     expect(firstDataRow().textContent).toContain("A11111");
     mocks.deals = [deal];
+  });
+});
+
+describe("DealsPage day/hour ranges", () => {
+  afterEach(() => {
+    mocks.deals = [deal];
+  });
+
+  it("narrows the table by a day range and an hour range", () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
+      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
+    ];
+    render(<DealsPage />);
+
+    expect(screen.getByText(/A11111/)).toBeInTheDocument();
+    expect(screen.getByText(/B22222/)).toBeInTheDocument();
+
+    // Day range keeps only the 18th…
+    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-08-18" } });
+    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-08-18" } });
+    expect(screen.getByText(/A11111/)).toBeInTheDocument();
+    expect(screen.queryByText(/B22222/)).not.toBeInTheDocument();
+
+    // …reset days, then the hour range keeps only the afternoon job.
+    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "12:00" } });
+    expect(screen.queryByText(/A11111/)).not.toBeInTheDocument();
+    expect(screen.getByText(/B22222/)).toBeInTheDocument();
   });
 });
 

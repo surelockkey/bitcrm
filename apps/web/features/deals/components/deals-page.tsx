@@ -57,6 +57,11 @@ export function DealsPage() {
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
   const [sortSel, setSortSel] = useState("none");
+  // Range filters: days (scheduled date) and, separately, time of day.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [hourFrom, setHourFrom] = useState("");
+  const [hourTo, setHourTo] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
@@ -91,12 +96,16 @@ export function DealsPage() {
   const baseFilter: DealFilter = useMemo(
     () => ({
       search: search || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      hourFrom: hourFrom || undefined,
+      hourTo: hourTo || undefined,
       techId: techId === ALL ? undefined : techId,
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
       serviceArea: serviceArea === ALL ? undefined : serviceArea,
       tagId: tagId === ALL ? undefined : tagId,
     }),
-    [search, techId, jobTypeId, serviceArea, tagId],
+    [search, techId, jobTypeId, serviceArea, tagId, dateFrom, dateTo, hourFrom, hourTo],
   );
 
   // Searchable custom-field definitions let free-text search match their answers.
@@ -158,6 +167,10 @@ export function DealsPage() {
           <option value="hour_asc">Hour &#8593;</option>
           <option value="hour_desc">Hour &#8595;</option>
         </select>
+        <Input type="date" aria-label="From date" className="h-9 w-36" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        <Input type="date" aria-label="To date" className="h-9 w-36" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => setHourFrom(e.target.value)} />
+        <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => setHourTo(e.target.value)} />
         <div className="ml-auto">
           <FieldsMenu />
         </div>

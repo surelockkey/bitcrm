@@ -407,6 +407,13 @@ export interface DealFilter {
   serviceArea?: string;
   /** Keep only deals in one of these super-statuses (empty/undefined = all). */
   statusGroups?: JobSuperStatus[];
+  /**
+   * Inclusive time-of-day window ("HH:MM") matched against the slot start —
+   * "the 08:00–12:00 jobs" regardless of date. Slotless deals drop out
+   * whenever a bound is set.
+   */
+  hourFrom?: string;
+  hourTo?: string;
   /** Active jobs-list tab — a super-status or the `unscheduled` pseudo-tab. */
   tab?: JobTab;
   /** Inclusive scheduledDate range, `YYYY-MM-DD`. A deal with no date is excluded when set. */
@@ -447,6 +454,12 @@ export function filterDeals(
       if (!d.scheduledDate) return false;
       if (filter.dateFrom && d.scheduledDate < filter.dateFrom) return false;
       if (filter.dateTo && d.scheduledDate > filter.dateTo) return false;
+    }
+    if (filter.hourFrom || filter.hourTo) {
+      const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
+      if (!/^\d{2}:\d{2}$/.test(start)) return false;
+      if (filter.hourFrom && start < filter.hourFrom) return false;
+      if (filter.hourTo && start > filter.hourTo) return false;
     }
     if (filter.techId && !d.assignedTechIds.includes(filter.techId)) return false;
     if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;

@@ -162,6 +162,19 @@ describe("JobsReportPage", () => {
     expect(firstDataRow().textContent).toContain("A11111");
   });
 
+  it("narrows by an hour range against the slot start", () => {
+    mocks.deals = [
+      deal({ id: "a", dealNumber: "A11111", scheduledTimeSlot: "08:00-09:00" }),
+      deal({ id: "b", dealNumber: "B22222", scheduledTimeSlot: "14:00-15:00" }),
+    ];
+    render(<JobsReportPage />);
+
+    fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "12:00" } });
+
+    expect(screen.queryByText("A11111")).not.toBeInTheDocument();
+    expect(screen.getByText("B22222")).toBeInTheDocument();
+  });
+
   it("offers the date-field switch, presets and export", () => {
     render(<JobsReportPage />);
 
