@@ -1,9 +1,9 @@
 import type { CustomFieldDefinition, Deal } from "@bitcrm/types";
-import { filterDeals, type DealFilter } from "@/features/deals/lib";
+import { filterDeals, jobDayKey, type DealFilter } from "@/features/deals/lib";
 
 /* ------------------------------------------------------------- filtering */
 
-export type JobsReportDateField = "createdAt" | "scheduledDate";
+export type JobsReportDateField = "createdAt" | "scheduledDate" | "closedAt";
 
 export interface JobsReportFilter extends DealFilter {
   companyId?: string;
@@ -34,7 +34,7 @@ export function filterJobsReport(
   if (dateFrom || dateTo) {
     const field = dateField ?? "createdAt";
     rows = rows.filter((d) => {
-      const day = (d[field] ?? "").slice(0, 10);
+      const day = jobDayKey(d, field);
       if (!day) return false;
       if (dateFrom && day < dateFrom) return false;
       if (dateTo && day > dateTo) return false;

@@ -352,6 +352,7 @@ export function JobsReportPage() {
           >
             <option value="createdAt">By: Job created</option>
             <option value="scheduledDate">By: Job date</option>
+            <option value="closedAt">By: Job closed</option>
           </select>
           <select
             aria-label="Date preset"

@@ -60,6 +60,17 @@ describe("filterJobsReport", () => {
     ).toEqual(["a", "b"]);
   });
 
+  it("filters by the closedAt day when the field is closedAt", () => {
+    const closedRows = [
+      deal({ id: "x", closedAt: "2026-08-12T12:00:00.000Z" }),
+      deal({ id: "y", closedAt: "2026-08-20T12:00:00.000Z" }),
+      deal({ id: "z", closedAt: undefined }),
+    ];
+    expect(
+      filterJobsReport(closedRows, { dateField: "closedAt", dateFrom: "2026-08-15", dateTo: "2026-08-25" }, names).map((d) => d.id),
+    ).toEqual(["y"]);
+  });
+
   it("keeps the base deal filters working (super-status etc.)", () => {
     const mixed = [...rows, deal({ id: "x", superStatus: JobSuperStatus.CANCELED })];
     expect(

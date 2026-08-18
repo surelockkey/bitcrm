@@ -117,6 +117,21 @@ beforeEach(() => {
 });
 
 describe("DealsPage sorting", () => {
+  it("sorts by the closed date when the basis is Job closed", () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", closedAt: "2026-08-20T12:00:00.000Z" },
+      { ...deal, id: "d2", dealNumber: "B22222", closedAt: "2026-08-12T12:00:00.000Z" },
+    ];
+    render(<DealsPage />);
+
+    fireEvent.change(screen.getByLabelText("Date basis"), { target: { value: "closedAt" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), { target: { value: "day_asc" } });
+
+    const firstDataRow = () => screen.getAllByRole("row")[1];
+    expect(firstDataRow().textContent).toContain("B22222");
+    mocks.deals = [deal];
+  });
+
   it("sorts the table by day and by hour from the toolbar select", () => {
     mocks.deals = [
       { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },

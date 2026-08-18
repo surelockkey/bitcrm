@@ -587,4 +587,19 @@ describe("jobDayKey / jobHourKey — one basis for both filters", () => {
   it("returns empty hour key for a slotless scheduled job", () => {
     expect(jobHourKey(deal({ scheduledDate: "2026-08-20", scheduledTimeSlot: undefined }), "scheduledDate")).toBe("");
   });
+
+  it("closed basis: day and hour are LOCAL from closedAt, empty when open", () => {
+    const iso = "2026-08-22T09:45:00.000Z";
+    const local = new Date(iso);
+    const closed = deal({ closedAt: iso });
+    expect(jobDayKey(closed, "closedAt")).toBe(
+      `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}`,
+    );
+    expect(jobHourKey(closed, "closedAt")).toBe(
+      `${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}`,
+    );
+    // A job that isn't closed has no closed day/hour.
+    expect(jobDayKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
+    expect(jobHourKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
+  });
 });

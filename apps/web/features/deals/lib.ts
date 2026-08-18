@@ -133,17 +133,18 @@ export function isPriceInBand(price: number, catalog: number): boolean {
 /* ------------------------------------------------------- date/time basis */
 
 /** Which timestamp the day/hour filters read: the visit or the creation. */
-export type JobDateBasis = "scheduledDate" | "createdAt";
+export type JobDateBasis = "scheduledDate" | "createdAt" | "closedAt";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Day (YYYY-MM-DD) for a job under the chosen basis. createdAt is localized. */
 export function jobDayKey(d: Deal, basis: JobDateBasis): string {
   if (basis === "scheduledDate") return (d.scheduledDate ?? "").slice(0, 10);
-  if (!d.createdAt) return "";
-  const dt = new Date(d.createdAt);
+  const iso = basis === "closedAt" ? d.closedAt : d.createdAt;
+  if (!iso) return "";
+  const dt = new Date(iso);
   return Number.isNaN(dt.getTime())
-    ? d.createdAt.slice(0, 10)
+    ? iso.slice(0, 10)
     : `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
 }
 
@@ -153,13 +154,14 @@ export function jobDayKey(d: Deal, basis: JobDateBasis): string {
  * what the table shows). Empty string when there's no time to read.
  */
 export function jobHourKey(d: Deal, basis: JobDateBasis): string {
-  if (basis === "createdAt") {
-    if (!d.createdAt) return "";
-    const dt = new Date(d.createdAt);
-    return Number.isNaN(dt.getTime()) ? "" : `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  if (basis === "scheduledDate") {
+    const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
+    return /^\d{2}:\d{2}$/.test(start) ? start : "";
   }
-  const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
-  return /^\d{2}:\d{2}$/.test(start) ? start : "";
+  const iso = basis === "closedAt" ? d.closedAt : d.createdAt;
+  if (!iso) return "";
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? "" : `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
 }
 
 /* ------------------------------------------------------------------- sort */

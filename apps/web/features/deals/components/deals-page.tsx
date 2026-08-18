@@ -183,6 +183,7 @@ export function DealsPage() {
         >
           <option value="scheduledDate">By: Job date</option>
           <option value="createdAt">By: Job created</option>
+          <option value="closedAt">By: Job closed</option>
         </select>
         <DateTimeRangePicker dateOnly label="Days" value={dayRange} onChange={setDayRange} />
         <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => setHourFrom(e.target.value)} />
