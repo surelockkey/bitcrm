@@ -75,6 +75,16 @@ export const TERMINAL_SUPER_STATUSES = new Set<JobSuperStatus>([
 ]);
 
 /**
+ * Super-statuses that count as "closed" — the job is finished or dropped.
+ * Reaching one stamps the deal's closedAt; done_pending_approval is not here,
+ * it's still awaiting sign-off.
+ */
+export const CLOSED_SUPER_STATUSES = new Set<JobSuperStatus>([
+  JobSuperStatus.DONE,
+  JobSuperStatus.CANCELED,
+]);
+
+/**
  * Maps every legacy 13-stage value onto its super-status. Used both to backfill
  * existing deals and to derive `superStatus` on read for rows not yet migrated.
  * Note: `done_pending_approval` is a brand-new option with no legacy analogue.

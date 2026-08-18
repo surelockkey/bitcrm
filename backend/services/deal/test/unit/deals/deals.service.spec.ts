@@ -588,6 +588,48 @@ describe('DealsService', () => {
       }));
     });
 
+    it('stamps closedAt when moving to Done or Canceled', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.DONE });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE }, caller);
+
+      const patch = repo.update.mock.calls.at(-1)![1];
+      expect(typeof patch.closedAt).toBe('string');
+      expect(Number.isNaN(Date.parse(patch.closedAt))).toBe(false);
+    });
+
+    it('stamps closedAt via a Canceled sub-status too', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.CANCELED });
+      jobStatuses.findById.mockResolvedValue({
+        id: 'ss-high-price', name: 'High Price', group: JobSuperStatus.CANCELED,
+        color: 'red', priority: 0, active: true,
+      });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.CANCELED, subStatusId: 'ss-high-price' }, caller);
+
+      expect(repo.update.mock.calls.at(-1)![1].closedAt).toEqual(expect.any(String));
+    });
+
+    it('does not stamp closedAt for done_pending_approval — only Done/Canceled close', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.DONE_PENDING_APPROVAL });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.DONE_PENDING_APPROVAL }, caller);
+
+      expect('closedAt' in repo.update.mock.calls.at(-1)![1]).toBe(false);
+    });
+
+    it('clears closedAt when reopening a closed job', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.DONE, closedAt: '2026-08-01T00:00:00.000Z' }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      expect(repo.update.mock.calls.at(-1)![1].closedAt).toBeNull();
+    });
+
     it('should set a sub-status that belongs to the target super-status', async () => {
       const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
       jobStatuses.findById.mockResolvedValue({ id: 'sub-1', name: 'Job Done', group: JobSuperStatus.IN_PROGRESS });
