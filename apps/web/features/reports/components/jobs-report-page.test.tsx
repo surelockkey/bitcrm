@@ -136,6 +136,32 @@ describe("JobsReportPage", () => {
     expect(screen.getAllByText(/11–12 of 12/).length).toBeGreaterThan(0);
   });
 
+  it("sorts by day and by hour from the sort select", () => {
+    mocks.deals = [
+      deal({ id: "a", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" }),
+      deal({ id: "b", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" }),
+    ];
+    render(<JobsReportPage />);
+
+    const firstDataRow = () => screen.getAllByRole("row")[1];
+    // Default keeps input order.
+    expect(firstDataRow().textContent).toContain("A11111");
+
+    // Sorting follows the report's "By" field — point it at the schedule.
+    fireEvent.change(screen.getByRole("combobox", { name: "Date field" }), {
+      target: { value: "scheduledDate" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
+      target: { value: "day_asc" },
+    });
+    expect(firstDataRow().textContent).toContain("B22222");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
+      target: { value: "hour_desc" },
+    });
+    expect(firstDataRow().textContent).toContain("A11111");
+  });
+
   it("offers the date-field switch, presets and export", () => {
     render(<JobsReportPage />);
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   ClientType,
@@ -114,6 +114,30 @@ mocks.contactMap = new Map([[contact.id, contact]]);
 beforeEach(() => {
   localStorage.clear();
   useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
+});
+
+describe("DealsPage sorting", () => {
+  it("sorts the table by day and by hour from the toolbar select", () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
+      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
+    ];
+    render(<DealsPage />);
+
+    const firstDataRow = () => screen.getAllByRole("row")[1];
+    expect(firstDataRow().textContent).toContain("A11111");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
+      target: { value: "day_asc" },
+    });
+    expect(firstDataRow().textContent).toContain("B22222");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
+      target: { value: "hour_desc" },
+    });
+    expect(firstDataRow().textContent).toContain("A11111");
+    mocks.deals = [deal];
+  });
 });
 
 describe("DealsPage fields visibility", () => {

@@ -26,6 +26,8 @@ import {
   JOB_TABS,
   type DealFilter,
   type JobTab,
+  sortJobs,
+  type JobSort,
 } from "../lib";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
@@ -54,6 +56,7 @@ export function DealsPage() {
   const [jobTypeId, setJobTypeId] = useState(ALL);
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
+  const [sortSel, setSortSel] = useState("none");
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
@@ -107,7 +110,12 @@ export function DealsPage() {
     [deals, baseFilter, contactNames, searchableFields],
   );
   const counts = useMemo(() => tabCounts(base), [base]);
-  const visible = useMemo(() => base.filter((d) => matchesTab(d, tab)), [base, tab]);
+  const visible = useMemo(() => {
+    const rows = base.filter((d) => matchesTab(d, tab));
+    if (sortSel === "none") return rows;
+    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
+    return sortJobs(rows, { key, dir });
+  }, [base, tab, sortSel]);
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -138,6 +146,18 @@ export function DealsPage() {
         <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All job types" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={160} />
         <FilterSelect value={serviceArea} onChange={setServiceArea} allLabel="All areas" options={areaOptions} width={150} />
         <FilterSelect value={tagId} onChange={setTagId} allLabel="Any tag" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={130} />
+        <select
+          aria-label="Sort jobs"
+          className="h-9 rounded-md border bg-transparent px-2 text-sm"
+          value={sortSel}
+          onChange={(e) => setSortSel(e.target.value)}
+        >
+          <option value="none">Sort: default</option>
+          <option value="day_asc">Day &#8593;</option>
+          <option value="day_desc">Day &#8595;</option>
+          <option value="hour_asc">Hour &#8593;</option>
+          <option value="hour_desc">Hour &#8595;</option>
+        </select>
         <div className="ml-auto">
           <FieldsMenu />
         </div>

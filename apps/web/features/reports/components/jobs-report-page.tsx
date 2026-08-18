@@ -39,6 +39,7 @@ import { activeJobStatuses, useJobStatusName } from "@/features/job-statuses/lib
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
+import { sortJobs, type JobSort } from "@/features/deals/lib";
 import {
   datePresetRange,
   filterJobsReport,
@@ -204,6 +205,7 @@ export function JobsReportPage() {
 
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(50);
+  const [sortSel, setSortSel] = useState("none");
 
   const contactNames = useMemo(() => {
     const m = new Map<string, string>();
@@ -242,7 +244,13 @@ export function JobsReportPage() {
     [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, contactNames, searchableFields],
   );
 
-  const p = paginate(filtered, page, size);
+  const sorted = useMemo(() => {
+    if (sortSel === "none") return filtered;
+    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
+    return sortJobs(filtered, { key, dir }, dateField);
+  }, [filtered, sortSel, dateField]);
+
+  const p = paginate(sorted, page, size);
   const from = p.total === 0 ? 0 : (p.page - 1) * size + 1;
   const to = Math.min(p.page * size, p.total);
 
@@ -261,7 +269,7 @@ export function JobsReportPage() {
 
   const exportCsv = () => {
     const csv = jobsReportCsv(
-      filtered.map((d) => {
+      sorted.map((d) => {
         const c = contactMap.get(d.contactId);
         return {
           "Job #": String(d.dealNumber),
@@ -388,6 +396,18 @@ export function JobsReportPage() {
         <FilterSelect value={sourceId} onChange={(v) => { setSourceId(v); setPage(1); }} allLabel="All sources" options={activeJobSources(jobSourcesQuery.data).map((s) => ({ value: s.id, label: s.name }))} />
         <FilterSelect value={serviceArea} onChange={(v) => { setServiceArea(v); setPage(1); }} allLabel="All areas" options={areas.map((a) => ({ value: a, label: a }))} />
         <FilterSelect value={companyId} onChange={(v) => { setCompanyId(v); setPage(1); }} allLabel="All companies" width={170} options={[...companyMap.values()].map((co) => ({ value: co.id, label: co.title }))} />
+        <select
+          aria-label="Sort jobs"
+          className="h-9 rounded-md border bg-transparent px-2 text-sm"
+          value={sortSel}
+          onChange={(e) => { setSortSel(e.target.value); setPage(1); }}
+        >
+          <option value="none">Sort: default</option>
+          <option value="day_asc">Day &#8593;</option>
+          <option value="day_desc">Day &#8595;</option>
+          <option value="hour_asc">Hour &#8593;</option>
+          <option value="hour_desc">Hour &#8595;</option>
+        </select>
       </div>
 
       {isLoading ? (

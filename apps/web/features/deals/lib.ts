@@ -130,6 +130,44 @@ export function isPriceInBand(price: number, catalog: number): boolean {
   return price >= min - 1e-6 && price <= max + 1e-6;
 }
 
+/* ------------------------------------------------------------------- sort */
+
+export type JobSortKey = "day" | "hour";
+
+export interface JobSort {
+  key: JobSortKey;
+  dir: "asc" | "desc";
+}
+
+/**
+ * Order jobs by day or by time of day, over the schedule (default) or the
+ * created timestamp. Hour sorting compares only the time — 08:00 sorts before
+ * 14:00 across different dates (a dispatcher's morning-first view). Jobs
+ * missing the key always sink to the bottom, in either direction.
+ */
+export function sortJobs(
+  deals: Deal[],
+  sort: JobSort,
+  field: "scheduledDate" | "createdAt" = "scheduledDate",
+): Deal[] {
+  const dayKey = (d: Deal): string => (d[field] ?? "").slice(0, 10);
+  const hourKey = (d: Deal): string => {
+    if (field === "createdAt") return (d.createdAt ?? "").slice(11, 16);
+    const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
+    return /^\d{2}:\d{2}$/.test(start) ? start : "";
+  };
+  const key = sort.key === "day" ? dayKey : hourKey;
+  const mult = sort.dir === "asc" ? 1 : -1;
+  return [...deals].sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    if (ka === kb) return 0;
+    if (!ka) return 1;
+    if (!kb) return -1;
+    return ka < kb ? -mult : mult;
+  });
+}
+
 /* ---------------------------------------------------------------- schedule */
 
 export function formatSchedule(date?: string, slot?: string): string {
