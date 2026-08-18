@@ -4,12 +4,13 @@ import userEvent from "@testing-library/user-event";
 import type { CallRecord } from "../lib";
 import { LiveCallStrip } from "./live-call-strip";
 
-const isOwner = vi.fn(() => true);
+const callState = vi.fn(() => "active");
 const activeCall = vi.fn<() => { data: CallRecord | null }>();
 const linkMutate = vi.fn();
 
-vi.mock("@/features/telephony/use-tab-owner", () => ({
-  useTabOwner: () => isOwner(),
+vi.mock("@/features/telephony/softphone-store", () => ({
+  useSoftphoneStore: (sel: (s: unknown) => unknown) =>
+    sel({ callState: callState() }),
 }));
 vi.mock("@/features/telephony/use-call-timer", () => ({
   useCallTimer: () => "1:07",
@@ -36,7 +37,7 @@ const call: CallRecord = {
 
 describe("LiveCallStrip", () => {
   beforeEach(() => {
-    isOwner.mockReturnValue(true);
+    callState.mockReturnValue("active");
     activeCall.mockReturnValue({ data: call });
     linkMutate.mockClear();
   });
@@ -80,8 +81,8 @@ describe("LiveCallStrip", () => {
 
   it("appears in a tab that doesn't hold the audio, and says so", async () => {
     // The job opened in a second tab is the normal way to use this: the call
-    // is in tab one, the work is here.
-    isOwner.mockReturnValue(false);
+    // is in tab one, the work is here. This tab has no call of its own.
+    callState.mockReturnValue("idle");
     const user = userEvent.setup();
     render(<LiveCallStrip dealId="d1" />);
 

@@ -2,8 +2,8 @@
 
 import { Loader2, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSoftphoneStore } from "@/features/telephony/softphone-store";
 import { useCallTimer } from "@/features/telephony/use-call-timer";
-import { useTabOwner } from "@/features/telephony/use-tab-owner";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useActiveCall, useLinkCallToDeal } from "../hooks";
 import { counterparty, formatEndpoint } from "../lib";
@@ -19,7 +19,9 @@ import { counterparty, formatEndpoint } from "../lib";
  */
 export function LiveCallStrip({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
-  const isOwner = useTabOwner();
+  // Whether the audio is in this tab is simply whether this tab is on a call —
+  // no cross-tab bookkeeping needed to know that.
+  const audioHere = useSoftphoneStore((s) => s.callState) !== "idle";
   const { data: call } = useActiveCall(can("deals", "edit"));
   const link = useLinkCallToDeal();
   const timer = useCallTimer(call?.answeredAt);
@@ -39,7 +41,7 @@ export function LiveCallStrip({ dealId }: { dealId: string }) {
         <div className="truncate text-xs text-muted-foreground">
           {client.name ? `${formatEndpoint(client.number)} · ` : ""}
           {call.answeredAt ? timer : "connecting"}
-          {isOwner ? "" : " · audio is in another tab"}
+          {audioHere ? "" : " · audio is in another tab"}
         </div>
       </div>
       {alreadyHere ? (

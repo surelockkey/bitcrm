@@ -21,7 +21,6 @@ import { queryKeys } from "@/lib/query-keys";
 import { useActiveCall } from "@/features/calls/hooks";
 import { counterparty, isLive } from "@/features/calls/lib";
 import { onMessage } from "../tab-coordinator";
-import { useTabOwner } from "../use-tab-owner";
 import { CallJobActions } from "@/features/calls/components/call-job-actions";
 import { TransferPanel, type TransferIntent } from "./transfer-panel";
 import { DialerDirectory } from "./dialer-directory";
@@ -68,7 +67,6 @@ export function SoftphoneWidget() {
   const [entry, setEntry] = useState("");
   const timer = useCallTimer(call?.startedAt);
 
-  const isOwner = useTabOwner();
   const inCall = callState !== "idle";
   // What the server says this user is on — true in every tab, not just the one
   // holding the audio. A follower has no Device and no local call state, so
@@ -237,13 +235,6 @@ export function SoftphoneWidget() {
           >
             {STATUS_LABEL[status] ?? status}
           </span>
-          {/* Only one tab registers a Device. Saying which one is why an idle
-              dialer here isn't a bug. */}
-          {!isOwner && phoneOn ? (
-            <span className="text-[10px] text-muted-foreground">
-              · phone is in another tab
-            </span>
-          ) : null}
         </span>
         <Switch
           checked={phoneOn}
