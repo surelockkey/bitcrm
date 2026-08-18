@@ -58,6 +58,11 @@ export function useCallStream(enabled = true) {
         (prev) => ({ ...prev, ...call }),
       );
 
+      // "The call I'm on" — every tab watches this, including the ones with no
+      // Device of their own, so a follower's strip updates the moment the
+      // owner's call does rather than on the next poll.
+      void client.invalidateQueries({ queryKey: queryKeys.calls.active() });
+
       // History list — debounced invalidate (bursts of webhooks arrive together).
       if (!invalidateTimer) {
         invalidateTimer = setTimeout(() => {

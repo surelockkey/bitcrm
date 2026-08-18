@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRightLeft,
   GripHorizontal,
+  Loader2,
   Mic,
   MicOff,
   Phone,
@@ -16,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { useActiveCall } from "@/features/calls/hooks";
+import { counterparty } from "@/features/calls/lib";
+import { useTabOwner } from "../use-tab-owner";
 import { CallJobActions } from "@/features/calls/components/call-job-actions";
 import { TransferPanel, type TransferIntent } from "./transfer-panel";
 import { DialerDirectory } from "./dialer-directory";
@@ -23,6 +26,7 @@ import { formatPhone } from "@/lib/phone";
 import { useSoftphoneStore } from "../softphone-store";
 import { useNumbers } from "../numbers-hooks";
 import { CallerIdPicker } from "./caller-id-picker";
+import { takeCallHere } from "../softphone-manager";
 import { useCallTimer } from "../use-call-timer";
 import {
   acceptIncoming,
@@ -61,7 +65,16 @@ export function SoftphoneWidget() {
   const [entry, setEntry] = useState("");
   const timer = useCallTimer(call?.startedAt);
 
+  const isOwner = useTabOwner();
   const inCall = callState !== "idle";
+  // What the server says this user is on — true in every tab, not just the one
+  // holding the audio. A follower has no Device and no local call state, so
+  // this is the only thing that knows a call is happening at all.
+  const { data: serverCall } = useActiveCall(!inCall);
+  const elsewhere = !inCall && !!serverCall?.callSid;
+  const elsewhereParty = serverCall ? counterparty(serverCall) : null;
+  const elsewhereTimer = useCallTimer(serverCall?.answeredAt);
+  const [taking, setTaking] = useState(false);
   // A live call forces the panel open even if the user "closed" it.
   const visible = dialerOpen || inCall;
 
@@ -195,6 +208,13 @@ export function SoftphoneWidget() {
           >
             {STATUS_LABEL[status] ?? status}
           </span>
+          {/* Only one tab registers a Device. Saying which one is why an idle
+              dialer here isn't a bug. */}
+          {!isOwner && phoneOn ? (
+            <span className="text-[10px] text-muted-foreground">
+              · phone is in another tab
+            </span>
+          ) : null}
         </span>
         <Switch
           checked={phoneOn}
@@ -210,7 +230,43 @@ export function SoftphoneWidget() {
         </p>
       ) : null}
 
-      {!phoneOn && !inCall ? (
+      {elsewhere ? (
+        <div className="space-y-3 p-3">
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-center">
+            <div className="truncate text-base font-semibold">
+              {elsewhereParty?.name ?? formatPhone(elsewhereParty?.number ?? "")}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {serverCall?.answeredAt ? elsewhereTimer : "connecting"} · audio is
+              in another tab
+            </div>
+          </div>
+
+          {/* The audio can't be copied here — but the call is a conference, so
+              this tab can join it and the other tab's leg is dropped after. */}
+          <Button
+            variant="brand"
+            className="w-full gap-1.5"
+            disabled={taking}
+            onClick={() => {
+              setTaking(true);
+              void takeCallHere(
+                serverCall!.callSid,
+                elsewhereParty?.name ?? elsewhereParty?.number,
+              ).finally(() => setTaking(false));
+            }}
+          >
+            {taking ? <Loader2 className="size-4 animate-spin" /> : null}
+            Take the call in this tab
+          </Button>
+
+          <CallJobActions call={serverCall ?? null} />
+
+          <p className="text-center text-[11px] text-muted-foreground">
+            Linking to a job works from here without moving the call.
+          </p>
+        </div>
+      ) : !phoneOn && !inCall ? (
         <div className="flex flex-col items-center gap-1 px-3 py-8 text-center">
           <PhoneOff className="size-6 text-muted-foreground" />
           <p className="text-sm font-medium">Phone is off</p>

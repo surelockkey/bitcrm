@@ -540,6 +540,79 @@ export class ConferenceService {
   }
 
   /**
+   * Every leg in this conference that belongs to one user — their softphone in
+   * whichever browser tabs they have registered.
+   *
+   * Needed by the tab hand-over, which has to tell one of somebody's legs from
+   * another: both are `client:<userId>`, so identity alone can't distinguish
+   * the tab that has the call from the tab asking for it.
+   */
+  async legsOf(primarySid: string, userId: string): Promise<string[]> {
+    const conferenceSid = await this.conferenceSidOf(confName(primarySid));
+    if (!conferenceSid) return [];
+
+    const participants = await this.rest.run((c) =>
+      c.conferences(conferenceSid).participants.list({ limit: 20 }),
+    );
+
+    const mine: string[] = [];
+    for (const participant of participants) {
+      const leg = await this.rest
+        .run((c) => c.calls(participant.callSid).fetch())
+        .catch(() => null);
+      if (
+        participant.callSid === primarySid ||
+        leg?.to === `client:${userId}` ||
+        leg?.from === `client:${userId}`
+      ) {
+        mine.push(participant.callSid);
+      }
+    }
+    return mine;
+  }
+
+  /**
+   * Make this leg the one whose hang-up ends the call.
+   *
+   * A leg that joined through the monitor path carries
+   * `endConferenceOnExit: false` — right for a supervisor dropping in, wrong
+   * for the agent who has just taken the call over in another tab. Without
+   * this the customer would be left alone in the conference when the agent
+   * finally hangs up.
+   */
+  async promoteLeg(primarySid: string, callSid: string): Promise<void> {
+    const conferenceSid = await this.conferenceSidOf(confName(primarySid));
+    if (!conferenceSid) return;
+    await this.rest
+      .run((c) =>
+        c
+          .conferences(conferenceSid)
+          .participants(callSid)
+          .update({ endConferenceOnExit: true }),
+      )
+      .catch(() => undefined);
+  }
+
+  /**
+   * Stop one specific leg from owning the conference lifecycle.
+   *
+   * `releaseAgentLeg` finds a leg by who it belongs to, which is exactly what
+   * a tab hand-over can't use — both legs are the same person.
+   */
+  async releaseLeg(primarySid: string, callSid: string): Promise<void> {
+    const conferenceSid = await this.conferenceSidOf(confName(primarySid));
+    if (!conferenceSid) return;
+    await this.rest
+      .run((c) =>
+        c
+          .conferences(conferenceSid)
+          .participants(callSid)
+          .update({ endConferenceOnExit: false }),
+      )
+      .catch(() => undefined);
+  }
+
+  /**
    * Let the transferring agent hang up without taking the call with them.
    *
    * Their leg was created with `endConferenceOnExit: true` — correct while

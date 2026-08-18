@@ -42,6 +42,10 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     addParticipant: jest.fn().mockResolvedValue({ callSid: 'CAadded' }),
     releaseAgentLeg: jest.fn().mockResolvedValue(undefined),
     removeParticipant: jest.fn().mockResolvedValue(undefined),
+    legsOf: jest.fn().mockResolvedValue([]),
+    releaseLeg: jest.fn().mockResolvedValue(undefined),
+    promoteLeg: jest.fn().mockResolvedValue(undefined),
+    ...(over.conference as object),
   } as unknown as ConferenceService;
   const userNames = {
     resolve: jest.fn().mockResolvedValue({}),
@@ -574,5 +578,79 @@ describe('CallsController.recording proxy', () => {
     await expect(controller.recording('CA1', res as never)).rejects.toMatchObject({
       status: 502,
     });
+  });
+});
+
+
+describe('CallsController — taking a call into another tab', () => {
+  const live = record({
+    callSid: 'CA1',
+    status: 'in-progress',
+    conferenceName: 'conf-CA1',
+    agentId: 'sup-1',
+  });
+
+  it('grants a join and reports which legs are currently theirs', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+      conference: { legsOf: jest.fn().mockResolvedValue(['CAold']) },
+    });
+
+    const res = await controller.take('CA1', USER);
+
+    expect(res.data).toEqual({ conferenceName: 'conf-CA1', previousLegs: ['CAold'] });
+    expect(conference.grantMonitor).toHaveBeenCalledWith('sup-1', 'conf-CA1', 'join');
+  });
+
+  it('refuses a call the caller is not on — no permission stands in for that', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(record({ callSid: 'CAother' })),
+    });
+
+    await expect(controller.take('CA1', USER)).rejects.toThrow(/not on this call/i);
+    expect(conference.grantMonitor).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the caller is on no call at all', async () => {
+    const { controller } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(null),
+    });
+    await expect(controller.take('CA1', USER)).rejects.toThrow(/not on this call/i);
+  });
+
+  it('releases the old leg before removing it, then promotes the new one', async () => {
+    const order: string[] = [];
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+      conference: {
+        // After the hand-over the user has both legs; the old one is dropped.
+        legsOf: jest.fn().mockResolvedValue(['CAold', 'CAnew']),
+        releaseLeg: jest.fn(async () => void order.push('release')),
+        removeParticipant: jest.fn(async () => void order.push('remove')),
+        promoteLeg: jest.fn(async () => void order.push('promote')),
+      },
+    });
+
+    const res = await controller.takeComplete('CA1', { previousLegs: ['CAold'] }, USER);
+
+    // Removing a leg that still owns the conference lifecycle would take the
+    // customer down with it, so the release has to land first.
+    expect(order).toEqual(['release', 'remove', 'promote']);
+    expect(conference.releaseLeg).toHaveBeenCalledWith('CA1', 'CAold');
+    expect(conference.removeParticipant).toHaveBeenCalledWith('CA1', 'CAold');
+    // The surviving leg becomes the one whose hang-up ends the call.
+    expect(conference.promoteLeg).toHaveBeenCalledWith('CA1', 'CAnew');
+    expect(res.data).toEqual({ sid: 'CA1', movedTo: ['CAnew'] });
+  });
+
+  it('never promotes a leg it was told to drop', async () => {
+    const { controller, conference } = makeController({
+      activeCallFor: jest.fn().mockResolvedValue(live),
+      conference: { legsOf: jest.fn().mockResolvedValue(['CAold']) },
+    });
+
+    await controller.takeComplete('CA1', { previousLegs: ['CAold'] }, USER);
+
+    expect(conference.promoteLeg).not.toHaveBeenCalled();
   });
 });

@@ -2,8 +2,8 @@
 
 import { Loader2, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useSoftphoneStore } from "@/features/telephony/softphone-store";
 import { useCallTimer } from "@/features/telephony/use-call-timer";
+import { useTabOwner } from "@/features/telephony/use-tab-owner";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useActiveCall, useLinkCallToDeal } from "../hooks";
 import { counterparty, formatEndpoint } from "../lib";
@@ -12,16 +12,19 @@ import { counterparty, formatEndpoint } from "../lib";
  * Shown on a job while a call is actually happening: who's on the line, and a
  * single button to attach that call to this job. It only exists during a call,
  * because that's the only moment "this call" means anything.
+ *
+ * Asks the server which call this user is on, not this tab's softphone. The
+ * audio lives in one tab; the work doesn't — opening a job in a second tab
+ * mid-call is the normal way to use this, and the strip has to be there.
  */
 export function LiveCallStrip({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
-  const callState = useSoftphoneStore((s) => s.callState);
-  const onACall = callState === "active";
-  const { data: call } = useActiveCall(onACall);
+  const isOwner = useTabOwner();
+  const { data: call } = useActiveCall(can("deals", "edit"));
   const link = useLinkCallToDeal();
   const timer = useCallTimer(call?.answeredAt);
 
-  if (!onACall || !call?.callSid || !can("deals", "edit")) return null;
+  if (!call?.callSid || !can("deals", "edit")) return null;
 
   const alreadyHere = call.dealId === dealId;
   const client = counterparty(call);
@@ -36,6 +39,7 @@ export function LiveCallStrip({ dealId }: { dealId: string }) {
         <div className="truncate text-xs text-muted-foreground">
           {client.name ? `${formatEndpoint(client.number)} · ` : ""}
           {call.answeredAt ? timer : "connecting"}
+          {isOwner ? "" : " · audio is in another tab"}
         </div>
       </div>
       {alreadyHere ? (

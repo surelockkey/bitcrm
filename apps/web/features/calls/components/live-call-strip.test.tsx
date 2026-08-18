@@ -4,13 +4,12 @@ import userEvent from "@testing-library/user-event";
 import type { CallRecord } from "../lib";
 import { LiveCallStrip } from "./live-call-strip";
 
-const callState = vi.fn(() => "active");
+const isOwner = vi.fn(() => true);
 const activeCall = vi.fn<() => { data: CallRecord | null }>();
 const linkMutate = vi.fn();
 
-vi.mock("@/features/telephony/softphone-store", () => ({
-  useSoftphoneStore: (sel: (s: unknown) => unknown) =>
-    sel({ callState: callState() }),
+vi.mock("@/features/telephony/use-tab-owner", () => ({
+  useTabOwner: () => isOwner(),
 }));
 vi.mock("@/features/telephony/use-call-timer", () => ({
   useCallTimer: () => "1:07",
@@ -37,7 +36,7 @@ const call: CallRecord = {
 
 describe("LiveCallStrip", () => {
   beforeEach(() => {
-    callState.mockReturnValue("active");
+    isOwner.mockReturnValue(true);
     activeCall.mockReturnValue({ data: call });
     linkMutate.mockClear();
   });
@@ -72,12 +71,26 @@ describe("LiveCallStrip", () => {
   });
 
   it("shows nothing when no call is in progress", () => {
-    callState.mockReturnValue("idle");
     activeCall.mockReturnValue({ data: null });
     const { container } = render(<LiveCallStrip dealId="d1" />);
 
     // The whole point is that it only exists during a call.
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("appears in a tab that doesn't hold the audio, and says so", async () => {
+    // The job opened in a second tab is the normal way to use this: the call
+    // is in tab one, the work is here.
+    isOwner.mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<LiveCallStrip dealId="d1" />);
+
+    expect(screen.getByText(/Jane Roe/)).toBeInTheDocument();
+    expect(screen.getByText(/audio is in another tab/i)).toBeInTheDocument();
+
+    // And linking still works from here — it never needed the audio.
+    await user.click(screen.getByRole("button", { name: /link this call/i }));
+    expect(linkMutate).toHaveBeenCalledWith({ sid: "CA1", dealId: "d1" });
   });
 
   it("shows nothing while the call record hasn't resolved yet", () => {

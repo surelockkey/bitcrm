@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   ConflictException,
+  ForbiddenException,
   Controller,
   Delete,
   Get,
@@ -57,6 +58,11 @@ const SSE_HEARTBEAT_MS = 25_000;
 
 class MonitorDto {
   mode!: MonitorMode;
+}
+
+class TakeCompleteDto {
+  /** The legs this hand-over is replacing, as reported by `/take`. */
+  previousLegs!: string[];
 }
 
 class AddParticipantDto {
@@ -554,6 +560,77 @@ export class CallsController {
     if (!updated) throw new NotFoundException('Call not found');
     const [enriched] = await this.withNames([updated]);
     return { success: true, data: enriched };
+  }
+
+  @Post(':sid/take')
+  @ApiOperation({
+    summary: 'Take a call you are already on into this browser tab',
+    description:
+      'Any authenticated user, for a call they are already on — no extra ' +
+      'permission, because moving your own audio between your own tabs is not ' +
+      'a privilege. Issues the same single-use grant as monitor/join and ' +
+      'reports which legs are currently yours; the browser joins the ' +
+      'conference and then calls `/take/complete`, which drops the old legs. ' +
+      'Joining before dropping is what keeps the customer from hearing hold ' +
+      'music mid-handover.',
+  })
+  async take(@Param('sid') sid: string, @CurrentUser() user: JwtUser) {
+    const call = await this.mustBeMyLiveCall(sid, user.id);
+    const previousLegs = await this.conferenceService.legsOf(sid, user.id);
+    await this.conferenceService.grantMonitor(user.id, call.conferenceName!, 'join');
+    return {
+      success: true,
+      data: { conferenceName: call.conferenceName, previousLegs },
+    };
+  }
+
+  @Post(':sid/take/complete')
+  @ApiOperation({
+    summary: 'Finish a tab hand-over: drop the legs the call came from',
+    description:
+      'Called once the new tab is actually in the conference. Removes the ' +
+      'legs listed by `/take` and promotes whatever leg is left, so hanging ' +
+      'up in the new tab ends the call as it would have in the old one.',
+  })
+  async takeComplete(
+    @Param('sid') sid: string,
+    @Body() dto: TakeCompleteDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.mustBeMyLiveCall(sid, user.id);
+    const previous = new Set(dto.previousLegs ?? []);
+
+    for (const legSid of previous) {
+      // Released first: a leg removed while it still owns the conference
+      // lifecycle would take the customer down with it.
+      await this.conferenceService.releaseLeg(sid, legSid);
+      await this.conferenceService.removeParticipant(sid, legSid);
+    }
+
+    const remaining = (await this.conferenceService.legsOf(sid, user.id)).filter(
+      (legSid) => !previous.has(legSid),
+    );
+    for (const legSid of remaining) {
+      await this.conferenceService.promoteLeg(sid, legSid);
+    }
+
+    return { success: true, data: { sid, movedTo: remaining } };
+  }
+
+  /**
+   * A call the caller is genuinely on, and still live. Authorising by "is this
+   * yours" rather than by permission: a technician with no supervision rights
+   * still gets to move their own call to the tab in front of them.
+   */
+  private async mustBeMyLiveCall(sid: string, userId: string) {
+    const mine = await this.callsService.activeCallFor(userId);
+    if (!mine || mine.callSid !== sid) {
+      throw new ForbiddenException('You are not on this call');
+    }
+    if (!mine.conferenceName) {
+      throw new ConflictException('This call has no conference to join');
+    }
+    return mine;
   }
 
   @Post(':sid/monitor')
