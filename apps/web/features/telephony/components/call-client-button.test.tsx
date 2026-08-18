@@ -69,6 +69,20 @@ describe("CallClientButton", () => {
     expect(screen.queryByText(/from which of our numbers/i)).not.toBeInTheDocument();
   });
 
+  it("drops the popover directly under the button, aligned to its left edge", async () => {
+    const u = userEvent.setup();
+    render(<CallClientButton to="+14045551234" partyId="c1" />);
+    await open(u);
+
+    const panel = screen.getByPlaceholderText(/search our numbers/i).closest("div.absolute");
+    expect(panel).not.toBeNull();
+    // Anchored under the button (top-full) and to its left edge, not hanging
+    // off to the left via right-0.
+    expect(panel).toHaveClass("left-0");
+    expect(panel).toHaveClass("top-full");
+    expect(panel?.className).not.toContain("right-0");
+  });
+
   it("offers the numbers this client has spoken to, newest first and dated", async () => {
     const u = userEvent.setup();
     render(<CallClientButton to="+14045551234" partyId="c1" />);

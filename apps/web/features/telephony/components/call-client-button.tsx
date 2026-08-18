@@ -67,7 +67,7 @@ export function CallClientButton({
   };
 
   return (
-    <span className={className ? `relative ${className}` : "relative"}>
+    <span className={className ? `relative inline-flex ${className}` : "relative inline-flex"}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -87,7 +87,9 @@ export function CallClientButton({
             className="fixed inset-0 z-10 cursor-default"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-lg border bg-popover shadow-md">
+          {/* Drops straight under the button, aligned to its left edge, and
+              never wider than the viewport on a narrow card. */}
+          <div className="absolute left-0 top-full z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-popover shadow-md">
             <div className="border-b px-3 py-2">
               <p className="text-xs font-medium">Call {formatPhone(to)}</p>
               <p className="text-[11px] text-muted-foreground">
