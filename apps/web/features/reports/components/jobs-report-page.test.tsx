@@ -162,13 +162,17 @@ describe("JobsReportPage", () => {
     expect(firstDataRow().textContent).toContain("A11111");
   });
 
-  it("narrows by an hour range against the slot start", () => {
+  it("narrows by an hour window that follows the By: field", () => {
     mocks.deals = [
-      deal({ id: "a", dealNumber: "A11111", scheduledTimeSlot: "08:00-09:00" }),
-      deal({ id: "b", dealNumber: "B22222", scheduledTimeSlot: "14:00-15:00" }),
+      deal({ id: "a", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" }),
+      deal({ id: "b", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "14:00-15:00" }),
     ];
     render(<JobsReportPage />);
 
+    // Point the report at the schedule, then the hour window reads the slot.
+    fireEvent.change(screen.getByRole("combobox", { name: "Date field" }), {
+      target: { value: "scheduledDate" },
+    });
     fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "12:00" } });
 
     expect(screen.queryByText("A11111")).not.toBeInTheDocument();

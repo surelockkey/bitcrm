@@ -17,6 +17,7 @@ import {
 import {
   JobSuperStatus,
   TERMINAL_SUPER_STATUSES,
+  CLOSED_SUPER_STATUSES,
   DealStatus,
   DealPriority,
   TimelineEventType,
@@ -630,6 +631,14 @@ export class DealsService {
     };
     if (cancellationReason) {
       updates.cancellationReason = cancellationReason;
+    }
+
+    // Closing (Done/Canceled, or their sub-statuses) stamps closedAt; leaving a
+    // closed status clears it. done_pending_approval isn't a close.
+    if (CLOSED_SUPER_STATUSES.has(dto.superStatus)) {
+      updates.closedAt = new Date().toISOString();
+    } else if (CLOSED_SUPER_STATUSES.has(from)) {
+      updates.closedAt = null;
     }
 
     const result = await this.repository.update(id, updates);

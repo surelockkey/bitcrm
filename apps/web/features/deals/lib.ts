@@ -130,6 +130,40 @@ export function isPriceInBand(price: number, catalog: number): boolean {
   return price >= min - 1e-6 && price <= max + 1e-6;
 }
 
+/* ------------------------------------------------------- date/time basis */
+
+/** Which timestamp the day/hour filters read: the visit or the creation. */
+export type JobDateBasis = "scheduledDate" | "createdAt" | "closedAt";
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** Day (YYYY-MM-DD) for a job under the chosen basis. createdAt is localized. */
+export function jobDayKey(d: Deal, basis: JobDateBasis): string {
+  if (basis === "scheduledDate") return (d.scheduledDate ?? "").slice(0, 10);
+  const iso = basis === "closedAt" ? d.closedAt : d.createdAt;
+  if (!iso) return "";
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime())
+    ? iso.slice(0, 10)
+    : `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
+/**
+ * Time of day (HH:MM) for a job under the chosen basis. For the schedule it's
+ * the slot start; for creation it's the LOCAL clock time (so it lines up with
+ * what the table shows). Empty string when there's no time to read.
+ */
+export function jobHourKey(d: Deal, basis: JobDateBasis): string {
+  if (basis === "scheduledDate") {
+    const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
+    return /^\d{2}:\d{2}$/.test(start) ? start : "";
+  }
+  const iso = basis === "closedAt" ? d.closedAt : d.createdAt;
+  if (!iso) return "";
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? "" : `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
 /* ------------------------------------------------------------------- sort */
 
 export type JobSortKey = "day" | "hour";
@@ -148,15 +182,10 @@ export interface JobSort {
 export function sortJobs(
   deals: Deal[],
   sort: JobSort,
-  field: "scheduledDate" | "createdAt" = "scheduledDate",
+  field: JobDateBasis = "scheduledDate",
 ): Deal[] {
-  const dayKey = (d: Deal): string => (d[field] ?? "").slice(0, 10);
-  const hourKey = (d: Deal): string => {
-    if (field === "createdAt") return (d.createdAt ?? "").slice(11, 16);
-    const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
-    return /^\d{2}:\d{2}$/.test(start) ? start : "";
-  };
-  const key = sort.key === "day" ? dayKey : hourKey;
+  const key = (d: Deal): string =>
+    sort.key === "day" ? jobDayKey(d, field) : jobHourKey(d, field);
   const mult = sort.dir === "asc" ? 1 : -1;
   return [...deals].sort((a, b) => {
     const ka = key(a);
@@ -408,12 +437,15 @@ export interface DealFilter {
   /** Keep only deals in one of these super-statuses (empty/undefined = all). */
   statusGroups?: JobSuperStatus[];
   /**
-   * Inclusive time-of-day window ("HH:MM") matched against the slot start —
-   * "the 08:00–12:00 jobs" regardless of date. Slotless deals drop out
-   * whenever a bound is set.
+   * Inclusive time-of-day window ("HH:MM") matched against the job's time
+   * under `hourBasis` (defaults to the slot start) — "the 08:00–12:00 jobs"
+   * regardless of date. Jobs with no time drop out whenever a bound is set.
    */
   hourFrom?: string;
   hourTo?: string;
+  hourBasis?: JobDateBasis;
+  /** Which timestamp the day range reads (defaults to the schedule). */
+  dateBasis?: JobDateBasis;
   /** Active jobs-list tab — a super-status or the `unscheduled` pseudo-tab. */
   tab?: JobTab;
   /** Inclusive scheduledDate range, `YYYY-MM-DD`. A deal with no date is excluded when set. */
@@ -451,13 +483,14 @@ export function filterDeals(
       return false;
     if (filter.tab && !matchesTab(d, filter.tab)) return false;
     if (filter.dateFrom || filter.dateTo) {
-      if (!d.scheduledDate) return false;
-      if (filter.dateFrom && d.scheduledDate < filter.dateFrom) return false;
-      if (filter.dateTo && d.scheduledDate > filter.dateTo) return false;
+      const day = jobDayKey(d, filter.dateBasis ?? "scheduledDate");
+      if (!day) return false;
+      if (filter.dateFrom && day < filter.dateFrom) return false;
+      if (filter.dateTo && day > filter.dateTo) return false;
     }
     if (filter.hourFrom || filter.hourTo) {
-      const start = d.scheduledTimeSlot?.split("-")[0]?.trim() ?? "";
-      if (!/^\d{2}:\d{2}$/.test(start)) return false;
+      const start = jobHourKey(d, filter.hourBasis ?? "scheduledDate");
+      if (!start) return false;
       if (filter.hourFrom && start < filter.hourFrom) return false;
       if (filter.hourTo && start > filter.hourTo) return false;
     }

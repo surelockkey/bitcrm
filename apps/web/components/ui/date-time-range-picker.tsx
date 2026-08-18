@@ -24,6 +24,11 @@ import {
 } from "@/lib/date-range";
 import { cn } from "@/lib/utils";
 
+/** Two ranges are equal when both bounds match (day + time). */
+function rangesEqual(a: DateTimeRange, b: DateTimeRange): boolean {
+  return a.from === b.from && a.to === b.to;
+}
+
 /** Layout effects warn when a component is prerendered on the server. */
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -192,28 +197,39 @@ export function DateTimeRangePicker({
             <div className="flex gap-3">
               {/* Presets */}
               <div className="flex w-24 shrink-0 flex-col gap-0.5 border-r pr-3 sm:w-32">
-                {PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => {
-                      const next = presetRange(preset);
-                      onChange(next);
-                      const anchor = parseDateKey(toLocalParts(next.from)!.date);
-                      setView(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
-                    }}
-                    className="rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-                  >
-                    {PRESET_LABEL[preset]}
-                  </button>
-                ))}
                 <button
                   type="button"
+                  aria-pressed={!hasRange}
                   onClick={clear}
-                  className="rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className={cn(
+                    "rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                    !hasRange && "bg-muted font-medium",
+                  )}
                 >
                   All time
                 </button>
+                {PRESETS.map((preset) => {
+                  const active = rangesEqual(value, presetRange(preset));
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        const next = presetRange(preset);
+                        onChange(next);
+                        const anchor = parseDateKey(toLocalParts(next.from)!.date);
+                        setView(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
+                      }}
+                      className={cn(
+                        "rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                        active && "bg-muted font-medium",
+                      )}
+                    >
+                      {PRESET_LABEL[preset]}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Calendars */}

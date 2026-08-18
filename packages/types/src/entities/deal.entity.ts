@@ -68,6 +68,11 @@ export interface Deal {
   customFields?: Record<string, CustomFieldValue>;
   status: DealStatus;
   createdBy: string;
+  /**
+   * When the job was closed: the moment it received a Done or Canceled status
+   * (or one of their sub-statuses). Cleared if the job is reopened.
+   */
+  closedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

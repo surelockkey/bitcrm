@@ -16,6 +16,7 @@ export {
   JobSuperStatus,
   SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
+  CLOSED_SUPER_STATUSES,
   STAGE_TO_SUPER_STATUS,
 } from './enums/deal-stage.enum';
 export { DealPriority } from './enums/deal-priority.enum';
