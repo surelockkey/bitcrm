@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useSoftphoneStore } from "../softphone-store";
 import { disableSoftphone, enableSoftphone } from "../softphone-manager";
+import { useCallTabTitle } from "../use-call-tab-title";
 import { SoftphoneWidget } from "./softphone-widget";
 
 /**
@@ -17,6 +18,9 @@ import { SoftphoneWidget } from "./softphone-widget";
  */
 export function SoftphoneProvider() {
   const phoneOn = useSoftphoneStore((s) => s.phoneOn);
+
+  // Mounted once per tab, which is exactly the scope of a tab title.
+  useCallTabTitle();
 
   useEffect(() => {
     if (phoneOn) void enableSoftphone();
