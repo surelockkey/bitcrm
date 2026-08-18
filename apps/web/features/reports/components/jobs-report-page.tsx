@@ -7,6 +7,7 @@ import { SUPER_STATUS_ORDER } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -165,7 +166,8 @@ function Pager({
  */
 export function JobsReportPage() {
   const { can } = usePermissions();
-  const { data: deals = [] } = useDeals();
+  const { data: dealsData, isLoading } = useDeals();
+  const deals = useMemo(() => dealsData ?? [], [dealsData]);
   const { map: contactMap } = useContactMap();
   const { map: userMap } = useUserMap();
   const { map: companyMap } = useCompanyMap();
@@ -388,6 +390,19 @@ export function JobsReportPage() {
         <FilterSelect value={companyId} onChange={(v) => { setCompanyId(v); setPage(1); }} allLabel="All companies" width={170} options={[...companyMap.values()].map((co) => ({ value: co.id, label: co.title }))} />
       </div>
 
+      {isLoading ? (
+        <div
+          role="status"
+          aria-label="Loading jobs"
+          className="min-w-0 space-y-3 p-6"
+        >
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-10 w-full" />
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} className="h-12 w-full" />
+          ))}
+        </div>
+      ) : (
       <div className="min-w-0 space-y-3 p-6">
         {pager(true)}
 
@@ -458,6 +473,7 @@ export function JobsReportPage() {
 
         {pager(false)}
       </div>
+      )}
     </div>
   );
 }

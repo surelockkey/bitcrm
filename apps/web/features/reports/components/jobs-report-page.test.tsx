@@ -12,7 +12,7 @@ import {
 import type { Contact, Deal } from "@bitcrm/types";
 
 const { mocks } = vi.hoisted(() => ({
-  mocks: { deals: [] as unknown[], perms: true },
+  mocks: { deals: [] as unknown[], perms: true, loading: false },
 }));
 
 function deal(over: Partial<Deal>): Deal {
@@ -56,7 +56,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => mocks.perms }),
 }));
 vi.mock("@/features/deals/hooks", () => ({
-  useDeals: () => ({ data: mocks.deals, isLoading: false }),
+  useDeals: () => ({ data: mocks.loading ? undefined : mocks.deals, isLoading: mocks.loading }),
   useContactMap: () => ({ map: new Map([[contact.id, contact]]) }),
   useUserMap: () => ({ map: new Map() }),
 }));
@@ -86,6 +86,7 @@ import { JobsReportPage } from "./jobs-report-page";
 describe("JobsReportPage", () => {
   beforeEach(() => {
     mocks.perms = true;
+    mocks.loading = false;
     mocks.deals = [
       deal({ id: "a", dealNumber: "A11111" }),
       deal({ id: "b", dealNumber: "B22222", superStatus: JobSuperStatus.CANCELED }),
@@ -141,6 +142,14 @@ describe("JobsReportPage", () => {
     expect(screen.getByRole("combobox", { name: "Date field" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Date preset" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument();
+  });
+
+  it("shows a loading skeleton on first render instead of an empty flash", () => {
+    mocks.loading = true;
+    render(<JobsReportPage />);
+
+    expect(screen.getByRole("status", { name: /loading jobs/i })).toBeInTheDocument();
+    expect(screen.queryByText(/no jobs match/i)).not.toBeInTheDocument();
   });
 
   it("blocks users without the reports permission", () => {
