@@ -12,9 +12,32 @@ type TokenProvider = () => string | null | undefined;
 
 let getToken: TokenProvider = () => null;
 let onUnauthorized: (() => void) | null = null;
+/** Renews the session and resolves true when a fresh token is available. */
+let refreshSession: (() => Promise<boolean>) | null = null;
+/** One renewal at a time — a page mid-load fires a dozen requests at once. */
+let refreshing: Promise<boolean> | null = null;
 
 export function setAuthTokenProvider(fn: TokenProvider): void {
   getToken = fn;
+}
+
+/**
+ * How the client renews an expired session.
+ *
+ * Cognito id tokens last an hour. Without this, everything kept working from
+ * the query cache while every request 401'd — the page still looked signed in,
+ * and saving anything failed. Worse, the 401 handler clears the session, so the
+ * request after that went out with no token at all.
+ */
+export function setSessionRefresher(fn: () => Promise<boolean>): void {
+  refreshSession = fn;
+}
+
+function renewOnce(): Promise<boolean> {
+  refreshing ??= (refreshSession?.() ?? Promise.resolve(false)).finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
 }
 
 export function setUnauthorizedHandler(fn: () => void): void {
@@ -36,10 +59,14 @@ function buildHeaders(init: RequestInit): Headers {
   return headers;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  let res: Response;
+/** The auth calls themselves must never try to renew a session to run. */
+function isAuthPath(path: string): boolean {
+  return path.startsWith("/users/auth/");
+}
+
+async function send(path: string, init: RequestInit): Promise<Response> {
   try {
-    res = await fetch(`${env.apiBaseUrl}${path}`, {
+    return await fetch(`${env.apiBaseUrl}${path}`, {
       ...init,
       headers: buildHeaders(init),
     });
@@ -49,6 +76,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       0,
       "Unable to reach the server. Please check your connection and try again.",
     );
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let res = await send(path, init);
+
+  // An expired token is the ordinary end of an hour's work, not a sign-out.
+  // Renew once and replay the request; only a failed renewal ends the session.
+  if (res.status === 401 && !isAuthPath(path) && (await renewOnce())) {
+    res = await send(path, init);
   }
 
   const body: unknown = await res.json().catch(() => null);

@@ -68,3 +68,29 @@ export const useAuthStore = create<AuthState>()(
 /** Non-reactive accessor used by the API client to attach the Bearer token. */
 export const getIdToken = (): string | null =>
   useAuthStore.getState().session?.idToken ?? null;
+
+/**
+ * Swap the refresh token for a fresh id token, in place.
+ *
+ * Cognito returns a new id/access token but not a new refresh token, so the
+ * stored one is carried over — it outlives the id token by weeks, which is the
+ * whole point of it.
+ */
+export async function renewSession(): Promise<boolean> {
+  const session = useAuthStore.getState().session;
+  if (!session?.refreshToken) return false;
+  try {
+    const { refreshSession } = await import("@/features/auth/api");
+    const next = await refreshSession(session.refreshToken);
+    useAuthStore.getState().setSession({
+      idToken: next.idToken,
+      accessToken: next.accessToken,
+      refreshToken: session.refreshToken,
+      expiresIn: next.expiresIn,
+    });
+    return true;
+  } catch {
+    // A dead refresh token means the session really is over.
+    return false;
+  }
+}

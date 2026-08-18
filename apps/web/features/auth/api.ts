@@ -4,6 +4,7 @@ import type {
   LoginChallengeResponse,
   ChangePasswordRequest,
   ChangePasswordResponse,
+  RefreshTokenResponse,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 
@@ -11,6 +12,13 @@ export function login(
   body: LoginRequest,
 ): Promise<LoginResponse | LoginChallengeResponse> {
   return http.post("/users/auth/login", body);
+}
+
+/** Trade the refresh token for a fresh id token. Public endpoint — no Bearer. */
+export function refreshSession(
+  refreshToken: string,
+): Promise<RefreshTokenResponse> {
+  return http.post("/users/auth/refresh", { refreshToken });
 }
 
 export function setNewPassword(

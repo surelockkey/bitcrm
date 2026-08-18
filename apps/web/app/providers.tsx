@@ -5,12 +5,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { setAuthTokenProvider, setUnauthorizedHandler } from "@/lib/api/http";
-import { getIdToken, useAuthStore } from "@/stores/auth-store";
+import {
+  setAuthTokenProvider,
+  setSessionRefresher,
+  setUnauthorizedHandler,
+} from "@/lib/api/http";
+import { getIdToken, renewSession, useAuthStore } from "@/stores/auth-store";
 
 // Connect the API client to the auth store exactly once, at module load.
 // (Runs on the client only, since this file is a Client Component.)
 setAuthTokenProvider(getIdToken);
+setSessionRefresher(renewSession);
 setUnauthorizedHandler(() => useAuthStore.getState().clear());
 
 export function Providers({ children }: { children: React.ReactNode }) {
