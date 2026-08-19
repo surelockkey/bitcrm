@@ -257,10 +257,9 @@ describe("NewDealPage — auto-create client", () => {
     const u = user();
     render(<NewDealPage />);
 
-    // Nobody matches — the picker opens its new-client block.
+    // Nobody matches — the picker opens its new-client block, prefilled from
+    // what was typed (first word → first name, the rest → last name).
     await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
-    await u.type(screen.getByPlaceholderText("First name"), "Nova");
-    await u.type(screen.getByPlaceholderText("Last name"), "Client");
 
     await u.type(screen.getByLabelText("street"), "9 Elm");
     await u.click(screen.getByRole("button", { name: /pick job type/i }));
@@ -283,8 +282,6 @@ describe("NewDealPage — auto-create client", () => {
     expect(submit()).toBeDisabled();
 
     await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
-    await u.type(screen.getByPlaceholderText("First name"), "Nova");
-    await u.type(screen.getByPlaceholderText("Last name"), "Client");
 
     expect(submit()).toBeEnabled();
   });

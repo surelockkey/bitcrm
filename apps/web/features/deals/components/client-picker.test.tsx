@@ -87,4 +87,36 @@ describe("ClientPicker — search from 3 characters", () => {
     expect(screen.getByText(/no client found/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("First name")).toBeInTheDocument();
   });
+
+  it("prefills first and last name from a typed name query", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena Kovalenko" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("Olena");
+    expect(screen.getByPlaceholderText("Last name")).toHaveValue("Kovalenko");
+  });
+
+  it("puts a single typed word into the first name", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Bogdan" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("Bogdan");
+    expect(screen.getByPlaceholderText("Last name")).toHaveValue("");
+  });
+
+  it("lets the prefilled name be overridden", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena K" } });
+    fireEvent.change(screen.getByPlaceholderText("First name"), { target: { value: "Helena" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("Helena");
+  });
+
+  it("does not shove a phone or an email into the name fields", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "someone@nowhere.io" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Last name")).toHaveValue("");
+  });
 });

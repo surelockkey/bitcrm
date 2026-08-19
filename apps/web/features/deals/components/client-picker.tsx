@@ -58,9 +58,21 @@ export function ClientPicker({
   const trimmed = query.trim();
   const queryDigits = trimmed.replace(/\D/g, "");
   const queryIsPhone = queryDigits.length >= 7 && queryDigits.length >= trimmed.length - 6;
+  const queryIsEmail = trimmed.includes("@");
+
+  // A name query prefills the create form: first word → first name, the rest →
+  // last name. Phones and emails don't (they seed their own fields). The state
+  // falls back to this so an untouched field still carries what was typed, and
+  // any edit overrides it — same pattern as the phone field below.
+  const queryName = queryIsPhone || queryIsEmail ? "" : trimmed;
+  const [qFirst = "", ...qRest] = queryName.split(/\s+/).filter(Boolean);
+  const qLast = qRest.join(" ");
+  const effFirst = first || qFirst;
+  const effLast = last || qLast;
 
   // Exact-phone dupe guard for the create path (search itself is client-side).
   const newPhone = phone.trim() || (queryIsPhone ? trimmed : "");
+  const newEmail = email.trim() || (queryIsEmail ? trimmed : "");
   const dupe = useContactByPhone(newPhone, !contact && newPhone.length >= 7);
   const exactDupe = dupe.data ?? null;
 
@@ -73,22 +85,22 @@ export function ClientPicker({
       : [];
 
   const draftOpen = !contact && trimmed.length >= MIN_QUERY && matches.length === 0;
-  const draftReady = draftOpen && Boolean(first.trim() && last.trim());
+  const draftReady = draftOpen && Boolean(effFirst.trim() && effLast.trim());
 
   useEffect(() => {
     onDraft?.(
       draftReady
         ? {
-            firstName: first.trim(),
-            lastName: last.trim(),
+            firstName: effFirst.trim(),
+            lastName: effLast.trim(),
             phone: newPhone,
-            email: email.trim(),
+            email: newEmail,
             existing: exactDupe,
           }
         : null,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- report on data changes only
-  }, [draftReady, first, last, newPhone, email, exactDupe]);
+  }, [draftReady, effFirst, effLast, newPhone, newEmail, exactDupe]);
 
   // Kept mounted so a half-typed query survives glancing at the chosen client.
   if (hidden) return null;
@@ -157,8 +169,8 @@ export function ClientPicker({
             be created with the job
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Input className="h-9" placeholder="First name" value={first} onChange={(e) => setFirst(e.target.value)} />
-            <Input className="h-9" placeholder="Last name" value={last} onChange={(e) => setLast(e.target.value)} />
+            <Input className="h-9" placeholder="First name" value={effFirst} onChange={(e) => setFirst(e.target.value)} />
+            <Input className="h-9" placeholder="Last name" value={effLast} onChange={(e) => setLast(e.target.value)} />
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <PhoneInput
@@ -166,7 +178,7 @@ export function ClientPicker({
               onChange={setPhone}
               placeholder="Phone…"
             />
-            <Input className="h-9" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input className="h-9" type="email" placeholder="Email" value={newEmail} onChange={(e) => setEmail(e.target.value)} />
           </div>
           {exactDupe ? (
             <div className="mt-2 rounded-lg border border-emerald-300 bg-emerald-50 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
