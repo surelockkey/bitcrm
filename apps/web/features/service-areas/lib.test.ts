@@ -8,6 +8,7 @@ function area(overrides: Partial<ServiceArea>): ServiceArea {
     name: "Test",
     priority: 0,
     active: true,
+    timezone: "America/New_York",
     type: ServiceAreaType.ZIPS,
     definition: { type: ServiceAreaType.ZIPS, zips: [{ zip: "30301" }] },
     coverage: [{ kind: "circle", lat: 33.75, lng: -84.39, radiusMiles: 3 }],

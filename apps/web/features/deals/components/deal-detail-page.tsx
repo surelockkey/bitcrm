@@ -52,7 +52,7 @@ import {
   useDeleteDeal,
   useMoveStatus,
   useSetDealTags,
-  useSuggestedTechs,
+  useAssignTechs,
   useUpdateDeal,
 } from "../hooks";
 import {
@@ -70,8 +70,8 @@ import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { useAttachments } from "../attachments-hooks";
-import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
+import { TechSuggestions } from "./tech-suggestions";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
@@ -229,10 +229,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const { data: contact } = useContact(deal.contactId);
   const { data: customFieldDefs } = useCustomFields();
   const update = useUpdateDeal(deal.id);
+  const assignTechs = useAssignTechs(deal.id);
   const updateContact = useUpdateContact();
   const createContact = useCreateContact();
   const changeClient = useChangeDealClient(deal.id);
-  const [assigning, setAssigning] = useState(false);
   const canEditClient = can("contacts", "edit");
 
   // One draft per side — every field below is a controlled input writing here,
@@ -271,15 +271,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   // One card per custom-field group, Workiz-ordered — same as the New Job form.
   const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId));
 
-  // The job's timezone (service area's, else Connecticut) and the eligible-tech
-  // count for the Team section's "N techs … can do this job" line.
+  // The job's timezone: its resolved service area's, else Connecticut.
   const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
   const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
-  const suggested = useSuggestedTechs(
-    { jobTypeId: dealDraft.jobTypeId, serviceAreaId: jobArea?.id, lat: dealDraft.address.lat, lng: dealDraft.address.lng },
-    Boolean(dealDraft.jobTypeId) && dealDraft.address.lat !== undefined,
-  );
-  const eligibleCount = (suggested.data ?? []).filter((t) => t.eligible).length;
 
   const dealPatch = buildDealPatch(deal, dealDraft);
   // A changed service address is also offered to the client's saved list — but
@@ -379,6 +373,17 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         ) : (
           <Skeleton className="h-24 w-full" />
         )}
+        {/* Address lives in the Client card, as on the Workiz form. */}
+        <DealAddressEditor
+          value={dealDraft.address}
+          onChange={(a) => setDeal({ address: a })}
+          clientAddresses={contact?.addresses}
+          canEdit={canEdit}
+        />
+        <Field label="Service area">
+          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
+            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
+        </Field>
       </Section>
 
       {/* Schedule */}
@@ -401,40 +406,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         />
       </Section>
 
-      {/* Service location */}
-      <Section title="Service location">
-        <DealAddressEditor
-          value={dealDraft.address}
-          onChange={(a) => setDeal({ address: a })}
-          clientAddresses={contact?.addresses}
-          canEdit={canEdit}
-        />
-        <Field label="Service area">
-          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
-            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
-        </Field>
-      </Section>
-
-      {/* Team — its own section, Workiz-style */}
-      <Section
-        title="Team"
-        action={
-          canEdit ? (
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAssigning(true)}>
-              <UserCog className="size-3.5" /> Assign
-            </Button>
-          ) : null
-        }
-      >
-        <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
-        {jobArea && dealDraft.jobTypeId ? (
-          <p className="text-xs text-muted-foreground">
-            <b className="text-foreground">{eligibleCount}</b> tech{eligibleCount === 1 ? "" : "s"} work in{" "}
-            <b className="text-foreground">{jobArea.name}</b> and can do this job.
-          </p>
-        ) : null}
-      </Section>
-
       {/* Job */}
       <Section title="Job">
         <Field label="Job type">
@@ -454,6 +425,20 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
+      </Section>
+
+      {/* Team — inline assign (Workiz-style): pick techs who can do the job. */}
+      <Section title="Team">
+        {canEdit ? (
+          <TechSuggestions
+            jobTypeId={dealDraft.jobTypeId}
+            address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
+            selected={deal.assignedTechIds}
+            onChange={(ids) => assignTechs.mutate(ids)}
+          />
+        ) : (
+          <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
+        )}
       </Section>
 
       {/* Custom fields — user-defined answers, held in the same draft and saved
@@ -509,10 +494,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           onCancel={() => setAsking(false)}
           onConfirm={commit}
         />
-      ) : null}
-
-      {assigning ? (
-        <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open={assigning} onOpenChange={setAssigning} />
       ) : null}
     </div>
   );
