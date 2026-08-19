@@ -597,7 +597,7 @@ function DealForm({
 
       {/* Sticky footer — the primary action sits bottom-center; the client
           hint floats to the left without pulling the buttons off-center. */}
-      <div className="sticky bottom-0 -mx-6 border-t bg-background/90 px-6 py-3 backdrop-blur">
+      <div className="sticky bottom-0 z-20 -mx-6 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
         <div className="relative flex items-center justify-center gap-2">
           <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
             {contact
