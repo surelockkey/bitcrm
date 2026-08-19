@@ -72,6 +72,30 @@ export class DealsController {
     };
   }
 
+  @Get('qualified-techs')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Suggest qualified technicians for a not-yet-created job',
+    description:
+      '**Guard:** `deals.edit`. Ranks techs by a job type + service area (and an ' +
+      'optional point for distance), so the New Job form can suggest who can do the work. ' +
+      'Declared before `:id` so the static path wins.',
+  })
+  async suggestQualifiedTechs(
+    @Query('jobTypeId') jobTypeId: string,
+    @Query('serviceAreaId') serviceAreaId?: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
+  ) {
+    const data = await this.dealsService.rankQualifiedTechsFor({
+      jobTypeId,
+      serviceAreaId: serviceAreaId || undefined,
+      lat: lat !== undefined && lat !== '' ? Number(lat) : undefined,
+      lng: lng !== undefined && lng !== '' ? Number(lng) : undefined,
+    });
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('deals', 'view')
   @ApiOperation({

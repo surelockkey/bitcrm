@@ -821,6 +821,58 @@ describe('DealsService', () => {
     });
   });
 
+  describe('rankQualifiedTechsFor — before a deal exists (New Job)', () => {
+    it('ranks techs against a job type + area with no deal, distance from a point', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-fit',
+          jobTypeIds: ['jt-x'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          homeAddress: { lat: 33.95, lng: -84.55 },
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+        {
+          technicianId: 't-wrong-type',
+          jobTypeIds: ['jt-other'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+
+      const result = await service.rankQualifiedTechsFor({
+        jobTypeId: 'jt-x',
+        serviceAreaId: 'sa-y',
+        lat: 33.749,
+        lng: -84.388,
+      });
+
+      const fit = result.find((r) => r.id === 't-fit')!;
+      const wrong = result.find((r) => r.id === 't-wrong-type')!;
+      expect(fit.eligible).toBe(true);
+      expect(typeof fit.distanceMiles).toBe('number');
+      expect(wrong.eligible).toBe(false);
+      expect(wrong.reasons).toContain('missing_job_type');
+    });
+
+    it('marks everyone outside_area when no service area is given', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-1',
+          jobTypeIds: ['jt-x'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+
+      const result = await service.rankQualifiedTechsFor({ jobTypeId: 'jt-x' });
+      expect(result[0].eligible).toBe(false);
+      expect(result[0].reasons).toContain('outside_area');
+    });
+  });
+
   describe('assignTechs', () => {
     const caller = createMockJwtUser({ id: 'dispatcher-1', roleId: 'role-dispatcher' });
 

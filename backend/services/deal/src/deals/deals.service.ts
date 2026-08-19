@@ -744,28 +744,43 @@ export class DealsService {
    */
   async getQualifiedTechs(id: string) {
     const deal = await this.findById(id);
+    return this.rankQualifiedTechsFor({
+      jobTypeId: deal.jobTypeId,
+      serviceAreaId: deal.serviceAreaId,
+      lat: deal.address.lat,
+      lng: deal.address.lng,
+    });
+  }
+
+  /**
+   * Rank technicians for a job described by params rather than a saved deal —
+   * so the New Job form can suggest who can do the work (right job type, in the
+   * service area) before the deal exists. Same scoring and shape as
+   * getQualifiedTechs; distance is measured from the given point when present.
+   */
+  async rankQualifiedTechsFor(params: {
+    jobTypeId: string;
+    serviceAreaId?: string;
+    lat?: number;
+    lng?: number;
+  }) {
     const candidates = await this.eligibility.listAll();
 
     return candidates
       .map((tech) => {
         const reasons: string[] = [];
         if (!tech.assignable) reasons.push('not_assignable');
-        if (!tech.jobTypeIds.includes(deal.jobTypeId)) reasons.push('missing_job_type');
-        if (!deal.serviceAreaId || !tech.serviceAreaIds.includes(deal.serviceAreaId)) {
+        if (!tech.jobTypeIds.includes(params.jobTypeId)) reasons.push('missing_job_type');
+        if (!params.serviceAreaId || !tech.serviceAreaIds.includes(params.serviceAreaId)) {
           reasons.push('outside_area');
         }
 
         const distance =
-          deal.address.lat !== undefined &&
-          deal.address.lng !== undefined &&
+          params.lat !== undefined &&
+          params.lng !== undefined &&
           tech.homeAddress?.lat !== undefined &&
           tech.homeAddress?.lng !== undefined
-            ? distanceMiles(
-                deal.address.lat,
-                deal.address.lng,
-                tech.homeAddress.lat,
-                tech.homeAddress.lng,
-              )
+            ? distanceMiles(params.lat, params.lng, tech.homeAddress.lat, tech.homeAddress.lng)
             : null;
 
         return {
