@@ -32,16 +32,26 @@ export function TechSuggestions({
   selected: string[];
   onChange: (ids: string[]) => void;
 }) {
+  const hasAddress = address.lat !== undefined && address.lng !== undefined;
   const { data: area } = useResolvedServiceArea(address.lat, address.lng);
   const query = useSuggestedTechs(
     { jobTypeId, serviceAreaId: area?.id, lat: address.lat, lng: address.lng },
-    Boolean(jobTypeId),
+    Boolean(jobTypeId) && hasAddress,
   );
 
+  // Both a job type and an address are needed: techs are matched by job type
+  // AND the service area the address resolves into.
   if (!jobTypeId) {
     return (
       <p className="text-xs text-muted-foreground">
         Pick a job type to see which technicians can do this job.
+      </p>
+    );
+  }
+  if (!hasAddress) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Add the address to see which technicians cover this job.
       </p>
     );
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
@@ -51,7 +51,7 @@ import { DealAddressFields } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
 import { TechSuggestions } from "./tech-suggestions";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
-import { DEFAULT_TZ } from "@/lib/timezone";
+import { DEFAULT_TZ, nowScheduleDefault } from "@/lib/timezone";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
@@ -205,6 +205,9 @@ function DealForm({
   /** Job values held back until the save-time questions are answered. */
   const [pendingSave, setPendingSave] = useState<DealJobValues | null>(null);
 
+  // Prefill the schedule with "now" in the business timezone (Connecticut).
+  const scheduleNow = useMemo(() => nowScheduleDefault(), []);
+
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
     defaultValues: {
@@ -222,8 +225,10 @@ function DealForm({
             lng: contact.addresses[0].lng,
           }
         : { street: "", unit: "", city: "", state: "", zip: "" },
-      scheduledDate: "",
-      scheduledTimeSlot: "",
+      scheduledDate: scheduleNow.date,
+      scheduledEndDate: scheduleNow.date,
+      scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
+      allDay: false,
       priority: DealPriority.NORMAL,
       sourceId: "",
       notes: "",

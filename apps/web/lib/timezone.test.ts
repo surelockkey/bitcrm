@@ -5,6 +5,7 @@ import {
   tzLabel,
   clockInTz,
   formatInstant,
+  nowScheduleDefault,
 } from "./timezone";
 
 describe("timezone lib", () => {
@@ -34,5 +35,24 @@ describe("timezone lib", () => {
 
   it("falls back to the default zone when none is given", () => {
     expect(clockInTz("2026-08-19T16:00:00.000Z")).toBe("12:00 PM");
+  });
+
+  it("nowScheduleDefault gives today + now (floored to 15) + an hour later, in tz", () => {
+    // 16:37Z is 12:37 PM in New York → floored 12:30, end 13:30, date the 19th.
+    const at = new Date("2026-08-19T16:37:00.000Z");
+    expect(nowScheduleDefault("America/New_York", at)).toEqual({
+      date: "2026-08-19",
+      start: "12:30",
+      end: "13:30",
+    });
+  });
+
+  it("nowScheduleDefault clamps a late end to 23:45", () => {
+    const at = new Date("2026-08-20T03:50:00.000Z"); // 11:50 PM EDT on the 19th
+    expect(nowScheduleDefault("America/New_York", at)).toEqual({
+      date: "2026-08-19",
+      start: "23:45",
+      end: "23:45",
+    });
   });
 });

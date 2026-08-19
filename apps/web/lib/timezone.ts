@@ -33,6 +33,36 @@ export function clockInTz(iso: string, tz: string = DEFAULT_TZ): string {
   });
 }
 
+/**
+ * A sensible default schedule for "now" in a zone: today's date, the current
+ * time floored to a quarter hour as the start, and an hour later as the end
+ * (clamped to 23:45). Used to prefill the New Job schedule.
+ */
+export function nowScheduleDefault(
+  tz: string = DEFAULT_TZ,
+  now: Date = new Date(),
+): { date: string; start: string; end: string } {
+  // en-CA renders YYYY-MM-DD; en-GB renders 24h HH:MM — both honoring the zone.
+  const date = now.toLocaleDateString("en-CA", { timeZone: tz });
+  const hm = now.toLocaleTimeString("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const [h, m] = hm.split(":").map(Number);
+  const rm = Math.floor(m / 15) * 15;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const start = `${pad(h)}:${pad(rm)}`;
+  let eh = h + 1;
+  let em = rm;
+  if (eh > 23) {
+    eh = 23;
+    em = 45;
+  }
+  return { date, start, end: `${pad(eh)}:${pad(em)}` };
+}
+
 /** Date + time (e.g. "Aug 19, 12:00 PM") of an instant in a zone. */
 export function formatInstant(iso: string, tz: string = DEFAULT_TZ): string {
   return new Date(iso).toLocaleString("en-US", {

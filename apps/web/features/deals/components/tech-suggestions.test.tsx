@@ -34,8 +34,13 @@ describe("TechSuggestions", () => {
   });
 
   it("prompts to pick a job type first when none is set", () => {
-    render(<TechSuggestions jobTypeId="" address={{}} selected={[]} onChange={vi.fn()} />);
+    render(<TechSuggestions jobTypeId="" address={{ lat: 41.7, lng: -72.6 }} selected={[]} onChange={vi.fn()} />);
     expect(screen.getByText(/pick a job type/i)).toBeInTheDocument();
+  });
+
+  it("prompts for the address when the job type is set but there's no address", () => {
+    render(<TechSuggestions jobTypeId="jt-x" address={{}} selected={[]} onChange={vi.fn()} />);
+    expect(screen.getByText(/add the address/i)).toBeInTheDocument();
   });
 
   it("lists eligible techs who can do the job and selects them", () => {
