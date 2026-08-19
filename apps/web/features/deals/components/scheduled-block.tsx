@@ -1,7 +1,6 @@
 "use client";
 
-import { toast } from "sonner";
-import { CalendarDays, Repeat } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AreaClock } from "./area-clock";
@@ -55,7 +54,7 @@ export interface ScheduledValue {
 /**
  * Workiz-style Scheduled block: Starts (date + time) and Ends (date + time),
  * an all-day toggle that drops the times, a live area clock in the job's
- * timezone, and a recurring-schedule affordance. Emits the whole value on any
+ * timezone. Emits the whole value on any
  * change; the page maps it onto the deal's scheduledDate/EndDate/TimeSlot/allDay.
  */
 export function ScheduledBlock({
@@ -132,23 +131,14 @@ export function ScheduledBlock({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => toast.info("Recurring schedules are coming soon.")}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
-        >
-          <Repeat className="size-3.5" /> Set recurring schedule
-        </button>
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <Checkbox
-            aria-label="All-day event"
-            checked={allDay}
-            onCheckedChange={(c) => emit({ allDay: c === true, slot: c === true ? "" : slot })}
-          />
-          All-day event
-        </label>
-      </div>
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-sm">
+        <Checkbox
+          aria-label="All-day event"
+          checked={allDay}
+          onCheckedChange={(c) => emit({ allDay: c === true, slot: c === true ? "" : slot })}
+        />
+        All-day event
+      </label>
     </div>
   );
 }

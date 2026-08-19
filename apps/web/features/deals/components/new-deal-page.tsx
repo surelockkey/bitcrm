@@ -74,6 +74,8 @@ export function NewDealPage() {
   const [callsToLink, setCallsToLink] = useState<string[]>(
     callSid ? [callSid] : [],
   );
+  // Tags live at the page top (in the header), above the form.
+  const [tagIds, setTagIds] = useState<string[]>([]);
 
   // The client is derived, not assigned during render: a call arrives with one
   // already resolved, and writing that into state while rendering is what React
@@ -94,12 +96,15 @@ export function NewDealPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center gap-3 border-b px-6 py-4">
+      <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ChevronLeft className="size-4" /> Jobs
         </Link>
         <h1 className="text-base font-semibold">New deal</h1>
         <span className="text-sm text-muted-foreground">· everything on one page</span>
+        <span className="flex-1" />
+        {/* Tags live up here so they can be set before diving into the form. */}
+        <JobTagCombobox value={tagIds} onChange={setTagIds} />
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -116,6 +121,7 @@ export function NewDealPage() {
           callSid={callSid}
           callsToLink={callsToLink}
           onCallsToLink={setCallsToLink}
+          tagIds={tagIds}
         />
       </div>
     </div>
@@ -142,6 +148,7 @@ function DealForm({
   callSid,
   callsToLink,
   onCallsToLink,
+  tagIds,
 }: {
   contact: Contact | null;
   onContact: (c: Contact | null, created?: boolean) => void;
@@ -151,6 +158,8 @@ function DealForm({
   callSid?: string;
   callsToLink: string[];
   onCallsToLink: (sids: string[]) => void;
+  /** Tags picked in the page header, sent with the job on create. */
+  tagIds: string[];
 }) {
   const router = useRouter();
   const createDeal = useCreateDeal();
@@ -394,6 +403,7 @@ function DealForm({
         contactId: contact.id,
         companyId: contact.companyId,
         ...values,
+        tagIds,
         scheduledDate: values.scheduledDate || undefined,
         scheduledEndDate: values.scheduledEndDate || undefined,
         scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
@@ -515,7 +525,6 @@ function DealForm({
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
           <div className="space-y-1.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
-          <div className="space-y-1.5"><Label>Tags{req("tags")}</Label><JobTagCombobox value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
         </Section>
 
         <Section title="Scheduled">

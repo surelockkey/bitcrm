@@ -65,8 +65,8 @@ describe("ScheduledBlock", () => {
     );
   });
 
-  it("offers a recurring-schedule affordance", () => {
+  it("has no recurring-schedule control", () => {
     render(<ScheduledBlock {...base} onChange={vi.fn()} />);
-    expect(screen.getByText(/set recurring schedule/i)).toBeInTheDocument();
+    expect(screen.queryByText(/recurring/i)).not.toBeInTheDocument();
   });
 });
