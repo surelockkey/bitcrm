@@ -16,8 +16,14 @@ export interface Deal {
   contactId: string;
   companyId?: string;
   clientType: ClientType;
+  /** Start date (YYYY-MM-DD). Paired with the start time in scheduledTimeSlot. */
   scheduledDate?: string;
+  /** End date (YYYY-MM-DD); defaults to the start date when the job is same-day. */
+  scheduledEndDate?: string;
+  /** "HH:MM-HH:MM" — start time and end time. Absent when allDay. */
   scheduledTimeSlot?: string;
+  /** An all-day job carries dates only; times are dropped. */
+  allDay?: boolean;
   /** Denormalized service-area name for display (auto-resolved from address). */
   serviceArea: string;
   /** Catalog service-area id this deal resolved into; null if outside coverage. */

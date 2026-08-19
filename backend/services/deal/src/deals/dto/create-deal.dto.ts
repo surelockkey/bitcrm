@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray,
+  IsString, IsOptional, IsEnum, IsArray, IsBoolean,
   IsUUID, ValidateNested, Matches, IsDateString, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -26,12 +26,22 @@ export class CreateDealDto {
   @IsDateString()
   scheduledDate?: string;
 
+  @ApiPropertyOptional({ example: '2026-04-20', description: 'End date; defaults to the start date.' })
+  @IsOptional()
+  @IsDateString()
+  scheduledEndDate?: string;
+
   @ApiPropertyOptional({ example: '09:00-12:00' })
   @IsOptional()
   @Matches(/^\d{2}:\d{2}-\d{2}:\d{2}$/, {
     message: 'scheduledTimeSlot must match format HH:MM-HH:MM',
   })
   scheduledTimeSlot?: string;
+
+  @ApiPropertyOptional({ example: false, description: 'All-day job: dates only, no times.' })
+  @IsOptional()
+  @IsBoolean()
+  allDay?: boolean;
 
   @ApiPropertyOptional({
     example: 'Atlanta Metro',

@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray,
+  IsString, IsOptional, IsEnum, IsArray, IsBoolean,
   ValidateNested, Matches, IsDateString, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -19,6 +19,16 @@ export class UpdateDealDto {
     message: 'scheduledTimeSlot must match format HH:MM-HH:MM',
   })
   scheduledTimeSlot?: string;
+
+  @ApiPropertyOptional({ example: '2026-04-20' })
+  @IsOptional()
+  @IsDateString()
+  scheduledEndDate?: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  allDay?: boolean;
 
   @ApiPropertyOptional({ example: 'North GA' })
   @IsOptional()
