@@ -184,3 +184,49 @@ describe('ConferenceService — a flow still working through its groups', () => 
     expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
   });
 });
+
+describe('ConferenceService — a conference ending is not always a call ending', () => {
+  it('leaves the record alone while the caller is still on the line', async () => {
+    const { service, twilio, applied } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-A', callerId: '+380958601427' },
+    ]);
+    // Moving between ring steps: one room closes, the next opens.
+    twilio.callFetch.mockResolvedValue({ status: 'in-progress' });
+    applied.length = 0;
+
+    await service.onConferenceEnd('conf-CAin');
+
+    // Marking it canceled here is unrecoverable: a terminal status outranks
+    // the "in-progress" that whoever answers next would set.
+    expect(applied.map((a: { status?: string }) => a.status)).not.toContain('canceled');
+  });
+
+  it('keeps the flow state, so the next ring still knows where to go', async () => {
+    const { service, twilio, redis } = makeHarness();
+    await service.initInbound(
+      'CAin', '+380958601427', '+15412830739',
+      [{ endpoint: 'client:agent-A', callerId: '+380958601427' }],
+      { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=vm' },
+    );
+    twilio.callFetch.mockResolvedValue({ status: 'in-progress' });
+
+    await service.onConferenceEnd('conf-CAin');
+
+    const meta = await redis.hgetall('telephony:conf:conf-CAin:meta');
+    expect(meta.noAnswerUrl).toContain('node=vm');
+  });
+
+  it('finalises normally once the caller really has gone', async () => {
+    const { service, twilio, applied } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-A', callerId: '+380958601427' },
+    ]);
+    twilio.callFetch.mockResolvedValue({ status: 'completed' });
+    applied.length = 0;
+
+    await service.onConferenceEnd('conf-CAin');
+
+    expect(applied.map((a: { status?: string }) => a.status)).toContain('canceled');
+  });
+});

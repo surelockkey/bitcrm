@@ -78,6 +78,8 @@ export function makeFakeTwilio() {
     sid: `CAleg-${to.replace('client:', '')}`,
   }));
   const callUpdate = jest.fn().mockResolvedValue({});
+  /** The caller's leg. Ended by default — tests that keep them on say so. */
+  const callFetch = jest.fn().mockResolvedValue({ status: 'completed' });
 
   const client = {
     conferences: Object.assign(
@@ -92,15 +94,17 @@ export function makeFakeTwilio() {
       }),
       {},
     ),
-    calls: Object.assign((sid: string) => ({ update: callUpdate, sid }), {
-      create: callsCreate,
-    }),
+    calls: Object.assign(
+      (sid: string) => ({ update: callUpdate, fetch: callFetch, sid }),
+      { create: callsCreate },
+    ),
   };
 
   return {
     client,
     participantsCreate,
     participantsList,
+    callFetch,
     conferenceUpdate,
     conferenceFetch,
     callsCreate,

@@ -354,6 +354,20 @@ export class ConferenceService {
     const primarySid = primarySidOf(name);
     if (!primarySid) return;
 
+    // A conference also ends when the caller is simply moved on: a flow that
+    // rings a second group takes them out of one room and puts them in the
+    // next, and Twilio reports that as an ending. Finalising here would mark a
+    // call canceled while it is still going — and because a terminal status
+    // outranks "in-progress", whoever answered afterwards could never set it
+    // back. It also threw away the Redis state the flow still needs.
+    //
+    // The caller's own leg is the authority on whether the call is over, so
+    // ask about it rather than infer.
+    if (await this.callerStillOnTheLine(primarySid)) {
+      this.logger.log(`Conference ${name} ended, caller still on — the flow continues`);
+      return;
+    }
+
     const record = await this.calls.getBySid(primarySid);
     const endedAt = new Date().toISOString();
 
@@ -385,6 +399,22 @@ export class ConferenceService {
   }
 
   /* --------------------------------------------- inbound winner race */
+
+  /**
+   * Is the caller's own leg still up?
+   *
+   * Unreachable Twilio, or a sid it does not know, is treated as gone: the
+   * alternative is a call that never finalises and sits in the live list
+   * forever.
+   */
+  private async callerStillOnTheLine(primarySid: string): Promise<boolean> {
+    try {
+      const call = await this.rest.run((c) => c.calls(primarySid).fetch());
+      return call.status === 'in-progress' || call.status === 'ringing';
+    } catch {
+      return false;
+    }
+  }
 
   /** Atomic first-answer-wins claim (SET NX). */
   async claimWinner(
