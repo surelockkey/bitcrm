@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { DEFAULT_TZ, US_TIMEZONES } from "@/lib/timezone";
 import { useCreateServiceArea, useUpdateServiceArea } from "../hooks";
 import { serviceAreaFormSchema, toServiceAreaBody } from "../schemas";
 import { ZipListEditor, type ZipRow } from "./zip-list-editor";
@@ -49,6 +50,7 @@ export function ServiceAreaFormDialog({
   const [name, setName] = useState(area?.name ?? "");
   const [priority, setPriority] = useState(String(area?.priority ?? 0));
   const [active, setActive] = useState(area?.active ?? true);
+  const [timezone, setTimezone] = useState(area?.timezone ?? DEFAULT_TZ);
   const [type, setType] = useState<ServiceAreaType>(area?.type ?? ServiceAreaType.ZIPS);
   const [zips, setZips] = useState<ZipRow[]>(initialZips(area));
   const [vertices, setVertices] = useState<GeoPoint[]>(initialVertices(area));
@@ -60,11 +62,12 @@ export function ServiceAreaFormDialog({
         name,
         priority,
         active,
+        timezone,
         type,
         zips: type === ServiceAreaType.ZIPS ? zips : [],
         vertices: type === ServiceAreaType.POLYGON ? vertices : [],
       }),
-    [name, priority, active, type, zips, vertices],
+    [name, priority, active, timezone, type, zips, vertices],
   );
 
   const submit = () => {
@@ -100,6 +103,20 @@ export function ServiceAreaFormDialog({
               <Label>Priority</Label>
               <Input className="h-9" type="number" min={0} value={priority} onChange={(e) => setPriority(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Timezone</Label>
+            <select
+              className="h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+            >
+              {US_TIMEZONES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">Jobs in this area show their schedule in this timezone.</p>
           </div>
 
           <div className="flex items-center justify-between rounded-md border px-3 py-2.5">

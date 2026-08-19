@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ServiceAreaType } from "@bitcrm/types";
+import { DEFAULT_TZ } from "@/lib/timezone";
 
 export const zipEntrySchema = z.object({
   zip: z.string().trim().min(3, "ZIP required"),
@@ -26,6 +27,7 @@ export const serviceAreaFormSchema = z
     name: z.string().trim().min(1, "Name is required"),
     priority: z.coerce.number().int().min(0).default(0),
     active: z.boolean().default(true),
+    timezone: z.string().default(DEFAULT_TZ),
     type: z.nativeEnum(ServiceAreaType),
     zips: z.array(zipEntrySchema).default([]),
     vertices: z.array(geoPointSchema).default([]),
@@ -52,7 +54,7 @@ export type ServiceAreaFormOutput = z.output<typeof serviceAreaFormSchema>;
 
 /** Turn validated form output into the API create/update body. */
 export function toServiceAreaBody(v: ServiceAreaFormOutput) {
-  const base = { name: v.name, priority: v.priority, active: v.active, type: v.type };
+  const base = { name: v.name, priority: v.priority, active: v.active, timezone: v.timezone, type: v.type };
   return v.type === ServiceAreaType.ZIPS
     ? { ...base, zips: v.zips }
     : { ...base, vertices: v.vertices };
