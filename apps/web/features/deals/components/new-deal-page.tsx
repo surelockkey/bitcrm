@@ -485,7 +485,6 @@ function DealForm({
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
           <div className="space-y-1.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
@@ -626,14 +625,15 @@ function ResolvedClient({
   onClear: () => void;
 }) {
   const { map: companyMap } = useCompanyMap();
+  const companyName = contact.companyId
+    ? (companyMap.get(contact.companyId)?.title ?? contact.companyId)
+    : "";
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="text-xs text-muted-foreground">
-          {contact.companyId
-            ? companyMap.get(contact.companyId)?.title
-            : "Residential"}
+          {contact.companyId ? companyName : "Residential"}
         </div>
         <Button
           type="button"
@@ -657,6 +657,18 @@ function ResolvedClient({
           value={edits.lastName}
           onChange={(e) => onEdits({ ...edits, lastName: e.target.value })}
           placeholder="Last name"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Company name</Label>
+        {/* Read-only: the company comes from the client's record. Change it on
+            the client, or pick a different client. */}
+        <Input
+          aria-label="Company name"
+          className="h-9"
+          value={companyName}
+          readOnly
+          placeholder="No company (residential)"
         />
       </div>
       <PhoneInput

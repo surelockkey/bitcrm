@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   requestUpload: vi.fn(),
   uploadBytes: vi.fn(),
   updateDealApi: vi.fn(),
+  companyMap: new Map<string, { id: string; title: string }>(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -54,7 +55,7 @@ vi.mock("@/features/clients/hooks", () => ({
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
-  useCompanyMap: () => ({ map: new Map() }),
+  useCompanyMap: () => ({ map: mocks.companyMap }),
 }));
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
@@ -282,6 +283,21 @@ describe("NewDealPage — Workiz layout", () => {
     for (const title of ["Client Details", "Service Location", "Job Details", "Scheduled"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
+  });
+
+  it("shows a Company name field in the client details", () => {
+    mocks.companyMap = new Map([["co-1", { id: "co-1", title: "Acme Storage" }]]);
+    render(<NewDealPage />);
+
+    expect(screen.getByText("Company name")).toBeInTheDocument();
+    // The resolved contact is residential, so the field reads as empty.
+    expect(screen.getByLabelText("Company name")).toBeInTheDocument();
+    mocks.companyMap = new Map();
+  });
+
+  it("no longer offers a Priority field", () => {
+    render(<NewDealPage />);
+    expect(screen.queryByText("Priority")).not.toBeInTheDocument();
   });
 
   it("renders each custom-field group as its own card, Workiz-ordered", () => {
