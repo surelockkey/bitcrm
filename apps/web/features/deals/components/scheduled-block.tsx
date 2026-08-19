@@ -83,11 +83,13 @@ export function ScheduledBlock({
     <div className="space-y-3">
       <AreaClock tz={tz} areaName={areaName} />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>Starts</Label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+      {/* Two rows: Starts, then Ends. Each is a date plus (unless all-day) an
+          "At" time — the Workiz layout. */}
+      <div className="space-y-3">
+        <div className={allDay ? "grid grid-cols-1" : "grid grid-cols-[1fr_9rem] gap-3"}>
+          <div className="space-y-1.5">
+            <Label>Starts</Label>
+            <div className="relative">
               <CalendarDays className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="date"
@@ -97,18 +99,19 @@ export function ScheduledBlock({
                 onChange={(e) => emit({ date: e.target.value })}
               />
             </div>
-            {!allDay ? (
-              <div className="w-28 flex-none">
-                <TimeSelect label="Start time" value={start} onValue={setStartTime} />
-              </div>
-            ) : null}
           </div>
+          {!allDay ? (
+            <div className="space-y-1.5">
+              <Label>At</Label>
+              <TimeSelect label="Start time" value={start} onValue={setStartTime} />
+            </div>
+          ) : null}
         </div>
 
-        <div className="space-y-1.5">
-          <Label>Ends</Label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+        <div className={allDay ? "grid grid-cols-1" : "grid grid-cols-[1fr_9rem] gap-3"}>
+          <div className="space-y-1.5">
+            <Label>Ends</Label>
+            <div className="relative">
               <CalendarDays className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="date"
@@ -119,12 +122,13 @@ export function ScheduledBlock({
                 onChange={(e) => emit({ endDate: e.target.value })}
               />
             </div>
-            {!allDay ? (
-              <div className="w-28 flex-none">
-                <TimeSelect label="End time" value={end} onValue={setEndTime} />
-              </div>
-            ) : null}
           </div>
+          {!allDay ? (
+            <div className="space-y-1.5">
+              <Label>At</Label>
+              <TimeSelect label="End time" value={end} onValue={setEndTime} />
+            </div>
+          ) : null}
         </div>
       </div>
 
