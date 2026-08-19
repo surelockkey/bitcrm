@@ -75,6 +75,12 @@ export { RedisHealthIndicator } from './health/redis.health-indicator';
 // Tracing
 export { initTracing, shutdownTracing } from './tracing/tracing';
 
+// Lifecycle
+export {
+  installGracefulShutdown,
+  runBootstrap,
+} from './lifecycle/graceful-shutdown';
+
 // Connectivity
 export { ConnectivityModule } from './connectivity/connectivity.module';
 export { ConnectivityCheckService } from './connectivity/connectivity-check.service';
