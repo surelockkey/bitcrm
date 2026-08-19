@@ -51,6 +51,16 @@ export {
   ResolvedCallGroupMember,
 } from './entities/call-group.entity';
 export { CALL_GROUP_LIMITS } from './entities/call-group.entity';
+export {
+  CallFlow,
+  CallFlowNode,
+  CallFlowNodeType,
+  HangupNode,
+  RingNode,
+  SayNode,
+  VoicemailNode,
+} from './entities/call-flow.entity';
+export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { JobTag } from './entities/job-tag.entity';

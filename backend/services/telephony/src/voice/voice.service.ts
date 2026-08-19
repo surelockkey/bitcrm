@@ -7,6 +7,7 @@ import {
 import { PresenceService } from '../presence/presence.service';
 import { NumbersService } from '../numbers/numbers.service';
 import { ConferenceService, confName } from './conference.service';
+import { FlowRunnerService } from './flow-runner.service';
 import { agentFromEndpoint } from '../calls/calls.service';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
@@ -44,24 +45,13 @@ export class VoiceService {
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
     private readonly presence: PresenceService,
     private readonly conference: ConferenceService,
+    private readonly flowRunner: FlowRunnerService,
     private readonly numbers?: NumbersService,
   ) {}
 
-  /**
-   * Lifecycle + recording attributes shared by every <Conference> noun we emit
-   * — Twilio takes them from whichever participant creates the conference, so
-   * they must be identical everywhere.
-   */
+  /** Shared by every <Conference> we emit — see ConferenceService. */
   private sharedConferenceAttrs(): ConferenceAttrs {
-    const base = `${this.config.publicBaseUrl}/api/telephony/voice`;
-    return {
-      statusCallback: `${base}/conference-events`,
-      statusCallbackMethod: 'POST',
-      statusCallbackEvent: ['start', 'end', 'join', 'leave'],
-      record: 'record-from-start',
-      recordingStatusCallback: `${base}/recording-status`,
-      recordingStatusCallbackMethod: 'POST',
-    };
+    return this.conference.sharedConferenceAttrs() as ConferenceAttrs;
   }
 
   /**
@@ -202,6 +192,25 @@ export class VoiceService {
    * online → a short message, then hang up.
    */
   async buildInbound(body: InboundBody): Promise<string> {
+    const { CallSid: callSid, From: from = '', To: to = '' } = body;
+
+    // A flow for this number decides everything from here — greeting, who
+    // rings, what happens when nobody does. It returns null when there is no
+    // flow, or the flow is unusable, and the legacy path below takes over: a
+    // misconfigured flow must never mean a silent line.
+    if (callSid) {
+      const fromFlow = await this.flowRunner.startInbound(callSid, from, to);
+      if (fromFlow) return fromFlow;
+    }
+
+    return this.buildLegacyInbound(body);
+  }
+
+  /**
+   * Ring every registered softphone. What every number did before call flows,
+   * and still the answer for a number with no flow attached.
+   */
+  private async buildLegacyInbound(body: InboundBody): Promise<string> {
     const twiml = new VoiceResponse();
     const { CallSid: callSid, From: from = '', To: to = '' } = body;
 
@@ -222,7 +231,14 @@ export class VoiceService {
     }
 
     const name = confName(callSid);
-    await this.conference.initInbound(callSid, from, to, online, internalLegOf);
+    await this.conference.initInbound(
+      callSid,
+      from,
+      to,
+      // The customer's number as caller id, so the softphone screen-pops.
+      online.map((identity) => ({ endpoint: `client:${identity}`, callerId: from })),
+      { internalLegOf },
+    );
 
     const dial = twiml.dial();
     dial.conference(

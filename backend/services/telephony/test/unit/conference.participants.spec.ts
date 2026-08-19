@@ -13,7 +13,9 @@ describe('ConferenceService — participant tracking', () => {
 
   it('records the answering agent on an inbound win', async () => {
     const { service, records } = makeHarness();
-    await service.initInbound('CAin', '+380958601427', '+15412830739', ['agent-B']);
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-B', callerId: '+380958601427' },
+    ]);
     await service.claimWinner('conf-CAin', 'CAleg-agent-B');
     await service.onWinner('conf-CAin', 'CAleg-agent-B', 'agent-B');
 
@@ -52,7 +54,9 @@ describe('ConferenceService — internal (our-number-to-our-number) calls', () =
     await service.initOutbound('CAout', 'agent-A', '+15412830739', '+15559998888');
     // the receiving side arrives as inbound, linked to CAout
     await service.initInbound(
-      'CAin', '+15559998888', '+15412830739', ['agent-B'], 'CAout',
+      'CAin', '+15559998888', '+15412830739',
+      [{ endpoint: 'client:agent-B', callerId: '+15559998888' }],
+      { internalLegOf: 'CAout' },
     );
     expect(records.get('CAin')?.internalLegOf).toBe('CAout');
 
@@ -107,7 +111,9 @@ describe('ConferenceService — nobody left but the customer', () => {
   it('ends an inbound call when the answering agent is the one who left', async () => {
     const { service, twilio } = makeHarness();
     // Inbound: the customer IS the call that made the conference.
-    await service.initInbound('CAin', '+380958601427', '+15412830739', ['agent-B']);
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-B', callerId: '+380958601427' },
+    ]);
     twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
 
     await service.onParticipantLeave('conf-CAin', 'CF2');

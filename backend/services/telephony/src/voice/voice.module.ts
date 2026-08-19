@@ -2,10 +2,13 @@ import { forwardRef, Module } from '@nestjs/common';
 import { VoiceController } from './voice.controller';
 import { VoiceService } from './voice.service';
 import { ConferenceService } from './conference.service';
+import { FlowRunnerService } from './flow-runner.service';
+import { CallFlowsModule } from '../call-flows/call-flows.module';
 import { PresenceModule } from '../presence/presence.module';
 import { CallsModule } from '../calls/calls.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
+import { CallGroupsModule } from '../call-groups/call-groups.module';
 import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
 
 @Module({
@@ -17,9 +20,17 @@ import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
     PresenceModule,
     forwardRef(() => CallsModule),
     NumbersModule,
+    // The flow runner reads flows and the groups they ring.
+    CallFlowsModule,
+    CallGroupsModule,
   ],
   controllers: [VoiceController],
-  providers: [VoiceService, ConferenceService, TwilioSignatureGuard],
+  providers: [
+    VoiceService,
+    ConferenceService,
+    FlowRunnerService,
+    TwilioSignatureGuard,
+  ],
   exports: [ConferenceService],
 })
 export class VoiceModule {}

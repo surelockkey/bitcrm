@@ -34,6 +34,22 @@ const TERMINAL_LEG = new Set([
 const CONF_TTL_SECONDS = 4 * 60 * 60;
 const MONITOR_GRANT_TTL_SECONDS = 120;
 
+/** One phone to ring for an inbound call. */
+export interface InboundLeg {
+  /** `client:<userId>` for a softphone, E.164 for a real phone. */
+  endpoint: string;
+  /** What that phone displays as the caller. */
+  callerId: string;
+}
+
+export interface InboundOptions {
+  internalLegOf?: string;
+  /** How long each phone rings before giving up. */
+  ringSeconds?: number;
+  /** Where to send the caller when nobody answers. */
+  noAnswerUrl?: string;
+}
+
 export const confName = (primarySid: string) => `conf-${primarySid}`;
 export const primarySidOf = (name: string): string | null =>
   /^conf-(CA\w+)$/.exec(name)?.[1] ?? null;
@@ -135,9 +151,10 @@ export class ConferenceService {
     customerCallSid: string,
     from: string,
     to: string,
-    agentIdentities: string[],
-    internalLegOf?: string,
+    legs: InboundLeg[],
+    options: InboundOptions = {},
   ): Promise<void> {
+    const { internalLegOf, ringSeconds = 25, noAnswerUrl } = options;
     const name = confName(customerCallSid);
     await this.redis.client.hset(this.metaKey(name), {
       type: 'inbound',
@@ -145,6 +162,9 @@ export class ConferenceService {
       from,
       to,
       ...(internalLegOf && { internalLegOf }),
+      // Where the caller goes if nobody picks up. Held here so the leg-status
+      // handler can send them on without knowing anything about call flows.
+      ...(noAnswerUrl && { noAnswerUrl }),
     });
     await this.redis.client.expire(this.metaKey(name), CONF_TTL_SECONDS);
 
@@ -158,32 +178,31 @@ export class ConferenceService {
       internalLegOf,
     });
 
-    for (const identity of agentIdentities) {
+    for (const leg of legs) {
       try {
-        const leg = await this.rest.run((c) =>
+        const created = await this.rest.run((c) =>
           c.calls.create({
-            to: `client:${identity}`,
-            // caller id = the customer's number so the softphone screen-pop works
-            from,
+            to: leg.endpoint,
+            from: leg.callerId,
             url: `${this.config.publicBaseUrl}/api/telephony/voice/agent-join?conf=${name}`,
             method: 'POST',
-            timeout: 25,
+            timeout: ringSeconds,
             statusCallback: this.statusUrl(name, 'agent'),
             statusCallbackMethod: 'POST',
             statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
           }),
         );
-        await this.redis.client.sadd(this.pendingKey(name), leg.sid);
-        await this.calls.appendChildSid(customerCallSid, leg.sid);
+        await this.redis.client.sadd(this.pendingKey(name), created.sid);
+        await this.calls.appendChildSid(customerCallSid, created.sid);
       } catch (error) {
         this.logger.warn(
-          `Inbound ${name}: failed to ring agent ${identity}: ${error instanceof Error ? error.message : error}`,
+          `Inbound ${name}: failed to ring ${leg.endpoint}: ${error instanceof Error ? error.message : error}`,
         );
       }
     }
     await this.redis.client.expire(this.pendingKey(name), CONF_TTL_SECONDS);
     this.logger.log(
-      `Inbound call ${customerCallSid} ringing ${agentIdentities.length} agent(s) (conf ${name})`,
+      `Inbound call ${customerCallSid} ringing ${legs.length} leg(s) (conf ${name})`,
     );
   }
 
@@ -448,19 +467,30 @@ export class ConferenceService {
         this.redis.client.get(this.winnerKey(name)),
       ]);
       if (remaining === 0 && !winner) {
-        // Every agent leg died without anyone answering — release the customer.
+        // Every agent leg died without anyone answering. If a flow said where
+        // to go next — voicemail, another group — send them there; otherwise
+        // fall back to the apology this has always given.
         this.logger.log(`Conference ${name}: no agent answered`);
+        const { noAnswerUrl } = await this.redis.client.hgetall(this.metaKey(name));
         try {
           await this.rest.run((c) =>
-            c.calls(primarySid).update({
-              twiml:
-                '<Response><Say>Sorry, no agents are available to take your call right now. Please try again later.</Say><Hangup/></Response>',
-            }),
+            c.calls(primarySid).update(
+              noAnswerUrl
+                ? { url: noAnswerUrl, method: 'POST' }
+                : {
+                    twiml:
+                      '<Response><Say>Sorry, no agents are available to take your call right now. Please try again later.</Say><Hangup/></Response>',
+                  },
+            ),
           );
         } catch {
           /* customer already gone */
         }
-        await this.calls.applyLifecycle({ callSid: primarySid, status: 'no-answer' });
+        // Only a call that truly ended here is a missed call; one moving on to
+        // voicemail is still in progress.
+        if (!noAnswerUrl) {
+          await this.calls.applyLifecycle({ callSid: primarySid, status: 'no-answer' });
+        }
       }
     }
   }
@@ -572,6 +602,24 @@ export class ConferenceService {
       `Conference ${name}: ${addedBy} added ${target.userId} (${target.channel})`,
     );
     return { callSid: participant.callSid };
+  }
+
+  /**
+   * Lifecycle + recording attributes shared by every <Conference> noun we
+   * emit. Twilio takes them from whichever participant creates the conference,
+   * so they must be identical everywhere — which is why they live here rather
+   * than with any one caller.
+   */
+  sharedConferenceAttrs(): Record<string, unknown> {
+    const base = `${this.config.publicBaseUrl}/api/telephony/voice`;
+    return {
+      statusCallback: `${base}/conference-events`,
+      statusCallbackMethod: 'POST',
+      statusCallbackEvent: ['start', 'end', 'join', 'leave'],
+      record: 'record-from-start',
+      recordingStatusCallback: `${base}/recording-status`,
+      recordingStatusCallbackMethod: 'POST',
+    };
   }
 
   /**

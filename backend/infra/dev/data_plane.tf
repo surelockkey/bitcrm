@@ -37,6 +37,9 @@ locals {
     # Call groups: PK='GROUP', SK='GROUP#<id>' — one partition holds every
     # group, so listing is a single Query. Tens of items, never thousands.
     call-groups      = { gsis = [] }
+    # Call flows: what a caller hears before anyone answers. Same shape as
+    # call-groups — PK='FLOW', one Query lists them all.
+    call-flows       = { gsis = [] }
     deal-products    = { gsis = [] }
     timeline-entries = { gsis = [] }
     addresses        = { gsis = [] } # currently unused by code, kept for parity

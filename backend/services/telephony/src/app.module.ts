@@ -16,22 +16,24 @@ import { CallsModule } from './calls/calls.module';
 import { VoiceModule } from './voice/voice.module';
 import { NumbersModule } from './numbers/numbers.module';
 import { CallGroupsModule } from './call-groups/call-groups.module';
+import { CallFlowsModule } from './call-flows/call-flows.module';
 import { DbSetupService } from './common/db-setup.service';
 import { CALLS_TABLE } from './common/constants/dynamo.constants';
 import { CALL_GROUPS_TABLE } from './call-groups/call-groups.constants';
+import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
 
 @Module({
   imports: [
     LoggerModule.forRoot({ serviceName: 'telephony-service' }),
     MetricsModule.forRoot({ serviceName: 'telephony-service' }),
     HealthModule.forRoot({
-      dynamoTables: [CALLS_TABLE, CALL_GROUPS_TABLE],
+      dynamoTables: [CALLS_TABLE, CALL_GROUPS_TABLE, CALL_FLOWS_TABLE],
     }),
     ConnectivityModule.forRoot({
       serviceName: 'telephony-service',
       failFast: [],
       dynamodb: {
-        tables: [CALLS_TABLE, CALL_GROUPS_TABLE],
+        tables: [CALLS_TABLE, CALL_GROUPS_TABLE, CALL_FLOWS_TABLE],
       },
       redis: true,
     }),
@@ -54,6 +56,7 @@ import { CALL_GROUPS_TABLE } from './call-groups/call-groups.constants';
     VoiceModule,
     NumbersModule,
     CallGroupsModule,
+    CallFlowsModule,
   ],
   controllers: [AppController],
   providers: [DbSetupService],

@@ -91,6 +91,15 @@ export class CallGroupsService {
     }));
   }
 
+  /**
+   * The stored group, or null. The runner needs this mid-call: a group that
+   * has been deleted must fall back to ringing everyone, not throw inside a
+   * webhook Twilio is waiting on.
+   */
+  async findRaw(id: string): Promise<CallGroup | null> {
+    return this.repository.get(id);
+  }
+
   /* ------------------------------------------------------------ writing */
 
   async create(dto: CreateCallGroupDto, caller: { id: string }): Promise<CallGroupWithMembers> {

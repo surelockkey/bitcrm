@@ -34,10 +34,24 @@ function makeService(opts: {
     isConferenceLive: jest.fn().mockResolvedValue(true),
     recordMonitorParticipant: jest.fn().mockResolvedValue(undefined),
     findLinkedOutbound: jest.fn().mockResolvedValue(undefined),
+    // Conference lifecycle/recording attributes now live on the conference
+    // service, so every <Conference> we emit agrees on them.
+    sharedConferenceAttrs: jest.fn(() => ({
+      statusCallback: `${BASE}/voice/conference-events`,
+      statusCallbackMethod: 'POST',
+      statusCallbackEvent: ['start', 'end', 'join', 'leave'],
+      record: 'record-from-start',
+      recordingStatusCallback: `${BASE}/voice/recording-status`,
+      recordingStatusCallbackMethod: 'POST',
+    })),
     ...opts.conference,
   } as unknown as ConferenceService;
   return {
-    service: new VoiceService(CONFIG, presence, conference),
+    // A number with no flow: the runner declines and the legacy path answers,
+    // which is exactly what these cases exercise.
+    service: new VoiceService(CONFIG, presence, conference, {
+      startInbound: jest.fn(async () => null),
+    } as never),
     conference,
     presence,
   };
@@ -168,8 +182,12 @@ describe('VoiceService.buildInbound — customer leg TwiML', () => {
       'CAcust1',
       '+380958601427',
       '+12624061115',
-      ['agent-1', 'agent-2'],
-      undefined, // not an internal call
+      // Each softphone is rung showing the customer's number, so it screen-pops.
+      [
+        { endpoint: 'client:agent-1', callerId: '+380958601427' },
+        { endpoint: 'client:agent-2', callerId: '+380958601427' },
+      ],
+      { internalLegOf: undefined }, // not an internal call
     );
   });
 

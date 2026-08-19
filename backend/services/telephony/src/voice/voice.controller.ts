@@ -14,6 +14,7 @@ import {
   type OutboundBody,
 } from './voice.service';
 import { ConferenceService } from './conference.service';
+import { FlowRunnerService } from './flow-runner.service';
 import { CallsService, type TwilioStatusParams } from '../calls/calls.service';
 import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
 
@@ -32,6 +33,7 @@ export class VoiceController {
     private readonly voiceService: VoiceService,
     private readonly conferenceService: ConferenceService,
     private readonly callsService: CallsService,
+    private readonly flowRunner: FlowRunnerService,
   ) {}
 
   @Post('outbound')
@@ -46,6 +48,41 @@ export class VoiceController {
   @ApiExcludeEndpoint()
   inbound(@Body() body: InboundBody): Promise<string> {
     return this.voiceService.buildInbound(body);
+  }
+
+  /**
+   * The next step of a call flow. Twilio comes back here after a greeting
+   * finishes, or when nobody answered a ring step. A step that can't run
+   * returns the legacy inbound answer rather than silence.
+   */
+  @Post('flow')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  async flowStep(
+    @Query('node') node: string,
+    @Body() body: InboundBody,
+  ): Promise<string> {
+    const fromFlow = body.CallSid
+      ? await this.flowRunner.resume(body.CallSid, node ?? '')
+      : null;
+    return fromFlow ?? this.voiceService.buildInbound(body);
+  }
+
+  /** A voicemail finished recording. */
+  @Post('voicemail-recording')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  async voicemailRecording(
+    @Body()
+    body: {
+      CallSid?: string;
+      RecordingSid?: string;
+      RecordingStatus?: string;
+      RecordingDuration?: string;
+    },
+  ): Promise<string> {
+    await this.flowRunner.onVoicemailRecording(body);
+    return '<Response/>';
   }
 
   /** Answer webhook for inbound agent ring legs — first answer wins here. */
