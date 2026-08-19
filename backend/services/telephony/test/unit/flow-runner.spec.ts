@@ -411,3 +411,61 @@ describe('FlowRunnerService — what happens after the conversation', () => {
     );
   });
 });
+
+describe('FlowRunnerService — a caller who has already gone', () => {
+  const withClosing = flowOf(
+    {
+      ring: { id: 'ring', type: 'ring', groupId: 'g1', answeredNext: 'bye' },
+      bye: { id: 'bye', type: 'say', text: 'Thank you for calling us.' },
+    },
+    'ring',
+  );
+
+  it('plays nothing, and records nothing, once the call has ended', async () => {
+    const { runner, calls } = build({
+      flows: { findByNumber: jest.fn(async () => withClosing) },
+    });
+    await runner.startInbound('CA1', '+1404', '+1541');
+    calls.recordFlowStep.mockClear();
+
+    // Twilio requests a <Dial action> even when the caller is the one who hung
+    // up — the TwiML is discarded, so running the step would log a greeting
+    // nobody could have heard.
+    const twiml = await runner.resume('CA1', 'bye', undefined, 'completed');
+
+    expect(twiml).toBe('<Response/>');
+    expect(twiml).not.toContain('Thank you for calling');
+    expect(calls.recordFlowStep).not.toHaveBeenCalled();
+  });
+
+  it.each(['busy', 'no-answer', 'failed', 'canceled'])(
+    'treats %s the same way',
+    async (status) => {
+      const { runner, calls } = build({
+        flows: { findByNumber: jest.fn(async () => withClosing) },
+      });
+      await runner.startInbound('CA1', '+1404', '+1541');
+      calls.recordFlowStep.mockClear();
+
+      await runner.resume('CA1', 'bye', undefined, status);
+      expect(calls.recordFlowStep).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still plays the closing message to a caller who is on the line', async () => {
+    const { runner, calls } = build({
+      flows: { findByNumber: jest.fn(async () => withClosing) },
+    });
+    await runner.startInbound('CA1', '+1404', '+1541');
+    calls.recordFlowStep.mockClear();
+
+    // The agent hung up; the caller is still connected.
+    const twiml = await runner.resume('CA1', 'bye', undefined, 'in-progress');
+
+    expect(twiml).toContain('Thank you for calling us.');
+    expect(calls.recordFlowStep).toHaveBeenCalledWith(
+      'CA1',
+      expect.objectContaining({ nodeId: 'bye' }),
+    );
+  });
+});

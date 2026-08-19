@@ -66,10 +66,15 @@ export class VoiceController {
   @ApiExcludeEndpoint()
   async flowStep(
     @Query('node') node: string,
-    @Body() body: InboundBody & { Digits?: string },
+    @Body() body: InboundBody & { Digits?: string; CallStatus?: string },
   ): Promise<string> {
     const fromFlow = body.CallSid
-      ? await this.flowRunner.resume(body.CallSid, node ?? '', body.Digits)
+      ? await this.flowRunner.resume(
+          body.CallSid,
+          node ?? '',
+          body.Digits,
+          body.CallStatus,
+        )
       : null;
     return fromFlow ?? this.voiceService.buildInbound(body);
   }

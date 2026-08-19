@@ -42,6 +42,15 @@ interface FlowState {
 
 const STATE_TTL_SECONDS = 4 * 60 * 60;
 
+/** Parent-call statuses that mean the caller is gone. */
+const ENDED_STATUSES = new Set([
+  'completed',
+  'busy',
+  'no-answer',
+  'failed',
+  'canceled',
+]);
+
 /**
  * Walks a call through its flow.
  *
@@ -108,7 +117,16 @@ export class FlowRunnerService {
     callSid: string,
     nodeId: string,
     digits?: string,
+    callStatus?: string,
   ): Promise<string | null> {
+    // A <Dial action> is requested when the dial ends — including when the
+    // caller is the one who hung up. Any TwiML returned then is discarded, so
+    // running the step would record a greeting nobody could have heard.
+    if (callStatus && ENDED_STATUSES.has(callStatus)) {
+      this.logger.log(`Flow: ${callSid} already ended (${callStatus}) — nothing to play`);
+      return '<Response/>';
+    }
+
     const state = await this.load(callSid);
     if (!state) {
       this.logger.warn(`Flow resume for ${callSid}: no state — falling back`);
