@@ -13,7 +13,16 @@ import * as api from "./api";
 import type { CallsFilter } from "./lib";
 
 /** Safety-net poll — SSE is the primary transport for live updates. */
-const LIVE_FALLBACK_POLL_MS = 30_000;
+/**
+ * How often the live list refetches on its own.
+ *
+ * SSE is what makes it feel instant, and this is what makes it correct when
+ * SSE isn't delivering — a dropped stream, a proxy that buffers, a laptop
+ * waking up. Thirty seconds was too coarse for a page whose whole subject is
+ * calls happening right now: a short call could begin and end without ever
+ * being drawn. Five is a request every few seconds against one small query.
+ */
+const LIVE_FALLBACK_POLL_MS = 5_000;
 
 export function useCallsList(filter: CallsFilter) {
   return useInfiniteQuery({
@@ -84,6 +93,9 @@ export function useLiveCalls() {
     queryKey: queryKeys.calls.live(),
     queryFn: api.getLiveCalls,
     refetchInterval: LIVE_FALLBACK_POLL_MS,
+    // A tab that was hidden while a call started should show it on return,
+    // rather than waiting out the next interval.
+    refetchOnWindowFocus: true,
   });
 }
 
