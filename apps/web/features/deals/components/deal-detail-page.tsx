@@ -52,6 +52,7 @@ import {
   useDeleteDeal,
   useMoveStatus,
   useSetDealTags,
+  useSuggestedTechs,
   useUpdateDeal,
 } from "../hooks";
 import {
@@ -72,7 +73,9 @@ import { useAttachments } from "../attachments-hooks";
 import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
-import { ScheduleField } from "./schedule-field";
+import { ScheduledBlock } from "./scheduled-block";
+import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 
@@ -209,8 +212,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    // h-full: cards in a grid row stretch to the tallest neighbour.
-    <div className="h-full rounded-xl border bg-card p-4">
+    // Plain, borderless — just a titled block, Workiz-style.
+    <div className="h-full">
       <div className="mb-3 flex items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
         <span className="h-px flex-1 bg-border" />
@@ -267,6 +270,16 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   // Recomputes as the draft's job type changes — the applicable set is scoped to it.
   // One card per custom-field group, Workiz-ordered — same as the New Job form.
   const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId));
+
+  // The job's timezone (service area's, else Connecticut) and the eligible-tech
+  // count for the Team section's "N techs … can do this job" line.
+  const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
+  const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
+  const suggested = useSuggestedTechs(
+    { jobTypeId: dealDraft.jobTypeId, serviceAreaId: jobArea?.id, lat: dealDraft.address.lat, lng: dealDraft.address.lng },
+    Boolean(dealDraft.jobTypeId) && dealDraft.address.lat !== undefined,
+  );
+  const eligibleCount = (suggested.data ?? []).filter((t) => t.eligible).length;
 
   const dealPatch = buildDealPatch(deal, dealDraft);
   // A changed service address is also offered to the client's saved list — but
@@ -347,7 +360,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   };
 
   return (
-    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
         title="Client"
@@ -368,26 +381,44 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         )}
       </Section>
 
-      {/* Schedule + Team */}
+      {/* Schedule */}
       <Section title="Schedule">
-        <ScheduleField
-          date={dealDraft.scheduledDate || undefined}
-          slot={dealDraft.scheduledTimeSlot || undefined}
-          disabled={!canEdit}
-          onDate={(d) => setDeal({ scheduledDate: d ?? "" })}
-          onSlot={(s) => setDeal({ scheduledTimeSlot: s })}
+        <ScheduledBlock
+          date={dealDraft.scheduledDate || ""}
+          endDate={dealDraft.scheduledEndDate || ""}
+          slot={dealDraft.scheduledTimeSlot || ""}
+          allDay={dealDraft.allDay}
+          tz={jobTz}
+          areaName={jobArea?.name}
+          onChange={(s) =>
+            setDeal({
+              scheduledDate: s.date,
+              scheduledEndDate: s.endDate,
+              scheduledTimeSlot: s.slot,
+              allDay: s.allDay,
+            })
+          }
         />
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label>Team</Label>
-            {canEdit ? (
-              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAssigning(true)}>
-                <UserCog className="size-3.5" /> Assign
-              </Button>
-            ) : null}
-          </div>
-          <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
-        </div>
+      </Section>
+
+      {/* Team — its own section, Workiz-style */}
+      <Section
+        title="Team"
+        action={
+          canEdit ? (
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAssigning(true)}>
+              <UserCog className="size-3.5" /> Assign
+            </Button>
+          ) : null
+        }
+      >
+        <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
+        {jobArea && dealDraft.jobTypeId ? (
+          <p className="text-xs text-muted-foreground">
+            <b className="text-foreground">{eligibleCount}</b> tech{eligibleCount === 1 ? "" : "s"} work in{" "}
+            <b className="text-foreground">{jobArea.name}</b> and can do this job.
+          </p>
+        ) : null}
       </Section>
 
       {/* Service location */}

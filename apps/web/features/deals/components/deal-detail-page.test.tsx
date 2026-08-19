@@ -64,10 +64,13 @@ vi.mock("@/features/job-sources/components/job-source-select", () => ({
     <button type="button" onClick={() => onChange("src-web")}>pick source</button>
   ),
 }));
-vi.mock("./schedule-field", () => ({
-  ScheduleField: ({ onDate }: { onDate: (d: string | undefined) => void }) => (
-    <button type="button" onClick={() => onDate("2026-09-01")}>set date</button>
+vi.mock("./scheduled-block", () => ({
+  ScheduledBlock: ({ onChange }: { onChange: (v: { date: string; endDate: string; slot: string; allDay: boolean }) => void }) => (
+    <button type="button" onClick={() => onChange({ date: "2026-09-01", endDate: "2026-09-01", slot: "", allDay: false })}>set date</button>
   ),
+}));
+vi.mock("@/features/service-areas/hooks", () => ({
+  useResolvedServiceArea: () => ({ data: undefined }),
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
 // The job page carries a strip for linking the call you're on; it queries
@@ -151,6 +154,7 @@ vi.mock("../hooks", () => ({
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useSetDealTags: () => ({ mutate: vi.fn(), isPending: false }),
+  useSuggestedTechs: () => ({ data: [] }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
   useChangeDealClient: () => ({ mutate: mocks.changeClient, isPending: false }),
   useDealTimeline: () => ({
@@ -369,6 +373,7 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({
       serviceArea: "West Valley North",
       scheduledDate: "2026-09-01",
+      scheduledEndDate: "2026-09-01",
       jobTypeId: "jt-rekey",
       sourceId: "src-web",
     });

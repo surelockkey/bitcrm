@@ -272,7 +272,9 @@ export interface DealDraft {
   poNumber: string;
   workOrderId: string;
   scheduledDate: string;
+  scheduledEndDate: string;
   scheduledTimeSlot: string;
+  allDay: boolean;
   notes: string;
   internalNotes: string;
   /** User-defined field answers, keyed by CustomFieldDefinition id. */
@@ -305,7 +307,9 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
     poNumber: d.poNumber ?? "",
     workOrderId: d.workOrderId ?? "",
     scheduledDate: d.scheduledDate ?? "",
+    scheduledEndDate: d.scheduledEndDate ?? "",
     scheduledTimeSlot: d.scheduledTimeSlot ?? "",
+    allDay: Boolean(d.allDay),
     notes: d.notes ?? "",
     internalNotes: d.internalNotes ?? "",
     customFields: { ...(d.customFields ?? {}) },
@@ -357,7 +361,7 @@ const sameCustomFields = (
 
 /** Optional string fields where an emptied draft value means "clear it". */
 const OPTIONAL_DEAL_FIELDS = [
-  "sourceId", "poNumber", "workOrderId", "scheduledDate", "scheduledTimeSlot",
+  "sourceId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
 ] as const;
 
 /**
@@ -374,6 +378,7 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   if (draft.serviceArea !== base.serviceArea) { patch.serviceArea = draft.serviceArea; dirty = true; }
   if (draft.jobTypeId !== base.jobTypeId) { patch.jobTypeId = draft.jobTypeId; dirty = true; }
   if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
+  if (draft.allDay !== base.allDay) { patch.allDay = draft.allDay; dirty = true; }
   for (const key of OPTIONAL_DEAL_FIELDS) {
     if (draft[key] !== base[key]) { patch[key] = draft[key] || undefined; dirty = true; }
   }
