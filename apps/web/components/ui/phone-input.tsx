@@ -42,6 +42,7 @@ export function PhoneInput({
   disabled,
   autoFocus,
   id,
+  lockCountry,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -51,6 +52,8 @@ export function PhoneInput({
   disabled?: boolean;
   autoFocus?: boolean;
   id?: string;
+  /** Show the country code as a fixed display — no picker to change it. */
+  lockCountry?: boolean;
 }) {
   const [country, setCountry] = useState<CountryCode>(() =>
     value ? countryOf(value) : DEFAULT_COUNTRY,
@@ -102,7 +105,11 @@ export function PhoneInput({
         className,
       )}
     >
-      <CountrySelect value={country} onChange={handleCountry} disabled={disabled} />
+      {lockCountry ? (
+        <StaticCountry value={country} />
+      ) : (
+        <CountrySelect value={country} onChange={handleCountry} disabled={disabled} />
+      )}
       <div className="h-5 w-px flex-none bg-border" />
       <input
         ref={inputRef}
@@ -123,6 +130,20 @@ export function PhoneInput({
 }
 
 /** Typeable/searchable country picker — filter by country name or dial code. */
+/** The country as a fixed, non-interactive prefix — code shown, not changeable. */
+function StaticCountry({ value }: { value: CountryCode }) {
+  const current = COUNTRIES.find((c) => c.country === value);
+  return (
+    <span
+      className="flex h-9 flex-none items-center gap-1 pl-2.5 pr-1.5 text-muted-foreground"
+      aria-label={`Country code${current ? `: ${current.name} +${current.callingCode}` : ""}`}
+    >
+      <span className="text-base leading-none">{current?.flag ?? "🏳️"}</span>
+      <span className="text-xs tabular-nums">+{current?.callingCode ?? ""}</span>
+    </span>
+  );
+}
+
 function CountrySelect({
   value,
   onChange,

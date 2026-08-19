@@ -567,6 +567,7 @@ function ClientEditor({
                 className="flex-1"
                 value={p}
                 onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
+                lockCountry
               />
               {i === 0 ? <PrimaryBadge /> : null}
               {/* Dials what's on file, not the half-typed draft. */}

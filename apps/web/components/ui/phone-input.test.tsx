@@ -69,4 +69,12 @@ describe("PhoneInput", () => {
     expect(input().value.replace(/\D/g, "")).toBe("958601427");
     expect(countryButton()).toHaveAccessibleName(/Ukraine \+380/);
   });
+
+  it("lockCountry shows the code but offers no way to change it", () => {
+    render(<PhoneInput value="+14045551234" onChange={() => {}} lockCountry />);
+    // The number still edits, but the country is a static display — no button.
+    expect(screen.queryByRole("button", { name: /Country code/ })).not.toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText<HTMLInputElement>("Phone number")).not.toBeDisabled();
+  });
 });
