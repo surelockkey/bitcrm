@@ -177,6 +177,7 @@ export function ClientPicker({
               value={phone || (queryIsPhone ? trimmed : "")}
               onChange={setPhone}
               placeholder="Phone…"
+              lockCountry
             />
             <Input className="h-9" type="email" placeholder="Email" value={newEmail} onChange={(e) => setEmail(e.target.value)} />
           </div>
