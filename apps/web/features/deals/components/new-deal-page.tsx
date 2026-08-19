@@ -50,6 +50,9 @@ import { ClientPicker, type ClientDraft } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
 import { TechSuggestions } from "./tech-suggestions";
+import { AreaClock } from "./area-clock";
+import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
@@ -230,6 +233,9 @@ function DealForm({
   });
   const err = form.formState.errors;
   const v = useWatch({ control: form.control }) as DealJobValues;
+  // The job's timezone: its resolved service area's, else Connecticut.
+  const scheduledArea = useResolvedServiceArea(v.address?.lat, v.address?.lng);
+  const jobTz = scheduledArea.data?.timezone ?? DEFAULT_TZ;
 
   /** Details differ from what's on file. */
   const clientChanged =
@@ -507,6 +513,9 @@ function DealForm({
         </Section>
 
         <Section title="Scheduled">
+          <div className="-mt-1 flex items-center justify-between">
+            <AreaClock tz={jobTz} areaName={scheduledArea.data?.name} />
+          </div>
           <ScheduleField
             date={v.scheduledDate || undefined}
             slot={v.scheduledTimeSlot || undefined}
