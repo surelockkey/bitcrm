@@ -196,7 +196,7 @@ beforeEach(() => {
 // Radix dialogs set pointer-events on <body> while open; skip the check in jsdom.
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
-const poInput = () => screen.getByPlaceholderText("C-PO / VPO");
+const poInput = () => screen.getByPlaceholderText(/notes visible to the team/i);
 const firstNameInput = () => screen.getByDisplayValue("Jane");
 const saveButton = () => screen.getByRole("button", { name: "Save" });
 const jobsLink = () => screen.getByRole("link", { name: /jobs/i });
@@ -302,7 +302,7 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.click(saveButton());
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ poNumber: "PO-777" });
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-777" });
     expect(mocks.updateContact).not.toHaveBeenCalled();
   });
 
@@ -318,7 +318,7 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.click(screen.getByRole("button", { name: /save job/i }));
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ poNumber: "PO-9" });
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-9" });
     expect(mocks.updateContact).toHaveBeenCalledTimes(1);
     expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
       id: "c1",

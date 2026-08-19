@@ -360,7 +360,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
+    <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
         title="Client"
@@ -401,6 +401,20 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         />
       </Section>
 
+      {/* Service location */}
+      <Section title="Service location">
+        <DealAddressEditor
+          value={dealDraft.address}
+          onChange={(a) => setDeal({ address: a })}
+          clientAddresses={contact?.addresses}
+          canEdit={canEdit}
+        />
+        <Field label="Service area">
+          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
+            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
+        </Field>
+      </Section>
+
       {/* Team — its own section, Workiz-style */}
       <Section
         title="Team"
@@ -421,20 +435,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         ) : null}
       </Section>
 
-      {/* Service location */}
-      <Section title="Service location">
-        <DealAddressEditor
-          value={dealDraft.address}
-          onChange={(a) => setDeal({ address: a })}
-          clientAddresses={contact?.addresses}
-          canEdit={canEdit}
-        />
-        <Field label="Service area">
-          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
-            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
-        </Field>
-      </Section>
-
       {/* Job */}
       <Section title="Job">
         <Field label="Job type">
@@ -452,20 +452,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
                 <SelectItem value={DealPriority.URGENT}>Urgent</SelectItem>
               </SelectContent>
             </Select>
-          </Field>
-        </div>
-      </Section>
-
-      {/* Work order / Platinum — separate from Job, as on the Workiz form. */}
-      <Section title="Work order / Platinum">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="PO number">
-            <Input className="h-9" value={dealDraft.poNumber} disabled={!canEdit} placeholder="C-PO / VPO"
-              onChange={(e) => setDeal({ poNumber: e.target.value })} />
-          </Field>
-          <Field label="Work order link">
-            <Input className="h-9" value={dealDraft.workOrderId} disabled={!canEdit} placeholder="https://…"
-              onChange={(e) => setDeal({ workOrderId: e.target.value })} />
           </Field>
         </div>
       </Section>
