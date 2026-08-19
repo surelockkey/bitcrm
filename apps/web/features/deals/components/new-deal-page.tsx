@@ -511,12 +511,12 @@ function DealForm({
         {/* Row 2 — Job Details | Scheduled. */}
         <Section title="Job Details">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               <Label>Job type</Label>
               <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
               {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               <Label>Job source{req("source")}</Label>
               <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
             </div>
@@ -524,7 +524,7 @@ function DealForm({
           <div className="grid grid-cols-2 gap-3">
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
-          <div className="space-y-1.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
+          <div className="space-y-2.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
         </Section>
 
         <Section title="Scheduled">
@@ -544,7 +544,7 @@ function DealForm({
           />
           {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2.5">
             <Label>Assign team members</Label>
             <TechSuggestions
               jobTypeId={v.jobTypeId}
@@ -586,8 +586,8 @@ function DealForm({
         {/* Work order / Platinum */}
         <Section title="Work order / Platinum">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>PO number{req("poNumber")}</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
-            <div className="space-y-1.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
+            <div className="space-y-2.5"><Label>PO number{req("poNumber")}</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
+            <div className="space-y-2.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
           </div>
           <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
         </Section>
@@ -595,16 +595,17 @@ function DealForm({
 
       {cfError ? <p className="text-sm text-destructive">{cfError}</p> : null}
 
-      {/* Sticky footer */}
-      <div className="sticky bottom-0 -mx-6 flex items-center justify-between gap-3 border-t bg-background/90 px-6 py-3 backdrop-blur">
-        <span className="text-xs text-muted-foreground">
-          {contact
-            ? `Client: ${contactName(contact)}`
-            : clientDraft
-              ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
-              : "Pick a client or type new details to continue."}
-        </span>
-        <div className="flex gap-2">
+      {/* Sticky footer — the primary action sits bottom-center; the client
+          hint floats to the left without pulling the buttons off-center. */}
+      <div className="sticky bottom-0 -mx-6 border-t bg-background/90 px-6 py-3 backdrop-blur">
+        <div className="relative flex items-center justify-center gap-2">
+          <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
+            {contact
+              ? `Client: ${contactName(contact)}`
+              : clientDraft
+                ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
+                : "Pick a client or type new details to continue."}
+          </span>
           <Button type="button" variant="ghost" asChild><Link href="/deals">Cancel</Link></Button>
           <Button
             type="submit"
@@ -748,7 +749,7 @@ function ResolvedClient({
           placeholder="Last name"
         />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-2.5">
         <Label>Company name</Label>
         <Button
           type="button"
@@ -796,7 +797,7 @@ function Sel({
   options: { value: string; label: string }[];
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5">
       <Label>{label}</Label>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>

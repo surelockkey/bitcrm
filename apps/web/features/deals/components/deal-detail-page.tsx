@@ -354,6 +354,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   };
 
   return (
+    <>
     <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
@@ -467,15 +468,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         />
       </div>
 
-      {/* The one Save for the whole page */}
-      {canEdit || canEditClient ? (
-        <div className="flex justify-end gap-2 lg:col-span-2">
-          <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
-            {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
-          </Button>
-        </div>
-      ) : null}
+      </div>
 
       {confirm}
 
@@ -495,7 +488,18 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           onConfirm={commit}
         />
       ) : null}
-    </div>
+
+      {/* One Save for the whole page — a fixed bottom bar, centered, matching
+          the New Job form. */}
+      {canEdit || canEditClient ? (
+        <div className="sticky bottom-0 -mx-6 -mb-6 mt-6 flex items-center justify-center gap-2 border-t bg-background/90 px-6 py-3 backdrop-blur">
+          <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
+          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
+          </Button>
+        </div>
+      ) : null}
+    </>
   );
 }
 
