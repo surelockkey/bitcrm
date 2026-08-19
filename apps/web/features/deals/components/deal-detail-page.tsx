@@ -492,7 +492,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       {/* One Save for the whole page — a fixed bottom bar, centered, matching
           the New Job form. */}
       {canEdit || canEditClient ? (
-        <div className="sticky bottom-0 -mx-6 -mb-6 mt-6 flex items-center justify-center gap-2 border-t bg-background/90 px-6 py-3 backdrop-blur">
+        <div className="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
           <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
           <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
