@@ -46,7 +46,7 @@ describe("ContactsTable", () => {
     render(<ContactsTable contacts={[contact()]} companyMap={map} />);
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
     expect(screen.getByText("Acme Storage")).toBeInTheDocument();
-    expect(screen.getByText("+1 (404) 555-1234")).toBeInTheDocument();
+    expect(screen.getByText("(404) 555-1234")).toBeInTheDocument();
     expect(screen.getByText("+1")).toBeInTheDocument(); // second phone hidden behind a chip
     expect(screen.getByText("Company rep")).toBeInTheDocument();
   });

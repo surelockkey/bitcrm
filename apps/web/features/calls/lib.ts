@@ -1,6 +1,6 @@
 /** Shared call-domain helpers: types, status presentation, formatters. */
 
-import { formatIntl } from "@/lib/phone";
+import { formatPhone } from "@/lib/phone";
 
 export type CallStatus =
   | "queued"
@@ -217,15 +217,16 @@ export function isClientEndpoint(value?: string): boolean {
 }
 
 /**
- * A call endpoint for display: E.164 numbers get international grouping
- * (`+380 95 860 1427` — NOT the national format, whose leading 0 reads like
- * an extra digit); `client:<userId>` endpoints (an agent's browser leg —
- * legacy pre-conference records) render as "Agent"; blanks dash out.
+ * A call endpoint for display: US numbers render nationally (`(262) 406-1115`,
+ * no +1), foreign ones in international grouping (`+380 95 860 1427` — whose
+ * national format's leading 0 would read like an extra digit);
+ * `client:<userId>` endpoints (an agent's browser leg — legacy pre-conference
+ * records) render as "Agent"; blanks dash out.
  */
 export function formatEndpoint(value?: string): string {
   if (!value) return "—";
   if (isClientEndpoint(value)) return "Agent";
-  return formatIntl(value) || value;
+  return formatPhone(value) || value;
 }
 
 /**

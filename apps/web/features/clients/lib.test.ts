@@ -59,11 +59,11 @@ function company(over: Partial<Company> = {}): Company {
 }
 
 describe("formatPhone", () => {
-  it("formats every US number the same way — country code + national grouping", () => {
-    expect(formatPhone("+14045551234")).toBe("+1 (404) 555-1234");
-    expect(formatPhone("4045551234")).toBe("+1 (404) 555-1234");
-    expect(formatPhone("14045551234")).toBe("+1 (404) 555-1234");
-    expect(formatPhone("(404) 555-1234")).toBe("+1 (404) 555-1234");
+  it("formats every US number the same way — national grouping, no +1", () => {
+    expect(formatPhone("+14045551234")).toBe("(404) 555-1234");
+    expect(formatPhone("4045551234")).toBe("(404) 555-1234");
+    expect(formatPhone("14045551234")).toBe("(404) 555-1234");
+    expect(formatPhone("(404) 555-1234")).toBe("(404) 555-1234");
   });
   it("passes through anything it can't normalize", () => {
     expect(formatPhone("")).toBe("");

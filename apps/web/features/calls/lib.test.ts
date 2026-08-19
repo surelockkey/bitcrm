@@ -57,9 +57,10 @@ describe("formatCallTime", () => {
 });
 
 describe("formatEndpoint", () => {
-  it("formats numbers internationally, labels agent legs, dashes blanks", () => {
-    expect(formatEndpoint("+12624061115")).toBe("+1 262 406 1115");
-    // NO national prefix: "+380 095…" would read as an extra digit.
+  it("formats US numbers nationally, foreign ones with their code, labels agent legs, dashes blanks", () => {
+    expect(formatEndpoint("+12624061115")).toBe("(262) 406-1115");
+    // Foreign numbers keep the +code, but NO national trunk prefix:
+    // "+380 095…" would read as an extra digit.
     expect(formatEndpoint("+380958601427")).toBe("+380 95 860 1427");
     expect(formatEndpoint("client:d47814b8-e051-706e")).toBe("Agent");
     expect(formatEndpoint(undefined)).toBe("—");

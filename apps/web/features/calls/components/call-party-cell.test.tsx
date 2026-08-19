@@ -30,7 +30,7 @@ describe("CallPartyCell", () => {
         "/admin/users?user=u1",
       );
       expect(screen.getByText("Dispatcher")).toBeInTheDocument();
-      expect(screen.getByText("+1 262 406 1115")).toBeInTheDocument();
+      expect(screen.getByText("(262) 406-1115")).toBeInTheDocument();
     });
 
     it("still marks them as ours when the role is unresolved", () => {

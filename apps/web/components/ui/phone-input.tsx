@@ -14,20 +14,24 @@ import { cn } from "@/lib/utils";
 import {
   callingCode,
   countryOf,
-  detectInternational,
-  formatIntl,
+  DEFAULT_COUNTRY,
+  formatAsYouType,
   nationalDigits,
+  nationalInput,
   phoneCountries,
+  toE164,
 } from "@/lib/phone";
 
 const COUNTRIES = phoneCountries();
 
 /**
- * The single phone input for the whole app — one field that holds the whole
- * international number, `+380 95 860 1427`, with a flag selector on the left
- * (default 🇺🇸). It auto-formats as you type and only accepts digits, so a
- * malformed number can't be entered; there's no separate validation error.
- * The value flows out as E.164 (`+14045551234`) for unambiguous storage.
+ * The single phone input for the whole app — a national-format field,
+ * `(404) 555-1234`, defaulting to the US; the dial code lives on the flag
+ * selector, never in the field, so nobody types (or sees) a `+1`. The country
+ * only changes when picked by hand — pasting `+1 404…` just sheds its prefix,
+ * and a foreign `+code` never flips the flag. It auto-formats as you type and
+ * only accepts digits, so a malformed number can't be entered; the value still
+ * flows out as E.164 (`+14045551234`) for unambiguous storage.
  */
 export function PhoneInput({
   value,
@@ -48,16 +52,21 @@ export function PhoneInput({
   autoFocus?: boolean;
   id?: string;
 }) {
-  const [country, setCountry] = useState<CountryCode>(() => (value ? countryOf(value) : "US"));
-  const [text, setText] = useState<string>(() => (value ? formatIntl(value) : ""));
+  const [country, setCountry] = useState<CountryCode>(() =>
+    value ? countryOf(value) : DEFAULT_COUNTRY,
+  );
+  const [text, setText] = useState<string>(() =>
+    value ? formatAsYouType(nationalDigits(value), countryOf(value)) : "",
+  );
   const lastEmit = useRef<string>(value ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Re-sync when the value changes from outside (form reset, switching records).
   useEffect(() => {
     if ((value ?? "") === lastEmit.current) return;
-    setText(value ? formatIntl(value) : "");
-    if (value) setCountry(countryOf(value));
+    const c = value ? countryOf(value) : DEFAULT_COUNTRY;
+    setCountry(c);
+    setText(value ? formatAsYouType(nationalDigits(value), c) : "");
     lastEmit.current = value ?? "";
   }, [value]);
 
@@ -67,26 +76,21 @@ export function PhoneInput({
   };
 
   const handleChange = (raw: string) => {
-    const startsPlus = raw.trimStart().startsWith("+");
-    const digits = raw.replace(/\D/g, "").slice(0, 15); // E.164 max length
-    // Digits typed without a leading "+" are national in the selected country;
-    // otherwise the number carries its own country code.
-    const e164 = digits ? (startsPlus ? `+${digits}` : `+${callingCode(country)}${digits}`) : "";
-    if (startsPlus) {
-      const detected = detectInternational(e164);
-      if (detected) setCountry(detected.country);
-    }
-    setText(e164 ? formatIntl(e164) : "");
-    emit(e164);
+    let digits = nationalInput(raw, country);
+    // Deleting a formatting character alone would reformat back to the same
+    // text and trap the caret — treat it as deleting the digit before it.
+    const prev = text.replace(/\D/g, "");
+    if (raw.length < text.length && digits === prev) digits = digits.slice(0, -1);
+    digits = digits.slice(0, 15 - callingCode(country).length); // E.164 max length
+    setText(digits ? formatAsYouType(digits, country) : "");
+    emit(digits ? toE164(country, digits) : "");
   };
 
   const handleCountry = (c: CountryCode) => {
     setCountry(c);
-    const national = nationalDigits(value);
-    const e164 = national ? `+${callingCode(c)}${national}` : "";
-    // Show the new dial-code prefix so the user can keep typing the number.
-    setText(formatIntl(e164 || `+${callingCode(c)}`));
-    emit(e164);
+    const digits = text.replace(/\D/g, "");
+    setText(digits ? formatAsYouType(digits, c) : "");
+    emit(digits ? toE164(c, digits) : "");
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
@@ -105,7 +109,7 @@ export function PhoneInput({
         id={id}
         type="tel"
         inputMode="tel"
-        autoComplete="tel"
+        autoComplete="tel-national"
         value={text}
         disabled={disabled}
         autoFocus={autoFocus}
@@ -145,6 +149,9 @@ function CountrySelect({
         )}
       >
         <span className="text-base leading-none">{current?.flag ?? "🏳️"}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          +{current?.callingCode ?? ""}
+        </span>
         <ChevronsUpDown className="size-3.5 text-muted-foreground" />
       </button>
 
