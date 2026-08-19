@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Loader2, UserRound } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronsUpDown, Loader2, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { useSuggestedTechs } from "../hooks";
@@ -16,10 +17,11 @@ const techName = (t: QualifiedTech) =>
   `${t.firstName ?? ""} ${t.lastName ?? ""}`.trim() || "Technician";
 
 /**
- * Suggests technicians who can do a job while it's still being created — by its
- * job type and the service area its address resolves into. Eligible techs (right
- * job type + in area) are pickable; the rest show why they can't. Selection is
- * lifted so the page can assign them right after the job is created.
+ * Workiz-style "Assign team members" select. States:
+ * - no address → disabled, "Enter the address first" (techs need a service area);
+ * - address, no job type → techs who can do ANY job type in the area, counted;
+ * - address + job type → techs who can do THIS job, counted.
+ * Eligible techs are pickable; the rest show why they can't.
  */
 export function TechSuggestions({
   jobTypeId,
@@ -32,98 +34,131 @@ export function TechSuggestions({
   selected: string[];
   onChange: (ids: string[]) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const hasAddress = address.lat !== undefined && address.lng !== undefined;
   const { data: area } = useResolvedServiceArea(address.lat, address.lng);
   const query = useSuggestedTechs(
-    { jobTypeId, serviceAreaId: area?.id, lat: address.lat, lng: address.lng },
-    Boolean(jobTypeId) && hasAddress,
+    { jobTypeId: jobTypeId || undefined, serviceAreaId: area?.id, lat: address.lat, lng: address.lng },
+    hasAddress,
   );
-
-  // Both a job type and an address are needed: techs are matched by job type
-  // AND the service area the address resolves into.
-  if (!jobTypeId) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Pick a job type to see which technicians can do this job.
-      </p>
-    );
-  }
-  if (!hasAddress) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Add the address to see which technicians cover this job.
-      </p>
-    );
-  }
-
-  if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Finding technicians…
-      </div>
-    );
-  }
 
   const techs = query.data ?? [];
   const eligible = techs.filter((t) => t.eligible);
   const others = techs.filter((t) => !t.eligible);
+  const byId = new Map(techs.map((t) => [t.id, t]));
 
   const toggle = (id: string) =>
     onChange(selected.includes(id) ? selected.filter((t) => t !== id) : [...selected, id]);
 
-  return (
-    <div className="space-y-2">
-      {eligible.length === 0 ? (
-        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-          No technician can do this job {area ? `in ${area.name}` : "here"} yet.
-        </p>
-      ) : (
-        <ul className="divide-y rounded-lg border">
-          {eligible.map((t) => {
-            const on = selected.includes(t.id);
-            return (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  onClick={() => toggle(t.id)}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50"
-                >
-                  <span
-                    className={cn(
-                      "grid size-5 flex-none place-items-center rounded border",
-                      on ? "border-brand bg-brand text-brand-foreground" : "border-input",
-                    )}
-                  >
-                    {on ? <Check className="size-3.5" /> : null}
-                  </span>
-                  <UserRound className="size-4 flex-none text-muted-foreground" />
-                  <span className="flex-1 text-sm font-medium">{techName(t)}</span>
-                  {typeof t.distanceMiles === "number" ? (
-                    <span className="text-xs text-muted-foreground">{t.distanceMiles.toFixed(1)} mi</span>
-                  ) : null}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+  // Trigger content: disabled ask-for-address, or chips / placeholder.
+  const triggerText = !hasAddress
+    ? "Enter the address first"
+    : selected.length === 0
+      ? "Select technicians…"
+      : "";
 
-      {others.length ? (
-        <details className="rounded-lg border">
-          <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
-            {others.length} technician{others.length === 1 ? "" : "s"} can&apos;t take this job
-          </summary>
-          <ul className="divide-y border-t">
-            {others.map((t) => (
-              <li key={t.id} className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                <UserRound className="size-4 flex-none" />
-                <span className="flex-1">{techName(t)}</span>
-                <span className="text-xs">{REASON[t.reasons[0]] ?? "not eligible"}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+  const summary = !hasAddress
+    ? null
+    : query.isLoading
+      ? "Finding technicians…"
+      : jobTypeId
+        ? `${eligible.length} can do this job${area ? ` in ${area.name}` : ""}`
+        : `${eligible.length} technician${eligible.length === 1 ? "" : "s"} can do any job type${area ? ` in ${area.name}` : ""}`;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="relative">
+        <button
+          type="button"
+          aria-label="Assign team members"
+          aria-expanded={open}
+          disabled={!hasAddress}
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            "flex min-h-9 w-full items-center gap-1.5 rounded-md border bg-transparent px-2 py-1 text-left text-sm",
+            !hasAddress ? "cursor-not-allowed text-muted-foreground opacity-70" : "hover:border-border/80",
+          )}
+        >
+          <span className="flex flex-1 flex-wrap items-center gap-1">
+            {triggerText ? (
+              <span className={hasAddress && selected.length === 0 ? "text-muted-foreground" : ""}>{triggerText}</span>
+            ) : (
+              selected.map((id) => {
+                const t = byId.get(id);
+                return (
+                  <span key={id} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs">
+                    <UserRound className="size-3" />
+                    {t ? techName(t) : id}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Remove ${t ? techName(t) : "technician"}`}
+                      onClick={(e) => { e.stopPropagation(); toggle(id); }}
+                      className="opacity-70 hover:opacity-100"
+                    >
+                      <X className="size-3" />
+                    </span>
+                  </span>
+                );
+              })
+            )}
+          </span>
+          <ChevronsUpDown className="size-4 flex-none text-muted-foreground" />
+        </button>
+
+        {open && hasAddress ? (
+          <>
+            <button type="button" aria-label="Close" className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border bg-popover shadow-md">
+              {query.isLoading ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" /> Finding technicians…
+                </div>
+              ) : eligible.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  No technician can do this job {area ? `in ${area.name}` : "here"} yet.
+                </p>
+              ) : (
+                eligible.map((t) => {
+                  const on = selected.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggle(t.id)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50"
+                    >
+                      <span className={cn("grid size-5 flex-none place-items-center rounded border", on ? "border-brand bg-brand text-brand-foreground" : "border-input")}>
+                        {on ? <Check className="size-3.5" /> : null}
+                      </span>
+                      <UserRound className="size-4 flex-none text-muted-foreground" />
+                      <span className="flex-1 text-sm font-medium">{techName(t)}</span>
+                      {typeof t.distanceMiles === "number" ? (
+                        <span className="text-xs text-muted-foreground">{t.distanceMiles.toFixed(1)} mi</span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+
+              {others.length ? (
+                <div className="border-t">
+                  <p className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">Can&apos;t take this job</p>
+                  {others.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground">
+                      <UserRound className="size-4 flex-none" />
+                      <span className="flex-1">{techName(t)}</span>
+                      <span className="text-xs">{REASON[t.reasons[0]] ?? "not eligible"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {summary ? <p className="text-xs text-muted-foreground">{summary}</p> : null}
     </div>
   );
 }

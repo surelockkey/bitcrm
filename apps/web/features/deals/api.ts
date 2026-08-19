@@ -128,12 +128,13 @@ export const getQualifiedTechs = (id: string): Promise<QualifiedTech[]> =>
 
 /** Suggest techs for a not-yet-created job, by job type + service area (+ point). */
 export const suggestQualifiedTechs = (params: {
-  jobTypeId: string;
+  jobTypeId?: string;
   serviceAreaId?: string;
   lat?: number;
   lng?: number;
 }): Promise<QualifiedTech[]> => {
-  const q = new URLSearchParams({ jobTypeId: params.jobTypeId });
+  const q = new URLSearchParams();
+  if (params.jobTypeId) q.set("jobTypeId", params.jobTypeId);
   if (params.serviceAreaId) q.set("serviceAreaId", params.serviceAreaId);
   if (params.lat !== undefined) q.set("lat", String(params.lat));
   if (params.lng !== undefined) q.set("lng", String(params.lng));

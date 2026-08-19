@@ -772,7 +772,10 @@ export class DealsService {
       .map((tech) => {
         const reasons: string[] = [];
         if (!tech.assignable) reasons.push('not_assignable');
-        if (!tech.jobTypeIds.includes(params.jobTypeId)) reasons.push('missing_job_type');
+        // An empty job type means "any" — skip the job-type check entirely.
+        if (params.jobTypeId && !tech.jobTypeIds.includes(params.jobTypeId)) {
+          reasons.push('missing_job_type');
+        }
         if (!params.serviceAreaId || !tech.serviceAreaIds.includes(params.serviceAreaId)) {
           reasons.push('outside_area');
         }

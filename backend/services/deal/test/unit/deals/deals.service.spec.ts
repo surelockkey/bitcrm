@@ -856,6 +856,22 @@ describe('DealsService', () => {
       expect(wrong.reasons).toContain('missing_job_type');
     });
 
+    it('treats an empty job type as "any" — no missing_job_type reason', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-any',
+          jobTypeIds: ['jt-other'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+
+      const result = await service.rankQualifiedTechsFor({ jobTypeId: '', serviceAreaId: 'sa-y' });
+      expect(result[0].eligible).toBe(true);
+      expect(result[0].reasons).not.toContain('missing_job_type');
+    });
+
     it('marks everyone outside_area when no service area is given', async () => {
       eligibility.listAll.mockResolvedValue([
         {
