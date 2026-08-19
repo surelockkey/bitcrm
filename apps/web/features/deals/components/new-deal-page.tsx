@@ -107,7 +107,7 @@ export function NewDealPage() {
         <JobTagCombobox value={tagIds} onChange={setTagIds} />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 flex-col overflow-hidden">
         {/* Keyed on the client so the form takes fresh defaults — chiefly their
             address — when one resolves or is swapped, instead of writing to the
             form from render. Nothing typed is lost: picking a client is the
@@ -472,7 +472,9 @@ function DealForm({
   const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, v.jobTypeId));
 
   return (
-    <form onSubmit={submit} className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6" noValidate>
+    <form onSubmit={submit} className="flex flex-1 flex-col overflow-hidden" noValidate>
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Row 1 — Client Details | Service Location, as on the Workiz form. */}
         <Section title="Client Details">
@@ -594,10 +596,12 @@ function DealForm({
       </div>
 
       {cfError ? <p className="text-sm text-destructive">{cfError}</p> : null}
+        </div>
+      </div>
 
-      {/* Sticky footer — the primary action sits bottom-center; the client
-          hint floats to the left without pulling the buttons off-center. */}
-      <div className="sticky bottom-0 z-20 -mx-6 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
+      {/* Footer — a real footer outside the scroll region, always pinned to the
+          bottom; primary action bottom-center, client hint floated left. */}
+      <div className="border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
         <div className="relative flex items-center justify-center gap-2">
           <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
             {contact

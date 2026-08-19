@@ -187,17 +187,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {/* Details stays mounted (just hidden) so its unsaved draft survives
-            a hop to the other tabs. */}
-        <div className={cn(tab !== "details" && "hidden")}>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Details stays mounted (just hidden) so its unsaved draft survives a
+            hop to the other tabs. It owns its own scroll region so the Save bar
+            can live in a footer that never scrolls. */}
+        <div className={cn("flex flex-1 flex-col overflow-hidden", tab !== "details" && "hidden")}>
           <DetailsTab deal={deal} canEdit={canEdit} />
         </div>
         {tab === "items" ? (
-          <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+          </div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
+          </div>
         ) : null}
       </div>
 
@@ -355,6 +360,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
   return (
     <>
+    <div className="flex-1 overflow-y-auto p-6">
     <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
@@ -488,11 +494,12 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           onConfirm={commit}
         />
       ) : null}
+      </div>
 
-      {/* One Save for the whole page — a fixed bottom bar, centered, matching
-          the New Job form. */}
+      {/* One Save for the whole page — a real footer outside the scroll region,
+          so it's always pinned to the bottom; the fields scroll under it. */}
       {canEdit || canEditClient ? (
-        <div className="sticky bottom-0 z-20 -mx-6 -mb-6 mt-6 flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
+        <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
           <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
           <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
