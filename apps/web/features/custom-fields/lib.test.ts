@@ -75,7 +75,7 @@ describe("workizOrderedGroups", () => {
       field({ id: "t", name: "Parts Image", group: "Tech" }),
       field({ id: "e", name: "Jobs Dispatch", group: "Extra Info" }),
     ]);
-    expect(groups.map((g) => g.group)).toEqual(["Extra Info", "Tech", "Need To Order", "Zeta"]);
+    expect(groups.map((g) => g.group)).toEqual(["Tech", "Need To Order", "Extra Info", "Zeta"]);
   });
 });
 

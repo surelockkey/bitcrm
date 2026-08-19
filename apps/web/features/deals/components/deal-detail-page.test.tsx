@@ -73,6 +73,9 @@ vi.mock("@/features/service-areas/hooks", () => ({
   useResolvedServiceArea: () => ({ data: undefined }),
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
+// The Team section assigns inline via TechSuggestions, which fetches eligible
+// techs through react-query; stub it — its own tests cover the assign flow.
+vi.mock("./tech-suggestions", () => ({ TechSuggestions: () => null }));
 // The job page carries a strip for linking the call you're on; it queries
 // telephony, which this test has no client for. Its own tests cover it.
 vi.mock("@/features/calls/components/live-call-strip", () => ({
@@ -154,7 +157,7 @@ vi.mock("../hooks", () => ({
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useSetDealTags: () => ({ mutate: vi.fn(), isPending: false }),
-  useSuggestedTechs: () => ({ data: [] }),
+  useAssignTechs: () => ({ mutate: vi.fn(), isPending: false }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
   useChangeDealClient: () => ({ mutate: mocks.changeClient, isPending: false }),
   useDealTimeline: () => ({
