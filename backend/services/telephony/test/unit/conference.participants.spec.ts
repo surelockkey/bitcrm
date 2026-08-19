@@ -186,13 +186,12 @@ describe('ConferenceService — a flow still working through its groups', () => 
 });
 
 describe('ConferenceService — a conference ending is not always a call ending', () => {
-  it('leaves the record alone while the caller is still on the line', async () => {
-    const { service, twilio, applied } = makeHarness();
+  it('does not finalise while a flow is moving the caller to the next group', async () => {
+    const { service, redis, applied } = makeHarness();
     await service.initInbound('CAin', '+380958601427', '+15412830739', [
       { endpoint: 'client:agent-A', callerId: '+380958601427' },
     ]);
-    // Moving between ring steps: one room closes, the next opens.
-    twilio.callFetch.mockResolvedValue({ status: 'in-progress' });
+    await redis.set('telephony:conf:conf-CAin:moving', '1');
     applied.length = 0;
 
     await service.onConferenceEnd('conf-CAin');
@@ -203,13 +202,13 @@ describe('ConferenceService — a conference ending is not always a call ending'
   });
 
   it('keeps the flow state, so the next ring still knows where to go', async () => {
-    const { service, twilio, redis } = makeHarness();
+    const { service, redis } = makeHarness();
     await service.initInbound(
       'CAin', '+380958601427', '+15412830739',
       [{ endpoint: 'client:agent-A', callerId: '+380958601427' }],
       { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=vm' },
     );
-    twilio.callFetch.mockResolvedValue({ status: 'in-progress' });
+    await redis.set('telephony:conf:conf-CAin:moving', '1');
 
     await service.onConferenceEnd('conf-CAin');
 
@@ -217,14 +216,15 @@ describe('ConferenceService — a conference ending is not always a call ending'
     expect(meta.noAnswerUrl).toContain('node=vm');
   });
 
-  it('finalises normally once the caller really has gone', async () => {
-    const { service, twilio, applied } = makeHarness();
+  it('finalises every other ending, so a finished call cannot hang open', async () => {
+    const { service, applied } = makeHarness();
     await service.initInbound('CAin', '+380958601427', '+15412830739', [
       { endpoint: 'client:agent-A', callerId: '+380958601427' },
     ]);
-    twilio.callFetch.mockResolvedValue({ status: 'completed' });
     applied.length = 0;
 
+    // No move in progress — this is the call ending, whatever Twilio's leg
+    // status happens to say at this instant.
     await service.onConferenceEnd('conf-CAin');
 
     expect(applied.map((a: { status?: string }) => a.status)).toContain('canceled');

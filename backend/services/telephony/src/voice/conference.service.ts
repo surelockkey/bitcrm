@@ -90,6 +90,15 @@ export class ConferenceService {
   private pendingKey(name: string) {
     return `telephony:conf:${name}:pending`;
   }
+  /**
+   * Set while a flow is taking the caller out of one conference and into the
+   * next. Short-lived on purpose: if the move never completes, the marker
+   * expires and the call finalises normally rather than hanging open.
+   */
+  private movingKey(name: string) {
+    return `telephony:conf:${name}:moving`;
+  }
+
   private winnerKey(name: string) {
     return `telephony:conf:${name}:winner`;
   }
@@ -356,15 +365,16 @@ export class ConferenceService {
 
     // A conference also ends when the caller is simply moved on: a flow that
     // rings a second group takes them out of one room and puts them in the
-    // next, and Twilio reports that as an ending. Finalising here would mark a
-    // call canceled while it is still going — and because a terminal status
-    // outranks "in-progress", whoever answered afterwards could never set it
-    // back. It also threw away the Redis state the flow still needs.
+    // next, and Twilio reports that as an ending. Finalising there marks a
+    // call canceled while it is still going, and because every terminal status
+    // outranks "in-progress", whoever answers next can never set it back.
     //
-    // The caller's own leg is the authority on whether the call is over, so
-    // ask about it rather than infer.
-    if (await this.callerStillOnTheLine(primarySid)) {
-      this.logger.log(`Conference ${name} ended, caller still on — the flow continues`);
+    // Decided by whether *we* moved them, not by asking Twilio how the leg is
+    // doing: that answer races the webhook, and losing the race leaves a call
+    // that is over sitting open forever. This handler is the only thing that
+    // finalises a call, so it must not be skippable by guesswork.
+    if (await this.redis.client.get(this.movingKey(name))) {
+      this.logger.log(`Conference ${name} ended while moving the caller on`);
       return;
     }
 
@@ -399,22 +409,6 @@ export class ConferenceService {
   }
 
   /* --------------------------------------------- inbound winner race */
-
-  /**
-   * Is the caller's own leg still up?
-   *
-   * Unreachable Twilio, or a sid it does not know, is treated as gone: the
-   * alternative is a call that never finalises and sits in the live list
-   * forever.
-   */
-  private async callerStillOnTheLine(primarySid: string): Promise<boolean> {
-    try {
-      const call = await this.rest.run((c) => c.calls(primarySid).fetch());
-      return call.status === 'in-progress' || call.status === 'ringing';
-    } catch {
-      return false;
-    }
-  }
 
   /** Atomic first-answer-wins claim (SET NX). */
   async claimWinner(
@@ -526,6 +520,11 @@ export class ConferenceService {
         // fall back to the apology this has always given.
         this.logger.log(`Conference ${name}: no agent answered`);
         const { noAnswerUrl } = await this.redis.client.hgetall(this.metaKey(name));
+        if (noAnswerUrl) {
+          // Claimed before the redirect, so the conference-end it causes is
+          // recognised as a move rather than the end of the call.
+          await this.redis.client.set(this.movingKey(name), '1', 'EX', 20);
+        }
         try {
           await this.rest.run((c) =>
             c.calls(primarySid).update(
