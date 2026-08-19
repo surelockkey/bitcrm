@@ -423,6 +423,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
+      </Section>
+
+      {/* Work order / Platinum — separate from Job, as on the Workiz form. */}
+      <Section title="Work order / Platinum">
         <div className="grid grid-cols-2 gap-3">
           <Field label="PO number">
             <Input className="h-9" value={dealDraft.poNumber} disabled={!canEdit} placeholder="C-PO / VPO"
