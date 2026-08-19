@@ -346,6 +346,19 @@ data "aws_iam_policy_document" "task_telephony" {
     resources = [module.ddb["calls"].arn]
   }
 
+  # Recorded greetings for call flows live in the shared app bucket, under
+  # call-flows/audio/. Twilio fetches them back through our own endpoint.
+  statement {
+    sid    = "FlowAudio"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = ["${module.s3_app.arn}/call-flows/audio/*"]
+  }
+
   statement {
     sid       = "PublishCallEvents"
     effect    = "Allow"

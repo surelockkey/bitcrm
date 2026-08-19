@@ -20,6 +20,27 @@ function useInvalidateCallFlows() {
     qc.invalidateQueries({ queryKey: queryKeys.telephony.callFlows() });
 }
 
+/** Save the whole step graph — what the step editor uses. */
+export function useSaveCallFlow(id?: string) {
+  const invalidate = useInvalidateCallFlows();
+  return useMutation({
+    mutationFn: (body: api.CallFlowValues) =>
+      id ? api.updateCallFlow(id, body) : api.createCallFlow(body),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Flow saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useUploadFlowAudio() {
+  return useMutation({
+    mutationFn: (file: File) => api.uploadFlowAudio(file),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useCreateCallFlow() {
   const invalidate = useInvalidateCallFlows();
   return useMutation({

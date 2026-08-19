@@ -6,11 +6,15 @@ import {
   Param,
   Post,
   Put,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { CallFlowsService } from './call-flows.service';
+import { FlowAudioService } from './flow-audio.service';
 import {
   CreateCallFlowDto,
   SimpleCallFlowDto,
@@ -25,7 +29,26 @@ import {
 @ApiBearerAuth()
 @Controller('call-flows')
 export class CallFlowsController {
-  constructor(private readonly service: CallFlowsService) {}
+  constructor(
+    private readonly service: CallFlowsService,
+    private readonly audio: FlowAudioService,
+  ) {}
+
+  @Post('audio')
+  @RequirePermission('settings', 'edit')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({
+    summary: 'Upload a recorded greeting',
+    description:
+      '**Guard:** `settings.edit`. MP3 or WAV — Twilio cannot play anything ' +
+      'else. Returns an id to put on a step.',
+  })
+  async uploadAudio(
+    @UploadedFile() file: { buffer: Buffer; originalname?: string; mimetype?: string; size?: number },
+    @CurrentUser() user: JwtUser,
+  ) {
+    return { success: true, data: await this.audio.upload(file, user) };
+  }
 
   @Get()
   @RequirePermission('settings', 'view')

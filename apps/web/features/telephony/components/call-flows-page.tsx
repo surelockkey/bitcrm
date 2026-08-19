@@ -17,24 +17,48 @@ import {
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
-import type { CallFlow, RingNode, SayNode } from "@bitcrm/types";
+import type { CallFlow, CallFlowNode } from "@bitcrm/types";
 import { useCallGroups } from "../call-groups-hooks";
 import { useCallFlows, useDeleteCallFlow } from "../call-flows-hooks";
 import { CallFlowEditor } from "./call-flow-editor";
 
-/** A one-line summary of what this flow actually does. */
+/**
+ * A one-line summary, following the main line of the flow — the path a caller
+ * takes when nothing branches. Branches are visible in the editor; this is
+ * meant to be scannable.
+ */
 function describe(flow: CallFlow, groupName: (id: string) => string): string {
-  const nodes = Object.values(flow.nodes ?? {});
-  const say = nodes.find((n): n is SayNode => n.type === "say");
-  const ring = nodes.find((n): n is RingNode => n.type === "ring");
-  const takesMessage = nodes.some((n) => n.type === "voicemail");
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined = flow.entryNodeId;
 
-  const parts = [
-    say ? "greeting" : null,
-    ring ? `ring ${groupName(ring.groupId)}` : null,
-    takesMessage ? "voicemail" : "hang up",
-  ].filter(Boolean);
-  return parts.join(" → ");
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const node: CallFlowNode | undefined = flow.nodes?.[cursor];
+    if (!node) break;
+    switch (node.type) {
+      case "say":
+        parts.push(node.audioId ? "recorded greeting" : "greeting");
+        break;
+      case "hours":
+        parts.push("business hours");
+        break;
+      case "menu":
+        parts.push(`menu (${node.options.length} option${node.options.length === 1 ? "" : "s"})`);
+        break;
+      case "ring":
+        parts.push(`ring ${groupName(node.groupId)}`);
+        break;
+      case "voicemail":
+        parts.push("voicemail");
+        break;
+      case "hangup":
+        parts.push("hang up");
+        break;
+    }
+    cursor = node.type === "hours" ? node.openNext : node.next;
+  }
+  return parts.join(" → ") || "no steps yet";
 }
 
 /**

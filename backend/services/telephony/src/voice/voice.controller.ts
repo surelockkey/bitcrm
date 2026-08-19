@@ -1,11 +1,15 @@
 import {
   Body,
   Controller,
+  Get,
   Header,
+  Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { type Response } from 'express';
 import { ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { Public } from '@bitcrm/shared';
 import {
@@ -15,6 +19,7 @@ import {
 } from './voice.service';
 import { ConferenceService } from './conference.service';
 import { FlowRunnerService } from './flow-runner.service';
+import { FlowAudioService } from '../call-flows/flow-audio.service';
 import { CallsService, type TwilioStatusParams } from '../calls/calls.service';
 import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
 
@@ -34,6 +39,7 @@ export class VoiceController {
     private readonly conferenceService: ConferenceService,
     private readonly callsService: CallsService,
     private readonly flowRunner: FlowRunnerService,
+    private readonly flowAudio: FlowAudioService,
   ) {}
 
   @Post('outbound')
@@ -60,12 +66,36 @@ export class VoiceController {
   @ApiExcludeEndpoint()
   async flowStep(
     @Query('node') node: string,
-    @Body() body: InboundBody,
+    @Body() body: InboundBody & { Digits?: string },
   ): Promise<string> {
     const fromFlow = body.CallSid
-      ? await this.flowRunner.resume(body.CallSid, node ?? '')
+      ? await this.flowRunner.resume(body.CallSid, node ?? '', body.Digits)
       : null;
     return fromFlow ?? this.voiceService.buildInbound(body);
+  }
+
+  /**
+   * A recorded greeting, streamed to whoever asks.
+   *
+   * Deliberately unauthenticated: Twilio fetches this itself while the call is
+   * ringing and cannot carry a token. The id is an unguessable uuid, and the
+   * content is a greeting a caller is about to hear anyway.
+   */
+  @Get('audio/:id')
+  @Public()
+  @ApiExcludeEndpoint()
+  async audio(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const found = await this.flowAudio.read(id);
+    if (!found) {
+      res.status(404).end();
+      return;
+    }
+    res.set({
+      'Content-Type': found.contentType,
+      // Greetings change rarely, and Twilio re-fetches on every call.
+      'Cache-Control': 'public, max-age=3600',
+    });
+    (found.body as unknown as NodeJS.ReadableStream).pipe(res);
   }
 
   /** A voicemail finished recording. */
@@ -91,9 +121,10 @@ export class VoiceController {
   @ApiExcludeEndpoint()
   agentJoin(
     @Query('conf') conf: string,
-    @Body() body: { CallSid?: string; To?: string },
+    @Query('whisper') whisper: string | undefined,
+    @Body() body: { CallSid?: string; To?: string; Digits?: string },
   ): Promise<string> {
-    return this.voiceService.buildAgentJoin(conf ?? '', body);
+    return this.voiceService.buildAgentJoin(conf ?? '', body, whisper === '1');
   }
 
   /** Conference lifecycle events (start/end/join/leave). */

@@ -170,4 +170,101 @@ describe('CallFlowsService', () => {
     const updated = await service.update(flow.id, { name: 'Renamed' }, caller);
     expect(updated.version).toBe(2);
   });
+
+  describe('branching steps', () => {
+    const hoursAndMenu = {
+      name: 'Main line',
+      entryNodeId: 'hours',
+      nodes: {
+        hours: {
+          id: 'hours', type: 'hours' as const, timezone: 'America/New_York',
+          windows: [{ day: 1, open: '08:00', close: '18:00' }],
+          openNext: 'menu', next: 'closed',
+        },
+        menu: {
+          id: 'menu', type: 'menu' as const, prompt: 'Press 1.',
+          options: [{ key: '1', label: 'Dispatch', next: 'ring' }],
+          timeoutSeconds: 5, repeats: 1, next: 'ring',
+        },
+        ring: { id: 'ring', type: 'ring' as const, groupId: 'g1', next: 'closed' },
+        closed: { id: 'closed', type: 'hangup' as const },
+      },
+    };
+
+    it('accepts a flow that branches on hours and on a keypress', async () => {
+      const { service } = build();
+      const flow = await service.create(hoursAndMenu, caller);
+      expect(Object.keys(flow.nodes)).toHaveLength(4);
+    });
+
+    it('checks branch targets, not just the main line', async () => {
+      const { service } = build();
+      const broken = structuredClone(hoursAndMenu);
+      broken.nodes.hours.openNext = 'ghost';
+
+      await expect(service.create(broken, caller)).rejects.toThrow(
+        /points at a step that does not exist/,
+      );
+    });
+
+    it('catches a loop down a branch', async () => {
+      const { service } = build();
+      const looped = structuredClone(hoursAndMenu);
+      // Menu option 1 → ring → back to the menu.
+      looped.nodes.ring.next = 'menu';
+
+      await expect(service.create(looped, caller)).rejects.toThrow(/loops back on itself/);
+    });
+
+    it('refuses a menu that traps the caller or repeats a key', async () => {
+      const { service } = build();
+
+      const empty = structuredClone(hoursAndMenu);
+      empty.nodes.menu.options = [];
+      await expect(service.create(empty, caller)).rejects.toThrow(/traps the caller/);
+
+      const duplicate = structuredClone(hoursAndMenu);
+      duplicate.nodes.menu.options = [
+        { key: '1', label: 'A', next: 'ring' },
+        { key: '1', label: 'B', next: 'ring' },
+      ];
+      await expect(service.create({ ...duplicate, name: 'Other' }, caller)).rejects.toThrow(
+        /both use 1/,
+      );
+    });
+
+    it('refuses a key a phone cannot send', async () => {
+      const { service } = build();
+      const odd = structuredClone(hoursAndMenu);
+      odd.nodes.menu.options = [{ key: 'A', label: 'A', next: 'ring' }];
+
+      await expect(service.create(odd, caller)).rejects.toThrow(/not a key a phone can send/);
+    });
+
+    it('refuses opening hours with no windows — that is closed forever', async () => {
+      const { service } = build();
+      const noWindows = structuredClone(hoursAndMenu);
+      noWindows.nodes.hours.windows = [];
+
+      await expect(service.create(noWindows, caller)).rejects.toThrow(/closed forever/);
+    });
+
+    it('lets one group fall through to the next', async () => {
+      const { service } = build();
+      // The chain the flow model exists for: try dispatch, then the on-call
+      // tech, then take a message.
+      const chained = {
+        name: 'Escalating',
+        entryNodeId: 'first',
+        nodes: {
+          first: { id: 'first', type: 'ring' as const, groupId: 'g1', next: 'second' },
+          second: { id: 'second', type: 'ring' as const, groupId: 'g2', next: 'vm' },
+          vm: { id: 'vm', type: 'voicemail' as const, prompt: 'Message.', maxSeconds: 60 },
+        },
+      };
+
+      const flow = await service.create(chained, caller);
+      expect(flow.nodes.first).toMatchObject({ next: 'second' });
+    });
+  });
 });

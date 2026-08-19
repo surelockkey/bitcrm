@@ -40,6 +40,12 @@ export interface InboundLeg {
   endpoint: string;
   /** What that phone displays as the caller. */
   callerId: string;
+  /**
+   * Require a keypress before joining. Set for personal numbers, whose
+   * voicemail would otherwise answer and take the call from everyone else
+   * still ringing.
+   */
+  whisper?: boolean;
 }
 
 export interface InboundOptions {
@@ -184,7 +190,9 @@ export class ConferenceService {
           c.calls.create({
             to: leg.endpoint,
             from: leg.callerId,
-            url: `${this.config.publicBaseUrl}/api/telephony/voice/agent-join?conf=${name}`,
+            url:
+              `${this.config.publicBaseUrl}/api/telephony/voice/agent-join?conf=${name}` +
+              (leg.whisper ? '&whisper=1' : ''),
             method: 'POST',
             timeout: ringSeconds,
             statusCallback: this.statusUrl(name, 'agent'),

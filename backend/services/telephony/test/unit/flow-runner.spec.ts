@@ -103,8 +103,8 @@ describe('FlowRunnerService — running a call through its flow', () => {
     // A softphone shows the customer so the screen-pop works; a personal phone
     // shows our number, so the tech's callback comes back through the CRM.
     expect(legs).toEqual([
-      { endpoint: 'client:u-dana', callerId: '+14045551234' },
-      { endpoint: '+14045550134', callerId: '+15412830739' },
+      { endpoint: 'client:u-dana', callerId: '+14045551234', whisper: false },
+      { endpoint: '+14045550134', callerId: '+15412830739', whisper: false },
     ]);
     expect(options.ringSeconds).toBe(25);
     // …and nobody answering continues the flow rather than hanging up.
@@ -207,5 +207,148 @@ describe('FlowRunnerService — running a call through its flow', () => {
 
     const twiml = await runner.resume('CA1', 'ring');
     expect(twiml).toContain('<Conference');
+  });
+
+  describe('business hours', () => {
+    const hoursFlow = flowOf(
+      {
+        hours: {
+          id: 'hours',
+          type: 'hours',
+          timezone: 'America/New_York',
+          windows: [{ day: 3, open: '08:00', close: '18:00' }],
+          openNext: 'ring',
+          next: 'closed',
+        },
+        ring: { id: 'ring', type: 'ring', groupId: 'g1' },
+        closed: { id: 'closed', type: 'hangup', text: 'We are closed.' },
+      },
+      'hours',
+    );
+
+    it('takes the open branch during opening hours', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-19T13:00:00Z'));
+      const { runner } = build({ flows: { findByNumber: jest.fn(async () => hoursFlow) } });
+
+      const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+      expect(twiml).toContain('<Conference');
+      jest.useRealTimers();
+    });
+
+    it('takes the closed branch outside them', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-08-20T03:00:00Z'));
+      const { runner } = build({ flows: { findByNumber: jest.fn(async () => hoursFlow) } });
+
+      const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+      expect(twiml).toContain('We are closed.');
+      expect(twiml).toContain('<Hangup');
+      jest.useRealTimers();
+    });
+  });
+
+  describe('the voice menu', () => {
+    const menuFlow = flowOf(
+      {
+        menu: {
+          id: 'menu',
+          type: 'menu',
+          prompt: 'Press 1 for dispatch, 2 for accounts.',
+          options: [
+            { key: '1', label: 'Dispatch', next: 'ring' },
+            { key: '2', label: 'Accounts', next: 'bye' },
+          ],
+          timeoutSeconds: 5,
+          repeats: 1,
+          next: 'ring',
+        },
+        ring: { id: 'ring', type: 'ring', groupId: 'g1' },
+        bye: { id: 'bye', type: 'hangup', text: 'Goodbye.' },
+      },
+      'menu',
+    );
+    const menuBuild = () =>
+      build({ flows: { findByNumber: jest.fn(async () => menuFlow) } });
+
+    it('gathers a single key, with the prompt inside the gather', async () => {
+      const { runner } = menuBuild();
+
+      const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+      expect(twiml).toContain('<Gather');
+      expect(twiml).toContain('numDigits="1"');
+      // Inside <Gather> so somebody who knows the menu can press over it.
+      expect(twiml).toMatch(/<Gather[^>]*>\s*<Say>Press 1 for dispatch/);
+    });
+
+    it('follows the key the caller pressed', async () => {
+      const { runner } = menuBuild();
+      await runner.startInbound('CA1', '+1404', '+1541');
+
+      expect(await runner.resume('CA1', 'menu', '2')).toContain('Goodbye.');
+    });
+
+    it('re-reads the prompt on a wrong key, then gives up gracefully', async () => {
+      const { runner } = menuBuild();
+      await runner.startInbound('CA1', '+1404', '+1541');
+
+      const first = await runner.resume('CA1', 'menu', '9');
+      expect(first).toContain('I did not get that');
+
+      // repeats: 1 — the second wrong key falls through to `next` rather than
+      // trapping somebody who evidently cannot use the menu.
+      const second = await runner.resume('CA1', 'menu', '9');
+      expect(second).toContain('<Conference');
+    });
+
+    it('sends a caller who presses nothing to the fallback step', async () => {
+      const { runner } = menuBuild();
+      await runner.startInbound('CA1', '+1404', '+1541');
+
+      // No Digits at all — Twilio's <Redirect> after the gather.
+      expect(await runner.resume('CA1', 'menu')).toContain('<Gather');
+    });
+  });
+
+  describe('recorded greetings', () => {
+    it('plays an uploaded file instead of speaking the text', async () => {
+      const withAudio = flowOf(
+        {
+          hello: { id: 'hello', type: 'say', text: 'ignored', audioId: 'aud-1', next: 'bye' },
+          bye: { id: 'bye', type: 'hangup' },
+        },
+        'hello',
+      );
+      const { runner } = build({ flows: { findByNumber: jest.fn(async () => withAudio) } });
+
+      const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+      expect(twiml).toContain('<Play>https://api.test/api/telephony/voice/audio/aud-1</Play>');
+      expect(twiml).not.toContain('ignored');
+    });
+  });
+
+  describe('whisper', () => {
+    it('asks a personal phone to prove a human is holding it — never a browser', async () => {
+      const whisperFlow = flowOf(
+        { ring: { id: 'ring', type: 'ring', groupId: 'g1', whisper: true } },
+        'ring',
+      );
+      const { runner, conference } = build({
+        flows: { findByNumber: jest.fn(async () => whisperFlow) },
+      });
+
+      await runner.startInbound('CA1', '+14045551234', '+15412830739');
+
+      const legs = conference.initInbound.mock.calls[0][3] as Array<{
+        endpoint: string;
+        whisper?: boolean;
+      }>;
+      expect(legs).toEqual([
+        { endpoint: 'client:u-dana', callerId: '+14045551234', whisper: false },
+        { endpoint: '+14045550134', callerId: '+15412830739', whisper: true },
+      ]);
+    });
   });
 });

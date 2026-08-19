@@ -1,7 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import twilio from 'twilio';
 import { RedisService } from '@bitcrm/shared';
-import { CALL_FLOW_LIMITS, type CallFlow, type CallFlowNode } from '@bitcrm/types';
+import {
+  CALL_FLOW_LIMITS,
+  type CallFlow,
+  type CallFlowNode,
+  type HoursNode,
+  type MenuNode,
+  type SayNode,
+} from '@bitcrm/types';
+import { isWithinBusinessHours } from './business-hours';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
@@ -27,6 +35,8 @@ interface FlowState {
   hops: number;
   from: string;
   to: string;
+  /** How many times the current menu has re-read itself. */
+  menuTries?: number;
 }
 
 const STATE_TTL_SECONDS = 4 * 60 * 60;
@@ -89,8 +99,12 @@ export class FlowRunnerService {
     return this.execute(callSid, state, entry);
   }
 
-  /** Twilio came back for the next step. */
-  async resume(callSid: string, nodeId: string): Promise<string | null> {
+  /** Twilio came back for the next step, optionally with a key the caller pressed. */
+  async resume(
+    callSid: string,
+    nodeId: string,
+    digits?: string,
+  ): Promise<string | null> {
     const state = await this.load(callSid);
     if (!state) {
       this.logger.warn(`Flow resume for ${callSid}: no state — falling back`);
@@ -114,7 +128,30 @@ export class FlowRunnerService {
       return null;
     }
 
-    const next: FlowState = { ...state, nodeId, hops: state.hops + 1 };
+    // A menu answering itself is the one case where the caller's keypress
+    // decides the step, so it is resolved before anything is executed.
+    if (node.type === 'menu' && digits !== undefined) {
+      const chosen = node.options.find((option) => option.key === digits);
+      if (chosen) {
+        return this.resume(callSid, chosen.next);
+      }
+      const tries = (state.menuTries ?? 0) + 1;
+      if (tries <= node.repeats) {
+        await this.save(callSid, { ...state, nodeId, hops: state.hops + 1, menuTries: tries });
+        return this.menu(node, true);
+      }
+      // Out of patience: send them where a caller who pressed nothing goes,
+      // rather than leaving them in a menu they evidently can't use.
+      if (node.next) return this.resume(callSid, node.next);
+      return this.goodbye('Sorry, we did not get that. Please call again.');
+    }
+
+    const next: FlowState = {
+      ...state,
+      nodeId,
+      hops: state.hops + 1,
+      menuTries: node.type === 'menu' ? 0 : state.menuTries,
+    };
     await this.save(callSid, next);
     return this.execute(callSid, next, node);
   }
@@ -129,13 +166,17 @@ export class FlowRunnerService {
     try {
       switch (node.type) {
         case 'say':
-          return this.say(node.text, node.next);
+          return this.say(node, node.next);
+        case 'hours':
+          return await this.hours(callSid, node);
+        case 'menu':
+          return this.menu(node, false);
         case 'hangup':
           return this.goodbye(node.text);
         case 'voicemail':
           return this.voicemail(node.prompt, node.maxSeconds);
         case 'ring':
-          return await this.ring(callSid, state, node.groupId, node.next);
+          return await this.ring(callSid, state, node.groupId, node.next, node.whisper);
         default:
           this.logger.error(
             `Flow "${state.flow.name}": unknown step type — falling back`,
@@ -150,11 +191,58 @@ export class FlowRunnerService {
     }
   }
 
-  private say(text: string, next?: string): string {
+  private say(node: SayNode, next?: string): string {
     const twiml = new VoiceResponse();
-    if (text?.trim()) twiml.say(text);
+    this.speak(twiml, node.text, node.audioId);
     if (next) twiml.redirect({ method: 'POST' }, this.stepUrl(next));
     else twiml.hangup();
+    return twiml.toString();
+  }
+
+  /** A recorded greeting when there is one, the typed words when there isn't. */
+  private speak(
+    twiml: InstanceType<typeof VoiceResponse>,
+    text?: string,
+    audioId?: string,
+  ): void {
+    if (audioId) twiml.play({}, this.audioUrl(audioId));
+    else if (text?.trim()) twiml.say(text);
+  }
+
+  /**
+   * Open or closed, decided in the flow's own timezone — never the server's.
+   */
+  private async hours(callSid: string, node: HoursNode): Promise<string | null> {
+    const open = isWithinBusinessHours(node, new Date());
+    const target = open ? node.openNext : node.next;
+    this.logger.log(
+      `Flow hours check: ${open ? 'open' : 'closed'} (${node.timezone})`,
+    );
+    if (!target) {
+      return this.goodbye(
+        open ? undefined : 'Sorry, we are closed right now. Please call back during business hours.',
+      );
+    }
+    return this.resume(callSid, target);
+  }
+
+  /** "Press 1 for…" — and a way out for somebody who presses nothing. */
+  private menu(node: MenuNode, retry: boolean): string {
+    const twiml = new VoiceResponse();
+    const gather = twiml.gather({
+      numDigits: 1,
+      timeout: node.timeoutSeconds,
+      action: this.stepUrl(node.id),
+      method: 'POST',
+    });
+    if (retry) gather.say('Sorry, I did not get that.');
+    // The prompt lives inside <Gather> so a caller who already knows the menu
+    // can press their key without waiting for it to finish.
+    if (node.audioId) gather.play({}, this.audioUrl(node.audioId));
+    else if (node.prompt?.trim()) gather.say(node.prompt);
+
+    // Falls through here when the caller presses nothing at all.
+    twiml.redirect({ method: 'POST' }, this.stepUrl(node.id));
     return twiml.toString();
   }
 
@@ -191,6 +279,7 @@ export class FlowRunnerService {
     state: FlowState,
     groupId: string,
     next: string | undefined,
+    whisper?: boolean,
   ): Promise<string | null> {
     const group = await this.groups.findRaw(groupId);
     if (!group) {
@@ -213,6 +302,9 @@ export class FlowRunnerService {
       // personal phone shows ours, so the tech's callback comes back through
       // the CRM instead of going direct and vanishing from the log.
       callerId: target.channel === 'softphone' ? state.from : state.to,
+      // Only a real phone can be answered by voicemail, so only a real phone
+      // needs to prove a human is there.
+      whisper: !!whisper && target.channel === 'personal',
     }));
 
     await this.conference.initInbound(callSid, state.from, state.to, legs, {
@@ -241,6 +333,11 @@ export class FlowRunnerService {
 
   private stepUrl(nodeId: string): string {
     return `${this.base()}/flow?node=${encodeURIComponent(nodeId)}`;
+  }
+
+  /** Twilio fetches greetings itself, so this URL has to be reachable without a token. */
+  private audioUrl(audioId: string): string {
+    return `${this.base()}/audio/${encodeURIComponent(audioId)}`;
   }
 
   private async save(callSid: string, state: FlowState): Promise<void> {

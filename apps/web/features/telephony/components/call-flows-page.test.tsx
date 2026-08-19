@@ -78,6 +78,7 @@ describe("CallFlowsPage", () => {
   it("names a group that has been deleted rather than showing a bare id", () => {
     mocks.flows = [
       flow({
+        entryNodeId: "ring",
         nodes: {
           ring: { id: "ring", type: "ring", groupId: "g-gone", next: "end" },
           end: { id: "end", type: "hangup" },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Phone, X } from "lucide-react";
+import { Loader2, Phone, Plus, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,37 +13,53 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
-import type { CallFlow, RingNode, SayNode, VoicemailNode } from "@bitcrm/types";
+import type { CallFlow, CallFlowNode, CallFlowNodeType } from "@bitcrm/types";
 import { useCallGroups } from "../call-groups-hooks";
-import { useCreateCallFlow, useUpdateCallFlow } from "../call-flows-hooks";
+import { useSaveCallFlow } from "../call-flows-hooks";
+import {
+  STEP_LABEL,
+  blankStep,
+  newStepId,
+  orderedSteps,
+  removeStep,
+} from "../flow-graph";
+import { FlowStepCard } from "./flow-step-card";
 
-/** Read the three answers back out of a stored step graph. */
-function unpack(flow?: CallFlow) {
-  const nodes = Object.values(flow?.nodes ?? {});
-  const say = nodes.find((n): n is SayNode => n.type === "say");
-  const ring = nodes.find((n): n is RingNode => n.type === "ring");
-  const vm = nodes.find((n): n is VoicemailNode => n.type === "voicemail");
-  return {
-    greeting: say?.text ?? "",
-    groupId: ring?.groupId ?? "",
-    // A new flow takes a message: losing the call is the failure this feature
-    // exists to prevent, so hanging up has to be chosen deliberately.
-    noAnswer: (flow ? (vm ? "voicemail" : "hangup") : "voicemail") as
-      | "voicemail"
-      | "hangup",
-    voicemailPrompt: vm?.prompt ?? "",
+const ADDABLE: CallFlowNodeType[] = [
+  "say",
+  "hours",
+  "menu",
+  "ring",
+  "voicemail",
+  "hangup",
+];
+
+/** A flow with nothing in it yet: greet, ring, take a message. */
+function starterGraph(): { entryNodeId: string; nodes: Record<string, CallFlowNode> } {
+  const say = newStepId("say");
+  const ring = newStepId("ring");
+  const vm = newStepId("voicemail");
+  const nodes: Record<string, CallFlowNode> = {
+    [say]: { id: say, type: "say", text: "Thanks for calling.", next: ring },
+    [ring]: { id: ring, type: "ring", groupId: "", next: vm },
+    [vm]: {
+      id: vm,
+      type: "voicemail",
+      prompt: "Please leave a message after the tone.",
+      maxSeconds: 120,
+    },
   };
+  return { entryNodeId: say, nodes };
 }
 
 /**
- * A flow, as three questions: what the caller hears, who rings, and what
- * happens when nobody answers. The step graph is assembled on the server, so
- * the first flows can't be malformed — the step-by-step editor arrives in P2
- * over the same storage.
+ * The whole flow, step by step.
+ *
+ * A list rather than a canvas: it reads in the order the call happens, works
+ * on a trackpad, and can't be dragged into a tangle. Branching steps indent
+ * what hangs off them, which is the one thing a flat list would lose.
  */
 export function CallFlowEditor({
   flow,
@@ -55,21 +71,39 @@ export function CallFlowEditor({
   onClose: () => void;
 }) {
   const editing = !!flow;
-  const initial = unpack(flow);
+  const starter = starterGraph();
 
   const [name, setName] = useState(flow?.name ?? "");
   const [numbers, setNumbers] = useState<string[]>(flow?.numbers ?? []);
   const [draftNumber, setDraftNumber] = useState("");
-  const [greeting, setGreeting] = useState(initial.greeting);
-  const [groupId, setGroupId] = useState(initial.groupId);
-  const [noAnswer, setNoAnswer] = useState(initial.noAnswer);
-  const [voicemailPrompt, setVoicemailPrompt] = useState(initial.voicemailPrompt);
   const [active, setActive] = useState(flow?.active ?? true);
+  const [entryNodeId, setEntryNodeId] = useState(
+    flow?.entryNodeId ?? starter.entryNodeId,
+  );
+  const [nodes, setNodes] = useState<Record<string, CallFlowNode>>(
+    flow?.nodes ?? starter.nodes,
+  );
 
   const { data: groups } = useCallGroups(open);
-  const create = useCreateCallFlow();
-  const update = useUpdateCallFlow(flow?.id ?? "");
-  const pending = create.isPending || update.isPending;
+  const save = useSaveCallFlow(flow?.id);
+
+  const steps = orderedSteps({ nodes, entryNodeId });
+  const allSteps = Object.values(nodes);
+
+  const addStep = (type: CallFlowNodeType) => {
+    const step = blankStep(type);
+    setNodes((current) => {
+      // New steps land at the end of the main line, which is where somebody
+      // adding one almost always means.
+      const tailId = [...steps].reverse().find((s) => !s.node.next)?.node.id;
+      const withTail =
+        tailId && current[tailId]
+          ? { ...current, [tailId]: { ...current[tailId], next: step.id } }
+          : current;
+      return { ...withTail, [step.id]: step };
+    });
+    if (Object.keys(nodes).length === 0) setEntryNodeId(step.id);
+  };
 
   const addNumber = () => {
     const value = draftNumber.trim();
@@ -78,25 +112,21 @@ export function CallFlowEditor({
     setDraftNumber("");
   };
 
-  const save = async () => {
-    if (!name.trim() || !groupId) return;
-    const body = {
+  const submit = async () => {
+    if (!name.trim()) return;
+    await save.mutateAsync({
       name: name.trim(),
       numbers,
-      greeting: greeting.trim() || undefined,
-      groupId,
-      noAnswer,
-      voicemailPrompt: voicemailPrompt.trim() || undefined,
+      entryNodeId,
+      nodes,
       active,
-    };
-    if (editing) await update.mutateAsync(body);
-    else await create.mutateAsync(body);
+    });
     onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${flow.name}` : "New call flow"}</DialogTitle>
           <DialogDescription>
@@ -117,7 +147,6 @@ export function CallFlowEditor({
             />
           </div>
 
-          {/* which numbers this answers */}
           <div className="space-y-1.5">
             <Label>Answers these numbers</Label>
             {numbers.length ? (
@@ -148,8 +177,8 @@ export function CallFlowEditor({
               </ul>
             ) : (
               <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
-                No numbers yet — this flow won&apos;t answer anything until one is
-                added.
+                No numbers yet — this flow won&apos;t answer anything until one
+                is added.
               </p>
             )}
             <div className="flex gap-2">
@@ -165,68 +194,56 @@ export function CallFlowEditor({
             </div>
           </div>
 
-          {/* the three steps */}
-          <div className="space-y-3 rounded-lg border p-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="cf-greeting">1 · The caller hears</Label>
-              <Textarea
-                id="cf-greeting"
-                rows={2}
-                value={greeting}
-                placeholder="Thanks for calling Sure Lock Key…"
-                onChange={(e) => setGreeting(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Leave empty to start ringing immediately.
+          {/* the steps */}
+          <div className="space-y-2">
+            <Label>Steps</Label>
+            {steps.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
+                No steps yet. Add one below.
               </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="cf-group">2 · Then ring</Label>
-              <select
-                id="cf-group"
-                className="h-9 w-full rounded-md border bg-transparent px-2 text-sm"
-                value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
-              >
-                <option value="">Pick a call group…</option>
-                {(groups ?? []).map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name} — {group.members.length} member
-                    {group.members.length === 1 ? "" : "s"}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>3 · If nobody answers</Label>
-              <div className="flex h-9 items-center gap-1 rounded-md border p-0.5">
-                {(["voicemail", "hangup"] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-pressed={noAnswer === option}
-                    onClick={() => setNoAnswer(option)}
-                    className={cn(
-                      "flex-1 rounded px-2 py-1 text-xs",
-                      noAnswer === option
-                        ? "bg-brand text-white"
-                        : "text-muted-foreground hover:bg-accent",
-                    )}
-                  >
-                    {option === "voicemail" ? "Take a message" : "Say goodbye"}
-                  </button>
+            ) : (
+              <div className="space-y-2">
+                {steps.map(({ node, depth, branch }) => (
+                  <FlowStepCard
+                    key={node.id}
+                    node={node}
+                    depth={depth}
+                    branch={branch}
+                    groups={groups ?? []}
+                    steps={allSteps}
+                    onChange={(updated) =>
+                      setNodes((current) => ({ ...current, [updated.id]: updated }))
+                    }
+                    onRemove={() =>
+                      setNodes((current) => {
+                        const next = removeStep(current, node.id);
+                        if (node.id === entryNodeId) {
+                          setEntryNodeId(Object.keys(next)[0] ?? "");
+                        }
+                        return next;
+                      })
+                    }
+                  />
                 ))}
               </div>
-              {noAnswer === "voicemail" ? (
-                <Textarea
-                  rows={2}
-                  value={voicemailPrompt}
-                  placeholder="Please leave a message after the tone…"
-                  onChange={(e) => setVoicemailPrompt(e.target.value)}
-                />
-              ) : null}
+            )}
+
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {ADDABLE.map((type) => (
+                <Button
+                  key={type}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  // Named distinctly from the step card's own title, which
+                  // carries the same words.
+                  aria-label={`Add step: ${STEP_LABEL[type]}`}
+                  onClick={() => addStep(type)}
+                >
+                  <Plus className="size-3" /> {STEP_LABEL[type]}
+                </Button>
+              ))}
             </div>
           </div>
 
@@ -234,8 +251,8 @@ export function CallFlowEditor({
             <div>
               <p className="text-sm font-medium">Active</p>
               <p className="text-xs text-muted-foreground">
-                A paused flow keeps its settings; its numbers ring everyone
-                online instead.
+                A paused flow keeps its steps; its numbers ring everyone online
+                instead.
               </p>
             </div>
             <Switch checked={active} onCheckedChange={setActive} aria-label="Active" />
@@ -247,17 +264,22 @@ export function CallFlowEditor({
             A number can only be answered by one flow.
           </span>
           <div className="flex gap-2">
-            <Button variant="ghost" size="sm" disabled={pending} onClick={onClose}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={save.isPending}
+              onClick={onClose}
+            >
               Cancel
             </Button>
             <Button
               variant="brand"
               size="sm"
               className="gap-1.5"
-              disabled={pending || !name.trim() || !groupId}
-              onClick={save}
+              disabled={save.isPending || !name.trim()}
+              onClick={submit}
             >
-              {pending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              {save.isPending ? <Loader2 className="size-3.5 animate-spin" /> : null}
               {editing ? "Save flow" : "Create flow"}
             </Button>
           </div>

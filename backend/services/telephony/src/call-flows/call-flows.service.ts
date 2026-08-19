@@ -12,6 +12,14 @@ import {
   type CallFlow,
   type CallFlowNode,
 } from '@bitcrm/types';
+
+/** Every step this one can lead to — `next` plus whatever branches it has. */
+function exitsOf(node: CallFlowNode): string[] {
+  const exits: (string | undefined)[] = [node.next];
+  if (node.type === 'hours') exits.push(node.openNext);
+  if (node.type === 'menu') exits.push(...node.options.map((o) => o.next));
+  return exits.filter((id): id is string => !!id);
+}
 import { CallFlowsRepository } from './call-flows.repository';
 import { CallGroupsService } from '../call-groups/call-groups.service';
 import {
@@ -262,24 +270,55 @@ export class CallFlowsService {
       if (node.id !== id) {
         throw new BadRequestException(`Step ${id} disagrees with its own id`);
       }
-      if (node.next && !nodes[node.next]) {
-        throw new BadRequestException(`Step ${id} points at a step that does not exist`);
+      for (const exit of exitsOf(node)) {
+        if (!nodes[exit]) {
+          throw new BadRequestException(
+            `Step ${id} points at a step that does not exist`,
+          );
+        }
       }
       if (node.type === 'ring') {
         // Throws NotFound if the group is gone — better here than mid-call.
         await this.groups.findById(node.groupId);
       }
+      if (node.type === 'menu') {
+        if (node.options.length === 0) {
+          throw new BadRequestException('A menu with no options traps the caller');
+        }
+        if (node.options.length > CALL_FLOW_LIMITS.maxMenuOptions) {
+          throw new BadRequestException(
+            `A menu can offer at most ${CALL_FLOW_LIMITS.maxMenuOptions} options`,
+          );
+        }
+        const keys = new Set<string>();
+        for (const option of node.options) {
+          if (!/^[0-9*#]$/.test(option.key)) {
+            throw new BadRequestException(`"${option.key}" is not a key a phone can send`);
+          }
+          if (keys.has(option.key)) {
+            throw new BadRequestException(`Two menu options both use ${option.key}`);
+          }
+          keys.add(option.key);
+        }
+      }
+      if (node.type === 'hours' && !node.windows?.length) {
+        throw new BadRequestException(
+          'Opening hours with no windows are closed forever — add one, or drop the step',
+        );
+      }
     }
 
-    // Cycles: walk from the entry and refuse to revisit.
-    const seen = new Set<string>();
-    let cursor: string | undefined = entryNodeId;
-    while (cursor) {
-      if (seen.has(cursor)) {
+    // Cycles, following every branch: a loop down the "closed" side is just as
+    // trapping as one down the main line.
+    const walk = (id: string, path: Set<string>): void => {
+      if (path.has(id)) {
         throw new BadRequestException('The flow loops back on itself');
       }
-      seen.add(cursor);
-      cursor = nodes[cursor]?.next;
-    }
+      const node = nodes[id];
+      if (!node) return;
+      const nextPath = new Set(path).add(id);
+      for (const exit of exitsOf(node)) walk(exit, nextPath);
+    };
+    walk(entryNodeId, new Set());
   }
 }

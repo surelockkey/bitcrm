@@ -259,13 +259,38 @@ export class VoiceService {
    */
   async buildAgentJoin(
     name: string,
-    body: { CallSid?: string; To?: string },
+    body: { CallSid?: string; To?: string; Digits?: string },
+    whisper = false,
   ): Promise<string> {
     const twiml = new VoiceResponse();
     const agentCallSid = body.CallSid;
     const identity = agentFromEndpoint(body.To);
 
-    if (!agentCallSid || !identity) {
+    if (!agentCallSid) {
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    // A phone that hasn't proved a human is holding it doesn't get the call:
+    // carrier voicemail answers, and would win the race against everyone else
+    // still ringing. Asked before the claim, so a voicemail that never presses
+    // anything simply times out and the others keep ringing.
+    if (whisper && !body.Digits) {
+      const gather = twiml.gather({
+        numDigits: 1,
+        timeout: 15,
+        action:
+          `${this.config.publicBaseUrl}/api/telephony/voice/agent-join` +
+          `?conf=${encodeURIComponent(name)}&whisper=1`,
+        method: 'POST',
+      });
+      gather.say('You have a call. Press any key to take it.');
+      // No key: hang this leg up rather than joining silently.
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    if (!identity) {
       twiml.hangup();
       return twiml.toString();
     }
