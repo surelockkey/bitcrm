@@ -283,6 +283,7 @@ function DealForm({
             phones: clientDraft.phone ? [clientDraft.phone] : [],
             emails: clientDraft.email ? [clientDraft.email] : [],
             addresses: values.address?.street ? [values.address] : [],
+            companyId: clientDraft.companyId,
             type: ContactType.RESIDENTIAL,
             source: ContactSource.PHONE_CALL,
           },
