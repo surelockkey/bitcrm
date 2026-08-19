@@ -64,6 +64,18 @@ export function useQualifiedTechs(id: string, enabled: boolean) {
   });
 }
 
+/** Suggested techs for a New Job — by job type, resolved area and address point. */
+export function useSuggestedTechs(
+  params: { jobTypeId: string; serviceAreaId?: string; lat?: number; lng?: number },
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ["deals", "suggested-techs", params],
+    queryFn: () => api.suggestQualifiedTechs(params),
+    enabled: enabled && Boolean(params.jobTypeId),
+  });
+}
+
 /* --------------------------------------------------------------- joins */
 
 /** contactId → Contact, shared with the Clients cache. */

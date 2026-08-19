@@ -114,6 +114,7 @@ vi.mock("@/features/job-types/components/job-type-select", () => ({
   ),
 }));
 vi.mock("./schedule-field", () => ({ ScheduleField: () => null }));
+vi.mock("./tech-suggestions", () => ({ TechSuggestions: () => null }));
 // The address block is a real form field here — a plain input over street is
 // enough to prove the client's address arrives pre-filled and can be replaced.
 vi.mock("./deal-address-fields", () => ({

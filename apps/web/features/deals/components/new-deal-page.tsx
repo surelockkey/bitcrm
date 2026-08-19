@@ -37,7 +37,7 @@ import {
 import { toast } from "sonner";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useCreateDeal } from "../hooks";
-import { updateDeal as updateDealApi } from "../api";
+import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
 import { CallsToLink } from "@/features/calls/components/calls-to-link";
@@ -49,6 +49,7 @@ import { ResolvedAreaField } from "@/features/service-areas/components/resolved-
 import { ClientPicker, type ClientDraft } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
 import { ScheduleField } from "./schedule-field";
+import { TechSuggestions } from "./tech-suggestions";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
@@ -169,6 +170,8 @@ function DealForm({
   const [cfError, setCfError] = useState<string | null>(null);
   // Files picked for file-type custom fields before the job exists (up to 5
   // per field). Held in memory and uploaded to S3 right after create.
+  // Technicians chosen on the form, assigned to the job right after it's made.
+  const [assignTechIds, setAssignTechIds] = useState<string[]>([]);
   const [pendingFiles, setPendingFiles] = useState<Record<string, File[]>>({});
   const setPendingFilesFor = (fieldId: string, files: File[]) =>
     setPendingFiles((prev) => {
@@ -397,6 +400,14 @@ function DealForm({
           for (const sid of callsToLink) {
             linkCall.mutate({ sid, dealId: deal.id });
           }
+          // Assign the technicians chosen on the form to the fresh job.
+          // Fire-and-forget: the job exists regardless, and the roster can be
+          // fixed on the job page if this ever fails.
+          if (assignTechIds.length) {
+            void assignTechsApi(deal.id, assignTechIds).catch((e) =>
+              toast.error(`Job created, but assigning technicians failed (${getApiErrorMessage(e)}).`),
+            );
+          }
           void (async () => {
             // Files picked on the form upload now, under the fresh job, and
             // land in their custom fields. A failure doesn't lose the job —
@@ -503,7 +514,16 @@ function DealForm({
             onSlot={(s) => form.setValue("scheduledTimeSlot", s, { shouldValidate: true })}
           />
           {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
-          <p className="text-xs text-muted-foreground">Assign technicians and add line items on the job page after creating.</p>
+
+          <div className="space-y-1.5">
+            <Label>Assign team members</Label>
+            <TechSuggestions
+              jobTypeId={v.jobTypeId}
+              address={{ lat: v.address?.lat, lng: v.address?.lng }}
+              selected={assignTechIds}
+              onChange={setAssignTechIds}
+            />
+          </div>
         </Section>
 
         {/* Custom-field groups, one Workiz-style card each. File fields prompt
