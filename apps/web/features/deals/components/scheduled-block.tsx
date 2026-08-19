@@ -86,7 +86,7 @@ export function ScheduledBlock({
           "At" time — the Workiz layout. */}
       <div className="space-y-3">
         <div className={allDay ? "grid grid-cols-1" : "grid grid-cols-[1fr_9rem] gap-3"}>
-          <div className="space-y-1.5">
+          <div className="space-y-2.5">
             <Label>Starts</Label>
             <div className="relative">
               <CalendarDays className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -100,7 +100,7 @@ export function ScheduledBlock({
             </div>
           </div>
           {!allDay ? (
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               <Label>At</Label>
               <TimeSelect label="Start time" value={start} onValue={setStartTime} />
             </div>
@@ -108,7 +108,7 @@ export function ScheduledBlock({
         </div>
 
         <div className={allDay ? "grid grid-cols-1" : "grid grid-cols-[1fr_9rem] gap-3"}>
-          <div className="space-y-1.5">
+          <div className="space-y-2.5">
             <Label>Ends</Label>
             <div className="relative">
               <CalendarDays className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -123,7 +123,7 @@ export function ScheduledBlock({
             </div>
           </div>
           {!allDay ? (
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               <Label>At</Label>
               <TimeSelect label="End time" value={end} onValue={setEndTime} />
             </div>
