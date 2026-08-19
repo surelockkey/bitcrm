@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronLeft, Loader2, X } from "lucide-react";
+import { Building2, ChevronLeft, Loader2, X } from "lucide-react";
 import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
 import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -22,10 +22,12 @@ import {
 import {
   useContact,
   useCreateContact,
+  useCreateCompany,
   useUpdateContact,
   useCompanyMap,
 } from "@/features/clients/hooks";
 import { addressInList, clientTypeLabel, contactName } from "@/features/clients/lib";
+import { CompanyPickerDialog } from "@/features/clients/components/company-picker-dialog";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
   ClientSaveDialog,
@@ -446,6 +448,7 @@ function DealForm({
               edits={clientEdits}
               onEdits={onClientEdits}
               onClear={() => onContact(null)}
+              onContact={(c) => onContact(c)}
             />
           ) : null}
           <ClientPicker
@@ -618,16 +621,52 @@ function ResolvedClient({
   edits,
   onEdits,
   onClear,
+  onContact,
 }: {
   contact: Contact;
   edits: ClientEdits;
   onEdits: (e: ClientEdits) => void;
   onClear: () => void;
+  /** Bubble the updated contact up after a company is (re)assigned. */
+  onContact: (c: Contact) => void;
 }) {
-  const { map: companyMap } = useCompanyMap();
+  const { map: companyMap, companies } = useCompanyMap();
+  const update = useUpdateContact();
+  const createCompany = useCreateCompany();
+  const [pickerOpen, setPickerOpen] = useState(false);
   const companyName = contact.companyId
     ? (companyMap.get(contact.companyId)?.title ?? contact.companyId)
     : "";
+
+  // Assigning a company is a direct write to the client's record (unlike the
+  // name/phone edits, which are deferred to the save-time question).
+  const assign = (companyId: string) => {
+    setPickerOpen(false);
+    update.mutate(
+      {
+        id: contact.id,
+        body: {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          phones: contact.phones,
+          emails: contact.emails,
+          addresses: contact.addresses,
+          companyId,
+          type: contact.type,
+          title: contact.title,
+          notes: contact.notes,
+        },
+      },
+      { onSuccess: (c) => onContact(c) },
+    );
+  };
+
+  const createAndAssign = (name: string) => {
+    createCompany.mutate(
+      { title: name, clientType: ClientType.COMMERCIAL, phones: [], emails: [] },
+      { onSuccess: (co) => assign(co.id) },
+    );
+  };
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
@@ -661,16 +700,26 @@ function ResolvedClient({
       </div>
       <div className="space-y-1.5">
         <Label>Company name</Label>
-        {/* Read-only: the company comes from the client's record. Change it on
-            the client, or pick a different client. */}
-        <Input
+        <Button
+          type="button"
+          variant="outline"
           aria-label="Company name"
-          className="h-9"
-          value={companyName}
-          readOnly
-          placeholder="No company (residential)"
-        />
+          className="h-9 w-full justify-start gap-2 font-normal"
+          onClick={() => setPickerOpen(true)}
+        >
+          <Building2 className="size-4 flex-none text-muted-foreground" />
+          <span className={companyName ? "flex-1 truncate text-left" : "flex-1 truncate text-left text-muted-foreground"}>
+            {companyName || "Select or create a company…"}
+          </span>
+        </Button>
       </div>
+      <CompanyPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        companies={companies}
+        onSelect={assign}
+        onCreate={createAndAssign}
+      />
       <PhoneInput
         value={edits.phone}
         onChange={(v) => onEdits({ ...edits, phone: v })}

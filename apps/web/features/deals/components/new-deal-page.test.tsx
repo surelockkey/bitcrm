@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   requestUpload: vi.fn(),
   uploadBytes: vi.fn(),
   updateDealApi: vi.fn(),
+  createCompany: vi.fn(),
   companyMap: new Map<string, { id: string; title: string }>(),
 }));
 
@@ -55,7 +56,8 @@ vi.mock("@/features/clients/hooks", () => ({
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
-  useCompanyMap: () => ({ map: mocks.companyMap }),
+  useCreateCompany: () => ({ mutate: mocks.createCompany, isPending: false }),
+  useCompanyMap: () => ({ map: mocks.companyMap, companies: [...mocks.companyMap.values()] }),
 }));
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
@@ -80,6 +82,24 @@ vi.mock("../attachments-api", () => ({
 }));
 vi.mock("../api", () => ({
   updateDeal: (...args: unknown[]) => mocks.updateDealApi(...args),
+}));
+// The company picker has its own test; stub it to expose select/create.
+vi.mock("@/features/clients/components/company-picker-dialog", () => ({
+  CompanyPickerDialog: ({
+    open,
+    onSelect,
+    onCreate,
+  }: {
+    open: boolean;
+    onSelect: (id: string) => void;
+    onCreate?: (name: string) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="company picker">
+        <button type="button" onClick={() => onSelect("co-9")}>pick existing</button>
+        <button type="button" onClick={() => onCreate?.("Globex")}>create company</button>
+      </div>
+    ) : null,
 }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
@@ -285,14 +305,33 @@ describe("NewDealPage — Workiz layout", () => {
     }
   });
 
-  it("shows a Company name field in the client details", () => {
-    mocks.companyMap = new Map([["co-1", { id: "co-1", title: "Acme Storage" }]]);
+  it("shows a Company name picker and assigns a chosen company to the client", async () => {
+    const u = user();
+    mocks.updateContact.mockReset();
     render(<NewDealPage />);
 
     expect(screen.getByText("Company name")).toBeInTheDocument();
-    // The resolved contact is residential, so the field reads as empty.
-    expect(screen.getByLabelText("Company name")).toBeInTheDocument();
-    mocks.companyMap = new Map();
+    await u.click(screen.getByLabelText("Company name"));
+    await u.click(screen.getByRole("button", { name: "pick existing" }));
+
+    expect(mocks.updateContact).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "c1", body: expect.objectContaining({ companyId: "co-9" }) }),
+      expect.anything(),
+    );
+  });
+
+  it("creates a new company from the picker and assigns it", async () => {
+    const u = user();
+    mocks.createCompany.mockReset();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByLabelText("Company name"));
+    await u.click(screen.getByRole("button", { name: "create company" }));
+
+    expect(mocks.createCompany).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Globex" }),
+      expect.anything(),
+    );
   });
 
   it("no longer offers a Priority field", () => {
