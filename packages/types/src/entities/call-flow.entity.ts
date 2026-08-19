@@ -91,6 +91,14 @@ export interface RingNode extends BaseNode {
   type: 'ring';
   groupId: string;
   /**
+   * Where the call goes once the conversation is over — a closing message, a
+   * survey, anything. `next` is the other outcome: nobody picked up.
+   *
+   * Without this the call simply ends when the conference does, because a
+   * `<Dial>` with nothing after it is the end of the TwiML.
+   */
+  answeredNext?: string;
+  /**
    * Make a personal phone press a key before it joins.
    *
    * A mobile's voicemail answers, and would otherwise win the race — taking

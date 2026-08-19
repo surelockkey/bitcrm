@@ -48,6 +48,9 @@ export interface CallRecord {
   dealLinkedAt?: string;
   /** How the party was decided — a manual choice is never re-derived. */
   partySource?: "auto" | "manual";
+  /** The call flow that answered, and where it took the caller. */
+  flowName?: string;
+  flowPath?: CallFlowStep[];
   durationSeconds?: number;
   startedAt: string;
   updatedAt: string;
@@ -250,6 +253,14 @@ export function otherPartyNumber(
  * telephony's `party-resolver`. The UI does not re-derive it, because two
  * implementations of the same rules is how they end up disagreeing.
  */
+/** One step a caller passed through in the call flow. */
+export interface CallFlowStep {
+  nodeId: string;
+  type: string;
+  at: string;
+  detail?: string;
+}
+
 export interface CallParty {
   kind: "user" | "contact" | "company" | "unknown";
   /** Identity within `kind`; absent for `unknown`. */

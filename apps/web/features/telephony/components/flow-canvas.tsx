@@ -185,7 +185,12 @@ function Sequence({
         </SortableContext>
       </DndContext>
 
-      <AddStep path={path} onAdd={onAdd} dense={path.length > 0} />
+      {/* Nothing can follow a branching step on the same line — the call has
+          already gone down one of its paths. Adding there would make a step
+          nobody ever reaches. */}
+      {isBranching(steps[steps.length - 1]?.node.type ?? "say") ? null : (
+        <AddStep path={path} onAdd={onAdd} dense={path.length > 0} />
+      )}
     </div>
   );
 }

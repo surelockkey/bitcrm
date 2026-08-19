@@ -23,6 +23,14 @@ export interface FlowStep {
 
 /** Exit keys for a branching step, in the order they should be shown. */
 export function branchKeysOf(node: CallFlowNode): { key: string; label: string }[] {
+  if (node.type === "ring") {
+    // Ringing has two outcomes, and confusing them is how a closing message
+    // ends up only being heard by callers nobody answered.
+    return [
+      { key: "answered", label: "After the call" },
+      { key: "noAnswer", label: "If nobody answers" },
+    ];
+  }
   if (node.type === "hours") {
     return [
       { key: "open", label: "While open" },
@@ -42,7 +50,7 @@ export function branchKeysOf(node: CallFlowNode): { key: string; label: string }
 }
 
 export function isBranching(type: CallFlowNodeType): boolean {
-  return type === "hours" || type === "menu";
+  return type === "hours" || type === "menu" || type === "ring";
 }
 
 /* ------------------------------------------------------------ tree → graph */
@@ -90,8 +98,8 @@ export function toGraph(steps: FlowStep[]): {
 }
 
 function setMainExit(node: CallFlowNode, next: string | undefined): void {
-  if (node.type === "hours") return; // its exits are both branches
-  if (node.type === "menu") return;
+  // Branching steps have no main line — every exit is a branch.
+  if (node.type === "hours" || node.type === "menu" || node.type === "ring") return;
   node.next = next;
 }
 
@@ -100,6 +108,11 @@ function setBranchExit(
   key: string,
   target: string | undefined,
 ): void {
+  if (node.type === "ring") {
+    if (key === "answered") node.answeredNext = target;
+    else node.next = target;
+    return;
+  }
   if (node.type === "hours") {
     if (key === "open") node.openNext = target;
     else node.next = target;
@@ -165,6 +178,7 @@ export function toTree(flow: Pick<CallFlow, "nodes" | "entryNodeId">): FlowStep[
 }
 
 function branchTarget(node: CallFlowNode, key: string): string | undefined {
+  if (node.type === "ring") return key === "answered" ? node.answeredNext : node.next;
   if (node.type === "hours") return key === "open" ? node.openNext : node.next;
   if (node.type === "menu") {
     if (key === "timeout") return node.next;

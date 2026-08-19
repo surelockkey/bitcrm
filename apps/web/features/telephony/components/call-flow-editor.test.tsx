@@ -49,6 +49,8 @@ const flow: CallFlow = {
   entryNodeId: "hello",
   nodes: {
     hello: { id: "hello", type: "say", text: "Thanks for calling.", next: "ring" },
+    // `next` is the no-answer path; a step after the conversation would be
+    // `answeredNext`.
     ring: { id: "ring", type: "ring", groupId: "g1", next: "vm" },
     vm: { id: "vm", type: "voicemail", prompt: "Leave a message.", maxSeconds: 120 },
   },
@@ -115,18 +117,47 @@ describe("CallFlowEditor", () => {
     expect(nodes.vm.next).toBeUndefined();
   });
 
-  it("chains one group into the next — two ring steps in a row", async () => {
+  it("escalates one group to the next, down the no-answer path", async () => {
     const u = userEvent.setup();
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
-    await u.click(screen.getByRole("button", { name: /add a step/i }));
+    // Under "If nobody answers" there is already voicemail; add a second group
+    // after it — try dispatch, then the on-call tech, then take a message.
+    const addButtons = screen.getAllByRole("button", { name: /add a step/i });
+    await u.click(addButtons[addButtons.length - 1]);
     await u.click(screen.getByRole("button", { name: "Ring a group" }));
     await u.click(screen.getByRole("button", { name: /save flow/i }));
 
-    const rings = Object.values(savedNodes()).filter((n) => n.type === "ring");
+    const nodes = savedNodes();
+    const rings = Object.values(nodes).filter((n) => n.type === "ring");
     expect(rings).toHaveLength(2);
-    // The second is reached from the end of the line, so it really is a chain.
-    expect(savedNodes().vm.next).toBe(rings[1].id);
+    // The first group's no-answer path leads on to the second.
+    expect(nodes.vm.next).toBe(rings[1].id);
+  });
+
+  it("shows ringing as two outcomes, not one next step", () => {
+    render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
+
+    // The distinction that caused a closing message to reach only the callers
+    // nobody picked up for.
+    expect(screen.getByText("After the call")).toBeInTheDocument();
+    expect(screen.getByText("If nobody answers")).toBeInTheDocument();
+  });
+
+  it("puts a closing message on the answered path, where it is heard", async () => {
+    const u = userEvent.setup();
+    render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
+
+    // The first "add a step" under the ring belongs to "After the call".
+    const addButtons = screen.getAllByRole("button", { name: /add a step/i });
+    await u.click(addButtons[0]);
+    await u.click(screen.getByRole("button", { name: "Say something" }));
+    await u.click(screen.getByRole("button", { name: /save flow/i }));
+
+    const nodes = savedNodes();
+    const ring = nodes.ring as Extract<CallFlowNode, { type: "ring" }>;
+    expect(ring.answeredNext).toBeTruthy();
+    expect(ring.next).toBe("vm");
   });
 
   it("gives a menu one path per key, plus one for pressing nothing", async () => {
@@ -154,16 +185,16 @@ describe("CallFlowEditor", () => {
     expect(screen.getByText("While closed")).toBeInTheDocument();
   });
 
-  it("deletes a step and rewires what was around it", async () => {
+  it("deletes a step, and what hung off it goes too", async () => {
     const u = userEvent.setup();
     render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
 
     await u.click(screen.getByRole("button", { name: "Remove Ring a group" }));
     await u.click(screen.getByRole("button", { name: /save flow/i }));
 
-    const nodes = savedNodes();
-    expect(Object.keys(nodes).sort()).toEqual(["hello", "vm"]);
-    expect(nodes.hello.next).toBe("vm");
+    // Voicemail only existed as the ring's no-answer path.
+    expect(Object.keys(savedNodes())).toEqual(["hello"]);
+    expect(savedNodes().hello.next).toBeUndefined();
   });
 
   describe("the numbers it answers", () => {

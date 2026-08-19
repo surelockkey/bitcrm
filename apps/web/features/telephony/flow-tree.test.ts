@@ -38,7 +38,7 @@ const flowOf = (nodes: CallFlowNode[], entryNodeId: string): Pick<CallFlow, "nod
 
 describe("flow-tree — order is the wiring", () => {
   it("chains a straight sequence in the order it is drawn", () => {
-    const graph = toGraph([{ node: say("a") }, { node: ring("b") }, { node: hangup("c") }]);
+    const graph = toGraph([{ node: say("a") }, { node: say("b") }, { node: hangup("c") }]);
 
     expect(graph.entryNodeId).toBe("a");
     expect(graph.nodes.a.next).toBe("b");
@@ -48,7 +48,7 @@ describe("flow-tree — order is the wiring", () => {
   });
 
   it("reordering the list really reorders the call", () => {
-    const before: FlowStep[] = [{ node: say("a") }, { node: ring("b") }];
+    const before: FlowStep[] = [{ node: say("a") }, { node: say("b") }];
     const after = reorder(before, [], 0, 1);
 
     expect(toGraph(after).entryNodeId).toBe("b");
@@ -102,18 +102,44 @@ describe("flow-tree — order is the wiring", () => {
       {
         node: hours("h"),
         branches: {
-          open: [{ node: ring("r") }, { node: hangup("bye") }],
+          open: [
+            {
+              node: ring("r"),
+              branches: {
+                answered: [{ node: say("bye", "Thanks for calling.") }],
+                noAnswer: [{ node: hangup("miss") }],
+              },
+            },
+          ],
           closed: [{ node: hangup("shut") }],
         },
       },
     ];
 
-    const graph = toGraph(original);
-    const back = toTree(graph);
+    const back = toTree(toGraph(original));
 
     expect(back.map((s) => s.node.id)).toEqual(["greet", "h"]);
-    expect(back[1].branches?.open.map((s) => s.node.id)).toEqual(["r", "bye"]);
-    expect(back[1].branches?.closed.map((s) => s.node.id)).toEqual(["shut"]);
+    const openBranch = back[1].branches?.open ?? [];
+    expect(openBranch.map((s) => s.node.id)).toEqual(["r"]);
+    // Both outcomes of ringing survive the round trip, and stay apart.
+    expect(openBranch[0].branches?.answered.map((s) => s.node.id)).toEqual(["bye"]);
+    expect(openBranch[0].branches?.noAnswer.map((s) => s.node.id)).toEqual(["miss"]);
+  });
+
+  it("keeps a closing message apart from what happens on no answer", () => {
+    // The bug this models: a message added after a ring was only ever heard by
+    // callers nobody picked up for.
+    const graph = toGraph([
+      {
+        node: ring("r"),
+        branches: {
+          answered: [{ node: say("thanks", "Thanks for calling.") }],
+          noAnswer: [{ node: say("sorry", "Sorry we missed you.") }],
+        },
+      },
+    ]);
+
+    expect(graph.nodes.r).toMatchObject({ answeredNext: "thanks", next: "sorry" });
   });
 
   it("reads a hand-written graph, copying a step two branches share", () => {

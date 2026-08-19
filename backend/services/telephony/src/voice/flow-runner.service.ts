@@ -7,6 +7,7 @@ import {
   type CallFlowNode,
   type HoursNode,
   type MenuNode,
+  type RingNode,
   type SayNode,
 } from '@bitcrm/types';
 import { isWithinBusinessHours } from './business-hours';
@@ -96,6 +97,9 @@ export class FlowRunnerService {
 
     const state: FlowState = { flow, nodeId: entry.id, hops: 0, from, to };
     await this.save(callSid, state);
+    void this.calls
+      .applyLifecycle({ callSid, flowName: flow.name })
+      .catch(() => undefined);
     return this.execute(callSid, state, entry);
   }
 
@@ -133,8 +137,14 @@ export class FlowRunnerService {
     if (node.type === 'menu' && digits !== undefined) {
       const chosen = node.options.find((option) => option.key === digits);
       if (chosen) {
+        this.trace(
+          callSid,
+          node,
+          `Pressed ${chosen.key}${chosen.label ? ` · ${chosen.label}` : ''}`,
+        );
         return this.resume(callSid, chosen.next);
       }
+      this.trace(callSid, node, `Pressed ${digits} — not an option`);
       const tries = (state.menuTries ?? 0) + 1;
       if (tries <= node.repeats) {
         await this.save(callSid, { ...state, nodeId, hops: state.hops + 1, menuTries: tries });
@@ -166,17 +176,21 @@ export class FlowRunnerService {
     try {
       switch (node.type) {
         case 'say':
+          this.trace(callSid, node, node.audioId ? 'Played a recording' : node.text);
           return this.say(node, node.next);
         case 'hours':
           return await this.hours(callSid, node);
         case 'menu':
+          this.trace(callSid, node, 'Offered the menu');
           return this.menu(node, false);
         case 'hangup':
+          this.trace(callSid, node, node.text || 'Ended the call');
           return this.goodbye(node.text);
         case 'voicemail':
+          this.trace(callSid, node, 'Took a message');
           return this.voicemail(node.prompt, node.maxSeconds);
         case 'ring':
-          return await this.ring(callSid, state, node.groupId, node.next, node.whisper);
+          return await this.ring(callSid, state, node);
         default:
           this.logger.error(
             `Flow "${state.flow.name}": unknown step type — falling back`,
@@ -215,6 +229,7 @@ export class FlowRunnerService {
   private async hours(callSid: string, node: HoursNode): Promise<string | null> {
     const open = isWithinBusinessHours(node, new Date());
     const target = open ? node.openNext : node.next;
+    this.trace(callSid, node, open ? 'Open' : 'Closed');
     this.logger.log(
       `Flow hours check: ${open ? 'open' : 'closed'} (${node.timezone})`,
     );
@@ -277,10 +292,9 @@ export class FlowRunnerService {
   private async ring(
     callSid: string,
     state: FlowState,
-    groupId: string,
-    next: string | undefined,
-    whisper?: boolean,
+    node: RingNode,
   ): Promise<string | null> {
+    const { groupId, next, answeredNext, whisper } = node;
     const group = await this.groups.findRaw(groupId);
     if (!group) {
       this.logger.error(`Flow step rings group ${groupId}, which is gone — falling back`);
@@ -288,6 +302,13 @@ export class FlowRunnerService {
     }
 
     const targets = await this.groups.resolveTargets(group);
+    this.trace(
+      callSid,
+      node,
+      targets.length
+        ? `Rang ${group.name} — ${targets.length} phone${targets.length === 1 ? '' : 's'}`
+        : `${group.name} — nobody reachable`,
+    );
     if (targets.length === 0) {
       // Nobody in this group is reachable. Going straight to the next step is
       // the whole point of having one — the alternative is ringing silence.
@@ -313,7 +334,12 @@ export class FlowRunnerService {
     });
 
     const twiml = new VoiceResponse();
-    const dial = twiml.dial();
+    // `action` is what lets anything follow the conversation. Without it the
+    // TwiML ends with the <Dial>, so the moment the conference closes the
+    // caller is simply hung up on — no closing message, nothing.
+    const dial = answeredNext
+      ? twiml.dial({ action: this.stepUrl(answeredNext), method: 'POST' })
+      : twiml.dial();
     dial.conference(
       {
         ...this.conference.sharedConferenceAttrs(),
@@ -374,6 +400,16 @@ export class FlowRunnerService {
         : undefined,
     });
     this.logger.log(`Voicemail recorded on ${params.CallSid}`);
+  }
+
+  /**
+   * Note that the caller passed through this step. Fire-and-forget: the call
+   * matters, the breadcrumb doesn't.
+   */
+  private trace(callSid: string, node: CallFlowNode, detail?: string): void {
+    void this.calls
+      .recordFlowStep(callSid, { nodeId: node.id, type: node.type, detail })
+      .catch(() => undefined);
   }
 
   private reason(error: unknown): string {

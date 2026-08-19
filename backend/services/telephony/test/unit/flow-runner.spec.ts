@@ -64,7 +64,10 @@ function build(over: Record<string, unknown> = {}) {
     ),
     sharedConferenceAttrs: jest.fn(() => ({})),
   };
-  const calls = { applyLifecycle: jest.fn(async () => undefined) };
+  const calls = {
+    applyLifecycle: jest.fn(async () => undefined),
+    recordFlowStep: jest.fn(async () => undefined),
+  };
 
   const runner = new FlowRunnerService(
     CONFIG,
@@ -350,5 +353,61 @@ describe('FlowRunnerService — running a call through its flow', () => {
         { endpoint: '+14045550134', callerId: '+15412830739', whisper: true },
       ]);
     });
+  });
+});
+
+describe('FlowRunnerService — what happens after the conversation', () => {
+  const closing = flowOf(
+    {
+      ring: { id: 'ring', type: 'ring', groupId: 'g1', answeredNext: 'bye', next: 'vm' },
+      bye: { id: 'bye', type: 'say', text: 'Thanks for calling.' },
+      vm: { id: 'vm', type: 'voicemail', prompt: 'Leave a message.', maxSeconds: 60 },
+    },
+    'ring',
+  );
+
+  it('gives the Dial somewhere to go when the call ends', async () => {
+    const { runner } = build({ flows: { findByNumber: jest.fn(async () => closing) } });
+
+    const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+    // Without an action the TwiML ends with the <Dial>, so the caller is hung
+    // up on the instant the conference closes — no closing message, nothing.
+    expect(twiml).toContain('action="https://api.test/api/telephony/voice/flow?node=bye"');
+  });
+
+  it('keeps the closing message apart from the no-answer path', async () => {
+    const { runner, conference } = build({
+      flows: { findByNumber: jest.fn(async () => closing) },
+    });
+
+    await runner.startInbound('CA1', '+1404', '+1541');
+
+    // Nobody answering leads to voicemail, not to the closing message.
+    const options = conference.initInbound.mock.calls[0][4] as { noAnswerUrl?: string };
+    expect(options.noAnswerUrl).toContain('node=vm');
+  });
+
+  it('omits the action when nothing follows the conversation', async () => {
+    const bare = flowOf({ ring: { id: 'ring', type: 'ring', groupId: 'g1' } }, 'ring');
+    const { runner } = build({ flows: { findByNumber: jest.fn(async () => bare) } });
+
+    const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+    expect(twiml).not.toContain('action=');
+  });
+
+  it('records where the caller went, so the log can show it', async () => {
+    const { runner, calls } = build({
+      flows: { findByNumber: jest.fn(async () => closing) },
+    });
+
+    await runner.startInbound('CA1', '+1404', '+1541');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(calls.recordFlowStep).toHaveBeenCalledWith(
+      'CA1',
+      expect.objectContaining({ nodeId: 'ring', type: 'ring' }),
+    );
   });
 });

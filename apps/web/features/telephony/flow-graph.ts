@@ -9,6 +9,7 @@ import type {
 /** Every step this one can lead to — `next` plus whatever branches it has. */
 export function exitsOf(node: CallFlowNode): string[] {
   const exits: (string | undefined)[] = [node.next];
+  if (node.type === "ring") exits.push(node.answeredNext);
   if (node.type === "hours") exits.push(node.openNext);
   if (node.type === "menu") exits.push(...node.options.map((o) => o.next));
   return exits.filter((id): id is string => !!id);

@@ -45,6 +45,15 @@ export interface CallParticipant {
   roleId?: string;
 }
 
+/** One step a caller passed through on their way to (or instead of) an answer. */
+export interface CallFlowStepRecord {
+  nodeId: string;
+  type: string;
+  at: string;
+  /** What happened here in words — the key pressed, the group rung, open/closed. */
+  detail?: string;
+}
+
 export interface CallRecord {
   /** Primary sid: outbound = agent leg, inbound = customer leg. */
   callSid: string;
@@ -87,6 +96,12 @@ export interface CallRecord {
   endedAt?: string;
   conferenceName?: string;
   conferenceSid?: string;
+  /**
+   * How this caller travelled through the call flow. Written as it happens, so
+   * a call that never reached anybody still says where it went instead.
+   */
+  flowName?: string;
+  flowPath?: CallFlowStepRecord[];
   recordingSid?: string;
   recordingDurationSeconds?: number;
   /** Secondary leg sids (customer participant / agent ring legs). */
@@ -186,6 +201,7 @@ export class CallsRepository {
       ['endedAt', rec.endedAt],
       ['conferenceName', rec.conferenceName],
       ['conferenceSid', rec.conferenceSid],
+      ['flowName', rec.flowName],
       ['recordingSid', rec.recordingSid],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
       ['internalLegOf', rec.internalLegOf],
@@ -358,6 +374,25 @@ export class CallsRepository {
   }
 
   /** Record a system user's involvement (caller/answered/listened/joined). */
+  /**
+   * Add one step to the call's journey through its flow. Appended rather than
+   * rewritten so two webhooks racing can't lose a step.
+   */
+  async appendFlowStep(
+    callSid: string,
+    step: CallFlowStepRecord,
+  ): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: callPk(callSid), SK: 'METADATA' },
+        UpdateExpression:
+          'SET flowPath = list_append(if_not_exists(flowPath, :empty), :s)',
+        ExpressionAttributeValues: { ':empty': [], ':s': [step] },
+      }),
+    );
+  }
+
   async appendParticipant(
     callSid: string,
     participant: CallParticipant,

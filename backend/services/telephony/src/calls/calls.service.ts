@@ -222,6 +222,16 @@ export class CallsService {
     );
   }
 
+  /** Record one step of the caller's journey through a call flow. */
+  async recordFlowStep(
+    callSid: string,
+    step: { nodeId: string; type: string; detail?: string },
+  ): Promise<void> {
+    await this.repo
+      .appendFlowStep(callSid, { ...step, at: new Date().toISOString() })
+      .catch(() => undefined);
+  }
+
   /** Attach a call to a job, or detach it, and tell the job about it. */
   async linkDeal(
     callSid: string,
