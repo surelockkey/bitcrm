@@ -48,9 +48,8 @@ import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox"
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { ClientPicker, type ClientDraft } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
-import { ScheduleField } from "./schedule-field";
+import { ScheduledBlock } from "./scheduled-block";
 import { TechSuggestions } from "./tech-suggestions";
-import { AreaClock } from "./area-clock";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
@@ -391,7 +390,9 @@ function DealForm({
         companyId: contact.companyId,
         ...values,
         scheduledDate: values.scheduledDate || undefined,
-        scheduledTimeSlot: values.scheduledTimeSlot || undefined,
+        scheduledEndDate: values.scheduledEndDate || undefined,
+        scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
+        allDay: values.allDay || undefined,
         sourceId: values.sourceId || undefined,
         notes: values.notes || undefined,
         poNumber: values.poNumber || undefined,
@@ -513,14 +514,19 @@ function DealForm({
         </Section>
 
         <Section title="Scheduled">
-          <div className="-mt-1 flex items-center justify-between">
-            <AreaClock tz={jobTz} areaName={scheduledArea.data?.name} />
-          </div>
-          <ScheduleField
-            date={v.scheduledDate || undefined}
-            slot={v.scheduledTimeSlot || undefined}
-            onDate={(d) => form.setValue("scheduledDate", d ?? "")}
-            onSlot={(s) => form.setValue("scheduledTimeSlot", s, { shouldValidate: true })}
+          <ScheduledBlock
+            date={v.scheduledDate || ""}
+            endDate={v.scheduledEndDate || ""}
+            slot={v.scheduledTimeSlot || ""}
+            allDay={Boolean(v.allDay)}
+            tz={jobTz}
+            areaName={scheduledArea.data?.name}
+            onChange={(s) => {
+              form.setValue("scheduledDate", s.date);
+              form.setValue("scheduledEndDate", s.endDate);
+              form.setValue("scheduledTimeSlot", s.slot, { shouldValidate: true });
+              form.setValue("allDay", s.allDay);
+            }}
           />
           {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
 
