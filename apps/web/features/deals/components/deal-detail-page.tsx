@@ -600,7 +600,7 @@ function PrimaryBadge() {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5">
       <Label>{label}</Label>
       {children}
     </div>
