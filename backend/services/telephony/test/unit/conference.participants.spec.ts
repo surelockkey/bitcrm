@@ -131,3 +131,56 @@ describe('ConferenceService — nobody left but the customer', () => {
     expect(twilio.conferenceUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('ConferenceService — a flow still working through its groups', () => {
+  /**
+   * The sequence that broke: ring one group, nobody answers, their legs drop,
+   * and the caller is briefly alone in the conference while the flow lines up
+   * the next group. Ending the room there cuts the call short, fires the
+   * "after the call" branch of a group nobody answered, and marks the record
+   * completed — so whoever picks up on the second group is never recorded as
+   * having answered, and the call never appears as live.
+   */
+  it('leaves the caller in the room while the flow has somewhere else to try', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound(
+      'CAin', '+380958601427', '+15412830739',
+      [{ endpoint: 'client:agent-A', callerId: '+380958601427' }],
+      { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=second-ring' },
+    );
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF1');
+
+    expect(twilio.conferenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('ends the room once somebody has answered and then left', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound(
+      'CAin', '+380958601427', '+15412830739',
+      [{ endpoint: 'client:agent-B', callerId: '+380958601427' }],
+      { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=vm' },
+    );
+    // Somebody took the call — from here a room with only the customer in it
+    // really is over.
+    await service.claimWinner('conf-CAin', 'CAleg-agent-B');
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF1');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+
+  it('still ends a room with no flow behind it', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-C', callerId: '+380958601427' },
+    ]);
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF1');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+});

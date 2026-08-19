@@ -118,6 +118,7 @@ export class FlowRunnerService {
     nodeId: string,
     digits?: string,
     callStatus?: string,
+    afterConversation = false,
   ): Promise<string | null> {
     // A <Dial action> is requested when the dial ends — including when the
     // caller is the one who hung up. Any TwiML returned then is discarded, so
@@ -125,6 +126,18 @@ export class FlowRunnerService {
     if (callStatus && ENDED_STATUSES.has(callStatus)) {
       this.logger.log(`Flow: ${callSid} already ended (${callStatus}) — nothing to play`);
       return '<Response/>';
+    }
+
+    // "After the call" means after a call actually happened. A <Dial> can end
+    // without anybody having answered — the ring timed out, the conference was
+    // closed — and playing a thank-you to somebody nobody spoke to is worse
+    // than saying nothing.
+    if (afterConversation) {
+      const record = await this.calls.getBySid(callSid).catch(() => null);
+      if (!record?.answeredAt) {
+        this.logger.log(`Flow: ${callSid} was never answered — skipping the closing step`);
+        return '<Response/>';
+      }
     }
 
     const state = await this.load(callSid);
@@ -356,7 +369,12 @@ export class FlowRunnerService {
     // TwiML ends with the <Dial>, so the moment the conference closes the
     // caller is simply hung up on — no closing message, nothing.
     const dial = answeredNext
-      ? twiml.dial({ action: this.stepUrl(answeredNext), method: 'POST' })
+      ? twiml.dial({
+          // `after=1` marks this as the post-conversation branch, so it can be
+          // skipped when there was no conversation.
+          action: `${this.stepUrl(answeredNext)}&after=1`,
+          method: 'POST',
+        })
       : twiml.dial();
     dial.conference(
       {

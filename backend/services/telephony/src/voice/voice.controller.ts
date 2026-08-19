@@ -66,6 +66,7 @@ export class VoiceController {
   @ApiExcludeEndpoint()
   async flowStep(
     @Query('node') node: string,
+    @Query('after') after: string | undefined,
     @Body() body: InboundBody & { Digits?: string; CallStatus?: string },
   ): Promise<string> {
     const fromFlow = body.CallSid
@@ -74,6 +75,7 @@ export class VoiceController {
           node ?? '',
           body.Digits,
           body.CallStatus,
+          after === '1',
         )
       : null;
     return fromFlow ?? this.voiceService.buildInbound(body);

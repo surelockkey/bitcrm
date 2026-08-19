@@ -67,6 +67,9 @@ function build(over: Record<string, unknown> = {}) {
   const calls = {
     applyLifecycle: jest.fn(async () => undefined),
     recordFlowStep: jest.fn(async () => undefined),
+    // Answered by default; the "never answered" cases override it.
+    getBySid: jest.fn(async () => ({ answeredAt: '2026-08-19T10:00:00.000Z' })),
+    ...(over.calls as object),
   };
 
   const runner = new FlowRunnerService(
@@ -373,7 +376,7 @@ describe('FlowRunnerService — what happens after the conversation', () => {
 
     // Without an action the TwiML ends with the <Dial>, so the caller is hung
     // up on the instant the conference closes — no closing message, nothing.
-    expect(twiml).toContain('action="https://api.test/api/telephony/voice/flow?node=bye"');
+    expect(twiml).toContain('/voice/flow?node=bye&amp;after=1"');
   });
 
   it('keeps the closing message apart from the no-answer path', async () => {
@@ -467,5 +470,49 @@ describe('FlowRunnerService — a caller who has already gone', () => {
       'CA1',
       expect.objectContaining({ nodeId: 'bye' }),
     );
+  });
+});
+
+describe('FlowRunnerService — "after the call" means after a call', () => {
+  const closing = flowOf(
+    {
+      ring: { id: 'ring', type: 'ring', groupId: 'g1', answeredNext: 'bye', next: 'second' },
+      bye: { id: 'bye', type: 'say', text: 'Thank you for calling us.' },
+      second: { id: 'second', type: 'ring', groupId: 'g2' },
+    },
+    'ring',
+  );
+
+  it('marks the closing step so it can tell itself apart', async () => {
+    const { runner } = build({ flows: { findByNumber: jest.fn(async () => closing) } });
+
+    const twiml = await runner.startInbound('CA1', '+1404', '+1541');
+
+    expect(twiml).toContain('node=bye&amp;after=1');
+  });
+
+  it('says nothing when the dial ended without anybody answering', async () => {
+    const { runner, calls } = build({
+      flows: { findByNumber: jest.fn(async () => closing) },
+      calls: { getBySid: jest.fn(async () => ({ answeredAt: undefined })) },
+    });
+    await runner.startInbound('CA1', '+1404', '+1541');
+    calls.recordFlowStep.mockClear();
+
+    // The first group timed out and the flow is moving to the second — a
+    // thank-you here would be played to somebody nobody spoke to.
+    const twiml = await runner.resume('CA1', 'bye', undefined, 'in-progress', true);
+
+    expect(twiml).toBe('<Response/>');
+    expect(calls.recordFlowStep).not.toHaveBeenCalled();
+  });
+
+  it('says it when there really was a conversation', async () => {
+    const { runner } = build({ flows: { findByNumber: jest.fn(async () => closing) } });
+    await runner.startInbound('CA1', '+1404', '+1541');
+
+    const twiml = await runner.resume('CA1', 'bye', undefined, 'in-progress', true);
+
+    expect(twiml).toContain('Thank you for calling us.');
   });
 });

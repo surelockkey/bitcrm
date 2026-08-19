@@ -288,6 +288,22 @@ export class ConferenceService {
    */
   async onParticipantLeave(name: string, conferenceSid: string): Promise<void> {
     const meta = await this.redis.client.hgetall(this.metaKey(name));
+
+    // Between two ring steps the caller is alone on purpose: the flow is about
+    // to try another group. Ending the conference here would cut the call
+    // short, fire the "after the call" branch of a group nobody answered, and
+    // mark the record completed while the caller is still on the line — so the
+    // person who eventually picks up is never recorded as having answered.
+    //
+    // A winner is the thing that separates the two: once anybody has answered,
+    // a room left with only the customer really is over.
+    if (meta.noAnswerUrl) {
+      const answered = await this.redis.client.get(this.winnerKey(name));
+      if (!answered) {
+        this.logger.log(`Conference ${name}: nobody yet — the flow decides what is next`);
+        return;
+      }
+    }
     // Outbound: the customer is the leg we dialled. Inbound: they are the call
     // that created the conference.
     const customerSid =
