@@ -44,7 +44,7 @@ export function DialerDirectory({
   const { data: companies } = useCompanies();
   const { data: teammates } = useQuery({
     queryKey: queryKeys.telephony.transferTargets(),
-    queryFn: listTransferTargets,
+    queryFn: () => listTransferTargets(),
     staleTime: 60_000,
     enabled,
   });

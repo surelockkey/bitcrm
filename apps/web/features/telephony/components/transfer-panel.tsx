@@ -43,7 +43,7 @@ export function TransferPanel({
 
   const { data: targets, isLoading } = useQuery({
     queryKey: queryKeys.telephony.transferTargets(),
-    queryFn: listTransferTargets,
+    queryFn: () => listTransferTargets(),
     staleTime: 15_000,
   });
 

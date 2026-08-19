@@ -41,14 +41,24 @@ export interface IdentifiedParty {
 export interface TransferTarget {
   id: string;
   name: string;
+  /** Unique where a name isn't — two people can share one. */
+  email?: string;
   roleId?: string;
   /** Their own number, when set — the route that works when they're away. */
   phone?: string;
   softphoneOnline: boolean;
 }
 
-export const listTransferTargets = (): Promise<TransferTarget[]> =>
-  http.get<TransferTarget[]>("/telephony/presence/online");
+/**
+ * Who a call can be handed to. `includeSelf` keeps the caller in the list —
+ * wrong for a transfer, right for building a call group.
+ */
+export const listTransferTargets = (
+  includeSelf = false,
+): Promise<TransferTarget[]> =>
+  http.get<TransferTarget[]>(
+    `/telephony/presence/online${includeSelf ? "?includeSelf=1" : ""}`,
+  );
 
 /**
  * Bring a teammate onto a live call. `handOver` releases the caller's own leg

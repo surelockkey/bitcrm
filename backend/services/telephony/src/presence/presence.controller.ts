@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -23,19 +23,26 @@ export class PresenceController {
     summary: 'Teammates who can take a call right now',
     description:
       'Any authenticated user — this is the transfer / add-someone picker. ' +
-      'Returns every teammate with their name, role and personal number, ' +
-      'flagged with whether their softphone is registered. Someone offline is ' +
-      'still listed: their personal number is exactly the case where it helps.',
+      'Returns every teammate with their name, email, role and personal ' +
+      'number, flagged with whether their softphone is registered. Someone ' +
+      'offline is still listed: their personal number is exactly the case ' +
+      'where it helps. `includeSelf=1` keeps the caller in the list, which is ' +
+      'what building a call group needs — putting yourself in one is the most ' +
+      'ordinary thing there is.',
   })
-  async online(@CurrentUser() user: JwtUser) {
+  async online(
+    @CurrentUser() user: JwtUser,
+    @Query('includeSelf') includeSelf?: string,
+  ) {
     const [onlineIds, everyone] = await Promise.all([
       this.presence.listOnline(),
       this.directory.list(),
     ]);
     const online = new Set(onlineIds);
     const data = everyone
-      // No point offering to transfer a call to yourself.
-      .filter((u) => u.id !== user.id)
+      // No point offering to transfer a call to yourself — but every point in
+      // being able to add yourself to a group.
+      .filter((u) => includeSelf === '1' || u.id !== user.id)
       .map((u) => ({ ...u, softphoneOnline: online.has(u.id) }))
       .sort((a, b) =>
         a.softphoneOnline === b.softphoneOnline
