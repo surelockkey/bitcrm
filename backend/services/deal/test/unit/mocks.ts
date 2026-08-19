@@ -82,6 +82,7 @@ export function createMockServiceArea(overrides?: Partial<ServiceArea>): Service
     name: 'Atlanta Metro',
     priority: 0,
     active: true,
+    timezone: 'America/New_York',
     type: ServiceAreaType.ZIPS,
     definition: { type: ServiceAreaType.ZIPS, zips: [{ zip: '30301', radiusMiles: 10 }] },
     coverage: [{ kind: 'circle', lat: 33.749, lng: -84.388, radiusMiles: 10 }],

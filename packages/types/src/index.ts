@@ -71,6 +71,7 @@ export {
   CoverageShape,
   GeoPoint,
   ZipEntry,
+  DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
 export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';

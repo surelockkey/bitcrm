@@ -92,6 +92,7 @@ export class ServiceAreasRepository {
       name: item.name as string,
       priority: (item.priority as number) ?? 0,
       active: Boolean(item.active),
+      timezone: (item.timezone as string) || 'America/New_York',
       type: item.type as ServiceArea['type'],
       definition: item.definition as ServiceArea['definition'],
       coverage: (item.coverage as ServiceArea['coverage']) || [],

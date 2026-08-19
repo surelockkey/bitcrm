@@ -28,6 +28,11 @@ export class UpdateServiceAreaDto {
   @IsBoolean()
   active?: boolean;
 
+  @ApiPropertyOptional({ example: 'America/New_York' })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
   @ApiPropertyOptional({ enum: ServiceAreaType })
   @IsOptional()
   @IsEnum(ServiceAreaType)
