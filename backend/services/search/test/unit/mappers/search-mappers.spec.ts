@@ -118,6 +118,52 @@ describe('search-mappers', () => {
     it('maps a deleted deal status', () => {
       expect(mapDeal({ ...deal, status: DealStatus.DELETED }).status).toBe('deleted');
     });
+
+    it('indexes the job number and PO number as keywords', () => {
+      const doc = mapDeal({ ...deal, poNumber: 'PO-77812' } as Deal);
+      expect(doc.keywords).toContain('K4T9ZW');
+      expect(doc.keywords).toContain('PO-77812');
+    });
+
+    it('folds the client (contact + company) into keywords so a phone or name finds the job', () => {
+      const doc = mapDeal(deal, 'Install', [], [], {
+        name: 'John Smith',
+        phones: ['(728) 347-8370'],
+        emails: ['john@acme.com'],
+        companyName: 'Acme Corp',
+      });
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining([
+          'John Smith',
+          '(728) 347-8370',
+          '7283478370',
+          '17283478370',
+          'john@acme.com',
+          'Acme Corp',
+        ]),
+      );
+      // Client name is visible in the hit's subtitle (Workiz-style).
+      expect(doc.subtitle).toContain('John Smith');
+    });
+
+    it('stamps contactId and companyId so client edits can reindex their deals', () => {
+      const doc = mapDeal(deal);
+      expect(doc.contactId).toBe('c1');
+      expect(doc.companyId).toBe('co1');
+    });
+
+    it('adds digit variants for phone-like searchable custom-field values', () => {
+      const withFields = {
+        ...deal,
+        customFields: { 'cf-alt-phone': '(728) 347-8370' },
+      } as Deal;
+      const doc = mapDeal(withFields, undefined, [], [
+        { id: 'cf-alt-phone', searchable: true },
+      ]);
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['(728) 347-8370', '7283478370', '17283478370']),
+      );
+    });
   });
 
   describe('mapContact', () => {
@@ -145,10 +191,14 @@ describe('search-mappers', () => {
       expect(doc.ownerIds).toContain('creator1');
     });
 
-    it('indexes email and a normalized phone token', () => {
+    it('indexes email, the raw phone and its digit variants', () => {
       const doc = mapContact(contact);
       expect(doc.keywords).toContain('john@acme.com');
-      expect(doc.keywords).toContain('+12125550100');
+      // Raw format matches partial queries like "555-0100"; digit variants match
+      // collapsed queries like "2125550100" / "+1 212 555 0100".
+      expect(doc.keywords).toContain('(212) 555-0100');
+      expect(doc.keywords).toContain('2125550100');
+      expect(doc.keywords).toContain('12125550100');
     });
   });
 
@@ -172,6 +222,13 @@ describe('search-mappers', () => {
       expect(doc.permissionResource).toBe('companies');
       expect(doc.title).toBe('Acme Corp');
       expect(doc.keywords).toEqual(expect.arrayContaining(['info@acme.com', 'acme.com']));
+    });
+
+    it('indexes the raw phone and its digit variants', () => {
+      const doc = mapCompany(company);
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['212-555-0199', '2125550199', '12125550199']),
+      );
     });
   });
 

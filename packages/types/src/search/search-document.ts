@@ -66,6 +66,12 @@ export interface SearchDocument {
   department?: string;
   status: SearchDocStatus;
 
+  // --- references (deal docs only; drive reindex when the client changes) ---
+  /** The deal's client contact — lets contact edits find and rebuild their deal docs. */
+  contactId?: string;
+  /** The deal's client company — same cascade for company edits. */
+  companyId?: string;
+
   // --- search ---
   /** Primary label ("Acme Corp", "John Smith", "Deal #1042"). Highest weight. */
   title: string;

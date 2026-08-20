@@ -13,11 +13,12 @@ import { OpenSearchService } from '../common/opensearch/opensearch.service';
 import { SearchIndexerService } from '../indexer/indexer.service';
 import { BackfillService } from '../indexer/backfill/backfill.service';
 import { CatalogNamesService } from '../indexer/catalog-names.service';
+import { EntityFetcher } from '../indexer/entity-fetcher.service';
 
 async function main() {
   const opensearch = new OpenSearchService();
   const catalogNames = new CatalogNamesService();
-  const indexer = new SearchIndexerService(opensearch, catalogNames);
+  const indexer = new SearchIndexerService(opensearch, catalogNames, new EntityFetcher());
   const backfill = new BackfillService(indexer, catalogNames);
 
   const totals = await backfill.run();

@@ -32,7 +32,8 @@ interface EventRoute {
 const EVENT_ROUTES: EventRoute[] = [
   // deal-events
   { eventType: 'deal.created', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.stage_changed', type: 'deal', op: 'upsert', idField: 'dealId' },
+  { eventType: 'deal.updated', type: 'deal', op: 'upsert', idField: 'dealId' },
+  { eventType: 'deal.status_changed', type: 'deal', op: 'upsert', idField: 'dealId' },
   { eventType: 'deal.completed', type: 'deal', op: 'upsert', idField: 'dealId' },
   { eventType: 'deal.tech_assigned', type: 'deal', op: 'upsert', idField: 'dealId' },
   { eventType: 'deal.tech_unassigned', type: 'deal', op: 'upsert', idField: 'dealId' },
@@ -60,6 +61,18 @@ const EVENT_ROUTES: EventRoute[] = [
   { eventType: 'container.created', type: 'container', op: 'upsert', idField: 'containerId' },
   { eventType: 'container.updated', type: 'container', op: 'upsert', idField: 'containerId' },
   { eventType: 'transfer.created', type: 'transfer', op: 'upsert', idField: 'transferId' },
+];
+
+/**
+ * Custom-field definition events (deal-service). Not entity routes — the
+ * `searchable` toggle lives on the definition, so any change invalidates the
+ * cached defs and rebuilds every deal doc.
+ */
+const CUSTOM_FIELD_EVENTS = [
+  'custom-field.created',
+  'custom-field.updated',
+  'custom-field.archived',
+  'custom-field.deleted',
 ];
 
 @Module({
@@ -119,6 +132,12 @@ export class AppModule implements OnModuleInit {
         } else {
           await this.indexerHandler!.onUpsert(route.type, id);
         }
+      });
+    }
+
+    for (const eventType of CUSTOM_FIELD_EVENTS) {
+      this.sqsConsumer.registerHandler(eventType, async () => {
+        await this.indexerHandler!.onCustomFieldsChanged();
       });
     }
 

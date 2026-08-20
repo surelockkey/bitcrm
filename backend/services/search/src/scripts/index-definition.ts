@@ -39,6 +39,10 @@ export const INDEX_BODY = {
       department: { type: 'keyword' },
       status: { type: 'keyword' },
 
+      // client references (deal docs) — reindex fan-out when a client changes
+      contactId: { type: 'keyword' },
+      companyId: { type: 'keyword' },
+
       // searchable text — ngram indexed, standard searched
       title: {
         type: 'text',
