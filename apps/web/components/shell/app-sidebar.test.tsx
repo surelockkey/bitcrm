@@ -32,6 +32,34 @@ describe("AppSidebar", () => {
     expect(homeLink.querySelector("img")).not.toBeNull();
   });
 
+  it("renders a compact New Job button that collapses with the sidebar", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const newJob = screen.getByRole("link", { name: /new job/i });
+    expect(newJob).toHaveAttribute("href", "/deals/new");
+    // Expanded: capped width instead of stretching across the sidebar.
+    expect(newJob.className).toContain("max-w-30");
+    // Collapsed (icon) mode: square icon-only button, label hidden.
+    expect(newJob.className).toContain("group-data-[collapsible=icon]:size-8");
+    expect(newJob.className).toContain("group-data-[collapsible=icon]:p-0");
+    expect(screen.getByText("New Job").className).toContain(
+      "group-data-[collapsible=icon]:hidden",
+    );
+  });
+
+  it("hides the New Job button without the create permission", () => {
+    permissionsMock.mockReturnValue({
+      can: (_r: string, action?: string) => action !== "create",
+      isTechnician: false,
+    });
+    renderSidebar();
+
+    expect(
+      screen.queryByRole("link", { name: /new job/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the permitted full nav and hides coming-soon items", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
