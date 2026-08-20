@@ -409,6 +409,19 @@ describe('DealsService', () => {
       );
     });
 
+    it('publishes deal.updated so the search index refreshes on any edit', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal, notes: 'Updated' });
+
+      await service.update('deal-1', { notes: 'Updated' } as any, caller);
+
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.updated',
+        expect.objectContaining({ dealId: 'deal-1' }),
+      );
+    });
+
     it('records oldValue and newValue for a changed field', async () => {
       const deal = mockFindById(createMockDeal({ priority: DealPriority.NORMAL }));
       repo.update.mockResolvedValue({ ...deal, priority: DealPriority.URGENT });
@@ -510,6 +523,16 @@ describe('DealsService', () => {
       await service.softDelete('deal-1', caller);
       expect(repo.softDelete).toHaveBeenCalledWith('deal-1');
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('publishes deal.deleted so the doc leaves the search index', async () => {
+      mockFindById();
+      await service.softDelete('deal-1', caller);
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.deleted',
+        expect.objectContaining({ dealId: 'deal-1' }),
+      );
     });
   });
 
@@ -1544,6 +1567,20 @@ describe('DealsService', () => {
           actorName: 'Payment Service',
           details: expect.objectContaining({ paymentId: 'pay-1', amount: 250 }),
         }),
+      );
+    });
+
+    it('publishes deal.updated so payment status reaches the search index', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+
+      await service.updatePaymentStatus('deal-1', {
+        paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20T15:00:00.000Z',
+      } as any);
+
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.updated',
+        expect.objectContaining({ dealId: 'deal-1' }),
       );
     });
   });

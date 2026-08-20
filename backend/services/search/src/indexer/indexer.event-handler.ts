@@ -3,6 +3,8 @@ import { BusinessMetricsService } from '@bitcrm/shared';
 import { SearchType } from '@bitcrm/types';
 import { SearchIndexerService } from './indexer.service';
 import { EntityFetcher, UnsupportedEntityError } from './entity-fetcher.service';
+import { CatalogNamesService } from './catalog-names.service';
+import { BackfillService } from './backfill/backfill.service';
 
 /**
  * Turns cross-service events into index updates. Domain events carry only ids +
@@ -17,6 +19,8 @@ export class IndexerEventHandler {
   constructor(
     private readonly indexer: SearchIndexerService,
     private readonly fetcher: EntityFetcher,
+    private readonly catalogNames: CatalogNamesService,
+    private readonly backfill: BackfillService,
     @Optional() private readonly metrics?: BusinessMetricsService,
   ) {}
 
@@ -32,6 +36,11 @@ export class IndexerEventHandler {
         await this.indexer.remove(type, entityId);
       } else {
         await this.indexer.indexEntity(type, entity);
+      }
+      // Deal docs denormalize their client (name/phone/email), so a client
+      // edit must rebuild every deal that references it.
+      if (type === 'contact' || type === 'company') {
+        await this.reindexClientDeals(type, entityId);
       }
       timer?.();
       this.metrics?.sqsMessagesProcessed?.inc?.({
@@ -58,5 +67,32 @@ export class IndexerEventHandler {
 
   async onDelete(type: SearchType, entityId: string): Promise<void> {
     await this.indexer.remove(type, entityId);
+  }
+
+  /**
+   * A custom-field definition changed (created/updated/archived/deleted). The
+   * `searchable` toggle lives there, so drop the cached defs and rebuild every
+   * deal doc — toggling a field on must make already-stored answers findable.
+   */
+  async onCustomFieldsChanged(): Promise<void> {
+    this.catalogNames.invalidateCustomFields();
+    await this.backfill.run(['deal']);
+  }
+
+  /** Rebuild the deal docs that denormalized this contact/company. */
+  private async reindexClientDeals(
+    type: 'contact' | 'company',
+    id: string,
+  ): Promise<void> {
+    const field = type === 'contact' ? 'contactId' : 'companyId';
+    const dealIds = await this.indexer.findDealIdsBy(field, id);
+    for (const dealId of dealIds) {
+      const deal = await this.fetcher.fetch('deal', dealId);
+      if (deal) await this.indexer.indexEntity('deal', deal);
+      else await this.indexer.remove('deal', dealId);
+    }
+    if (dealIds.length > 0) {
+      this.logger.debug(`Reindexed ${dealIds.length} deals for ${type}#${id}`);
+    }
   }
 }

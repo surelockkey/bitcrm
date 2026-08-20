@@ -505,6 +505,8 @@ export class DealsService {
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
+    // Any edit must reach the search index (address, custom fields, notes…).
+    this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
 
     // Moving the deal's date re-stamps its assignment rows (so each tech's day
     // re-sorts on the tech index) and renumbers both the old and new days.
@@ -573,6 +575,7 @@ export class DealsService {
       oldValue: existing.contactId,
       newValue: contactId,
     });
+    this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
 
     return this.findById(id);
   }
@@ -581,6 +584,7 @@ export class DealsService {
     await this.findById(id);
     await this.repository.softDelete(id);
     await this.cache.invalidate(id);
+    this.publishEvent('deal.deleted', { dealId: id, deletedBy: caller.id });
   }
 
   /**
@@ -1355,6 +1359,7 @@ export class DealsService {
         amount: dto.amount,
       },
     });
+    this.publishEvent('deal.updated', { dealId: id });
   }
 
   // Private helpers

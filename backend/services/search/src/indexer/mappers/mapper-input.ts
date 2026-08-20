@@ -15,6 +15,18 @@ export interface CustomFieldSearchDef {
   searchable: boolean;
 }
 
+/**
+ * The client slice folded into a deal's search document, so a job is findable
+ * by whoever it was done for (name, phone, email, company). Resolved by the
+ * indexer from crm-service — the deal itself stores only contactId/companyId.
+ */
+export interface DealClientSearchInput {
+  name?: string;
+  phones?: string[];
+  emails?: string[];
+  companyName?: string;
+}
+
 export interface TechnicianSearchInput {
   userId: string;
   firstName: string;

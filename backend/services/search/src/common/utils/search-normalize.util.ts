@@ -1,16 +1,42 @@
+/** Characters a phone number may contain besides digits (separators, +, dashes). */
+const PHONE_CHARS = /^[\d\s().+\-–—]+$/;
+
 /**
- * Lenient phone → search token. Unlike crm's `normalizePhone` (which throws on
- * bad input), indexing must never fail on malformed data, so this just reduces to
- * a digit string prefixed with the country code when we can infer one. Returns
- * undefined for empty/garbage so callers can filter it out.
+ * True when the string reads as a phone number: only digits and phone
+ * punctuation, with at least 7 digits (shorter runs are zips, job numbers…).
  */
-export function phoneSearchKey(phone: string | undefined | null): string | undefined {
-  if (!phone) return undefined;
+export function looksLikePhone(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed || !PHONE_CHARS.test(trimmed)) return false;
+  return trimmed.replace(/\D/g, '').length >= 7;
+}
+
+/**
+ * Digit-string variants a phone is indexed under, so any way a user types it —
+ * "(728) 347-8370", "7283478370", "+1 728 347 8370" — collapses to a match.
+ * NANP numbers get both the 10-digit local and the 1-prefixed form; other
+ * numbers keep their plain digit string. Lenient: indexing must never fail on
+ * malformed data, so bad input just yields no variants.
+ */
+export function phoneSearchVariants(phone: string | undefined | null): string[] {
+  if (!phone) return [];
   const digits = phone.replace(/\D/g, '');
-  if (digits.length < 7) return undefined;
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return `+${digits}`;
+  if (digits.length < 7) return [];
+  const variants = new Set([digits]);
+  if (digits.length === 10) variants.add(`1${digits}`);
+  if (digits.length === 11 && digits.startsWith('1')) variants.add(digits.slice(1));
+  return [...variants];
+}
+
+/**
+ * Query-side twin of `phoneSearchVariants`: when the whole query reads as a
+ * phone number, returns its collapsed digit string (to match the indexed
+ * variants); returns undefined for anything else so text search is untouched.
+ */
+export function phoneQueryDigits(query: string): string | undefined {
+  if (!looksLikePhone(query)) return undefined;
+  return query.replace(/\D/g, '');
 }
 
 /** Drops falsy/blank entries and de-duplicates while preserving order. */

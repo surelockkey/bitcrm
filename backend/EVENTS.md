@@ -20,7 +20,17 @@ Publishers and consumers import these so the wire format can't drift; the
 | `sensitive.accessed` | `SensitiveAccessedEvent` | SSN/bank read | — (compliance/audit) |
 
 ## Topic: `deal-events` (published by deal-service)
-`deal.created`, `deal.stage_changed`, `deal.completed`, `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
+`deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
+`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
+
+`deal.updated` (`{dealId, updatedBy?}`) fires on any field edit (update, client
+reassignment, payment status) so the search index stays fresh; `deal.deleted`
+(`{dealId, deletedBy}`) fires on soft delete so the doc leaves the index.
+
+Custom-field catalog: `custom-field.created` / `.updated` / `.archived` / `.deleted`
+(`{customFieldId, …}`) — emitted by `CustomFieldsService`. The `searchable` toggle
+lives on the definition, so the search indexer invalidates its cached defs and
+rebuilds all deal docs on any of these.
 
 A deal carries **many** technicians (`assignedTechIds`), so `deal.tech_assigned` /
 `deal.tech_unassigned` (`{dealId, techId, …}`) fire **once per technician** added or

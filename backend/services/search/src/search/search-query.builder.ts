@@ -1,5 +1,6 @@
 import { SearchMode, SearchType, SEARCH_TYPES } from '@bitcrm/types';
 import { FIELD_BOOSTS } from '../common/constants/opensearch.constants';
+import { phoneQueryDigits } from '../common/utils/search-normalize.util';
 import { QueryClause } from './authz/search-authz.builder';
 
 export interface BuildSearchParams {
@@ -38,6 +39,37 @@ const FIELDS = [
 ];
 
 /**
+ * The match clause for the query text. A phone-like query ("(728) 347-8370")
+ * additionally tries its collapsed digit string, because phones are indexed as
+ * digit variants — the formatted text and the digits compete as alternatives.
+ * The digit alternative is exact (no fuzziness): one wrong digit is a
+ * different number, not a typo.
+ */
+function buildMatchClause(q: string): Record<string, any> {
+  const textMatch = {
+    multi_match: {
+      query: q,
+      fields: FIELDS,
+      fuzziness: 'AUTO',
+      operator: 'and',
+    },
+  };
+
+  const digits = phoneQueryDigits(q);
+  if (!digits || digits === q) return textMatch;
+
+  return {
+    bool: {
+      should: [
+        textMatch,
+        { multi_match: { query: digits, fields: FIELDS, operator: 'and' } },
+      ],
+      minimum_should_match: 1,
+    },
+  };
+}
+
+/**
  * Builds the OpenSearch request body. The text match runs against edge-ngram
  * indexed fields (so it matches prefixes for typeahead) and is wrapped in a
  * recency decay so newer entities rank higher among equally-relevant matches.
@@ -55,16 +87,7 @@ export function buildSearchBody(params: BuildSearchParams): Record<string, any> 
     function_score: {
       query: {
         bool: {
-          must: [
-            {
-              multi_match: {
-                query: q,
-                fields: FIELDS,
-                fuzziness: 'AUTO',
-                operator: 'and',
-              },
-            },
-          ],
+          must: [buildMatchClause(q)],
           filter,
           must_not: [{ terms: { status: ['deleted', 'archived'] } }],
         },

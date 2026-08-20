@@ -44,9 +44,13 @@ export class BackfillService {
     private readonly catalogNames: CatalogNamesService,
   ) {}
 
-  async run(): Promise<Record<string, number>> {
+  /** Rebuild all types, or only the given ones (e.g. `['deal']` after a custom-field toggle). */
+  async run(types?: SearchType[]): Promise<Record<string, number>> {
+    const sources = types
+      ? SOURCES.filter((s) => types.includes(s.type))
+      : SOURCES;
     const totals: Record<string, number> = {};
-    for (const source of SOURCES) {
+    for (const source of sources) {
       try {
         totals[source.type] = await this.backfillType(source.type, source.base);
       } catch (err) {
@@ -63,6 +67,9 @@ export class BackfillService {
   private async backfillType(type: SearchType, base: string): Promise<number> {
     let cursor: string | undefined;
     let count = 0;
+    // Deals denormalize their client; one contact often owns many deals, so
+    // client fetches are cached across the whole run.
+    const clientCache = new Map<string, any | null>();
     do {
       const url = new URL(base);
       url.searchParams.set('limit', String(PAGE_SIZE));
@@ -90,12 +97,17 @@ export class BackfillService {
               ),
             ]);
             const customFieldDefs = await this.catalogNames.customFieldDefs();
+            const client =
+              e?.contactId || e?.companyId
+                ? await this.indexer.resolveDealClient(e, clientCache)
+                : undefined;
             return routeToDocument(
               type,
               e,
               jobTypeName,
               tagNames.filter((n): n is string => Boolean(n)),
               customFieldDefs,
+              client,
             );
           }),
         )

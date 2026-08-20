@@ -35,12 +35,14 @@ describe('DealsService.reassignContact', () => {
   let cache: ReturnType<typeof createMockDealsCacheService>;
   let timeline: ReturnType<typeof createMockTimelineRepository>;
   let internalHttp: ReturnType<typeof createMockInternalHttpService>;
+  let sns: ReturnType<typeof createMockSnsPublisherService>;
 
   beforeEach(async () => {
     repo = createMockDealsRepository();
     cache = createMockDealsCacheService();
     timeline = createMockTimelineRepository();
     internalHttp = createMockInternalHttpService();
+    sns = createMockSnsPublisherService();
 
     const module = await Test.createTestingModule({
       providers: [
@@ -49,7 +51,7 @@ describe('DealsService.reassignContact', () => {
         { provide: DealsCacheService, useValue: cache },
         { provide: TimelineRepository, useValue: timeline },
         { provide: DealProductsRepository, useValue: createMockDealProductsRepository() },
-        { provide: SnsPublisherService, useValue: createMockSnsPublisherService() },
+        { provide: SnsPublisherService, useValue: sns },
         { provide: InternalHttpService, useValue: internalHttp },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
@@ -127,6 +129,11 @@ describe('DealsService.reassignContact', () => {
 
       expect(repo.reassignContact).toHaveBeenCalledWith('deal-a', 'contact-new');
       expect(cache.invalidate).toHaveBeenCalledWith('deal-a');
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.updated',
+        expect.objectContaining({ dealId: 'deal-a' }),
+      );
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           dealId: 'deal-a',

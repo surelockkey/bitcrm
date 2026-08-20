@@ -1,8 +1,12 @@
 /** Alias the app reads/writes; concrete indices are versioned (bitcrm-search-v1…) behind it. */
 export const SEARCH_INDEX_ALIAS = process.env.SEARCH_INDEX_ALIAS || 'bitcrm-search';
 
-/** Concrete index name to (re)build; alias is swapped to point here. */
-export const SEARCH_INDEX_NAME = process.env.SEARCH_INDEX_NAME || 'bitcrm-search-v1';
+/**
+ * Concrete index name to (re)build; alias is swapped to point here.
+ * v2: adds contactId/companyId keywords + phone digit-variant keywords —
+ * run `npm run create-index` then a reindex to migrate.
+ */
+export const SEARCH_INDEX_NAME = process.env.SEARCH_INDEX_NAME || 'bitcrm-search-v2';
 
 export const OPENSEARCH_ENDPOINT =
   process.env.OPENSEARCH_ENDPOINT || 'http://localhost:9200';
