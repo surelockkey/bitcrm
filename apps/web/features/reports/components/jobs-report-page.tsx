@@ -212,12 +212,6 @@ export function JobsReportPage() {
   const [hourFrom, setHourFrom] = useState("");
   const [hourTo, setHourTo] = useState("");
 
-  const contactNames = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const [id, c] of contactMap) m.set(id, contactName(c));
-    return m;
-  }, [contactMap]);
-
   const searchableFields = useMemo(
     () => (customFieldDefs ?? []).filter((f) => f.searchable),
     [customFieldDefs],
@@ -246,11 +240,11 @@ export function JobsReportPage() {
           // The hour window reads the same timestamp as the "By:" switch.
           hourBasis: dateField,
         },
-        contactNames,
+        contactMap,
         searchableFields,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- range derives from preset/custom values
-    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactNames, searchableFields],
+    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactMap, searchableFields],
   );
 
   const sorted = useMemo(() => {

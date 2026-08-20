@@ -465,17 +465,39 @@ export interface DealFilter {
 const customFieldText = (v: CustomFieldValue): string =>
   Array.isArray(v) ? v.join(" ") : String(v);
 
+/** A query made only of digits and phone punctuation, with 4+ digits. */
+const PHONE_QUERY = /^[\d\s().+\-–—]+$/;
+
+/**
+ * True when the stored value's collapsed digits contain the query's collapsed
+ * digits — "(292) 839-8283" matches "8398283", "292 839 8283", "8283"… A
+ * query with a leading +1 also matches a number stored without it.
+ */
+function phoneDigitsMatch(stored: string, qDigits: string): boolean {
+  const digits = stored.replace(/\D/g, "");
+  if (digits.length < 4) return false;
+  if (digits.includes(qDigits)) return true;
+  return (
+    qDigits.length === 11 &&
+    qDigits.startsWith("1") &&
+    digits.includes(qDigits.slice(1))
+  );
+}
+
 /** Client-side filtering + search over loaded deals (the server barely filters). */
 export function filterDeals(
   deals: Deal[],
   filter: DealFilter,
-  contactNames: Map<string, string>,
+  contacts: Map<string, Contact>,
   customFieldDefs: CustomFieldDefinition[] = [],
 ): Deal[] {
   const q = (filter.search ?? "").trim().toLowerCase();
   // Job IDs are 6-char letter+digit codes (legacy ones pure digits); strip
   // everything else so "#K4T9ZW" and "k4t9zw" both match the stored code.
   const qAlnum = q.replace(/[^a-z0-9]/g, "");
+  // A phone-shaped query is also matched digit-to-digit, in any format.
+  const qDigits = PHONE_QUERY.test(q) ? q.replace(/\D/g, "") : "";
+  const qIsPhone = qDigits.length >= 4;
   // Only searchable definitions contribute their answers to free-text search.
   const searchableFieldIds = customFieldDefs.filter((f) => f.searchable).map((f) => f.id);
   return deals.filter((d) => {
@@ -502,16 +524,38 @@ export function filterDeals(
     if (filter.techId && !d.assignedTechIds.includes(filter.techId)) return false;
     if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;
     if (q) {
-      const name = (contactNames.get(d.contactId) ?? "").toLowerCase();
+      const contact = contacts.get(d.contactId);
+      const name = contact
+        ? `${contact.firstName} ${contact.lastName}`.trim().toLowerCase()
+        : "";
       const num = String(d.dealNumber).toLowerCase();
       const matchesNum = qAlnum.length > 0 && num.includes(qAlnum);
       const matchesName = name.includes(q);
+      const matchesEmail = (contact?.emails ?? []).some((e) =>
+        e.toLowerCase().includes(q),
+      );
+      const matchesPhone =
+        qIsPhone &&
+        (contact?.phones ?? []).some((p) => phoneDigitsMatch(p, qDigits));
       const matchesArea = d.serviceArea.toLowerCase().includes(q);
       const matchesCustomField = searchableFieldIds.some((id) => {
         const v = d.customFields?.[id];
-        return v !== undefined && customFieldText(v).toLowerCase().includes(q);
+        if (v === undefined) return false;
+        const text = customFieldText(v);
+        return (
+          text.toLowerCase().includes(q) ||
+          (qIsPhone && phoneDigitsMatch(text, qDigits))
+        );
       });
-      if (!matchesNum && !matchesName && !matchesArea && !matchesCustomField) return false;
+      if (
+        !matchesNum &&
+        !matchesName &&
+        !matchesEmail &&
+        !matchesPhone &&
+        !matchesArea &&
+        !matchesCustomField
+      )
+        return false;
     }
     return true;
   });

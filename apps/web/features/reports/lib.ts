@@ -1,4 +1,4 @@
-import type { CustomFieldDefinition, Deal } from "@bitcrm/types";
+import type { Contact, CustomFieldDefinition, Deal } from "@bitcrm/types";
 import { filterDeals, jobDayKey, type DealFilter } from "@/features/deals/lib";
 
 /* ------------------------------------------------------------- filtering */
@@ -20,13 +20,13 @@ export interface JobsReportFilter extends DealFilter {
 export function filterJobsReport(
   deals: Deal[],
   filter: JobsReportFilter,
-  contactNames: Map<string, string>,
+  contacts: Map<string, Contact>,
   customFieldDefs: CustomFieldDefinition[] = [],
 ): Deal[] {
   // The base filter applies dateFrom/dateTo to scheduledDate on its own —
   // keep the dates out of it so the report's field choice is authoritative.
   const { dateFrom, dateTo, dateField, companyId, createdBy, subStatusId, ...base } = filter;
-  let rows = filterDeals(deals, base, contactNames, customFieldDefs);
+  let rows = filterDeals(deals, base, contacts, customFieldDefs);
   if (companyId) rows = rows.filter((d) => d.companyId === companyId);
   if (createdBy) rows = rows.filter((d) => d.createdBy === createdBy);
   if (subStatusId) rows = rows.filter((d) => d.subStatusId === subStatusId);

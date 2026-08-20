@@ -143,22 +143,57 @@ describe("price band (±15%)", () => {
 });
 
 describe("filterDeals", () => {
-  const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
+  const contacts = new Map<string, Contact>([
+    ["c1", contact({ id: "c1", firstName: "Jane", lastName: "Smith", phones: ["(292) 839-8283"], emails: ["jane@example.com"] })],
+    ["c2", contact({ id: "c2", firstName: "Marcus", lastName: "Reyes", phones: ["404-555-0177"], emails: [] })],
+  ]);
   const list = [
     deal({ id: "a", dealNumber: "1042", contactId: "c1", superStatus: JobSuperStatus.SUBMITTED, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
     deal({ id: "b", dealNumber: "1040", contactId: "c2", superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
   ];
   it("returns all with no filters", () => {
-    expect(filterDeals(list, {}, names)).toHaveLength(2);
+    expect(filterDeals(list, {}, contacts)).toHaveLength(2);
   });
   it("filters by super-status and priority", () => {
-    expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
-    expect(filterDeals(list, { priority: DealPriority.URGENT }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, contacts).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { priority: DealPriority.URGENT }, contacts).map((d) => d.id)).toEqual(["a"]);
   });
   it("searches by deal number and client name", () => {
-    expect(filterDeals(list, { search: "1040" }, names).map((d) => d.id)).toEqual(["b"]);
-    expect(filterDeals(list, { search: "jane" }, names).map((d) => d.id)).toEqual(["a"]);
-    expect(filterDeals(list, { search: "#1042" }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { search: "1040" }, contacts).map((d) => d.id)).toEqual(["b"]);
+    expect(filterDeals(list, { search: "jane" }, contacts).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { search: "#1042" }, contacts).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("finds the job by its client's phone in every format users type", () => {
+    for (const q of [
+      "2928398283", // collapsed
+      "(292) 839-8283", // as stored
+      "292 839 8283", // different separators
+      "+1 292 839 8283", // country code the contact was stored without
+      "839-8283", // formatted tail
+      "8398283", // collapsed tail
+      "398283", // middle fragment
+      "8283", // last four
+    ]) {
+      expect(filterDeals(list, { search: q }, contacts).map((d) => d.id), q).toEqual(["a"]);
+    }
+  });
+
+  it("does not phone-match digits that are not in any phone", () => {
+    expect(filterDeals(list, { search: "9999" }, contacts)).toHaveLength(0);
+  });
+
+  it("finds the job by its client's email", () => {
+    expect(filterDeals(list, { search: "jane@example" }, contacts).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("matches a phone fragment inside a searchable custom-field value", () => {
+    const defs = [cfDef({ id: "cf-alt", searchable: true })];
+    const rows = [
+      deal({ id: "p", contactId: "c2", customFields: { "cf-alt": "(555) 010-2233" } }),
+    ];
+    expect(filterDeals(rows, { search: "0102233" }, contacts, defs).map((d) => d.id)).toEqual(["p"]);
+    expect(filterDeals(rows, { search: "555 010 2233" }, contacts, defs).map((d) => d.id)).toEqual(["p"]);
   });
 
   it("searches by random job id code, case-insensitively and with # prefix", () => {
@@ -166,9 +201,9 @@ describe("filterDeals", () => {
       deal({ id: "x", dealNumber: "K4T9ZW", contactId: "c1" }),
       deal({ id: "y", dealNumber: "X7B2QP", contactId: "c2" }),
     ];
-    expect(filterDeals(codes, { search: "k4t9" }, names).map((d) => d.id)).toEqual(["x"]);
-    expect(filterDeals(codes, { search: "#X7B2QP" }, names).map((d) => d.id)).toEqual(["y"]);
-    expect(filterDeals(codes, { search: "x7b2qp" }, names).map((d) => d.id)).toEqual(["y"]);
+    expect(filterDeals(codes, { search: "k4t9" }, contacts).map((d) => d.id)).toEqual(["x"]);
+    expect(filterDeals(codes, { search: "#X7B2QP" }, contacts).map((d) => d.id)).toEqual(["y"]);
+    expect(filterDeals(codes, { search: "x7b2qp" }, contacts).map((d) => d.id)).toEqual(["y"]);
   });
 
   it("matches the string form of a searchable custom-field value", () => {
@@ -178,14 +213,14 @@ describe("filterDeals", () => {
       deal({ id: "h", contactId: "c2" }),
     ];
     expect(
-      filterDeals(withCf, { search: "4471" }, names, defs).map((d) => d.id),
+      filterDeals(withCf, { search: "4471" }, contacts, defs).map((d) => d.id),
     ).toEqual(["g"]);
     // Array (multi_select) values match on any member.
     const multi = [
       deal({ id: "m", contactId: "c1", customFields: { "cf-gate": ["North Gate", "Loading Dock"] } }),
     ];
     expect(
-      filterDeals(multi, { search: "loading" }, names, [cfDef({ id: "cf-gate", type: "multi_select", searchable: true })]).map((d) => d.id),
+      filterDeals(multi, { search: "loading" }, contacts, [cfDef({ id: "cf-gate", type: "multi_select", searchable: true })]).map((d) => d.id),
     ).toEqual(["m"]);
   });
 
@@ -194,7 +229,7 @@ describe("filterDeals", () => {
     const withCf = [
       deal({ id: "g", contactId: "c1", customFields: { "cf-gate": "Ring twice #4471" } }),
     ];
-    expect(filterDeals(withCf, { search: "4471" }, names, defs)).toHaveLength(0);
+    expect(filterDeals(withCf, { search: "4471" }, contacts, defs)).toHaveLength(0);
   });
 
   it("filters by service area (exact)", () => {
@@ -202,15 +237,15 @@ describe("filterDeals", () => {
       deal({ id: "atl", serviceArea: "Atlanta Metro" }),
       deal({ id: "nga", serviceArea: "North GA" }),
     ];
-    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["nga"]);
+    expect(filterDeals(areas, { serviceArea: "North GA" }, contacts).map((d) => d.id)).toEqual(["nga"]);
   });
 
   it("filters by status group", () => {
     // a = Submitted, b = In Progress
     expect(
-      filterDeals(list, { statusGroups: [JobSuperStatus.SUBMITTED] }, names).map((d) => d.id),
+      filterDeals(list, { statusGroups: [JobSuperStatus.SUBMITTED] }, contacts).map((d) => d.id),
     ).toEqual(["a"]);
-    expect(filterDeals(list, { statusGroups: [] }, names)).toHaveLength(2);
+    expect(filterDeals(list, { statusGroups: [] }, contacts)).toHaveLength(2);
   });
 
   it("datePresetRange maps presets to ranges", () => {
@@ -227,13 +262,13 @@ describe("filterDeals", () => {
       deal({ id: "none" }),
     ];
     expect(
-      filterDeals(dated, { dateFrom: "2026-07-14", dateTo: "2026-07-16" }, names).map((d) => d.id),
+      filterDeals(dated, { dateFrom: "2026-07-14", dateTo: "2026-07-16" }, contacts).map((d) => d.id),
     ).toEqual(["wed"]);
   });
 });
 
 describe("status tabs", () => {
-  const names = new Map<string, string>();
+  const contacts = new Map<string, Contact>();
   it("orders the 6 super-statuses then unscheduled, and labels them", () => {
     expect(JOB_TABS).toEqual([
       JobSuperStatus.SUBMITTED,
@@ -286,8 +321,8 @@ describe("status tabs", () => {
       deal({ id: "a", superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" }),
       deal({ id: "b", superStatus: JobSuperStatus.IN_PROGRESS }),
     ];
-    expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
-    expect(filterDeals(list, { tab: "unscheduled" }, names).map((d) => d.id)).toEqual(["b"]);
+    expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, contacts).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { tab: "unscheduled" }, contacts).map((d) => d.id)).toEqual(["b"]);
   });
 });
 
@@ -544,22 +579,22 @@ describe("filterDeals — hour range", () => {
     deal({ id: "c", scheduledDate: "2026-08-21", scheduledTimeSlot: "15:00-16:00" }),
     deal({ id: "d", scheduledDate: "2026-08-21", scheduledTimeSlot: undefined }),
   ];
-  const names = new Map<string, string>();
+  const contacts = new Map<string, Contact>();
 
   it("keeps only jobs whose slot starts inside the inclusive hour window", () => {
-    expect(filterDeals(rows, { hourFrom: "08:00", hourTo: "11:30" }, names).map((d) => d.id)).toEqual(["a", "b"]);
-    expect(filterDeals(rows, { hourFrom: "12:00" }, names).map((d) => d.id)).toEqual(["c"]);
-    expect(filterDeals(rows, { hourTo: "09:00" }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(rows, { hourFrom: "08:00", hourTo: "11:30" }, contacts).map((d) => d.id)).toEqual(["a", "b"]);
+    expect(filterDeals(rows, { hourFrom: "12:00" }, contacts).map((d) => d.id)).toEqual(["c"]);
+    expect(filterDeals(rows, { hourTo: "09:00" }, contacts).map((d) => d.id)).toEqual(["a"]);
   });
 
   it("drops slotless jobs when an hour window is set, keeps them otherwise", () => {
-    expect(filterDeals(rows, { hourFrom: "00:00", hourTo: "23:59" }, names).map((d) => d.id)).toEqual(["a", "b", "c"]);
-    expect(filterDeals(rows, {}, names)).toHaveLength(4);
+    expect(filterDeals(rows, { hourFrom: "00:00", hourTo: "23:59" }, contacts).map((d) => d.id)).toEqual(["a", "b", "c"]);
+    expect(filterDeals(rows, {}, contacts)).toHaveLength(4);
   });
 
   it("combines with the day range", () => {
     expect(
-      filterDeals(rows, { dateFrom: "2026-08-21", dateTo: "2026-08-21", hourFrom: "14:00" }, names).map((d) => d.id),
+      filterDeals(rows, { dateFrom: "2026-08-21", dateTo: "2026-08-21", hourFrom: "14:00" }, contacts).map((d) => d.id),
     ).toEqual(["c"]);
   });
 });
