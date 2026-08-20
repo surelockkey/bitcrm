@@ -17,7 +17,7 @@ export function AppHeader() {
         <button
           type="button"
           onClick={() => setCommandOpen(true)}
-          className="flex h-8 items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted sm:w-56"
+          className="flex h-9 items-center gap-2 rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted sm:w-64"
         >
           <Search className="size-4 shrink-0" />
           <span className="hidden flex-1 truncate text-left sm:inline">
