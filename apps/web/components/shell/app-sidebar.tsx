@@ -59,7 +59,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <Link
           href="/"
-          className="flex items-center gap-2 px-1 py-1.5"
+          className="flex items-center gap-2 px-1 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           aria-label="BitCRM home"
         >
           <Image
@@ -77,11 +77,10 @@ export function AppSidebar() {
           <Button
             asChild
             variant="brand"
-            size="xs"
-            className="mx-1 shadow-sm group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:size-6 group-data-[collapsible=icon]:p-0"
+            className="h-9 max-w-30 gap-1.5 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
           >
             <Link href="/deals/new">
-              <Plus />
+              <Plus className="size-4" />
               <span className="group-data-[collapsible=icon]:hidden">
                 New Job
               </span>
@@ -115,7 +114,11 @@ export function AppSidebar() {
                   <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
                   <SidebarMenu>
                     {items.map((item) => (
-                      <NavLink key={item.href} item={item} pathname={pathname} />
+                      <NavLink
+                        key={item.href}
+                        item={item}
+                        pathname={pathname}
+                      />
                     ))}
                   </SidebarMenu>
                 </SidebarGroup>
