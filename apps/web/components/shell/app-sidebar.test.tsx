@@ -32,6 +32,31 @@ describe("AppSidebar", () => {
     expect(homeLink.querySelector("img")).not.toBeNull();
   });
 
+  it("shows a New Job action under the logo for users who can create jobs", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const newJob = screen.getByRole("link", { name: /new job/i });
+    expect(newJob).toHaveAttribute("href", "/deals/new");
+    // It lives in the sidebar header block, right under the logo link.
+    const header = screen
+      .getByRole("link", { name: "BitCRM home" })
+      .closest('[data-sidebar="header"]');
+    expect(header).toContainElement(newJob);
+  });
+
+  it("hides the New Job action when the user cannot create jobs", () => {
+    permissionsMock.mockReturnValue({
+      can: (_r: string, action?: string) => action !== "create",
+      isTechnician: false,
+    });
+    renderSidebar();
+
+    expect(
+      screen.queryByRole("link", { name: /new job/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the permitted full nav and hides coming-soon items", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
