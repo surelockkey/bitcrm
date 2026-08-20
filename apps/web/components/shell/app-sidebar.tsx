@@ -4,8 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import icon from "@/app/icon.png";
 import { usePathname } from "next/navigation";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -59,7 +57,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <Link
           href="/"
-          className="flex items-center gap-2 px-1 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+          className="flex items-center gap-2 px-1 py-1.5"
           aria-label="BitCRM home"
         >
           <Image
@@ -73,20 +71,6 @@ export function AppSidebar() {
             BitCRM
           </span>
         </Link>
-        {can("deals", "create") ? (
-          <Button
-            asChild
-            variant="brand"
-            className="h-9 max-w-30 gap-1.5 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
-          >
-            <Link href="/deals/new">
-              <Plus className="size-4" />
-              <span className="group-data-[collapsible=icon]:hidden">
-                New Job
-              </span>
-            </Link>
-          </Button>
-        ) : null}
       </SidebarHeader>
 
       <SidebarContent>
@@ -114,11 +98,7 @@ export function AppSidebar() {
                   <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
                   <SidebarMenu>
                     {items.map((item) => (
-                      <NavLink
-                        key={item.href}
-                        item={item}
-                        pathname={pathname}
-                      />
+                      <NavLink key={item.href} item={item} pathname={pathname} />
                     ))}
                   </SidebarMenu>
                 </SidebarGroup>
