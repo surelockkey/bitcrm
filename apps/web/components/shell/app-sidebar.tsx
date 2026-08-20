@@ -77,10 +77,11 @@ export function AppSidebar() {
           <Button
             asChild
             variant="brand"
-            className="h-9 gap-1.5 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
+            size="sm"
+            className="mx-1 shadow-sm group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:size-7 group-data-[collapsible=icon]:p-0"
           >
             <Link href="/deals/new">
-              <Plus className="size-4" />
+              <Plus />
               <span className="group-data-[collapsible=icon]:hidden">
                 New Job
               </span>
