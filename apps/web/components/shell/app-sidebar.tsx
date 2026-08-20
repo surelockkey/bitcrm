@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import icon from "@/app/icon.png";
 import { usePathname } from "next/navigation";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -71,6 +73,20 @@ export function AppSidebar() {
             BitCRM
           </span>
         </Link>
+        {can("deals", "create") ? (
+          <Button
+            asChild
+            variant="brand"
+            className="h-9 gap-1.5 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
+          >
+            <Link href="/deals/new">
+              <Plus className="size-4" />
+              <span className="group-data-[collapsible=icon]:hidden">
+                New Job
+              </span>
+            </Link>
+          </Button>
+        ) : null}
       </SidebarHeader>
 
       <SidebarContent>
