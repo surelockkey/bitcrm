@@ -97,6 +97,20 @@ describe('buildSearchBody', () => {
       const body = buildSearchBody({ q: 'acme', authzClause: authz, mode: 'full' });
       expect(boolOf(body).must[0].multi_match).toBeDefined();
     });
+
+    it('rescues a half-typed phone whose last token is a single digit', () => {
+      // "(292) 8" tokenizes to [292, 8]; "8" can never match (min_gram 2), so
+      // without the digit clause the AND match returns nothing mid-typing.
+      const body = buildSearchBody({ q: '(292) 8', authzClause: authz, mode: 'typeahead' });
+      const queries = boolOf(body).must[0].bool.should.map((c: any) => c.multi_match.query);
+      expect(queries).toContain('2928');
+    });
+
+    it('digit-collapses a pasted tail fragment', () => {
+      const body = buildSearchBody({ q: '839-8283', authzClause: authz, mode: 'typeahead' });
+      const queries = boolOf(body).must[0].bool.should.map((c: any) => c.multi_match.query);
+      expect(queries).toContain('8398283');
+    });
   });
 
   describe('full mode', () => {

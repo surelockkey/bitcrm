@@ -200,6 +200,11 @@ describe('search-mappers', () => {
       expect(doc.keywords).toContain('2125550100');
       expect(doc.keywords).toContain('12125550100');
     });
+
+    it('indexes phone suffixes so a pasted tail like "5550100" matches', () => {
+      const doc = mapContact(contact);
+      expect(doc.keywords).toEqual(expect.arrayContaining(['5550100', '0100']));
+    });
   });
 
   describe('mapCompany', () => {
