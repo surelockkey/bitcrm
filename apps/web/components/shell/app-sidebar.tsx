@@ -77,8 +77,8 @@ export function AppSidebar() {
           <Button
             asChild
             variant="brand"
-            size="sm"
-            className="mx-1 shadow-sm group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:size-7 group-data-[collapsible=icon]:p-0"
+            size="xs"
+            className="mx-1 shadow-sm group-data-[collapsible=icon]:mx-0 group-data-[collapsible=icon]:size-6 group-data-[collapsible=icon]:p-0"
           >
             <Link href="/deals/new">
               <Plus />
