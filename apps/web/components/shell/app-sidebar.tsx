@@ -25,6 +25,8 @@ import {
   type NavItem,
 } from "@/lib/nav/nav-config";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { Plus } from "lucide-react";
+import { Button } from "../ui/button";
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -71,6 +73,20 @@ export function AppSidebar() {
             BitCRM
           </span>
         </Link>
+        {can("deals", "create") ? (
+          <Button
+            asChild
+            variant="brand"
+            className="h-9 max-w-30 gap-1.5 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
+          >
+            <Link href="/deals/new">
+              <Plus className="size-4" />
+              <span className="group-data-[collapsible=icon]:hidden">
+                New Job
+              </span>
+            </Link>
+          </Button>
+        ) : null}
       </SidebarHeader>
 
       <SidebarContent>
@@ -98,7 +114,11 @@ export function AppSidebar() {
                   <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
                   <SidebarMenu>
                     {items.map((item) => (
-                      <NavLink key={item.href} item={item} pathname={pathname} />
+                      <NavLink
+                        key={item.href}
+                        item={item}
+                        pathname={pathname}
+                      />
                     ))}
                   </SidebarMenu>
                 </SidebarGroup>

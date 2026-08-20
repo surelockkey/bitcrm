@@ -1,16 +1,12 @@
 "use client";
 
-import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { usePermissions } from "@/features/auth/use-permissions";
 import { useUiStore } from "@/stores/ui-store";
 import { SoftphoneControls } from "@/features/telephony/components/softphone-controls";
 import { NavUser } from "./nav-user";
 
 export function AppHeader() {
-  const { can } = usePermissions();
   const setCommandOpen = useUiStore((s) => s.setCommandOpen);
 
   return (
@@ -31,14 +27,7 @@ export function AppHeader() {
             ⌘K
           </kbd>
         </button>
-        {can("deals", "create") ? (
-          <Button asChild variant="brand" className="h-9 gap-1.5 px-3.5">
-            <Link href="/deals/new">
-              <Plus className="size-4" />
-              <span className="hidden sm:inline">New Job</span>
-            </Link>
-          </Button>
-        ) : null}
+
         <SoftphoneControls />
         <NavUser />
       </div>
