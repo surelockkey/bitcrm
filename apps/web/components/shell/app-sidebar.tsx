@@ -57,7 +57,7 @@ export function AppSidebar() {
       <SidebarHeader>
         <Link
           href="/"
-          className="flex items-center gap-2 px-1 py-1.5"
+          className="flex items-center gap-2 px-1 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
           aria-label="BitCRM home"
         >
           <Image
