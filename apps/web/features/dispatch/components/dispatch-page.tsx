@@ -179,9 +179,9 @@ export function DispatchPage() {
         dateFrom: from,
         dateTo: to,
       },
-      contactNames,
+      contacts,
     );
-  }, [deals, search, serviceArea, jobTypeId, statusGroups, datePreset, contactNames]);
+  }, [deals, search, serviceArea, jobTypeId, statusGroups, datePreset, contacts]);
 
   const { mapped, unmapped } = useMemo(() => splitByLocation(filtered), [filtered]);
 

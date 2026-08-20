@@ -16,7 +16,6 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
-import { contactName } from "@/features/clients/lib";
 import { useContactMap, useDeals, useUserMap } from "../hooks";
 import {
   filterDeals,
@@ -71,12 +70,6 @@ export function DealsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
-  const contactNames = useMemo(() => {
-    const m = new Map<string, string>();
-    contactMap.forEach((c, id) => m.set(id, contactName(c)));
-    return m;
-  }, [contactMap]);
-
   const deals = dealsQuery.data ?? [];
 
   // Techs that actually appear on deals, resolved to names — the tech filter.
@@ -123,8 +116,8 @@ export function DealsPage() {
   );
 
   const base = useMemo(
-    () => filterDeals(deals, baseFilter, contactNames, searchableFields),
-    [deals, baseFilter, contactNames, searchableFields],
+    () => filterDeals(deals, baseFilter, contactMap, searchableFields),
+    [deals, baseFilter, contactMap, searchableFields],
   );
   const counts = useMemo(() => tabCounts(base), [base]);
   const visible = useMemo(() => {
