@@ -78,7 +78,13 @@ export { DealProduct, DealProductFulfillment } from './entities/deal-product.ent
 export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
-export { Container } from './entities/container.entity';
+export { Container, ContainerVan } from './entities/container.entity';
+export {
+  ContainerTemplate,
+  ContainerTemplateItem,
+  ContainerTemplateDiff,
+  ContainerTemplateDiffLine,
+} from './entities/container-template.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
 export {
