@@ -27,7 +27,6 @@ export function AppHeader() {
             ⌘K
           </kbd>
         </button>
-
         <SoftphoneControls />
         <NavUser />
       </div>

@@ -57,9 +57,12 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
+        {/* Constant padding keeps the icon's x-position identical in both
+            sidebar states, so nothing jumps while the width animates; the
+            wordmark clips (overflow-hidden) and fades instead of popping. */}
         <Link
           href="/"
-          className="flex items-center gap-2 px-1 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+          className="flex items-center gap-2 overflow-hidden px-0.5 py-1.5"
           aria-label="BitCRM home"
         >
           <Image
@@ -69,7 +72,7 @@ export function AppSidebar() {
             height={28}
             className="size-7 shrink-0"
           />
-          <span className="text-base font-bold tracking-tight group-data-[collapsible=icon]:hidden">
+          <span className="whitespace-nowrap text-base font-bold tracking-tight transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
             BitCRM
           </span>
         </Link>
@@ -77,11 +80,11 @@ export function AppSidebar() {
           <Button
             asChild
             variant="brand"
-            className="h-9 max-w-30 gap-1.5 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0"
+            className="h-9 w-30 justify-start gap-1.5 overflow-hidden px-2 transition-[width,height] duration-200 ease-linear group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
           >
             <Link href="/deals/new">
-              <Plus className="size-4" />
-              <span className="group-data-[collapsible=icon]:hidden">
+              <Plus className="size-4 shrink-0" />
+              <span className="whitespace-nowrap transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
                 New Job
               </span>
             </Link>
