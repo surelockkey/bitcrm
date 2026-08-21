@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Contact, Deal, User } from "@bitcrm/types";
-import { contactName, formatAddress, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
+import { formatAddress, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
 import { formatDate } from "@/features/users/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
@@ -26,7 +26,7 @@ import {
   jobFieldOptions,
   type VisibleFields,
 } from "../fields";
-import { formatSchedule, isUrgent, scheduleRelative } from "../lib";
+import { dealClientName, formatSchedule, isUrgent, scheduleRelative } from "../lib";
 import { TechChips } from "./assigned-techs";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 
@@ -73,7 +73,7 @@ export function DealsTable({
         return (
           <>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{contact ? contactName(contact) : "—"}</span>
+              <span className="font-medium">{dealClientName(d, contact)}</span>
               {isUrgent(d) ? <PriorityFlag /> : null}
             </div>
             {phone ? (

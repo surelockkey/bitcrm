@@ -317,8 +317,8 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.type(poInput(), "PO-9");
 
     await u.click(saveButton());
-    // Renaming the client asks who that edit is for; "same client" is preselected.
-    await u.click(screen.getByRole("button", { name: /save job/i }));
+    // Renaming the client asks whether the change is for the client too.
+    await u.click(screen.getByRole("button", { name: /yes, make change/i }));
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-9" });
@@ -330,42 +330,73 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
-  it("changes the number the job was created with and saves it on the client", async () => {
+  it("locks the number the job was created with — no editing, no removing it", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    // The first (primary) number is permanently bound to the job.
+    expect(screen.getByDisplayValue("(404) 555-1234")).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /remove phone/i }),
+    ).not.toBeInTheDocument();
+    // Extra numbers can still be added.
+    expect(screen.getByRole("button", { name: /add phone/i })).toBeInTheDocument();
+  });
+
+  it("adds a second number straight to the client — phones never prompt", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
-    const phone = screen.getByDisplayValue("(404) 555-1234");
-    await u.clear(phone);
-    await u.type(phone, "2928398283");
-
+    await u.click(screen.getByRole("button", { name: /add phone/i }));
+    const inputs = screen.getAllByPlaceholderText("Phone number");
+    await u.type(inputs[1], "2928398283");
     await u.click(saveButton());
-    // Same "who is this edit for" dialog as a rename; "same client" preselected.
-    await u.click(screen.getByRole("button", { name: /save job/i }));
 
+    expect(screen.queryByText("Change client")).not.toBeInTheDocument();
     expect(mocks.updateContact).toHaveBeenCalledTimes(1);
     expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
       id: "c1",
-      body: { phones: ["+12928398283"] },
+      body: { phones: ["+14045551234", "+12928398283"] },
     });
     expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
-  it("makes a separate client and moves the job when the details are somebody else's", async () => {
+  it("renaming asks 'Change client'; 'Just here' keeps the name on the job only", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
     await u.type(firstNameInput(), "t"); // Jane → Janet
     await u.click(saveButton());
-    await u.click(screen.getByRole("radio", { name: /a different client/i }));
-    await u.click(screen.getByRole("button", { name: /save job/i }));
 
-    expect(mocks.createContact).toHaveBeenCalledTimes(1);
-    expect(mocks.createContact.mock.calls[0][0]).toMatchObject({
-      firstName: "Janet",
-      reassignPhones: true,
+    expect(screen.getByText("Change client")).toBeInTheDocument();
+    expect(
+      screen.getByText(/also be applied to the client/i),
+    ).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: /just here/i }));
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toMatchObject({
+      clientName: { firstName: "Janet", lastName: "Smith" },
     });
-    // The old client is left exactly as they were.
     expect(mocks.updateContact).not.toHaveBeenCalled();
+    expect(mocks.createContact).not.toHaveBeenCalled();
+  });
+
+  it("'Yes, make change' applies the rename to the client record", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.type(firstNameInput(), "t"); // Jane → Janet
+    await u.click(saveButton());
+    await u.click(screen.getByRole("button", { name: /yes, make change/i }));
+
+    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
+    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
+      id: "c1",
+      body: { firstName: "Janet" },
+    });
+    // No per-job override to write or clear on this deal.
+    expect(mocks.updateDeal).not.toHaveBeenCalled();
+    expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
   it("only asks about the client when the client itself changed", async () => {

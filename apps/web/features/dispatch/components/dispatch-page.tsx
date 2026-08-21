@@ -21,13 +21,14 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import {
+  dealClientName,
   filterDeals,
   groupLabel,
   GROUP_ORDER,
   datePresetRange,
   type DatePreset,
 } from "@/features/deals/lib";
-import { contactName } from "@/features/clients/lib";
+
 import { EditDealSheet } from "@/features/deals/components/edit-deal-sheet";
 import { DispatchMap } from "./dispatch-map";
 import { ServiceAreaLegend } from "./service-area-overlay";
@@ -154,11 +155,13 @@ export function DispatchPage() {
 
   const deals = useMemo(() => query.data ?? [], [query.data]);
 
-  const contactNames = useMemo(() => {
+  // Per-deal display names: a job's own "Just here" rename wins over the
+  // contact record's name.
+  const dealClientNames = useMemo(() => {
     const names = new Map<string, string>();
-    for (const [id, contact] of contacts) names.set(id, contactName(contact));
+    for (const d of deals) names.set(d.id, dealClientName(d, contacts.get(d.contactId)));
     return names;
-  }, [contacts]);
+  }, [deals, contacts]);
 
   // Service-area options come from the loaded set, so the dropdown only ever
   // offers areas that actually have jobs.
@@ -430,7 +433,7 @@ export function DispatchPage() {
                   <JobList
                     mapped={mapped}
                     unmapped={unmapped}
-                    clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
+                    clientName={(d) => dealClientNames.get(d.id) ?? "Unknown client"}
                     techName={(d) => techNamesOf(d.assignedTechIds)}
                     hoveredId={hoveredId}
                     selectedId={selectedId}
@@ -471,7 +474,7 @@ export function DispatchPage() {
                     onHover={setHoveredId}
                     onSelect={select}
                     label={(d) =>
-                      `#${d.dealNumber} · ${contactNames.get(d.contactId) ?? "Unknown client"}`
+                      `#${d.dealNumber} · ${dealClientNames.get(d.id) ?? "Unknown client"}`
                     }
                   />
                   <ServiceAreaLegend areas={mapAreas} />
@@ -488,7 +491,7 @@ export function DispatchPage() {
           {selected ? (
             <JobSidebar
               deal={selected}
-              clientName={contactNames.get(selected.contactId) ?? "Unknown client"}
+              clientName={dealClientNames.get(selected.id) ?? "Unknown client"}
               techName={techNamesOf(selected.assignedTechIds)}
               canEdit={can("deals", "edit")}
               onEdit={() => setEditing(true)}
@@ -499,7 +502,7 @@ export function DispatchPage() {
               position={selectedTech}
               name={nameOf(selectedTech.userId) ?? "Technician"}
               jobs={selectedTechJobs}
-              clientName={(d) => contactNames.get(d.contactId) ?? "Unknown client"}
+              clientName={(d) => dealClientNames.get(d.id) ?? "Unknown client"}
               canReorder={can("deals", "edit")}
               onReorder={(orderedDealIds) =>
                 reorder.mutate({ techId: selectedTech.userId, orderedDealIds })
