@@ -31,6 +31,7 @@ describe("JOB_FIELDS registry", () => {
       "scheduled",
       "jobType",
       "source",
+      "externalCompany",
       "poNumber",
       "total",
       "paymentStatus",
@@ -46,7 +47,7 @@ describe("JOB_FIELDS registry", () => {
     for (const id of ["client", "tech", "tags", "city", "state", "scheduled", "jobType"]) {
       expect(DEFAULT_VISIBLE[id]).toBe(true);
     }
-    for (const id of ["phone", "source", "poNumber", "createdAt"]) {
+    for (const id of ["phone", "source", "externalCompany", "poNumber", "createdAt"]) {
       expect(DEFAULT_VISIBLE[id]).toBe(false);
     }
   });

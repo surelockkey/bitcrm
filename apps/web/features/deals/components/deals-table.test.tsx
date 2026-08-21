@@ -27,6 +27,10 @@ vi.mock("@/features/job-tags/components/job-tag-chips", () => ({
 }));
 
 // Catalog resolvers the dynamic columns lean on; pinned so no QueryClient is needed.
+vi.mock("@/features/external-companies/lib", () => ({
+  useExternalCompanyName: () => (id: string | undefined) =>
+    id === "ec-1" ? "Allied Dispatch Solutions" : "—",
+}));
 vi.mock("@/features/job-sources/lib", () => ({
   useJobSourceName: () => (id: string | undefined) => (id === "src-web" ? "Website" : "—"),
 }));
@@ -198,6 +202,20 @@ describe("DealsTable", () => {
     );
     expect(screen.getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
     expect(screen.getByText("Website")).toBeInTheDocument();
+  });
+
+  it("can show the external company, resolved through the catalog", () => {
+    render(
+      <DealsTable
+        deals={[deal({ externalCompanyId: "ec-1" })]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ ...DEFAULT_VISIBLE, externalCompany: true }}
+      />,
+    );
+    expect(screen.getByRole("columnheader", { name: "External company" })).toBeInTheDocument();
+    expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
   });
 
   it("renders an enabled custom field as a column with the deal's answer", () => {

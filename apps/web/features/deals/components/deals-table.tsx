@@ -16,6 +16,7 @@ import { formatAddress, formatPhone, primaryPhone, primaryEmail } from "@/featur
 import { formatDate } from "@/features/users/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
+import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatusName } from "@/features/job-statuses/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
@@ -51,6 +52,7 @@ export function DealsTable({
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
+  const externalCompanyName = useExternalCompanyName();
   const subStatusName = useJobStatusName();
   const { data: customFieldDefs } = useCustomFields();
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -141,6 +143,8 @@ export function DealsTable({
         return <span className="text-sm">{jobTypeName(d.jobTypeId)}</span>;
       case "source":
         return <span className="text-sm">{sourceName(d.sourceId)}</span>;
+      case "externalCompany":
+        return <span className="text-sm">{externalCompanyName(d.externalCompanyId)}</span>;
       case "poNumber":
         return <span className="text-sm">{d.poNumber || "—"}</span>;
       case "total":

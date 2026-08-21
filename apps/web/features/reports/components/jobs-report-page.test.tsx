@@ -65,6 +65,7 @@ vi.mock("@/features/job-types/lib", () => ({
   activeJobTypes: () => [],
 }));
 vi.mock("@/features/job-sources/hooks", () => ({ useJobSources: () => ({ data: [] }) }));
+vi.mock("@/features/external-companies/lib", () => ({ useExternalCompanyName: () => () => "—" }));
 vi.mock("@/features/job-sources/lib", () => ({
   activeJobSources: () => [],
   useJobSourceName: () => () => "—",
