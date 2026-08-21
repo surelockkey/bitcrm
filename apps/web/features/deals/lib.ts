@@ -268,6 +268,7 @@ export interface DealDraft {
   serviceArea: string;
   jobTypeId: string;
   sourceId: string;
+  externalCompanyId: string;
   priority: DealPriority;
   poNumber: string;
   workOrderId: string;
@@ -303,6 +304,7 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
     serviceArea: d.serviceArea ?? "",
     jobTypeId: d.jobTypeId,
     sourceId: d.sourceId ?? "",
+    externalCompanyId: d.externalCompanyId ?? "",
     priority: d.priority,
     poNumber: d.poNumber ?? "",
     workOrderId: d.workOrderId ?? "",
@@ -376,7 +378,7 @@ const sameCustomFields = (
 
 /** Optional string fields where an emptied draft value means "clear it". */
 const OPTIONAL_DEAL_FIELDS = [
-  "sourceId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
+  "sourceId", "externalCompanyId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
 ] as const;
 
 /**

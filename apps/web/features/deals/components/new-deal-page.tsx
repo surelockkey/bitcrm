@@ -44,6 +44,7 @@ import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { ClientPicker, type ClientDraft } from "./client-picker";
@@ -240,6 +241,7 @@ function DealForm({
       allDay: false,
       priority: DealPriority.NORMAL,
       sourceId: "",
+      externalCompanyId: "",
       notes: "",
       tagIds: [],
     },
@@ -409,6 +411,7 @@ function DealForm({
         scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
         allDay: values.allDay || undefined,
         sourceId: values.sourceId || undefined,
+        externalCompanyId: values.externalCompanyId || undefined,
         notes: values.notes || undefined,
         poNumber: values.poNumber || undefined,
         workOrderId: values.workOrderId || undefined,
@@ -521,6 +524,15 @@ function DealForm({
             <div className="space-y-2.5">
               <Label>Job source{req("source")}</Label>
               <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2.5">
+              <Label>External company</Label>
+              <ExternalCompanySelect
+                value={v.externalCompanyId}
+                onChange={(val) => form.setValue("externalCompanyId", val ?? "")}
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">

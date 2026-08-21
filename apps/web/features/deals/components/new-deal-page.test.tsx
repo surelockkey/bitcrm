@@ -108,6 +108,9 @@ vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
 vi.mock("@/features/job-sources/components/job-source-select", () => ({
   JobSourceSelect: () => null,
 }));
+vi.mock("@/features/external-companies/components/external-company-select", () => ({
+  ExternalCompanySelect: () => null,
+}));
 vi.mock("@/features/job-types/components/job-type-select", () => ({
   JobTypeSelect: ({ onChange }: { onChange: (v: string) => void }) => (
     <button type="button" onClick={() => onChange("jt-rekey")}>pick job type</button>

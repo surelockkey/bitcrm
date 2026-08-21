@@ -371,12 +371,25 @@ describe("buildDealPatch", () => {
       poNumber: "PO-1",
       workOrderId: "wo-1",
       sourceId: "src-1",
+      externalCompanyId: "ec-1",
       scheduledDate: "2026-08-01",
       scheduledTimeSlot: "08:00-10:00",
       notes: "hello",
       internalNotes: "internal",
     });
     expect(buildDealPatch(full, dealDraftFromDeal(full))).toBeNull();
+  });
+
+  it("sends the external company as a changed key, and clears it when emptied", () => {
+    const d = deal();
+    const set = buildDealPatch(d, { ...dealDraftFromDeal(d), externalCompanyId: "ec-1" });
+    expect(Object.keys(set!)).toEqual(["externalCompanyId"]);
+    expect(set!.externalCompanyId).toBe("ec-1");
+
+    const had = deal({ externalCompanyId: "ec-1" });
+    const cleared = buildDealPatch(had, { ...dealDraftFromDeal(had), externalCompanyId: "" });
+    expect(Object.keys(cleared!)).toEqual(["externalCompanyId"]);
+    expect(cleared!.externalCompanyId).toBeUndefined();
   });
 
   it("returns only the changed key", () => {

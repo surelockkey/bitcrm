@@ -40,6 +40,7 @@ import { addressInList, contactName, formatPhone } from "@/features/clients/lib"
 import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
@@ -418,6 +419,13 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         <div className="grid grid-cols-2 gap-3">
           <Field label="Source">
             <JobSourceSelect value={dealDraft.sourceId} onChange={(val) => setDeal({ sourceId: val })} disabled={!canEdit} />
+          </Field>
+          <Field label="External company">
+            <ExternalCompanySelect
+              value={dealDraft.externalCompanyId}
+              onChange={(val) => setDeal({ externalCompanyId: val ?? "" })}
+              disabled={!canEdit}
+            />
           </Field>
           <Field label="Priority">
             <Select value={dealDraft.priority} onValueChange={(val) => setDeal({ priority: val as DealPriority })} disabled={!canEdit}>

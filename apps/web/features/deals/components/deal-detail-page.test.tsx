@@ -64,6 +64,11 @@ vi.mock("@/features/job-sources/components/job-source-select", () => ({
     <button type="button" onClick={() => onChange("src-web")}>pick source</button>
   ),
 }));
+vi.mock("@/features/external-companies/components/external-company-select", () => ({
+  ExternalCompanySelect: ({ onChange }: { onChange: (v: string) => void }) => (
+    <button type="button" onClick={() => onChange("ec-1")}>pick external company</button>
+  ),
+}));
 vi.mock("./scheduled-block", () => ({
   ScheduledBlock: ({ onChange }: { onChange: (v: { date: string; endDate: string; slot: string; allDay: boolean }) => void }) => (
     <button type="button" onClick={() => onChange({ date: "2026-09-01", endDate: "2026-09-01", slot: "", allDay: false })}>set date</button>
@@ -328,6 +333,17 @@ describe("DealDetailPage (editable, single save)", () => {
       body: { firstName: "Janet" },
     });
     expect(mocks.createContact).not.toHaveBeenCalled();
+  });
+
+  it("saves the external company picked on the job", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.click(screen.getByRole("button", { name: /pick external company/i }));
+    await u.click(saveButton());
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ externalCompanyId: "ec-1" });
   });
 
   it("locks the number the job was created with — no editing, no removing it", () => {

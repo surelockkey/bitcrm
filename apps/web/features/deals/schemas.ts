@@ -41,6 +41,7 @@ export const dealJobSchema = z.object({
   allDay: z.boolean().optional(),
   priority: z.nativeEnum(DealPriority),
   sourceId: z.string().trim().optional(),
+  externalCompanyId: z.string().trim().optional(),
   notes: z.string().trim().optional(),
   tagIds: z.array(z.string()).default([]),
   // Optional platinum / work-order fields.
