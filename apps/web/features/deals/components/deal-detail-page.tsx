@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
-import { ContactSource, DealPriority, type Contact, type Deal } from "@bitcrm/types";
+import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
+import type { UpdateDealValues } from "../schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,11 +31,11 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact, useUpdateContact, useCreateContact } from "@/features/clients/hooks";
+import { useContact, useUpdateContact } from "@/features/clients/hooks";
 import {
-  ClientSaveDialog,
+  ChangeClientDialog,
   type ClientSaveDecision,
-} from "@/features/clients/components/client-change-dialog";
+} from "./change-client-dialog";
 import { addressInList, contactName, formatPhone } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
@@ -47,7 +48,6 @@ import { applicableFields, workizOrderedGroups } from "@/features/custom-fields/
 import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import {
-  useChangeDealClient,
   useDeal,
   useDeleteDeal,
   useMoveStatus,
@@ -236,8 +236,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const update = useUpdateDeal(deal.id);
   const assignTechs = useAssignTechs(deal.id);
   const updateContact = useUpdateContact();
-  const createContact = useCreateContact();
-  const changeClient = useChangeDealClient(deal.id);
   const canEditClient = can("contacts", "edit");
 
   // One draft per side — every field below is a controlled input writing here,
@@ -257,7 +255,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   }, [deal.id, deal.updatedAt]);
 
   const [clientDraft, setClientDraft] = useState<ClientDraft | null>(() =>
-    contact ? clientDraftFromContact(contact) : null,
+    contact ? clientDraftFromContact(contact, deal.clientName) : null,
   );
   const syncedContactId = useRef(contact?.id);
   useEffect(() => {
@@ -266,7 +264,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
     const freshContact = syncedContactId.current !== contact?.id;
     syncedContactId.current = contact?.id;
     if (!freshContact && contact && clientDraft && buildContactBody(contact, clientDraft)) return;
-    setClientDraft(contact ? clientDraftFromContact(contact) : null);
+    setClientDraft(contact ? clientDraftFromContact(contact, deal.clientName) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact?.id, contact?.updatedAt]);
 
@@ -289,19 +287,21 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined)
       : null;
   const dirty = !!dealPatch || !!contactBody;
-  const pending = update.isPending || updateContact.isPending || createContact.isPending;
+  const pending = update.isPending || updateContact.isPending;
 
   const { confirm } = useUnsavedChanges(dirty);
 
-  // Who the client is, changed — as opposed to filling in an email or fixing a
-  // typo'd unit number.
-  const clientChanged =
+  // A rename is the only client edit that prompts: it either follows the
+  // client record or stays a per-job label. Phones/emails live on the client
+  // record alone, so they save straight through. The rename is measured
+  // against what the job currently shows (its override, else the contact).
+  const baseFirstName = deal.clientName?.firstName ?? contact?.firstName ?? "";
+  const baseLastName = deal.clientName?.lastName ?? contact?.lastName ?? "";
+  const nameChanged =
     !!contact &&
     !!clientDraft &&
-    (clientDraft.firstName !== contact.firstName ||
-      clientDraft.lastName !== contact.lastName ||
-      JSON.stringify(clientDraft.phones.map((p) => p.trim()).filter(Boolean)) !==
-        JSON.stringify(contact.phones));
+    (clientDraft.firstName.trim() !== baseFirstName ||
+      clientDraft.lastName.trim() !== baseLastName);
   // A service location the client doesn't have on file yet.
   const newAddress =
     contact && dealPatch?.address && !addressInList(dealDraft.address, contact.addresses)
@@ -311,45 +311,42 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const [asking, setAsking] = useState(false);
 
   const save = () => {
-    // Same question the job's creation asks: is this the same client corrected,
-    // or someone else — and does a new address belong on their record? Skipped
-    // when nothing about the client itself moved.
-    if (canEditClient && contact && (clientChanged || newAddress)) {
+    // A rename (or a new address) is the only thing worth asking about;
+    // everything else saves straight through.
+    if (canEditClient && contact && (nameChanged || newAddress)) {
       setAsking(true);
       return;
     }
-    commit({ client: "update", address: "job-only" });
+    commit({ applyToClient: true, address: "job-only" });
   };
 
   const commit = (decision: ClientSaveDecision) => {
     setAsking(false);
-    if (dealPatch) update.mutate(dealPatch);
+
+    // "Just here" pins the new name to this job; "Yes, make change" writes it
+    // to the contact record and drops any stale per-job pin.
+    const overridePatch: Partial<UpdateDealValues> =
+      canEditClient && contact && clientDraft && nameChanged
+        ? decision.applyToClient
+          ? deal.clientName
+            ? { clientName: null }
+            : {}
+          : {
+              clientName: {
+                firstName: clientDraft.firstName.trim(),
+                lastName: clientDraft.lastName.trim(),
+              },
+            }
+        : {};
+    const patch = { ...(dealPatch ?? {}), ...overridePatch };
+    if (Object.keys(patch).length > 0) update.mutate(patch);
+
     if (!contact || !clientDraft || !canEditClient) return;
-
-    if (clientChanged && decision.client === "create") {
-      // The number follows the new client, so future calls from it resolve to
-      // whoever this job is actually for; the job moves with them.
-      createContact.mutate(
-        {
-          firstName: clientDraft.firstName.trim(),
-          lastName: clientDraft.lastName.trim(),
-          phones: clientDraft.phones.map((p) => p.trim()).filter(Boolean),
-          emails: clientDraft.email.trim() ? [clientDraft.email.trim()] : [],
-          addresses: decision.address === "save" && newAddress ? [newAddress] : [],
-          type: contact.type,
-          companyId: contact.companyId,
-          source: ContactSource.PHONE_CALL,
-          reassignPhones: true,
-        },
-        { onSuccess: (c) => changeClient.mutate(c.id) },
-      );
-      return;
-    }
-
     const body = buildContactBody(
       contact,
       clientDraft,
       decision.address === "save" ? newAddress : undefined,
+      { includeName: decision.applyToClient },
     );
     if (body) updateContact.mutate({ id: contact.id, body });
   };
@@ -479,15 +476,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       {confirm}
 
       {contact && clientDraft && asking ? (
-        <ClientSaveDialog
+        <ChangeClientDialog
           open
-          original={contact}
-          edits={{
-            firstName: clientDraft.firstName,
-            lastName: clientDraft.lastName,
-            phone: clientDraft.phones[0] ?? "",
-          }}
-          clientChanged={clientChanged}
+          nameChanged={nameChanged}
           newAddress={newAddress}
           pending={pending}
           onCancel={() => setAsking(false)}
@@ -574,27 +565,33 @@ function ClientEditor({
       </div>
       <Field label="Phones">
         <div className="space-y-2">
-          {draft.phones.map((p, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <PhoneInput
-                className="flex-1"
-                value={p}
-                onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
-                lockCountry
-              />
-              {i === 0 ? <PrimaryBadge /> : null}
-              {/* Dials what's on file, not the half-typed draft. */}
-              {contact.phones.includes(p) ? (
-                <CallClientButton to={p} partyId={contact.id} />
-              ) : null}
-              {draft.phones.length > 1 ? (
-                <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
-              ) : null}
-            </div>
-          ))}
+          {draft.phones.map((p, i) => {
+            // The number the job was created with is permanently bound to it:
+            // it can't be edited or removed here, only new ones added.
+            const locked = i === 0 && contact.phones.length > 0;
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <PhoneInput
+                  className="flex-1"
+                  value={p}
+                  onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
+                  lockCountry
+                  disabled={locked}
+                />
+                {i === 0 ? <PrimaryBadge /> : null}
+                {/* Dials what's on file, not the half-typed draft. */}
+                {contact.phones.includes(p) ? (
+                  <CallClientButton to={p} partyId={contact.id} />
+                ) : null}
+                {!locked && draft.phones.length > 1 ? (
+                  <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
+                ) : null}
+              </div>
+            );
+          })}
           <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""] })}>＋ Add phone</button>
         </div>
-        <p className="text-xs text-muted-foreground">The first phone is the client&apos;s primary number.</p>
+        <p className="text-xs text-muted-foreground">The first number is the one the job was created with — it stays with the job.</p>
       </Field>
       <Field label="Email"><Input className="h-9" value={draft.email} placeholder="name@example.com" onChange={(e) => set({ email: e.target.value })} /></Field>
     </div>

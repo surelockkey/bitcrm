@@ -28,9 +28,9 @@ import {
 import { usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useCompanyMap } from "@/features/clients/hooks";
-import { contactName, formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
+import { formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
 import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
-import { formatSchedule, superStatusLabel } from "@/features/deals/lib";
+import { dealClientName, formatSchedule, superStatusLabel } from "@/features/deals/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
@@ -276,7 +276,7 @@ export function JobsReportPage() {
         const c = contactMap.get(d.contactId);
         return {
           "Job #": String(d.dealNumber),
-          Client: c ? contactName(c) : "",
+          Client: dealClientName(d, c),
           Type: jobTypeName(d.jobTypeId),
           Created: d.createdAt,
           Scheduled: d.scheduledDate ?? "",
@@ -465,7 +465,7 @@ export function JobsReportPage() {
                         {d.dealNumber}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm font-medium">{c ? contactName(c) : "—"}</TableCell>
+                    <TableCell className="text-sm font-medium">{dealClientName(d, c)}</TableCell>
                     <TableCell>{d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={2} /> : "—"}</TableCell>
                     <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
                     <TableCell className="text-sm">{when(d.createdAt)}</TableCell>

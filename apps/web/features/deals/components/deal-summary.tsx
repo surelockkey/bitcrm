@@ -7,9 +7,9 @@ import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCompanyMap } from "@/features/clients/hooks";
-import { contactName, formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
+import { formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
 import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../hooks";
-import { dealTotal, formatMoney, formatSchedule } from "../lib";
+import { dealClientName, dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
@@ -61,7 +61,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
         {contact ? (
           <div className="space-y-1">
             <Link href={`/contacts/${contact.id}`} className="text-sm font-medium hover:underline">
-              {contactName(contact)}
+              {dealClientName(deal, contact)}
             </Link>
             {company ? (
               <Link href={`/companies/${company.id}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:underline">

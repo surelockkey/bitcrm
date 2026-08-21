@@ -13,7 +13,7 @@ import type {
   Deal,
   DealProduct,
 } from "@bitcrm/types";
-import { addressInList } from "@/features/clients/lib";
+import { addressInList, contactName } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { UpdateDealValues } from "./schemas";
 
@@ -316,13 +316,28 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
   };
 }
 
-export function clientDraftFromContact(c: Contact): ClientDraft {
+export function clientDraftFromContact(
+  c: Contact,
+  nameOverride?: { firstName: string; lastName: string },
+): ClientDraft {
   return {
-    firstName: c.firstName,
-    lastName: c.lastName,
+    firstName: nameOverride?.firstName ?? c.firstName,
+    lastName: nameOverride?.lastName ?? c.lastName,
     phones: c.phones.length ? [...c.phones] : [""],
     email: c.emails[0] ?? "",
   };
+}
+
+/**
+ * The client name a job displays: its own "Just here" override when one was
+ * saved, otherwise the contact's record name.
+ */
+export function dealClientName(deal: Deal, contact: Contact | undefined): string {
+  if (deal.clientName) {
+    const name = `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim();
+    if (name) return name;
+  }
+  return contact ? contactName(contact) : "—";
 }
 
 const sameAddress = (a: Address, b: Address): boolean =>
@@ -407,20 +422,23 @@ export function buildContactBody(
   c: Contact,
   draft: ClientDraft,
   newAddress?: Address,
+  opts: { includeName?: boolean } = {},
 ): UpdateContactValues | null {
+  // "Just here" renames stay on the job — the contact keeps its own name.
+  const includeName = opts.includeName ?? true;
   const phones = draft.phones.map((p) => p.trim()).filter(Boolean);
   const email = draft.email.trim();
   const appendAddress = !!newAddress && !addressInList(newAddress, c.addresses);
   const dirty =
-    draft.firstName !== c.firstName ||
-    draft.lastName !== c.lastName ||
+    (includeName &&
+      (draft.firstName !== c.firstName || draft.lastName !== c.lastName)) ||
     JSON.stringify(phones) !== JSON.stringify(c.phones) ||
     email !== (c.emails[0] ?? "");
   if (!dirty && !appendAddress) return null;
 
   return {
-    firstName: draft.firstName.trim(),
-    lastName: draft.lastName.trim(),
+    firstName: includeName ? draft.firstName.trim() : c.firstName,
+    lastName: includeName ? draft.lastName.trim() : c.lastName,
     phones: phones.length ? phones : c.phones,
     emails: email ? [email, ...c.emails.slice(1)] : c.emails.slice(1),
     addresses: appendAddress && newAddress ? [...c.addresses, newAddress] : c.addresses,
@@ -525,9 +543,14 @@ export function filterDeals(
     if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;
     if (q) {
       const contact = contacts.get(d.contactId);
-      const name = contact
-        ? `${contact.firstName} ${contact.lastName}`.trim().toLowerCase()
-        : "";
+      // The job's own name override and the contact's record name both match.
+      const name = [
+        d.clientName ? `${d.clientName.firstName} ${d.clientName.lastName}` : "",
+        contact ? `${contact.firstName} ${contact.lastName}` : "",
+      ]
+        .join(" ")
+        .trim()
+        .toLowerCase();
       const num = String(d.dealNumber).toLowerCase();
       const matchesNum = qAlnum.length > 0 && num.includes(qAlnum);
       const matchesName = name.includes(q);

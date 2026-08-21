@@ -27,7 +27,7 @@ import { CustomFieldsSection } from "@/features/custom-fields/components/custom-
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDealProducts, useContactMap, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
-import { dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
+import { dealClientName, dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
 
@@ -90,7 +90,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
       <SheetHeader className="space-y-0 border-b py-3.5 pl-5 pr-12">
         <div className="font-mono text-xs text-muted-foreground">Job #{deal.dealNumber}</div>
         <SheetTitle className="truncate text-base">
-          {contact ? contactName(contact) : "Job"}
+          {contact ? dealClientName(deal, contact) : "Job"}
         </SheetTitle>
       </SheetHeader>
 

@@ -33,6 +33,7 @@ import {
   sortJobs,
   jobDayKey,
   jobHourKey,
+  dealClientName,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -185,6 +186,15 @@ describe("filterDeals", () => {
 
   it("finds the job by its client's email", () => {
     expect(filterDeals(list, { search: "jane@example" }, contacts).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("finds the job by its per-job client-name override as well as the contact name", () => {
+    const rows = [
+      deal({ id: "o", contactId: "c1", clientName: { firstName: "Janet", lastName: "Poole" } }),
+    ];
+    expect(filterDeals(rows, { search: "poole" }, contacts).map((d) => d.id)).toEqual(["o"]);
+    // The underlying contact's name still matches too.
+    expect(filterDeals(rows, { search: "jane smith" }, contacts).map((d) => d.id)).toEqual(["o"]);
   });
 
   it("matches a phone fragment inside a searchable custom-field value", () => {
@@ -469,6 +479,17 @@ describe("custom fields (single-save draft)", () => {
   });
 });
 
+describe("dealClientName", () => {
+  it("prefers the per-job override and falls back to the contact", () => {
+    const c = contact();
+    expect(dealClientName(deal(), c)).toBe("Jane Smith");
+    expect(
+      dealClientName(deal({ clientName: { firstName: "Janet", lastName: "Poole" } }), c),
+    ).toBe("Janet Poole");
+    expect(dealClientName(deal(), undefined)).toBe("—");
+  });
+});
+
 describe("buildContactBody", () => {
   it("returns null when nothing changed and there is no new address", () => {
     const c = contact();
@@ -496,6 +517,35 @@ describe("buildContactBody", () => {
     const body = buildContactBody(c, { ...clientDraftFromContact(c), email: "new@example.com" });
     expect(body).not.toBeNull();
     expect(body!.emails).toEqual(["new@example.com", "billing@example.com"]);
+  });
+
+  it("with includeName: false a pure rename is clean and the contact keeps its name", () => {
+    const c = contact();
+    // Rename only → nothing to write on the contact ('Just here' path).
+    expect(
+      buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" }, undefined, {
+        includeName: false,
+      }),
+    ).toBeNull();
+    // Rename + new phone → the phone is written, the name is NOT.
+    const body = buildContactBody(
+      c,
+      { ...clientDraftFromContact(c), firstName: "Janet", phones: ["+14045551234", "+12928398283"] },
+      undefined,
+      { includeName: false },
+    );
+    expect(body).not.toBeNull();
+    expect(body!.firstName).toBe("Jane");
+    expect(body!.phones).toEqual(["+14045551234", "+12928398283"]);
+  });
+
+  it("clientDraftFromContact seeds names from the per-job override when given", () => {
+    const c = contact();
+    const draft = clientDraftFromContact(c, { firstName: "Janet", lastName: "Poole" });
+    expect(draft.firstName).toBe("Janet");
+    expect(draft.lastName).toBe("Poole");
+    // Phones/email still come from the contact record.
+    expect(draft.phones).toEqual(["+14045551234"]);
   });
 
   it("cleans phones (trim, drop empties) and treats a no-op cleanup as clean", () => {
