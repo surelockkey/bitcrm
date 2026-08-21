@@ -70,6 +70,8 @@ export type UpdateDealValues = Partial<
     internalNotes: string;
     /** Per-job client display name ("Just here" rename); null clears it. */
     clientName: { firstName: string; lastName: string } | null;
+    /** Referring partner; null clears it (undefined would be dropped by JSON). */
+    externalCompanyId: string | null;
   }
 >;
 

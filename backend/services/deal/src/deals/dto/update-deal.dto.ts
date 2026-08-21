@@ -73,12 +73,14 @@ export class UpdateDealDto {
 
   @ApiPropertyOptional({
     example: 'c7d2e9f1-3b4a-4c8d-9e2f-6a1b5c0d7e34',
+    nullable: true,
     description:
-      'Catalog external-company id. A disabled company is accepted here so old jobs stay editable.',
+      'Catalog external-company id. A disabled company is accepted here so old jobs stay ' +
+      'editable; an explicit null detaches the company from the job.',
   })
   @IsOptional()
   @IsString()
-  externalCompanyId?: string;
+  externalCompanyId?: string | null;
 
   @ApiPropertyOptional({ example: 'wo-uuid' })
   @IsOptional()

@@ -382,9 +382,18 @@ const OPTIONAL_DEAL_FIELDS = [
 ] as const;
 
 /**
+ * Of those, the ones whose API DTO accepts an explicit `null` (which the
+ * repository turns into a DynamoDB REMOVE). The rest still patch to
+ * `undefined`, which JSON.stringify drops — a long-standing quirk that means
+ * they can be set but not cleared; widening it is a separate change.
+ */
+const NULLABLE_DEAL_FIELDS = new Set<string>(["externalCompanyId"]);
+
+/**
  * Diff a draft against the server deal → the PUT patch with only the changed
- * keys, or null when nothing changed. Emptied optional fields patch to
- * `undefined`; notes are trimmed, so whitespace-only edits aren't changes.
+ * keys, or null when nothing changed. Emptied optional fields patch to `null`
+ * where the DTO accepts it (see NULLABLE_DEAL_FIELDS) and `undefined`
+ * otherwise; notes are trimmed, so whitespace-only edits aren't changes.
  */
 export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues | null {
   const base = dealDraftFromDeal(deal);
@@ -397,7 +406,15 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
   if (draft.allDay !== base.allDay) { patch.allDay = draft.allDay; dirty = true; }
   for (const key of OPTIONAL_DEAL_FIELDS) {
-    if (draft[key] !== base[key]) { patch[key] = draft[key] || undefined; dirty = true; }
+    if (draft[key] === base[key]) continue;
+    // An emptied field must reach the API as an explicit null — `undefined` is
+    // dropped by JSON.stringify, so the PUT body would omit the key entirely
+    // and the stored value would survive. (Only wired for the fields whose DTO
+    // accepts null; the rest keep today's semantics.)
+    const cleared = NULLABLE_DEAL_FIELDS.has(key) ? null : undefined;
+    // The union widens per key; the assignment is sound for each of them.
+    (patch as Record<string, unknown>)[key] = draft[key] || cleared;
+    dirty = true;
   }
   for (const key of ["notes", "internalNotes"] as const) {
     const next = draft[key].trim();
