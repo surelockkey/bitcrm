@@ -63,6 +63,47 @@ describe("PhoneInput", () => {
     expect(input()).toHaveValue("40");
   });
 
+  it("backspacing a digit in the middle removes that digit, not the last one", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="+14045551234" />);
+    // "(404) 555-1234" — caret after "(404) 5"; backspace must eat that "5".
+    await user.type(input(), "{backspace}", {
+      initialSelectionStart: 7,
+      initialSelectionEnd: 7,
+    });
+    expect(screen.getByTestId("e164")).toHaveTextContent("+1404551234");
+    expect(input().value.replace(/\D/g, "")).toBe("404551234");
+  });
+
+  it("keeps the caret at the edit point instead of jumping to the end", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="+14045551234" />);
+    // Backspace the "5" right before the caret at "(404) 5|55-1234".
+    await user.type(input(), "{backspace}", {
+      initialSelectionStart: 7,
+      initialSelectionEnd: 7,
+    });
+    // The caret stays after the 3rd digit — not at the end of the field.
+    const el = input();
+    const digitsBeforeCaret = el.value
+      .slice(0, el.selectionStart ?? 0)
+      .replace(/\D/g, "").length;
+    expect(digitsBeforeCaret).toBe(3);
+    expect(el.selectionStart).not.toBe(el.value.length);
+  });
+
+  it("deleting a formatting character in the middle eats the digit before it, not the tail", async () => {
+    const user = userEvent.setup();
+    render(<Harness initial="+14045551234" />);
+    // Caret after "(404) " — backspace lands on the space: the "4" before it
+    // must go; the trailing "…1234" must survive untouched.
+    await user.type(input(), "{backspace}", {
+      initialSelectionStart: 6,
+      initialSelectionEnd: 6,
+    });
+    expect(screen.getByTestId("e164")).toHaveTextContent("+1405551234");
+  });
+
   it("shows an existing foreign value under its own flag, without the +code in the field", () => {
     render(<Harness initial="+380958601427" />);
     expect(input().value).not.toContain("+");

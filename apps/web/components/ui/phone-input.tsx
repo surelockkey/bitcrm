@@ -78,13 +78,41 @@ export function PhoneInput({
     onChange(e164);
   };
 
-  const handleChange = (raw: string) => {
+  // How many digits sit left of the caret — restored after each reformat so
+  // editing the middle of a number doesn't fling the caret to the end.
+  const caretDigits = useRef<number | null>(null);
+
+  useEffect(() => {
+    const n = caretDigits.current;
+    caretDigits.current = null;
+    const el = inputRef.current;
+    if (n == null || !el || document.activeElement !== el) return;
+    let pos = 0;
+    let seen = 0;
+    while (pos < el.value.length && seen < n) {
+      if (/\d/.test(el.value[pos])) seen++;
+      pos++;
+    }
+    el.setSelectionRange(pos, pos);
+  }, [text]);
+
+  const handleChange = (el: HTMLInputElement) => {
+    const raw = el.value;
+    const caret = el.selectionStart ?? raw.length;
+    let digitsBeforeCaret = raw.slice(0, caret).replace(/\D/g, "").length;
+
     let digits = nationalInput(raw, country);
     // Deleting a formatting character alone would reformat back to the same
-    // text and trap the caret — treat it as deleting the digit before it.
+    // text and trap the caret — treat it as deleting the digit before the
+    // caret (not the last one: the user may be editing the middle).
     const prev = text.replace(/\D/g, "");
-    if (raw.length < text.length && digits === prev) digits = digits.slice(0, -1);
+    if (raw.length < text.length && digits === prev && digitsBeforeCaret > 0) {
+      digits =
+        digits.slice(0, digitsBeforeCaret - 1) + digits.slice(digitsBeforeCaret);
+      digitsBeforeCaret -= 1;
+    }
     digits = digits.slice(0, 15 - callingCode(country).length); // E.164 max length
+    caretDigits.current = Math.min(digitsBeforeCaret, digits.length);
     setText(digits ? formatAsYouType(digits, country) : "");
     emit(digits ? toE164(country, digits) : "");
   };
@@ -121,7 +149,7 @@ export function PhoneInput({
         disabled={disabled}
         autoFocus={autoFocus}
         placeholder={placeholder}
-        onChange={(e) => handleChange(e.target.value)}
+        onChange={(e) => handleChange(e.target)}
         onBlur={onBlur}
         className="h-full flex-1 rounded-r-md bg-transparent px-3 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
       />
