@@ -7,6 +7,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
 import { ContainersModule } from './containers/containers.module';
 import { TransfersModule } from './transfers/transfers.module';
 import { ContainerTemplatesModule } from './container-templates/container-templates.module';
+import { ProductCatalogModule } from './product-catalog/product-catalog.module';
 import { ContainersEventHandler } from './containers/containers.event-handler';
 
 @Module({
@@ -53,6 +54,7 @@ import { ContainersEventHandler } from './containers/containers.event-handler';
     ContainersModule,
     TransfersModule,
     ContainerTemplatesModule,
+    ProductCatalogModule,
   ],
   controllers: [AppController],
 })

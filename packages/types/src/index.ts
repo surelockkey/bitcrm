@@ -77,6 +77,11 @@ export {
 export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';
+export {
+  Brand,
+  ProductCategory,
+  ProductCategoryWithCounts,
+} from './entities/product-catalog.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container, ContainerVan } from './entities/container.entity';
 export {
