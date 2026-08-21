@@ -31,6 +31,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Gate: item shows only if the user can `view` this resource (if set). */
   resource?: Resource;
+  /** Gate for screens that merge several resources: any one `view` opens it. */
+  anyResource?: Resource[];
   /** "coming-soon" items are hidden unless NEXT_PUBLIC_SHOW_ROADMAP is set. */
   status?: "available" | "coming-soon";
 }
@@ -75,8 +77,12 @@ export const MAIN_NAV: NavGroup[] = [
     label: "Inventory",
     items: [
       { label: "Products", href: "/inventory/products", icon: Package, resource: "products" },
-      { label: "Warehouses", href: "/inventory/warehouses", icon: Warehouse, resource: "warehouses" },
-      { label: "Containers", href: "/inventory/containers", icon: Truck, resource: "containers" },
+      {
+        label: "Locations",
+        href: "/inventory/locations",
+        icon: Warehouse,
+        anyResource: ["warehouses", "containers"],
+      },
       { label: "Transfers", href: "/inventory/transfers", icon: ArrowLeftRight, resource: "transfers" },
     ],
   },
@@ -132,6 +138,7 @@ export function visibleNavItems(
   return items.filter((item) => {
     if (item.status === "coming-soon" && !SHOW_ROADMAP) return false;
     if (item.resource && !can(item.resource)) return false;
+    if (item.anyResource && !item.anyResource.some(can)) return false;
     return true;
   });
 }
