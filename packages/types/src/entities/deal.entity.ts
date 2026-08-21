@@ -53,6 +53,8 @@ export interface Deal {
   priority: DealPriority;
   /** Catalog job-source id (where the deal came from). Optional. */
   sourceId?: string;
+  /** Catalog external-company id (the partner that referred this job). Optional. */
+  externalCompanyId?: string;
   notes?: string;
   internalNotes?: string;
   cancellationReason?: string;

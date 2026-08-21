@@ -10,6 +10,7 @@ import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
+import { ExternalCompaniesService } from 'src/external-companies/external-companies.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
 import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
@@ -34,6 +35,7 @@ import {
   createMockJobTag,
   createMockTechnicianEligibilityRepository,
   createMockCustomFieldsService,
+  createMockExternalCompany,
 } from '../mocks';
 
 describe('DealsService', () => {
@@ -47,6 +49,7 @@ describe('DealsService', () => {
   let serviceAreas: { resolvePoint: jest.Mock };
   let jobTypes: { findById: jest.Mock };
   let jobSources: { findById: jest.Mock };
+  let externalCompanies: { findById: jest.Mock };
   let jobTags: { list: jest.Mock };
   let jobStatuses: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
@@ -62,6 +65,7 @@ describe('DealsService', () => {
     serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
     jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
+    externalCompanies = { findById: jest.fn().mockResolvedValue(createMockExternalCompany()) };
     jobTags = { list: jest.fn().mockResolvedValue([]) };
     jobStatuses = { findById: jest.fn() };
     eligibility = createMockTechnicianEligibilityRepository();
@@ -80,6 +84,7 @@ describe('DealsService', () => {
         { provide: ServiceAreasService, useValue: serviceAreas },
         { provide: JobTypesService, useValue: jobTypes },
         { provide: JobSourcesService, useValue: jobSources },
+        { provide: ExternalCompaniesService, useValue: externalCompanies },
         { provide: JobTagsService, useValue: jobTags },
         { provide: JobStatusesService, useValue: jobStatuses },
         { provide: CustomFieldsService, useValue: createMockCustomFieldsService() },
@@ -132,6 +137,25 @@ describe('DealsService', () => {
       address: { street: '123 Main', city: 'Atlanta', state: 'GA', zip: '30301' },
       jobTypeId: 'jobtype-1',
     };
+
+    it('stores the external company on create and rejects a disabled one', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(
+        { ...dto, externalCompanyId: 'extco-1' } as any,
+        caller,
+      );
+      expect(result.externalCompanyId).toBe('extco-1');
+      expect(externalCompanies.findById).toHaveBeenCalledWith('extco-1');
+
+      externalCompanies.findById.mockResolvedValue(
+        createMockExternalCompany({ active: false, name: 'Agero' }),
+      );
+      await expect(
+        service.create({ ...dto, externalCompanyId: 'extco-2' } as any, caller),
+      ).rejects.toThrow(/disabled/i);
+    });
 
     it('should create deal with auto-generated fields', async () => {
       repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
@@ -407,6 +431,16 @@ describe('DealsService', () => {
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({ eventType: TimelineEventType.FIELD_UPDATED }),
       );
+    });
+
+    it('validates the external company when it changes on update', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal, externalCompanyId: 'extco-1' });
+
+      await service.update('deal-1', { externalCompanyId: 'extco-1' } as any, caller);
+
+      expect(externalCompanies.findById).toHaveBeenCalledWith('extco-1');
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { externalCompanyId: 'extco-1' });
     });
 
     it("stores a per-job client-name override ('Just here') and clears it with null", async () => {

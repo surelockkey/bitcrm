@@ -38,7 +38,19 @@ export class SearchIndexerService {
       type === 'deal' ? await this.catalogNames.customFieldDefs() : [];
     const client =
       type === 'deal' ? await this.resolveDealClient(entity) : undefined;
-    const doc = routeToDocument(type, entity, jobTypeName, tagNames, customFieldDefs, client);
+    const externalCompanyName =
+      type === 'deal'
+        ? await this.catalogNames.nameOf('external-companies', entity?.externalCompanyId)
+        : undefined;
+    const doc = routeToDocument(
+      type,
+      entity,
+      jobTypeName,
+      tagNames,
+      customFieldDefs,
+      client,
+      externalCompanyName,
+    );
     if (!doc) {
       this.logger.warn(`No mapper for type "${type}", skipping`);
       return;

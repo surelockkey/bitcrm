@@ -101,6 +101,10 @@ export class BackfillService {
               e?.contactId || e?.companyId
                 ? await this.indexer.resolveDealClient(e, clientCache)
                 : undefined;
+            const externalCompanyName = await this.catalogNames.nameOf(
+              'external-companies',
+              e?.externalCompanyId,
+            );
             return routeToDocument(
               type,
               e,
@@ -108,6 +112,7 @@ export class BackfillService {
               tagNames.filter((n): n is string => Boolean(n)),
               customFieldDefs,
               client,
+              externalCompanyName,
             );
           }),
         )

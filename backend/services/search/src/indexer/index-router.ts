@@ -31,10 +31,11 @@ export function routeToDocument(
   tagNames: string[] = [],
   customFieldDefs: CustomFieldSearchDef[] = [],
   client?: DealClientSearchInput,
+  externalCompanyName?: string,
 ): SearchDocument | null {
   switch (type) {
     case 'deal':
-      return mapDeal(entity, jobTypeName, tagNames, customFieldDefs, client);
+      return mapDeal(entity, jobTypeName, tagNames, customFieldDefs, client, externalCompanyName);
     case 'contact':
       return mapContact(entity);
     case 'company':

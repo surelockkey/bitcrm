@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ServiceAreasModule } from '../service-areas/service-areas.module';
 import { JobTypesModule } from '../job-types/job-types.module';
 import { JobSourcesModule } from '../job-sources/job-sources.module';
+import { ExternalCompaniesModule } from '../external-companies/external-companies.module';
 import { JobTagsModule } from '../job-tags/job-tags.module';
 import { JobStatusesModule } from '../job-statuses/job-statuses.module';
 import { JobFieldSettingsModule } from '../job-field-settings/job-field-settings.module';
@@ -21,7 +22,7 @@ import { DealAttachmentsService } from './attachments/deal-attachments.service';
 import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule],
   // Attachments controller before Deals so `/:id/attachments` isn't shadowed by `/:id`.
   controllers: [DealAttachmentsController, DealsController],
   providers: [
