@@ -528,7 +528,7 @@ function DealForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2.5">
-              <Label>External company</Label>
+              <Label>External company{req("externalCompany")}</Label>
               <ExternalCompanySelect
                 value={v.externalCompanyId}
                 onChange={(val) => form.setValue("externalCompanyId", val ?? "")}

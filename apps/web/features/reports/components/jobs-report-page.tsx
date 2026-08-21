@@ -455,6 +455,7 @@ export function JobsReportPage() {
                 <TableHead>Service area</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Source</TableHead>
+                <TableHead>External company</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -490,6 +491,9 @@ export function JobsReportPage() {
                     <TableCell className="text-sm text-muted-foreground">{d.serviceArea || "—"}</TableCell>
                     <TableCell className="text-sm tabular-nums">{money(d.actualTotal ?? d.estimatedTotal)}</TableCell>
                     <TableCell className="text-sm">{sourceName(d.sourceId)}</TableCell>
+                    <TableCell className="text-sm">
+                      {d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "—"}
+                    </TableCell>
                   </TableRow>
                 );
               })}

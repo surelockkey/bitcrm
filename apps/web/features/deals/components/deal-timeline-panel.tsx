@@ -77,6 +77,7 @@ const FIELD_LABEL: Record<string, string> = {
   serviceAreaId: "Service area",
   jobTypeId: "Job type",
   sourceId: "Source",
+  externalCompanyId: "External company",
   priority: "Priority",
   poNumber: "PO number",
   workOrderId: "Work order",
