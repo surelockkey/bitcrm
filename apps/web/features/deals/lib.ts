@@ -13,7 +13,12 @@ import type {
   Deal,
   DealProduct,
 } from "@bitcrm/types";
-import { addressInList, contactName } from "@/features/clients/lib";
+import {
+  addressInList,
+  contactName,
+  extensionRows,
+  extensionsFromRows,
+} from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { UpdateDealValues } from "./schemas";
 
@@ -287,6 +292,8 @@ export interface ClientDraft {
   firstName: string;
   lastName: string;
   phones: string[];
+  /** What to press once each line answers — one row per `phones` entry. */
+  phoneExts: string[];
   email: string;
 }
 
@@ -322,10 +329,12 @@ export function clientDraftFromContact(
   c: Contact,
   nameOverride?: { firstName: string; lastName: string },
 ): ClientDraft {
+  const phones = c.phones.length ? [...c.phones] : [""];
   return {
     firstName: nameOverride?.firstName ?? c.firstName,
     lastName: nameOverride?.lastName ?? c.lastName,
-    phones: c.phones.length ? [...c.phones] : [""],
+    phones,
+    phoneExts: extensionRows(phones, c.phoneExtensions),
     email: c.emails[0] ?? "",
   };
 }
@@ -435,8 +444,22 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
  * replaces, not merges), or null when clean. A `newAddress` not yet on the
  * client is appended for next time; duplicates (per `addressInList`) aren't.
  * Phones are trimmed with empties dropped; an emptied-out draft keeps the
- * contact's phones. Only the first email is editable — the rest are preserved.
+ * contact's phones — and, with them, their extensions. Only the first email is
+ * editable — the rest are preserved.
  */
+/** Key order isn't meaningful in the stored map, so compare it sorted. */
+function sameExtensions(
+  a: Record<string, string>,
+  b: Record<string, string> | undefined,
+): boolean {
+  const flat = (m: Record<string, string>) =>
+    Object.entries(m)
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("|");
+  return flat(a) === flat(b ?? {});
+}
+
 export function buildContactBody(
   c: Contact,
   draft: ClientDraft,
@@ -445,13 +468,20 @@ export function buildContactBody(
 ): UpdateContactValues | null {
   // "Just here" renames stay on the job — the contact keeps its own name.
   const includeName = opts.includeName ?? true;
-  const phones = draft.phones.map((p) => p.trim()).filter(Boolean);
+  const trimmed = draft.phones.map((p) => p.trim());
+  const phones = trimmed.filter(Boolean);
+  // Extensions are read off the untrimmed rows so each one stays beside the
+  // number it was typed against; an emptied-out draft keeps what's on file.
+  const phoneExtensions = phones.length
+    ? extensionsFromRows(trimmed, draft.phoneExts)
+    : { ...(c.phoneExtensions ?? {}) };
   const email = draft.email.trim();
   const appendAddress = !!newAddress && !addressInList(newAddress, c.addresses);
   const dirty =
     (includeName &&
       (draft.firstName !== c.firstName || draft.lastName !== c.lastName)) ||
     JSON.stringify(phones) !== JSON.stringify(c.phones) ||
+    !sameExtensions(phoneExtensions, c.phoneExtensions) ||
     email !== (c.emails[0] ?? "");
   if (!dirty && !appendAddress) return null;
 
@@ -459,6 +489,7 @@ export function buildContactBody(
     firstName: includeName ? draft.firstName.trim() : c.firstName,
     lastName: includeName ? draft.lastName.trim() : c.lastName,
     phones: phones.length ? phones : c.phones,
+    phoneExtensions,
     emails: email ? [email, ...c.emails.slice(1)] : c.emails.slice(1),
     addresses: appendAddress && newAddress ? [...c.addresses, newAddress] : c.addresses,
     companyId: c.companyId,

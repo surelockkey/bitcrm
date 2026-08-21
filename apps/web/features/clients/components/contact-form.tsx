@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { contactFormSchema, type ContactFormValues } from "../schemas";
 import { useContactByPhone, useCompanyMap, useCreateContact, useUpdateContact } from "../hooks";
-import { contactTypeLabel, sourceLabel } from "../lib";
+import { contactTypeLabel, extensionRows, extensionsFromRows, sourceLabel } from "../lib";
 import { RepeatableInputs } from "./phone-email-fields";
 import { ContactAddressFields } from "./contact-address-fields";
 import { CompanyPickerDialog } from "./company-picker-dialog";
@@ -52,6 +52,10 @@ export function ContactForm({
           firstName: contact.firstName,
           lastName: contact.lastName,
           phones: contact.phones.length ? contact.phones : [""],
+          phoneExts: extensionRows(
+            contact.phones.length ? contact.phones : [""],
+            contact.phoneExtensions,
+          ),
           emails: contact.emails,
           addresses: contact.addresses ?? [],
           companyId: contact.companyId ?? "",
@@ -64,6 +68,7 @@ export function ContactForm({
           firstName: "",
           lastName: "",
           phones: [defaultPhone ?? ""],
+          phoneExts: [""],
           emails: [],
           addresses: [],
           companyId: defaultCompanyId ?? "",
@@ -89,6 +94,7 @@ export function ContactForm({
       firstName: v.firstName,
       lastName: v.lastName,
       phones: v.phones,
+      phoneExtensions: extensionsFromRows(v.phones, v.phoneExts),
       emails: v.emails,
       addresses: v.addresses,
       companyId: v.companyId || undefined,
@@ -114,7 +120,7 @@ export function ContactForm({
         </Field>
       </div>
 
-      <RepeatableInputs form={form} name="phones" label="Phones" placeholder="(404) 555-1234" icon={Phone} markPrimary variant="phone" />
+      <RepeatableInputs form={form} name="phones" extensionName="phoneExts" label="Phones" placeholder="(404) 555-1234" icon={Phone} markPrimary variant="phone" />
 
       {duplicate ? (
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">

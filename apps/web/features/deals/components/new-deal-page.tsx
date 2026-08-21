@@ -305,6 +305,10 @@ function DealForm({
             firstName: clientDraft.firstName,
             lastName: clientDraft.lastName,
             phones: clientDraft.phone ? [clientDraft.phone] : [],
+            phoneExtensions:
+              clientDraft.phone && clientDraft.phoneExt
+                ? { [clientDraft.phone]: clientDraft.phoneExt }
+                : undefined,
             emails: clientDraft.email ? [clientDraft.email] : [],
             addresses: values.address?.street ? [values.address] : [],
             companyId: clientDraft.companyId,

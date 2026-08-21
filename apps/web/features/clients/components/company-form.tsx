@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { companyFormSchema, type CompanyFormValues } from "../schemas";
 import { useCreateCompany, useUpdateCompany } from "../hooks";
-import { clientTypeLabel, paymentTermsLabel } from "../lib";
+import { clientTypeLabel, extensionRows, extensionsFromRows, paymentTermsLabel } from "../lib";
 import { RepeatableInputs } from "./phone-email-fields";
 
 export function CompanyForm({
@@ -41,6 +41,7 @@ export function CompanyForm({
       ? {
           title: company.title,
           phones: company.phones,
+          phoneExts: extensionRows(company.phones, company.phoneExtensions),
           emails: company.emails,
           address: company.address ?? "",
           website: company.website ?? "",
@@ -56,6 +57,7 @@ export function CompanyForm({
       : {
           title: "",
           phones: [""],
+          phoneExts: [""],
           emails: [],
           address: "",
           website: "",
@@ -76,6 +78,7 @@ export function CompanyForm({
     const body = {
       title: v.title,
       phones: v.phones,
+      phoneExtensions: extensionsFromRows(v.phones, v.phoneExts),
       emails: v.emails,
       address: v.address || undefined,
       website: v.website || undefined,
@@ -121,7 +124,7 @@ export function CompanyForm({
         </div>
       </div>
 
-      <RepeatableInputs form={form} name="phones" label="Phones" placeholder="(404) 555-2000" icon={Phone} markPrimary variant="phone" />
+      <RepeatableInputs form={form} name="phones" extensionName="phoneExts" label="Phones" placeholder="(404) 555-2000" icon={Phone} markPrimary variant="phone" />
       <RepeatableInputs form={form} name="emails" label="Emails" placeholder="hello@company.com" icon={Mail} />
 
       <div className="grid grid-cols-2 gap-3">
