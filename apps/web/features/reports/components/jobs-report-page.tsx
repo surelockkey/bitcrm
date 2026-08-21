@@ -36,6 +36,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { activeJobSources, useJobSourceName } from "@/features/job-sources/lib";
+import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { activeJobStatuses, useJobStatusName } from "@/features/job-statuses/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -181,6 +182,7 @@ export function JobsReportPage() {
   const jobTagsQuery = useJobTags();
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
+  const externalCompanyName = useExternalCompanyName();
   const subStatusName = useJobStatusName();
 
   const [search, setSearch] = useState("");
@@ -291,6 +293,7 @@ export function JobsReportPage() {
           "Service area": d.serviceArea,
           Total: money(d.actualTotal ?? d.estimatedTotal),
           Source: sourceName(d.sourceId),
+          "External company": d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "",
         };
       }),
     );

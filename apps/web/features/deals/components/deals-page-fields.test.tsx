@@ -65,6 +65,7 @@ vi.mock("@/features/custom-fields/hooks", () => ({
     ],
   }),
 }));
+vi.mock("@/features/external-companies/lib", () => ({ useExternalCompanyName: () => () => "—" }));
 vi.mock("@/features/job-sources/lib", () => ({ useJobSourceName: () => () => "—" }));
 vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "—" }));
 vi.mock("./deal-quick-view", () => ({ DealQuickView: () => null }));
