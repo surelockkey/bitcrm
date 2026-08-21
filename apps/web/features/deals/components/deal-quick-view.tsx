@@ -18,7 +18,15 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { contactName, formatAddress, formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
+import {
+  contactName,
+  extensionOf,
+  formatAddress,
+  formatPhone,
+  formatPhoneWithExtension,
+  primaryEmail,
+  primaryPhone,
+} from "@/features/clients/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
@@ -120,7 +128,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
               )}
               {phone ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  {formatPhone(phone)}
+                  {contact ? formatPhoneWithExtension(phone, extensionOf(contact, phone)) : formatPhone(phone)}
                   <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
                 </div>
               ) : null}

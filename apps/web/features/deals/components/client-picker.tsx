@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { useContactByPhone, useCompanyMap, useCreateCompany } from "@/features/clients/hooks";
 import { CompanyPickerDialog } from "@/features/clients/components/company-picker-dialog";
 import { contactName, formatPhone, primaryPhone, searchContacts } from "@/features/clients/lib";
@@ -21,6 +22,8 @@ export interface ClientDraft {
   firstName: string;
   lastName: string;
   phone: string;
+  /** What to press once that line answers, if anything. */
+  phoneExt: string;
   email: string;
   /** Chosen or freshly-created company to file the new client under. */
   companyId?: string;
@@ -58,6 +61,7 @@ export function ClientPicker({
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneExt, setPhoneExt] = useState("");
   const [email, setEmail] = useState("");
   const [companyId, setCompanyId] = useState<string | undefined>(undefined);
   const [companyTitle, setCompanyTitle] = useState("");
@@ -120,6 +124,7 @@ export function ClientPicker({
             firstName: effFirst.trim(),
             lastName: effLast.trim(),
             phone: newPhone,
+            phoneExt,
             email: newEmail,
             companyId,
             existing: exactDupe,
@@ -127,7 +132,7 @@ export function ClientPicker({
         : null,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- report on data changes only
-  }, [draftReady, effFirst, effLast, newPhone, newEmail, companyId, exactDupe]);
+  }, [draftReady, effFirst, effLast, newPhone, phoneExt, newEmail, companyId, exactDupe]);
 
   // Kept mounted so a half-typed query survives glancing at the chosen client.
   if (hidden) return null;
@@ -200,12 +205,26 @@ export function ClientPicker({
             <Input className="h-9" placeholder="Last name" value={effLast} onChange={(e) => setLast(e.target.value)} />
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <PhoneInput
-              value={phone || (queryIsPhone ? trimmed : "")}
-              onChange={setPhone}
-              placeholder="Phone…"
-              lockCountry
-            />
+            <div className="flex items-center gap-2">
+              <PhoneInput
+                className="flex-1"
+                value={phone || (queryIsPhone ? trimmed : "")}
+                onChange={setPhone}
+                placeholder="Phone…"
+                lockCountry
+              />
+              {/* What to press once the line answers — an office number often
+                  needs one, and it's easier to catch now than later. */}
+              <Input
+                className="h-9 w-[4.5rem] flex-none px-2 text-center text-sm"
+                placeholder="Ext."
+                aria-label="Extension"
+                inputMode="tel"
+                maxLength={MAX_EXTENSION_LENGTH}
+                value={phoneExt}
+                onChange={(e) => setPhoneExt(normalizeExtension(e.target.value))}
+              />
+            </div>
             <Input className="h-9" type="email" placeholder="Email" value={newEmail} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="mt-2">

@@ -526,6 +526,7 @@ describe("buildContactBody", () => {
       type: ContactType.COMPANY_REPRESENTATIVE,
       title: "Office manager",
       notes: "VIP",
+      phoneExtensions: {},
     });
   });
 
@@ -703,5 +704,69 @@ describe("jobDayKey / jobHourKey — one basis for both filters", () => {
     // A job that isn't closed has no closed day/hour.
     expect(jobDayKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
     expect(jobHourKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
+  });
+});
+
+/**
+ * The job's client card edits extensions beside the phones, and the endpoint
+ * replaces rather than merges — so the body has to carry the whole map, and an
+ * extension must never survive the number it was attached to.
+ */
+describe("buildContactBody — phone extensions", () => {
+  it("seeds the draft with an extension row per phone", () => {
+    const c = contact({
+      phones: ["+14045551234", "+15558675309"],
+      phoneExtensions: { "+15558675309": "7" },
+    });
+    expect(clientDraftFromContact(c).phoneExts).toEqual(["", "7"]);
+  });
+
+  it("is dirty on an extension change alone", () => {
+    const c = contact();
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      phoneExts: ["102"],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phoneExtensions).toEqual({ "+14045551234": "102" });
+  });
+
+  it("clearing an extension is a change, not a no-op", () => {
+    const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), phoneExts: [""] });
+    expect(body).not.toBeNull();
+    expect(body!.phoneExtensions).toEqual({});
+  });
+
+  it("drops the extension of a phone the draft removed", () => {
+    const c = contact({
+      phones: ["+14045551234", "+15558675309"],
+      phoneExtensions: { "+14045551234": "102", "+15558675309": "7" },
+    });
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      phones: ["+14045551234"],
+      phoneExts: ["102"],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phoneExtensions).toEqual({ "+14045551234": "102" });
+  });
+
+  it("keeps the stored extensions when the draft would empty every phone", () => {
+    const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      firstName: "Janet",
+      phones: ["", "  "],
+      phoneExts: ["", ""],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phones).toEqual(["+14045551234"]);
+    expect(body!.phoneExtensions).toEqual({ "+14045551234": "102" });
+  });
+
+  it("an unchanged draft stays clean", () => {
+    const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+    expect(buildContactBody(c, clientDraftFromContact(c))).toBeNull();
   });
 });

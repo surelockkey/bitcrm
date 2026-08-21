@@ -36,8 +36,14 @@ import {
   ChangeClientDialog,
   type ClientSaveDecision,
 } from "./change-client-dialog";
-import { addressInList, contactName, formatPhone } from "@/features/clients/lib";
+import {
+  addressInList,
+  contactName,
+  extensionOf,
+  formatPhoneWithExtension,
+} from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
@@ -555,7 +561,8 @@ function ClientEditor({
         <div className="font-medium">{contactName(contact)}</div>
         {contact.phones.map((p, i) => (
           <div key={p} className="flex items-center gap-2 text-muted-foreground">
-            {formatPhone(p)}{i === 0 ? <PrimaryBadge /> : null}
+            {formatPhoneWithExtension(p, extensionOf(contact, p))}
+            {i === 0 ? <PrimaryBadge /> : null}
             <CallClientButton to={p} partyId={contact.id} />
           </div>
         ))}
@@ -586,18 +593,49 @@ function ClientEditor({
                   lockCountry
                   disabled={locked}
                 />
+                {/* What to press once this line answers — editable even on the
+                    locked original number, since only the number itself is
+                    bound to the job. */}
+                <Input
+                  className="h-9 w-[4.5rem] flex-none px-2 text-center text-sm"
+                  placeholder="Ext."
+                  aria-label={`Extension for phone ${i + 1}`}
+                  inputMode="tel"
+                  maxLength={MAX_EXTENSION_LENGTH}
+                  value={draft.phoneExts[i] ?? ""}
+                  onChange={(e) =>
+                    set({
+                      phoneExts: draft.phones.map((_, j) =>
+                        j === i ? normalizeExtension(e.target.value) : draft.phoneExts[j] ?? "",
+                      ),
+                    })
+                  }
+                />
                 {i === 0 ? <PrimaryBadge /> : null}
                 {/* Dials what's on file, not the half-typed draft. */}
                 {contact.phones.includes(p) ? (
                   <CallClientButton to={p} partyId={contact.id} />
                 ) : null}
                 {!locked && draft.phones.length > 1 ? (
-                  <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 flex-none"
+                    onClick={() =>
+                      set({
+                        phones: draft.phones.filter((_, j) => j !== i),
+                        phoneExts: draft.phoneExts.filter((_, j) => j !== i),
+                      })
+                    }
+                    aria-label="Remove phone"
+                  >
+                    <X className="size-4" />
+                  </Button>
                 ) : null}
               </div>
             );
           })}
-          <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""] })}>＋ Add phone</button>
+          <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""], phoneExts: [...draft.phoneExts, ""] })}>＋ Add phone</button>
         </div>
         <p className="text-xs text-muted-foreground">The first number is the one the job was created with — it stays with the job.</p>
       </Field>

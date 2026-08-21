@@ -4,6 +4,10 @@ import { ClientType, ContactSource, ContactType, PaymentTerms } from "@bitcrm/ty
 // The PhoneInput only lets a well-formed number be entered (auto-formatted,
 // digits-only), so we don't add a phone-format validation on top.
 const phoneRow = z.string().trim().min(1, "Enter a phone or remove the row");
+// The narrow box beside each phone: what to press once the line answers. It
+// runs parallel to `phones` by index and is folded into a `{ phone: ext }` map
+// on submit — the form can't key by number while the number is still typed.
+const extensionRow = z.string().trim().max(10);
 const emailRow = z.string().trim().email("Enter a valid email");
 
 /** A structured, Google-autocompleted postal address on a contact. */
@@ -23,6 +27,7 @@ export const contactFormSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required"),
   lastName: z.string().trim().min(1, "Last name is required"),
   phones: z.array(phoneRow).min(1, "Add at least one phone"),
+  phoneExts: z.array(extensionRow),
   emails: z.array(emailRow),
   addresses: z.array(contactAddressRow),
   companyId: z.string().optional(),
@@ -38,6 +43,7 @@ export const companyFormSchema = z
   .object({
     title: z.string().trim().min(1, "Company name is required"),
     phones: z.array(phoneRow),
+    phoneExts: z.array(extensionRow),
     emails: z.array(emailRow),
     address: z.string().trim().optional(),
     website: z.string().trim().optional(),
@@ -57,8 +63,12 @@ export const companyFormSchema = z
   );
 export type CompanyFormValues = z.infer<typeof companyFormSchema>;
 
-/* API payload shapes. `source` is immutable, so it's absent from updates. */
-export type CreateContactValues = ContactFormValues;
-export type UpdateContactValues = Omit<ContactFormValues, "source">;
-export type CreateCompanyValues = CompanyFormValues;
-export type UpdateCompanyValues = CompanyFormValues;
+/*
+ * API payload shapes. `source` is immutable, so it's absent from updates, and
+ * the parallel `phoneExts` rows arrive keyed by their number instead.
+ */
+export type PhoneExtensionsPayload = { phoneExtensions?: Record<string, string> };
+export type CreateContactValues = Omit<ContactFormValues, "phoneExts"> & PhoneExtensionsPayload;
+export type UpdateContactValues = Omit<CreateContactValues, "source">;
+export type CreateCompanyValues = Omit<CompanyFormValues, "phoneExts"> & PhoneExtensionsPayload;
+export type UpdateCompanyValues = CreateCompanyValues;

@@ -47,6 +47,35 @@ export function formatPhone(input: string): string {
     : parsed.formatInternational();
 }
 
+/**
+ * How many characters an extension may keep — mirrors the backend cap. Long
+ * enough for the longest real PBX extension plus a pause or two, short enough
+ * that the field can't quietly become a notes box.
+ */
+export const MAX_EXTENSION_LENGTH = 10;
+
+/** Everything that isn't a key you can press once the call connects. */
+const NOT_DIALABLE = /[^0-9*#,]/g;
+
+/**
+ * An extension is what somebody presses after the call is answered, so it
+ * reduces to dial keys: digits, `*`, `#`, and `,` for a pause. The wrappers
+ * people type around it — `ext.`, `x`, `press` — carry no dial meaning and are
+ * dropped, which also means a note like "ask for dispatch" comes out empty
+ * rather than being saved as an undialable extension. Kept byte-for-byte in
+ * step with the backend's `normalizeExtension`, which re-runs this on save.
+ */
+export function normalizeExtension(raw: string | undefined | null): string {
+  if (!raw) return "";
+  return raw.replace(NOT_DIALABLE, "").slice(0, MAX_EXTENSION_LENGTH);
+}
+
+/** `+14045551234` + `102` → `(404) 555-1234 ext. 102`. */
+export function formatPhoneWithExtension(phone: string, extension?: string): string {
+  const ext = (extension ?? "").trim();
+  return ext ? `${formatPhone(phone)} ext. ${ext}` : formatPhone(phone);
+}
+
 /** Live national formatting while typing in the given country's style. */
 export function formatAsYouType(input: string, country: CountryCode = DEFAULT_COUNTRY): string {
   return new AsYouType(country).input(input);

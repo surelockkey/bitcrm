@@ -10,7 +10,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Company, Contact } from "@bitcrm/types";
-import { contactName, formatPhone, initials, primaryEmail, primaryPhone } from "../lib";
+import {
+  contactName,
+  extensionOf,
+  formatPhoneWithExtension,
+  initials,
+  primaryEmail,
+  primaryPhone,
+} from "../lib";
 import { ContactTypeBadge, SourceLabel } from "./client-badges";
 
 export function ContactsTable({
@@ -69,7 +76,7 @@ export function ContactsTable({
                 <TableCell className="font-mono text-xs tabular-nums">
                   {phone ? (
                     <span>
-                      {formatPhone(phone)}
+                      {formatPhoneWithExtension(phone, extensionOf(c, phone))}
                       {c.phones.length > 1 ? (
                         <span className="ml-1 rounded-full border px-1 text-[10px] text-muted-foreground">
                           +{c.phones.length - 1}

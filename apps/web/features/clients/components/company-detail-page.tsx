@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCompany, useCompanyContacts, useDeleteCompany } from "../hooks";
-import { formatPhone } from "../lib";
+import { extensionOf, formatPhoneWithExtension } from "../lib";
 import { ClientTypeBadge, PlatinumBadge } from "./client-badges";
 import { CompanyForm } from "./company-form";
 import { CompanyComplianceTab } from "./company-compliance-tab";
@@ -95,7 +95,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
                   label="Phones"
                   icon={Phone}
                   values={company.phones}
-                  format={formatPhone}
+                  format={(p) => formatPhoneWithExtension(p, extensionOf(company, p))}
                   primaryFirst
                   action={(phone) => (
                     <CallClientButton to={phone} partyId={company.id} kind="company" />

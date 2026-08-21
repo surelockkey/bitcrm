@@ -7,6 +7,8 @@ import {
   nationalInput,
   toE164,
   callingCode,
+  normalizeExtension,
+  formatPhoneWithExtension,
 } from "./phone";
 
 describe("phone", () => {
@@ -85,6 +87,52 @@ describe("phone", () => {
     it("returns empty for empty or digitless input", () => {
       expect(nationalInput("", "US")).toBe("");
       expect(nationalInput("+", "US")).toBe("");
+    });
+  });
+
+  /**
+   * An extension is the keys somebody presses once the call is answered, so
+   * the field has to reduce whatever is typed to a dial string.
+   */
+  describe("normalizeExtension", () => {
+    it("keeps the digits people press", () => {
+      expect(normalizeExtension("102")).toBe("102");
+      expect(normalizeExtension(" 4 ")).toBe("4");
+    });
+
+    it("drops the wrapper people type around it", () => {
+      expect(normalizeExtension("ext. 102")).toBe("102");
+      expect(normalizeExtension("x102")).toBe("102");
+      expect(normalizeExtension("press 2")).toBe("2");
+    });
+
+    it("keeps DTMF keys and pauses", () => {
+      expect(normalizeExtension("*21")).toBe("*21");
+      expect(normalizeExtension("#5")).toBe("#5");
+      expect(normalizeExtension(",,102")).toBe(",,102");
+    });
+
+    it("caps the length so the field stays a dial string", () => {
+      expect(normalizeExtension("12345678901234")).toBe("1234567890");
+    });
+
+    it("is empty when there is nothing to dial", () => {
+      expect(normalizeExtension("")).toBe("");
+      expect(normalizeExtension("ask for dispatch")).toBe("");
+    });
+  });
+
+  describe("formatPhoneWithExtension", () => {
+    it("reads as the number then what to press", () => {
+      expect(formatPhoneWithExtension("+14045551234", "102")).toBe(
+        "(404) 555-1234 ext. 102",
+      );
+    });
+
+    it("is just the number when there is no extension", () => {
+      expect(formatPhoneWithExtension("+14045551234")).toBe("(404) 555-1234");
+      expect(formatPhoneWithExtension("+14045551234", "")).toBe("(404) 555-1234");
+      expect(formatPhoneWithExtension("+14045551234", "  ")).toBe("(404) 555-1234");
     });
   });
 });
