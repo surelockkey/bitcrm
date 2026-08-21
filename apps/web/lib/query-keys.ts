@@ -67,6 +67,12 @@ export const queryKeys = {
     detail: (id: string) => ["job-sources", "detail", id] as const,
   },
 
+  externalCompanies: {
+    all: () => ["external-companies"] as const,
+    list: () => ["external-companies", "list"] as const,
+    detail: (id: string) => ["external-companies", "detail", id] as const,
+  },
+
   jobTags: {
     all: () => ["job-tags"] as const,
     list: () => ["job-tags", "list"] as const,
