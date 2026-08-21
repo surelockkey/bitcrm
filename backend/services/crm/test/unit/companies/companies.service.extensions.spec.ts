@@ -76,6 +76,22 @@ describe('CompaniesService — phone extensions', () => {
     );
   });
 
+  it('prunes stored extensions when phones change without them', async () => {
+    const existing = createMockCompany({
+      phones: ['+14045559999', '+14045558888'],
+      phoneExtensions: { '+14045559999': '2', '+14045558888': '3' },
+    });
+    repository.findById.mockResolvedValue(existing);
+    repository.update.mockResolvedValue(existing);
+
+    await service.update('company-1', { phones: ['+14045559999'] } as never);
+
+    expect(repository.update).toHaveBeenCalledWith(
+      'company-1',
+      expect.objectContaining({ phoneExtensions: { '+14045559999': '2' } }),
+    );
+  });
+
   it('keeps the stored extensions when the edit does not mention them', async () => {
     const existing = createMockCompany({
       phones: ['+14045559999'],

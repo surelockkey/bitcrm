@@ -103,6 +103,24 @@ describe('ContactsService — phone extensions', () => {
       );
     });
 
+    it('prunes stored extensions when phones change without them', async () => {
+      // Any client can send `phones` alone — a stale extension must not sit
+      // waiting to reattach itself if that number ever comes back.
+      const existing = createMockContact({
+        phones: ['+14045551234', '+15558675309'],
+        phoneExtensions: { '+14045551234': '102', '+15558675309': '7' },
+      });
+      repository.findById.mockResolvedValue(existing);
+      repository.update.mockResolvedValue(existing);
+
+      await service.update('contact-1', { phones: ['+14045551234'] } as never);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'contact-1',
+        expect.objectContaining({ phoneExtensions: { '+14045551234': '102' } }),
+      );
+    });
+
     it('keeps the stored extensions when the edit does not mention them', async () => {
       const existing = createMockContact({
         phones: ['+14045551234'],
