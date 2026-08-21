@@ -330,6 +330,26 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
+  it("changes the number the job was created with and saves it on the client", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    const phone = screen.getByDisplayValue("(404) 555-1234");
+    await u.clear(phone);
+    await u.type(phone, "2928398283");
+
+    await u.click(saveButton());
+    // Same "who is this edit for" dialog as a rename; "same client" preselected.
+    await u.click(screen.getByRole("button", { name: /save job/i }));
+
+    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
+    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
+      id: "c1",
+      body: { phones: ["+12928398283"] },
+    });
+    expect(mocks.createContact).not.toHaveBeenCalled();
+  });
+
   it("makes a separate client and moves the job when the details are somebody else's", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
