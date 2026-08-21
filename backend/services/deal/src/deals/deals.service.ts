@@ -707,12 +707,19 @@ export class DealsService {
     actor: { id: string; name: string },
   ): Promise<void> {
     await this.findById(dealId);
-    await this.addTimelineEntry(
+    // Written directly: addTimelineEntry stamps `caller.email` as the label,
+    // and this actor arrives with a display name instead of a JWT.
+    await this.timelineRepo.addEntry({
+      id: randomUUID(),
       dealId,
-      linked ? TimelineEventType.CALL_LINKED : TimelineEventType.CALL_UNLINKED,
-      { id: actor.id, firstName: actor.name, lastName: '' } as unknown as JwtUser,
+      eventType: linked
+        ? TimelineEventType.CALL_LINKED
+        : TimelineEventType.CALL_UNLINKED,
+      actorId: actor.id,
+      actorName: actor.name,
+      timestamp: new Date().toISOString(),
       details,
-    );
+    });
   }
 
   async addNote(id: string, dto: AddNoteDto, caller: JwtUser): Promise<void> {

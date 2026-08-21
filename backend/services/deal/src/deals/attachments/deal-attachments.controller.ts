@@ -63,8 +63,12 @@ export class DealAttachmentsController {
   @Delete(':id/attachments/:attachmentId')
   @RequirePermission('deals', 'edit')
   @ApiOperation({ summary: 'Delete a job attachment', description: '**Guard:** `deals.edit`.' })
-  async remove(@Param('id') id: string, @Param('attachmentId') attachmentId: string) {
-    await this.service.delete(id, attachmentId);
+  async remove(
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.service.delete(id, attachmentId, user);
     return { success: true, data: null };
   }
 }

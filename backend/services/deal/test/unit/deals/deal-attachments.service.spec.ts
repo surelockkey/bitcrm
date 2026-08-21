@@ -35,6 +35,7 @@ describe('DealAttachmentsService', () => {
     update: jest.Mock;
     delete: jest.Mock;
   };
+  let timeline: { addEntry: jest.Mock };
   let service: DealAttachmentsService;
 
   beforeEach(() => {
@@ -53,7 +54,8 @@ describe('DealAttachmentsService', () => {
       update: jest.fn().mockResolvedValue(storedAttachment),
       delete: jest.fn().mockResolvedValue(undefined),
     };
-    service = new DealAttachmentsService(s3 as never, repo as never);
+    timeline = { addEntry: jest.fn().mockResolvedValue(undefined) };
+    service = new DealAttachmentsService(s3 as never, repo as never, timeline as never);
   });
 
   describe('update', () => {
@@ -165,15 +167,98 @@ describe('DealAttachmentsService', () => {
 
   describe('delete', () => {
     it('removes the S3 object and the metadata row', async () => {
-      await service.delete('d1', 'att-1');
+      await service.delete('d1', 'att-1', caller);
       expect(s3.deleteObject).toHaveBeenCalledWith('deals/d1/attachments/att-1');
       expect(repo.delete).toHaveBeenCalledWith('d1', 'att-1');
     });
 
     it('404s when the attachment is missing', async () => {
       repo.get.mockResolvedValue(null);
-      await expect(service.delete('d1', 'nope')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.delete('d1', 'nope', caller)).rejects.toBeInstanceOf(NotFoundException);
       expect(s3.deleteObject).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Attachments are part of what happened on a job — a photo appearing or
+   * vanishing without a trace defeats the timeline's "who did what" promise.
+   */
+  describe('timeline logging', () => {
+    it('logs an attachment_added entry on upload', async () => {
+      const res = await service.requestUpload(
+        'd1',
+        { fileName: 'before.jpg', contentType: 'image/jpeg', size: 2048, category: 'before' },
+        caller,
+      );
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dealId: 'd1',
+          eventType: 'attachment_added',
+          actorId: 'disp-1',
+          actorName: 'd@x.com',
+          details: expect.objectContaining({
+            attachmentId: res.id,
+            fileName: 'before.jpg',
+            category: 'before',
+            size: 2048,
+          }),
+        }),
+      );
+    });
+
+    it('logs a rename with both names, and a description edit', async () => {
+      repo.update.mockResolvedValue({ ...storedAttachment, fileName: 'front door.jpg' });
+
+      await service.update('d1', 'att-1', { fileName: 'front door.jpg' }, caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'attachment_renamed',
+          details: expect.objectContaining({
+            attachmentId: 'att-1',
+            fileName: 'front door.jpg',
+            previousFileName: 'before.jpg',
+          }),
+        }),
+      );
+    });
+
+    it('does not log an update that changed nothing', async () => {
+      repo.update.mockResolvedValue(storedAttachment);
+
+      await service.update('d1', 'att-1', { fileName: 'before.jpg' }, caller);
+
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+    });
+
+    it('logs an attachment_removed entry naming the file', async () => {
+      await service.delete('d1', 'att-1', caller);
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'attachment_removed',
+          actorId: 'disp-1',
+          details: expect.objectContaining({
+            attachmentId: 'att-1',
+            fileName: 'before.jpg',
+            category: 'before',
+          }),
+        }),
+      );
+    });
+
+    it('a timeline write failure does not fail the upload itself', async () => {
+      timeline.addEntry.mockRejectedValue(new Error('dynamo down'));
+
+      const res = await service.requestUpload(
+        'd1',
+        { fileName: 'before.jpg', contentType: 'image/jpeg' },
+        caller,
+      );
+
+      expect(res.uploadUrl).toBe('https://s3/upload');
+      expect(repo.create).toHaveBeenCalled();
     });
   });
 });
