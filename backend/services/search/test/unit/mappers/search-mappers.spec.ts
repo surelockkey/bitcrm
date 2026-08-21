@@ -146,6 +146,25 @@ describe('search-mappers', () => {
       expect(doc.subtitle).toContain('John Smith');
     });
 
+    it('prefers the per-job client-name override in subtitle and still indexes both names', () => {
+      const overridden = {
+        ...deal,
+        clientName: { firstName: 'Janet', lastName: 'Poole' },
+      } as Deal;
+      const doc = mapDeal(overridden, 'Install', [], [], {
+        name: 'Jane Smith',
+        phones: [],
+        emails: [],
+      });
+      // The job displays its own name…
+      expect(doc.subtitle).toContain('Janet Poole');
+      expect(doc.subtitle).not.toContain('Jane Smith');
+      // …but a search by either name still finds the job.
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['Janet Poole', 'Jane Smith']),
+      );
+    });
+
     it('stamps contactId and companyId so client edits can reindex their deals', () => {
       const doc = mapDeal(deal);
       expect(doc.contactId).toBe('c1');

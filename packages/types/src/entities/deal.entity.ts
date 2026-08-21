@@ -72,6 +72,12 @@ export interface Deal {
   poNumber?: string;
   /** User-defined field answers, keyed by CustomFieldDefinition id (not name). */
   customFields?: Record<string, CustomFieldValue>;
+  /**
+   * Per-job override of the client's display name — set when a client edit on
+   * the job is saved with "Just here" instead of being applied to the contact
+   * record. Absent = the job shows the contact's own name.
+   */
+  clientName?: { firstName: string; lastName: string };
   status: DealStatus;
   createdBy: string;
   /**
