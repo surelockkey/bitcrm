@@ -23,6 +23,9 @@ import {
  * Reuses the existing GSI1 exactly as the other deal catalogs do — no new
  * index, no schema migration.
  */
+/** Items evaluated per reference-check Scan page (the filter runs after this). */
+const REFERENCE_SCAN_PAGE = 500;
+
 @Injectable()
 export class ExternalCompaniesRepository {
   private readonly logger = new Logger(ExternalCompaniesRepository.name);
@@ -86,20 +89,31 @@ export class ExternalCompaniesRepository {
   }
 
   /**
-   * Whether any deal still points at this company. Drives archive-vs-delete;
-   * `Limit: 1` because only existence matters, never the count.
+   * Whether any deal still points at this company. Drives archive-vs-delete, so
+   * a false negative would destroy a company that jobs reference.
+   *
+   * DynamoDB applies `Limit` to items EVALUATED, before the FilterExpression —
+   * a filtered Scan routinely returns an empty page plus a cursor, so pages
+   * must be followed until a match turns up or the table is exhausted. A
+   * page size (rather than Limit: 1) keeps that to a few round trips.
    */
   async isReferencedByDeal(id: string): Promise<boolean> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: DEALS_TABLE,
-        FilterExpression: '#externalCompanyId = :id',
-        ExpressionAttributeNames: { '#externalCompanyId': 'externalCompanyId' },
-        ExpressionAttributeValues: { ':id': id },
-        Limit: 1,
-      }),
-    );
-    return (result.Items?.length ?? 0) > 0;
+    let cursor: Record<string, unknown> | undefined;
+    do {
+      const result: any = await this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: DEALS_TABLE,
+          FilterExpression: '#externalCompanyId = :id',
+          ExpressionAttributeNames: { '#externalCompanyId': 'externalCompanyId' },
+          ExpressionAttributeValues: { ':id': id },
+          Limit: REFERENCE_SCAN_PAGE,
+          ...(cursor ? { ExclusiveStartKey: cursor } : {}),
+        }),
+      );
+      if ((result.Items?.length ?? 0) > 0) return true;
+      cursor = result.LastEvaluatedKey;
+    } while (cursor);
+    return false;
   }
 
   async remove(id: string): Promise<void> {
