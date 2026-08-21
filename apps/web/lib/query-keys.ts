@@ -113,14 +113,6 @@ export const queryKeys = {
   },
 
   inventory: {
-    brands: {
-      all: () => ["brands"] as const,
-      list: () => ["brands", "list"] as const,
-    },
-    productCategories: {
-      all: () => ["product-categories"] as const,
-      list: () => ["product-categories", "list"] as const,
-    },
     products: {
       all: () => ["products"] as const,
       list: (filters?: unknown) => ["products", "list", filters] as const,

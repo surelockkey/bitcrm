@@ -38,50 +38,6 @@ describe('ContainersService', () => {
     service = module.get<ContainersService>(ContainersService);
   });
 
-  describe('update', () => {
-    it('renames the location and stores the van', async () => {
-      const container = createMockContainer();
-      repository.findById.mockResolvedValue(container);
-      repository.update.mockImplementation(async (_id, attrs) => ({
-        ...container,
-        ...attrs,
-      }));
-
-      const van = { vin: '1FTYE1YM7HKA12345', make: 'Ford', year: 2017 };
-      const result = await service.update('container-1', {
-        name: '(AZ) ELI SZENDER',
-        van,
-      });
-
-      expect(result.name).toBe('(AZ) ELI SZENDER');
-      expect(result.van).toEqual(van);
-      expect(repository.update).toHaveBeenCalledWith('container-1', {
-        name: '(AZ) ELI SZENDER',
-        van,
-      });
-    });
-
-    it('throws when the container does not exist', async () => {
-      repository.findById.mockResolvedValue(null);
-
-      await expect(
-        service.update('nope', { name: 'X' }),
-      ).rejects.toThrow(NotFoundException);
-      expect(repository.update).not.toHaveBeenCalled();
-    });
-
-    it('leaves untouched fields out of the patch', async () => {
-      repository.findById.mockResolvedValue(createMockContainer());
-      repository.update.mockResolvedValue(createMockContainer());
-
-      await service.update('container-1', { templateId: 'tpl-1' });
-
-      expect(repository.update).toHaveBeenCalledWith('container-1', {
-        templateId: 'tpl-1',
-      });
-    });
-  });
-
   describe('ensureContainer', () => {
     it('should return existing container if found by technicianId', async () => {
       const container = createMockContainer();

@@ -1,9 +1,8 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type JwtUser, type ContainerTemplate } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type JwtUser } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
 import type { EnsureContainerDto } from 'src/containers/dto/ensure-container.dto';
-import type { CreateContainerTemplateDto } from 'src/container-templates/dto/create-container-template.dto';
 
 // Data factories
 export function createMockProduct(overrides?: Partial<Product>): Product {
@@ -132,36 +131,4 @@ export function createMockDynamoDbService() {
 
 export function createMockRedisService() {
   return { client: { get: jest.fn(), set: jest.fn(), del: jest.fn() } };
-}
-
-export function createMockContainerTemplate(
-  overrides?: Partial<ContainerTemplate>,
-): ContainerTemplate {
-  return {
-    id: 'tpl-1', name: 'Standard Van', description: 'Default loadout',
-    items: [
-      { productId: 'prod-1', productName: 'Test Product', sku: 'SKU-001', quantity: 10 },
-    ],
-    status: InventoryStatus.ACTIVE,
-    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
-    ...overrides,
-  };
-}
-
-export function createMockCreateContainerTemplateDto(
-  overrides?: Partial<CreateContainerTemplateDto>,
-): CreateContainerTemplateDto {
-  return {
-    name: 'Standard Van',
-    description: 'Default loadout',
-    items: [{ productId: 'prod-1', quantity: 10 }],
-    ...overrides,
-  } as CreateContainerTemplateDto;
-}
-
-export function createMockContainerTemplatesRepository() {
-  return {
-    create: jest.fn(), findById: jest.fn(), findAll: jest.fn(),
-    findByName: jest.fn(), update: jest.fn(), remove: jest.fn(),
-  };
 }

@@ -15,18 +15,3 @@ describe("visibleNavItems", () => {
     expect(items).toEqual([]);
   });
 });
-
-describe("visibleNavItems with an any-of gate", () => {
-  const inventory = MAIN_NAV.find((g) => g.label === "Inventory")!;
-  const locations = inventory.items.find((i) => i.label === "Locations")!;
-
-  it("shows Locations to someone who can only see containers", () => {
-    // The screen mixes warehouses and vans; either half is reason enough to open it.
-    const items = visibleNavItems([locations], (r) => r === "containers");
-    expect(items.map((i) => i.label)).toEqual(["Locations"]);
-  });
-
-  it("hides it when the user can see neither", () => {
-    expect(visibleNavItems([locations], () => false)).toEqual([]);
-  });
-});

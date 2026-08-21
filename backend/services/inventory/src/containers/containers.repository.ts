@@ -135,18 +135,10 @@ export class ContainersRepository {
     return this.toContainer(result.Attributes!);
   }
 
-  /**
-   * Explicit field-by-field map: anything not listed here is silently dropped on
-   * read even though it was stored. Add new Container fields here or they
-   * round-trip to nothing.
-   */
   private toContainer(item: Record<string, unknown>): Container {
     return {
       id: item.id as string,
-      name: item.name as string | undefined,
       technicianId: item.technicianId as string,
-      van: item.van as Container['van'],
-      templateId: item.templateId as string | undefined,
       technicianName: item.technicianName as string,
       department: item.department as string,
       status: item.status as Container['status'],

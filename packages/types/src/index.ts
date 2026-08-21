@@ -77,19 +77,8 @@ export {
 export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';
-export {
-  Brand,
-  ProductCategory,
-  ProductCategoryWithCounts,
-} from './entities/product-catalog.entity';
 export { Warehouse } from './entities/warehouse.entity';
-export { Container, ContainerVan } from './entities/container.entity';
-export {
-  ContainerTemplate,
-  ContainerTemplateItem,
-  ContainerTemplateDiff,
-  ContainerTemplateDiffLine,
-} from './entities/container-template.entity';
+export { Container } from './entities/container.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
 export {
