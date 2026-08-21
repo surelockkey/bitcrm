@@ -21,6 +21,7 @@ import {
   normalizePhones,
   phoneMatchVariants,
 } from '../common/phone-normalization.util';
+import { normalizePhoneExtensions } from '@bitcrm/shared';
 
 /**
  * What a phone lookup returns — enough to name the party and link to it.
@@ -77,6 +78,7 @@ export class ContactsService {
       firstName: dto.firstName,
       lastName: dto.lastName,
       phones,
+      phoneExtensions: normalizePhoneExtensions(dto.phoneExtensions, phones),
       emails: dto.emails || [],
       addresses: dto.addresses || [],
       companyId: dto.companyId,
@@ -169,9 +171,17 @@ export class ContactsService {
       await this.repository.updatePhoneIndex(id, existing.phones, normalizedPhones);
     }
 
-    const updateData = { ...dto };
+    const updateData: Partial<Contact> & UpdateContactDto = { ...dto };
     if (normalizedPhones) {
       updateData.phones = normalizedPhones;
+    }
+    if (dto.phoneExtensions) {
+      // Re-keyed against the phones actually being saved, so an extension can
+      // never outlive the number it belongs to.
+      updateData.phoneExtensions = normalizePhoneExtensions(
+        dto.phoneExtensions,
+        normalizedPhones ?? existing.phones,
+      );
     }
 
     const updated = await this.repository.update(id, updateData);
@@ -240,7 +250,21 @@ export class ContactsService {
     }
     await this.repository.updatePhoneIndex(primary.id, primary.phones, phones);
 
-    const updateAttrs: Partial<Contact> = { phones, emails, addresses };
+    // The primary's own extension for a number wins; a duplicate only fills
+    // in the numbers the primary had none for.
+    const phoneExtensions = { ...primary.phoneExtensions };
+    for (const dup of duplicates) {
+      for (const [phone, extension] of Object.entries(dup.phoneExtensions ?? {})) {
+        if (!phoneExtensions[phone]) phoneExtensions[phone] = extension;
+      }
+    }
+
+    const updateAttrs: Partial<Contact> = {
+      phones,
+      phoneExtensions: normalizePhoneExtensions(phoneExtensions, phones),
+      emails,
+      addresses,
+    };
     if (notes) updateAttrs.notes = notes;
     if (companyId !== undefined) updateAttrs.companyId = companyId;
 
