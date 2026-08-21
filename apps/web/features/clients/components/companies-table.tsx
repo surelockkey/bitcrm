@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Company } from "@bitcrm/types";
-import { formatPhone, primaryPhone } from "../lib";
+import { extensionOf, formatPhoneWithExtension, primaryPhone } from "../lib";
 import { ClientTypeBadge } from "./client-badges";
 
 export function CompaniesTable({ companies }: { companies: Company[] }) {
@@ -48,7 +48,11 @@ export function CompaniesTable({ companies }: { companies: Company[] }) {
                 </TableCell>
                 <TableCell><ClientTypeBadge type={c.clientType} /></TableCell>
                 <TableCell className="font-mono text-xs tabular-nums">
-                  {phone ? formatPhone(phone) : <span className="text-muted-foreground">—</span>}
+                  {phone ? (
+                    formatPhoneWithExtension(phone, extensionOf(c, phone))
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm text-primary">
                   {c.website || <span className="text-muted-foreground">—</span>}

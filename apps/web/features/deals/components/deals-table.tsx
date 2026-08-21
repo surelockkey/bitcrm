@@ -12,7 +12,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Contact, Deal, User } from "@bitcrm/types";
-import { formatAddress, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
+import {
+  extensionOf,
+  formatAddress,
+  formatPhoneWithExtension,
+  primaryPhone,
+  primaryEmail,
+} from "@/features/clients/lib";
 import { formatDate } from "@/features/users/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
@@ -79,14 +85,22 @@ export function DealsTable({
               {isUrgent(d) ? <PriorityFlag /> : null}
             </div>
             {phone ? (
-              <div className="text-xs text-muted-foreground">{formatPhone(phone)}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatPhoneWithExtension(phone, contact ? extensionOf(contact, phone) : "")}
+              </div>
             ) : email ? (
               <div className="text-xs text-muted-foreground">{email}</div>
             ) : null}
           </>
         );
       case "phone":
-        return <span className="text-sm">{phone ? formatPhone(phone) : "—"}</span>;
+        return (
+          <span className="text-sm">
+            {phone
+              ? formatPhoneWithExtension(phone, contact ? extensionOf(contact, phone) : "")
+              : "—"}
+          </span>
+        );
       case "email":
         return <span className="text-sm">{email ?? "—"}</span>;
       case "clientType":
