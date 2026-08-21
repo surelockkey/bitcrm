@@ -13,6 +13,20 @@ const nextConfig: NextConfig = {
     root: path.join(dirname, "..", ".."),
   },
 
+  experimental: {
+    /**
+     * Turbopack's dev filesystem cache (on by default since 16.1) goes stale
+     * when workspace deps are rebuilt underneath it (packages/types dist) and
+     * then livelocks the dev server: the native side emits `restart` HMR
+     * events in a tight loop, every open route refetches its RSC payload
+     * nonstop, and the process pegs ~10 cores / >10GB heap until killed.
+     * Diagnosed 2026-08-21 via CDP stack sampling (hot-reloader-turbopack
+     * subscription spinning in emitResult/createIterator). Cold dev starts are
+     * slower without it; correctness beats warm boots here.
+     */
+    turbopackFileSystemCacheForDev: false,
+  },
+
   /**
    * Serve the API from our own origin in development.
    *
