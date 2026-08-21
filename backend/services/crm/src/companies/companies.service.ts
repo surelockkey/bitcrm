@@ -113,11 +113,12 @@ export class CompaniesService {
       attrs.phones = [...new Set(dto.phones.map(safePhone))];
       await this.repository.syncPhoneIndex(id, existing.phones, attrs.phones);
     }
-    if (dto.phoneExtensions) {
-      // Re-keyed against the phones actually being saved, so an extension can
-      // never outlive the number it belongs to.
+    // Re-keyed against the phones actually being saved, so an extension can
+    // never outlive the number it belongs to — including when a caller sends
+    // `phones` on its own and leaves the map to be worked out here.
+    if (dto.phoneExtensions || attrs.phones) {
       attrs.phoneExtensions = normalizePhoneExtensions(
-        dto.phoneExtensions,
+        dto.phoneExtensions ?? existing.phoneExtensions,
         attrs.phones ?? existing.phones,
       );
     }

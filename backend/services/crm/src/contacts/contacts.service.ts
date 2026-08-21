@@ -175,11 +175,12 @@ export class ContactsService {
     if (normalizedPhones) {
       updateData.phones = normalizedPhones;
     }
-    if (dto.phoneExtensions) {
-      // Re-keyed against the phones actually being saved, so an extension can
-      // never outlive the number it belongs to.
+    // Re-keyed against the phones actually being saved, so an extension can
+    // never outlive the number it belongs to — including when a caller sends
+    // `phones` on its own and leaves the map to be worked out here.
+    if (dto.phoneExtensions || normalizedPhones) {
       updateData.phoneExtensions = normalizePhoneExtensions(
-        dto.phoneExtensions,
+        dto.phoneExtensions ?? existing.phoneExtensions,
         normalizedPhones ?? existing.phones,
       );
     }
