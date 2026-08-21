@@ -32,19 +32,41 @@ describe("AppSidebar", () => {
     expect(homeLink.querySelector("img")).not.toBeNull();
   });
 
-  it("renders a compact New Job button that collapses with the sidebar", () => {
+  it("keeps the logo pinned during collapse instead of re-centering it", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const homeLink = screen.getByRole("link", { name: "BitCRM home" });
+    // No per-state alignment switch — a justify/padding swap is what made the
+    // icon jump while the sidebar width animated.
+    expect(homeLink.className).not.toContain("justify-center");
+    expect(homeLink.className).toContain("overflow-hidden");
+    // The wordmark clips/fades out instead of popping from the layout.
+    expect(screen.getByText("BitCRM").className).toContain(
+      "group-data-[collapsible=icon]:opacity-0",
+    );
+  });
+
+  it("renders a compact New Job button that collapses smoothly with the sidebar", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     renderSidebar();
 
     const newJob = screen.getByRole("link", { name: /new job/i });
     expect(newJob).toHaveAttribute("href", "/deals/new");
-    // Expanded: capped width instead of stretching across the sidebar.
-    expect(newJob.className).toContain("max-w-30");
-    // Collapsed (icon) mode: square icon-only button, label hidden.
-    expect(newJob.className).toContain("group-data-[collapsible=icon]:size-8");
-    expect(newJob.className).toContain("group-data-[collapsible=icon]:p-0");
+    // Expanded: fixed width (explicit, so the collapse can animate it).
+    expect(newJob.className).toContain("w-30");
+    // Collapsed (icon) mode: shrinks to a square via animatable props.
+    expect(newJob.className).toContain("group-data-[collapsible=icon]:w-8");
+    expect(newJob.className).toContain("group-data-[collapsible=icon]:h-8");
+    expect(newJob.className).toContain("transition-[width,height]");
+    // The plus icon never moves: same left padding in both states, so no
+    // justify-center recentering and no p-0 swap.
+    expect(newJob.className).toContain("justify-start");
+    expect(newJob.className).not.toContain("group-data-[collapsible=icon]:p-0");
+    // The label fades/clips instead of popping out of the layout.
+    expect(newJob.className).toContain("overflow-hidden");
     expect(screen.getByText("New Job").className).toContain(
-      "group-data-[collapsible=icon]:hidden",
+      "group-data-[collapsible=icon]:opacity-0",
     );
   });
 
