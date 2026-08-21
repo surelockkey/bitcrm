@@ -91,6 +91,7 @@ export function mapDeal(
   tagNames: string[] = [],
   customFieldDefs: CustomFieldSearchDef[] = [],
   client?: DealClientSearchInput,
+  externalCompanyName?: string,
 ): SearchDocument {
   const addr = deal.address;
   // A "Just here" rename overrides what the job DISPLAYS; both names stay
@@ -126,6 +127,7 @@ export function mapDeal(
       overrideName,
       client?.name,
       client?.companyName,
+      externalCompanyName,
       ...(client?.emails ?? []),
       ...withPhoneVariants(client?.phones),
       ...tagNames,

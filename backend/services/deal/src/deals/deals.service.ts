@@ -41,6 +41,7 @@ import { InternalHttpService } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
+import { ExternalCompaniesService } from '../external-companies/external-companies.service';
 import { JobTagsService } from '../job-tags/job-tags.service';
 import { JobStatusesService } from '../job-statuses/job-statuses.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
@@ -70,6 +71,7 @@ export class DealsService {
     private readonly serviceAreas: ServiceAreasService,
     private readonly jobTypes: JobTypesService,
     private readonly jobSources: JobSourcesService,
+    private readonly externalCompanies: ExternalCompaniesService,
     private readonly jobTags: JobTagsService,
     private readonly jobStatuses: JobStatusesService,
     private readonly customFields: CustomFieldsService,
@@ -313,6 +315,16 @@ export class DealsService {
       }
     }
 
+    // The referring partner is optional; same rule — a disabled one can't start a new job.
+    if (dto.externalCompanyId) {
+      const company = await this.externalCompanies.findById(dto.externalCompanyId);
+      if (!company.active) {
+        throw new BadRequestException(
+          `External company "${company.name}" is disabled and cannot be used on a new deal`,
+        );
+      }
+    }
+
     // Tags are optional and many; validate all against the catalog in one read,
     // rejecting unknown or archived ids on a new deal.
     const tagIds = dto.tagIds ?? [];
@@ -350,6 +362,7 @@ export class DealsService {
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
+      externalCompanyId: dto.externalCompanyId,
       workOrderId: dto.workOrderId,
       poNumber: dto.poNumber,
       notes: dto.notes,
@@ -480,6 +493,8 @@ export class DealsService {
     if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
     // Archived source allowed on update so an old deal stays editable.
     if (updates.sourceId) await this.jobSources.findById(updates.sourceId);
+    // Disabled company allowed on update so an old job stays editable.
+    if (updates.externalCompanyId) await this.externalCompanies.findById(updates.externalCompanyId);
     // Tags: archived allowed on update; enforce each id exists.
     if (updates.tagIds?.length) {
       const known = new Set((await this.jobTags.list()).map((t) => t.id));

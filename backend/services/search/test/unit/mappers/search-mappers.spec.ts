@@ -146,6 +146,11 @@ describe('search-mappers', () => {
       expect(doc.subtitle).toContain('John Smith');
     });
 
+    it('indexes the external company name so its jobs are findable by partner', () => {
+      const doc = mapDeal(deal, 'Install', [], [], undefined, 'Allied Dispatch Solutions');
+      expect(doc.keywords).toContain('Allied Dispatch Solutions');
+    });
+
     it('prefers the per-job client-name override in subtitle and still indexes both names', () => {
       const overridden = {
         ...deal,

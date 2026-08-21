@@ -76,6 +76,15 @@ export class CreateDealDto {
   @IsString()
   sourceId?: string;
 
+  @ApiPropertyOptional({
+    example: 'c7d2e9f1-3b4a-4c8d-9e2f-6a1b5c0d7e34',
+    description:
+      'Catalog external-company id (GET /api/deals/external-companies) — the partner that referred this job. Must be enabled.',
+  })
+  @IsOptional()
+  @IsString()
+  externalCompanyId?: string;
+
   @ApiPropertyOptional({ example: 'wo-uuid', description: 'Platinum client Work Order this deal was authorized by.' })
   @IsOptional()
   @IsString()
