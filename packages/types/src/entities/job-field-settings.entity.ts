@@ -11,6 +11,7 @@ export const JOB_REQUIRABLE_FIELDS = [
   { id: 'serviceArea', label: 'Service area' },
   { id: 'jobType', label: 'Job type' },
   { id: 'source', label: 'Job source' },
+  { id: 'externalCompany', label: 'External company' },
   { id: 'scheduled', label: 'Scheduled date' },
   { id: 'description', label: 'Job description' },
   { id: 'poNumber', label: 'PO number' },
