@@ -98,6 +98,9 @@ function deal(over: Partial<Deal> = {}): Deal {
 }
 
 const contactMap = new Map([[contact.id, contact]]);
+const withExtension = new Map([
+  [contact.id, { ...contact, phoneExtensions: { "+14045551234": "102" } }],
+]);
 const userMap = new Map<string, User>();
 
 describe("DealsTable", () => {
@@ -259,5 +262,16 @@ describe("DealsTable", () => {
     link.addEventListener("click", (e) => e.preventDefault());
     await userEvent.click(link);
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The jobs list is where a tech picks up the number before heading out — so
+   * it has to say what to press once the line answers, not just the number.
+   */
+  it("shows the client's extension beside their number", () => {
+    render(
+      <DealsTable deals={[deal()]} contactMap={withExtension} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    expect(screen.getByText("(404) 555-1234 ext. 102")).toBeInTheDocument();
   });
 });
