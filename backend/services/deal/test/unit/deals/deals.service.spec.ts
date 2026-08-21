@@ -1666,4 +1666,26 @@ describe('DealsService', () => {
       await expect(service.create(dto as any, caller)).resolves.toBeDefined();
     });
   });
+
+  describe('recordCallLink', () => {
+    it("stores the actor's display name on the entry, not an email it never had", async () => {
+      repo.findById.mockResolvedValue(createMockDeal({ id: 'deal-1' }));
+
+      await service.recordCallLink(
+        'deal-1',
+        true,
+        { direction: 'inbound', from: '+14045551234' },
+        { id: 'u-disp', name: 'Olha D.' },
+      );
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.CALL_LINKED,
+          actorId: 'u-disp',
+          actorName: 'Olha D.',
+          details: expect.objectContaining({ direction: 'inbound' }),
+        }),
+      );
+    });
+  });
 });

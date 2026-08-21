@@ -13,4 +13,8 @@ export enum TimelineEventType {
   /** A phone call was attached to this job. */
   CALL_LINKED = 'call_linked',
   CALL_UNLINKED = 'call_unlinked',
+  /** A photo/file appeared on, was renamed on, or vanished from the job. */
+  ATTACHMENT_ADDED = 'attachment_added',
+  ATTACHMENT_RENAMED = 'attachment_renamed',
+  ATTACHMENT_REMOVED = 'attachment_removed',
 }
