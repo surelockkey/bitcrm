@@ -386,10 +386,14 @@ describe("buildDealPatch", () => {
     expect(Object.keys(set!)).toEqual(["externalCompanyId"]);
     expect(set!.externalCompanyId).toBe("ec-1");
 
+    // Clearing must send an explicit null: `undefined` is dropped by
+    // JSON.stringify, so the PUT body would omit the key and the backend
+    // would leave the old company attached.
     const had = deal({ externalCompanyId: "ec-1" });
     const cleared = buildDealPatch(had, { ...dealDraftFromDeal(had), externalCompanyId: "" });
     expect(Object.keys(cleared!)).toEqual(["externalCompanyId"]);
-    expect(cleared!.externalCompanyId).toBeUndefined();
+    expect(cleared!.externalCompanyId).toBeNull();
+    expect(JSON.parse(JSON.stringify(cleared))).toEqual({ externalCompanyId: null });
   });
 
   it("returns only the changed key", () => {

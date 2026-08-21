@@ -433,6 +433,18 @@ describe('DealsService', () => {
       );
     });
 
+    it('clears the external company when the patch sends null', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal });
+
+      await service.update('deal-1', { externalCompanyId: null } as any, caller);
+
+      // null reaches the repository (which REMOVEs the attribute); no lookup
+      // of a non-existent "null" company.
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { externalCompanyId: null });
+      expect(externalCompanies.findById).not.toHaveBeenCalled();
+    });
+
     it('validates the external company when it changes on update', async () => {
       const deal = mockFindById();
       repo.update.mockResolvedValue({ ...deal, externalCompanyId: 'extco-1' });
