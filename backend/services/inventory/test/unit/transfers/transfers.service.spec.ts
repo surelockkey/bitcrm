@@ -5,6 +5,7 @@ import { SnsPublisherService } from '@bitcrm/shared';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
+import { StockRepository } from 'src/stock/stock.repository';
 import { ContainersRepository } from 'src/containers/containers.repository';
 import { ProductsService } from 'src/products/products.service';
 import {
@@ -13,6 +14,7 @@ import {
   createMockJwtUser,
   createMockTransfersRepository,
   createMockStockService,
+  createMockStockRepository,
   createMockProductsService,
 } from '../mocks';
 
@@ -38,6 +40,7 @@ describe('TransfersService', () => {
         TransfersService,
         { provide: TransfersRepository, useValue: repository },
         { provide: StockService, useValue: stockService },
+        { provide: StockRepository, useValue: createMockStockRepository() },
         { provide: ContainersRepository, useValue: containersRepository },
         { provide: ProductsService, useValue: productsService },
         { provide: SnsPublisherService, useValue: publisher },
