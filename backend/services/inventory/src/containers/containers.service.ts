@@ -12,6 +12,7 @@ import { ContainersRepository } from './containers.repository';
 import { StockRepository } from '../stock/stock.repository';
 import { EnsureContainerDto } from './dto/ensure-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
+import { UpdateContainerDto } from './dto/update-container.dto';
 
 @Injectable()
 export class ContainersService {
@@ -67,6 +68,23 @@ export class ContainersService {
       throw new NotFoundException(`Container "${id}" not found`);
     }
     return container;
+  }
+
+  /**
+   * Edits the location itself — its display name, the van it lives in, and which
+   * template describes its expected loadout. Stock is never touched here; it moves
+   * only through transfers and job-item deductions.
+   */
+  async update(id: string, dto: UpdateContainerDto): Promise<Container> {
+    await this.findById(id);
+
+    const attrs: Partial<Container> = {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.van !== undefined && { van: dto.van }),
+      ...(dto.templateId !== undefined && { templateId: dto.templateId }),
+    };
+
+    return this.repository.update(id, attrs);
   }
 
   async findAll(limit: number, cursor?: string) {

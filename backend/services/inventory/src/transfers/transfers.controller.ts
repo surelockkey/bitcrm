@@ -12,6 +12,7 @@ import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { TransfersService } from './transfers.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
+import { MoveItemDto } from './dto/move-item.dto';
 import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
 import { ListTransfersQueryDto } from './dto/list-transfers-query.dto';
@@ -29,6 +30,14 @@ export class TransfersController {
   @ApiOperation({ summary: 'Create a transfer between locations', description: '**Guard:** `transfers.create` permission required.' })
   async create(@Body() dto: CreateTransferDto, @CurrentUser() user: JwtUser) {
     const data = await this.transfersService.createTransfer(dto, user);
+    return { success: true, data };
+  }
+
+  @Post('move-item')
+  @RequirePermission('transfers', 'create')
+  @ApiOperation({ summary: 'Move one product from a location, split across destinations', description: '**Guard:** `transfers.create` permission required.' })
+  async moveItem(@Body() dto: MoveItemDto, @CurrentUser() user: JwtUser) {
+    const data = await this.transfersService.moveItem(dto, user);
     return { success: true, data };
   }
 
