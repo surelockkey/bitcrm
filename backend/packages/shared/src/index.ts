@@ -96,3 +96,8 @@ export {
   tryNormalizePhone,
   phoneMatchVariants,
 } from './phone/normalize-phone';
+export {
+  MAX_EXTENSION_LENGTH,
+  normalizeExtension,
+  normalizePhoneExtensions,
+} from './phone/phone-extension';

@@ -8,6 +8,12 @@ export interface Contact {
   firstName: string;
   lastName: string;
   phones: string[];
+  /**
+   * What to press once the call is answered — `{ '+14045551234': '102' }`.
+   * Keyed by the number it belongs to rather than sitting in the number
+   * itself, so the phone stays dialable and the call log keeps matching it.
+   */
+  phoneExtensions?: Record<string, string>;
   emails: string[];
   /** Structured postal addresses (Google-autocompleted); a client may have several. */
   addresses: Address[];

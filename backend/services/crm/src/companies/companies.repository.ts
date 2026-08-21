@@ -198,6 +198,9 @@ export class CompaniesRepository {
       id: item.id as string,
       title: item.title as string,
       phones: (item.phones as string[]) || [],
+      // Rows written before extensions existed simply have none.
+      phoneExtensions:
+        (item.phoneExtensions as Record<string, string> | undefined) || {},
       emails: (item.emails as string[]) || [],
       address: item.address as string | undefined,
       website: item.website as string | undefined,
