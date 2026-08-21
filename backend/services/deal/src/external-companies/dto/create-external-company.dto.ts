@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsEmail, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsEmail, MinLength, ValidateIf } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -12,9 +12,15 @@ export class CreateExternalCompanyDto {
   @MinLength(1)
   name!: string;
 
-  @ApiPropertyOptional({ example: 'Tammy.Killen@allieddispatch.com' })
+  @ApiPropertyOptional({
+    example: 'Tammy.Killen@allieddispatch.com',
+    description: 'Optional — the form sends "" for a blank field, which is accepted.',
+  })
   @IsOptional()
   @Transform(trim)
+  // Most of the catalog has no email, and the form posts "" for an untouched
+  // field — validate the format only once something was actually typed.
+  @ValidateIf((o) => !!o.email)
   @IsEmail()
   email?: string;
 

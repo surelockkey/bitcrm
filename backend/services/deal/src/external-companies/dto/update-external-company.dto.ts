@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsEmail, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsEmail, MinLength, ValidateIf } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -20,7 +20,9 @@ export class UpdateExternalCompanyDto {
   @ApiPropertyOptional({ example: 'Tammy.Killen@allieddispatch.com', description: 'Empty string clears it.' })
   @IsOptional()
   @Transform(trim)
-  @IsString()
+  // "" clears the field; anything else must be a real address (create-parity).
+  @ValidateIf((o) => !!o.email)
+  @IsEmail()
   email?: string;
 
   @ApiPropertyOptional({ example: '500 Borla Dr, Johnson City, TN 37604', description: 'Empty string clears it.' })
