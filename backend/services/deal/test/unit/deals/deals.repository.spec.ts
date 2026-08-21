@@ -81,6 +81,23 @@ describe('DealsRepository', () => {
       expect(result).toBeNull();
     });
 
+    it('reads back the external company and the per-job client name', async () => {
+      // toDeal() is a whitelist mapper: a field it forgets is written to
+      // DynamoDB but stripped from every read path (API, indexer, UI).
+      const deal = createMockDeal({
+        externalCompanyId: 'extco-1',
+        clientName: { firstName: 'Janet', lastName: 'Poole' },
+      });
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...deal },
+      });
+
+      const result = await repository.findById('deal-1');
+
+      expect(result!.externalCompanyId).toBe('extco-1');
+      expect(result!.clientName).toEqual({ firstName: 'Janet', lastName: 'Poole' });
+    });
+
     it('should map all fields correctly', async () => {
       const deal = createMockDeal({
         companyId: 'comp-1', scheduledTimeSlot: '09:00-12:00',
