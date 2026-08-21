@@ -7,6 +7,15 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { DealPriority } from '@bitcrm/types';
 import { AddressDto } from './address.dto';
 
+/** Per-job client display name ("Just here" edits that don't touch the contact). */
+export class ClientNameDto {
+  @IsString()
+  firstName!: string;
+
+  @IsString()
+  lastName!: string;
+}
+
 export class UpdateDealDto {
   @ApiPropertyOptional({ example: '2026-04-22' })
   @IsOptional()
@@ -95,4 +104,15 @@ export class UpdateDealDto {
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    type: ClientNameDto,
+    nullable: true,
+    description:
+      "Per-job client display name override ('Just here' edits). Explicit null clears it (e.g. after the change is applied to the contact instead).",
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ClientNameDto)
+  clientName?: ClientNameDto | null;
 }

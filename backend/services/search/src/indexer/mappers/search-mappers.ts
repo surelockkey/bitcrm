@@ -93,6 +93,12 @@ export function mapDeal(
   client?: DealClientSearchInput,
 ): SearchDocument {
   const addr = deal.address;
+  // A "Just here" rename overrides what the job DISPLAYS; both names stay
+  // searchable so either finds the job.
+  const overrideName = deal.clientName
+    ? `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim() || undefined
+    : undefined;
+  const displayName = overrideName ?? client?.name;
   return {
     docId: `deal#${deal.id}`,
     entityId: deal.id,
@@ -104,7 +110,7 @@ export function mapDeal(
     status: toDocStatus(deal.status),
     title: `Deal #${deal.dealNumber}`,
     subtitle:
-      compactUnique([jobTypeName, deal.superStatus, client?.name]).join(' · ') || undefined,
+      compactUnique([jobTypeName, deal.superStatus, displayName]).join(' · ') || undefined,
     keywords: compactUnique([
       deal.dealNumber,
       deal.poNumber,
@@ -117,6 +123,7 @@ export function mapDeal(
       addr?.city,
       addr?.state,
       addr?.zip,
+      overrideName,
       client?.name,
       client?.companyName,
       ...(client?.emails ?? []),

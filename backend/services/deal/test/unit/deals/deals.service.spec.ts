@@ -409,6 +409,24 @@ describe('DealsService', () => {
       );
     });
 
+    it("stores a per-job client-name override ('Just here') and clears it with null", async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal });
+
+      await service.update(
+        'deal-1',
+        { clientName: { firstName: 'Janet', lastName: 'Poole' } } as any,
+        caller,
+      );
+      expect(repo.update).toHaveBeenCalledWith('deal-1', {
+        clientName: { firstName: 'Janet', lastName: 'Poole' },
+      });
+
+      mockFindById();
+      await service.update('deal-1', { clientName: null } as any, caller);
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { clientName: null });
+    });
+
     it('publishes deal.updated so the search index refreshes on any edit', async () => {
       const deal = mockFindById();
       repo.update.mockResolvedValue({ ...deal, notes: 'Updated' });
