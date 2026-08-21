@@ -21,8 +21,8 @@ const entry = (over: Partial<TimelineEntry>): TimelineEntry => ({
   ...over,
 });
 
-// Actor ids intentionally absent from the user map — their stored labels must
-// show as-is (the fallback path).
+// `u-olha` is in the user map (resolves to her real name); `u-max` is not, so
+// his stored label shows as-is (the fallback path).
 const historyEntries: TimelineEntry[] = [
   entry({
     id: "h1",
@@ -55,6 +55,7 @@ const historyEntries: TimelineEntry[] = [
 ];
 
 const roman = { id: "u1", firstName: "Roman", lastName: "Senyshyn" } as User;
+const olha = { id: "u-olha", firstName: "Olha", lastName: "Datsiuk" } as User;
 
 vi.mock("../hooks", () => ({
   useDealTimeline: () => ({
@@ -67,7 +68,31 @@ vi.mock("../hooks", () => ({
   useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateNote: () => ({ mutate: updateNoteMutate, isPending: false }),
   useDeleteNote: () => ({ mutate: deleteNoteMutate, isPending: false }),
-  useUserMap: () => ({ map: new Map([[roman.id, roman]]) }),
+  useUserMap: () => ({ map: new Map([[roman.id, roman], [olha.id, olha]]) }),
+  useContactMap: () => ({
+    map: new Map([
+      ["c-old", { id: "c-old", firstName: "Jane", lastName: "Smith" }],
+      ["c-new", { id: "c-new", firstName: "Janet", lastName: "Poole" }],
+    ]),
+  }),
+}));
+
+// Catalog lookups: the timeline stores raw ids; the panel reads these to show
+// the names people actually know things by.
+vi.mock("@/features/job-statuses/hooks", () => ({
+  useJobStatuses: () => ({ data: [{ id: "ss-waiting", name: "Waiting for parts" }] }),
+}));
+vi.mock("@/features/job-types/hooks", () => ({
+  useJobTypes: () => ({ data: [{ id: "jt-lockout", name: "Lockout" }, { id: "jt-rekey", name: "Rekey" }] }),
+}));
+vi.mock("@/features/job-sources/hooks", () => ({
+  useJobSources: () => ({ data: [{ id: "src-google", name: "Google Ads" }] }),
+}));
+vi.mock("@/features/external-companies/hooks", () => ({
+  useExternalCompanies: () => ({ data: [{ id: "ec-1", name: "HomeServ" }] }),
+}));
+vi.mock("@/features/job-tags/hooks", () => ({
+  useJobTags: () => ({ data: [{ id: "tag-vip", name: "VIP" }] }),
 }));
 
 // Radix confirm dialog; render children directly.
@@ -112,12 +137,13 @@ describe("DealTimelinePanel — history, filters, search", () => {
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
-    // field change: old → new, with the actor
+    // field change: old → new, with the actor's resolved name
     expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Olha D\./).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Olha Datsiuk/).length).toBeGreaterThan(0);
 
-    // status change: from → to
+    // status change: from → to, actor unknown to the map → stored label
     expect(screen.getByText(/Submitted → In Progress/i)).toBeInTheDocument();
+    expect(screen.getByText(/Max K\./)).toBeInTheDocument();
   });
 
   it("filters the timeline down to notes", async () => {
@@ -130,15 +156,57 @@ describe("DealTimelinePanel — history, filters, search", () => {
     expect(screen.queryByText(/normal → urgent/i)).not.toBeInTheDocument();
   });
 
-  it("shows mocked demo data under the calls filter", async () => {
+  it("filters down to real linked calls — no demo data anywhere", async () => {
+    timeline.entries = [
+      ...historyEntries,
+      entry({
+        id: "call-1",
+        eventType: TimelineEventType.CALL_LINKED,
+        actorId: "u-olha",
+        actorName: "Olha D.",
+        timestamp: "2026-07-30T11:00:00.000Z",
+        details: { direction: "inbound", from: "+14045551234", durationSeconds: 272, hasRecording: true },
+      }),
+    ];
     render(<DealTimelinePanel dealId="d1" canEdit />);
     openPanel();
 
+    expect(screen.queryByText(/demo/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/integration is in progress/i)).not.toBeInTheDocument();
+
     await userEvent.click(screen.getByRole("button", { name: /^calls$/i }));
 
-    expect(screen.getByText(/in progress/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/demo/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Incoming · \(404\) 555-1234 · 4:32 · recorded/)).toBeInTheDocument();
     expect(screen.queryByText(/normal → urgent/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
+  });
+
+  it("has no Messages filter until an SMS feed actually exists", () => {
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    expect(screen.queryByRole("button", { name: /^messages$/i })).not.toBeInTheDocument();
+  });
+
+  it("the Activities filter shows changes but not notes or calls", async () => {
+    timeline.entries = [
+      ...historyEntries,
+      entry({
+        id: "call-1",
+        eventType: TimelineEventType.CALL_LINKED,
+        timestamp: "2026-07-30T11:00:00.000Z",
+        details: { direction: "inbound", from: "+14045551234" },
+      }),
+    ];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+
+    await userEvent.click(screen.getByRole("button", { name: /^activities$/i }));
+
+    expect(screen.getByText(/normal → urgent/i)).toBeInTheDocument();
+    expect(screen.getByText(/Submitted → In Progress/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Called the client/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Incoming/)).not.toBeInTheDocument();
   });
 
   it("searches across the timeline", async () => {
@@ -164,7 +232,6 @@ describe("DealTimelinePanel — history, filters, search", () => {
 
     await userEvent.click(handle);
     await userEvent.click(screen.getByRole("button", { name: /^calls$/i }));
-    expect(screen.getByText(/in progress/i)).toBeInTheDocument();
 
     // The panel slides away (stays mounted for the animation) but must leave
     // the accessibility tree; its state survives the round trip.
@@ -261,5 +328,132 @@ describe("DealTimelinePanel — notes editing and actor names", () => {
 
     expect(screen.getByText(/Price: \$45\.00 → \$60\.00/)).toBeInTheDocument();
     expect(screen.getByText(/Cost \(company\): \$15\.00 → \$18\.00/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The whole point of the history is that a raw id never reaches the reader:
+ * every entry says who did what in the words people actually use.
+ */
+describe("DealTimelinePanel — every event reads human", () => {
+  const show = (e: TimelineEntry) => {
+    timeline.entries = [e];
+    render(<DealTimelinePanel dealId="d1" canEdit />);
+    openPanel();
+  };
+
+  it("names the technician on assign and unassign", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.TECH_ASSIGNED,
+        details: { techId: "u-olha" },
+      }),
+    );
+    expect(screen.getByText(/Technician assigned/)).toBeInTheDocument();
+    expect(screen.getByText(/Olha Datsiuk/)).toBeInTheDocument();
+  });
+
+  it("names the technician on unassign via previousTechId", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.TECH_UNASSIGNED,
+        details: { previousTechId: "u-olha" },
+      }),
+    );
+    expect(screen.getByText(/Olha Datsiuk/)).toBeInTheDocument();
+  });
+
+  it("shows the sub-status name on a status change", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.STATUS_CHANGED,
+        details: {
+          fromStatus: JobSuperStatus.SUBMITTED,
+          toStatus: JobSuperStatus.IN_PROGRESS,
+          fromSubStatusId: null,
+          subStatusId: "ss-waiting",
+        },
+      }),
+    );
+    expect(screen.getByText(/Submitted → In Progress · Waiting for parts/)).toBeInTheDocument();
+  });
+
+  it("resolves catalog ids in field changes to their names", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: { field: "jobTypeId", oldValue: "jt-lockout", newValue: "jt-rekey" },
+      }),
+    );
+    expect(screen.getByText(/Job type: Lockout → Rekey/)).toBeInTheDocument();
+  });
+
+  it("resolves a client change to the clients' names", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: { field: "contactId", oldValue: "c-old", newValue: "c-new" },
+      }),
+    );
+    expect(screen.getByText(/Client: Jane Smith → Janet Poole/)).toBeInTheDocument();
+  });
+
+  it("renders a 'Just here' rename as names, not JSON", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: {
+          field: "clientName",
+          oldValue: null,
+          newValue: { firstName: "Janet", lastName: "Poole" },
+        },
+      }),
+    );
+    expect(screen.getByText(/Client name: — → Janet Poole/)).toBeInTheDocument();
+  });
+
+  it("resolves tag ids to tag names", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.FIELD_UPDATED,
+        details: { field: "tagIds", oldValue: [], newValue: ["tag-vip"] },
+      }),
+    );
+    expect(screen.getByText(/Tags: — → VIP/)).toBeInTheDocument();
+  });
+
+  it("shows an added file by name", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.ATTACHMENT_ADDED,
+        details: { attachmentId: "att-1", fileName: "before.jpg", category: "before" },
+      }),
+    );
+    expect(screen.getByText(/File added/)).toBeInTheDocument();
+    expect(screen.getByText(/before\.jpg · before/)).toBeInTheDocument();
+  });
+
+  it("shows a rename as old name → new name", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.ATTACHMENT_RENAMED,
+        details: {
+          attachmentId: "att-1",
+          fileName: "front door.jpg",
+          previousFileName: "before.jpg",
+        },
+      }),
+    );
+    expect(screen.getByText(/before\.jpg → front door\.jpg/)).toBeInTheDocument();
+  });
+
+  it("shows a removed file by name", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.ATTACHMENT_REMOVED,
+        details: { attachmentId: "att-1", fileName: "before.jpg" },
+      }),
+    );
+    expect(screen.getByText(/File removed/)).toBeInTheDocument();
   });
 });
