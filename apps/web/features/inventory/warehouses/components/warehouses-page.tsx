@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useWarehouses } from "../hooks";
-import { WarehouseCard } from "./warehouse-card";
+import { WarehousesTable } from "./warehouses-table";
 import { WarehouseCreateDialog } from "./warehouse-create-dialog";
 
 export function WarehousesPage() {
@@ -89,9 +89,9 @@ export function WarehousesPage() {
 
       <div className="flex-1 px-6 pb-6">
         {query.isLoading ? (
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-32 w-full rounded-xl" />
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
             ))}
           </div>
         ) : query.isError ? (
@@ -121,11 +121,7 @@ export function WarehousesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            {visible.map((w) => (
-              <WarehouseCard key={w.id} warehouse={w} />
-            ))}
-          </div>
+          <WarehousesTable warehouses={visible} />
         )}
       </div>
 

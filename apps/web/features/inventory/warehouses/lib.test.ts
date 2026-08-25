@@ -12,6 +12,7 @@ import {
   transferDirection,
   transferUnits,
   containerLabel,
+  detailTab,
 } from "./lib";
 
 function product(over: Partial<Product>): Product {
@@ -115,5 +116,17 @@ describe("containerLabel", () => {
   });
   it("falls back when no name", () => {
     expect(containerLabel({ technicianName: "", department: "" } as never)).toBe("Container");
+  });
+});
+
+describe("detailTab", () => {
+  it("accepts known tabs", () => {
+    expect(detailTab("settings")).toBe("settings");
+    expect(detailTab("activity")).toBe("activity");
+    expect(detailTab("stock")).toBe("stock");
+  });
+  it("falls back to stock for anything else", () => {
+    expect(detailTab(null)).toBe("stock");
+    expect(detailTab("bogus")).toBe("stock");
   });
 });
