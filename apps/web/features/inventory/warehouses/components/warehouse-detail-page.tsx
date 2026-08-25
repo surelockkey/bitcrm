@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Archive, ArrowLeft, Info, Upload } from "lucide-react";
 import {
   AlertDialog,
@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { InventoryStatus } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
+import { detailTab } from "../lib";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useWarehouse, useWarehouseStock, useArchiveWarehouse } from "../hooks";
 import { WarehouseStockTab } from "./warehouse-stock-tab";
@@ -38,7 +39,8 @@ export function WarehouseDetailPage({ warehouseId }: { warehouseId: string }) {
   const stockQuery = useWarehouseStock(warehouseId);
   const archive = useArchiveWarehouse();
 
-  const [tab, setTab] = useState("stock");
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<string>(() => detailTab(searchParams.get("tab")));
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState<TransferTarget | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);

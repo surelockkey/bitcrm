@@ -59,6 +59,11 @@ export function summarizeStock(rows: EnrichedStockRow[]): StockSummary {
   };
 }
 
+/** Detail-page tab from the `?tab=` deep link; anything unknown → stock. */
+export function detailTab(param: string | null): "stock" | "activity" | "settings" {
+  return param === "activity" || param === "settings" ? param : "stock";
+}
+
 /* ------------------------------------------------------------------ *
  * Transfers
  * ------------------------------------------------------------------ */

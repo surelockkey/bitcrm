@@ -17,7 +17,7 @@ import { DataScope } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContainersList } from "../hooks";
 import { containerTitle } from "../lib";
-import { ContainerCard } from "./container-card";
+import { ContainersTable } from "./containers-table";
 import { MyContainerView } from "./my-container-view";
 
 export function ContainersPage() {
@@ -103,9 +103,9 @@ function Fleet() {
 
       <div className="flex-1 px-6 pb-6">
         {query.isLoading ? (
-          <div className="grid gap-3.5 sm:grid-cols-2">
+          <div className="space-y-2">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-32 w-full rounded-xl" />
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
             ))}
           </div>
         ) : visible.length === 0 ? (
@@ -124,11 +124,7 @@ function Fleet() {
           </div>
         ) : (
           <>
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              {visible.map((c) => (
-                <ContainerCard key={c.id} container={c} />
-              ))}
-            </div>
+            <ContainersTable containers={visible} />
             {query.hasNextPage ? (
               <div className="mt-4 flex justify-center">
                 <Button
