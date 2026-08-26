@@ -93,7 +93,7 @@ them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub
 ## Topic: `inventory-events` (published by inventory-service)
 `product.created` / `product.updated` (archive/reactivate emit `product.updated`),
 `warehouse.created` / `warehouse.updated` (archive emits `warehouse.updated`),
-`container.created`, `transfer.created`. Payloads carry the entity id
+`container.created` / `container.updated`, `transfer.created`. Payloads carry the entity id
 (`{productId}` / `{warehouseId}` / `{containerId}` / `{transferId}`). Published
 fire-and-forget via `publishInventoryEvent` (never fails the write). Consumed by
 the search indexer (`search-index` queue). Internal stock deduct/restore transfers

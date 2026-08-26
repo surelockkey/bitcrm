@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import { type JwtUser } from '@bitcrm/types';
 import { ContainersService } from './containers.service';
 import { EnsureContainerDto } from './dto/ensure-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
+import { UpdateContainerDto } from './dto/update-container.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
@@ -56,6 +58,14 @@ export class ContainersController {
   @ApiOperation({ summary: 'Get container by ID', description: '**Guard:** `containers.view` permission required.' })
   async findById(@Param('id') id: string) {
     const data = await this.containersService.findById(id);
+    return { success: true, data };
+  }
+
+  @Put(':id')
+  @RequirePermission('containers', 'edit')
+  @ApiOperation({ summary: 'Update a container', description: '**Guard:** `containers.edit` permission required.' })
+  async update(@Param('id') id: string, @Body() dto: UpdateContainerDto) {
+    const data = await this.containersService.update(id, dto);
     return { success: true, data };
   }
 
