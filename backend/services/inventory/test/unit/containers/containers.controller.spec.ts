@@ -4,7 +4,7 @@ import { ContainersController } from 'src/containers/containers.controller';
 import { ContainersService } from 'src/containers/containers.service';
 import {
   createMockContainer,
-  createMockEnsureContainerDto,
+  createMockCreateContainerDto,
   createMockStockItem,
   createMockJwtUser,
 } from '../mocks';
@@ -20,7 +20,7 @@ describe('ContainersController', () => {
       findAll: jest.fn(),
       findById: jest.fn(),
       getStock: jest.fn(),
-      ensureContainer: jest.fn(),
+      create: jest.fn(),
       update: jest.fn(),
     };
 
@@ -103,16 +103,16 @@ describe('ContainersController', () => {
     });
   });
 
-  describe('ensureContainer', () => {
-    it('should return success with ensured container', async () => {
+  describe('create', () => {
+    it('should return success with the created container', async () => {
       const container = createMockContainer();
-      const dto = createMockEnsureContainerDto();
-      service.ensureContainer.mockResolvedValue(container);
+      const dto = createMockCreateContainerDto();
+      service.create.mockResolvedValue(container);
 
-      const result = await controller.ensureContainer(dto);
+      const result = await controller.create(dto as any);
 
       expect(result).toEqual({ success: true, data: container });
-      expect(service.ensureContainer).toHaveBeenCalledWith(dto);
+      expect(service.create).toHaveBeenCalledWith(dto);
     });
   });
 

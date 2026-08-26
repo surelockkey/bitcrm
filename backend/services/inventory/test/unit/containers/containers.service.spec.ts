@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryStatus } from '@bitcrm/types';
 import { SnsPublisherService } from '@bitcrm/shared';
 import { ContainersService } from 'src/containers/containers.service';
@@ -7,7 +7,7 @@ import { ContainersRepository } from 'src/containers/containers.repository';
 import { StockRepository } from 'src/stock/stock.repository';
 import {
   createMockContainer,
-  createMockEnsureContainerDto,
+  createMockCreateContainerDto,
   createMockStockItem,
   createMockJwtUser,
   createMockContainersRepository,
@@ -38,35 +38,47 @@ describe('ContainersService', () => {
     service = module.get<ContainersService>(ContainersService);
   });
 
-  describe('ensureContainer', () => {
-    it('should return existing container if found by technicianId', async () => {
-      const container = createMockContainer();
-      repository.findByTechnicianId.mockResolvedValue(container);
-
-      const result = await service.ensureContainer(createMockEnsureContainerDto());
-
-      expect(result).toEqual(container);
-      expect(repository.create).not.toHaveBeenCalled();
-    });
-
-    it('should create new container if not found', async () => {
-      repository.findByTechnicianId.mockResolvedValue(null);
+  describe('create', () => {
+    it('should create a container with UUID and ACTIVE status', async () => {
       repository.create.mockResolvedValue(undefined);
 
-      const result = await service.ensureContainer(createMockEnsureContainerDto());
+      const result = await service.create(createMockCreateContainerDto());
 
       expect(result.id).toBeDefined();
+      expect(result.name).toBe('Van 1');
+      expect(result.description).toBe('North route van');
       expect(result.status).toBe(InventoryStatus.ACTIVE);
-      expect(result.technicianId).toBe('tech-1');
+      expect(result.technicianId).toBeUndefined();
       expect(repository.create).toHaveBeenCalledTimes(1);
       expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'container.created', {
         containerId: result.id,
       });
     });
+
+    it('should create with a technician assigned when the tech is free', async () => {
+      repository.findByTechnicianId.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.create(
+        createMockCreateContainerDto({ technicianId: 'tech-1', technicianName: 'John Doe' }),
+      );
+
+      expect(result.technicianId).toBe('tech-1');
+      expect(result.technicianName).toBe('John Doe');
+    });
+
+    it('should reject creating with a technician already assigned elsewhere', async () => {
+      repository.findByTechnicianId.mockResolvedValue(createMockContainer({ id: 'other' }));
+
+      await expect(
+        service.create(createMockCreateContainerDto({ technicianId: 'tech-1' })),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('getMyContainer', () => {
-    it('should return existing container for user', async () => {
+    it('should return the container assigned to the user', async () => {
       const container = createMockContainer();
       const user = createMockJwtUser({ id: 'tech-1' });
       repository.findByTechnicianId.mockResolvedValue(container);
@@ -76,26 +88,14 @@ describe('ContainersService', () => {
       expect(result).toEqual(container);
     });
 
-    it('should lazily create container for technician role', async () => {
-      const user = createMockJwtUser({ id: 'tech-1', roleId: 'role-technician', email: 'tech@test.com', department: 'Atlanta' });
-      repository.findByTechnicianId
-        .mockResolvedValueOnce(null)  // getMyContainer lookup
-        .mockResolvedValueOnce(null); // ensureContainer lookup
-      repository.create.mockResolvedValue(undefined);
-
-      const result = await service.getMyContainer(user);
-
-      expect(result.technicianId).toBe('tech-1');
-      expect(repository.create).toHaveBeenCalledTimes(1);
-    });
-
-    it('should throw NotFoundException for non-technician without container', async () => {
-      const user = createMockJwtUser({ roleId: 'role-admin' });
+    it('should throw NotFoundException when nothing is assigned (no lazy creation)', async () => {
+      const user = createMockJwtUser({ id: 'tech-1', roleId: 'role-technician' });
       repository.findByTechnicianId.mockResolvedValue(null);
 
       await expect(service.getMyContainer(user)).rejects.toThrow(
         NotFoundException,
       );
+      expect(repository.create).not.toHaveBeenCalled();
     });
   });
 
@@ -119,19 +119,83 @@ describe('ContainersService', () => {
   });
 
   describe('update', () => {
-    it('should update and return the container', async () => {
+    it('should update name, description and department', async () => {
       const container = createMockContainer();
-      const updated = createMockContainer({ department: 'Locksmith North' });
+      const updated = createMockContainer({ name: 'Van 2', description: 'South' });
       repository.findById.mockResolvedValue(container);
       repository.update.mockResolvedValue(updated);
 
       const result = await service.update('container-1', {
+        name: 'Van 2',
+        description: 'South',
         department: 'Locksmith North',
       });
 
       expect(result).toEqual(updated);
       expect(repository.update).toHaveBeenCalledWith('container-1', {
+        name: 'Van 2',
+        description: 'South',
         department: 'Locksmith North',
+      });
+    });
+
+    it('should assign a free technician', async () => {
+      const container = createMockContainer({ technicianId: undefined, technicianName: undefined });
+      repository.findById.mockResolvedValue(container);
+      repository.findByTechnicianId.mockResolvedValue(null);
+      repository.update.mockResolvedValue(
+        createMockContainer({ technicianId: 'tech-9', technicianName: 'Ann Lee' }),
+      );
+
+      const result = await service.update('container-1', {
+        technicianId: 'tech-9',
+        technicianName: 'Ann Lee',
+      });
+
+      expect(result.technicianId).toBe('tech-9');
+      expect(repository.update).toHaveBeenCalledWith('container-1', {
+        technicianId: 'tech-9',
+        technicianName: 'Ann Lee',
+      });
+    });
+
+    it('should allow re-saving the container with its own technician', async () => {
+      const container = createMockContainer({ technicianId: 'tech-1' });
+      repository.findById.mockResolvedValue(container);
+      repository.findByTechnicianId.mockResolvedValue(container);
+      repository.update.mockResolvedValue(container);
+
+      await expect(
+        service.update('container-1', { technicianId: 'tech-1' }),
+      ).resolves.toBeDefined();
+    });
+
+    it('should reject assigning a technician who has another container', async () => {
+      const container = createMockContainer({ technicianId: undefined });
+      repository.findById.mockResolvedValue(container);
+      repository.findByTechnicianId.mockResolvedValue(
+        createMockContainer({ id: 'other-container', technicianId: 'tech-9' }),
+      );
+
+      await expect(
+        service.update('container-1', { technicianId: 'tech-9' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('should unassign the technician when technicianId is null', async () => {
+      const container = createMockContainer();
+      repository.findById.mockResolvedValue(container);
+      repository.update.mockResolvedValue(
+        createMockContainer({ technicianId: undefined, technicianName: undefined }),
+      );
+
+      const result = await service.update('container-1', { technicianId: null });
+
+      expect(result.technicianId).toBeUndefined();
+      expect(repository.update).toHaveBeenCalledWith('container-1', {
+        technicianId: null,
+        technicianName: null,
       });
     });
 

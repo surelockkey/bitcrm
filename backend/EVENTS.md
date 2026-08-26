@@ -10,8 +10,8 @@ Publishers and consumers import these so the wire format can't drift; the
 
 | eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
 |---|---|---|---|
-| `user.activated` | `UserActivatedEvent` | user created / reactivated | inventory (provision container) |
-| `user.role-changed` | `UserRoleChangedEvent` | role assigned | inventory |
+| `user.activated` | `UserActivatedEvent` | user created / reactivated | — (containers are created manually and technicians assigned to them; no auto-provisioning) |
+| `user.role-changed` | `UserRoleChangedEvent` | role assigned | — |
 | `user.invite-resent` | `UserInviteResentEvent` | invite re-sent | — (audit) |
 | `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change | deal (eligibility), reporting |
 | `tech.approved` | `TechApprovedEvent` `{technicianId, jobTypeIds, serviceAreaIds}` | technician first becomes assignable | **deal (eligibility projection)** |
@@ -86,7 +86,7 @@ them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub
 (`telephony:call-events`) so every service instance sees every webhook.
 
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
-- **inventory-service** ← `user.activated`, `user.role-changed` → `ContainersEventHandler`
+- **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
 
