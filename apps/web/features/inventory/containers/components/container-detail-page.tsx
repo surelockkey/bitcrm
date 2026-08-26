@@ -53,9 +53,14 @@ export function ContainerDetailPage({ containerId }: { containerId: string }) {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => router.push("/inventory/containers")}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label="Back to containers"
+          onClick={() => router.push("/inventory/containers")}
+        >
           <ArrowLeft className="size-4" />
-          Containers
         </Button>
         <span className="flex size-8 flex-none items-center justify-center rounded-lg bg-brand/10 text-brand">
           <Truck className="size-4" />
