@@ -8,7 +8,6 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Container } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useProductMap } from "@/features/inventory/warehouses/hooks";
@@ -31,16 +30,23 @@ export function useContainer(id: string) {
   });
 }
 
+export function useCreateContainer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: api.CreateContainerBody) => api.createContainer(body),
+    onSuccess: (c) => {
+      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
+      toast.success(`Container “${c.name}” created`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useUpdateContainer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      body,
-    }: {
-      id: string;
-      body: Partial<Pick<Container, "department" | "status">>;
-    }) => api.updateContainer(id, body),
+    mutationFn: ({ id, body }: { id: string; body: api.UpdateContainerBody }) =>
+      api.updateContainer(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
       toast.success("Container saved");

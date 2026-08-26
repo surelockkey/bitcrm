@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Loader2, Search, Truck } from "lucide-react";
+import { ArrowUpRight, Loader2, Plus, Search, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +18,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useContainersList } from "../hooks";
 import { containerTitle } from "../lib";
 import { ContainersTable } from "./containers-table";
+import { ContainerCreateDialog } from "./container-create-dialog";
 import { MyContainerView } from "./my-container-view";
 
 export function ContainersPage() {
@@ -35,16 +36,23 @@ export function ContainersPage() {
 }
 
 function Fleet() {
+  const { can } = usePermissions();
   const query = useContainersList();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const containers = useMemo(
     () => query.data?.pages.flatMap((p) => p.data) ?? [],
     [query.data],
   );
   const departments = useMemo(
-    () => [...new Set(containers.map((c) => c.department).filter(Boolean))].sort(),
+    () =>
+      [
+        ...new Set(
+          containers.map((c) => c.department).filter((d): d is string => !!d),
+        ),
+      ].sort(),
     [containers],
   );
 
@@ -90,6 +98,16 @@ function Fleet() {
             <ArrowUpRight className="size-3.5" />
           </Link>
         </Button>
+        {can("containers", "create") ? (
+          <Button
+            variant="brand"
+            className="h-9 gap-1.5 px-3.5"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="size-4" />
+            New container
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex-1 px-6 pb-6">
@@ -132,6 +150,8 @@ function Fleet() {
           </>
         )}
       </div>
+
+      <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }
