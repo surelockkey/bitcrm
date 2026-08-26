@@ -6,6 +6,8 @@ import { ProductsModule } from './products/products.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { ContainersModule } from './containers/containers.module';
 import { TransfersModule } from './transfers/transfers.module';
+import { ItemCategoriesModule } from './item-categories/item-categories.module';
+import { BrandsModule } from './brands/brands.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { TransfersModule } from './transfers/transfers.module';
     WarehousesModule,
     ContainersModule,
     TransfersModule,
+    ItemCategoriesModule,
+    BrandsModule,
   ],
   controllers: [AppController],
 })

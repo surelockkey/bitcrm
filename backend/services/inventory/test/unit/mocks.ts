@@ -133,3 +133,27 @@ export function createMockDynamoDbService() {
 export function createMockRedisService() {
   return { client: { get: jest.fn(), set: jest.fn(), del: jest.fn() } };
 }
+
+export function createMockItemCategory(overrides?: Partial<import('@bitcrm/types').ProductCategory>): import('@bitcrm/types').ProductCategory {
+  return {
+    id: 'cat-1', name: 'Locks', active: true, createdBy: 'admin-1',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockBrand(overrides?: Partial<import('@bitcrm/types').Brand>): import('@bitcrm/types').Brand {
+  return {
+    id: 'brand-1', name: 'Schlage', active: true, createdBy: 'admin-1',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockCatalogRepository() {
+  return {
+    create: jest.fn(), put: jest.fn(), get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]), remove: jest.fn(),
+    isReferencedByProduct: jest.fn().mockResolvedValue(false),
+  };
+}

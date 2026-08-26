@@ -15,6 +15,8 @@ export const RESOURCE_REGISTRY = {
   contacts: ['view', 'create', 'edit', 'delete'],
   companies: ['view', 'create', 'edit', 'delete'],
   products: ['view', 'create', 'edit', 'delete'],
+  product_categories: ['view', 'create', 'edit', 'delete'],
+  brands: ['view', 'create', 'edit', 'delete'],
   warehouses: ['view', 'create', 'edit', 'delete'],
   containers: ['view', 'create', 'edit', 'delete'],
   transfers: ['view', 'create', 'edit', 'delete'],
