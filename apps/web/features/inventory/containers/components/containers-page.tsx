@@ -56,21 +56,6 @@ function Fleet() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Containers</h1>
-          <p className="text-sm text-muted-foreground">
-            Technician van inventory. Provisioned automatically when a tech is activated.
-          </p>
-        </div>
-        <Button asChild variant="outline" className="h-9 gap-1.5">
-          <Link href="/technicians">
-            Technicians
-            <ArrowUpRight className="size-3.5" />
-          </Link>
-        </Button>
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -99,6 +84,12 @@ function Fleet() {
         <span className="ml-auto text-sm text-muted-foreground">
           {visible.length} {visible.length === 1 ? "container" : "containers"}
         </span>
+        <Button asChild variant="outline" className="h-9 gap-1.5">
+          <Link href="/technicians">
+            Technicians
+            <ArrowUpRight className="size-3.5" />
+          </Link>
+        </Button>
       </div>
 
       <div className="flex-1 px-6 pb-6">

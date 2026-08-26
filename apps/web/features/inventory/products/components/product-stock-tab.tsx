@@ -83,7 +83,7 @@ export function ProductStockTab({
         <EmptyBlock
           icon={<PackageX className="size-6" />}
           title="Not stocked anywhere yet"
-          body="This product isn't in any warehouse or container. Receive it into a warehouse or transfer it to a container to build stock."
+          body="This item isn't in any warehouse or container. Receive it into a warehouse or transfer it to a container to build stock."
         />
       ) : (
         <div className="overflow-hidden rounded-lg border">

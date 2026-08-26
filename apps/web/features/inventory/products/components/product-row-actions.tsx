@@ -56,7 +56,7 @@ export function ProductRowActions({ product }: { product: Product }) {
           className="w-40"
           onClick={(e) => e.stopPropagation()}
         >
-          <DropdownMenuItem onClick={() => router.push(`/inventory/products/${product.id}`)}>
+          <DropdownMenuItem onClick={() => router.push(`/inventory/items/${product.id}`)}>
             <Pencil />
             {canEdit ? "Edit" : "View"}
           </DropdownMenuItem>

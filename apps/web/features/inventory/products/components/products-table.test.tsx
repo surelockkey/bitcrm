@@ -74,6 +74,6 @@ describe("ProductsTable", () => {
       />,
     );
     await userEvent.click(screen.getByText("Deadbolt"));
-    expect(push).toHaveBeenCalledWith("/inventory/products/p1");
+    expect(push).toHaveBeenCalledWith("/inventory/items/p1");
   });
 });

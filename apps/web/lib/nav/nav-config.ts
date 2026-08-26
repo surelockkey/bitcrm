@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowLeftRight,
   BarChart3,
   Briefcase,
   Building2,
@@ -20,7 +19,6 @@ import {
   Truck,
   UserRound,
   UsersRound,
-  Warehouse,
   Wrench,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
@@ -31,6 +29,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Gate: item shows only if the user can `view` this resource (if set). */
   resource?: Resource;
+  /** Gate: item shows if the user can `view` ANY of these resources. */
+  resources?: Resource[];
   /** "coming-soon" items are hidden unless NEXT_PUBLIC_SHOW_ROADMAP is set. */
   status?: "available" | "coming-soon";
 }
@@ -62,6 +62,12 @@ export const MAIN_NAV: NavGroup[] = [
       { label: "Jobs", href: "/deals", icon: Briefcase, resource: "deals" },
       { label: "Dispatch Map", href: "/dispatch", icon: Map, resource: "deals" },
       { label: "Schedule", href: "/schedule", icon: Calendar, resource: "deals" },
+      {
+        label: "Inventory",
+        href: "/inventory",
+        icon: Package,
+        resources: ["products", "warehouses", "containers", "transfers"],
+      },
     ],
   },
   {
@@ -69,15 +75,6 @@ export const MAIN_NAV: NavGroup[] = [
     items: [
       { label: "Contacts", href: "/contacts", icon: Contact, resource: "contacts" },
       { label: "Companies", href: "/companies", icon: Building2, resource: "companies" },
-    ],
-  },
-  {
-    label: "Inventory",
-    items: [
-      { label: "Products", href: "/inventory/products", icon: Package, resource: "products" },
-      { label: "Warehouses", href: "/inventory/warehouses", icon: Warehouse, resource: "warehouses" },
-      { label: "Containers", href: "/inventory/containers", icon: Truck, resource: "containers" },
-      { label: "Transfers", href: "/inventory/transfers", icon: ArrowLeftRight, resource: "transfers" },
     ],
   },
   {
@@ -132,6 +129,7 @@ export function visibleNavItems(
   return items.filter((item) => {
     if (item.status === "coming-soon" && !SHOW_ROADMAP) return false;
     if (item.resource && !can(item.resource)) return false;
+    if (item.resources && !item.resources.some(can)) return false;
     return true;
   });
 }

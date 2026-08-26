@@ -51,7 +51,7 @@ export function useCreateProduct() {
     mutationFn: (body: CreateProductValues) => api.createProduct(body),
     onSuccess: (p) => {
       invalidate();
-      toast.success(`Product “${p.name}” created`);
+      toast.success(`Item “${p.name}” created`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -64,7 +64,7 @@ export function useUpdateProduct() {
       api.updateProduct(id, body),
     onSuccess: () => {
       invalidate();
-      toast.success("Product saved");
+      toast.success("Item saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -76,7 +76,7 @@ export function useArchiveProduct() {
     mutationFn: (id: string) => api.archiveProduct(id),
     onSuccess: () => {
       invalidate();
-      toast.success("Product archived");
+      toast.success("Item archived");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -88,7 +88,7 @@ export function useReactivateProduct() {
     mutationFn: (id: string) => api.reactivateProduct(id),
     onSuccess: () => {
       invalidate();
-      toast.success("Product restored");
+      toast.success("Item restored");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

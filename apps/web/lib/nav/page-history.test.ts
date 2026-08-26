@@ -70,7 +70,7 @@ describe("labelForPath", () => {
     ["/schedule", "Schedule"],
     ["/contacts", "Contacts"],
     ["/companies", "Companies"],
-    ["/inventory/products", "Products"],
+    ["/inventory", "Inventory"],
     ["/technicians", "Technicians"],
     ["/admin/users", "Users"],
     ["/admin/roles", "Roles"],
@@ -103,6 +103,9 @@ describe("labelForPath", () => {
   it("falls back to a humanized last segment for unknown paths", () => {
     expect(labelForPath("/reports/commission")).toBe("Commission");
     expect(labelForPath("/some-new-page")).toBe("Some New Page");
+    // Inventory tab routes label themselves off their last segment.
+    expect(labelForPath("/inventory/items")).toBe("Items");
+    expect(labelForPath("/inventory/warehouses")).toBe("Warehouses");
   });
 
   it("ignores query strings and trailing slashes", () => {
