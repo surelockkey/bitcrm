@@ -21,6 +21,13 @@ export function getContainer(id: string): Promise<Container> {
   return http.get<Container>(`/inventory/containers/${id}`);
 }
 
+export function updateContainer(
+  id: string,
+  body: Partial<Pick<Container, "department" | "status">>,
+): Promise<Container> {
+  return http.put<Container>(`/inventory/containers/${id}`, body);
+}
+
 export function getContainerStock(id: string): Promise<StockItem[]> {
   return http.get<StockItem[]>(`/inventory/containers/${id}/stock`);
 }

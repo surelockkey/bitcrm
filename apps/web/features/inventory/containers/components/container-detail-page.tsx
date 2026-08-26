@@ -17,6 +17,7 @@ import { containerTitle } from "../lib";
 import { ContainerStockTab, type ContainerMoveTarget } from "./container-stock-tab";
 import { ContainerActivityTab } from "./container-activity-tab";
 import { ContainerMoveDialog } from "./container-move-dialog";
+import { ContainerSettingsTab } from "./container-settings-tab";
 
 export function ContainerDetailPage({ containerId }: { containerId: string }) {
   const router = useRouter();
@@ -26,6 +27,7 @@ export function ContainerDetailPage({ containerId }: { containerId: string }) {
   const [moveTarget, setMoveTarget] = useState<ContainerMoveTarget | null>(null);
 
   const canMove = can("transfers", "create") && can("containers", "view");
+  const canEdit = can("containers", "edit");
 
   if (!can("containers", "view")) {
     return <Center title="No access" body="You don't have permission to view containers." />;
@@ -79,6 +81,7 @@ export function ContainerDetailPage({ containerId }: { containerId: string }) {
             <TabsList variant="line" className="h-11">
               <TabsTrigger value="stock" className="px-2">Stock</TabsTrigger>
               <TabsTrigger value="activity" className="px-2">Activity</TabsTrigger>
+              <TabsTrigger value="settings" className="px-2">Settings</TabsTrigger>
             </TabsList>
           </div>
         </div>
@@ -93,6 +96,13 @@ export function ContainerDetailPage({ containerId }: { containerId: string }) {
             </TabsContent>
             <TabsContent value="activity" className="mt-0">
               <ContainerActivityTab containerId={containerId} />
+            </TabsContent>
+            <TabsContent value="settings" className="mt-0">
+              <ContainerSettingsTab
+                key={container.updatedAt}
+                container={container}
+                readOnly={!canEdit}
+              />
             </TabsContent>
           </div>
         </div>

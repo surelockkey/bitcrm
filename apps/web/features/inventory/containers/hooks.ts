@@ -1,8 +1,16 @@
 "use client";
 
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { toast } from "sonner";
+import type { Container } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import { enrichStock, summarizeStock } from "@/features/inventory/warehouses/lib";
 import * as api from "./api";
@@ -20,6 +28,24 @@ export function useContainer(id: string) {
   return useQuery({
     queryKey: queryKeys.inventory.containers.detail(id),
     queryFn: () => api.getContainer(id),
+  });
+}
+
+export function useUpdateContainer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: Partial<Pick<Container, "department" | "status">>;
+    }) => api.updateContainer(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
+      toast.success("Container saved");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
 
