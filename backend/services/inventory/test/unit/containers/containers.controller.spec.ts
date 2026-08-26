@@ -21,6 +21,7 @@ describe('ContainersController', () => {
       findById: jest.fn(),
       getStock: jest.fn(),
       ensureContainer: jest.fn(),
+      update: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -41,6 +42,22 @@ describe('ContainersController', () => {
 
       expect(result).toEqual({ success: true, data: container });
       expect(service.getMyContainer).toHaveBeenCalledWith(user);
+    });
+  });
+
+  describe('update', () => {
+    it('should return success with the updated container', async () => {
+      const container = createMockContainer({ department: 'Updated' });
+      service.update.mockResolvedValue(container);
+
+      const result = await controller.update('container-1', {
+        department: 'Updated',
+      } as any);
+
+      expect(result).toEqual({ success: true, data: container });
+      expect(service.update).toHaveBeenCalledWith('container-1', {
+        department: 'Updated',
+      });
     });
   });
 

@@ -118,6 +118,60 @@ describe('ContainersService', () => {
     });
   });
 
+  describe('update', () => {
+    it('should update and return the container', async () => {
+      const container = createMockContainer();
+      const updated = createMockContainer({ department: 'Locksmith North' });
+      repository.findById.mockResolvedValue(container);
+      repository.update.mockResolvedValue(updated);
+
+      const result = await service.update('container-1', {
+        department: 'Locksmith North',
+      });
+
+      expect(result).toEqual(updated);
+      expect(repository.update).toHaveBeenCalledWith('container-1', {
+        department: 'Locksmith North',
+      });
+    });
+
+    it('should allow deactivating via status', async () => {
+      const container = createMockContainer();
+      const archived = createMockContainer({ status: InventoryStatus.ARCHIVED });
+      repository.findById.mockResolvedValue(container);
+      repository.update.mockResolvedValue(archived);
+
+      const result = await service.update('container-1', {
+        status: InventoryStatus.ARCHIVED,
+      });
+
+      expect(result.status).toBe(InventoryStatus.ARCHIVED);
+    });
+
+    it('should throw NotFoundException when container does not exist', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(
+        service.update('nonexistent', { department: 'X' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    it('should publish container.updated', async () => {
+      const container = createMockContainer();
+      repository.findById.mockResolvedValue(container);
+      repository.update.mockResolvedValue(container);
+
+      await service.update('container-1', { department: 'X' });
+
+      expect(publisher.publish).toHaveBeenCalledWith(
+        'inventory-events',
+        'container.updated',
+        { containerId: 'container-1' },
+      );
+    });
+  });
+
   describe('list', () => {
     it('should return all containers when dataScope is not restricted', async () => {
       const paginated = { items: [createMockContainer()], nextCursor: undefined };

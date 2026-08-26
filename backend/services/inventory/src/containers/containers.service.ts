@@ -12,6 +12,7 @@ import { ContainersRepository } from './containers.repository';
 import { StockRepository } from '../stock/stock.repository';
 import { EnsureContainerDto } from './dto/ensure-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
+import { UpdateContainerDto } from './dto/update-container.dto';
 
 @Injectable()
 export class ContainersService {
@@ -66,6 +67,15 @@ export class ContainersService {
     if (!container) {
       throw new NotFoundException(`Container "${id}" not found`);
     }
+    return container;
+  }
+
+  async update(id: string, dto: UpdateContainerDto): Promise<Container> {
+    await this.findById(id);
+    const container = await this.repository.update(id, dto);
+    publishInventoryEvent(this.snsPublisher, this.logger, 'container.updated', {
+      containerId: id,
+    });
     return container;
   }
 
