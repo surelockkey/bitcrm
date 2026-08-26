@@ -2,7 +2,7 @@ import { ProductType, InventoryStatus, TransferType, LocationType, type Product,
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
-import type { EnsureContainerDto } from 'src/containers/dto/ensure-container.dto';
+import type { CreateContainerDto } from 'src/containers/dto/create-container.dto';
 
 // Data factories
 export function createMockProduct(overrides?: Partial<Product>): Product {
@@ -26,7 +26,8 @@ export function createMockWarehouse(overrides?: Partial<Warehouse>): Warehouse {
 
 export function createMockContainer(overrides?: Partial<Container>): Container {
   return {
-    id: 'container-1', technicianId: 'tech-1', technicianName: 'John Doe',
+    id: 'container-1', name: 'Van 1', description: 'North route van',
+    technicianId: 'tech-1', technicianName: 'John Doe',
     department: 'Atlanta', status: InventoryStatus.ACTIVE,
     createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -71,8 +72,8 @@ export function createMockCreateWarehouseDto(overrides?: Partial<CreateWarehouse
   return { name: 'Main Warehouse', address: '123 Main St', ...overrides } as CreateWarehouseDto;
 }
 
-export function createMockEnsureContainerDto(overrides?: Partial<EnsureContainerDto>): EnsureContainerDto {
-  return { technicianId: 'tech-1', technicianName: 'John Doe', department: 'Atlanta', ...overrides } as EnsureContainerDto;
+export function createMockCreateContainerDto(overrides?: Partial<CreateContainerDto>): CreateContainerDto {
+  return { name: 'Van 1', description: 'North route van', department: 'Atlanta', ...overrides } as CreateContainerDto;
 }
 
 export function createMockCreateTransferDto(overrides?: Partial<CreateTransferDto>): CreateTransferDto {

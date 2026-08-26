@@ -22,6 +22,8 @@ describe('ContainersRepository (integration)', () => {
 
   const makeContainer = (overrides?: Partial<Container>): Container => ({
     id: 'ctr-1',
+    name: 'Van 1',
+    description: 'North route van',
     technicianId: 'tech-1',
     technicianName: 'John Doe',
     department: 'HVAC',
@@ -62,10 +64,23 @@ describe('ContainersRepository (integration)', () => {
 
       expect(found).not.toBeNull();
       expect(found!.id).toBe('ctr-1');
+      expect(found!.name).toBe('Van 1');
+      expect(found!.description).toBe('North route van');
       expect(found!.technicianId).toBe('tech-1');
       expect(found!.technicianName).toBe('John Doe');
       expect(found!.department).toBe('HVAC');
       expect(found!.status).toBe(InventoryStatus.ACTIVE);
+    });
+
+    it('should persist an unassigned container', async () => {
+      await repository.create(
+        makeContainer({ technicianId: undefined, technicianName: undefined }),
+      );
+
+      const found = await repository.findById('ctr-1');
+
+      expect(found!.name).toBe('Van 1');
+      expect(found!.technicianId).toBeUndefined();
     });
   });
 
@@ -123,6 +138,79 @@ describe('ContainersRepository (integration)', () => {
       await expect(
         repository.create(makeContainer()),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('update assignment', () => {
+    it('should reassign to another technician and move the GSI entry', async () => {
+      await repository.create(makeContainer());
+
+      await repository.update('ctr-1', {
+        technicianId: 'tech-2',
+        technicianName: 'Jane Smith',
+      });
+
+      const byOld = await repository.findByTechnicianId('tech-1');
+      const byNew = await repository.findByTechnicianId('tech-2');
+      expect(byOld).toBeNull();
+      expect(byNew!.id).toBe('ctr-1');
+      expect(byNew!.technicianName).toBe('Jane Smith');
+    });
+
+    it('should unassign with null and drop out of the technician index', async () => {
+      await repository.create(makeContainer());
+
+      const updated = await repository.update('ctr-1', {
+        technicianId: null,
+        technicianName: null,
+      });
+
+      expect(updated.technicianId).toBeUndefined();
+      expect(updated.technicianName).toBeUndefined();
+      expect(await repository.findByTechnicianId('tech-1')).toBeNull();
+      // Still present by id and in the full list.
+      expect((await repository.findById('ctr-1'))!.name).toBe('Van 1');
+    });
+
+    it('should update name and description', async () => {
+      await repository.create(makeContainer());
+
+      const updated = await repository.update('ctr-1', {
+        name: 'Van 2',
+        description: 'South route',
+      });
+
+      expect(updated.name).toBe('Van 2');
+      expect(updated.description).toBe('South route');
+    });
+  });
+
+  describe('legacy rows without a name', () => {
+    it('should derive a name from the technician for pre-rename rows', async () => {
+      // Simulate a row written before containers had their own name.
+      const { PutCommand } = await import('@aws-sdk/lib-dynamodb');
+      await dbClient.send(
+        new PutCommand({
+          TableName: 'BitCRM_Inventory_Test',
+          Item: {
+            PK: 'CONTAINER#legacy-1',
+            SK: 'METADATA',
+            GSI3PK: 'OWNER#tech-9',
+            GSI3SK: 'CONTAINER#legacy-1',
+            id: 'legacy-1',
+            technicianId: 'tech-9',
+            technicianName: 'Old Tech',
+            department: 'HVAC',
+            status: InventoryStatus.ACTIVE,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        }),
+      );
+
+      const found = await repository.findById('legacy-1');
+
+      expect(found!.name).toBe("Old Tech's van");
     });
   });
 });

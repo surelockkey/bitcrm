@@ -107,9 +107,14 @@ async function ensureContainer(
   department: string,
 ) {
   const res = await request(app.getHttpServer())
-    .post(`${CONTAINERS_BASE}/internal/ensure`)
-    .set('x-internal-secret', INTERNAL_SECRET)
-    .send({ technicianId, technicianName, department })
+    .post(CONTAINERS_BASE)
+    .set('x-test-user', createTestUserHeader(adminUser))
+    .send({
+      name: `${technicianName}'s van`,
+      department,
+      technicianId,
+      technicianName,
+    })
     .expect(201);
   return res.body.data;
 }

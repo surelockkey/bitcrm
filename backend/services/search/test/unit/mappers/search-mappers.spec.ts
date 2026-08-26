@@ -360,9 +360,11 @@ describe('search-mappers', () => {
       expect(doc.url).toBe('/inventory/warehouses/w1');
     });
 
-    it('mapContainer carries technician owner and department', () => {
+    it('mapContainer titles by the container name and carries technician owner', () => {
       const container: Container = {
         id: 'ct1',
+        name: 'Van 1',
+        description: 'North route',
         technicianId: 'tech1',
         technicianName: 'Bob Lee',
         department: 'field',
@@ -373,10 +375,25 @@ describe('search-mappers', () => {
       const doc = mapContainer(container);
       expect(doc.type).toBe('container');
       expect(doc.permissionResource).toBe('containers');
+      expect(doc.title).toBe('Van 1');
       expect(doc.ownerIds).toContain('tech1');
       expect(doc.department).toBe('field');
       expect(doc.keywords).toContain('Bob Lee');
+      expect(doc.keywords).toContain('Van 1');
       expect(doc.url).toBe('/inventory/containers/ct1');
+    });
+
+    it('mapContainer handles an unassigned container', () => {
+      const container: Container = {
+        id: 'ct2',
+        name: 'Spare van',
+        status: InventoryStatus.ACTIVE,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-02-01T00:00:00Z',
+      } as Container;
+      const doc = mapContainer(container);
+      expect(doc.title).toBe('Spare van');
+      expect(doc.ownerIds).toEqual([]);
     });
 
     it('mapTransfer maps performedBy owner', () => {
