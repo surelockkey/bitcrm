@@ -9,6 +9,7 @@ import type {
   PaginatedResponse,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
+import { containerLabel } from "@/features/inventory/warehouses/lib";
 
 /*
  * Product stock lives per-location (warehouse/container), not on the product.
@@ -70,7 +71,7 @@ export function useProductStock(productId: string, enabled: boolean): ProductSto
     }));
     const c = (containersQ.data?.data ?? []).map((x) => ({
       id: x.id,
-      name: x.technicianName || "Container",
+      name: containerLabel(x),
       subtitle: x.department || undefined,
       kind: "container" as const,
     }));

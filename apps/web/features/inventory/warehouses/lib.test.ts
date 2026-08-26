@@ -109,13 +109,18 @@ describe("transfer helpers", () => {
 });
 
 describe("containerLabel", () => {
-  it("uses the technician name", () => {
+  it("uses the container's own name", () => {
     expect(
-      containerLabel({ technicianName: "Riley Santos", department: "Field" } as never),
+      containerLabel({ name: "Van 1", technicianName: "Riley Santos" } as never),
+    ).toBe("Van 1");
+  });
+  it("falls back to the technician name for legacy rows", () => {
+    expect(
+      containerLabel({ name: "", technicianName: "Riley Santos" } as never),
     ).toBe("Riley Santos");
   });
   it("falls back when no name", () => {
-    expect(containerLabel({ technicianName: "", department: "" } as never)).toBe("Container");
+    expect(containerLabel({ name: "", technicianName: "" } as never)).toBe("Container");
   });
 });
 

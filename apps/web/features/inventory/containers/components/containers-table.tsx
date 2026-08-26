@@ -26,7 +26,8 @@ export function ContainersTable({ containers }: { containers: Container[] }) {
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead>Name</TableHead>
-            <TableHead>Description</TableHead>
+            <TableHead>Technician</TableHead>
+            <TableHead>Department</TableHead>
             <TableHead>Items</TableHead>
             <TableHead className="w-32 text-right">Actions</TableHead>
           </TableRow>
@@ -62,7 +63,14 @@ function ContainerRow({ container: c }: { container: Container }) {
           </Badge>
         ) : null}
       </TableCell>
-      <TableCell className="max-w-[340px] truncate text-sm text-muted-foreground">
+      <TableCell className="max-w-65 truncate text-sm">
+        {c.technicianName ? (
+          c.technicianName
+        ) : (
+          <span className="text-muted-foreground">Unassigned</span>
+        )}
+      </TableCell>
+      <TableCell className="max-w-65 truncate text-sm text-muted-foreground">
         {c.department || "—"}
       </TableCell>
       <TableCell className="tabular-nums">

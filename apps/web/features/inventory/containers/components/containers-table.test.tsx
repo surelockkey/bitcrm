@@ -21,6 +21,7 @@ vi.mock("../hooks", () => ({
 function container(over: Partial<Container>): Container {
   return {
     id: "c1",
+    name: "Van 1",
     technicianId: "t1",
     technicianName: "TYLER BOUCHER",
     department: "Connecticut",
@@ -37,12 +38,25 @@ beforeEach(() => {
 });
 
 describe("ContainersTable", () => {
-  it("renders technician name, department and total units", () => {
+  it("renders name, assigned technician, department and total units", () => {
     summaries.c1 = { skuCount: 40, totalUnits: 1244, totalValue: 5000, lowCount: 0 };
     render(<ContainersTable containers={[container({})]} />);
+    expect(screen.getByText("Van 1")).toBeInTheDocument();
     expect(screen.getByText("TYLER BOUCHER")).toBeInTheDocument();
     expect(screen.getByText("Connecticut")).toBeInTheDocument();
     expect(screen.getByText("1,244")).toBeInTheDocument();
+  });
+
+  it("shows Unassigned for a container without a technician", () => {
+    render(
+      <ContainersTable
+        containers={[
+          container({ technicianId: undefined, technicianName: undefined }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Van 1")).toBeInTheDocument();
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
   });
 
   it("shows a Low stock badge only when something is low", () => {
@@ -57,7 +71,7 @@ describe("ContainersTable", () => {
 
   it("navigates to the container on row click", async () => {
     render(<ContainersTable containers={[container({})]} />);
-    await userEvent.click(screen.getByText("TYLER BOUCHER"));
+    await userEvent.click(screen.getByText("Van 1"));
     expect(push).toHaveBeenCalledWith("/inventory/containers/c1");
   });
 

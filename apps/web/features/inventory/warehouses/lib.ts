@@ -86,6 +86,8 @@ export function transferUnits(t: Transfer): number {
  * Containers
  * ------------------------------------------------------------------ */
 
-export function containerLabel(c: Pick<Container, "technicianName">): string {
-  return c.technicianName || "Container";
+export function containerLabel(
+  c: Pick<Container, "name" | "technicianName">,
+): string {
+  return c.name?.trim() || c.technicianName?.trim() || "Container";
 }

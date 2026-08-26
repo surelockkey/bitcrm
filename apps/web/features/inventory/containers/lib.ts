@@ -1,6 +1,11 @@
 import type { Container } from "@bitcrm/types";
 
-/** Containers store no name of their own — label from the technician. */
-export function containerTitle(c: Pick<Container, "technicianName">): string {
-  return c.technicianName?.trim() || "Container";
+/**
+ * Containers are named directly now; rows written before that fall back to
+ * the technician-derived label they always displayed.
+ */
+export function containerTitle(
+  c: Pick<Container, "name" | "technicianName">,
+): string {
+  return c.name?.trim() || c.technicianName?.trim() || "Container";
 }
