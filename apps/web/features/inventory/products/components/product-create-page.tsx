@@ -17,7 +17,7 @@ export function ProductCreatePage() {
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
         <p className="text-sm text-muted-foreground">
-          You don&apos;t have permission to create products.
+          You don&apos;t have permission to create items.
         </p>
       </div>
     );
@@ -30,12 +30,12 @@ export function ProductCreatePage() {
           variant="ghost"
           size="sm"
           className="gap-1.5"
-          onClick={() => router.push("/inventory/products")}
+          onClick={() => router.push("/inventory/items")}
         >
           <ArrowLeft className="size-4" />
-          Products
+          Items
         </Button>
-        <h1 className="text-lg font-semibold tracking-tight">New product</h1>
+        <h1 className="text-lg font-semibold tracking-tight">New item</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -45,11 +45,11 @@ export function ProductCreatePage() {
             showCompanyCost
             categories={[]}
             submitting={create.isPending}
-            submitLabel="Create product"
-            onCancel={() => router.push("/inventory/products")}
+            submitLabel="Create item"
+            onCancel={() => router.push("/inventory/items")}
             onSubmit={(values) =>
               create.mutate(values, {
-                onSuccess: (p) => router.push(`/inventory/products/${p.id}`),
+                onSuccess: (p) => router.push(`/inventory/items/${p.id}`),
               })
             }
           />

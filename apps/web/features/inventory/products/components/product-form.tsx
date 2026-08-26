@@ -192,7 +192,7 @@ export function ProductForm({
 
       {/* Description */}
       <Group label="Description">
-        <Textarea rows={3} disabled={readOnly} placeholder="Optional notes about this product" {...register("description")} />
+        <Textarea rows={3} disabled={readOnly} placeholder="Optional notes about this item" {...register("description")} />
       </Group>
 
       {!readOnly ? (

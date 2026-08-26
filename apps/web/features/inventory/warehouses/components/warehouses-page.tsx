@@ -47,21 +47,6 @@ export function WarehousesPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Warehouses</h1>
-          <p className="text-sm text-muted-foreground">
-            Physical stock locations. Receive from suppliers, issue to technician containers.
-          </p>
-        </div>
-        {can("warehouses", "create") ? (
-          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setCreateOpen(true)}>
-            <WarehouseIcon className="size-4" />
-            New warehouse
-          </Button>
-        ) : null}
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -85,6 +70,12 @@ export function WarehousesPage() {
         <span className="ml-auto text-sm text-muted-foreground">
           {visible.length} {visible.length === 1 ? "warehouse" : "warehouses"}
         </span>
+        {can("warehouses", "create") ? (
+          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setCreateOpen(true)}>
+            <WarehouseIcon className="size-4" />
+            New warehouse
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex-1 px-6 pb-6">

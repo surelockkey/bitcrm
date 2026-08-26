@@ -92,6 +92,11 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Dispatch Map")).toBeInTheDocument();
     expect(screen.getByText("Schedule")).toBeInTheDocument();
+    // Inventory is a single entry now — the old per-section items are gone.
+    expect(screen.getByText("Inventory")).toBeInTheDocument();
+    expect(screen.queryByText("Products")).not.toBeInTheDocument();
+    expect(screen.queryByText("Items")).not.toBeInTheDocument();
+    expect(screen.queryByText("Warehouses")).not.toBeInTheDocument();
     // The reports hub is a real page now, not a roadmap stub.
     expect(screen.getByText("Reports")).toBeInTheDocument();
     // coming-soon, hidden by default:
@@ -109,7 +114,17 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Jobs")).toBeInTheDocument();
     expect(screen.getByText("Contacts")).toBeInTheDocument();
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
-    expect(screen.queryByText("Products")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inventory")).not.toBeInTheDocument();
+  });
+
+  it("shows Inventory when the user can view any inventory resource", () => {
+    permissionsMock.mockReturnValue({
+      can: (r: string) => r === "warehouses",
+      isTechnician: false,
+    });
+    renderSidebar();
+
+    expect(screen.getByText("Inventory")).toBeInTheDocument();
   });
 
   it("renders the minimal technician shell", () => {

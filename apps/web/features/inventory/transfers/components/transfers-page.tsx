@@ -67,19 +67,6 @@ export function TransfersPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Transfers</h1>
-          <p className="text-sm text-muted-foreground">Every stock movement across warehouses, containers, and jobs.</p>
-        </div>
-        {can("transfers", "create") ? (
-          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setNewOpen(true)}>
-            <Plus className="size-4" />
-            New transfer
-          </Button>
-        ) : null}
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="inline-flex overflow-hidden rounded-lg border text-xs">
           {TYPE_CHIPS.map((c, i) => (
@@ -102,7 +89,7 @@ export function TransfersPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search product or person"
+            placeholder="Search item or person"
             className="h-9 pl-8"
           />
         </div>
@@ -110,6 +97,12 @@ export function TransfersPage() {
           {visible.length}
           {query.hasNextPage ? "+" : ""} {visible.length === 1 ? "movement" : "movements"}
         </span>
+        {can("transfers", "create") ? (
+          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setNewOpen(true)}>
+            <Plus className="size-4" />
+            New transfer
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex-1 px-6 pb-6">

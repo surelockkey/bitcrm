@@ -45,7 +45,7 @@ export function ProductsTable({
                 aria-label="Select all"
               />
             </TableHead>
-            <TableHead>Product</TableHead>
+            <TableHead>Item</TableHead>
             <TableHead>Category</TableHead>
             <TableHead>Type</TableHead>
             <TableHead className="text-right">Client price</TableHead>
@@ -61,7 +61,7 @@ export function ProductsTable({
               <TableRow
                 key={p.id}
                 className={cn("cursor-pointer", archived && "opacity-55")}
-                onClick={() => router.push(`/inventory/products/${p.id}`)}
+                onClick={() => router.push(`/inventory/items/${p.id}`)}
               >
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <Checkbox

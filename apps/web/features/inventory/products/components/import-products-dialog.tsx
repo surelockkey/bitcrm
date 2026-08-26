@@ -72,9 +72,9 @@ export function ImportProductsDialog({
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Import products</DialogTitle>
+          <DialogTitle>Import items</DialogTitle>
           <DialogDescription>
-            Upload a CSV. Rows are matched by SKU — existing products update, new
+            Upload a CSV. Rows are matched by SKU — existing items update, new
             ones are created.
           </DialogDescription>
         </DialogHeader>
