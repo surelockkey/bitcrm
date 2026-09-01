@@ -106,7 +106,9 @@ vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
   ResolvedAreaField: () => null,
 }));
 vi.mock("@/features/job-sources/components/job-source-select", () => ({
-  JobSourceSelect: () => null,
+  JobSourceSelect: ({ value }: { value?: string }) => (
+    <div data-testid="job-source-select">{value ?? ""}</div>
+  ),
 }));
 vi.mock("@/features/external-companies/components/external-company-select", () => ({
   ExternalCompanySelect: () => null,
@@ -244,6 +246,43 @@ describe("NewDealPage — deferred file uploads", () => {
       }),
     );
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new"));
+  });
+});
+
+describe("NewDealPage — job from a call", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1&sourceId=src-google-ads";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    mocks.createDeal.mockReset();
+    mocks.linkCall.mockReset();
+    mocks.push.mockReset();
+  });
+
+  it("prefills the job source from the call and keeps it on the created job", async () => {
+    mocks.createDeal.mockImplementation(
+      (_body: unknown, opts?: { onSuccess?: (d: unknown) => void }) =>
+        opts?.onSuccess?.({ id: "d-new" }),
+    );
+
+    const u = user();
+    render(<NewDealPage />);
+
+    expect(screen.getByTestId("job-source-select")).toHaveTextContent(
+      "src-google-ads",
+    );
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    await waitFor(() =>
+      expect(mocks.createDeal).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: "src-google-ads" }),
+        expect.anything(),
+      ),
+    );
+    // The call that started this job ends up linked to it.
+    expect(mocks.linkCall).toHaveBeenCalledWith({ sid: "CA1", dealId: "d-new" });
   });
 });
 

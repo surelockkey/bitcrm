@@ -46,6 +46,8 @@ export interface CallRecord {
   dealId?: string;
   dealLinkedBy?: string;
   dealLinkedAt?: string;
+  /** Job source the call is attributed to (from the tracked number it used). */
+  sourceId?: string;
   /** How the party was decided — a manual choice is never re-derived. */
   partySource?: "auto" | "manual";
   durationSeconds?: number;

@@ -24,19 +24,29 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useNumbers, useReleaseNumber } from "../numbers-hooks";
+import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import {
+  useNumbers,
+  useNumberSettings,
+  useReleaseNumber,
+  useUpdateNumberSettings,
+} from "../numbers-hooks";
 import type { OwnedNumber } from "../numbers-api";
 import { BuyNumberDialog } from "./buy-number-dialog";
 
 export function PhoneNumbersPage() {
   const { can } = usePermissions();
   const { data: numbers, isLoading } = useNumbers(true);
+  const { data: numberSettings } = useNumberSettings(can("settings"));
+  const updateSettings = useUpdateNumberSettings();
   const release = useReleaseNumber();
 
   const [buyOpen, setBuyOpen] = useState(false);
   const [deleting, setDeleting] = useState<OwnedNumber | undefined>();
 
   const canManage = can("settings", "edit");
+  const sourceOf = (phoneNumber: string) =>
+    numberSettings?.find((s) => s.phoneNumber === phoneNumber)?.sourceId;
 
   if (!can("settings")) {
     return (
@@ -92,6 +102,7 @@ export function PhoneNumbersPage() {
               <TableRow>
                 <TableHead>Number</TableHead>
                 <TableHead>Label</TableHead>
+                <TableHead>Job source</TableHead>
                 {canManage ? (
                   <TableHead className="w-16 text-right">Actions</TableHead>
                 ) : null}
@@ -105,6 +116,21 @@ export function PhoneNumbersPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {n.friendlyName}
+                  </TableCell>
+                  {/* Call tracking: calls through this number are attributed
+                      to the chosen source, and a job created from such a call
+                      carries it automatically. */}
+                  <TableCell>
+                    <JobSourceSelect
+                      value={sourceOf(n.phoneNumber)}
+                      onChange={(sourceId) =>
+                        updateSettings.mutate({
+                          phoneNumber: n.phoneNumber,
+                          sourceId: sourceId ?? null,
+                        })
+                      }
+                      disabled={!canManage}
+                    />
                   </TableCell>
                   {canManage ? (
                     <TableCell className="text-right">
