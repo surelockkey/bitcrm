@@ -171,7 +171,7 @@ export function jobHourKey(d: Deal, basis: JobDateBasis): string {
 
 /* ------------------------------------------------------------------- sort */
 
-export type JobSortKey = "day" | "hour";
+export type JobSortKey = "day" | "hour" | "schedule";
 
 export interface JobSort {
   key: JobSortKey;
@@ -179,18 +179,24 @@ export interface JobSort {
 }
 
 /**
- * Order jobs by day or by time of day, over the schedule (default) or the
- * created timestamp. Hour sorting compares only the time — 08:00 sorts before
- * 14:00 across different dates (a dispatcher's morning-first view). Jobs
- * missing the key always sink to the bottom, in either direction.
+ * Order jobs by day, by time of day, or by the full schedule (day + slot
+ * start — the board's default "soonest upcoming first" order), over the
+ * schedule (default) or the created timestamp. Hour sorting compares only the
+ * time — 08:00 sorts before 14:00 across different dates (a dispatcher's
+ * morning-first view). Jobs missing the key always sink to the bottom, in
+ * either direction.
  */
 export function sortJobs(
   deals: Deal[],
   sort: JobSort,
   field: JobDateBasis = "scheduledDate",
 ): Deal[] {
-  const key = (d: Deal): string =>
-    sort.key === "day" ? jobDayKey(d, field) : jobHourKey(d, field);
+  const key = (d: Deal): string => {
+    if (sort.key === "day") return jobDayKey(d, field);
+    if (sort.key === "hour") return jobHourKey(d, field);
+    const day = jobDayKey(d, field);
+    return day ? `${day} ${jobHourKey(d, field)}` : "";
+  };
   const mult = sort.dir === "asc" ? 1 : -1;
   return [...deals].sort((a, b) => {
     const ka = key(a);
@@ -218,12 +224,46 @@ export function formatSchedule(date?: string, slot?: string): string {
  * a tone the table uses to colour it: past → `overdue`, today → `soon`, else `ok`.
  * Returns null for undated deals.
  */
+export interface ScheduleMarker {
+  label: string;
+  tone: "overdue" | "soon" | "ok";
+}
+
+/**
+ * How far a job's schedule is from now. A passed slot reads by the minute and
+ * hour, Workiz-style ("3 hours ago"), until a full day has gone by; without a
+ * slot the arithmetic stays whole-day. Future days keep the calm day labels.
+ * Returns null for undated deals.
+ */
 export function scheduleRelative(
   date: string | undefined,
-  todayIso: string,
-): { label: string; tone: "overdue" | "soon" | "ok" } | null {
+  slot: string | undefined,
+  now: Date = new Date(),
+): ScheduleMarker | null {
   if (!date) return null;
   const day = 86_400_000;
+
+  const start = slot?.split("-")[0]?.trim();
+  const hasTime = !!start && /^\d{2}:\d{2}$/.test(start);
+  const at = new Date(`${date}T${hasTime ? start : "00:00"}:00`);
+  if (Number.isNaN(at.getTime())) return null;
+
+  // Time-of-day precision only makes sense once a slot has actually passed.
+  if (hasTime && at.getTime() <= now.getTime()) {
+    const ms = now.getTime() - at.getTime();
+    if (ms < day) {
+      const hours = Math.floor(ms / 3_600_000);
+      if (hours < 1) {
+        const minutes = Math.max(1, Math.floor(ms / 60_000));
+        return { label: `${minutes} minute${minutes === 1 ? "" : "s"} ago`, tone: "overdue" };
+      }
+      return { label: `${hours} hour${hours === 1 ? "" : "s"} ago`, tone: "overdue" };
+    }
+    const days = Math.floor(ms / day);
+    return { label: `${days} day${days === 1 ? "" : "s"} ago`, tone: "overdue" };
+  }
+
+  const todayIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const diff = Math.round(
     (new Date(`${date}T00:00:00`).getTime() - new Date(`${todayIso}T00:00:00`).getTime()) / day,
   );
@@ -232,6 +272,23 @@ export function scheduleRelative(
   if (diff === 0) return { label: "Today", tone: "soon" };
   if (diff === 1) return { label: "Tomorrow", tone: "ok" };
   return { label: `in ${diff} days`, tone: "ok" };
+}
+
+/** Statuses whose schedule is settled — a passed slot is expected, not late. */
+const CLOSED_STATUSES: readonly JobSuperStatus[] = [
+  JobSuperStatus.DONE,
+  JobSuperStatus.DONE_PENDING_APPROVAL,
+  JobSuperStatus.CANCELED,
+];
+
+/**
+ * The relative marker a job's row shows under its schedule. Closed jobs stay
+ * quiet: a done or canceled job whose slot has passed is history, not overdue
+ * — only actionable jobs get the red "N hours ago".
+ */
+export function scheduleMarker(d: Deal, now: Date = new Date()): ScheduleMarker | null {
+  if (CLOSED_STATUSES.includes(d.superStatus)) return null;
+  return scheduleRelative(d.scheduledDate, d.scheduledTimeSlot, now);
 }
 
 export type DatePreset = "all" | "today" | "week";

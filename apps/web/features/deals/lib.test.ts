@@ -21,6 +21,7 @@ import {
   isPriceInBand,
   filterDeals,
   datePresetRange,
+  scheduleMarker,
   scheduleRelative,
   JOB_TABS,
   jobTabLabel,
@@ -317,13 +318,66 @@ describe("status tabs", () => {
     expect(c.unscheduled).toBe(2);
   });
 
-  it("scheduleRelative labels dates relative to today", () => {
-    expect(scheduleRelative(undefined, "2026-07-16")).toBeNull();
-    expect(scheduleRelative("2026-07-16", "2026-07-16")).toEqual({ label: "Today", tone: "soon" });
-    expect(scheduleRelative("2026-07-17", "2026-07-16")).toEqual({ label: "Tomorrow", tone: "ok" });
-    expect(scheduleRelative("2026-07-19", "2026-07-16")).toEqual({ label: "in 3 days", tone: "ok" });
-    expect(scheduleRelative("2026-07-14", "2026-07-16")).toEqual({ label: "2 days ago", tone: "overdue" });
-    expect(scheduleRelative("2026-07-15", "2026-07-16")).toEqual({ label: "1 day ago", tone: "overdue" });
+  it("scheduleRelative labels future dates relative to today", () => {
+    const now = new Date("2026-07-16T12:00:00");
+    expect(scheduleRelative(undefined, undefined, now)).toBeNull();
+    expect(scheduleRelative("2026-07-16", "14:00-15:00", now)).toEqual({ label: "Today", tone: "soon" });
+    expect(scheduleRelative("2026-07-17", undefined, now)).toEqual({ label: "Tomorrow", tone: "ok" });
+    expect(scheduleRelative("2026-07-19", undefined, now)).toEqual({ label: "in 3 days", tone: "ok" });
+  });
+
+  it("scheduleRelative reports a passed slot by the hour, Workiz-style", () => {
+    const now = new Date("2026-07-16T12:00:00");
+    // 09:00 slot at noon → "3 hours ago"
+    expect(scheduleRelative("2026-07-16", "09:00-10:00", now)).toEqual({
+      label: "3 hours ago",
+      tone: "overdue",
+    });
+    expect(scheduleRelative("2026-07-16", "11:30-12:30", now)).toEqual({
+      label: "30 minutes ago",
+      tone: "overdue",
+    });
+    // Yesterday 13:00 → not a full day yet, still hours.
+    expect(scheduleRelative("2026-07-15", "13:00-14:00", now)).toEqual({
+      label: "23 hours ago",
+      tone: "overdue",
+    });
+    expect(scheduleRelative("2026-07-14", "09:00-10:00", now)).toEqual({
+      label: "2 days ago",
+      tone: "overdue",
+    });
+    // Undated slots fall back to whole-day arithmetic.
+    expect(scheduleRelative("2026-07-15", undefined, now)).toEqual({
+      label: "1 day ago",
+      tone: "overdue",
+    });
+    expect(scheduleRelative("2026-07-14", undefined, now)).toEqual({
+      label: "2 days ago",
+      tone: "overdue",
+    });
+  });
+
+  it("scheduleMarker stays quiet on closed jobs", () => {
+    const now = new Date("2026-07-16T12:00:00");
+    const overdue = { scheduledDate: "2026-07-14", scheduledTimeSlot: "09:00-10:00" };
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.SUBMITTED }), now),
+    ).toEqual({ label: "2 days ago", tone: "overdue" });
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.IN_PROGRESS }), now),
+    ).not.toBeNull();
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.DONE }), now),
+    ).toBeNull();
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.CANCELED }), now),
+    ).toBeNull();
+    expect(
+      scheduleMarker(
+        deal({ ...overdue, superStatus: JobSuperStatus.DONE_PENDING_APPROVAL }),
+        now,
+      ),
+    ).toBeNull();
   });
 
   it("filterDeals honors a single tab", () => {
@@ -637,6 +691,17 @@ describe("sortJobs", () => {
     const before = rows.map((d) => d.id);
     sortJobs(rows, { key: "day", dir: "desc" });
     expect(rows.map((d) => d.id)).toEqual(before);
+  });
+
+  it("schedule key orders soonest → latest by day then hour, unscheduled last", () => {
+    // b (18th 08:00) → c (19th, no slot) → a (20th 14:00) → d (unscheduled).
+    expect(sortJobs(rows, { key: "schedule", dir: "asc" }).map((d) => d.id)).toEqual(["b", "c", "a", "d"]);
+    // Same day, different slots: the earlier start goes first.
+    const sameDay = [
+      deal({ id: "late", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" }),
+      deal({ id: "early", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" }),
+    ];
+    expect(sortJobs(sameDay, { key: "schedule", dir: "asc" }).map((d) => d.id)).toEqual(["early", "late"]);
   });
 });
 
