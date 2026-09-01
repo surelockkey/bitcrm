@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CallRecord } from "../lib";
 import { CallsTable } from "./calls-table";
@@ -18,6 +18,17 @@ vi.mock("./new-client-from-call-dialog", () => ({
 // Party cells resolve names through react-query; irrelevant to the preview.
 vi.mock("./call-party-cell", () => ({
   CallPartyCell: () => <span>party</span>,
+}));
+
+// The quick view fetches the call detail; serve it from the fixture list.
+const detail = vi.fn<(sid: string) => CallRecord | undefined>();
+vi.mock("../hooks", () => ({
+  useCallDetail: (sid: string) => ({ data: detail(sid), isLoading: false }),
+}));
+
+// Associations pull jobs through react-query; not under test here.
+vi.mock("./call-associations", () => ({
+  CallAssociations: () => <div>associations</div>,
 }));
 
 const fetchRecordingBlob = vi.fn<(sid: string) => Promise<Blob>>();
@@ -114,11 +125,30 @@ describe("CallsTable recording preview", () => {
     expect(fetchRecordingBlob).toHaveBeenLastCalledWith("CA2");
   });
 
-  it("still navigates to the call page from the row itself", async () => {
+  it("opens the side preview from the row instead of navigating", async () => {
     const user = userEvent.setup();
-    render(<CallsTable calls={[call({ callSid: "CA1", recordingSid: "RE1" })]} />);
+    const rec = call({ callSid: "CA1", recordingSid: "RE1" });
+    detail.mockReturnValue(rec);
+    render(<CallsTable calls={[rec]} />);
 
     await user.click(screen.getByText("Completed"));
-    expect(push).toHaveBeenCalledWith("/calls/CA1");
+
+    expect(push).not.toHaveBeenCalled();
+    const panel = await screen.findByRole("dialog");
+    const open = within(panel).getByRole("link", { name: /open full call/i });
+    expect(open).toHaveAttribute("href", "/calls/CA1");
+  });
+
+  it("closes the side preview", async () => {
+    const user = userEvent.setup();
+    const rec = call({ callSid: "CA1" });
+    detail.mockReturnValue(rec);
+    render(<CallsTable calls={[rec]} />);
+
+    await user.click(screen.getByText("Completed"));
+    await screen.findByRole("dialog");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
