@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { useRouter } from "next/navigation";
 import { PhoneIncoming, PhoneOutgoing, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,16 +18,18 @@ import {
   type CallRecord,
 } from "../lib";
 import { CallPartyCell } from "./call-party-cell";
+import { CallQuickView } from "./call-quick-view";
 import { CallStatusBadge } from "./call-status-badge";
 import { NewClientFromCallDialog } from "./new-client-from-call-dialog";
 import { RecordingPreview } from "./recording-preview";
 
 export function CallsTable({ calls }: { calls: CallRecord[] }) {
-  const router = useRouter();
   // The number an unknown caller is being turned into a client for.
   const [addingFor, setAddingFor] = useState<string | null>(null);
   // The call whose recording is playing inline; one preview at a time.
   const [previewSid, setPreviewSid] = useState<string | null>(null);
+  // The call open in the side preview panel.
+  const [quickViewSid, setQuickViewSid] = useState<string | null>(null);
 
   return (
     <div className="rounded-lg border">
@@ -49,7 +50,17 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
             <Fragment key={call.callSid}>
               <TableRow
                 className="cursor-pointer"
-                onClick={() => router.push(`/calls/${call.callSid}`)}
+                // Left click opens the side preview; right click jumps
+                // straight into the call page in a new tab, like the job list.
+                onClick={() => setQuickViewSid(call.callSid)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  window.open(
+                    `/calls/${call.callSid}`,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }}
               >
                 <TableCell>
                   {call.direction === "inbound" ? (
@@ -118,6 +129,12 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
           ))}
         </TableBody>
       </Table>
+
+      <CallQuickView
+        callSid={quickViewSid}
+        open={!!quickViewSid}
+        onOpenChange={(open) => !open && setQuickViewSid(null)}
+      />
 
       <NewClientFromCallDialog
         phone={addingFor}

@@ -33,7 +33,12 @@ export function RecordingPlayer({
   return (
     <div className="flex items-center gap-3">
       <Mic className="size-4 shrink-0 text-muted-foreground" />
-      <audio controls src={url} className="h-10 w-full max-w-md" />
+      <audio
+        controls
+        src={url}
+        data-testid="recording-audio"
+        className="h-10 w-full max-w-md"
+      />
     </div>
   );
 }
