@@ -68,9 +68,12 @@ export function NewDealPage() {
 
   // Opened from a call: the dialer sends the call and, when it knows them,
   // the client — so neither has to be typed while somebody is on the line.
+  // The call's tracked number can also carry a job source; it lands on the
+  // form so the created job keeps the call's attribution.
   const callSid = params.get("callSid") ?? undefined;
   const prefillContactId = params.get("contactId") ?? undefined;
   const prefillPhone = params.get("phone") ?? undefined;
+  const prefillSourceId = params.get("sourceId") ?? undefined;
 
   const [callsToLink, setCallsToLink] = useState<string[]>(
     callSid ? [callSid] : [],
@@ -119,6 +122,7 @@ export function NewDealPage() {
           onContact={setContact}
           createdHere={!!contact && contact.id === createdId}
           prefillPhone={prefillPhone}
+          prefillSourceId={prefillSourceId}
           callSid={callSid}
           callsToLink={callsToLink}
           onCallsToLink={setCallsToLink}
@@ -146,6 +150,7 @@ function DealForm({
   onContact,
   createdHere,
   prefillPhone,
+  prefillSourceId,
   callSid,
   callsToLink,
   onCallsToLink,
@@ -156,6 +161,8 @@ function DealForm({
   /** The client was added on this page, so their details are already right. */
   createdHere: boolean;
   prefillPhone?: string;
+  /** Job source the referring call was attributed to. */
+  prefillSourceId?: string;
   callSid?: string;
   callsToLink: string[];
   onCallsToLink: (sids: string[]) => void;
@@ -240,7 +247,7 @@ function DealForm({
       scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
       allDay: false,
       priority: DealPriority.NORMAL,
-      sourceId: "",
+      sourceId: prefillSourceId ?? "",
       externalCompanyId: "",
       notes: "",
       tagIds: [],

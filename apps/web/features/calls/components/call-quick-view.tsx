@@ -6,6 +6,7 @@ import {
   Loader2,
   PhoneIncoming,
   PhoneOutgoing,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useJobSourceName } from "@/features/job-sources/lib";
 import { useCallDetail } from "../hooks";
 import {
   callParty,
@@ -21,6 +23,7 @@ import {
   formatCallTime,
   formatDuration,
   formatEndpoint,
+  type CallRecord,
 } from "../lib";
 import { CallAssociations } from "./call-associations";
 import { CallPartyCell } from "./call-party-cell";
@@ -74,8 +77,26 @@ function Row({
   );
 }
 
+/**
+ * Prewire the New Job page with everything the call already knows: the call
+ * itself (it gets linked to the created job), the client — or at least their
+ * number — and the job source the tracked number attributed the call to.
+ */
+function createJobHref(call: CallRecord): string {
+  const counterpart = counterparty(call);
+  const params = new URLSearchParams({ callSid: call.callSid });
+  if (counterpart.kind === "contact" && counterpart.id) {
+    params.set("contactId", counterpart.id);
+  } else if (counterpart.number) {
+    params.set("phone", counterpart.number);
+  }
+  if (call.sourceId) params.set("sourceId", call.sourceId);
+  return `/deals/new?${params.toString()}`;
+}
+
 function QuickViewBody({ callSid }: { callSid: string }) {
   const { data: call, isLoading } = useCallDetail(callSid);
+  const sourceName = useJobSourceName();
 
   if (isLoading || !call) {
     return (
@@ -134,13 +155,32 @@ function QuickViewBody({ callSid }: { callSid: string }) {
               {formatDuration(call.durationSeconds)}
             </span>
           </Row>
+          {call.sourceId ? (
+            <Row label="Source">
+              <span className="text-sm">{sourceName(call.sourceId)}</span>
+            </Row>
+          ) : null}
         </div>
 
         <CallAssociations call={call} />
       </div>
 
-      <div className="border-t p-4">
-        <Button asChild variant="brand" className="w-full gap-1.5">
+      <div className="space-y-2 border-t p-4">
+        {/* Creating the job carries the call's attribution with it: client,
+            number and job source arrive on the form prefilled, and the call
+            is linked to the job on create. Hidden once a job is linked. */}
+        {!call.dealId ? (
+          <Button asChild variant="brand" className="w-full gap-1.5">
+            <Link href={createJobHref(call)}>
+              <Plus className="size-4" /> Create job
+            </Link>
+          </Button>
+        ) : null}
+        <Button
+          asChild
+          variant={call.dealId ? "brand" : "outline"}
+          className="w-full gap-1.5"
+        >
           <Link
             href={`/calls/${call.callSid}`}
             target="_blank"

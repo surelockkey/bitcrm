@@ -62,3 +62,26 @@ export const releaseNumber = (
   sid: string,
 ): Promise<{ sid: string; released: boolean }> =>
   http.delete<{ sid: string; released: boolean }>(`/telephony/numbers/${sid}`);
+
+/**
+ * Per-number settings — the job source calls through the number are
+ * attributed to (call tracking). Numbers without an entry have none.
+ */
+export interface NumberSettings {
+  phoneNumber: string;
+  sourceId?: string;
+}
+
+/** Every number's settings (settings.view). */
+export const listNumberSettings = (): Promise<NumberSettings[]> =>
+  http.get<NumberSettings[]>("/telephony/numbers/settings");
+
+/** Assign (or clear, with null) the number's job source (settings.edit). */
+export const updateNumberSettings = (
+  phoneNumber: string,
+  sourceId: string | null,
+): Promise<NumberSettings> =>
+  http.put<NumberSettings>(
+    `/telephony/numbers/${encodeURIComponent(phoneNumber)}/settings`,
+    { sourceId },
+  );

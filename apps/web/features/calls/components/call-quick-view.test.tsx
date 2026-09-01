@@ -12,6 +12,10 @@ vi.mock("./call-associations", () => ({
 vi.mock("./call-party-cell", () => ({
   CallPartyCell: () => <span>party</span>,
 }));
+vi.mock("@/features/job-sources/lib", () => ({
+  useJobSourceName: () => (id?: string) =>
+    id === "src-1" ? "SURE CT GOOGLE ADS" : "—",
+}));
 
 const fetchRecordingBlob = vi.fn<(sid: string) => Promise<Blob>>();
 vi.mock("../api", () => ({
@@ -88,5 +92,57 @@ describe("CallQuickView", () => {
     expect(
       screen.getByRole("link", { name: /open full call/i }),
     ).toHaveAttribute("href", "/calls/CA1");
+  });
+
+  it("shows the call's job source", () => {
+    detail.mockReturnValue({
+      data: call({ sourceId: "src-1" }),
+      isLoading: false,
+    });
+    render(<CallQuickView callSid="CA1" open onOpenChange={() => {}} />);
+
+    expect(screen.getByText("SURE CT GOOGLE ADS")).toBeInTheDocument();
+  });
+
+  it("offers Create job with the client, source and call prewired", () => {
+    detail.mockReturnValue({
+      data: call({
+        sourceId: "src-1",
+        fromParty: { kind: "contact", id: "c9", name: "Jane Roe" },
+      }),
+      isLoading: false,
+    });
+    render(<CallQuickView callSid="CA1" open onOpenChange={() => {}} />);
+
+    const create = screen.getByRole("link", { name: /create job/i });
+    const href = create.getAttribute("href") ?? "";
+    expect(href).toContain("/deals/new?");
+    expect(href).toContain("callSid=CA1");
+    expect(href).toContain("contactId=c9");
+    expect(href).toContain("sourceId=src-1");
+  });
+
+  it("passes the caller's number when they aren't a client yet", () => {
+    detail.mockReturnValue({ data: call({}), isLoading: false });
+    render(<CallQuickView callSid="CA1" open onOpenChange={() => {}} />);
+
+    const href =
+      screen.getByRole("link", { name: /create job/i }).getAttribute("href") ??
+      "";
+    expect(href).toContain(`phone=${encodeURIComponent("+14045551234")}`);
+    expect(href).not.toContain("contactId=");
+    expect(href).not.toContain("sourceId=");
+  });
+
+  it("hides Create job once the call is linked to a job", () => {
+    detail.mockReturnValue({
+      data: call({ dealId: "d1" }),
+      isLoading: false,
+    });
+    render(<CallQuickView callSid="CA1" open onOpenChange={() => {}} />);
+
+    expect(
+      screen.queryByRole("link", { name: /create job/i }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -30,6 +30,9 @@ vi.mock("../hooks", () => ({
 vi.mock("./call-associations", () => ({
   CallAssociations: () => <div>associations</div>,
 }));
+vi.mock("@/features/job-sources/lib", () => ({
+  useJobSourceName: () => () => "—",
+}));
 
 const fetchRecordingBlob = vi.fn<(sid: string) => Promise<Blob>>();
 vi.mock("../api", () => ({
