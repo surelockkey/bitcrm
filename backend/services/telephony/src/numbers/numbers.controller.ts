@@ -5,21 +5,45 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RequirePermission } from '@bitcrm/shared';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiPropertyOptional,
+} from '@nestjs/swagger';
+import { IsOptional, IsString, ValidateIf } from 'class-validator';
+import { RequirePermission, CurrentUser } from '@bitcrm/shared';
+import { type JwtUser } from '@bitcrm/types';
 import { NumbersService } from './numbers.service';
+import { NumberSettingsRepository } from './number-settings.repository';
 
 class BuyNumberDto {
   phoneNumber!: string;
+}
+
+class UpdateNumberSettingsDto {
+  @ApiPropertyOptional({
+    description: 'Job-source catalog id; null clears the assignment.',
+    example: 'a2b6f9d0-...',
+    nullable: true,
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  sourceId?: string | null;
 }
 
 @ApiTags('Telephony')
 @ApiBearerAuth()
 @Controller('numbers')
 export class NumbersController {
-  constructor(private readonly numbers: NumbersService) {}
+  constructor(
+    private readonly numbers: NumbersService,
+    private readonly settings: NumberSettingsRepository,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -29,6 +53,40 @@ export class NumbersController {
   })
   async list() {
     const data = await this.numbers.listOwned();
+    return { success: true, data };
+  }
+
+  @Get('settings')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: 'Per-number settings (job source assignments)',
+    description:
+      '**Guard:** `settings.view`. Every number with settings; numbers ' +
+      'without an entry have none.',
+  })
+  async listSettings() {
+    const data = await this.settings.list();
+    return { success: true, data };
+  }
+
+  @Put(':phoneNumber/settings')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: "Assign the number's job source",
+    description:
+      '**Guard:** `settings.edit`. Calls through the number are attributed ' +
+      'to this job source from now on; `sourceId: null` clears it.',
+  })
+  async updateSettings(
+    @Param('phoneNumber') phoneNumber: string,
+    @Body() dto: UpdateNumberSettingsDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.settings.put(
+      phoneNumber,
+      { sourceId: dto.sourceId },
+      user.id,
+    );
     return { success: true, data };
   }
 
