@@ -151,6 +151,23 @@ describe("presetRange", () => {
     expect(toLocalParts(presetRange("last30", now).from)?.date).toBe("2026-07-12");
     expect(toLocalParts(presetRange("thisMonth", now).from)?.date).toBe("2026-08-01");
   });
+
+  it("covers the whole previous calendar month", () => {
+    const last = presetRange("lastMonth", now);
+    expect(toLocalParts(last.from)).toEqual({ date: "2026-07-01", time: DAY_START });
+    expect(toLocalParts(last.to)).toEqual({ date: "2026-07-31", time: DAY_END });
+
+    // Around a year boundary it lands on December of the previous year.
+    const january = presetRange("lastMonth", new Date(2026, 0, 15));
+    expect(toLocalParts(january.from)?.date).toBe("2025-12-01");
+    expect(toLocalParts(january.to)?.date).toBe("2025-12-31");
+  });
+
+  it("runs the year to date for This year", () => {
+    const year = presetRange("thisYear", now);
+    expect(toLocalParts(year.from)).toEqual({ date: "2026-01-01", time: DAY_START });
+    expect(toLocalParts(year.to)).toEqual({ date: "2026-08-10", time: DAY_END });
+  });
 });
 
 describe("monthCells", () => {

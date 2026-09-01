@@ -159,7 +159,9 @@ export type RangePreset =
   | "yesterday"
   | "last7"
   | "last30"
-  | "thisMonth";
+  | "thisMonth"
+  | "lastMonth"
+  | "thisYear";
 
 export const PRESET_LABEL: Record<RangePreset, string> = {
   today: "Today",
@@ -167,6 +169,8 @@ export const PRESET_LABEL: Record<RangePreset, string> = {
   last7: "Last 7 days",
   last30: "Last 30 days",
   thisMonth: "This month",
+  lastMonth: "Last month",
+  thisYear: "This year",
 };
 
 /** A preset as an absolute range — whole days, in local time. */
@@ -195,6 +199,17 @@ export function presetRange(preset: RangePreset, now = new Date()): DateTimeRang
     case "thisMonth":
       return {
         from: toIsoInstant(toDateKey(new Date(now.getFullYear(), now.getMonth(), 1)), DAY_START),
+        to: toIsoInstant(today, DAY_END),
+      };
+    case "lastMonth":
+      return {
+        from: toIsoInstant(toDateKey(new Date(now.getFullYear(), now.getMonth() - 1, 1)), DAY_START),
+        // Day 0 of this month = the last day of the previous one.
+        to: toIsoInstant(toDateKey(new Date(now.getFullYear(), now.getMonth(), 0)), DAY_END),
+      };
+    case "thisYear":
+      return {
+        from: toIsoInstant(toDateKey(new Date(now.getFullYear(), 0, 1)), DAY_START),
         to: toIsoInstant(today, DAY_END),
       };
   }
