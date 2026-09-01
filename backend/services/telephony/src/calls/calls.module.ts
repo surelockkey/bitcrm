@@ -9,12 +9,14 @@ import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
 import { UserDirectoryService } from '../common/user-directory.service';
 import { DealLinkService } from '../common/deal-link.service';
 import { TelephonyModule } from '../telephony/telephony.module';
+import { NumbersModule } from '../numbers/numbers.module';
 import { VoiceModule } from '../voice/voice.module';
 
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
-  imports: [TelephonyModule, forwardRef(() => VoiceModule)],
+  // NumbersModule: per-number source assignments for call attribution.
+  imports: [TelephonyModule, NumbersModule, forwardRef(() => VoiceModule)],
   controllers: [CallsController],
   providers: [
     CallsService,

@@ -79,6 +79,12 @@ export interface CallRecord {
   dealId?: string;
   dealLinkedBy?: string;
   dealLinkedAt?: string;
+  /**
+   * Job-source catalog id the call is attributed to — resolved from the
+   * tracked number it came through (see NumberSettingsRepository) and stamped
+   * once, so re-assigning a number later never rewrites past calls.
+   */
+  sourceId?: string;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;
@@ -189,6 +195,7 @@ export class CallsRepository {
       ['recordingSid', rec.recordingSid],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
       ['internalLegOf', rec.internalLegOf],
+      ['sourceId', rec.sourceId],
     ];
     for (const [field, value] of optional) {
       // Empty strings guard against Twilio callbacks that report blank
