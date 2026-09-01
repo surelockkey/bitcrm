@@ -31,7 +31,7 @@ function trail() {
 
 beforeEach(() => {
   mocks.pathname = "/";
-  usePageHistoryStore.setState({ visits: [] });
+  usePageHistoryStore.setState({ visits: [], labels: {} });
 });
 
 describe("PageHistoryBar", () => {
@@ -141,5 +141,20 @@ describe("usePageHistoryLabel", () => {
       </>,
     );
     expect(within(trail()).getByText("Job")).toBeInTheDocument();
+  });
+
+  it("keeps the upgraded label when the label is known before the visit is recorded", () => {
+    // Revisiting a job whose data is already cached: the page mounts with the
+    // label immediately and its effect runs before the trail records the
+    // navigation. The upgrade must survive that ordering.
+    mocks.pathname = "/deals/d1";
+    render(
+      <>
+        <DealPage label="Job (3QI2BN)" />
+        <PageHistoryBar />
+      </>,
+    );
+    expect(within(trail()).getByText("Job (3QI2BN)")).toBeInTheDocument();
+    expect(within(trail()).queryByText("Job")).not.toBeInTheDocument();
   });
 });
