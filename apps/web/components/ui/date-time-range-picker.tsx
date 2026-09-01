@@ -39,6 +39,8 @@ const PRESETS: RangePreset[] = [
   "last7",
   "last30",
   "thisMonth",
+  "lastMonth",
+  "thisYear",
 ];
 
 /**
