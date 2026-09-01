@@ -33,7 +33,7 @@ import {
   jobFieldOptions,
   type VisibleFields,
 } from "../fields";
-import { dealClientName, formatSchedule, isUrgent, scheduleRelative } from "../lib";
+import { dealClientName, formatSchedule, isUrgent, scheduleMarker } from "../lib";
 import { TechChips } from "./assigned-techs";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 
@@ -61,7 +61,6 @@ export function DealsTable({
   const externalCompanyName = useExternalCompanyName();
   const subStatusName = useJobStatusName();
   const { data: customFieldDefs } = useCustomFields();
-  const todayIso = new Date().toISOString().slice(0, 10);
 
   // Every offerable field (static + active custom), narrowed to what's toggled on.
   const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
@@ -133,7 +132,7 @@ export function DealsTable({
       case "serviceArea":
         return <span className="text-sm text-muted-foreground">{d.serviceArea || "—"}</span>;
       case "scheduled": {
-        const rel = scheduleRelative(d.scheduledDate, todayIso);
+        const rel = scheduleMarker(d);
         return (
           <>
             <div className="text-sm">{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</div>

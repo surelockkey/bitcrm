@@ -27,7 +27,6 @@ import {
   type JobTab,
   sortJobs,
   type JobSort,
-  type JobDateBasis,
 } from "../lib";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
@@ -59,8 +58,6 @@ export function DealsPage() {
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
   const [sortSel, setSortSel] = useState("none");
-  // Which timestamp all the date/time controls read.
-  const [dateBasis, setDateBasis] = useState<JobDateBasis>("scheduledDate");
   // Range filters: one calendar range for the days, plus a time-of-day window.
   const [dayRange, setDayRange] = useState<DateTimeRange>({});
   const [hourFrom, setHourFrom] = useState("");
@@ -99,14 +96,12 @@ export function DealsPage() {
       dateTo: dateTo || undefined,
       hourFrom: hourFrom || undefined,
       hourTo: hourTo || undefined,
-      hourBasis: dateBasis,
-      dateBasis,
       techId: techId === ALL ? undefined : techId,
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
       serviceArea: serviceArea === ALL ? undefined : serviceArea,
       tagId: tagId === ALL ? undefined : tagId,
     }),
-    [search, techId, jobTypeId, serviceArea, tagId, dateFrom, dateTo, hourFrom, hourTo, dateBasis],
+    [search, techId, jobTypeId, serviceArea, tagId, dateFrom, dateTo, hourFrom, hourTo],
   );
 
   // Searchable custom-field definitions let free-text search match their answers.
@@ -122,10 +117,11 @@ export function DealsPage() {
   const counts = useMemo(() => tabCounts(base), [base]);
   const visible = useMemo(() => {
     const rows = base.filter((d) => matchesTab(d, tab));
-    if (sortSel === "none") return rows;
+    // Default: the board reads soonest upcoming → latest (unscheduled last).
+    if (sortSel === "none") return sortJobs(rows, { key: "schedule", dir: "asc" });
     const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
-    return sortJobs(rows, { key, dir }, dateBasis);
-  }, [base, tab, sortSel, dateBasis]);
+    return sortJobs(rows, { key, dir });
+  }, [base, tab, sortSel]);
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -162,23 +158,16 @@ export function DealsPage() {
           value={sortSel}
           onChange={(e) => setSortSel(e.target.value)}
         >
-          <option value="none">Sort: default</option>
+          <option value="none">Sort: Soonest first</option>
           <option value="day_asc">Day &#8593;</option>
           <option value="day_desc">Day &#8595;</option>
           <option value="hour_asc">Hour &#8593;</option>
           <option value="hour_desc">Hour &#8595;</option>
         </select>
-        <select
-          aria-label="Date basis"
-          className="h-9 rounded-md border bg-transparent px-2 text-sm"
-          value={dateBasis}
-          onChange={(e) => setDateBasis(e.target.value as JobDateBasis)}
-        >
-          <option value="scheduledDate">By: Job date</option>
-          <option value="createdAt">By: Job created</option>
-          <option value="closedAt">By: Job closed</option>
-        </select>
-        <DateTimeRangePicker dateOnly label="Days" value={dayRange} onChange={setDayRange} />
+        {/* Only forward-looking one-click ranges: an open board carries no
+            past-day jobs — anything overdue stays visible with its marker
+            until it's closed or canceled. */}
+        <DateTimeRangePicker dateOnly label="Days" value={dayRange} onChange={setDayRange} presets={["today"]} />
         <Input type="time" aria-label="From hour" className="h-9 w-28" value={hourFrom} onChange={(e) => setHourFrom(e.target.value)} />
         <Input type="time" aria-label="To hour" className="h-9 w-28" value={hourTo} onChange={(e) => setHourTo(e.target.value)} />
         <div className="ml-auto">
