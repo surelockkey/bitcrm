@@ -87,6 +87,11 @@ export interface Deal {
    * (or one of their sub-statuses). Cleared if the job is reopened.
    */
   closedAt?: string;
+  /**
+   * When the job entered its current status (super or sub) — set at creation,
+   * re-stamped by every real status move. Drives "time in status" displays.
+   */
+  statusChangedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -510,6 +510,7 @@ export class DealsRepository {
       paymentStatus: item.paymentStatus as string | undefined,
       status: item.status as Deal['status'],
       createdBy: item.createdBy as string,
+      statusChangedAt: item.statusChangedAt as string | undefined,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };
