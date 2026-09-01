@@ -1,14 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Loader2, Mic } from "lucide-react";
-import { fetchRecordingBlob } from "../api";
+import { useRecordingUrl } from "../use-recording-url";
 
-/**
- * Plays the call recording. The media endpoint needs the Bearer header, which
- * an <audio src> can't send — so the blob is fetched with auth and played
- * through an object URL (revoked on unmount).
- */
+/** Plays the call recording on the call detail page. */
 export function RecordingPlayer({
   callSid,
   hasRecording,
@@ -16,29 +11,7 @@ export function RecordingPlayer({
   callSid: string;
   hasRecording: boolean;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!hasRecording) return;
-    let objectUrl: string | null = null;
-    let cancelled = false;
-
-    fetchRecordingBlob(callSid)
-      .then((blob) => {
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
-      })
-      .catch(() =>
-        cancelled ? undefined : setError("Couldn't load the recording."),
-      );
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [callSid, hasRecording]);
+  const { url, error } = useRecordingUrl(callSid, hasRecording);
 
   if (!hasRecording) {
     return (
@@ -48,7 +21,8 @@ export function RecordingPlayer({
       </p>
     );
   }
-  if (error) return <p className="text-sm text-red-500">{error}</p>;
+  if (error)
+    return <p className="text-sm text-red-500">Couldn&apos;t load the recording.</p>;
   if (!url) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
