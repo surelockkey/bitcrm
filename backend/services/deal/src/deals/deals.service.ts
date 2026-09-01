@@ -370,6 +370,8 @@ export class DealsService {
       customFields: dto.customFields as Record<string, CustomFieldValue> | undefined,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
+      // The status clock starts with the job itself (drives "time in status").
+      statusChangedAt: now,
       createdAt: now,
       updatedAt: now,
     };
@@ -652,6 +654,13 @@ export class DealsService {
     };
     if (cancellationReason) {
       updates.cancellationReason = cancellationReason;
+    }
+
+    // Re-stamp the status clock only on a real move — repeating the current
+    // status (and sub-status) must not reset "time in status".
+    const subChanged = (dto.subStatusId || null) !== (deal.subStatusId ?? null);
+    if (dto.superStatus !== from || subChanged) {
+      updates.statusChangedAt = new Date().toISOString();
     }
 
     // Closing (Done/Canceled, or their sub-statuses) stamps closedAt; leaving a

@@ -189,6 +189,18 @@ describe('DealsService', () => {
       );
     });
 
+    it('starts the status clock at creation', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(dto as any, caller);
+
+      expect(result.statusChangedAt).toBe(result.createdAt);
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ statusChangedAt: result.createdAt }),
+      );
+    });
+
     it('auto-resolves serviceAreaId and label from the geocoded address', async () => {
       repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
@@ -628,6 +640,55 @@ describe('DealsService', () => {
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.status_changed', expect.objectContaining({
         dealId: 'deal-1', oldStatus: JobSuperStatus.SUBMITTED, newStatus: JobSuperStatus.IN_PROGRESS,
       }));
+    });
+
+    it('stamps statusChangedAt when the status actually changes', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'deal-1',
+        expect.objectContaining({
+          statusChangedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        }),
+      );
+    });
+
+    it('stamps statusChangedAt on a sub-status change within the same super-status', async () => {
+      const deal = mockFindById(
+        createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: undefined }),
+      );
+      jobStatuses.findById.mockResolvedValue({
+        id: 'ss1',
+        name: 'On the way',
+        group: JobSuperStatus.IN_PROGRESS,
+      });
+      repo.update.mockResolvedValue({ ...deal, subStatusId: 'ss1' });
+
+      await service.moveStatus(
+        'deal-1',
+        { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'ss1' },
+        caller,
+      );
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'deal-1',
+        expect.objectContaining({ statusChangedAt: expect.any(String) }),
+      );
+    });
+
+    it('does not reset the status clock on a no-op move', async () => {
+      const deal = mockFindById(
+        createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: undefined }),
+      );
+      repo.update.mockResolvedValue(deal);
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      const updates = repo.update.mock.calls[0][1];
+      expect(updates.statusChangedAt).toBeUndefined();
     });
 
     it('should require cancellationReason when moving to canceled', async () => {
