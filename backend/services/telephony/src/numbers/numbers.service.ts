@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { type Twilio } from 'twilio';
 import { TwilioRest } from '../common/twilio-client';
 import {
@@ -136,7 +136,31 @@ export class NumbersService {
     };
   }
 
-  async release(sid: string): Promise<void> {
+  /**
+   * Give a number back to Twilio.
+   *
+   * Refuses when something still points at it. Releasing deletes at Twilio and
+   * touches neither `CallFlow.numbers` nor `ServiceArea.callerId` — so without
+   * this, releasing a market number leaves that market dialling clients from a
+   * number the workspace no longer owns, and every callback to it landing
+   * nowhere. Six weeks later nobody remembers why.
+   *
+   * `force` exists because sometimes the number really is going away and the
+   * references are what need fixing — but it has to be said out loud.
+   */
+  async release(
+    sid: string,
+    options: { force?: boolean; referencedBy?: () => Promise<string[]> } = {},
+  ): Promise<void> {
+    if (!options.force && options.referencedBy) {
+      const refs = await options.referencedBy().catch(() => [] as string[]);
+      if (refs.length > 0) {
+        throw new ConflictException(
+          `That number is still in use by ${refs.join(', ')}. ` +
+            'Point those elsewhere first, or release it with force.',
+        );
+      }
+    }
     await this.run(() => this.client.incomingPhoneNumbers(sid).remove());
   }
 }

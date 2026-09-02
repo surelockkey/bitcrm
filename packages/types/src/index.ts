@@ -57,6 +57,7 @@ export {
   CallFlowNodeType,
   BusinessHoursWindow,
   CallFlowAudio,
+  ExtNode,
   HangupNode,
   HoursNode,
   MenuNode,

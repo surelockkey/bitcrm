@@ -8,6 +8,14 @@ export interface Contact {
   firstName: string;
   lastName: string;
   phones: string[];
+  /**
+   * Set only when the viewer lacks `contacts.view_numbers`: `phones` comes back
+   * empty and this says how many were withheld, so the UI can render
+   * "2 numbers, hidden" rather than the "—" that means genuinely none.
+   */
+  phoneCount?: number;
+  phonesMasked?: true;
+
   emails: string[];
   /** Structured postal addresses (Google-autocompleted); a client may have several. */
   addresses: Address[];

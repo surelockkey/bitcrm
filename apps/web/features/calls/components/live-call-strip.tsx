@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Loader2, PhoneCall } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSoftphoneStore } from "@/features/telephony/softphone-store";
@@ -9,6 +10,36 @@ import { useActiveCall, useLinkCallToDeal } from "../hooks";
 import { counterparty, formatEndpoint } from "../lib";
 
 /**
+ * How long an unconfirmed answer may still be presented as fact. The poll runs
+ * every 5s, so this is two missed rounds — long enough to ride out one blip,
+ * short enough that nobody watches a ghost call.
+ */
+const CONFIRMED_WITHIN_MS = 15_000;
+
+/**
+ * How long a leg may be "connecting" before it is not a call anybody is on.
+ * The ring itself is ~25s, and the server keeps ring-phase records live for
+ * ten minutes for the dispatch board's sake — which is the right answer for a
+ * board showing everything and the wrong one for telling ONE person they are
+ * mid-call.
+ */
+const CONNECTING_GRACE_MS = 90_000;
+
+/**
+ * A ticking clock, so the guards below re-evaluate on their own. Reading
+ * `Date.now()` during render would be both impure and stuck: the strip would
+ * keep asserting a call until something else happened to re-render it.
+ */
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+/**
  * Shown on a job while a call is actually happening: who's on the line, and a
  * single button to attach that call to this job. It only exists during a call,
  * because that's the only moment "this call" means anything.
@@ -16,17 +47,39 @@ import { counterparty, formatEndpoint } from "../lib";
  * Asks the server which call this user is on, not this tab's softphone. The
  * audio lives in one tab; the work doesn't — opening a job in a second tab
  * mid-call is the normal way to use this, and the strip has to be there.
+ *
+ * Everything here is an assertion about RIGHT NOW, learned from a 5s poll, so
+ * it is only made while that assertion still holds up — see the guards below.
+ * Saying nothing is always safe; claiming a call that ended is not.
  */
 export function LiveCallStrip({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   // Whether the audio is in this tab is simply whether this tab is on a call —
   // no cross-tab bookkeeping needed to know that.
   const audioHere = useSoftphoneStore((s) => s.callState) !== "idle";
-  const { data: call } = useActiveCall(can("deals", "edit"));
+  const { data: call, isError, dataUpdatedAt } = useActiveCall(
+    can("deals", "edit"),
+  );
   const link = useLinkCallToDeal();
   const timer = useCallTimer(call?.answeredAt);
+  const now = useNow(1000);
 
   if (!call?.callSid || !can("deals", "edit")) return null;
+
+  // React Query keeps the last successful value when a refetch fails, so a
+  // dropped session or a restarted service would otherwise freeze this strip
+  // on screen for a call that ended minutes ago.
+  if (isError) return null;
+  if (dataUpdatedAt !== undefined && now - dataUpdatedAt > CONFIRMED_WITHIN_MS) {
+    return null;
+  }
+
+  // A leg still "connecting" long after the ring gave up is not a call: either
+  // nobody answered, or the webhook that would have said so never arrived.
+  const connecting = !call.answeredAt;
+  if (connecting && now - new Date(call.startedAt).getTime() > CONNECTING_GRACE_MS) {
+    return null;
+  }
 
   const alreadyHere = call.dealId === dealId;
   const client = counterparty(call);

@@ -13,6 +13,16 @@ import { ZipEntryDto, GeoPointDto } from './create-service-area.dto';
  * geometry is kept and only metadata (name/priority/active) changes.
  */
 export class UpdateServiceAreaDto {
+  @ApiPropertyOptional({
+    example: '+14045550100',
+    description:
+      'Number clients in this market are dialled from. Must be a workspace ' +
+      'number. Send an empty string or null to clear it.',
+  })
+  @IsOptional()
+  @IsString()
+  callerId?: string | null;
+
   @ApiPropertyOptional({ example: 'Atlanta Metro' })
   @IsOptional()
   @IsString()

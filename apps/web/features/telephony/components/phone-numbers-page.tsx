@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Phone, Plus, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Phone, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useNumbers, useReleaseNumber } from "../numbers-hooks";
+import { useNumbers, useReleaseNumber, useSetTechnicianLine } from "../numbers-hooks";
 import type { OwnedNumber } from "../numbers-api";
 import { BuyNumberDialog } from "./buy-number-dialog";
 
@@ -32,6 +32,7 @@ export function PhoneNumbersPage() {
   const { can } = usePermissions();
   const { data: numbers, isLoading } = useNumbers(true);
   const release = useReleaseNumber();
+  const setTechLine = useSetTechnicianLine();
 
   const [buyOpen, setBuyOpen] = useState(false);
   const [deleting, setDeleting] = useState<OwnedNumber | undefined>();
@@ -93,7 +94,7 @@ export function PhoneNumbersPage() {
                 <TableHead>Number</TableHead>
                 <TableHead>Label</TableHead>
                 {canManage ? (
-                  <TableHead className="w-16 text-right">Actions</TableHead>
+                  <TableHead className="w-24 text-right">Actions</TableHead>
                 ) : null}
               </TableRow>
             </TableHeader>
@@ -104,10 +105,47 @@ export function PhoneNumbersPage() {
                     {formatPhone(n.phoneNumber)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {n.friendlyName}
+                    <span className="flex items-center gap-2">
+                      {n.friendlyName}
+                      {n.technicianLine ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                          <KeyRound className="size-3" /> Technician line
+                        </span>
+                      ) : null}
+                    </span>
                   </TableCell>
                   {canManage ? (
                     <TableCell className="text-right">
+                      {/* A workspace has exactly one technician line, so this
+                          reads as a designation rather than a per-number
+                          setting: turning it on elsewhere moves it. */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={setTechLine.isPending}
+                        onClick={() =>
+                          setTechLine.mutate({ sid: n.sid, on: !n.technicianLine })
+                        }
+                        title={
+                          n.technicianLine
+                            ? "Stop using this as the technician line"
+                            : "Make this the technician dial-in line"
+                        }
+                        aria-label={
+                          n.technicianLine
+                            ? "Clear technician line"
+                            : "Make technician line"
+                        }
+                      >
+                        <KeyRound
+                          className={
+                            n.technicianLine
+                              ? "size-4 text-brand"
+                              : "size-4 text-muted-foreground"
+                          }
+                        />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

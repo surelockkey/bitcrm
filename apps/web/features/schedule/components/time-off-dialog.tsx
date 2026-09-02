@@ -24,6 +24,7 @@ import {
 import { useCreateCalendarEvent } from "../hooks";
 import { calendarEventSchema, toEventInput } from "../schemas";
 import { eventLabel } from "../lib";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 const TYPES = [
   CalendarEventType.TIME_OFF,
@@ -43,7 +44,7 @@ export function TimeOffDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   techIds: string[];
-  users: Map<string, User>;
+  users: Map<string, DirectoryUser>;
   defaultTechId?: string;
   defaultDate: string;
 }) {

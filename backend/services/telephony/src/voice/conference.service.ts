@@ -15,9 +15,11 @@ import { TwilioRest } from '../common/twilio-client';
 import { PresenceService } from '../presence/presence.service';
 import {
   CallsService,
+  isTerminalStatus,
   normalizeStatus,
   type TwilioStatusParams,
 } from '../calls/calls.service';
+import { BridgeService } from '../common/bridge.service';
 
 export type MonitorMode = 'listen' | 'join';
 
@@ -56,6 +58,14 @@ export interface InboundOptions {
   noAnswerUrl?: string;
 }
 
+/** What distinguishes a masked call from an ordinary agent-dialled one. */
+export interface InitOutboundOptions {
+  /** The job this call is about; linked immediately, not at read time. */
+  dealId?: string;
+  origin?: 'softphone' | 'bridge' | 'inbound';
+  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
+}
+
 export const confName = (primarySid: string) => `conf-${primarySid}`;
 export const primarySidOf = (name: string): string | null =>
   /^conf-(CA\w+)$/.exec(name)?.[1] ?? null;
@@ -78,6 +88,7 @@ export class ConferenceService {
     // Optional so the conference specs can construct this without it; without
     // presence we simply can't check whether a softphone is registered.
     @Optional() private readonly presence?: PresenceService,
+    @Optional() private readonly bridge?: BridgeService,
   ) {
     this.rest = new TwilioRest(config);
   }
@@ -111,12 +122,21 @@ export class ConferenceService {
 
   /* -------------------------------------------------------- lifecycle */
 
-  /** Outbound: agent leg hit /voice/outbound; stash context + open the record. */
+  /**
+   * Outbound: agent leg hit /voice/outbound; stash context + open the record.
+   *
+   * Both ways into a masked call land here — the in-app bridge and the
+   * technician dial-in — because on both of them the technician's leg IS the
+   * primary sid, which is the only thing `onParticipantJoin` cares about.
+   * `options` carries what distinguishes a masked call from an ordinary one;
+   * everything else about the conference is identical, deliberately.
+   */
   async initOutbound(
     agentCallSid: string,
     agentId: string | undefined,
     to: string,
     callerId: string,
+    options: InitOutboundOptions = {},
   ): Promise<void> {
     const name = confName(agentCallSid);
     await this.redis.client.hset(this.metaKey(name), {
@@ -125,6 +145,8 @@ export class ConferenceService {
       to,
       from: callerId,
       ...(agentId && { agentId }),
+      ...(options.dealId && { dealId: options.dealId }),
+      ...(options.origin && { origin: options.origin }),
     });
     await this.redis.client.expire(this.metaKey(name), CONF_TTL_SECONDS);
 
@@ -136,7 +158,17 @@ export class ConferenceService {
       status: 'initiated',
       agentId,
       conferenceName: name,
+      ...(options.origin && { origin: options.origin }),
+      ...(options.callerIdSource && { callerIdSource: options.callerIdSource }),
     });
+
+    // `dealId` is deliberately NOT in the upsert whitelist — it is written
+    // only by setDeal, via linkDeal, which also tells the job's timeline.
+    if (options.dealId) {
+      void this.calls
+        .linkDeal(agentCallSid, options.dealId, { id: agentId ?? 'system' })
+        .catch(() => undefined);
+    }
     if (agentId) {
       await this.calls.appendParticipant(agentCallSid, {
         userId: agentId,
@@ -399,6 +431,8 @@ export class ConferenceService {
       status: record?.answeredAt ? 'completed' : 'canceled',
     });
 
+    await this.releaseFinishedBridge(primarySid);
+
     await this.redis.client.del(
       this.metaKey(name),
       this.pendingKey(name),
@@ -479,6 +513,76 @@ export class ConferenceService {
   /* --------------------------------------------------- leg callbacks */
 
   /** Status callback for a REST-created leg (?conf=<name>&role=…). */
+  /**
+   * Status callbacks for the technician's own leg on a masked bridge.
+   *
+   * Two things this must do that the ordinary leg handler does not:
+   *
+   *  - **Advance a record that already exists.** BridgeService opens it right
+   *    after `calls.create`, because otherwise a leg that rings and is never
+   *    answered leaves a party-less orphan — no from, no to, no agentId — that
+   *    every read path and display helper then has to survive.
+   *  - **Release the per-user claim on EVERY terminal status.** A successful,
+   *    answered call takes neither the cancel path nor the no-answer path, so
+   *    without this the claim sits until its TTL and the technician cannot
+   *    place their next call for a minute and a half.
+   */
+  async onBridgeLegStatus(
+    bridgeId: string,
+    params: TwilioStatusParams,
+  ): Promise<void> {
+    const callSid = params.CallSid;
+    if (!callSid) return;
+    const status = normalizeStatus(params.CallStatus);
+    if (!status) return;
+
+    const ctx = await this.bridge?.context(bridgeId);
+
+    if (status === 'ringing') {
+      await this.calls.applyLifecycle({ callSid, status: 'ringing' });
+      return;
+    }
+
+    // `in-progress` on THIS leg means the technician picked up, not that the
+    // call connected — answeredAt still comes from the customer leg, exactly
+    // as it does for an agent-dialled call.
+    if (!TERMINAL_LEG.has(status)) return;
+
+    const record = await this.calls.getBySid(callSid);
+    if (record && !record.answeredAt) {
+      await this.calls.applyLifecycle({
+        callSid,
+        status,
+        endedAt: new Date().toISOString(),
+      });
+    }
+
+    if (ctx?.technicianId) await this.bridge?.release(ctx.technicianId, bridgeId);
+  }
+
+  /**
+   * Let a technician place their next call the moment this one is over.
+   *
+   * `BridgeService.prepare` takes a claim on the user so a double-tap cannot
+   * fire two real calls. That claim expires on its own, but waiting for the
+   * TTL means a technician who hangs up after two seconds cannot redial for
+   * the rest of the window — which is experienced, correctly, as the phone
+   * being broken.
+   *
+   * Called from both places a bridged call can end: the conference ending
+   * (the ordinary route) and the leg's own terminal status (when the caller
+   * hung up before a conference ever existed).
+   */
+  async releaseFinishedBridge(callSid?: string): Promise<void> {
+    if (!callSid || !this.bridge) return;
+    const record = await this.calls.getBySid(callSid);
+    if (record?.origin !== 'bridge' || !record.agentId) return;
+    // Mid-call is not over — releasing here would let a second call start
+    // while the first is still connected.
+    if (!isTerminalStatus(record.status)) return;
+    await this.bridge.release(record.agentId);
+  }
+
   async onLegStatus(
     name: string,
     role: 'customer' | 'agent',

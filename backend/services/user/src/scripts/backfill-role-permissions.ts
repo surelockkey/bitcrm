@@ -69,9 +69,48 @@ async function main() {
 
       const def = DEFAULT_BY_NAME.get(role.name);
       if (!def) {
-        // Custom (or non-default system) role: absent resources are deny-by-default
-        // at the guard, so no change is required for correctness.
-        console.log(`  - skip "${role.name}" (${role.id}): no default definition`);
+        /**
+         * A workspace-created role. `seedDefaults()` iterates DEFAULT_ROLES
+         * only, so these are never reconciled — absent actions resolve to
+         * denied, which is privacy-safe and function-breaking.
+         *
+         * For contacts.view_numbers that distinction matters: a custom role
+         * that can already see contacts would silently lose every client's
+         * phone number on deploy day, which is a day-one support ticket. So
+         * this ONE action is seeded from the role's own `contacts.view`, and
+         * an explicit value is never overwritten.
+         */
+        const contacts = role.permissions?.contacts;
+        if (contacts && contacts.view_numbers === undefined) {
+          const next = {
+            ...role.permissions,
+            contacts: { ...contacts, view_numbers: contacts.view === true },
+          };
+          console.log(
+            `  ~ custom "${role.name}" (${role.id}): contacts.view_numbers := ${contacts.view === true}`,
+          );
+          reconciledRoleIds.push(role.id);
+          if (!DRY_RUN) {
+            await doc.send(
+              new UpdateCommand({
+                TableName: USERS_TABLE,
+                Key: { PK: `ROLE#${role.id}`, SK: 'METADATA' },
+                UpdateExpression: 'SET #p = :p, #u = :u',
+                ExpressionAttributeNames: {
+                  '#p': 'permissions',
+                  '#u': 'updatedAt',
+                },
+                ExpressionAttributeValues: {
+                  ':p': next,
+                  ':u': new Date().toISOString(),
+                },
+                ConditionExpression: 'attribute_exists(PK)',
+              }),
+            );
+          }
+        } else {
+          console.log(`  - skip "${role.name}" (${role.id}): no default definition`);
+        }
         continue;
       }
 

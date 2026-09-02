@@ -516,3 +516,228 @@ describe('FlowRunnerService — "after the call" means after a call', () => {
     expect(twiml).toContain('Thank you for calling us.');
   });
 });
+
+/**
+ * The technician dial-in. Phase 4 is the COLLECTION machinery only — the
+ * resolver returns nothing yet, so every code refuses, which is also exactly
+ * what an unknown code does in the finished feature.
+ */
+describe('FlowRunnerService — the ext (technician line) node', () => {
+  const extFlow = flowOf(
+    {
+      ext: {
+        id: 'ext',
+        type: 'ext',
+        prompt: 'Enter the job code.',
+        confirmPrompt: 'Calling',
+        repeats: 3,
+        timeoutSeconds: 10,
+        next: 'dispatch',
+      },
+      dispatch: { id: 'dispatch', type: 'ring', groupId: 'g1', next: 'vm' },
+      vm: { id: 'vm', type: 'voicemail', prompt: 'Leave a message.', maxSeconds: 120 },
+    },
+    'ext',
+  );
+
+  const withExt = () =>
+    build({ flows: { findByNumber: jest.fn(async () => extFlow) } });
+
+  it('asks for a four-digit code on answer', async () => {
+    const { runner } = withExt();
+
+    const twiml = await runner.startInbound('CA1', '+14045550134', '+15412830739');
+
+    expect(twiml).toContain('<Gather');
+    expect(twiml).toContain('numDigits="4"');
+    expect(twiml).toContain('Enter the job code.');
+  });
+
+  /**
+   * The menu falls through to a Redirect back at itself, which is an
+   * unconditional loop. A digit-collecting node must not copy that.
+   */
+  it('does not follow the gather with a redirect back to itself', async () => {
+    const { runner } = withExt();
+
+    const twiml = await runner.startInbound('CA1', '+14045550134', '+15412830739');
+
+    expect(twiml).not.toContain('<Redirect');
+    expect(twiml).toContain('actionOnEmptyResult="true"');
+  });
+
+  /** The code is the whole thing now — there is no second prompt to wait for,
+   *  so it is judged the moment it arrives. */
+  it('judges the code the moment it arrives', async () => {
+    const { runner } = withExt();
+    await runner.startInbound('CA1', '+14045550134', '+15412830739');
+
+    const twiml = await runner.resume('CA1', 'ext', '4729');
+
+    expect(twiml).toContain('Sorry, that did not work.');
+    expect(twiml).toContain('Enter the job code.');
+    expect(twiml).not.toContain('PIN');
+  });
+
+  it('re-asks for the code rather than dropping the caller', async () => {
+    const { runner } = withExt();
+    await runner.startInbound('CA1', '+14045550134', '+15412830739');
+
+    const twiml = await runner.resume('CA1', 'ext', '4729');
+
+    expect(twiml).toContain('numDigits="4"');
+  });
+
+  it('hands the caller to dispatch once the attempts are used up', async () => {
+    const { runner, conference } = withExt();
+    await runner.startInbound('CA1', '+14045550134', '+15412830739');
+
+    for (let i = 0; i < 3; i += 1) {
+      await runner.resume('CA1', 'ext', '4729');
+    }
+
+    // The fallback is a real person, not a hang-up and not a loop.
+    expect(conference.initInbound).toHaveBeenCalled();
+  });
+
+  it('never returns null — that would ring every online softphone', async () => {
+    const { runner } = build({
+      flows: {
+        findByNumber: jest.fn(async () =>
+          flowOf(
+            {
+              ext: {
+                id: 'ext',
+                type: 'ext',
+                prompt: 'Code?',
+                confirmPrompt: 'Calling',
+                repeats: 1,
+                timeoutSeconds: 10,
+              },
+            },
+            'ext',
+          ),
+        ),
+      },
+    });
+    await runner.startInbound('CA1', '+14045550134', '+15412830739');
+    await runner.resume('CA1', 'ext', '4729');
+
+    // No `next` at all, out of attempts: still TwiML, never null.
+    const twiml = await runner.resume('CA1', 'ext', '4821');
+
+    expect(twiml).not.toBeNull();
+    expect(twiml).toContain('<Hangup');
+  });
+
+  it('counts an empty result as an attempt rather than looping', async () => {
+    const { runner } = withExt();
+    await runner.startInbound('CA1', '+14045550134', '+15412830739');
+
+    // Twilio posts back with no Digits when the caller keys nothing.
+    const twiml = await runner.resume('CA1', 'ext', '');
+
+    expect(twiml).toContain('<Gather');
+  });
+
+  it('never speaks a phone number', async () => {
+    const { runner } = withExt();
+    await runner.startInbound('CA1', '+14045550134', '+15412830739');
+    const pin = await runner.resume('CA1', 'ext', '4729');
+    const refused = await runner.resume('CA1', 'ext', '4821');
+
+    for (const xml of [pin, refused]) {
+      expect(xml).not.toMatch(/\+\d{10,}/);
+    }
+  });
+});
+
+/**
+ * The technician line with NOTHING configured behind it.
+ *
+ * Designating a number as the technician line is meant to be the whole setup.
+ * Requiring a call flow as well would mean every workspace hand-building the
+ * same one-step flow before masking worked at all — and getting the "sorry,
+ * this line is not available" recording until they did.
+ */
+describe('FlowRunnerService — the technician line without a flow', () => {
+  const noFlow = () =>
+    build({ flows: { findByNumber: jest.fn(async () => null) } });
+
+  it('asks for the job code even though no flow exists', async () => {
+    const { runner } = noFlow();
+
+    const twiml = await runner.startTechnicianLine(
+      'CA1',
+      '+14045550134',
+      '+15412830739',
+    );
+
+    expect(twiml).toContain('<Gather');
+    expect(twiml).toContain('numDigits="4"');
+    expect(twiml).toContain('Enter the job code.');
+  });
+
+  it('never asks the flow store anything', async () => {
+    const { runner, flows } = noFlow();
+
+    await runner.startTechnicianLine('CA1', '+14045550134', '+15412830739');
+
+    expect(flows.findByNumber).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The state a synthesised flow leaves behind has to be indistinguishable
+   * from a stored one, because `resume()` reads it back on the next webhook —
+   * this is the whole reason the built-in can reuse the ordinary machinery.
+   * Landing back on its own node, rather than falling through to the legacy
+   * answer, is what proves the state survived.
+   */
+  it('stays on the built-in step across the next webhook', async () => {
+    const { runner } = noFlow();
+    await runner.startTechnicianLine('CA1', '+14045550134', '+15412830739');
+
+    const twiml = await runner.resume('CA1', 'dial-in', '4729');
+
+    expect(twiml).toContain('node=dial-in');
+  });
+
+  it('re-asks after a wrong code rather than dropping the caller', async () => {
+    const { runner } = noFlow();
+    await runner.startTechnicianLine('CA1', '+14045550134', '+15412830739');
+
+    const twiml = await runner.resume('CA1', 'dial-in', '4729');
+
+    expect(twiml).toContain('Sorry, that did not work.');
+    expect(twiml).toContain('Enter the job code.');
+  });
+
+  /**
+   * With no flow there is no dispatch group to fall through to, so the last
+   * failed attempt must end the call politely. What it must NOT do is return
+   * null — the caller has not identified themselves, and the legacy fallback
+   * would ring every softphone in the workspace.
+   */
+  it('says goodbye instead of ringing everyone once attempts run out', async () => {
+    const { runner, conference } = noFlow();
+    await runner.startTechnicianLine('CA1', '+14045550134', '+15412830739');
+
+    let twiml: string | null = '';
+    for (let i = 0; i < 3; i += 1) {
+      twiml = await runner.resume('CA1', 'dial-in', '4729');
+    }
+
+    expect(twiml).toContain('<Hangup');
+    expect(conference.initInbound).not.toHaveBeenCalled();
+  });
+
+  it('records the call against the built-in line so it is not unlabelled', async () => {
+    const { runner, calls } = noFlow();
+
+    await runner.startTechnicianLine('CA1', '+14045550134', '+15412830739');
+
+    expect(calls.applyLifecycle).toHaveBeenCalledWith(
+      expect.objectContaining({ callSid: 'CA1', flowName: 'Technician line' }),
+    );
+  });
+});

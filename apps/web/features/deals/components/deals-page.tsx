@@ -48,7 +48,14 @@ export function DealsPage() {
   const { can, isTechnician } = usePermissions();
   const dealsQuery = useDeals();
   const { map: contactMap } = useContactMap();
-  const { map: userMap } = useUserMap();
+  // The technicians actually on these deals. A viewer who may not list users
+  // resolves exactly these ids rather than getting an empty map and uuids.
+  const techIdsOnDeals = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of dealsQuery.data ?? []) d.assignedTechIds.forEach((t) => ids.add(t));
+    return [...ids];
+  }, [dealsQuery.data]);
+  const { map: userMap } = useUserMap(techIdsOnDeals);
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
   const customFieldsQuery = useCustomFields();

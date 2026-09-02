@@ -10,6 +10,7 @@ import {
   type TechnicianPosition,
   type TechStatus,
 } from "../lib";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 const DOT: Record<TechStatus, string> = {
   live: "bg-emerald-500",
@@ -116,7 +117,7 @@ export function TechList({
   /** Every technician's userId, so offline ones appear too. */
   userIds: string[];
   positions: TechnicianPosition[];
-  userMap: Map<string, User>;
+  userMap: Map<string, DirectoryUser>;
   hoveredId: string | null;
   selectedId: string | null;
   onHover: (id: string | null) => void;
@@ -131,7 +132,7 @@ export function TechList({
       const position = byId.get(userId);
       const user = userMap.get(userId);
       const name = user
-        ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email
+        ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email || userId
         : "Technician";
       const status = technicianStatus(position);
       return {

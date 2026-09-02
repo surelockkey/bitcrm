@@ -34,7 +34,11 @@ export function CallPartyCell({
     const canAdd = !!number && !!onAddClient && can("contacts", "create");
     return (
       <div className="flex flex-col items-start leading-tight">
-        <span className="font-medium">{formatEndpoint(party.number)}</span>
+        {/* A withheld number is not a missing one — and there is nothing to
+            turn into a client, because the digits never reached this viewer. */}
+        <span className="font-medium">
+          {!number && party.masked ? "number hidden" : formatEndpoint(party.number)}
+        </span>
         {canAdd ? (
           <Button
             variant="ghost"
@@ -91,7 +95,11 @@ export function CallPartyCell({
           </span>
         ) : null}
       </span>
-      {number ? (
+      {!number && party.masked ? (
+        <span className="text-xs text-muted-foreground/80">
+          number hidden
+        </span>
+      ) : number ? (
         <span className="text-xs text-muted-foreground">
           {formatEndpoint(number)}
           {/* Their own phone, dialled by us — not their softphone. */}

@@ -8,8 +8,10 @@ import type {
 } from "@bitcrm/types";
 import {
   appendStep,
+  insertStep,
   branchKeysOf,
   deleteStep,
+  isBranching,
   newStep,
   reorder,
   replaceStep,
@@ -199,6 +201,78 @@ describe("flow-tree — order is the wiring", () => {
       expect(updated[1].branches?.open.map((s) => s.node.id)).toEqual(["r", "new"]);
     });
 
+    /**
+     * The canvas puts a `+` on every connector, so a step is added *between*
+     * two others as often as after them — appending only to the end would
+     * mean rebuilding the tail of a flow to slot one greeting in.
+     */
+    it("inserts at a position rather than only at the end", () => {
+      const steps = [{ node: say("a") }, { node: say("c") }];
+      const after = insertStep(steps, [], 1, { node: say("b") });
+
+      expect(after.map((s) => s.node.id)).toEqual(["a", "b", "c"]);
+    });
+
+    it("inserts at the very front, before the step that used to be first", () => {
+      const steps = [{ node: say("a") }];
+      const after = insertStep(steps, [], 0, { node: say("greeting") });
+
+      expect(after.map((s) => s.node.id)).toEqual(["greeting", "a"]);
+    });
+
+    it("inserts into a named branch at the given position", () => {
+      const steps = [
+        { node: hours("h"), branches: { open: [{ node: say("o") }], closed: [] } },
+      ];
+      const after = insertStep(steps, ["h", "open"], 0, { node: say("first") });
+
+      expect(after[0].branches?.open.map((s) => s.node.id)).toEqual(["first", "o"]);
+      expect(after[0].branches?.closed).toEqual([]);
+    });
+
+    it("wires an inserted step into the call it was dropped into", () => {
+      const steps = [{ node: say("a") }, { node: say("c") }];
+      const { nodes } = toGraph(insertStep(steps, [], 1, { node: say("b") }));
+
+      expect(nodes.a.next).toBe("b");
+      expect(nodes.b.next).toBe("c");
+      expect(nodes.c.next).toBeUndefined();
+    });
+
+    /**
+     * Dropping a branching step in front of existing steps used to strand
+     * them: `toGraph` gives a branching step no main line, so everything
+     * after it became unreachable and silently stopped happening. What the
+     * person meant is that the call carries on down the primary path.
+     */
+    it("adopts what followed into the first branch of an inserted split", () => {
+      const steps = [{ node: say("a") }, { node: say("b") }];
+      const after = insertStep(steps, [], 0, newStep("hours", hours("h")));
+
+      expect(after.map((s) => s.node.id)).toEqual(["h"]);
+      expect(after[0].branches?.open.map((s) => s.node.id)).toEqual(["a", "b"]);
+      expect(after[0].branches?.closed).toEqual([]);
+    });
+
+    it("keeps the adopted steps wired, rather than orphaning them", () => {
+      const steps = [{ node: say("a") }, { node: say("b") }];
+      const { entryNodeId, nodes } = toGraph(
+        insertStep(steps, [], 0, newStep("hours", hours("h"))),
+      );
+
+      expect(entryNodeId).toBe("h");
+      expect((nodes.h as HoursNode).openNext).toBe("a");
+      expect(nodes.a.next).toBe("b");
+    });
+
+    it("has nothing to adopt when the split goes on the end", () => {
+      const steps = [{ node: say("a") }];
+      const after = insertStep(steps, [], 1, newStep("hours", hours("h")));
+
+      expect(after.map((s) => s.node.id)).toEqual(["a", "h"]);
+      expect(after[1].branches?.open).toEqual([]);
+    });
+
     it("reorders inside a branch, not the top level", () => {
       const two = appendStep(tree, ["h", "open"], { node: hangup("second") });
       const swapped = reorder(two, ["h", "open"], 0, 1);
@@ -223,5 +297,55 @@ describe("flow-tree — order is the wiring", () => {
       options: [{ key: "1", label: "Dispatch", next: "" }],
     };
     expect(branchKeysOf(withLabels)[0].label).toBe("Press 1 · Dispatch");
+  });
+});
+
+/**
+ * The technician-line step is BRANCHING: a technician who connected and one
+ * whose code was never accepted go different ways. A branching node missing
+ * from these helpers has its exits silently erased the first time somebody
+ * opens the flow and saves it — no error, no warning, just a broken line.
+ */
+describe("flow-tree — the ext step", () => {
+  const ext = (over: Partial<Record<string, unknown>> = {}) =>
+    ({
+      id: "ext-1",
+      type: "ext" as const,
+      prompt: "Code?",
+      confirmPrompt: "Calling",
+      repeats: 3,
+      timeoutSeconds: 10,
+      ...over,
+    }) as never;
+
+  it("counts as branching", () => {
+    expect(isBranching("ext")).toBe(true);
+  });
+
+  it("offers both outcomes as exits", () => {
+    expect(branchKeysOf(ext()).map((b) => b.key)).toEqual([
+      "answered",
+      "noAnswer",
+    ]);
+  });
+
+  /**
+   * The regression that matters: round-tripping the flow through the editor
+   * must preserve both exits.
+   */
+  it("survives a tree → graph → tree round trip with its exits intact", () => {
+    const nodes: Record<string, never> = {
+      "ext-1": ext({ answeredNext: "bye", next: "dispatch" }),
+      dispatch: { id: "dispatch", type: "ring", groupId: "g1" } as never,
+      bye: { id: "bye", type: "hangup" } as never,
+    };
+
+    const tree = toTree({ nodes, entryNodeId: "ext-1" });
+    const graph = toGraph(tree);
+
+    expect(graph.entryNodeId).toBe("ext-1");
+    const back = graph.nodes["ext-1"] as { answeredNext?: string; next?: string };
+    expect(back.answeredNext).toBe("bye");
+    expect(back.next).toBe("dispatch");
   });
 });

@@ -470,7 +470,20 @@ export class DealsService {
         updates.serviceArea ?? existing.serviceArea,
       );
       updates.serviceArea = serviceArea;
-      updates.serviceAreaId = serviceAreaId;
+      // The update builder SKIPS `undefined` and only REMOVEs on an explicit
+      // `null`, so an address edited to outside every area would otherwise keep
+      // the previous territory's id forever. Harmless while nothing read the
+      // field — but per-market caller id does, and that job would dial its
+      // client from the wrong market's number.
+      //
+      // Only send the null when there is genuinely something to clear: writing
+      // it unconditionally turns "this deal never had an area" into a field
+      // change, and every address edit would log a phantom timeline entry.
+      if (serviceAreaId) {
+        updates.serviceAreaId = serviceAreaId;
+      } else if (existing.serviceAreaId) {
+        (updates as Record<string, unknown>).serviceAreaId = null;
+      }
     }
 
     // Archived types are allowed on update so an old deal stays editable; only

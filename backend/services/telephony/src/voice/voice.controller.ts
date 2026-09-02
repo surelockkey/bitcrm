@@ -122,6 +122,22 @@ export class VoiceController {
     return '<Response/>';
   }
 
+  /** Answer webhook for the technician's leg on a masked bridge. */
+  @Post('bridge-join')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  bridgeJoin(
+    @Query('b') bridgeId: string,
+    @Query('whisper') whisper: string | undefined,
+    @Body() body: { CallSid?: string; Digits?: string },
+  ): Promise<string> {
+    return this.voiceService.buildBridgeJoin(
+      bridgeId ?? '',
+      body,
+      whisper === '1',
+    );
+  }
+
   /** Answer webhook for inbound agent ring legs — first answer wins here. */
   @Post('agent-join')
   @Header('Content-Type', 'text/xml')
@@ -203,11 +219,20 @@ export class VoiceController {
     @Body() body: TwilioStatusParams,
     @Query('conf') conf?: string,
     @Query('role') role?: string,
+    @Query('bridge') bridge?: string,
   ): Promise<string> {
-    if (conf && (role === 'customer' || role === 'agent')) {
+    // The technician's leg on a cell bridge cannot carry ?conf=: the sid does
+    // not exist when calls.create is issued. Its own CallSid IS the primary
+    // sid, so the handler derives the conference name itself.
+    if (bridge) {
+      await this.conferenceService.onBridgeLegStatus(bridge, body);
+    } else if (conf && (role === 'customer' || role === 'agent')) {
       await this.conferenceService.onLegStatus(conf, role, body);
     } else {
       await this.callsService.recordStatus(body);
+      // A bridged leg that died before it joined its conference ends here and
+      // nowhere else — without this the technician stays claimed until the TTL.
+      await this.conferenceService.releaseFinishedBridge(body.CallSid);
     }
     return '<Response/>';
   }

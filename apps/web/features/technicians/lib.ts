@@ -7,6 +7,7 @@ import type {
   OnboardingStatus,
   User,
 } from "@bitcrm/types";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 export { formatMoney } from "@/features/inventory/products/lib";
 
@@ -25,20 +26,22 @@ export function onboardingPct(o: Pick<OnboardingStatus, "completedSteps" | "tota
  */
 export function techUser(
   userId: string,
-  map: Map<string, User>,
+  map: Map<string, DirectoryUser>,
   self?: User | null,
-): User | undefined {
+): DirectoryUser | undefined {
   return map.get(userId) ?? (self && self.id === userId ? self : undefined);
 }
 
-function userLabel(u: User): string {
+function userLabel(u: DirectoryUser): string {
   const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
-  return name || u.email;
+  // `email` is absent for a viewer who may not list users; the id is the
+  // honest last resort rather than an empty label.
+  return name || u.email || u.id;
 }
 
 export function techName(
   userId: string,
-  map: Map<string, User>,
+  map: Map<string, DirectoryUser>,
   self?: User | null,
 ): string {
   const u = techUser(userId, map, self);
@@ -49,7 +52,7 @@ export function techName(
  * Audit actors are any staff member (often an admin), and rows written before
  * the `custom:user_id` claim backfill may have no actor at all.
  */
-export function actorName(actorId: string | undefined, map: Map<string, User>): string {
+export function actorName(actorId: string | undefined, map: Map<string, DirectoryUser>): string {
   if (!actorId) return "Unknown user";
   if (actorId === "system") return "System";
   const u = map.get(actorId);
@@ -62,7 +65,7 @@ export function actorName(actorId: string | undefined, map: Map<string, User>): 
  */
 export function auditActorLabel(
   r: { actorId?: string; actorName?: string },
-  map: Map<string, User>,
+  map: Map<string, DirectoryUser>,
 ): string {
   return r.actorName || actorName(r.actorId, map);
 }

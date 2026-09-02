@@ -13,7 +13,8 @@ export type CallFlowNodeType =
   | 'menu'
   | 'ring'
   | 'voicemail'
-  | 'hangup';
+  | 'hangup'
+  | 'ext';
 
 interface BaseNode {
   id: string;
@@ -124,13 +125,51 @@ export interface HangupNode extends BaseNode {
   text?: string;
 }
 
+/**
+ * Collect a job code, then connect the caller to that job's client.
+ *
+ * The technician dial-in: one shared line a technician can call from ANY
+ * handset — a dead-battery loaner, a borrowed phone, a company mobile that
+ * never got the app — and still reach the client through the CRM rather than
+ * around it.
+ *
+ * The code is the whole credential. A guessed one opens a CALL to that job's
+ * client and reveals no phone number to anybody, so the exposure is a nuisance
+ * call rather than a leak; the defences are rate limiting on the resolver and
+ * the fact that a code dies with its job.
+ *
+ * Unlike `menu`, this node cannot be modelled with single-key options: it
+ * collects a multi-digit code, counts its own retries in call state (the graph
+ * validator refuses cycles, so a retry cannot be an edge), and resolves in
+ * `resume()` rather than `execute()`, which never sees digits.
+ */
+export interface ExtNode extends BaseNode {
+  type: 'ext';
+  /** Spoken before the code is collected. */
+  prompt: string;
+  audioId?: string;
+  /**
+   * Spoken with the client's name before anything is dialled, so a mistyped
+   * code is caught by the person who typed it rather than by the client.
+   */
+  confirmPrompt: string;
+  /** How many attempts before the caller is handed to `next`. */
+  repeats: number;
+  timeoutSeconds: number;
+  /** Where a connected caller's flow ends; absent = the conference is the end. */
+  answeredNext?: string;
+  /** Where an unrecognised or exhausted caller goes — typically dispatch. */
+  next?: string;
+}
+
 export type CallFlowNode =
   | SayNode
   | HoursNode
   | MenuNode
   | RingNode
   | VoicemailNode
-  | HangupNode;
+  | HangupNode
+  | ExtNode;
 
 /** An uploaded greeting, stored once and reusable across flows. */
 export interface CallFlowAudio {
@@ -175,6 +214,22 @@ export const CALL_FLOW_LIMITS = {
   maxMenuOptions: 9,
   /** Long enough for a real greeting, short enough that a mistake is cheap. */
   maxAudioBytes: 5 * 1024 * 1024,
+  /** Digits in a job code — four keypresses at a customer's door.
+   *
+   *  Server-side and NOT a per-node field: an admin setting one length while
+   *  the allocator mints another is a footgun with no upside.
+   *
+   *  Four, not three: 9,000 usable codes against roughly 2,600 in circulation
+   *  (~200 jobs a week held for a 90-day quarantine) leaves real headroom,
+   *  where three digits offers 900 and exhausts outright. Three is reachable
+   *  only by shortening TELEPHONY_EXT_QUARANTINE_DAYS, which trades a
+   *  keypress for the risk of a code being reused while an old work order is
+   *  still in somebody's van. Four is not the credential anyway — the PIN is,
+   *  and it is checked against that job's roster. */
+  extDigits: 4,
+  /** Attempts per call before the caller is handed to dispatch. Well under
+   *  maxHops, since each attempt burns one. */
+  extMaxAttempts: 3,
   minVoicemailSeconds: 10,
   maxVoicemailSeconds: 300,
   defaultVoicemailSeconds: 120,

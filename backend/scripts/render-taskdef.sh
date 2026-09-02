@@ -13,6 +13,7 @@
 #   INTERNAL_SERVICE_TOKEN
 #   TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_API_KEY /
 #     TWILIO_API_SECRET / TWILIO_TWIML_APP_SID / TWILIO_CALLER_ID
+#     TELEPHONY_DEFAULT_AREA_CALLER_ID
 #                        - telephony only; the service boots without them but
 #                          refuses to mint tokens or place calls
 #   GIT_SHA              - commit SHA for /health version reporting
@@ -102,6 +103,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg twilio_api_secret "${TWILIO_API_SECRET:-}" \
   --arg twilio_twiml_app_sid "${TWILIO_TWIML_APP_SID:-}" \
   --arg twilio_caller_id "${TWILIO_CALLER_ID:-}" \
+  --arg telephony_default_area_caller_id "${TELEPHONY_DEFAULT_AREA_CALLER_ID:-}" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -135,6 +137,7 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $twilio_api_secret    != "" then [{name: "TWILIO_API_SECRET",    value: $twilio_api_secret}]    else [] end)
       + (if $twilio_twiml_app_sid != "" then [{name: "TWILIO_TWIML_APP_SID", value: $twilio_twiml_app_sid}] else [] end)
       + (if $twilio_caller_id     != "" then [{name: "TWILIO_CALLER_ID",     value: $twilio_caller_id}]     else [] end)
+      + (if $telephony_default_area_caller_id != "" then [{name: "TELEPHONY_DEFAULT_AREA_CALLER_ID", value: $telephony_default_area_caller_id}] else [] end)
     else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)

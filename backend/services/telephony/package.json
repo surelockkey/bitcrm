@@ -14,7 +14,8 @@
     "test:all": "npm test && npm run test:integration && npm run test:e2e",
     "setup:dynamodb": "ts-node src/scripts/setup-dynamodb.ts",
     "ensure:gsi2": "ts-node src/scripts/ensure-gsi2.ts",
-    "ring-me": "node scripts/ring-me.js"
+    "ring-me": "node scripts/ring-me.js",
+    "sweep:exts": "ts-node src/scripts/sweep-call-exts.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

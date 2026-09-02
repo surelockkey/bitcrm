@@ -29,6 +29,8 @@ export { PermissionGuard } from './auth/permission.guard';
 export { RequirePermission, PERMISSION_KEY } from './auth/permission.decorator';
 export { PermissionCacheReader } from './auth/permission-cache-reader';
 export { getDataScopeFilter } from './auth/data-scope.util';
+export { hasPermission } from './auth/has-permission.util';
+export { fetchResolvedPermissions } from './auth/fetch-resolved-permissions';
 export { canTransitionStage } from './auth/stage-transition.util';
 
 // Cognito Admin

@@ -64,6 +64,7 @@ export const STEP_LABEL: Record<CallFlowNodeType, string> = {
   ring: "Ring a group",
   voicemail: "Take a message",
   hangup: "Hang up",
+  ext: "Technician line",
 };
 
 let counter = 0;
@@ -109,6 +110,15 @@ export function blankStep(type: CallFlowNodeType): CallFlowNode {
       };
     case "hangup":
       return { id, type };
+    case "ext":
+      return {
+        id,
+        type,
+        prompt: "Enter the job code, then hash.",
+        confirmPrompt: "Calling",
+        repeats: 3,
+        timeoutSeconds: 10,
+      };
   }
 }
 

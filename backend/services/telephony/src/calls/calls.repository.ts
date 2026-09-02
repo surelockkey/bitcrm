@@ -113,6 +113,17 @@ export interface CallRecord {
    * own numbers — the linked (outbound) record is the one shown in the log.
    */
   internalLegOf?: string;
+  /**
+   * How the call was placed. `bridge` is a masked, server-originated call —
+   * the technician never held the client's number. Drives the "via company
+   * line" badge and the "is anyone still dialling clients directly?" filter.
+   */
+  origin?: 'softphone' | 'bridge' | 'inbound';
+  /**
+   * Which rung of the caller-id chain won, so "why did this client see that
+   * number?" is answerable from the log rather than by re-deriving the chain.
+   */
+  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
 }
 
 export interface ListCallsFilter {
@@ -127,6 +138,12 @@ export interface ListCallsFilter {
   dateFrom?: string;
   /** ISO (or prefix) upper bound on startedAt — inclusive of the whole day. */
   dateTo?: string;
+  /**
+   * How the call was placed. The read path for the question a manager asks a
+   * month after switching masking on: "is anyone still dialling clients
+   * directly?" — which is `origin=softphone` on outbound calls.
+   */
+  origin?: string;
 }
 
 export interface ListCallsResult {
@@ -205,6 +222,11 @@ export class CallsRepository {
       ['recordingSid', rec.recordingSid],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
       ['internalLegOf', rec.internalLegOf],
+      // NOTE: a field added to CallRecord but forgotten here is dropped on
+      // every write with no type error, no runtime warning and no failing
+      // build. calls.repository.whitelist.spec.ts is the guard.
+      ['origin', rec.origin],
+      ['callerIdSource', rec.callerIdSource],
     ];
     for (const [field, value] of optional) {
       // Empty strings guard against Twilio callbacks that report blank
@@ -606,6 +628,11 @@ export class CallsRepository {
     if (filter.agentId) {
       clauses.push('agentId = :agentId');
       values[':agentId'] = filter.agentId;
+    }
+    if (filter.origin) {
+      clauses.push('#origin = :origin');
+      names['#origin'] = 'origin';
+      values[':origin'] = filter.origin;
     }
     if (filter.number) {
       clauses.push('(contains(#from, :number) OR contains(#to, :number))');

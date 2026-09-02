@@ -216,7 +216,7 @@ function PhoneRow({ phone }: { phone?: string }) {
       <p className="text-xs text-muted-foreground">
         {invalid
           ? "Enter a valid phone number."
-          : "Calls to or from this number are shown as reaching you."}
+          : "We ring this number when you take a call on your handset, and calls to or from it are shown as reaching you."}
       </p>
     </div>
   );

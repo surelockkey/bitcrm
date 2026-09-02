@@ -1,42 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
-  DndContext,
-  PointerSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
-  ChevronDown,
   Clock,
-  GripVertical,
+  KeyRound,
   ListOrdered,
+  Maximize2,
   MessageSquare,
   Mic,
+  Minus,
   PhoneCall,
+  PhoneIncoming,
   PhoneOff,
   Plus,
-  Trash2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatPhone } from "@/lib/phone";
 import type { CallFlowNode, CallFlowNodeType, CallGroupWithMembers } from "@bitcrm/types";
-import {
-  branchKeysOf,
-  isBranching,
-  type FlowStep,
-} from "../flow-tree";
+import type { FlowStep } from "../flow-tree";
 import { STEP_LABEL } from "../flow-graph";
-import { FlowStepFields } from "./flow-step-fields";
+import {
+  CARD_H,
+  CARD_W,
+  layoutFlow,
+  type LayoutLink,
+  type LayoutNode,
+} from "../flow-layout";
 
 const ICONS: Record<CallFlowNodeType, typeof PhoneCall> = {
   say: MessageSquare,
@@ -45,9 +34,14 @@ const ICONS: Record<CallFlowNodeType, typeof PhoneCall> = {
   ring: PhoneCall,
   voicemail: Mic,
   hangup: PhoneOff,
+  ext: KeyRound,
 };
 
-/** The one-line summary shown when a step is collapsed. */
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 1.4;
+const ZOOM_STEP = 0.1;
+
+/** The one-line detail under a card's title. */
 function summarise(node: CallFlowNode, groupName: (id: string) => string): string {
   switch (node.type) {
     case "say":
@@ -64,309 +58,308 @@ function summarise(node: CallFlowNode, groupName: (id: string) => string): strin
       return `Records up to ${node.maxSeconds}s`;
     case "hangup":
       return node.text || "Ends the call";
+    case "ext":
+      return `Job code + PIN · ${node.repeats} attempt${node.repeats === 1 ? "" : "s"}`;
   }
 }
 
 /**
- * The flow, drawn as the call happens: top to bottom, branches nested under
- * the step that creates them.
+ * The flow, drawn as a map of the call.
  *
- * Order is the wiring — dragging a step moves it in the call — so there is no
- * "and then go to…" anywhere. That single decision is what makes this legible
- * to somebody who has never seen a flowchart tool.
+ * The picture is the whole point: a dispatcher who has never opened this
+ * before can see where a 2am caller ends up without reading a single field.
+ * So the canvas shows structure and nothing else — every setting lives in the
+ * side panel, and the only things you can do here are press a `+` to add a
+ * step or press a card to open it.
+ *
+ * Layout is not computed here; `flow-layout` does that, and does it without a
+ * DOM so the arithmetic can be tested.
  */
 export function FlowCanvas({
   steps,
   groups,
-  onReorder,
-  onChange,
-  onDelete,
+  numbers,
+  selectedId,
+  onSelect,
+  onSelectEntry,
   onAdd,
 }: {
   steps: FlowStep[];
   groups: CallGroupWithMembers[];
-  /** Move within one sequence, addressed by branch path. */
-  onReorder: (path: string[], from: number, to: number) => void;
-  onChange: (node: CallFlowNode) => void;
-  onDelete: (id: string) => void;
-  onAdd: (path: string[], type: CallFlowNodeType) => void;
+  /** Shown on the incoming-call card — the numbers that enter this flow. */
+  numbers: string[];
+  selectedId?: string;
+  onSelect: (node: LayoutNode) => void;
+  onSelectEntry: () => void;
+  onAdd: (path: string[], index: number) => void;
 }) {
-  return (
-    <Sequence
-      steps={steps}
-      path={[]}
-      groups={groups}
-      onReorder={onReorder}
-      onChange={onChange}
-      onDelete={onDelete}
-      onAdd={onAdd}
-    />
-  );
-}
+  const layout = layoutFlow(steps);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const centred = useRef(false);
 
-function Sequence({
-  steps,
-  path,
-  groups,
-  onReorder,
-  onChange,
-  onDelete,
-  onAdd,
-}: {
-  steps: FlowStep[];
-  path: string[];
-  groups: CallGroupWithMembers[];
-  onReorder: (path: string[], from: number, to: number) => void;
-  onChange: (node: CallFlowNode) => void;
-  onDelete: (id: string) => void;
-  onAdd: (path: string[], type: CallFlowNodeType) => void;
-}) {
-  // A small drag threshold, so clicking a card to expand it isn't read as a drag.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const from = steps.findIndex((s) => s.node.id === active.id);
-    const to = steps.findIndex((s) => s.node.id === over.id);
-    if (from >= 0 && to >= 0) onReorder(path, from, to);
-  };
-
-  return (
-    <div className="space-y-0">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={steps.map((s) => s.node.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          {steps.map((step, index) => (
-            <div key={step.node.id}>
-              <StepCard
-                step={step}
-                groups={groups}
-                draggable={steps.length > 1}
-                onChange={onChange}
-                onDelete={onDelete}
-              />
-              {/* The connector to whatever comes next — the line that makes
-                  this read as a flow rather than a list of settings. */}
-              {index < steps.length - 1 ? <Connector /> : null}
-
-              {step.branches ? (
-                <div className="mt-1 space-y-3 pl-5">
-                  {branchKeysOf(step.node).map(({ key, label }) => (
-                    <div key={key} className="relative">
-                      <span className="absolute -left-5 top-3 h-px w-4 bg-border" />
-                      <span className="absolute -left-5 top-0 h-3 w-px bg-border" />
-                      <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
-                        {label}
-                      </div>
-                      <Sequence
-                        steps={step.branches?.[key] ?? []}
-                        path={[...path, step.node.id, key]}
-                        groups={groups}
-                        onReorder={onReorder}
-                        onChange={onChange}
-                        onDelete={onDelete}
-                        onAdd={onAdd}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </SortableContext>
-      </DndContext>
-
-      {/* Nothing can follow a branching step on the same line — the call has
-          already gone down one of its paths. Adding there would make a step
-          nobody ever reaches. */}
-      {isBranching(steps[steps.length - 1]?.node.type ?? "say") ? null : (
-        <AddStep path={path} onAdd={onAdd} dense={path.length > 0} />
-      )}
-    </div>
-  );
-}
-
-function Connector() {
-  return (
-    <div className="flex justify-center py-1" aria-hidden>
-      <span className="h-4 w-px bg-border" />
-    </div>
-  );
-}
-
-function StepCard({
-  step,
-  groups,
-  draggable,
-  onChange,
-  onDelete,
-}: {
-  step: FlowStep;
-  groups: CallGroupWithMembers[];
-  draggable: boolean;
-  onChange: (node: CallFlowNode) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: step.node.id });
-  const Icon = ICONS[step.node.type];
   const groupName = (id: string) =>
     groups.find((g) => g.id === id)?.name ?? "a deleted group";
 
+  /** Sit the flow under the top of the viewport, centred on its trunk. */
+  const centre = useCallback(
+    (scale: number) => {
+      const box = viewportRef.current?.getBoundingClientRect();
+      if (!box || box.width === 0) return;
+      setOffset({ x: box.width / 2 - (layout.width / 2) * scale, y: 24 });
+    },
+    [layout.width],
+  );
+
+  // Only on first paint: re-centring on every edit would yank the canvas out
+  // from under somebody who had scrolled to a branch.
+  useLayoutEffect(() => {
+    if (centred.current) return;
+    centred.current = true;
+    centre(1);
+  }, [centre]);
+
+  const fit = () => {
+    const box = viewportRef.current?.getBoundingClientRect();
+    if (!box || box.width === 0) return;
+    const next = Math.min(
+      1,
+      Math.max(
+        MIN_ZOOM,
+        Math.min((box.width - 64) / layout.width, (box.height - 64) / layout.height),
+      ),
+    );
+    setZoom(next);
+    setOffset({
+      x: box.width / 2 - (layout.width / 2) * next,
+      y: Math.max(24, box.height / 2 - (layout.height / 2) * next),
+    });
+  };
+
+  const nudgeZoom = (delta: number) =>
+    setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((z + delta) * 10) / 10)));
+
+  // Dragging the background moves the plane. Cards and buttons stop the event,
+  // so pressing one never starts a pan.
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const start = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+    setPanning(true);
+    const move = (ev: PointerEvent) =>
+      setOffset({ x: ev.clientX - start.x, y: ev.clientY - start.y });
+    const up = () => {
+      setPanning(false);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
     <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      ref={viewportRef}
+      data-testid="flow-canvas"
+      onPointerDown={onPointerDown}
       className={cn(
-        "rounded-xl border bg-card shadow-sm",
-        isDragging && "z-10 opacity-80 shadow-md",
+        "relative flex-1 overflow-hidden bg-muted",
+        panning ? "cursor-grabbing" : "cursor-grab",
       )}
     >
-      <div className="flex items-center gap-2 p-2.5">
-        {draggable ? (
-          <button
-            type="button"
-            className="cursor-grab touch-none text-muted-foreground hover:text-foreground"
-            aria-label={`Reorder ${STEP_LABEL[step.node.type]}`}
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical className="size-4" />
-          </button>
-        ) : (
-          <span className="w-4" />
+      <div
+        className="absolute origin-top-left"
+        style={{
+          width: layout.width,
+          height: layout.height,
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+          // The dot grid travels with the flow, so panning reads as moving the
+          // paper rather than the camera.
+          backgroundImage:
+            "radial-gradient(circle, color-mix(in oklch, currentColor 18%, transparent) 1px, transparent 1px)",
+          backgroundSize: "16px 16px",
+        }}
+      >
+        <Links links={layout.links} />
+
+        {layout.links.map((link) =>
+          link.label ? (
+            <span
+              key={`${link.id}-label`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 rounded bg-muted px-1.5 text-[11px] whitespace-nowrap text-muted-foreground"
+              style={labelPosition(link)}
+            >
+              {link.label}
+            </span>
+          ) : null,
         )}
 
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-          <Icon className="size-3.5" />
-        </span>
+        {layout.links.map((link) =>
+          link.plus ? (
+            <button
+              key={`${link.id}-plus`}
+              type="button"
+              aria-label="Add a step"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onAdd(link.plus!.path, link.plus!.index)}
+              className="absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-dashed bg-background text-muted-foreground transition-colors hover:border-solid hover:border-brand hover:bg-brand hover:text-brand-foreground"
+              style={{ left: link.plus.x, top: link.plus.y }}
+            >
+              <Plus className="size-3.5" />
+            </button>
+          ) : null,
+        )}
 
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left"
-          aria-expanded={open}
-          // Named apart from this card's Reorder and Remove, which carry the
-          // same step label.
-          aria-label={`Edit ${STEP_LABEL[step.node.type]}`}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <span className="block text-sm font-medium">
-            {STEP_LABEL[step.node.type]}
-          </span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {summarise(step.node, groupName)}
-          </span>
-        </button>
-
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-          aria-hidden
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:text-destructive"
-          aria-label={`Remove ${STEP_LABEL[step.node.type]}`}
-          onClick={() => onDelete(step.node.id)}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
+        {layout.nodes.map((node) =>
+          node.kind === "entry" ? (
+            <Card
+              key={node.id}
+              node={node}
+              icon={PhoneIncoming}
+              title="Incoming call"
+              detail={
+                numbers.length
+                  ? `To: ${numbers.map(formatPhone).join(", ")}`
+                  : "No number assigned yet"
+              }
+              ariaLabel="Incoming call"
+              onSelect={onSelectEntry}
+            />
+          ) : (
+            <Card
+              key={node.id}
+              node={node}
+              icon={ICONS[node.step!.node.type]}
+              title={STEP_LABEL[node.step!.node.type]}
+              detail={summarise(node.step!.node, groupName)}
+              // The detail rides along because a flow can hold three
+              // greetings, and "Edit Say something" three times tells a screen
+              // reader nothing about which one is which.
+              ariaLabel={`Edit ${STEP_LABEL[node.step!.node.type]} — ${summarise(node.step!.node, groupName)}`}
+              selected={selectedId === node.id}
+              onSelect={() => onSelect(node)}
+            />
+          ),
+        )}
       </div>
 
-      {open ? (
-        <div className="border-t p-3">
-          <FlowStepFields node={step.node} groups={groups} onChange={onChange} />
-          {isBranching(step.node.type) ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              What happens down each path is set below, under its label.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <div className="absolute bottom-4 left-4 flex flex-col overflow-hidden rounded-lg border bg-background shadow-sm">
+        <ZoomButton label="Zoom in" onClick={() => nudgeZoom(ZOOM_STEP)}>
+          <Plus className="size-4" />
+        </ZoomButton>
+        <ZoomButton label="Zoom out" onClick={() => nudgeZoom(-ZOOM_STEP)}>
+          <Minus className="size-4" />
+        </ZoomButton>
+        <ZoomButton label="Fit the flow on screen" onClick={fit}>
+          <Maximize2 className="size-4" />
+        </ZoomButton>
+      </div>
     </div>
   );
 }
 
-const PALETTE: CallFlowNodeType[] = [
-  "say",
-  "menu",
-  "ring",
-  "hours",
-  "voicemail",
-  "hangup",
-];
-
-function AddStep({
-  path,
-  onAdd,
-  dense,
+function ZoomButton({
+  label,
+  onClick,
+  children,
 }: {
-  path: string[];
-  onAdd: (path: string[], type: CallFlowNodeType) => void;
-  dense: boolean;
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-
-  if (!open) {
-    return (
-      <div className={cn("flex justify-center", dense ? "pt-1.5" : "pt-2")}>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 rounded-full border-dashed text-xs"
-          onClick={() => setOpen(true)}
-        >
-          <Plus className="size-3" /> Add a step
-        </Button>
-      </div>
-    );
-  }
-
   return (
-    <div className="mt-2 rounded-xl border border-dashed p-2">
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-        {PALETTE.map((type) => {
-          const Icon = ICONS[type];
-          return (
-            <button
-              key={type}
-              type="button"
-              className="flex items-center gap-2 rounded-lg border p-2 text-left text-xs hover:bg-accent"
-              onClick={() => {
-                onAdd(path, type);
-                setOpen(false);
-              }}
-            >
-              <Icon className="size-3.5 shrink-0 text-brand" />
-              {STEP_LABEL[type]}
-            </button>
-          );
-        })}
-      </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="mt-1 h-6 w-full text-xs text-muted-foreground"
-        onClick={() => setOpen(false)}
-      >
-        Cancel
-      </Button>
-    </div>
+    <button
+      type="button"
+      aria-label={label}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onClick}
+      className="grid size-8 place-items-center text-muted-foreground not-last:border-b hover:bg-muted hover:text-foreground"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Every line at once, in one SVG under the cards. A dot at each end is what
+ * makes a line read as plugged into the card rather than passing behind it.
+ */
+function Links({ links }: { links: LayoutLink[] }) {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 size-full text-border"
+      aria-hidden
+    >
+      {links.map((link) => {
+        const first = link.points[0];
+        const last = link.points[link.points.length - 1];
+        return (
+          <g key={link.id}>
+            <polyline
+              points={link.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            />
+            <circle cx={first.x} cy={first.y} r={3} fill="currentColor" />
+            <circle cx={last.x} cy={last.y} r={3} fill="currentColor" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/**
+ * A branch's name goes at the corner its line turns at — reading "Open" then
+ * following the line down is how somebody traces a path. A branch that runs
+ * straight down has no corner, so its name sits on the line itself.
+ */
+function labelPosition(link: LayoutLink): { left: number; top: number } {
+  const corner = link.points.length > 2 ? link.points[1] : undefined;
+  if (corner) return { left: corner.x, top: corner.y - 14 };
+  const [from, to] = [link.points[0], link.points[link.points.length - 1]];
+  return { left: from.x, top: (from.y + to.y) / 2 };
+}
+
+function Card({
+  node,
+  icon: Icon,
+  title,
+  detail,
+  ariaLabel,
+  selected,
+  onSelect,
+}: {
+  node: LayoutNode;
+  icon: typeof PhoneCall;
+  title: string;
+  detail: string;
+  ariaLabel: string;
+  selected?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onSelect}
+      style={{ left: node.x - CARD_W / 2, top: node.y, width: CARD_W, height: CARD_H }}
+      className={cn(
+        "absolute flex flex-col items-center justify-center rounded-xl border bg-card px-4 text-center shadow-sm transition-shadow hover:shadow-md",
+        selected && "border-brand ring-2 ring-brand/30",
+        node.kind === "entry" && "border-dashed",
+      )}
+    >
+      <span className="flex items-center gap-2">
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="text-sm font-semibold">{title}</span>
+      </span>
+      <span className="mt-1 line-clamp-1 w-full text-xs text-muted-foreground">
+        {detail}
+      </span>
+    </button>
   );
 }

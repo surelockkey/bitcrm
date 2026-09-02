@@ -9,13 +9,28 @@ import {
   type MenuNode,
   type RingNode,
   type SayNode,
+  type ExtNode,
 } from '@bitcrm/types';
+
+/** What a resolved job code names. */
+export interface ResolvedExt {
+  dealId: string;
+  dealNumber?: string;
+  /** Absent when the caller's own number did not identify them. */
+  technicianId?: string;
+  clientName?: string;
+  /** The client's real E.164 — never spoken to the caller. */
+  to: string;
+  /** The market number the client will see. */
+  from: string;
+  callerIdSource?: string;
+}
 import { isWithinBusinessHours } from './business-hours';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
 } from '../telephony/telephony.config';
-import { Inject } from '@nestjs/common';
+import { Inject, Optional } from '@nestjs/common';
 import { CallFlowsService } from '../call-flows/call-flows.service';
 import { CallGroupsService } from '../call-groups/call-groups.service';
 import { CallsService } from '../calls/calls.service';
@@ -25,6 +40,7 @@ import {
   confName,
   type InboundLeg,
 } from './conference.service';
+import { DialInService } from '../exts/dial-in.service';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
 
@@ -38,6 +54,26 @@ interface FlowState {
   to: string;
   /** How many times the current menu has re-read itself. */
   menuTries?: number;
+  /**
+   * Where the technician dial-in has got to. Held in call state rather than
+   * wired into the graph because `validateGraph` refuses cycles — a retry
+   * cannot be an edge that points back at its own node.
+   */
+  extStage?: 'code' | 'confirm';
+  /**
+   * The job code, held until the PIN arrives. BOTH are collected before EITHER
+   * is checked: refusing at the code step and refusing at the PIN step are
+   * distinguishable by how many prompts the caller heard, and that difference
+   * is an oracle that maps live job codes for anyone with a handset.
+   */
+  extCode?: string;
+  /** Failed attempts on this call. */
+  extTries?: number;
+  /**
+   * What the code and PIN resolved to, held across the confirm step so the
+   * client is looked up once rather than twice.
+   */
+  extMatch?: ResolvedExt;
 }
 
 const STATE_TTL_SECONDS = 4 * 60 * 60;
@@ -74,6 +110,7 @@ export class FlowRunnerService {
     private readonly conference: ConferenceService,
     private readonly calls: CallsService,
     private readonly redis: RedisService,
+    @Optional() private readonly dialIn?: DialInService,
   ) {}
 
   /**
@@ -110,6 +147,64 @@ export class FlowRunnerService {
       .applyLifecycle({ callSid, flowName: flow.name })
       .catch(() => undefined);
     return this.execute(callSid, state, entry);
+  }
+
+  /**
+   * The technician dial-in, with no call flow behind it.
+   *
+   * Designating a number as the technician line is the whole configuration —
+   * masking must not also require somebody to build a flow, because the flow
+   * would only ever contain this one step. So the step is synthesised here and
+   * run through the ordinary machinery.
+   *
+   * Nothing about the call is special afterwards: `FlowState` pins a snapshot
+   * of its flow for the call's lifetime anyway, so a synthesised one resumes
+   * across `/voice/flow` webhooks exactly like a stored one.
+   *
+   * A workspace that WANTS a greeting, business hours, or a custom fallback can
+   * still build a flow with a Technician line step; that flow is found first
+   * and this never runs.
+   */
+  async startTechnicianLine(
+    callSid: string,
+    from: string,
+    to: string,
+  ): Promise<string> {
+    const node: ExtNode = {
+      id: 'dial-in',
+      type: 'ext',
+      prompt: 'Enter the job code.',
+      confirmPrompt: 'Calling',
+      repeats: CALL_FLOW_LIMITS.extMaxAttempts,
+      timeoutSeconds: 10,
+    };
+
+    const flow: CallFlow = {
+      id: 'built-in-technician-line',
+      name: 'Technician line',
+      numbers: [to],
+      entryNodeId: node.id,
+      nodes: { [node.id]: node },
+      active: true,
+      version: 1,
+      createdBy: 'system',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const state: FlowState = { flow, nodeId: node.id, hops: 0, from, to };
+    await this.save(callSid, state);
+    void this.calls
+      .applyLifecycle({ callSid, flowName: flow.name })
+      .catch(() => undefined);
+
+    this.trace(callSid, node, 'Asked for a job code');
+    // Never null: this is the one line where the ring-everyone fallback would
+    // hand an unidentified caller to whoever happens to be online.
+    return (
+      (await this.extPrompt(callSid, state, node, 'code').catch(() => null)) ??
+      this.goodbye('Sorry, we could not take that call. Please try again.')
+    );
   }
 
   /** Twilio came back for the next step, optionally with a key the caller pressed. */
@@ -187,6 +282,10 @@ export class FlowRunnerService {
       return this.goodbye('Sorry, we did not get that. Please call again.');
     }
 
+    if (node.type === 'ext' && digits !== undefined) {
+      return this.extDigits(callSid, state, node, digits);
+    }
+
     const next: FlowState = {
       ...state,
       nodeId,
@@ -195,6 +294,230 @@ export class FlowRunnerService {
     };
     await this.save(callSid, next);
     return this.execute(callSid, next, node);
+  }
+
+  /* ------------------------------------------------- the technician line */
+
+  /**
+   * Ask for the job code.
+   *
+   * Note what does NOT follow the `<Gather>`: the menu falls through to a
+   * `<Redirect>` back at itself, which is an unconditional loop. Here an empty
+   * result comes back to the same action URL via `actionOnEmptyResult`, is
+   * counted as an attempt, and eventually hands the caller to `next` — so a
+   * technician in a bad signal area reaches dispatch instead of a loop.
+   */
+  private async extPrompt(
+    callSid: string,
+    state: FlowState,
+    node: ExtNode,
+    stage: 'code' | 'confirm',
+    retry = false,
+  ): Promise<string> {
+    await this.save(callSid, {
+      ...state,
+      nodeId: node.id,
+      hops: state.hops + 1,
+      extStage: stage,
+      // Starting the sequence over clears any half-entered code.
+      ...(stage === 'code' ? { extCode: undefined } : {}),
+    });
+
+    const twiml = new VoiceResponse();
+    const gather = twiml.gather({
+      numDigits: stage === 'code' ? CALL_FLOW_LIMITS.extDigits : 1,
+      timeout: node.timeoutSeconds,
+      action: this.stepUrl(node.id),
+      method: 'POST',
+      // Without this an empty result never reaches us and the caller loops.
+      actionOnEmptyResult: true,
+    });
+
+    if (retry) gather.say('Sorry, that did not work.');
+    if (stage === 'code') {
+      if (node.audioId) gather.play({}, this.audioUrl(node.audioId));
+      else gather.say(node.prompt || 'Enter the job code, then hash.');
+    }
+    return twiml.toString();
+  }
+
+  /**
+   * A keypress arrived for the dial-in. Two stages, and only the last one
+   * dials anybody.
+   *
+   * Every failure — unknown code, expired, closed job, an unreachable
+   * deal-service — produces the SAME sentence after the SAME number of
+   * prompts. That uniformity is the point: a differentiated refusal turns the
+   * line into an oracle that maps live job codes.
+   */
+  private async extDigits(
+    callSid: string,
+    state: FlowState,
+    node: ExtNode,
+    digits: string,
+  ): Promise<string> {
+    const stage = state.extStage ?? 'code';
+
+    if (stage === 'confirm') {
+      if (digits === '1') {
+        this.trace(callSid, node, 'Confirmed the client');
+        return this.extConnect(callSid, state, node);
+      }
+      this.trace(callSid, node, 'Did not confirm');
+      return this.extRetry(callSid, state, node);
+    }
+
+    // stage === 'code'.
+    const resolved = await this.resolveExt(digits, state.from);
+    if (!resolved) {
+      // Truncated on purpose: a failure log must not become an enumeration
+      // corpus for whoever can read the logs.
+      this.logger.warn(
+        `Dial-in refused for ${state.from}: ext=***${digits.slice(-2)}`,
+      );
+      return this.extRetry(callSid, { ...state, extCode: digits }, node);
+    }
+
+    this.trace(callSid, node, `Entered a job code · ${resolved.dealNumber ?? ''}`.trim());
+    await this.extPrompt(
+      callSid,
+      { ...state, extStage: 'confirm', extMatch: resolved },
+      node,
+      'confirm',
+    );
+    return this.extConfirmXml(node, resolved);
+  }
+
+  /** Re-ask from the top, or hand the caller on once they are out of tries. */
+  private async extRetry(
+    callSid: string,
+    state: FlowState,
+    node: ExtNode,
+  ): Promise<string> {
+    const tries = (state.extTries ?? 0) + 1;
+    if (tries >= node.repeats) {
+      this.trace(callSid, node, 'Code not accepted');
+      // Never a dead end, and never null: returning null drops the caller into
+      // buildLegacyInbound, which rings every online softphone — the last
+      // place an unauthenticated caller on the technician line should land.
+      const onward = node.next ? await this.resume(callSid, node.next) : null;
+      return (
+        onward ??
+        this.goodbye(
+          'Sorry, we could not connect that call. Please contact the office.',
+        )
+      );
+    }
+    return this.extPrompt(
+      callSid,
+      { ...state, extTries: tries, extCode: undefined },
+      node,
+      'code',
+      true,
+    );
+  }
+
+  /**
+   * The confirm step, which no competing design had and which addresses the
+   * single most likely wrong-client event: a mistyped code that happens to be
+   * another live job. The client's NAME is spoken; their number never is.
+   */
+  private extConfirmXml(node: ExtNode, resolved: ResolvedExt): string {
+    const twiml = new VoiceResponse();
+    const gather = twiml.gather({
+      numDigits: 1,
+      timeout: node.timeoutSeconds,
+      action: this.stepUrl(node.id),
+      method: 'POST',
+      actionOnEmptyResult: true,
+    });
+    const who = resolved.clientName ?? 'the client';
+    const job = resolved.dealNumber ? ` about job ${resolved.dealNumber}` : '';
+    gather.say(
+      node.confirmPrompt?.trim()
+        ? `${node.confirmPrompt} ${who}${job}. Press 1 to connect.`
+        : `Calling ${who}${job}. This call is recorded. Press 1 to connect.`,
+    );
+    return twiml.toString();
+  }
+
+  /**
+   * Resolve a job code.
+   *
+   * Optional so the flow-runner specs — which are about the STATE MACHINE, not
+   * about authorisation — construct without a dial-in service and see every
+   * code refuse, which is also what an unknown code does in production.
+   */
+  protected async resolveExt(
+    code: string,
+    from: string,
+  ): Promise<ResolvedExt | null> {
+    if (!this.dialIn) return null;
+    try {
+      const match = await this.dialIn.resolve(code, from);
+      return match ?? null;
+    } catch (error) {
+      // A throw here would escape `flowStep`, which has no try/catch, and a
+      // 500 to Twilio means the caller hears nothing at all.
+      this.logger.error(
+        `Dial-in resolution failed — refusing: ${this.reason(error)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Connect the technician to the client.
+   *
+   * Lands on the SAME machinery the in-app bridge uses: their inbound leg
+   * becomes the primary sid of `conf-<CallSid>`, and the unmodified
+   * `onParticipantJoin` dials the client from the market number. Two ways in,
+   * one conference, one record, one recording, one job link.
+   */
+  protected async extConnect(
+    callSid: string,
+    state: FlowState,
+    node: ExtNode,
+  ): Promise<string> {
+    const match = state.extMatch;
+    if (!match || !this.dialIn) return this.extRetry(callSid, state, node);
+
+    try {
+      await this.conference.initOutbound(
+        callSid,
+        match.technicianId ?? '',
+        match.to,
+        match.from,
+        {
+          dealId: match.dealId,
+          origin: 'bridge',
+          callerIdSource: match.callerIdSource as never,
+        },
+      );
+    } catch (error) {
+      this.logger.error(`Dial-in connect failed: ${this.reason(error)}`);
+      return this.extRetry(callSid, state, node);
+    }
+
+    const twiml = new VoiceResponse();
+    // Same shape as ring(): the action gives the technician's flow somewhere
+    // to resume once the conversation ends.
+    const dial = node.answeredNext
+      ? twiml.dial({
+          action: `${this.stepUrl(node.answeredNext)}&after=1`,
+          method: 'POST',
+        })
+      : twiml.dial();
+    dial.conference(
+      {
+        ...this.conference.sharedConferenceAttrs(),
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        beep: 'false',
+      } as Parameters<InstanceType<typeof VoiceResponse.Dial>['conference']>[0],
+      confName(callSid),
+    );
+    return twiml.toString();
   }
 
   /* ----------------------------------------------------------- the nodes */
@@ -222,6 +545,9 @@ export class FlowRunnerService {
           return this.voicemail(node.prompt, node.maxSeconds);
         case 'ring':
           return await this.ring(callSid, state, node);
+        case 'ext':
+          this.trace(callSid, node, 'Asked for a job code');
+          return await this.extPrompt(callSid, state, node, 'code');
         default:
           this.logger.error(
             `Flow "${state.flow.name}": unknown step type — falling back`,

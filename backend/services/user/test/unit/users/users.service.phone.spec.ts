@@ -86,13 +86,13 @@ describe('UsersService — personal phone', () => {
     });
   });
 
-  describe('updateOwnPhone', () => {
+  describe('setPhone', () => {
     it('sets your own number without needing users.edit', async () => {
       const { service, repository } = makeService({
         findById: jest.fn().mockResolvedValue(existing),
       });
 
-      await service.updateOwnPhone('u1', '(541) 283-0739');
+      await service.setPhone('u1', '(541) 283-0739');
 
       expect(repository.putPhoneIndex).toHaveBeenCalledWith('+15412830739', 'u1');
       expect(repository.deletePhoneIndex).toHaveBeenCalledWith('+14045551234');
@@ -106,7 +106,7 @@ describe('UsersService — personal phone', () => {
         findById: jest.fn().mockResolvedValue(existing),
       });
 
-      await service.updateOwnPhone('u1', '  ');
+      await service.setPhone('u1', '  ');
 
       expect(repository.putPhoneIndex).not.toHaveBeenCalled();
       expect(repository.deletePhoneIndex).toHaveBeenCalledWith('+14045551234');
@@ -124,7 +124,7 @@ describe('UsersService — personal phone', () => {
       });
 
       await expect(
-        service.updateOwnPhone('u1', '+15412830739'),
+        service.setPhone('u1', '+15412830739'),
       ).rejects.toBeInstanceOf(ConflictException);
     });
   });

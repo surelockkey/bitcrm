@@ -314,6 +314,54 @@ export function FlowStepFields({
     );
   }
 
+  if (node.type === "ext") {
+    return (
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Asking for the job code</Label>
+          <Textarea
+            rows={2}
+            aria-label="Asking for the job code"
+            value={node.prompt}
+            placeholder="Enter the job code, then hash."
+            onChange={(e) => onChange({ ...node, prompt: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Before connecting</Label>
+          <Input
+            aria-label="Before connecting"
+            className="h-8 text-xs"
+            value={node.confirmPrompt}
+            placeholder="Calling"
+            onChange={(e) => onChange({ ...node, confirmPrompt: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            The client&apos;s name is read out after this, and the technician
+            presses 1 to connect. Their number is never spoken.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Attempts before dispatch</Label>
+          <Input
+            type="number"
+            min={1}
+            max={3}
+            aria-label="Attempts before dispatch"
+            className="h-8 w-24 text-xs"
+            value={node.repeats}
+            onChange={(e) =>
+              onChange({ ...node, repeats: Number(e.target.value) || 3 })
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Untagged fallback: reached only by `hangup`. A new node type WITHOUT a
+  // `text` field lands here and renders the wrong editor, so anything new
+  // needs its own branch above this one.
   return (
     <Textarea
       rows={2}

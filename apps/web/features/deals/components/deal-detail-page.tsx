@@ -46,6 +46,8 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields, workizOrderedGroups } from "@/features/custom-fields/lib";
 import { LiveCallStrip } from "@/features/calls/components/live-call-strip";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
+import { JobDialCard } from "@/features/telephony/components/job-dial-card";
+import { MaskedClientPhones } from "./masked-client-phones";
 import {
   useChangeDealClient,
   useDeal,
@@ -99,7 +101,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Only while a call is actually happening — that's the one moment
           "link this call" has a subject. */}
-      <LiveCallStrip dealId={deal.id} />
+      <LiveCallStrip dealId={dealId} />
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -194,13 +196,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={deal.id} canEdit={canEdit} /></div>
+          <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
         ) : null}
       </div>
 
       {/* Workiz-style hanging history: handle on the right edge, opens the
           timeline with the change log, filters and search. */}
-      <DealTimelinePanel dealId={deal.id} canEdit={canEdit} />
+      <DealTimelinePanel dealId={dealId} canEdit={canEdit} />
     </div>
   );
 }
@@ -362,7 +364,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         }
       >
         {contact && clientDraft ? (
-          <ClientEditor contact={contact} draft={clientDraft} onChange={setClientDraft} canEdit={canEditClient} />
+          <ClientEditor contact={contact} draft={clientDraft} onChange={setClientDraft} canEdit={canEditClient} dealId={deal.id} />
         ) : (
           <Skeleton className="h-24 w-full" />
         )}
@@ -529,11 +531,14 @@ function ClientEditor({
   draft,
   onChange,
   canEdit,
+  dealId,
 }: {
   contact: Contact;
   draft: ClientDraft;
   onChange: (d: ClientDraft) => void;
   canEdit: boolean;
+  /** The job these calls are about — the bridge authorises against it. */
+  dealId: string;
 }) {
   const set = (patch: Partial<ClientDraft>) => onChange({ ...draft, ...patch });
 
@@ -542,12 +547,33 @@ function ClientEditor({
       <div className="space-y-1 text-sm">
         <div className="font-medium">{contactName(contact)}</div>
         {contact.phones.map((p, i) => (
-          <div key={p} className="flex items-center gap-2 text-muted-foreground">
-            {formatPhone(p)}{i === 0 ? <PrimaryBadge /> : null}
-            <CallClientButton to={p} partyId={contact.id} />
+          // A job page is where somebody decides to ring the client, and on a
+          // technician's phone that decision should not hinge on spotting a
+          // 28px glyph at the end of a line of grey text.
+          <div
+            key={p}
+            className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2"
+          >
+            <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+              <span className="truncate">{formatPhone(p)}</span>
+              {i === 0 ? <PrimaryBadge /> : null}
+            </span>
+            <CallClientButton to={p} partyId={contact.id} dealId={dealId} contactId={contact.id} phoneIndex={i} variant="prominent" />
           </div>
         ))}
+        {/* The call button lives inside the phones loop above, and a masked
+            viewer's `phones` is empty — so without this they would see that a
+            number exists and have no way to ring it. */}
+        {contact.phonesMasked ? (
+          <MaskedClientPhones
+            phoneCount={contact.phoneCount ?? 0}
+            dealId={dealId}
+            contactId={contact.id}
+            className="space-y-1"
+          />
+        ) : null}
         {contact.emails[0] ? <div className="text-muted-foreground">{contact.emails[0]}</div> : null}
+        <JobDialCard dealId={dealId} />
         <div className="pt-1 text-xs text-muted-foreground">Editing the client needs the “contacts · edit” permission.</div>
       </div>
     );
@@ -571,18 +597,37 @@ function ClientEditor({
               {i === 0 ? <PrimaryBadge /> : null}
               {/* Dials what's on file, not the half-typed draft. */}
               {contact.phones.includes(p) ? (
-                <CallClientButton to={p} partyId={contact.id} />
+                <CallClientButton
+                  to={p}
+                  partyId={contact.id}
+                  dealId={dealId}
+                  contactId={contact.id}
+                  // `i` indexes the DRAFT, which may hold unsaved rows; the
+                  // server resolves against what is on file.
+                  phoneIndex={contact.phones.indexOf(p)}
+                />
               ) : null}
               {draft.phones.length > 1 ? (
                 <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
               ) : null}
             </div>
           ))}
+          {contact.phonesMasked ? (
+            <MaskedClientPhones
+              phoneCount={contact.phoneCount ?? 0}
+              dealId={dealId}
+              contactId={contact.id}
+              className="space-y-1"
+            />
+          ) : null}
           <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""] })}>＋ Add phone</button>
         </div>
         <p className="text-xs text-muted-foreground">The first phone is the client&apos;s primary number.</p>
       </Field>
       <Field label="Email"><Input className="h-9" value={draft.email} placeholder="name@example.com" onChange={(e) => set({ email: e.target.value })} /></Field>
+      {/* Needed just as much by somebody who CAN edit the client: the card is
+          about reaching them from a handset, not about who may edit what. */}
+      <JobDialCard dealId={dealId} />
     </div>
   );
 }

@@ -19,3 +19,19 @@ export const callPk = (callSid: string) => `CALL#${callSid}`;
 export const agentGsiPk = (userId: string) => `AGENT#${userId}`;
 export const allCallsSk = (startedAt: string, callSid: string) =>
   `${startedAt}#${callSid}`;
+
+/**
+ * Job codes for the technician dial-in, in the same table as the calls they
+ * create. Two items per job that ever gets one, and both are needed:
+ *
+ *   Code:      PK=EXT#<code>,     SK=METADATA  → the (code) → job lookup
+ *   Reverse:   PK=EXTOF#<dealId>, SK=METADATA  → makes minting idempotent
+ *
+ * Nothing in this repo uses DynamoDB TTL, so a released code is swept by a
+ * scheduled script rather than expiring on its own — and the allocator's
+ * conditional put fails on ANY existing row regardless of status, so a code
+ * that connected somebody to the Hendersons cannot, three weeks later,
+ * connect somebody to the Wus.
+ */
+export const extPk = (code: string) => `EXT#${code}`;
+export const extOfPk = (dealId: string) => `EXTOF#${dealId}`;

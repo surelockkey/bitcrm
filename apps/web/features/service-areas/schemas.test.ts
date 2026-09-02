@@ -84,3 +84,56 @@ describe("toServiceAreaBody", () => {
     expect(body).not.toHaveProperty("zips");
   });
 });
+
+/**
+ * `toServiceAreaBody` is a whitelist, and deal-service runs a whitelisting
+ * ValidationPipe on the other end. A field missing from either one never
+ * arrives, with no error at any layer — so the market number needs a guard at
+ * both ends of the wire.
+ */
+describe("market caller id", () => {
+  const zipForm = {
+    name: "Atlanta",
+    priority: 0,
+    active: true,
+    type: ServiceAreaType.ZIPS,
+    zips: [{ zip: "30301" }],
+    vertices: [],
+  };
+
+  it("carries the number into the request body", () => {
+    const body = toServiceAreaBody(
+      serviceAreaFormSchema.parse({ ...zipForm, callerId: "+14045550100" }),
+    );
+    expect(body).toMatchObject({ callerId: "+14045550100" });
+  });
+
+  it("sends an empty string to clear it", () => {
+    const body = toServiceAreaBody(
+      serviceAreaFormSchema.parse({ ...zipForm, callerId: "" }),
+    );
+    expect(body).toMatchObject({ callerId: "" });
+  });
+
+  it("defaults to empty when the form omits it", () => {
+    const body = toServiceAreaBody(serviceAreaFormSchema.parse(zipForm));
+    expect(body).toMatchObject({ callerId: "" });
+  });
+
+  it("carries it on a polygon area too", () => {
+    const body = toServiceAreaBody(
+      serviceAreaFormSchema.parse({
+        ...zipForm,
+        type: ServiceAreaType.POLYGON,
+        zips: [],
+        vertices: [
+          { lat: 33.7, lng: -84.3 },
+          { lat: 33.8, lng: -84.3 },
+          { lat: 33.8, lng: -84.4 },
+        ],
+        callerId: "+14045550100",
+      }),
+    );
+    expect(body).toMatchObject({ callerId: "+14045550100" });
+  });
+});

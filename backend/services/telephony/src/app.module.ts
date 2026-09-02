@@ -14,6 +14,7 @@ import { TelephonyModule } from './telephony/telephony.module';
 import { PresenceModule } from './presence/presence.module';
 import { CallsModule } from './calls/calls.module';
 import { VoiceModule } from './voice/voice.module';
+import { ExtsModule } from './exts/exts.module';
 import { NumbersModule } from './numbers/numbers.module';
 import { CallGroupsModule } from './call-groups/call-groups.module';
 import { CallFlowsModule } from './call-flows/call-flows.module';
@@ -54,6 +55,7 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
     PresenceModule,
     CallsModule,
     VoiceModule,
+    ExtsModule,
     NumbersModule,
     CallGroupsModule,
     CallFlowsModule,

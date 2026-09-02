@@ -5,6 +5,7 @@ import {
   type TechnicianProfile,
   type User,
 } from "@bitcrm/types";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 /** Vertical grid geometry for the day view. */
 export interface Grid {
@@ -255,7 +256,7 @@ export interface TechFilter {
 /** Filter the technician roster for the schedule toolbar (status/department/name). */
 export function filterTechnicians(
   profiles: TechnicianProfile[],
-  users: Map<string, User>,
+  users: Map<string, DirectoryUser>,
   filter: TechFilter,
 ): TechnicianProfile[] {
   const q = filter.query?.trim().toLowerCase();

@@ -6,6 +6,14 @@ export interface Company {
   id: string;
   title: string;
   phones: string[];
+  /**
+   * Set only when the viewer lacks `contacts.view_numbers`: `phones` comes back
+   * empty and this says how many were withheld, so the UI can render
+   * "2 numbers, hidden" rather than the "—" that means genuinely none.
+   */
+  phoneCount?: number;
+  phonesMasked?: true;
+
   emails: string[];
   address?: string;
   website?: string;

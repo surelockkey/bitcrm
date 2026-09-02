@@ -57,3 +57,25 @@ export function useReleaseNumber() {
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
+
+/**
+ * Designate — or release — the technician dial-in line.
+ *
+ * Also invalidates the workspace telephony config, because the job page's dial
+ * card reads the line from there: without it the card would keep showing the
+ * old number until its own cache lapsed.
+ */
+export function useSetTechnicianLine() {
+  const invalidate = useInvalidateNumbers();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sid, on }: { sid: string; on: boolean }) =>
+      on ? api.makeTechnicianLine(sid) : api.clearTechnicianLine(sid),
+    onSuccess: (_data, { on }) => {
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ["telephony-config"] });
+      toast.success(on ? "Technician line set" : "Technician line cleared");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}

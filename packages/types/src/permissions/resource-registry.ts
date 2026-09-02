@@ -12,7 +12,15 @@
 export const RESOURCE_REGISTRY = {
   deals: ['view', 'create', 'edit', 'delete', 'move_status'],
   service_areas: ['view', 'create', 'edit', 'delete', 'propose', 'approve', 'revoke'],
-  contacts: ['view', 'create', 'edit', 'delete'],
+  // `view_numbers` gates CLIENT PHONE NUMBERS wherever they surface — the
+  // contact record, the company record, the job page, the call log, the
+  // softphone screen-pop and the job timeline. Call masking is the ABSENCE of
+  // this grant, which is why it hangs off `contacts` rather than `calls`: a
+  // technician holds `contacts.view` and not `calls.view`, and the job page
+  // renders the client's numbers directly. Company phones ride the same key on
+  // purpose — masked on residential jobs but not commercial ones is a state
+  // nobody wants and everybody would eventually configure by accident.
+  contacts: ['view', 'create', 'edit', 'delete', 'view_numbers'],
   companies: ['view', 'create', 'edit', 'delete'],
   products: ['view', 'create', 'edit', 'delete'],
   warehouses: ['view', 'create', 'edit', 'delete'],

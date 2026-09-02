@@ -158,3 +158,105 @@ describe('ServiceAreasService', () => {
     });
   });
 });
+
+/**
+ * Per-market caller id. Two of the edits this field needs fail SILENTLY rather
+ * than loudly, and both are covered here:
+ *  - the whitelisting ValidationPipe drops it if either DTO omits it;
+ *  - `toEntity` is a whitelist and `update()` is a read-modify-full-Put, so a
+ *    missing mapping DELETES the value on the next unrelated edit.
+ */
+describe('ServiceAreasService — market caller id', () => {
+  let repo: ReturnType<typeof createMockServiceAreasRepository>;
+  let service: ServiceAreasService;
+  const caller = createMockJwtUser();
+
+  const zips = { type: ServiceAreaType.ZIPS, zips: [{ zip: '30301' }] };
+
+  beforeEach(() => {
+    repo = createMockServiceAreasRepository();
+    const geocoding = createMockGeocodingService();
+    geocoding.geocode.mockResolvedValue({ lat: 33.75, lng: -84.39 });
+    service = new ServiceAreasService(
+      repo as any,
+      geocoding as any,
+      createMockSnsPublisherService() as any,
+    );
+  });
+
+  it('stores a normalised caller id on create', async () => {
+    const area = await service.create(
+      { name: 'Atlanta', ...zips, callerId: '(404) 555-0100' } as any,
+      caller,
+    );
+
+    expect(area.callerId).toBe('+14045550100');
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ callerId: '+14045550100' }),
+    );
+  });
+
+  it('leaves it unset when none is supplied', async () => {
+    const area = await service.create({ name: 'Atlanta', ...zips } as any, caller);
+    expect(area.callerId).toBeUndefined();
+  });
+
+  it('rejects a caller id that is not a phone number', async () => {
+    await expect(
+      service.create(
+        { name: 'Atlanta', ...zips, callerId: 'not-a-number' } as any,
+        caller,
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('sets it on update', async () => {
+    repo.get.mockResolvedValue(createMockServiceArea({ id: 'a1' }));
+
+    const out = await service.update('a1', { callerId: '404-555-0100' } as any, caller);
+
+    expect(out.callerId).toBe('+14045550100');
+  });
+
+  /**
+   * A `?? existing` merge can only ever SET a value — an operator moving a
+   * number to another market could never take it off the first one.
+   */
+  it('clears it when sent an empty string', async () => {
+    repo.get.mockResolvedValue(
+      createMockServiceArea({ id: 'a1', callerId: '+14045550100' } as any),
+    );
+
+    const out = await service.update('a1', { callerId: '' } as any, caller);
+
+    expect(out.callerId).toBeUndefined();
+  });
+
+  it('clears it when sent null', async () => {
+    repo.get.mockResolvedValue(
+      createMockServiceArea({ id: 'a1', callerId: '+14045550100' } as any),
+    );
+
+    const out = await service.update('a1', { callerId: null } as any, caller);
+
+    expect(out.callerId).toBeUndefined();
+  });
+
+  /**
+   * THE DELETE-ON-EDIT REGRESSION. Renaming an area must not silently drop its
+   * number — `update()` rebuilds the whole item from what `toEntity` returned.
+   */
+  it('survives an unrelated edit', async () => {
+    repo.get.mockResolvedValue(
+      createMockServiceArea({ id: 'a1', callerId: '+14045550100' } as any),
+    );
+
+    const out = await service.update('a1', { name: 'Atlanta Metro' } as any, caller);
+
+    expect(out.name).toBe('Atlanta Metro');
+    expect(out.callerId).toBe('+14045550100');
+    expect(repo.put).toHaveBeenCalledWith(
+      expect.objectContaining({ callerId: '+14045550100' }),
+    );
+  });
+});

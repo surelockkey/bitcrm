@@ -30,6 +30,15 @@ const techUser: JwtUser = {
   department: 'Atlanta',
 };
 
+/** A technician with call masking switched on. */
+const maskedTechUser: JwtUser = {
+  id: 'masked-tech-1',
+  cognitoSub: 'sub-masked-tech',
+  email: 'masked@test.com',
+  roleId: 'role-masked-tech',
+  department: 'Atlanta',
+};
+
 const readOnlyUser: JwtUser = {
   id: 'ro-1',
   cognitoSub: 'sub-ro',
@@ -400,5 +409,126 @@ describe('Contacts E2E', () => {
 
   it('GET /contacts - unauthenticated returns 401', async () => {
     await request(app.getHttpServer()).get(BASE).expect(401);
+  });
+
+  /**
+   * Call masking, end to end. Every one of these is a real HTTP round trip
+   * against the booted app — which is where the earlier DI regression showed
+   * up, and where a redaction that only exists in a unit test would not.
+   */
+  describe('call masking (contacts.view_numbers)', () => {
+    async function seedContact() {
+      const res = await request(app.getHttpServer())
+        .post(BASE)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({
+          firstName: 'Maria',
+          lastName: 'Alvarez',
+          phones: ['(404) 555-4321'],
+          emails: ['maria@example.com'],
+          type: 'residential',
+          source: 'manual',
+        })
+        .expect(201);
+      return res.body.data.id as string;
+    }
+
+    it('hides the numbers but keeps the count and the name', async () => {
+      const id = await seedContact();
+
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(maskedTechUser))
+        .expect(200);
+
+      expect(res.body.data.phones).toEqual([]);
+      expect(res.body.data.phoneCount).toBe(1);
+      expect(res.body.data.phonesMasked).toBe(true);
+      // Masking removes digits, never identities.
+      expect(res.body.data.firstName).toBe('Maria');
+    });
+
+    it('still returns real numbers to a granted viewer', async () => {
+      const id = await seedContact();
+
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .expect(200);
+
+      expect(res.body.data.phones).toEqual(['+14045554321']);
+      expect(res.body.data.phonesMasked).toBeUndefined();
+    });
+
+    it('refuses the by-phone search to a masked viewer', async () => {
+      await seedContact();
+
+      await request(app.getHttpServer())
+        .get(`${BASE}/search/by-phone?phone=${encodeURIComponent('(404) 555-4321')}`)
+        .set('x-test-user', createTestUserHeader(maskedTechUser))
+        .expect(403);
+    });
+
+    /**
+     * A masked user cannot overwrite numbers they cannot see.
+     *
+     * NOTE the payload is a NON-EMPTY array. The empty-array case — a masked
+     * edit form loading `phones: []` and submitting it straight back, where
+     * `if (dto.phones)` is true for `[]` and the service rewrites the phone
+     * index to nothing — cannot be exercised here, because this suite installs
+     * a ValidationPipe that PRODUCTION DOES NOT HAVE (crm/src/main.ts sets a
+     * global filter and prefix, but no global pipe), and `@ArrayMinSize(1)`
+     * rejects it at the DTO first. So e2e is strictly more protective than the
+     * real service; `stripUnwritablePhones` is what stands there, and its unit
+     * spec covers the empty case directly.
+     */
+    it('ignores a phones write from a masked user', async () => {
+      const id = await seedContact();
+
+      await request(app.getHttpServer())
+        .put(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(maskedTechUser))
+        .send({ firstName: 'Maria Elena', phones: ['+19995550000'] })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .expect(200);
+
+      // The edit they were allowed to make landed; the one they were not did not.
+      expect(res.body.data.firstName).toBe('Maria Elena');
+      expect(res.body.data.phones).toEqual(['+14045554321']);
+    });
+
+    it('lets a granted user change the numbers', async () => {
+      const id = await seedContact();
+
+      await request(app.getHttpServer())
+        .put(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .send({ phones: ['(404) 555-9876'] })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/${id}`)
+        .set('x-test-user', createTestUserHeader(adminUser))
+        .expect(200);
+
+      expect(res.body.data.phones).toEqual(['+14045559876']);
+    });
+
+    it('masks the list as well as the detail', async () => {
+      await seedContact();
+
+      const res = await request(app.getHttpServer())
+        .get(BASE)
+        .set('x-test-user', createTestUserHeader(maskedTechUser))
+        .expect(200);
+
+      for (const contact of res.body.data) {
+        expect(contact.phones).toEqual([]);
+      }
+    });
   });
 });

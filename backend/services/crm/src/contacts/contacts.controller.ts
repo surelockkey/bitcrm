@@ -9,8 +9,8 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RequirePermission, CurrentUser } from '@bitcrm/shared';
-import { type JwtUser } from '@bitcrm/types';
+import { RequirePermission, CurrentUser, hasPermission } from '@bitcrm/shared';
+import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { ContactsService } from './contacts.service';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
@@ -20,6 +20,16 @@ import { MergeContactsDto } from './dto/merge-contacts.dto';
 import { LookupContactsByPhonesDto } from './dto/lookup-contacts-by-phones.dto';
 import { LookupPartiesByIdsDto } from './dto/lookup-parties-by-ids.dto';
 import { Internal } from '../common/decorators/internal.decorator';
+import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
+import {
+  maskPhones,
+  maskPhonesEach,
+  stripUnwritablePhones,
+} from '../common/phone-masking';
+
+/** Does this viewer hold `contacts.view_numbers`? Absent perms = no. */
+const maySeeNumbers = (perms?: ResolvedPermissions) =>
+  hasPermission(perms, 'contacts', 'view_numbers');
 
 @ApiTags('Contacts')
 @ApiBearerAuth()
@@ -45,22 +55,32 @@ export class ContactsController {
   @RequirePermission('contacts', 'view')
   @ApiOperation({
     summary: 'List contacts with pagination',
-    description: '**Guard:** `contacts.view` permission required.',
+    description:
+      '**Guard:** `contacts.view` permission required. Client phone numbers are ' +
+      'replaced with `phones: [], phoneCount, phonesMasked` unless the caller ' +
+      'also holds `contacts.view_numbers`.',
   })
-  async list(@Query() query: ListContactsQueryDto) {
+  async list(
+    @Query() query: ListContactsQueryDto,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
     const result = await this.contactsService.list(query);
     return {
       success: true,
-      data: result.items,
+      data: maskPhonesEach(result.items, maySeeNumbers(perms)),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
   }
 
   @Get('search/by-phone')
-  @RequirePermission('contacts', 'view')
+  @RequirePermission('contacts', 'view_numbers')
   @ApiOperation({
     summary: 'Search contact by phone number',
-    description: '**Guard:** `contacts.view` permission required. Phone is normalized to E.164 before lookup.',
+    description:
+      '**Guard:** `contacts.view_numbers` permission required — searching *by* a ' +
+      'number both requires knowing one and confirms whose it is, so a caller ' +
+      'whose numbers are masked must not reach it. Phone is normalized to E.164 ' +
+      'before lookup.',
   })
   async searchByPhone(@Query('phone') phone: string) {
     const data = await this.contactsService.searchByPhone(phone);
@@ -71,25 +91,36 @@ export class ContactsController {
   @RequirePermission('contacts', 'view')
   @ApiOperation({
     summary: 'Get contact by ID',
-    description: '**Guard:** `contacts.view` permission required.',
+    description:
+      '**Guard:** `contacts.view` permission required. Numbers are masked unless ' +
+      'the caller also holds `contacts.view_numbers`.',
   })
-  async findById(@Param('id') id: string) {
+  async findById(
+    @Param('id') id: string,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
     const data = await this.contactsService.findById(id);
-    return { success: true, data };
+    return { success: true, data: maskPhones(data, maySeeNumbers(perms)) };
   }
 
   @Put(':id')
   @RequirePermission('contacts', 'edit')
   @ApiOperation({
     summary: 'Update a contact',
-    description: '**Guard:** `contacts.edit` permission required.',
+    description:
+      '**Guard:** `contacts.edit` permission required. A caller without ' +
+      '`contacts.view_numbers` cannot write `phones` — the field is dropped from ' +
+      'their payload rather than rejected, because their edit form loaded an ' +
+      'empty array they never chose.',
   })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateContactDto,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.contactsService.update(id, dto);
-    return { success: true, data };
+    const safe = stripUnwritablePhones(dto, maySeeNumbers(perms));
+    const data = await this.contactsService.update(id, safe);
+    return { success: true, data: maskPhones(data, maySeeNumbers(perms)) };
   }
 
   @Post('merge')

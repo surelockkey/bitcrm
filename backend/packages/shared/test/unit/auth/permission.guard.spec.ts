@@ -216,4 +216,97 @@ describe('PermissionGuard', () => {
 
     expect(result).toBe(true);
   });
+
+  /**
+   * The internal permission-resolution endpoint is `@Public()` today, so this
+   * header is a no-op for the receiver — which is exactly why it ships first
+   * and on its own. Every service has to be sending it *before* the route can
+   * be closed, or the first service to deploy loses permission resolution on
+   * every cache miss.
+   */
+  describe('internal API fallback', () => {
+    const originalSecret = process.env.INTERNAL_SERVICE_SECRET;
+
+    afterEach(() => {
+      if (originalSecret === undefined) delete process.env.INTERNAL_SERVICE_SECRET;
+      else process.env.INTERNAL_SERVICE_SECRET = originalSecret;
+    });
+
+    function requirePermission() {
+      jest
+        .spyOn(reflector, 'getAllAndOverride')
+        .mockImplementation((key: any) => {
+          if (key === PERMISSION_KEY)
+            return { resource: 'deals', action: 'view' };
+          return undefined;
+        });
+    }
+
+    it('sends x-internal-secret when falling back to the internal API', async () => {
+      process.env.INTERNAL_SERVICE_SECRET = 'shhh';
+      requirePermission();
+      cacheReader.getPermissions.mockResolvedValue(null);
+
+      const resolved = makeResolvedPermissions({
+        permissions: { deals: { view: true } },
+      });
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => resolved });
+      global.fetch = fetchMock as any;
+
+      await guard.canActivate(createMockExecutionContext(defaultUser));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toContain('/api/users/internal/permissions/user-1');
+      expect(init?.headers).toMatchObject({ 'x-internal-secret': 'shhh' });
+    });
+
+    it('still calls the endpoint when no secret is configured', async () => {
+      delete process.env.INTERNAL_SERVICE_SECRET;
+      requirePermission();
+      cacheReader.getPermissions.mockResolvedValue(null);
+
+      const resolved = makeResolvedPermissions({
+        permissions: { deals: { view: true } },
+      });
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => resolved });
+      global.fetch = fetchMock as any;
+
+      const result = await guard.canActivate(
+        createMockExecutionContext(defaultUser),
+      );
+
+      expect(result).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+        'x-internal-secret': '',
+      });
+    });
+
+    it('sends the header on the no-roleId path too', async () => {
+      process.env.INTERNAL_SERVICE_SECRET = 'shhh';
+      requirePermission();
+
+      const resolved = makeResolvedPermissions({
+        permissions: { deals: { view: true } },
+      });
+      const fetchMock = jest
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => resolved });
+      global.fetch = fetchMock as any;
+
+      await guard.canActivate(
+        createMockExecutionContext({ ...defaultUser, roleId: undefined }),
+      );
+
+      expect(cacheReader.getPermissions).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+        'x-internal-secret': 'shhh',
+      });
+    });
+  });
 });

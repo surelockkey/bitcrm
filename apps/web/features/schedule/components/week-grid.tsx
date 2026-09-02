@@ -5,13 +5,14 @@ import type { CalendarEvent, Deal, User } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { techColor } from "@/features/dispatch/tech-color";
 import { weekDays, eventOnDate, dayOfWeek } from "../lib";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function techName(id: string, users: Map<string, User>): string {
+function techName(id: string, users: Map<string, DirectoryUser>): string {
   const u = users.get(id);
   if (!u) return "Technician";
-  return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
+  return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || id;
 }
 
 /**
@@ -30,7 +31,7 @@ export function WeekGrid({
   techIds: string[];
   deals: Deal[];
   events: CalendarEvent[];
-  users: Map<string, User>;
+  users: Map<string, DirectoryUser>;
   onPickDay: (dateISO: string) => void;
 }) {
   const days = useMemo(() => weekDays(anchorISO), [anchorISO]);

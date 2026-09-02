@@ -90,3 +90,23 @@ export function setUserPermissions(
 export function clearUserPermissions(id: string): Promise<User> {
   return http.delete<User>(`/users/${id}/permissions`);
 }
+
+/** A teammate reduced to what a name join needs. */
+export interface UserName {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * Turn ids you already hold into names.
+ *
+ * The narrow alternative to `GET /users` for callers who lack `users.view` — a
+ * technician, most of all, who needs to see who else is on their job but must
+ * not be handed the directory. Capped server-side at 200 and returns the name
+ * and nothing else.
+ */
+export function getUserNames(userIds: string[]): Promise<UserName[]> {
+  if (userIds.length === 0) return Promise.resolve([]);
+  return http.post<UserName[]>("/users/by-ids", { userIds });
+}

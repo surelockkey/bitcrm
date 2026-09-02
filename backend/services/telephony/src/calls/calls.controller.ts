@@ -49,12 +49,45 @@ import {
   type CallUserPhone,
 } from '../common/user-phone-lookup.service';
 import { UserDirectoryService } from '../common/user-directory.service';
+import { PermissionLookupService } from '../common/permission-lookup.service';
+import { BridgeService } from '../common/bridge.service';
+import { PresenceService } from '../presence/presence.service';
+import { TwilioRest } from '../common/twilio-client';
+import { maskCall, maskCalls } from './call-masking';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
 } from '../telephony/telephony.config';
 
 const SSE_HEARTBEAT_MS = 25_000;
+/**
+ * How long the technician's own handset rings on a masked bridge. Twilio adds
+ * up to a 5-second buffer to this, so the effective ring is ~20s — under the
+ * ~25s at which most carriers hand over to voicemail. That margin is a nicety,
+ * not a defence: the whisper gather is what actually stops a voicemail box
+ * taking the call.
+ */
+const BRIDGE_RING_SECONDS = Number(
+  process.env.TELEPHONY_BRIDGE_RING_SECONDS ?? 15,
+);
+
+/** The body of POST /calls/bridge — a handle, never a phone number. */
+/** Which end of the call rings the person placing it. */
+export type BridgeVia = 'cell' | 'softphone';
+
+class StartBridgeDto {
+  dealId!: string;
+  contactId!: string;
+  /** Which of the client's numbers to ring. Defaults to the first. */
+  phoneIndex?: number;
+  /**
+   * Which end rings the caller: their own handset, or the browser softphone.
+   * Omitted, presence decides — which is a good default and a bad rule, since
+   * a technician with the app open on a laptop in the van still wants the call
+   * on the phone in their hand.
+   */
+  via?: BridgeVia;
+}
 
 class MonitorDto {
   mode!: MonitorMode;
@@ -98,6 +131,9 @@ export class CallsController {
     private readonly contacts: ContactLookupService,
     private readonly userPhones: UserPhoneLookupService,
     private readonly directory: UserDirectoryService,
+    private readonly permissions: PermissionLookupService,
+    private readonly bridge: BridgeService,
+    private readonly presence: PresenceService,
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
   ) {}
 
@@ -112,6 +148,15 @@ export class CallsController {
    * A number that belongs to one of our people is deliberately resolved as
    * that person, not as a client, even if a contact record also carries it.
    */
+  /**
+   * Resolve the viewer's `contacts.view_numbers` grant once per request.
+   * Memoised for 60s inside the lookup service, so the softphone's 5s poll of
+   * /calls/active costs one Redis read a minute rather than twelve.
+   */
+  private maySeeNumbers(user: JwtUser | undefined): Promise<boolean> {
+    return this.permissions.maySeeClientNumbers(user);
+  }
+
   private async withNames(records: CallRecord[]): Promise<EnrichedCall[]> {
     const ids = records.flatMap((r) => [
       ...(r.agentId ? [r.agentId] : []),
@@ -238,6 +283,8 @@ export class CallsController {
     // Appended, not slotted in next to `number`: Nest injects by decorator,
     // but direct callers (tests) pass positionally.
     @Query('numbers') numbers?: string,
+    @Query('origin') origin?: string,
+    @CurrentUser() user?: JwtUser,
   ) {
     // Query DTOs aren't transformed in this codebase — coerce in-service.
     const parsedLimit = Math.min(Math.max(Number(limit) || 25, 1), 100);
@@ -246,13 +293,25 @@ export class CallsController {
       ? numbers.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 20)
       : undefined;
     const result = await this.callsService.list(
-      { direction, status, agentId, number, numbers: parsedNumbers, dateFrom, dateTo },
+      {
+        direction,
+        status,
+        agentId,
+        number,
+        numbers: parsedNumbers,
+        dateFrom,
+        dateTo,
+        origin,
+      },
       cursor,
       parsedLimit,
     );
     return {
       success: true,
-      data: await this.withNames(result.items),
+      data: maskCalls(
+        await this.withNames(result.items),
+        await this.maySeeNumbers(user),
+      ),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
   }
@@ -272,6 +331,7 @@ export class CallsController {
     @Param('id') id: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
+    @CurrentUser() user?: JwtUser,
   ) {
     if (!['contact', 'company', 'user'].includes(kind)) {
       throw new BadRequestException('kind must be contact, company or user');
@@ -285,7 +345,10 @@ export class CallsController {
     );
     return {
       success: true,
-      data: await this.withNames(result.items),
+      data: maskCalls(
+        await this.withNames(result.items),
+        await this.maySeeNumbers(user),
+      ),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
   }
@@ -303,7 +366,12 @@ export class CallsController {
     const call = await this.callsService.activeCallFor(user.id);
     if (!call) return { success: true, data: null };
     const [enriched] = await this.withNames([call]);
-    return { success: true, data: enriched };
+    // Ungated route, polled every 5s by the softphone widget — the one a masked
+    // technician hits most, and the guard never resolved anything for it.
+    return {
+      success: true,
+      data: maskCall(enriched, await this.maySeeNumbers(user)),
+    };
   }
 
   @Get('identify')
@@ -336,9 +404,12 @@ export class CallsController {
       '**Guard:** `calls.view` permission required. Non-terminal calls from ' +
       'the last 24h, newest first.',
   })
-  async live() {
+  async live(@CurrentUser() user?: JwtUser) {
     const data = await this.callsService.listLive();
-    return { success: true, data: await this.withNames(data) };
+    return {
+      success: true,
+      data: maskCalls(await this.withNames(data), await this.maySeeNumbers(user)),
+    };
   }
 
   @Get('stream')
@@ -350,7 +421,7 @@ export class CallsController {
       '`call.recording_ready` events as SSE data frames; heartbeat comments ' +
       'keep the connection alive through proxies.',
   })
-  stream(@Res() res: Response): void {
+  stream(@Res() res: Response, @CurrentUser() user?: JwtUser): void {
     res.set({
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -364,11 +435,23 @@ export class CallsController {
     const subscription = this.bus.stream().subscribe((event) => {
       // Names come from the cached resolver — the live UI must show users
       // exactly like the initial fetch does, or SSE patches would erase them.
-      void this.withNames([event.call])
-        .then(([call]) =>
-          res.write(`data: ${JSON.stringify({ ...event, call })}\n\n`),
+      //
+      // The grant is resolved PER EVENT rather than once at connect: an SSE
+      // connection outlives a permission change by hours, and the lookup is
+      // memoised for 60s, so this costs one Redis read a minute per viewer and
+      // caps how long a revoked viewer keeps receiving numbers.
+      void Promise.all([this.withNames([event.call]), this.maySeeNumbers(user)])
+        .then(([[call], allowed]) =>
+          res.write(
+            `data: ${JSON.stringify({ ...event, call: maskCall(call, allowed) })}\n\n`,
+          ),
         )
-        .catch(() => res.write(`data: ${JSON.stringify(event)}\n\n`));
+        // A failed lookup must not fall through to the unmasked event.
+        .catch(() =>
+          res.write(
+            `data: ${JSON.stringify({ ...event, call: maskCall(event.call as never, false) })}\n\n`,
+          ),
+        );
     });
     const heartbeat = setInterval(
       () => res.write(': hb\n\n'),
@@ -389,7 +472,12 @@ export class CallsController {
   })
   async recent(@CurrentUser() user: JwtUser) {
     const data = await this.callsService.listByAgent(user.id);
-    return { success: true, data };
+    // Previously returned RAW records straight from the GSI — no enrichment and
+    // no redaction, on a route documented as "any authenticated user".
+    return {
+      success: true,
+      data: maskCalls(await this.withNames(data), await this.maySeeNumbers(user)),
+    };
   }
 
   @Get(':sid')
@@ -398,11 +486,14 @@ export class CallsController {
     summary: 'A single call record',
     description: '**Guard:** `calls.view` permission required.',
   })
-  async detail(@Param('sid') sid: string) {
+  async detail(@Param('sid') sid: string, @CurrentUser() user?: JwtUser) {
     const data = await this.callsService.getBySid(sid);
     if (!data) throw new NotFoundException('Call not found');
     const [enriched] = await this.withNames([data]);
-    return { success: true, data: enriched };
+    return {
+      success: true,
+      data: maskCall(enriched, await this.maySeeNumbers(user)),
+    };
   }
 
   @Get(':sid/recording')
@@ -537,7 +628,10 @@ export class CallsController {
 
     const updated = await this.callsService.getBySid(sid);
     const [enriched] = await this.withNames([updated as CallRecord]);
-    return { success: true, data: enriched };
+    return {
+      success: true,
+      data: maskCall(enriched, await this.maySeeNumbers(user)),
+    };
   }
 
   @Put(':sid/deal')
@@ -561,7 +655,10 @@ export class CallsController {
     );
     if (!updated) throw new NotFoundException('Call not found');
     const [enriched] = await this.withNames([updated]);
-    return { success: true, data: enriched };
+    return {
+      success: true,
+      data: maskCall(enriched, await this.maySeeNumbers(user)),
+    };
   }
 
   @Post(':sid/take')
@@ -651,6 +748,179 @@ export class CallsController {
       throw new ConflictException('This call has no conference to join');
     }
     return mine;
+  }
+
+  /* ------------------------------------------------------------ bridge */
+
+  @Post('bridge')
+  @ApiOperation({
+    summary: 'Place a masked call to a job\'s client',
+    description:
+      'Any authenticated user; a technician must additionally be on the job ' +
+      "roster. The body carries a HANDLE — {dealId, contactId, phoneIndex} — " +
+      'never a phone number: the client\'s number is resolved server-side and ' +
+      'never reaches the browser. `via` picks which end rings the caller ' +
+      '(`cell` rings their handset, then dials the client; `softphone` opens ' +
+      'a browser leg); omitted, presence decides. Returns immediately with a ' +
+      'bridgeId; watch GET /calls/active for progress.',
+  })
+  async startBridge(
+    @Body() dto: StartBridgeDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (!dto?.dealId || !dto?.contactId) {
+      throw new BadRequestException('dealId and contactId are required');
+    }
+    if (dto.via && dto.via !== 'cell' && dto.via !== 'softphone') {
+      throw new BadRequestException('via must be "cell" or "softphone"');
+    }
+
+    const prepared = await this.bridge.prepare(user, {
+      dealId: dto.dealId,
+      contactId: dto.contactId,
+      phoneIndex: dto.phoneIndex,
+    });
+
+    // Asked for explicitly, that is the answer. Otherwise: a technician at a
+    // browser takes their own leg through the softphone — cheaper per minute,
+    // and no carrier voicemail to defend against — and anyone else gets their
+    // handset rung.
+    let mode = dto.via;
+    if (!mode) {
+      const online = await this.presence
+        .listOnline()
+        .catch(() => [] as string[]);
+      mode = online.includes(user.id) ? 'softphone' : 'cell';
+    }
+
+    if (mode === 'softphone') {
+      return {
+        success: true,
+        data: {
+          bridgeId: prepared.bridgeId,
+          mode,
+          clientName: prepared.clientName,
+        },
+      };
+    }
+
+    const callSid = await this.ringTechnician(prepared.bridgeId, user);
+    return {
+      success: true,
+      data: {
+        bridgeId: prepared.bridgeId,
+        mode,
+        callSid,
+        clientName: prepared.clientName,
+      },
+    };
+  }
+
+  @Delete('bridge/:bridgeId')
+  @ApiOperation({
+    summary: 'Cancel a bridge that is still ringing',
+    description:
+      'The creator or the technician being rung. A mis-tap must be abortable ' +
+      'before the client is ever dialled.',
+  })
+  async cancelBridge(
+    @Param('bridgeId') bridgeId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const ctx = await this.bridge.context(bridgeId);
+    if (!ctx) return { success: true, data: { cancelled: false } };
+    if (ctx.technicianId !== user.id && ctx.actorId !== user.id) {
+      throw new ForbiddenException('That is not your call');
+    }
+
+    const legSid = await this.bridge.answerClaim(bridgeId);
+    if (legSid) await this.cancelLeg(legSid);
+    await this.bridge.release(ctx.technicianId, bridgeId);
+    return { success: true, data: { cancelled: true } };
+  }
+
+  /**
+   * Ring the technician's own handset, and open the call record immediately.
+   *
+   * The record is opened HERE rather than in the status callback: a leg that
+   * rings and is never answered would otherwise produce a party-less orphan —
+   * no from, no to, no agentId — that every read path and display helper has
+   * to survive. Opening it up front also means the call shows up in the live
+   * list while it is still ringing, which is what the caller is watching.
+   */
+  private async ringTechnician(
+    bridgeId: string,
+    user: JwtUser,
+  ): Promise<string | undefined> {
+    const ctx = await this.bridge.context(bridgeId);
+    if (!ctx) throw new NotFoundException('That call is no longer available');
+
+    const phone = await this.directory
+      .find(ctx.technicianId)
+      .then((u) => u?.phone)
+      .catch(() => undefined);
+    if (!phone) {
+      await this.bridge.release(ctx.technicianId, bridgeId);
+      throw new ConflictException(
+        'No phone number on file for you — add one in your profile, or turn the softphone on',
+      );
+    }
+
+    const base = this.config.publicBaseUrl;
+    try {
+      const created = await new TwilioRest(this.config).run((c) =>
+        c.calls.create({
+          to: phone,
+          from: ctx.from,
+          url: `${base}/api/telephony/voice/bridge-join?b=${encodeURIComponent(bridgeId)}&whisper=1`,
+          method: 'POST',
+          // Twilio adds up to a 5s buffer, so the effective ring is ~20s. The
+          // whisper gather is the real voicemail defence, not this.
+          timeout: BRIDGE_RING_SECONDS,
+          statusCallback: `${base}/api/telephony/voice/status?bridge=${encodeURIComponent(bridgeId)}`,
+          statusCallbackMethod: 'POST',
+          statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+        }),
+      );
+
+      await this.callsService.applyLifecycle({
+        callSid: created.sid,
+        direction: 'outbound',
+        from: ctx.from,
+        to: ctx.to,
+        status: 'initiated',
+        agentId: ctx.technicianId,
+        origin: 'bridge',
+        callerIdSource: ctx.callerIdSource as never,
+      });
+      return created.sid;
+    } catch (error) {
+      await this.bridge.release(ctx.technicianId, bridgeId);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a leg that has not been answered.
+   *
+   * `canceled`, not `completed`: Twilio defines canceled as "cancelled via the
+   * REST API while it was ringing", and completed as "answered and ended".
+   * 21220 means it was answered in the meantime, so fall back to completed.
+   */
+  private async cancelLeg(sid: string): Promise<void> {
+    const rest = new TwilioRest(this.config);
+    try {
+      await rest.run((c) => c.calls(sid).update({ status: 'canceled' }));
+    } catch (error) {
+      const code = (error as { code?: number })?.code;
+      if (code === 21220) {
+        await rest
+          .run((c) => c.calls(sid).update({ status: 'completed' }))
+          .catch(() => undefined);
+        return;
+      }
+      this.logger.warn(`Could not cancel leg ${sid}: ${String(error)}`);
+    }
   }
 
   @Post(':sid/monitor')

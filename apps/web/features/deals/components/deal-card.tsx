@@ -10,6 +10,7 @@ import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { TechChips } from "./assigned-techs";
 import { PriorityFlag } from "./deal-badges";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 export function DealCard({
   deal,
@@ -18,7 +19,7 @@ export function DealCard({
 }: {
   deal: Deal;
   contactMap: Map<string, Contact>;
-  userMap: Map<string, User>;
+  userMap: Map<string, DirectoryUser>;
 }) {
   const router = useRouter();
   const jobTypeName = useJobTypeName();

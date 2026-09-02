@@ -19,6 +19,7 @@ function exitsOf(node: CallFlowNode): string[] {
   if (node.type === 'ring') exits.push(node.answeredNext);
   if (node.type === 'hours') exits.push(node.openNext);
   if (node.type === 'menu') exits.push(...node.options.map((o) => o.next));
+  if (node.type === 'ext') exits.push(node.answeredNext);
   return exits.filter((id): id is string => !!id);
 }
 import { CallFlowsRepository } from './call-flows.repository';
@@ -78,7 +79,7 @@ export class CallFlowsService {
     const nodes = dto.nodes ?? {};
     const entryNodeId = dto.entryNodeId ?? Object.keys(nodes)[0] ?? '';
     const active = dto.active ?? true;
-    await this.validateGraph(nodes, entryNodeId, active);
+    await this.validateGraph(nodes, entryNodeId, active, numbers);
 
     const now = new Date().toISOString();
     const flow: CallFlow = {
@@ -172,7 +173,10 @@ export class CallFlowsService {
     const nodes = dto.nodes ?? existing.nodes;
     const entryNodeId = dto.entryNodeId ?? existing.entryNodeId;
     const active = dto.active ?? existing.active;
-    await this.validateGraph(nodes, entryNodeId, active);
+    // `numbers` and `id` matter here as much as on create: validateGraph runs
+    // on EVERY update including an activate-only one, which is the moment a
+    // paused technician line would otherwise become a second active one.
+    await this.validateGraph(nodes, entryNodeId, active, numbers, id);
 
     const updated: CallFlow = {
       ...existing,
@@ -215,6 +219,48 @@ export class CallFlowsService {
    * A number can only be answered by one flow — two would be a coin toss over
    * what a caller hears.
    */
+  /**
+   * The technician dial-in has two rules the other node types do not need, and
+   * both exist because the line has to be FINDABLE.
+   *
+   * A technician dials a number from memory or a saved contact. If no active
+   * flow lists that number, `findByNumber` returns null and the caller drops
+   * into "ring every online softphone" — or, with nobody online, gets hung up
+   * on. And if two active flows both collect codes, which one answers is
+   * whichever the catalog happens to return first.
+   */
+  private async validateExtNode(
+    node: Extract<CallFlowNode, { type: 'ext' }>,
+    active: boolean,
+    numbers: string[],
+    selfId?: string,
+  ): Promise<void> {
+    if (active && numbers.length === 0) {
+      throw new BadRequestException(
+        'A flow that collects a job code must answer at least one number — ' +
+          'technicians dial it directly',
+      );
+    }
+    if (node.repeats < 1 || node.repeats > CALL_FLOW_LIMITS.extMaxAttempts) {
+      throw new BadRequestException(
+        `Attempts must be between 1 and ${CALL_FLOW_LIMITS.extMaxAttempts}`,
+      );
+    }
+    if (!active) return;
+
+    const others = (await this.repository.listAll()).filter(
+      (f) => f.id !== selfId && f.active,
+    );
+    const clash = others.find((f) =>
+      Object.values(f.nodes ?? {}).some((n) => n.type === 'ext'),
+    );
+    if (clash) {
+      throw new ConflictException(
+        `"${clash.name}" is already the technician line — a workspace has one`,
+      );
+    }
+  }
+
   private async normalizeNumbers(raw: string[], excludeId?: string): Promise<string[]> {
     const numbers: string[] = [];
     for (const value of raw) {
@@ -248,6 +294,10 @@ export class CallFlowsService {
     nodes: Record<string, CallFlowNode>,
     entryNodeId: string,
     active: boolean,
+    /** The flow's own numbers — an ext flow must answer at least one. */
+    numbers: string[] = [],
+    /** The flow being saved, so it does not clash with itself. */
+    selfId?: string,
   ): Promise<void> {
     const ids = Object.keys(nodes);
     if (ids.length > CALL_FLOW_LIMITS.maxNodes) {
@@ -281,6 +331,9 @@ export class CallFlowsService {
       if (node.type === 'ring') {
         // Throws NotFound if the group is gone — better here than mid-call.
         await this.groups.findById(node.groupId);
+      }
+      if (node.type === 'ext') {
+        await this.validateExtNode(node, active, numbers, selfId);
       }
       if (node.type === 'menu') {
         if (node.options.length === 0) {

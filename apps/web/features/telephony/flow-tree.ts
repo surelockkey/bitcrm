@@ -46,11 +46,21 @@ export function branchKeysOf(node: CallFlowNode): { key: string; label: string }
       { key: "timeout", label: "Presses nothing" },
     ];
   }
+  if (node.type === "ext") {
+    // Two outcomes, like ringing: a technician who connected, and one whose
+    // code was never accepted — who must reach a person, not a dead end.
+    return [
+      { key: "answered", label: "After the call" },
+      { key: "noAnswer", label: "If the code is not accepted" },
+    ];
+  }
   return [];
 }
 
 export function isBranching(type: CallFlowNodeType): boolean {
-  return type === "hours" || type === "menu" || type === "ring";
+  return (
+    type === "hours" || type === "menu" || type === "ring" || type === "ext"
+  );
 }
 
 /* ------------------------------------------------------------ tree → graph */
@@ -99,7 +109,7 @@ export function toGraph(steps: FlowStep[]): {
 
 function setMainExit(node: CallFlowNode, next: string | undefined): void {
   // Branching steps have no main line — every exit is a branch.
-  if (node.type === "hours" || node.type === "menu" || node.type === "ring") return;
+  if (isBranching(node.type)) return;
   node.next = next;
 }
 
@@ -108,7 +118,7 @@ function setBranchExit(
   key: string,
   target: string | undefined,
 ): void {
-  if (node.type === "ring") {
+  if (node.type === "ring" || node.type === "ext") {
     if (key === "answered") node.answeredNext = target;
     else node.next = target;
     return;
@@ -178,7 +188,8 @@ export function toTree(flow: Pick<CallFlow, "nodes" | "entryNodeId">): FlowStep[
 }
 
 function branchTarget(node: CallFlowNode, key: string): string | undefined {
-  if (node.type === "ring") return key === "answered" ? node.answeredNext : node.next;
+  if (node.type === "ring" || node.type === "ext")
+    return key === "answered" ? node.answeredNext : node.next;
   if (node.type === "hours") return key === "open" ? node.openNext : node.next;
   if (node.type === "menu") {
     if (key === "timeout") return node.next;
@@ -232,13 +243,41 @@ export function deleteStep(steps: FlowStep[], id: string): FlowStep[] {
     );
 }
 
-/** Insert a step at the end of one sequence, addressed by its branch path. */
-export function appendStep(
+/**
+ * Insert a step at a position in one sequence, addressed by its branch path.
+ *
+ * The canvas hangs a `+` on every connector, so "between these two" is the
+ * common case, not the exception — appending only to the end would mean
+ * rebuilding the tail of a flow to slot one greeting in front of it.
+ */
+export function insertStep(
   steps: FlowStep[],
   path: string[],
+  index: number,
   step: FlowStep,
 ): FlowStep[] {
-  if (path.length === 0) return [...steps, step];
+  if (path.length === 0) {
+    const at = Math.max(0, Math.min(index, steps.length));
+    const before = steps.slice(0, at);
+    const after = steps.slice(at);
+
+    // A branching step has no main line — `toGraph` gives it only its exits —
+    // so anything that followed would simply stop happening. What the person
+    // meant is that the call carries on down the primary path, so the tail
+    // moves into the step's first exit.
+    const keys = step.branches ? branchKeysOf(step.node) : [];
+    if (after.length && keys.length) {
+      const primary = keys[0].key;
+      return [
+        ...before,
+        {
+          ...step,
+          branches: { ...step.branches, [primary]: [...(step.branches?.[primary] ?? []), ...after] },
+        },
+      ];
+    }
+    return [...before, step, ...after];
+  }
   const [ownerId, branchKey, ...rest] = path;
   return steps.map((current) => {
     if (current.node.id !== ownerId || !current.branches) return current;
@@ -246,10 +285,24 @@ export function appendStep(
       ...current,
       branches: {
         ...current.branches,
-        [branchKey]: appendStep(current.branches[branchKey] ?? [], rest, step),
+        [branchKey]: insertStep(
+          current.branches[branchKey] ?? [],
+          rest,
+          index,
+          step,
+        ),
       },
     };
   });
+}
+
+/** Insert a step at the end of one sequence, addressed by its branch path. */
+export function appendStep(
+  steps: FlowStep[],
+  path: string[],
+  step: FlowStep,
+): FlowStep[] {
+  return insertStep(steps, path, Number.MAX_SAFE_INTEGER, step);
 }
 
 /** Move a step within its own sequence, addressed by branch path. */
