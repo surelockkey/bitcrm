@@ -11,8 +11,24 @@ import {
   SearchDocStatus,
   CustomFieldValue,
 } from '@bitcrm/types';
-import { CustomFieldSearchDef, TechnicianSearchInput } from './mapper-input';
-import { phoneSearchKey, compactUnique } from '../../common/utils/search-normalize.util';
+import {
+  CustomFieldSearchDef,
+  DealClientSearchInput,
+  TechnicianSearchInput,
+} from './mapper-input';
+import {
+  compactUnique,
+  looksLikePhone,
+  phoneSearchVariants,
+} from '../../common/utils/search-normalize.util';
+
+/**
+ * A phone is indexed as typed plus its digit variants, so both partial
+ * formatted queries ("347-8370") and collapsed ones ("7283478370") match.
+ */
+function withPhoneVariants(phones: string[] | undefined): string[] {
+  return (phones ?? []).flatMap((p) => [p, ...phoneSearchVariants(p)]);
+}
 
 /** Normalize any entity's lifecycle string to the search doc status. */
 function toDocStatus(status: string | undefined): SearchDocStatus {
@@ -51,7 +67,11 @@ function customFieldKeywords(
   for (const [id, value] of Object.entries(customFields)) {
     if (!searchable.has(id)) continue;
     const text = stringifyCustomFieldValue(value);
-    if (text) out.push(text);
+    if (!text) continue;
+    out.push(text);
+    // A phone stored in a custom field gets the same digit variants as a
+    // contact's phone, so collapsed queries find it too.
+    if (looksLikePhone(text)) out.push(...phoneSearchVariants(text));
   }
   return out;
 }
@@ -61,25 +81,40 @@ function customFieldKeywords(
  * CatalogNamesService) — the deal itself only stores the catalog id, and a raw
  * uuid in the subtitle would be useless to a searcher. `customFieldDefs` is
  * resolved the same way, so the mapper can fold only the searchable answers
- * (`deal.customFields` stores raw values keyed by definition id).
+ * (`deal.customFields` stores raw values keyed by definition id). `client` is
+ * the deal's contact/company slice (resolved from crm-service) — folded in so
+ * a job is findable by its client's name, phone or email, Workiz-style.
  */
 export function mapDeal(
   deal: Deal,
   jobTypeName?: string,
   tagNames: string[] = [],
   customFieldDefs: CustomFieldSearchDef[] = [],
+  client?: DealClientSearchInput,
+  externalCompanyName?: string,
 ): SearchDocument {
   const addr = deal.address;
+  // A "Just here" rename overrides what the job DISPLAYS; both names stay
+  // searchable so either finds the job.
+  const overrideName = deal.clientName
+    ? `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim() || undefined
+    : undefined;
+  const displayName = overrideName ?? client?.name;
   return {
     docId: `deal#${deal.id}`,
     entityId: deal.id,
     type: 'deal',
     permissionResource: 'deals',
     ownerIds: compactUnique([...(deal.assignedTechIds ?? []), deal.assignedDispatcherId, deal.createdBy]),
+    contactId: deal.contactId,
+    companyId: deal.companyId,
     status: toDocStatus(deal.status),
     title: `Deal #${deal.dealNumber}`,
-    subtitle: compactUnique([jobTypeName, deal.superStatus]).join(' · ') || undefined,
+    subtitle:
+      compactUnique([jobTypeName, deal.superStatus, displayName]).join(' · ') || undefined,
     keywords: compactUnique([
+      deal.dealNumber,
+      deal.poNumber,
       deal.serviceArea,
       jobTypeName,
       deal.superStatus,
@@ -89,6 +124,12 @@ export function mapDeal(
       addr?.city,
       addr?.state,
       addr?.zip,
+      overrideName,
+      client?.name,
+      client?.companyName,
+      externalCompanyName,
+      ...(client?.emails ?? []),
+      ...withPhoneVariants(client?.phones),
       ...tagNames,
       ...customFieldKeywords(deal.customFields, customFieldDefs),
     ]),
@@ -112,7 +153,7 @@ export function mapContact(contact: Contact): SearchDocument {
     subtitle: contact.emails?.[0] || contact.title,
     keywords: compactUnique([
       ...(contact.emails || []),
-      ...(contact.phones || []).map((p) => phoneSearchKey(p)),
+      ...withPhoneVariants(contact.phones),
       contact.title,
     ]),
     body: contact.notes,
@@ -134,7 +175,7 @@ export function mapCompany(company: Company): SearchDocument {
     subtitle: company.website || company.clientType,
     keywords: compactUnique([
       ...(company.emails || []),
-      ...(company.phones || []).map((p) => phoneSearchKey(p)),
+      ...withPhoneVariants(company.phones),
       company.website,
       company.address,
     ]),
@@ -181,7 +222,7 @@ export function mapTechnician(input: TechnicianSearchInput): SearchDocument {
     keywords: compactUnique([
       ...(input.jobTypes || []),
       ...(input.serviceAreas || []),
-      phoneSearchKey(input.phone),
+      ...withPhoneVariants(input.phone ? [input.phone] : undefined),
     ]),
     url: `/technicians/${input.userId}`,
     badges: compactUnique([input.status, ...(input.jobTypes || []).slice(0, 3)]),
@@ -234,9 +275,9 @@ export function mapContainer(container: Container): SearchDocument {
     ownerIds: compactUnique([container.technicianId]),
     department: container.department,
     status: toDocStatus(container.status),
-    title: container.technicianName ? `${container.technicianName}'s van` : `Container ${container.id}`,
-    subtitle: container.department,
-    keywords: compactUnique([container.technicianName, container.department]),
+    title: container.name || (container.technicianName ? `${container.technicianName}'s van` : `Container ${container.id}`),
+    subtitle: container.technicianName || container.department,
+    keywords: compactUnique([container.name, container.technicianName, container.department]),
     url: `/inventory/containers/${container.id}`,
     badges: compactUnique([container.status, container.department]),
     updatedAt: container.updatedAt,

@@ -3,7 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { ContactSource, ContactType, CrmStatus } from "@bitcrm/types";
 import type { Contact } from "@bitcrm/types";
 
-const { createContactMutate } = vi.hoisted(() => ({ createContactMutate: vi.fn() }));
+const { createContactMutate, createCompanyMutate } = vi.hoisted(() => ({
+  createContactMutate: vi.fn(),
+  createCompanyMutate: vi.fn(),
+}));
 
 function contact(over: Partial<Contact> = {}): Contact {
   return {
@@ -37,10 +40,31 @@ vi.mock("../hooks", () => ({
   useContactMap: () => ({ map: new Map([[jane.id, jane], [marcus.id, marcus]]) }),
 }));
 
+const acme = { id: "co-1", title: "Acme Storage" };
 vi.mock("@/features/clients/hooks", () => ({
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: createContactMutate, isPending: false }),
-  useCompanyMap: () => ({ map: new Map([["co-1", { id: "co-1", title: "Acme Storage" }]]) }),
+  useCreateCompany: () => ({ mutate: createCompanyMutate, isPending: false }),
+  useCompanyMap: () => ({ map: new Map([["co-1", acme]]), companies: [acme] }),
+}));
+
+// The company picker has its own test; stub it to expose select/create.
+vi.mock("@/features/clients/components/company-picker-dialog", () => ({
+  CompanyPickerDialog: ({
+    open,
+    onSelect,
+    onCreate,
+  }: {
+    open: boolean;
+    onSelect: (id: string) => void;
+    onCreate?: (name: string) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="company picker">
+        <button type="button" onClick={() => onSelect("co-1")}>pick existing</button>
+        <button type="button" onClick={() => onCreate?.("Globex")}>create company</button>
+      </div>
+    ) : null,
 }));
 
 import { ClientPicker } from "./client-picker";
@@ -86,5 +110,67 @@ describe("ClientPicker — search from 3 characters", () => {
     fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "nobody here" } });
     expect(screen.getByText(/no client found/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("First name")).toBeInTheDocument();
+  });
+
+  it("prefills first and last name from a typed name query", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena Kovalenko" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("Olena");
+    expect(screen.getByPlaceholderText("Last name")).toHaveValue("Kovalenko");
+  });
+
+  it("puts a single typed word into the first name", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Bogdan" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("Bogdan");
+    expect(screen.getByPlaceholderText("Last name")).toHaveValue("");
+  });
+
+  it("lets the prefilled name be overridden", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena K" } });
+    fireEvent.change(screen.getByPlaceholderText("First name"), { target: { value: "Helena" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("Helena");
+  });
+
+  it("does not shove a phone or an email into the name fields", () => {
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "someone@nowhere.io" } });
+    expect(screen.getByPlaceholderText("First name")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Last name")).toHaveValue("");
+  });
+
+  it("offers a company picker in the new-client block and carries the pick into the draft", () => {
+    const onDraft = vi.fn();
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} onDraft={onDraft} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena Kovalenko" } });
+    fireEvent.click(screen.getByLabelText("Company"));
+    fireEvent.click(screen.getByRole("button", { name: "pick existing" }));
+
+    expect(onDraft).toHaveBeenCalledWith(expect.objectContaining({ companyId: "co-1" }));
+  });
+
+  it("creates a new company from the block and assigns it to the draft", () => {
+    createCompanyMutate.mockImplementation(
+      (_body: unknown, opts?: { onSuccess?: (c: { id: string; title: string }) => void }) =>
+        opts?.onSuccess?.({ id: "co-new", title: "Globex" }),
+    );
+    const onDraft = vi.fn();
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} onDraft={onDraft} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena Kovalenko" } });
+    fireEvent.click(screen.getByLabelText("Company"));
+    fireEvent.click(screen.getByRole("button", { name: "create company" }));
+
+    expect(createCompanyMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Globex" }),
+      expect.anything(),
+    );
+    expect(onDraft).toHaveBeenCalledWith(expect.objectContaining({ companyId: "co-new" }));
   });
 });

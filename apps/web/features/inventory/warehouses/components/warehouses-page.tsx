@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useWarehouses } from "../hooks";
-import { WarehouseCard } from "./warehouse-card";
+import { WarehousesTable } from "./warehouses-table";
 import { WarehouseCreateDialog } from "./warehouse-create-dialog";
 
 export function WarehousesPage() {
@@ -47,21 +47,6 @@ export function WarehousesPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Warehouses</h1>
-          <p className="text-sm text-muted-foreground">
-            Physical stock locations. Receive from suppliers, issue to technician containers.
-          </p>
-        </div>
-        {can("warehouses", "create") ? (
-          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setCreateOpen(true)}>
-            <WarehouseIcon className="size-4" />
-            New warehouse
-          </Button>
-        ) : null}
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -85,13 +70,19 @@ export function WarehousesPage() {
         <span className="ml-auto text-sm text-muted-foreground">
           {visible.length} {visible.length === 1 ? "warehouse" : "warehouses"}
         </span>
+        {can("warehouses", "create") ? (
+          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setCreateOpen(true)}>
+            <WarehouseIcon className="size-4" />
+            New warehouse
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex-1 px-6 pb-6">
         {query.isLoading ? (
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-32 w-full rounded-xl" />
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
             ))}
           </div>
         ) : query.isError ? (
@@ -121,11 +112,7 @@ export function WarehousesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            {visible.map((w) => (
-              <WarehouseCard key={w.id} warehouse={w} />
-            ))}
-          </div>
+          <WarehousesTable warehouses={visible} />
         )}
       </div>
 

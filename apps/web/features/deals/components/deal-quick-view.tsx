@@ -17,7 +17,15 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { contactName, formatAddress, formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
+import {
+  contactName,
+  extensionOf,
+  formatAddress,
+  formatPhone,
+  formatPhoneWithExtension,
+  primaryEmail,
+  primaryPhone,
+} from "@/features/clients/lib";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
@@ -27,7 +35,7 @@ import { CustomFieldsSection } from "@/features/custom-fields/components/custom-
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
 import { useDeal, useDealProducts, useContactMap, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
-import { dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
+import { dealClientName, dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
 
@@ -90,7 +98,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
       <SheetHeader className="space-y-0 border-b py-3.5 pl-5 pr-12">
         <div className="font-mono text-xs text-muted-foreground">Job #{deal.dealNumber}</div>
         <SheetTitle className="truncate text-base">
-          {contact ? contactName(contact) : "Job"}
+          {contact ? dealClientName(deal, contact) : "Job"}
         </SheetTitle>
       </SheetHeader>
 
@@ -120,7 +128,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
               )}
               {phone ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  {formatPhone(phone)}
+                  {contact ? formatPhoneWithExtension(phone, extensionOf(contact, phone)) : formatPhone(phone)}
                   <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
                 </div>
               ) : null}

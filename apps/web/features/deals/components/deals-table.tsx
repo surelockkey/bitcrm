@@ -12,10 +12,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Contact, Deal, User } from "@bitcrm/types";
-import { contactName, formatAddress, formatPhone, primaryPhone, primaryEmail } from "@/features/clients/lib";
+import {
+  extensionOf,
+  formatAddress,
+  formatPhoneWithExtension,
+  primaryPhone,
+  primaryEmail,
+} from "@/features/clients/lib";
 import { formatDate } from "@/features/users/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
+import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatusName } from "@/features/job-statuses/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
@@ -26,7 +33,7 @@ import {
   jobFieldOptions,
   type VisibleFields,
 } from "../fields";
-import { formatSchedule, isUrgent, scheduleRelative } from "../lib";
+import { dealClientName, formatSchedule, isUrgent, scheduleMarker } from "../lib";
 import { TechChips } from "./assigned-techs";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
@@ -52,9 +59,9 @@ export function DealsTable({
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
+  const externalCompanyName = useExternalCompanyName();
   const subStatusName = useJobStatusName();
   const { data: customFieldDefs } = useCustomFields();
-  const todayIso = new Date().toISOString().slice(0, 10);
 
   // Every offerable field (static + active custom), narrowed to what's toggled on.
   const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
@@ -74,18 +81,26 @@ export function DealsTable({
         return (
           <>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{contact ? contactName(contact) : "—"}</span>
+              <span className="font-medium">{dealClientName(d, contact)}</span>
               {isUrgent(d) ? <PriorityFlag /> : null}
             </div>
             {phone ? (
-              <div className="text-xs text-muted-foreground">{formatPhone(phone)}</div>
+              <div className="text-xs text-muted-foreground">
+                {formatPhoneWithExtension(phone, contact ? extensionOf(contact, phone) : "")}
+              </div>
             ) : email ? (
               <div className="text-xs text-muted-foreground">{email}</div>
             ) : null}
           </>
         );
       case "phone":
-        return <span className="text-sm">{phone ? formatPhone(phone) : "—"}</span>;
+        return (
+          <span className="text-sm">
+            {phone
+              ? formatPhoneWithExtension(phone, contact ? extensionOf(contact, phone) : "")
+              : "—"}
+          </span>
+        );
       case "email":
         return <span className="text-sm">{email ?? "—"}</span>;
       case "clientType":
@@ -118,7 +133,7 @@ export function DealsTable({
       case "serviceArea":
         return <span className="text-sm text-muted-foreground">{d.serviceArea || "—"}</span>;
       case "scheduled": {
-        const rel = scheduleRelative(d.scheduledDate, todayIso);
+        const rel = scheduleMarker(d);
         return (
           <>
             <div className="text-sm">{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</div>
@@ -142,6 +157,8 @@ export function DealsTable({
         return <span className="text-sm">{jobTypeName(d.jobTypeId)}</span>;
       case "source":
         return <span className="text-sm">{sourceName(d.sourceId)}</span>;
+      case "externalCompany":
+        return <span className="text-sm">{externalCompanyName(d.externalCompanyId)}</span>;
       case "poNumber":
         return <span className="text-sm">{d.poNumber || "—"}</span>;
       case "total":

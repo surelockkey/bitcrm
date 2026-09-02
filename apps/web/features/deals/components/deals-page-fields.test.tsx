@@ -65,6 +65,7 @@ vi.mock("@/features/custom-fields/hooks", () => ({
     ],
   }),
 }));
+vi.mock("@/features/external-companies/lib", () => ({ useExternalCompanyName: () => () => "—" }));
 vi.mock("@/features/job-sources/lib", () => ({ useJobSourceName: () => () => "—" }));
 vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "—" }));
 vi.mock("./deal-quick-view", () => ({ DealQuickView: () => null }));
@@ -116,23 +117,38 @@ beforeEach(() => {
   useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
 });
 
-describe("DealsPage sorting", () => {
-  it("sorts by the closed date when the basis is Job closed", () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", closedAt: "2026-08-20T12:00:00.000Z" },
-      { ...deal, id: "d2", dealNumber: "B22222", closedAt: "2026-08-12T12:00:00.000Z" },
-    ];
-    render(<DealsPage />);
-
-    fireEvent.change(screen.getByLabelText("Date basis"), { target: { value: "closedAt" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), { target: { value: "day_asc" } });
-
-    const firstDataRow = () => screen.getAllByRole("row")[1];
-    expect(firstDataRow().textContent).toContain("B22222");
+describe("DealsPage ordering — soonest upcoming first", () => {
+  afterEach(() => {
     mocks.deals = [deal];
   });
 
-  it("sorts the table by day and by hour from the toolbar select", () => {
+  it("orders jobs soonest → latest by default, unscheduled last", () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
+      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
+      { ...deal, id: "d3", dealNumber: "C33333", scheduledDate: undefined },
+    ];
+    render(<DealsPage />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("B22222");
+    expect(rows[1].textContent).toContain("A11111");
+    expect(rows[2].textContent).toContain("C33333");
+  });
+
+  it("breaks same-day ties by the slot start", () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" },
+      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" },
+    ];
+    render(<DealsPage />);
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("B22222");
+    expect(rows[1].textContent).toContain("A11111");
+  });
+
+  it("still lets the toolbar override with day/hour sorts", () => {
     mocks.deals = [
       { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
       { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
@@ -140,59 +156,56 @@ describe("DealsPage sorting", () => {
     render(<DealsPage />);
 
     const firstDataRow = () => screen.getAllByRole("row")[1];
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
+      target: { value: "hour_desc" },
+    });
     expect(firstDataRow().textContent).toContain("A11111");
 
     fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
       target: { value: "day_asc" },
     });
     expect(firstDataRow().textContent).toContain("B22222");
-
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
-      target: { value: "hour_desc" },
-    });
-    expect(firstDataRow().textContent).toContain("A11111");
-    mocks.deals = [deal];
   });
 });
 
-describe("DealsPage day/hour ranges", () => {
-  // The calendar opens on the CURRENT month, so clicking "18" only lands on
-  // the fixtures' August while the wall clock says August. Pin it, or these
-  // pass until the month rolls over and then fail for a reason that has
-  // nothing to do with the filter under test.
+describe("DealsPage date filtering — schedule only", () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(new Date("2026-08-15T12:00:00.000Z"));
+    vi.setSystemTime(new Date("2026-08-27T12:00:00"));
   });
-
   afterEach(() => {
     vi.useRealTimers();
     mocks.deals = [deal];
   });
 
-  it("the By: switch drives the day range — schedule vs created", () => {
-    // Midday-UTC createdAt keeps the local day stable across timezones.
+  it("has no date-basis switch — the day range reads the schedule", () => {
     mocks.deals = [
       { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", createdAt: "2026-08-10T12:00:00.000Z" },
       { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-10", createdAt: "2026-08-18T12:00:00.000Z" },
     ];
     render(<DealsPage />);
 
+    expect(screen.queryByLabelText("Date basis")).not.toBeInTheDocument();
+
     const dayButton = (day: string) =>
       screen.getAllByRole("button", { name: day }).find((b) => b.classList.contains("size-8"))!;
-    // Pick Aug 18 as a same-day range.
     fireEvent.click(screen.getByRole("button", { name: "Days" }));
     fireEvent.click(dayButton("18"));
     fireEvent.click(dayButton("18"));
 
-    // Default basis = Job date: the job scheduled on the 18th (A).
     expect(screen.getByText(/A11111/)).toBeInTheDocument();
     expect(screen.queryByText(/B22222/)).not.toBeInTheDocument();
+  });
 
-    // Switch to Job created: now the job created on the 18th (B) shows instead.
-    fireEvent.change(screen.getByLabelText("Date basis"), { target: { value: "createdAt" } });
-    expect(screen.getByText(/B22222/)).toBeInTheDocument();
-    expect(screen.queryByText(/A11111/)).not.toBeInTheDocument();
+  it("offers only Today as a one-click range — a job board has no past to filter", () => {
+    render(<DealsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Days" }));
+    expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
+    for (const label of ["Yesterday", "Last 7 days", "Last 30 days", "This month", "Last month", "This year"]) {
+      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
+    }
   });
 
   it("narrows the table by a day range and an hour range", () => {
@@ -219,6 +232,44 @@ describe("DealsPage day/hour ranges", () => {
     fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "12:00" } });
     expect(screen.queryByText(/A11111/)).not.toBeInTheDocument();
     expect(screen.getByText(/B22222/)).toBeInTheDocument();
+  });
+});
+
+describe("DealsPage overdue marker", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-27T12:00:00"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    mocks.deals = [deal];
+  });
+
+  it("shows how long ago a passed slot was, Workiz-style", () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-27", scheduledTimeSlot: "09:00-10:00" },
+    ];
+    render(<DealsPage />);
+
+    expect(screen.getByText("3 hours ago")).toBeInTheDocument();
+  });
+
+  it("keeps closed jobs quiet even when their slot has passed", () => {
+    mocks.deals = [
+      {
+        ...deal,
+        id: "d1",
+        dealNumber: "A11111",
+        superStatus: JobSuperStatus.DONE,
+        scheduledDate: "2026-08-27",
+        scheduledTimeSlot: "09:00-10:00",
+      },
+    ];
+    render(<DealsPage />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /^done\s?\d+$/i }));
+    expect(screen.getByText(/A11111/)).toBeInTheDocument();
+    expect(screen.queryByText("3 hours ago")).not.toBeInTheDocument();
   });
 });
 

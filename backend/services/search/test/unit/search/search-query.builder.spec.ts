@@ -67,6 +67,52 @@ describe('buildSearchBody', () => {
     });
   });
 
+  describe('phone-like queries', () => {
+    it('adds an exact digit-collapsed clause so "(728) 347-8370" matches indexed digits', () => {
+      const body = buildSearchBody({
+        q: '(728) 347-8370',
+        authzClause: authz,
+        mode: 'typeahead',
+      });
+      const must = boolOf(body).must[0];
+      // Either the formatted text or the collapsed digits may match.
+      expect(must.bool.minimum_should_match).toBe(1);
+      const queries = must.bool.should.map((c: any) => c.multi_match.query);
+      expect(queries).toContain('(728) 347-8370');
+      expect(queries).toContain('7283478370');
+    });
+
+    it('does not fuzz the digit clause (a phone must not match a different number)', () => {
+      const body = buildSearchBody({
+        q: '(728) 347-8370',
+        authzClause: authz,
+        mode: 'typeahead',
+      });
+      const digitClause = boolOf(body)
+        .must[0].bool.should.find((c: any) => c.multi_match.query === '7283478370');
+      expect(digitClause.multi_match.fuzziness).toBeUndefined();
+    });
+
+    it('keeps the plain single-clause shape for text queries', () => {
+      const body = buildSearchBody({ q: 'acme', authzClause: authz, mode: 'full' });
+      expect(boolOf(body).must[0].multi_match).toBeDefined();
+    });
+
+    it('rescues a half-typed phone whose last token is a single digit', () => {
+      // "(292) 8" tokenizes to [292, 8]; "8" can never match (min_gram 2), so
+      // without the digit clause the AND match returns nothing mid-typing.
+      const body = buildSearchBody({ q: '(292) 8', authzClause: authz, mode: 'typeahead' });
+      const queries = boolOf(body).must[0].bool.should.map((c: any) => c.multi_match.query);
+      expect(queries).toContain('2928');
+    });
+
+    it('digit-collapses a pasted tail fragment', () => {
+      const body = buildSearchBody({ q: '839-8283', authzClause: authz, mode: 'typeahead' });
+      const queries = boolOf(body).must[0].bool.should.map((c: any) => c.multi_match.query);
+      expect(queries).toContain('8398283');
+    });
+  });
+
   describe('full mode', () => {
     it('paginates with from/size and exposes type facets', () => {
       const body = buildSearchBody({

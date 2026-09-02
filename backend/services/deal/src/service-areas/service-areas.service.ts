@@ -9,6 +9,7 @@ import {
 import { SnsPublisherService, BusinessMetricsService, GeocodingService, tryNormalizePhone } from '@bitcrm/shared';
 import {
   ServiceAreaType,
+  DEFAULT_TIMEZONE,
   type ServiceArea,
   type ServiceAreaDefinition,
   type CoverageShape,
@@ -86,6 +87,7 @@ export class ServiceAreasService {
       name: dto.name,
       priority: dto.priority ?? 0,
       active,
+      timezone: dto.timezone || DEFAULT_TIMEZONE,
       type: dto.type,
       definition,
       coverage,
@@ -137,6 +139,7 @@ export class ServiceAreasService {
       name: dto.name ?? existing.name,
       priority: dto.priority ?? existing.priority,
       active,
+      timezone: dto.timezone || existing.timezone || DEFAULT_TIMEZONE,
       type: definition.type,
       definition,
       coverage,

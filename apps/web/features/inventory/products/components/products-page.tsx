@@ -72,7 +72,7 @@ export function ProductsPage() {
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-lg font-medium">No access</h2>
         <p className="text-sm text-muted-foreground">
-          You don&apos;t have permission to view products.
+          You don&apos;t have permission to view items.
         </p>
       </div>
     );
@@ -95,7 +95,7 @@ export function ProductsPage() {
     setBulkPending(true);
     try {
       await Promise.all([...selected].map((id) => api.archiveProduct(id)));
-      toast.success(`Archived ${selected.size} ${selected.size === 1 ? "product" : "products"}`);
+      toast.success(`Archived ${selected.size} ${selected.size === 1 ? "item" : "items"}`);
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: queryKeys.inventory.products.all() });
     } catch (e) {
@@ -106,39 +106,11 @@ export function ProductsPage() {
   };
 
   const exportSelected = () => {
-    downloadCsv(productsToCsv(selectedProducts), "products.csv");
+    downloadCsv(productsToCsv(selectedProducts), "items.csv");
   };
 
   return (
     <div className="flex flex-1 flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Products</h1>
-          <p className="text-sm text-muted-foreground">
-            Your catalog of parts and services — pricing, stock thresholds, and photos.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {can("products", "create") ? (
-            <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
-              <Upload className="size-4" />
-              Import CSV
-            </Button>
-          ) : null}
-          {can("products", "create") ? (
-            <Button
-              variant="brand"
-              className="h-9 gap-1.5 px-3.5"
-              onClick={() => router.push("/inventory/products/new")}
-            >
-              <PackagePlus className="size-4" />
-              New product
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
@@ -202,8 +174,25 @@ export function ProductsPage() {
 
         <span className="ml-auto text-sm text-muted-foreground">
           {products.length}
-          {query.hasNextPage ? "+" : ""} {products.length === 1 ? "product" : "products"}
+          {query.hasNextPage ? "+" : ""} {products.length === 1 ? "item" : "items"}
         </span>
+
+        {can("products", "create") ? (
+          <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
+            <Upload className="size-4" />
+            Import CSV
+          </Button>
+        ) : null}
+        {can("products", "create") ? (
+          <Button
+            variant="brand"
+            className="h-9 gap-1.5 px-3.5"
+            onClick={() => router.push("/inventory/items/new")}
+          >
+            <PackagePlus className="size-4" />
+            New item
+          </Button>
+        ) : null}
       </div>
 
       {overriding ? (
@@ -250,7 +239,7 @@ export function ProductsPage() {
           <EmptyState
             filtered={overriding || !!search || status !== InventoryStatus.ACTIVE}
             canCreate={can("products", "create")}
-            onCreate={() => router.push("/inventory/products/new")}
+            onCreate={() => router.push("/inventory/items/new")}
           />
         ) : (
           <>
@@ -321,15 +310,15 @@ function EmptyState({
         <Package className="size-6" />
       </div>
       <div>
-        <div className="font-medium">{filtered ? "No products match" : "No products yet"}</div>
+        <div className="font-medium">{filtered ? "No items match" : "No items yet"}</div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {filtered ? "Try clearing your search or filters." : "Add your first product or import a CSV."}
+          {filtered ? "Try clearing your search or filters." : "Add your first item or import a CSV."}
         </p>
       </div>
       {!filtered && canCreate ? (
         <Button variant="outline" className="gap-1.5" onClick={onCreate}>
           <PackagePlus className="size-4" />
-          New product
+          New item
         </Button>
       ) : null}
     </div>
@@ -342,7 +331,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
         <TriangleAlert className="size-6" />
       </div>
-      <div className="font-medium">Couldn&apos;t load products</div>
+      <div className="font-medium">Couldn&apos;t load items</div>
       <Button variant="outline" onClick={onRetry}>
         Retry
       </Button>

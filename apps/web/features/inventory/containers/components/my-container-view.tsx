@@ -25,9 +25,9 @@ export function MyContainerView() {
   if (isError || !container) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No container</h2>
+        <h2 className="text-lg font-medium">No container assigned</h2>
         <p className="text-sm text-muted-foreground">
-          Containers are provisioned for technicians. Yours isn&apos;t available.
+          Ask a manager to assign a container to you.
         </p>
       </div>
     );

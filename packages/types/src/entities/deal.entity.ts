@@ -16,8 +16,14 @@ export interface Deal {
   contactId: string;
   companyId?: string;
   clientType: ClientType;
+  /** Start date (YYYY-MM-DD). Paired with the start time in scheduledTimeSlot. */
   scheduledDate?: string;
+  /** End date (YYYY-MM-DD); defaults to the start date when the job is same-day. */
+  scheduledEndDate?: string;
+  /** "HH:MM-HH:MM" — start time and end time. Absent when allDay. */
   scheduledTimeSlot?: string;
+  /** An all-day job carries dates only; times are dropped. */
+  allDay?: boolean;
   /** Denormalized service-area name for display (auto-resolved from address). */
   serviceArea: string;
   /** Catalog service-area id this deal resolved into; null if outside coverage. */
@@ -47,6 +53,8 @@ export interface Deal {
   priority: DealPriority;
   /** Catalog job-source id (where the deal came from). Optional. */
   sourceId?: string;
+  /** Catalog external-company id (the partner that referred this job). Optional. */
+  externalCompanyId?: string;
   notes?: string;
   internalNotes?: string;
   cancellationReason?: string;
@@ -66,6 +74,12 @@ export interface Deal {
   poNumber?: string;
   /** User-defined field answers, keyed by CustomFieldDefinition id (not name). */
   customFields?: Record<string, CustomFieldValue>;
+  /**
+   * Per-job override of the client's display name — set when a client edit on
+   * the job is saved with "Just here" instead of being applied to the contact
+   * record. Absent = the job shows the contact's own name.
+   */
+  clientName?: { firstName: string; lastName: string };
   status: DealStatus;
   createdBy: string;
   /**
@@ -73,6 +87,11 @@ export interface Deal {
    * (or one of their sub-statuses). Cleared if the job is reopened.
    */
   closedAt?: string;
+  /**
+   * When the job entered its current status (super or sub) — set at creation,
+   * re-stamped by every real status move. Drives "time in status" displays.
+   */
+  statusChangedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

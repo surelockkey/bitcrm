@@ -1,7 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { S3Service } from '@bitcrm/shared';
-import { type DealAttachment, type DealAttachmentMeta, type JwtUser } from '@bitcrm/types';
+import {
+  TimelineEventType,
+  type DealAttachment,
+  type DealAttachmentMeta,
+  type JwtUser,
+} from '@bitcrm/types';
+import { TimelineRepository } from '../../timeline/timeline.repository';
 import { DealAttachmentsRepository } from './deal-attachments.repository';
 import { UploadAttachmentDto } from './dto/upload-attachment.dto';
 import { UpdateAttachmentDto } from './dto/update-attachment.dto';
@@ -18,7 +24,36 @@ export class DealAttachmentsService {
   constructor(
     private readonly s3: S3Service,
     private readonly repository: DealAttachmentsRepository,
+    private readonly timeline: TimelineRepository,
   ) {}
+
+  /**
+   * A photo appearing on, being renamed on, or vanishing from a job is part of
+   * what happened to it, so it lands on the timeline like every other change.
+   * Best-effort: history must never block the attachment operation itself.
+   */
+  private async logTimeline(
+    dealId: string,
+    eventType: TimelineEventType,
+    caller: JwtUser,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.timeline.addEntry({
+        id: randomUUID(),
+        dealId,
+        eventType,
+        actorId: caller.id,
+        actorName: caller.email,
+        timestamp: new Date().toISOString(),
+        details,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to log ${eventType} on deal ${dealId}: ${(error as Error).message}`,
+      );
+    }
+  }
 
   async requestUpload(
     dealId: string,
@@ -46,6 +81,13 @@ export class DealAttachmentsService {
       uploadedAt: new Date().toISOString(),
     });
     this.logger.log(`Deal attachment upload requested: ${dealId}/${id} by ${caller.id}`);
+    await this.logTimeline(dealId, TimelineEventType.ATTACHMENT_ADDED, caller, {
+      attachmentId: id,
+      fileName: dto.fileName,
+      category: dto.category,
+      size: dto.size,
+      contentType: dto.contentType,
+    });
     return { id, uploadUrl, s3Key, headers };
   }
 
@@ -62,6 +104,16 @@ export class DealAttachmentsService {
       description: dto.description,
     });
     this.logger.log(`Deal attachment updated: ${dealId}/${id} by ${caller.id}`);
+    const renamed = updated.fileName !== att.fileName;
+    const redescribed = (updated.description ?? '') !== (att.description ?? '');
+    if (renamed || redescribed) {
+      await this.logTimeline(dealId, TimelineEventType.ATTACHMENT_RENAMED, caller, {
+        attachmentId: id,
+        fileName: updated.fileName,
+        ...(renamed ? { previousFileName: att.fileName } : {}),
+        ...(redescribed ? { description: updated.description ?? null } : {}),
+      });
+    }
     return this.toMeta(updated);
   }
 
@@ -93,10 +145,15 @@ export class DealAttachmentsService {
     };
   }
 
-  async delete(dealId: string, id: string): Promise<void> {
+  async delete(dealId: string, id: string, caller: JwtUser): Promise<void> {
     const att = await this.repository.get(dealId, id);
     if (!att) throw new NotFoundException('Attachment not found');
     await this.s3.deleteObject(att.s3Key);
     await this.repository.delete(dealId, id);
+    await this.logTimeline(dealId, TimelineEventType.ATTACHMENT_REMOVED, caller, {
+      attachmentId: id,
+      fileName: att.fileName,
+      category: att.category,
+    });
   }
 }

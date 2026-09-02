@@ -118,6 +118,76 @@ describe('search-mappers', () => {
     it('maps a deleted deal status', () => {
       expect(mapDeal({ ...deal, status: DealStatus.DELETED }).status).toBe('deleted');
     });
+
+    it('indexes the job number and PO number as keywords', () => {
+      const doc = mapDeal({ ...deal, poNumber: 'PO-77812' } as Deal);
+      expect(doc.keywords).toContain('K4T9ZW');
+      expect(doc.keywords).toContain('PO-77812');
+    });
+
+    it('folds the client (contact + company) into keywords so a phone or name finds the job', () => {
+      const doc = mapDeal(deal, 'Install', [], [], {
+        name: 'John Smith',
+        phones: ['(728) 347-8370'],
+        emails: ['john@acme.com'],
+        companyName: 'Acme Corp',
+      });
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining([
+          'John Smith',
+          '(728) 347-8370',
+          '7283478370',
+          '17283478370',
+          'john@acme.com',
+          'Acme Corp',
+        ]),
+      );
+      // Client name is visible in the hit's subtitle (Workiz-style).
+      expect(doc.subtitle).toContain('John Smith');
+    });
+
+    it('indexes the external company name so its jobs are findable by partner', () => {
+      const doc = mapDeal(deal, 'Install', [], [], undefined, 'Allied Dispatch Solutions');
+      expect(doc.keywords).toContain('Allied Dispatch Solutions');
+    });
+
+    it('prefers the per-job client-name override in subtitle and still indexes both names', () => {
+      const overridden = {
+        ...deal,
+        clientName: { firstName: 'Janet', lastName: 'Poole' },
+      } as Deal;
+      const doc = mapDeal(overridden, 'Install', [], [], {
+        name: 'Jane Smith',
+        phones: [],
+        emails: [],
+      });
+      // The job displays its own name…
+      expect(doc.subtitle).toContain('Janet Poole');
+      expect(doc.subtitle).not.toContain('Jane Smith');
+      // …but a search by either name still finds the job.
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['Janet Poole', 'Jane Smith']),
+      );
+    });
+
+    it('stamps contactId and companyId so client edits can reindex their deals', () => {
+      const doc = mapDeal(deal);
+      expect(doc.contactId).toBe('c1');
+      expect(doc.companyId).toBe('co1');
+    });
+
+    it('adds digit variants for phone-like searchable custom-field values', () => {
+      const withFields = {
+        ...deal,
+        customFields: { 'cf-alt-phone': '(728) 347-8370' },
+      } as Deal;
+      const doc = mapDeal(withFields, undefined, [], [
+        { id: 'cf-alt-phone', searchable: true },
+      ]);
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['(728) 347-8370', '7283478370', '17283478370']),
+      );
+    });
   });
 
   describe('mapContact', () => {
@@ -145,10 +215,19 @@ describe('search-mappers', () => {
       expect(doc.ownerIds).toContain('creator1');
     });
 
-    it('indexes email and a normalized phone token', () => {
+    it('indexes email, the raw phone and its digit variants', () => {
       const doc = mapContact(contact);
       expect(doc.keywords).toContain('john@acme.com');
-      expect(doc.keywords).toContain('+12125550100');
+      // Raw format matches partial queries like "555-0100"; digit variants match
+      // collapsed queries like "2125550100" / "+1 212 555 0100".
+      expect(doc.keywords).toContain('(212) 555-0100');
+      expect(doc.keywords).toContain('2125550100');
+      expect(doc.keywords).toContain('12125550100');
+    });
+
+    it('indexes phone suffixes so a pasted tail like "5550100" matches', () => {
+      const doc = mapContact(contact);
+      expect(doc.keywords).toEqual(expect.arrayContaining(['5550100', '0100']));
     });
   });
 
@@ -172,6 +251,13 @@ describe('search-mappers', () => {
       expect(doc.permissionResource).toBe('companies');
       expect(doc.title).toBe('Acme Corp');
       expect(doc.keywords).toEqual(expect.arrayContaining(['info@acme.com', 'acme.com']));
+    });
+
+    it('indexes the raw phone and its digit variants', () => {
+      const doc = mapCompany(company);
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining(['212-555-0199', '2125550199', '12125550199']),
+      );
     });
   });
 
@@ -274,9 +360,11 @@ describe('search-mappers', () => {
       expect(doc.url).toBe('/inventory/warehouses/w1');
     });
 
-    it('mapContainer carries technician owner and department', () => {
+    it('mapContainer titles by the container name and carries technician owner', () => {
       const container: Container = {
         id: 'ct1',
+        name: 'Van 1',
+        description: 'North route',
         technicianId: 'tech1',
         technicianName: 'Bob Lee',
         department: 'field',
@@ -287,10 +375,25 @@ describe('search-mappers', () => {
       const doc = mapContainer(container);
       expect(doc.type).toBe('container');
       expect(doc.permissionResource).toBe('containers');
+      expect(doc.title).toBe('Van 1');
       expect(doc.ownerIds).toContain('tech1');
       expect(doc.department).toBe('field');
       expect(doc.keywords).toContain('Bob Lee');
+      expect(doc.keywords).toContain('Van 1');
       expect(doc.url).toBe('/inventory/containers/ct1');
+    });
+
+    it('mapContainer handles an unassigned container', () => {
+      const container: Container = {
+        id: 'ct2',
+        name: 'Spare van',
+        status: InventoryStatus.ACTIVE,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-02-01T00:00:00Z',
+      } as Container;
+      const doc = mapContainer(container);
+      expect(doc.title).toBe('Spare van');
+      expect(doc.ownerIds).toEqual([]);
     });
 
     it('mapTransfer maps performedBy owner', () => {

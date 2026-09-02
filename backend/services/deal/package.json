@@ -16,6 +16,7 @@
     "backfill:service-areas": "ts-node src/scripts/backfill-service-areas.ts",
     "backfill:deal-product-fulfillment": "ts-node src/scripts/backfill-deal-product-fulfillment.ts",
     "seed:job-types": "ts-node src/scripts/seed-job-types.ts",
+    "seed:external-companies": "ts-node src/scripts/seed-external-companies.ts",
     "migrate:deal-job-types": "ts-node src/scripts/migrate-deal-job-types.ts",
     "migrate:deal-assignments": "ts-node src/scripts/migrate-deal-assignments.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",

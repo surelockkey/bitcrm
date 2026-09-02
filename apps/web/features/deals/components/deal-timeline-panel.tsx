@@ -4,15 +4,15 @@ import { useMemo, useState } from "react";
 import {
   ArrowRight,
   FilePlus2,
+  FileX,
   History,
   Loader2,
   MessageSquare,
-  MessagesSquare,
   PackageMinus,
   PackageOpen,
   PackagePlus,
+  Paperclip,
   Pencil,
-  Phone,
   PhoneCall,
   PhoneOff,
   Search,
@@ -21,7 +21,6 @@ import {
   UserMinus,
   UserPlus,
   X,
-  Zap,
 } from "lucide-react";
 import { TimelineEventType } from "@bitcrm/types";
 import type { TimelineEntry } from "@bitcrm/types";
@@ -42,9 +41,15 @@ import {
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
 import { formatDuration } from "@/features/calls/lib";
+import { useJobStatuses } from "@/features/job-statuses/hooks";
+import { useJobTypes } from "@/features/job-types/hooks";
+import { useJobSources } from "@/features/job-sources/hooks";
+import { useExternalCompanies } from "@/features/external-companies/hooks";
+import { useJobTags } from "@/features/job-tags/hooks";
 import { stageLabel, superStatusLabel } from "../lib";
 import {
   useAddNote,
+  useContactMap,
   useDealTimeline,
   useDeleteNote,
   useUpdateNote,
@@ -66,29 +71,99 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.PRODUCT_REMOVED]: { icon: PackageMinus, label: "Product removed" },
   [TimelineEventType.CALL_LINKED]: { icon: PhoneCall, label: "Call linked" },
   [TimelineEventType.CALL_UNLINKED]: { icon: PhoneOff, label: "Call unlinked" },
+  [TimelineEventType.ATTACHMENT_ADDED]: { icon: Paperclip, label: "File added" },
+  [TimelineEventType.ATTACHMENT_RENAMED]: { icon: Paperclip, label: "File renamed" },
+  [TimelineEventType.ATTACHMENT_REMOVED]: { icon: FileX, label: "File removed" },
 };
 
 const FIELD_LABEL: Record<string, string> = {
   notes: "Notes",
   internalNotes: "Internal notes",
   scheduledDate: "Scheduled date",
+  scheduledEndDate: "End date",
   scheduledTimeSlot: "Time slot",
+  allDay: "All day",
   serviceArea: "Service area",
   serviceAreaId: "Service area",
   jobTypeId: "Job type",
   sourceId: "Source",
+  externalCompanyId: "External company",
   priority: "Priority",
   poNumber: "PO number",
   workOrderId: "Work order",
   address: "Address",
   tagIds: "Tags",
   paymentStatus: "Payment status",
+  actualTotal: "Amount",
   assignedTechIds: "Team",
   cancellationReason: "Cancellation reason",
   clientType: "Client type",
+  clientName: "Client name",
+  contactId: "Client",
+  subStatusId: "Sub-status",
 };
 
-const fieldLabel = (key: string): string => FIELD_LABEL[key] ?? key;
+/** Backend-generated keys carry structure: `sequences.<techId>`, `product.<id>.ordered`. */
+function fieldLabel(key: string, lk: Lookups): string {
+  if (key.startsWith("sequences.")) {
+    const tech = lk.userName(key.slice("sequences.".length));
+    return tech ? `Route position (${tech})` : "Route position";
+  }
+  if (key.startsWith("product.") && key.endsWith(".ordered")) return "Ordered";
+  return FIELD_LABEL[key] ?? key;
+}
+
+/* --------------------------------------------------------------- lookups */
+
+/**
+ * Entries store raw ids (job type, sub-status, tech, client, tag…). The reader
+ * should never see one — these catalogs turn every id into the name people
+ * actually know the thing by. All are small cached lists already loaded elsewhere
+ * on the job page, so this adds no new traffic.
+ */
+interface Lookups {
+  userName: (id: unknown) => string | null;
+  contactName: (id: unknown) => string | null;
+  jobTypes: Map<string, string>;
+  sources: Map<string, string>;
+  externalCompanies: Map<string, string>;
+  subStatuses: Map<string, string>;
+  tags: Map<string, string>;
+}
+
+function useTimelineLookups(): Lookups {
+  const { map: userMap } = useUserMap();
+  const { map: contactMap } = useContactMap();
+  const jobTypes = useJobTypes().data;
+  const sources = useJobSources().data;
+  const externalCompanies = useExternalCompanies().data;
+  const subStatuses = useJobStatuses().data;
+  const tags = useJobTags().data;
+
+  return useMemo(() => {
+    const named = (list: { id: string; name: string }[] | undefined) =>
+      new Map((list ?? []).map((x) => [x.id, x.name]));
+    return {
+      userName: (id) => {
+        const u = typeof id === "string" ? userMap.get(id) : undefined;
+        const name = u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
+        return name || null;
+      },
+      contactName: (id) => {
+        const c = typeof id === "string" ? contactMap.get(id) : undefined;
+        const name = c ? `${c.firstName} ${c.lastName}`.trim() : "";
+        return name || null;
+      },
+      jobTypes: named(jobTypes),
+      sources: named(sources),
+      externalCompanies: named(externalCompanies),
+      subStatuses: named(subStatuses),
+      tags: named(tags),
+    };
+  }, [userMap, contactMap, jobTypes, sources, externalCompanies, subStatuses, tags]);
+}
+
+/* ------------------------------------------------------------ rendering */
 
 /** Item money/quantity edits logged by product_updated entries. */
 const CHANGE_LABEL: Record<string, { label: string; money: boolean }> = {
@@ -124,18 +199,68 @@ function fmtValue(v: unknown): string {
     if (typeof a.street === "string") {
       return [a.street, a.unit, a.city, a.state, a.zip].filter(Boolean).join(", ");
     }
+    // A name pair ("Just here" client rename) reads as the name itself.
+    if (typeof a.firstName === "string" || typeof a.lastName === "string") {
+      return `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim() || "—";
+    }
     return JSON.stringify(v);
   }
+  if (typeof v === "boolean") return v ? "Yes" : "No";
   return String(v);
 }
 
+/** `snake_case` enum values (priority, client type…) → "Snake case". */
+function humanizeEnum(v: unknown): string {
+  if (typeof v !== "string" || !v) return fmtValue(v);
+  const s = v.replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** A field-change value, resolved through the catalogs the id points into. */
+function resolveFieldValue(field: string, v: unknown, lk: Lookups): string {
+  if (v === null || v === undefined || v === "") return "—";
+  const viaMap = (m: Map<string, string>) =>
+    typeof v === "string" ? m.get(v) ?? v : fmtValue(v);
+  switch (field) {
+    case "jobTypeId":
+      return viaMap(lk.jobTypes);
+    case "sourceId":
+      return viaMap(lk.sources);
+    case "externalCompanyId":
+      return viaMap(lk.externalCompanies);
+    case "subStatusId":
+      return viaMap(lk.subStatuses);
+    case "contactId":
+      return (typeof v === "string" && lk.contactName(v)) || fmtValue(v);
+    case "tagIds":
+      return Array.isArray(v) && v.length
+        ? v.map((id) => (typeof id === "string" ? lk.tags.get(id) ?? id : fmtValue(id))).join(", ")
+        : "—";
+    case "assignedTechIds":
+      return Array.isArray(v) && v.length
+        ? v.map((id) => lk.userName(id) ?? fmtValue(id)).join(", ")
+        : "—";
+    case "priority":
+    case "clientType":
+    case "paymentStatus":
+      return humanizeEnum(v);
+    default:
+      return fmtValue(v);
+  }
+}
+
 /** One-line "what changed, from what to what" for an entry. */
-function detail(entry: TimelineEntry): string | null {
+function detail(entry: TimelineEntry, lk: Lookups): string | null {
   const d = entry.details ?? {};
   if (entry.eventType === TimelineEventType.STATUS_CHANGED) {
     const from = d.fromStatus as string | undefined;
     const to = d.toStatus as string | undefined;
-    if (from && to) return `${superStatusLabel(from as never)} → ${superStatusLabel(to as never)}`;
+    if (from && to) {
+      const base = `${superStatusLabel(from as never)} → ${superStatusLabel(to as never)}`;
+      const sub =
+        typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) : undefined;
+      return sub ? `${base} · ${sub}` : base;
+    }
   }
   if (entry.eventType === TimelineEventType.STAGE_CHANGED) {
     const from = d.fromStage as string | undefined;
@@ -143,11 +268,19 @@ function detail(entry: TimelineEntry): string | null {
     if (from && to) return `${stageLabel(from as never)} → ${stageLabel(to as never)}`;
   }
   if (entry.eventType === TimelineEventType.FIELD_UPDATED && typeof d.field === "string") {
-    const label = fieldLabel(d.field);
-    if ("oldValue" in d) return `${label}: ${fmtValue(d.oldValue)} → ${fmtValue(d.newValue)}`;
+    const label = fieldLabel(d.field, lk);
+    const val = (v: unknown) => resolveFieldValue(d.field as string, v, lk);
+    if ("oldValue" in d) return `${label}: ${val(d.oldValue)} → ${val(d.newValue)}`;
     // Legacy entries logged only the new value.
-    if ("newValue" in d) return `${label} → ${fmtValue(d.newValue)}`;
+    if ("newValue" in d) return `${label} → ${val(d.newValue)}`;
     return label;
+  }
+  if (
+    entry.eventType === TimelineEventType.TECH_ASSIGNED ||
+    entry.eventType === TimelineEventType.TECH_UNASSIGNED
+  ) {
+    // The one thing that matters here is *which* technician.
+    return lk.userName(d.techId ?? d.previousTechId);
   }
   if (
     entry.eventType === TimelineEventType.PRODUCT_ADDED ||
@@ -183,6 +316,23 @@ function detail(entry: TimelineEntry): string | null {
     const label = prev && prev !== name ? `${prev} → ${name}` : name;
     if (label) return qty ? `${label} ×${qty}` : label;
   }
+  if (entry.eventType === TimelineEventType.ATTACHMENT_ADDED) {
+    const name = d.fileName as string | undefined;
+    const category = d.category as string | undefined;
+    if (name) return category ? `${name} · ${category}` : name;
+  }
+  if (entry.eventType === TimelineEventType.ATTACHMENT_RENAMED) {
+    const name = d.fileName as string | undefined;
+    const prev = d.previousFileName as string | undefined;
+    if (prev && name) return `${prev} → ${name}`;
+    // Description-only edit: the name stayed.
+    if (name) return `${name} · description updated`;
+  }
+  if (entry.eventType === TimelineEventType.ATTACHMENT_REMOVED) {
+    const name = d.fileName as string | undefined;
+    const category = d.category as string | undefined;
+    if (name) return category ? `${name} · ${category}` : name;
+  }
   return null;
 }
 
@@ -193,68 +343,39 @@ function when(ts: string): string {
     : dt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/* ----------------------------------------------------- mocked feeds (WIP) */
-
-export type MockTimelineItem = {
-  id: string;
-  kind: "activity" | "call" | "message";
-  title: string;
-  description: string;
-  actorName: string;
-  timestamp: string;
-};
-
-/**
- * The activities / calls / messages integrations are still in progress —
- * these placeholder items keep the filters demoable until the real feeds land.
- */
-export const MOCK_TIMELINE_ITEMS: MockTimelineItem[] = [
-  { id: "mock-act-1", kind: "activity", title: "Estimate approved", description: "Client approved estimate EST-1042", actorName: "System", timestamp: "2026-07-30T14:05:00.000Z" },
-  { id: "mock-act-2", kind: "activity", title: "Invoice sent", description: "Invoice INV-208 emailed to the client", actorName: "System", timestamp: "2026-07-29T16:40:00.000Z" },
-  { id: "mock-call-1", kind: "call", title: "Outbound call · 4:32", description: "Client confirmed the appointment window", actorName: "Dispatch line", timestamp: "2026-07-30T09:12:00.000Z" },
-  { id: "mock-call-2", kind: "call", title: "Missed call", description: "No voicemail left", actorName: "Dispatch line", timestamp: "2026-07-28T18:03:00.000Z" },
-  { id: "mock-msg-1", kind: "message", title: "SMS from client", description: "“Great, see you soon.”", actorName: "Client", timestamp: "2026-07-30T08:57:00.000Z" },
-  { id: "mock-msg-2", kind: "message", title: "SMS to client", description: "“Technician is 15 minutes away.”", actorName: "Auto-notify", timestamp: "2026-07-30T08:55:00.000Z" },
-];
-
-const MOCK_ICON: Record<MockTimelineItem["kind"], typeof Zap> = {
-  activity: Zap,
-  call: Phone,
-  message: MessagesSquare,
-};
-
 /* -------------------------------------------------------------- filters */
 
-type TimelineFilter = "all" | "notes" | "activities" | "calls" | "messages";
+type TimelineFilter = "all" | "notes" | "activities" | "calls";
 
 const FILTERS: { key: TimelineFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "notes", label: "Notes" },
   { key: "activities", label: "Activities" },
   { key: "calls", label: "Calls" },
-  { key: "messages", label: "Messages" },
 ];
 
-const MOCK_KIND_FOR_FILTER: Partial<Record<TimelineFilter, MockTimelineItem["kind"]>> = {
-  activities: "activity",
-  calls: "call",
-  messages: "message",
-};
+const CALL_EVENTS = new Set([TimelineEventType.CALL_LINKED, TimelineEventType.CALL_UNLINKED]);
 
-type Row =
-  | { type: "entry"; ts: string; entry: TimelineEntry }
-  | { type: "mock"; ts: string; mock: MockTimelineItem };
+function matchesFilter(entry: TimelineEntry, filter: TimelineFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "notes":
+      return entry.eventType === TimelineEventType.NOTE_ADDED;
+    case "calls":
+      return CALL_EVENTS.has(entry.eventType);
+    case "activities":
+      // Everything the system recorded that isn't a note or a call.
+      return entry.eventType !== TimelineEventType.NOTE_ADDED && !CALL_EVENTS.has(entry.eventType);
+  }
+}
 
-function entryHaystack(entry: TimelineEntry): string {
+function entryHaystack(entry: TimelineEntry, lk: Lookups): string {
   const meta = META[entry.eventType];
-  return [meta?.label ?? entry.eventType, detail(entry), entry.note, entry.actorName]
+  return [meta?.label ?? entry.eventType, detail(entry, lk), entry.note, entry.actorName]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
-}
-
-function mockHaystack(mock: MockTimelineItem): string {
-  return [mock.title, mock.description, mock.actorName].join(" ").toLowerCase();
 }
 
 /* ---------------------------------------------------------------- panel */
@@ -323,6 +444,7 @@ function PanelBody({
   const updateNote = useUpdateNote(dealId);
   const deleteNote = useDeleteNote(dealId);
   const { map: userMap } = useUserMap();
+  const lookups = useTimelineLookups();
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [search, setSearch] = useState("");
@@ -342,43 +464,18 @@ function PanelBody({
     [query.data],
   );
 
-  const rows = useMemo<Row[]>(() => {
-    let base: Row[];
-    if (filter === "all") {
-      base = [
-        ...entries.map<Row>((entry) => ({ type: "entry", ts: entry.timestamp, entry })),
-        ...MOCK_TIMELINE_ITEMS.map<Row>((mock) => ({ type: "mock", ts: mock.timestamp, mock })),
-      ];
-    } else if (filter === "notes") {
-      base = entries
-        .filter((e) => e.eventType === TimelineEventType.NOTE_ADDED)
-        .map<Row>((entry) => ({ type: "entry", ts: entry.timestamp, entry }));
-    } else {
-      const kind = MOCK_KIND_FOR_FILTER[filter];
-      base = MOCK_TIMELINE_ITEMS.filter((m) => m.kind === kind).map<Row>((mock) => ({
-        type: "mock",
-        ts: mock.timestamp,
-        mock,
-      }));
-    }
-
+  const rows = useMemo(() => {
+    let base = entries.filter((e) => matchesFilter(e, filter));
     const q = search.trim().toLowerCase();
-    if (q) {
-      base = base.filter((row) =>
-        (row.type === "entry" ? entryHaystack(row.entry) : mockHaystack(row.mock)).includes(q),
-      );
-    }
-
-    return base.sort((a, b) => b.ts.localeCompare(a.ts));
-  }, [entries, filter, search]);
+    if (q) base = base.filter((e) => entryHaystack(e, lookups).includes(q));
+    return [...base].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  }, [entries, filter, search, lookups]);
 
   const submit = () => {
     const v = note.trim();
     if (!v) return;
     addNote.mutate(v, { onSuccess: () => setNote("") });
   };
-
-  const mockFilterLabel = FILTERS.find((f) => f.key === filter)?.label;
 
   return (
     <>
@@ -424,12 +521,6 @@ function PanelBody({
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-        {MOCK_KIND_FOR_FILTER[filter] ? (
-          <p className="rounded-lg border border-dashed bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            {mockFilterLabel} integration is in progress — showing demo data.
-          </p>
-        ) : null}
-
         {canEdit && (filter === "all" || filter === "notes") ? (
           <div className="flex items-center gap-2">
             <Input
@@ -461,32 +552,29 @@ function PanelBody({
           </p>
         ) : (
           <ol className="space-y-3">
-            {rows.map((row) =>
-              row.type === "entry" ? (
-                <EntryRow
-                  key={row.entry.id}
-                  entry={row.entry}
-                  actor={actorLabel(row.entry)}
-                  canEdit={canEdit}
-                  isEditing={editingId === row.entry.id}
-                  onStartEdit={() => setEditingId(row.entry.id)}
-                  onCancelEdit={() => setEditingId(null)}
-                  onSaveEdit={(text) =>
-                    updateNote.mutate(
-                      { entryId: row.entry.id, timestamp: row.entry.timestamp, note: text },
-                      { onSuccess: () => setEditingId(null) },
-                    )
-                  }
-                  onDelete={() => setDeleting(row.entry)}
-                />
-              ) : (
-                <MockRow key={row.mock.id} mock={row.mock} />
-              ),
-            )}
+            {rows.map((row) => (
+              <EntryRow
+                key={row.id}
+                entry={row}
+                lookups={lookups}
+                actor={actorLabel(row)}
+                canEdit={canEdit}
+                isEditing={editingId === row.id}
+                onStartEdit={() => setEditingId(row.id)}
+                onCancelEdit={() => setEditingId(null)}
+                onSaveEdit={(text) =>
+                  updateNote.mutate(
+                    { entryId: row.id, timestamp: row.timestamp, note: text },
+                    { onSuccess: () => setEditingId(null) },
+                  )
+                }
+                onDelete={() => setDeleting(row)}
+              />
+            ))}
           </ol>
         )}
 
-        {query.hasNextPage && (filter === "all" || filter === "notes") ? (
+        {query.hasNextPage ? (
           <Button
             variant="ghost"
             size="sm"
@@ -529,6 +617,7 @@ function PanelBody({
 
 function EntryRow({
   entry,
+  lookups,
   actor,
   canEdit,
   isEditing,
@@ -538,6 +627,7 @@ function EntryRow({
   onDelete,
 }: {
   entry: TimelineEntry;
+  lookups: Lookups;
   actor: string;
   canEdit: boolean;
   isEditing: boolean;
@@ -548,7 +638,7 @@ function EntryRow({
 }) {
   const meta = META[entry.eventType] ?? { icon: Sparkles, label: entry.eventType };
   const Icon = meta.icon;
-  const d = detail(entry);
+  const d = detail(entry, lookups);
   const changeLines = itemChangeLines(entry);
   const isNote = entry.eventType === TimelineEventType.NOTE_ADDED;
   const [draft, setDraft] = useState(entry.note ?? "");
@@ -611,27 +701,6 @@ function EntryRow({
 
         <div className="text-xs text-muted-foreground">
           {when(entry.timestamp)} · {actor}
-        </div>
-      </div>
-    </li>
-  );
-}
-
-function MockRow({ mock }: { mock: MockTimelineItem }) {
-  const Icon = MOCK_ICON[mock.kind];
-  return (
-    <li className="flex gap-3">
-      <span className="mt-0.5 grid size-6 flex-none place-items-center rounded-full bg-muted text-muted-foreground">
-        <Icon className="size-3" />
-      </span>
-      <div className="min-w-0 flex-1 text-sm">
-        <span className="font-medium">{mock.title}</span>
-        <span className="ml-1.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
-          Demo
-        </span>
-        <div className="text-muted-foreground">{mock.description}</div>
-        <div className="text-xs text-muted-foreground">
-          {when(mock.timestamp)} · {mock.actorName}
         </div>
       </div>
     </li>

@@ -27,6 +27,10 @@ vi.mock("@/features/job-tags/components/job-tag-chips", () => ({
 }));
 
 // Catalog resolvers the dynamic columns lean on; pinned so no QueryClient is needed.
+vi.mock("@/features/external-companies/lib", () => ({
+  useExternalCompanyName: () => (id: string | undefined) =>
+    id === "ec-1" ? "Allied Dispatch Solutions" : "—",
+}));
 vi.mock("@/features/job-sources/lib", () => ({
   useJobSourceName: () => (id: string | undefined) => (id === "src-web" ? "Website" : "—"),
 }));
@@ -94,6 +98,9 @@ function deal(over: Partial<Deal> = {}): Deal {
 }
 
 const contactMap = new Map([[contact.id, contact]]);
+const withExtension = new Map([
+  [contact.id, { ...contact, phoneExtensions: { "+14045551234": "102" } }],
+]);
 const userMap = new Map<string, User>();
 
 describe("DealsTable", () => {
@@ -200,6 +207,20 @@ describe("DealsTable", () => {
     expect(screen.getByText("Website")).toBeInTheDocument();
   });
 
+  it("can show the external company, resolved through the catalog", () => {
+    render(
+      <DealsTable
+        deals={[deal({ externalCompanyId: "ec-1" })]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ ...DEFAULT_VISIBLE, externalCompany: true }}
+      />,
+    );
+    expect(screen.getByRole("columnheader", { name: "External company" })).toBeInTheDocument();
+    expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
+  });
+
   it("renders an enabled custom field as a column with the deal's answer", () => {
     render(
       <DealsTable
@@ -241,5 +262,16 @@ describe("DealsTable", () => {
     link.addEventListener("click", (e) => e.preventDefault());
     await userEvent.click(link);
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The jobs list is where a tech picks up the number before heading out — so
+   * it has to say what to press once the line answers, not just the number.
+   */
+  it("shows the client's extension beside their number", () => {
+    render(
+      <DealsTable deals={[deal()]} contactMap={withExtension} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    expect(screen.getByText("(404) 555-1234 ext. 102")).toBeInTheDocument();
   });
 });

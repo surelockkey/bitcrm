@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsArray,
-  ArrayMaxSize, MinLength, IsBoolean, IsInt, Min, IsDateString,
+  ArrayMaxSize, MinLength, IsBoolean, IsInt, Min, IsDateString, IsObject,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ClientType, PaymentTerms } from '@bitcrm/types';
@@ -17,6 +17,17 @@ export class CreateCompanyDto {
   @IsString({ each: true })
   @ArrayMaxSize(10)
   phones?: string[];
+
+  @ApiPropertyOptional({
+    example: { '+14045559999': '2' },
+    description:
+      'What to press once the call is answered, keyed by the number it ' +
+      'belongs to. Keys are re-normalized server-side and entries for ' +
+      'numbers not on the record are dropped.',
+  })
+  @IsOptional()
+  @IsObject()
+  phoneExtensions?: Record<string, string>;
 
   @ApiPropertyOptional({ example: ['info@acme.com'] })
   @IsOptional()

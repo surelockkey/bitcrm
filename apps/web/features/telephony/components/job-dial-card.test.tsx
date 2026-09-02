@@ -32,7 +32,7 @@ describe("JobDialCard", () => {
   it("shows the shared line and the job code", () => {
     render(<JobDialCard dealId="deal-1" />);
 
-    expect(screen.getByText(/\+1 \(404\) 555-0140/)).toBeInTheDocument();
+    expect(screen.getByText(/\(404\) 555-0140/)).toBeInTheDocument();
     // Grouped in pairs — far easier to key at a customer's door.
     expect(screen.getByText("47 29")).toBeInTheDocument();
   });
@@ -107,7 +107,7 @@ describe("JobDialCard", () => {
 
     render(<JobDialCard dealId="deal-1" />);
 
-    expect(screen.getByText(/\+1 \(404\) 555-0140/)).toBeInTheDocument();
+    expect(screen.getByText(/\(404\) 555-0140/)).toBeInTheDocument();
     expect(screen.getByText(/could not be issued|unavailable/i)).toBeInTheDocument();
   });
 

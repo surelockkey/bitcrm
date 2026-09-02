@@ -7,11 +7,12 @@ import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCompanyMap } from "@/features/clients/hooks";
-import { contactName, formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
+import { formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
 import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../hooks";
-import { dealTotal, formatMoney, formatSchedule } from "../lib";
+import { dealClientName, dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
+import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
@@ -22,6 +23,7 @@ import { TechChips } from "./assigned-techs";
 export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const jobTypeName = useJobTypeName();
   const jobSourceName = useJobSourceName();
+  const externalCompanyName = useExternalCompanyName();
   const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
   const { map: userMap } = useUserMap();
@@ -48,6 +50,9 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
           <Row label="Service area" value={deal.serviceArea} />
           <Row label="Scheduled" value={formatSchedule(deal.scheduledDate, deal.scheduledTimeSlot)} />
           {deal.sourceId ? <Row label="Source" value={jobSourceName(deal.sourceId)} /> : null}
+          {deal.externalCompanyId ? (
+            <Row label="External company" value={externalCompanyName(deal.externalCompanyId)} />
+          ) : null}
           {deal.poNumber ? <Row label="PO number" value={deal.poNumber} /> : null}
           {deal.workOrderId ? (
             <Row label="Work order" value={<Link href="/work-orders" className="text-primary hover:underline">View</Link>} />
@@ -61,7 +66,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
         {contact ? (
           <div className="space-y-1">
             <Link href={`/contacts/${contact.id}`} className="text-sm font-medium hover:underline">
-              {contactName(contact)}
+              {dealClientName(deal, contact)}
             </Link>
             {company ? (
               <Link href={`/companies/${company.id}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:underline">

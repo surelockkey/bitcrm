@@ -36,12 +36,20 @@ export type CoverageShape =
  * one of these from the client address; technicians are assigned to them.
  * Areas may not geographically overlap (enforced on write).
  */
+/** Default business timezone (Connecticut) when an area doesn't set its own. */
+export const DEFAULT_TIMEZONE = 'America/New_York';
+
 export interface ServiceArea {
   id: string;
   name: string;
   /** Higher wins when tie-breaking is ever needed; also the list sort key. */
   priority: number;
   active: boolean;
+  /**
+   * IANA timezone the area's jobs are scheduled/displayed in (e.g.
+   * "America/New_York"). Defaults to DEFAULT_TIMEZONE.
+   */
+  timezone: string;
   type: ServiceAreaType;
   definition: ServiceAreaDefinition;
   /** Derived from `definition` at write time; drives resolve/overlap/match. */

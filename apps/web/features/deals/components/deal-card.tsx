@@ -4,8 +4,7 @@ import { useRouter } from "next/navigation";
 import { MapPin } from "lucide-react";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { contactName, initials } from "@/features/clients/lib";
-import { formatMoney, isUrgent } from "../lib";
+import { dealClientName, formatMoney, isUrgent } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { TechChips } from "./assigned-techs";
@@ -24,7 +23,7 @@ export function DealCard({
   const router = useRouter();
   const jobTypeName = useJobTypeName();
   const contact = contactMap.get(deal.contactId);
-  const client = contact ? contactName(contact) : "—";
+  const client = dealClientName(deal, contact);
 
   return (
     <button

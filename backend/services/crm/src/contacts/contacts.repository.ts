@@ -248,6 +248,9 @@ export class ContactsRepository {
       firstName: item.firstName as string,
       lastName: item.lastName as string,
       phones: item.phones as string[],
+      // Rows written before extensions existed simply have none.
+      phoneExtensions:
+        (item.phoneExtensions as Record<string, string> | undefined) || {},
       emails: (item.emails as string[]) || [],
       // Legacy rows predate addresses — default to an empty list on read.
       addresses: (item.addresses as Address[]) || [],

@@ -46,7 +46,7 @@ export function DealAddressFields({
     : undefined;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <Label>{label}</Label>
 
       <AddressAutocomplete

@@ -11,7 +11,15 @@ import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { FieldList } from "./field-list";
 import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
-import { clientTypeLabel, contactName, formatAddress, formatPhone, initials, sourceLabel } from "../lib";
+import {
+  clientTypeLabel,
+  contactName,
+  extensionOf,
+  formatAddress,
+  formatPhoneWithExtension,
+  initials,
+  sourceLabel,
+} from "../lib";
 import { ContactTypeBadge } from "./client-badges";
 import { ContactForm } from "./contact-form";
 import { DeleteClientDialog } from "./delete-client-dialog";
@@ -71,14 +79,15 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         ) : (
           <div className="grid gap-0 md:grid-cols-[1fr_300px]">
             <div className="space-y-5 p-6">
-              {/* Formatted for reading, but each row keeps its own raw number
-                  so the call button dials what's on file. */}
+              {/* Formatted for reading — number then what to press once it
+                  answers — but each row keeps its own raw number so the call
+                  button dials what's on file. */}
               <FieldList
                 label="Phones"
                 icon={Phone}
                 values={contact.phones}
                 maskedCount={contact.phoneCount}
-                format={formatPhone}
+                format={(p) => formatPhoneWithExtension(p, extensionOf(contact, p))}
                 primaryFirst
                 action={(phone) => (
                   <CallClientButton to={phone} partyId={contact.id} />

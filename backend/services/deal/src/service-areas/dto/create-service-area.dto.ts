@@ -58,6 +58,14 @@ export class CreateServiceAreaDto {
   @IsBoolean()
   active?: boolean;
 
+  @ApiPropertyOptional({
+    example: 'America/New_York',
+    description: 'IANA timezone for this area’s jobs. Defaults to America/New_York.',
+  })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
   @ApiProperty({ enum: ServiceAreaType, example: ServiceAreaType.ZIPS })
   @IsEnum(ServiceAreaType)
   type!: ServiceAreaType;

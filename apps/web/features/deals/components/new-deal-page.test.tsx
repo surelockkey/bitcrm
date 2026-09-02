@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   requestUpload: vi.fn(),
   uploadBytes: vi.fn(),
   updateDealApi: vi.fn(),
+  createCompany: vi.fn(),
+  companyMap: new Map<string, { id: string; title: string }>(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -54,7 +56,8 @@ vi.mock("@/features/clients/hooks", () => ({
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
-  useCompanyMap: () => ({ map: new Map() }),
+  useCreateCompany: () => ({ mutate: mocks.createCompany, isPending: false }),
+  useCompanyMap: () => ({ map: mocks.companyMap, companies: [...mocks.companyMap.values()] }),
 }));
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
@@ -80,12 +83,35 @@ vi.mock("../attachments-api", () => ({
 vi.mock("../api", () => ({
   updateDeal: (...args: unknown[]) => mocks.updateDealApi(...args),
 }));
+// The company picker has its own test; stub it to expose select/create.
+vi.mock("@/features/clients/components/company-picker-dialog", () => ({
+  CompanyPickerDialog: ({
+    open,
+    onSelect,
+    onCreate,
+  }: {
+    open: boolean;
+    onSelect: (id: string) => void;
+    onCreate?: (name: string) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="company picker">
+        <button type="button" onClick={() => onSelect("co-9")}>pick existing</button>
+        <button type="button" onClick={() => onCreate?.("Globex")}>create company</button>
+      </div>
+    ) : null,
+}));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
   ResolvedAreaField: () => null,
 }));
 vi.mock("@/features/job-sources/components/job-source-select", () => ({
-  JobSourceSelect: () => null,
+  JobSourceSelect: ({ value }: { value?: string }) => (
+    <div data-testid="job-source-select">{value ?? ""}</div>
+  ),
+}));
+vi.mock("@/features/external-companies/components/external-company-select", () => ({
+  ExternalCompanySelect: () => null,
 }));
 vi.mock("@/features/job-types/components/job-type-select", () => ({
   JobTypeSelect: ({ onChange }: { onChange: (v: string) => void }) => (
@@ -93,6 +119,10 @@ vi.mock("@/features/job-types/components/job-type-select", () => ({
   ),
 }));
 vi.mock("./schedule-field", () => ({ ScheduleField: () => null }));
+vi.mock("./tech-suggestions", () => ({ TechSuggestions: () => null }));
+vi.mock("@/features/service-areas/hooks", () => ({
+  useResolvedServiceArea: () => ({ data: undefined }),
+}));
 // The address block is a real form field here — a plain input over street is
 // enough to prove the client's address arrives pre-filled and can be replaced.
 vi.mock("./deal-address-fields", () => ({
@@ -219,6 +249,43 @@ describe("NewDealPage — deferred file uploads", () => {
   });
 });
 
+describe("NewDealPage — job from a call", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1&callSid=CA1&sourceId=src-google-ads";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    mocks.createDeal.mockReset();
+    mocks.linkCall.mockReset();
+    mocks.push.mockReset();
+  });
+
+  it("prefills the job source from the call and keeps it on the created job", async () => {
+    mocks.createDeal.mockImplementation(
+      (_body: unknown, opts?: { onSuccess?: (d: unknown) => void }) =>
+        opts?.onSuccess?.({ id: "d-new" }),
+    );
+
+    const u = user();
+    render(<NewDealPage />);
+
+    expect(screen.getByTestId("job-source-select")).toHaveTextContent(
+      "src-google-ads",
+    );
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    await waitFor(() =>
+      expect(mocks.createDeal).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: "src-google-ads" }),
+        expect.anything(),
+      ),
+    );
+    // The call that started this job ends up linked to it.
+    expect(mocks.linkCall).toHaveBeenCalledWith({ sid: "CA1", dealId: "d-new" });
+  });
+});
+
 describe("NewDealPage — auto-create client", () => {
   beforeEach(() => {
     mocks.searchParams = "";
@@ -236,10 +303,9 @@ describe("NewDealPage — auto-create client", () => {
     const u = user();
     render(<NewDealPage />);
 
-    // Nobody matches — the picker opens its new-client block.
+    // Nobody matches — the picker opens its new-client block, prefilled from
+    // what was typed (first word → first name, the rest → last name).
     await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
-    await u.type(screen.getByPlaceholderText("First name"), "Nova");
-    await u.type(screen.getByPlaceholderText("Last name"), "Client");
 
     await u.type(screen.getByLabelText("street"), "9 Elm");
     await u.click(screen.getByRole("button", { name: /pick job type/i }));
@@ -262,8 +328,6 @@ describe("NewDealPage — auto-create client", () => {
     expect(submit()).toBeDisabled();
 
     await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
-    await u.type(screen.getByPlaceholderText("First name"), "Nova");
-    await u.type(screen.getByPlaceholderText("Last name"), "Client");
 
     expect(submit()).toBeEnabled();
   });
@@ -282,6 +346,40 @@ describe("NewDealPage — Workiz layout", () => {
     for (const title of ["Client Details", "Service Location", "Job Details", "Scheduled"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
+  });
+
+  it("shows a Company name picker and assigns a chosen company to the client", async () => {
+    const u = user();
+    mocks.updateContact.mockReset();
+    render(<NewDealPage />);
+
+    expect(screen.getByText("Company name")).toBeInTheDocument();
+    await u.click(screen.getByLabelText("Company name"));
+    await u.click(screen.getByRole("button", { name: "pick existing" }));
+
+    expect(mocks.updateContact).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "c1", body: expect.objectContaining({ companyId: "co-9" }) }),
+      expect.anything(),
+    );
+  });
+
+  it("creates a new company from the picker and assigns it", async () => {
+    const u = user();
+    mocks.createCompany.mockReset();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByLabelText("Company name"));
+    await u.click(screen.getByRole("button", { name: "create company" }));
+
+    expect(mocks.createCompany).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Globex" }),
+      expect.anything(),
+    );
+  });
+
+  it("no longer offers a Priority field", () => {
+    render(<NewDealPage />);
+    expect(screen.queryByText("Priority")).not.toBeInTheDocument();
   });
 
   it("renders each custom-field group as its own card, Workiz-ordered", () => {
@@ -308,8 +406,8 @@ describe("NewDealPage — Workiz layout", () => {
     render(<NewDealPage />);
 
     const titles = screen.getAllByText(/^(Extra Info|Tech)$/).map((el) => el.textContent);
-    // Extra Info comes before Tech, as on the Workiz form.
-    expect(titles).toEqual(["Extra Info", "Tech"]);
+    // Tech comes before Extra Info, as on the Workiz form.
+    expect(titles).toEqual(["Tech", "Extra Info"]);
     expect(screen.getByText("Check Image Front")).toBeInTheDocument();
     expect(screen.getByText("Jobs Dispatch")).toBeInTheDocument();
     // No single monolithic "Custom fields" card anymore.

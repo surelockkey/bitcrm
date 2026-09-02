@@ -170,7 +170,7 @@ function FieldControl({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5">
       {label}
       <FieldInput
         field={field}

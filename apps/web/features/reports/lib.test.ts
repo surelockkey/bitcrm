@@ -5,7 +5,7 @@ import {
   DealStatus,
   JobSuperStatus,
 } from "@bitcrm/types";
-import type { Deal } from "@bitcrm/types";
+import type { Contact, Deal } from "@bitcrm/types";
 import { datePresetRange, filterJobsReport, jobsReportCsv, paginate } from "./lib";
 
 function deal(over: Partial<Deal>): Deal {
@@ -30,7 +30,7 @@ function deal(over: Partial<Deal>): Deal {
   };
 }
 
-const names = new Map<string, string>();
+const names = new Map<string, Contact>();
 
 describe("filterJobsReport", () => {
   const rows = [

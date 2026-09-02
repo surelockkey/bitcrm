@@ -10,6 +10,7 @@ import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
+import { ExternalCompaniesService } from 'src/external-companies/external-companies.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
 import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
@@ -34,6 +35,7 @@ import {
   createMockJobTag,
   createMockTechnicianEligibilityRepository,
   createMockCustomFieldsService,
+  createMockExternalCompany,
 } from '../mocks';
 
 describe('DealsService', () => {
@@ -47,6 +49,7 @@ describe('DealsService', () => {
   let serviceAreas: { resolvePoint: jest.Mock };
   let jobTypes: { findById: jest.Mock };
   let jobSources: { findById: jest.Mock };
+  let externalCompanies: { findById: jest.Mock };
   let jobTags: { list: jest.Mock };
   let jobStatuses: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
@@ -62,6 +65,7 @@ describe('DealsService', () => {
     serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
     jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
+    externalCompanies = { findById: jest.fn().mockResolvedValue(createMockExternalCompany()) };
     jobTags = { list: jest.fn().mockResolvedValue([]) };
     jobStatuses = { findById: jest.fn() };
     eligibility = createMockTechnicianEligibilityRepository();
@@ -80,6 +84,7 @@ describe('DealsService', () => {
         { provide: ServiceAreasService, useValue: serviceAreas },
         { provide: JobTypesService, useValue: jobTypes },
         { provide: JobSourcesService, useValue: jobSources },
+        { provide: ExternalCompaniesService, useValue: externalCompanies },
         { provide: JobTagsService, useValue: jobTags },
         { provide: JobStatusesService, useValue: jobStatuses },
         { provide: CustomFieldsService, useValue: createMockCustomFieldsService() },
@@ -133,6 +138,25 @@ describe('DealsService', () => {
       jobTypeId: 'jobtype-1',
     };
 
+    it('stores the external company on create and rejects a disabled one', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(
+        { ...dto, externalCompanyId: 'extco-1' } as any,
+        caller,
+      );
+      expect(result.externalCompanyId).toBe('extco-1');
+      expect(externalCompanies.findById).toHaveBeenCalledWith('extco-1');
+
+      externalCompanies.findById.mockResolvedValue(
+        createMockExternalCompany({ active: false, name: 'Agero' }),
+      );
+      await expect(
+        service.create({ ...dto, externalCompanyId: 'extco-2' } as any, caller),
+      ).rejects.toThrow(/disabled/i);
+    });
+
     it('should create deal with auto-generated fields', async () => {
       repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
@@ -162,6 +186,18 @@ describe('DealsService', () => {
       expect(result.poNumber).toBe('PO-12345');
       expect(repo.create).toHaveBeenCalledWith(
         expect.objectContaining({ workOrderId: 'wo-1', poNumber: 'PO-12345' }),
+      );
+    });
+
+    it('starts the status clock at creation', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(dto as any, caller);
+
+      expect(result.statusChangedAt).toBe(result.createdAt);
+      expect(repo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ statusChangedAt: result.createdAt }),
       );
     });
 
@@ -449,6 +485,59 @@ describe('DealsService', () => {
       expect(updates.serviceArea).toBe('Savannah');
     });
 
+    it('clears the external company when the patch sends null', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal });
+
+      await service.update('deal-1', { externalCompanyId: null } as any, caller);
+
+      // null reaches the repository (which REMOVEs the attribute); no lookup
+      // of a non-existent "null" company.
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { externalCompanyId: null });
+      expect(externalCompanies.findById).not.toHaveBeenCalled();
+    });
+
+    it('validates the external company when it changes on update', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal, externalCompanyId: 'extco-1' });
+
+      await service.update('deal-1', { externalCompanyId: 'extco-1' } as any, caller);
+
+      expect(externalCompanies.findById).toHaveBeenCalledWith('extco-1');
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { externalCompanyId: 'extco-1' });
+    });
+
+    it("stores a per-job client-name override ('Just here') and clears it with null", async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal });
+
+      await service.update(
+        'deal-1',
+        { clientName: { firstName: 'Janet', lastName: 'Poole' } } as any,
+        caller,
+      );
+      expect(repo.update).toHaveBeenCalledWith('deal-1', {
+        clientName: { firstName: 'Janet', lastName: 'Poole' },
+      });
+
+      mockFindById();
+      await service.update('deal-1', { clientName: null } as any, caller);
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { clientName: null });
+    });
+
+    it('publishes deal.updated so the search index refreshes on any edit', async () => {
+      const deal = mockFindById();
+      repo.update.mockResolvedValue({ ...deal, notes: 'Updated' });
+
+      await service.update('deal-1', { notes: 'Updated' } as any, caller);
+
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.updated',
+        expect.objectContaining({ dealId: 'deal-1' }),
+      );
+    });
+
     it('records oldValue and newValue for a changed field', async () => {
       const deal = mockFindById(createMockDeal({ priority: DealPriority.NORMAL }));
       repo.update.mockResolvedValue({ ...deal, priority: DealPriority.URGENT });
@@ -551,6 +640,16 @@ describe('DealsService', () => {
       expect(repo.softDelete).toHaveBeenCalledWith('deal-1');
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
     });
+
+    it('publishes deal.deleted so the doc leaves the search index', async () => {
+      mockFindById();
+      await service.softDelete('deal-1', caller);
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.deleted',
+        expect.objectContaining({ dealId: 'deal-1' }),
+      );
+    });
   });
 
   describe('moveStatus', () => {
@@ -581,6 +680,55 @@ describe('DealsService', () => {
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.status_changed', expect.objectContaining({
         dealId: 'deal-1', oldStatus: JobSuperStatus.SUBMITTED, newStatus: JobSuperStatus.IN_PROGRESS,
       }));
+    });
+
+    it('stamps statusChangedAt when the status actually changes', async () => {
+      const deal = mockFindById(createMockDeal({ superStatus: JobSuperStatus.SUBMITTED }));
+      repo.update.mockResolvedValue({ ...deal, superStatus: JobSuperStatus.IN_PROGRESS });
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'deal-1',
+        expect.objectContaining({
+          statusChangedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+        }),
+      );
+    });
+
+    it('stamps statusChangedAt on a sub-status change within the same super-status', async () => {
+      const deal = mockFindById(
+        createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: undefined }),
+      );
+      jobStatuses.findById.mockResolvedValue({
+        id: 'ss1',
+        name: 'On the way',
+        group: JobSuperStatus.IN_PROGRESS,
+      });
+      repo.update.mockResolvedValue({ ...deal, subStatusId: 'ss1' });
+
+      await service.moveStatus(
+        'deal-1',
+        { superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: 'ss1' },
+        caller,
+      );
+
+      expect(repo.update).toHaveBeenCalledWith(
+        'deal-1',
+        expect.objectContaining({ statusChangedAt: expect.any(String) }),
+      );
+    });
+
+    it('does not reset the status clock on a no-op move', async () => {
+      const deal = mockFindById(
+        createMockDeal({ superStatus: JobSuperStatus.IN_PROGRESS, subStatusId: undefined }),
+      );
+      repo.update.mockResolvedValue(deal);
+
+      await service.moveStatus('deal-1', { superStatus: JobSuperStatus.IN_PROGRESS }, caller);
+
+      const updates = repo.update.mock.calls[0][1];
+      expect(updates.statusChangedAt).toBeUndefined();
     });
 
     it('should require cancellationReason when moving to canceled', async () => {
@@ -858,6 +1006,74 @@ describe('DealsService', () => {
 
       const result = await service.getQualifiedTechs('deal-1');
       expect(result[0].distanceMiles).toBeNull();
+    });
+  });
+
+  describe('rankQualifiedTechsFor — before a deal exists (New Job)', () => {
+    it('ranks techs against a job type + area with no deal, distance from a point', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-fit',
+          jobTypeIds: ['jt-x'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          homeAddress: { lat: 33.95, lng: -84.55 },
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+        {
+          technicianId: 't-wrong-type',
+          jobTypeIds: ['jt-other'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+
+      const result = await service.rankQualifiedTechsFor({
+        jobTypeId: 'jt-x',
+        serviceAreaId: 'sa-y',
+        lat: 33.749,
+        lng: -84.388,
+      });
+
+      const fit = result.find((r) => r.id === 't-fit')!;
+      const wrong = result.find((r) => r.id === 't-wrong-type')!;
+      expect(fit.eligible).toBe(true);
+      expect(typeof fit.distanceMiles).toBe('number');
+      expect(wrong.eligible).toBe(false);
+      expect(wrong.reasons).toContain('missing_job_type');
+    });
+
+    it('treats an empty job type as "any" — no missing_job_type reason', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-any',
+          jobTypeIds: ['jt-other'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+
+      const result = await service.rankQualifiedTechsFor({ jobTypeId: '', serviceAreaId: 'sa-y' });
+      expect(result[0].eligible).toBe(true);
+      expect(result[0].reasons).not.toContain('missing_job_type');
+    });
+
+    it('marks everyone outside_area when no service area is given', async () => {
+      eligibility.listAll.mockResolvedValue([
+        {
+          technicianId: 't-1',
+          jobTypeIds: ['jt-x'],
+          serviceAreaIds: ['sa-y'],
+          assignable: true,
+          updatedAt: '2026-04-16T10:00:00.000Z',
+        },
+      ]);
+
+      const result = await service.rankQualifiedTechsFor({ jobTypeId: 'jt-x' });
+      expect(result[0].eligible).toBe(false);
+      expect(result[0].reasons).toContain('outside_area');
     });
   });
 
@@ -1518,6 +1734,20 @@ describe('DealsService', () => {
         }),
       );
     });
+
+    it('publishes deal.updated so payment status reaches the search index', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+
+      await service.updatePaymentStatus('deal-1', {
+        paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20T15:00:00.000Z',
+      } as any);
+
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.updated',
+        expect.objectContaining({ dealId: 'deal-1' }),
+      );
+    });
   });
 
   describe('publishEvent (error handling)', () => {
@@ -1535,6 +1765,28 @@ describe('DealsService', () => {
 
       // Should not throw even though publish fails
       await expect(service.create(dto as any, caller)).resolves.toBeDefined();
+    });
+  });
+
+  describe('recordCallLink', () => {
+    it("stores the actor's display name on the entry, not an email it never had", async () => {
+      repo.findById.mockResolvedValue(createMockDeal({ id: 'deal-1' }));
+
+      await service.recordCallLink(
+        'deal-1',
+        true,
+        { direction: 'inbound', from: '+14045551234' },
+        { id: 'u-disp', name: 'Olha D.' },
+      );
+
+      expect(timeline.addEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: TimelineEventType.CALL_LINKED,
+          actorId: 'u-disp',
+          actorName: 'Olha D.',
+          details: expect.objectContaining({ direction: 'inbound' }),
+        }),
+      );
     });
   });
 });

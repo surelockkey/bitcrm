@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
-import { ContactSource, DealPriority, type Contact, type Deal } from "@bitcrm/types";
+import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
+import type { UpdateDealValues } from "../schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,15 +31,22 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContact, useUpdateContact, useCreateContact } from "@/features/clients/hooks";
+import { useContact, useUpdateContact } from "@/features/clients/hooks";
 import {
-  ClientSaveDialog,
+  ChangeClientDialog,
   type ClientSaveDecision,
-} from "@/features/clients/components/client-change-dialog";
-import { addressInList, contactName, formatPhone } from "@/features/clients/lib";
+} from "./change-client-dialog";
+import {
+  addressInList,
+  contactName,
+  extensionOf,
+  formatPhoneWithExtension,
+} from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { JobStatusSelect } from "@/features/job-statuses/components/job-status-select";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
@@ -49,11 +57,11 @@ import { CallClientButton } from "@/features/telephony/components/call-client-bu
 import { JobDialCard } from "@/features/telephony/components/job-dial-card";
 import { MaskedClientPhones } from "./masked-client-phones";
 import {
-  useChangeDealClient,
   useDeal,
   useDeleteDeal,
   useMoveStatus,
   useSetDealTags,
+  useAssignTechs,
   useUpdateDeal,
 } from "../hooks";
 import {
@@ -71,10 +79,12 @@ import { DealProductsTab } from "./deal-products-tab";
 import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { useAttachments } from "../attachments-hooks";
-import { AssignTechDialog } from "./assign-tech-dialog";
 import { AssignedTechs } from "./assigned-techs";
+import { TechSuggestions } from "./tech-suggestions";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
-import { ScheduleField } from "./schedule-field";
+import { ScheduledBlock } from "./scheduled-block";
+import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 
@@ -186,17 +196,22 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        {/* Details stays mounted (just hidden) so its unsaved draft survives
-            a hop to the other tabs. */}
-        <div className={cn(tab !== "details" && "hidden")}>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Details stays mounted (just hidden) so its unsaved draft survives a
+            hop to the other tabs. It owns its own scroll region so the Save bar
+            can live in a footer that never scrolls. */}
+        <div className={cn("flex flex-1 flex-col overflow-hidden", tab !== "details" && "hidden")}>
           <DetailsTab deal={deal} canEdit={canEdit} />
         </div>
         {tab === "items" ? (
-          <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+          </div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
+          </div>
         ) : null}
       </div>
 
@@ -211,8 +226,8 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    // h-full: cards in a grid row stretch to the tallest neighbour.
-    <div className="h-full rounded-xl border bg-card p-4">
+    // Plain, borderless — just a titled block, Workiz-style.
+    <div className="h-full">
       <div className="mb-3 flex items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</span>
         <span className="h-px flex-1 bg-border" />
@@ -228,10 +243,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const { data: contact } = useContact(deal.contactId);
   const { data: customFieldDefs } = useCustomFields();
   const update = useUpdateDeal(deal.id);
+  const assignTechs = useAssignTechs(deal.id);
   const updateContact = useUpdateContact();
-  const createContact = useCreateContact();
-  const changeClient = useChangeDealClient(deal.id);
-  const [assigning, setAssigning] = useState(false);
   const canEditClient = can("contacts", "edit");
 
   // One draft per side — every field below is a controlled input writing here,
@@ -251,7 +264,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   }, [deal.id, deal.updatedAt]);
 
   const [clientDraft, setClientDraft] = useState<ClientDraft | null>(() =>
-    contact ? clientDraftFromContact(contact) : null,
+    contact ? clientDraftFromContact(contact, deal.clientName) : null,
   );
   const syncedContactId = useRef(contact?.id);
   useEffect(() => {
@@ -260,7 +273,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
     const freshContact = syncedContactId.current !== contact?.id;
     syncedContactId.current = contact?.id;
     if (!freshContact && contact && clientDraft && buildContactBody(contact, clientDraft)) return;
-    setClientDraft(contact ? clientDraftFromContact(contact) : null);
+    setClientDraft(contact ? clientDraftFromContact(contact, deal.clientName) : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact?.id, contact?.updatedAt]);
 
@@ -269,6 +282,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   // Recomputes as the draft's job type changes — the applicable set is scoped to it.
   // One card per custom-field group, Workiz-ordered — same as the New Job form.
   const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, dealDraft.jobTypeId));
+
+  // The job's timezone: its resolved service area's, else Connecticut.
+  const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
+  const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
 
   const dealPatch = buildDealPatch(deal, dealDraft);
   // A changed service address is also offered to the client's saved list — but
@@ -279,19 +296,21 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       ? buildContactBody(contact, clientDraft, dealPatch?.address ? dealDraft.address : undefined)
       : null;
   const dirty = !!dealPatch || !!contactBody;
-  const pending = update.isPending || updateContact.isPending || createContact.isPending;
+  const pending = update.isPending || updateContact.isPending;
 
   const { confirm } = useUnsavedChanges(dirty);
 
-  // Who the client is, changed — as opposed to filling in an email or fixing a
-  // typo'd unit number.
-  const clientChanged =
+  // A rename is the only client edit that prompts: it either follows the
+  // client record or stays a per-job label. Phones/emails live on the client
+  // record alone, so they save straight through. The rename is measured
+  // against what the job currently shows (its override, else the contact).
+  const baseFirstName = deal.clientName?.firstName ?? contact?.firstName ?? "";
+  const baseLastName = deal.clientName?.lastName ?? contact?.lastName ?? "";
+  const nameChanged =
     !!contact &&
     !!clientDraft &&
-    (clientDraft.firstName !== contact.firstName ||
-      clientDraft.lastName !== contact.lastName ||
-      JSON.stringify(clientDraft.phones.map((p) => p.trim()).filter(Boolean)) !==
-        JSON.stringify(contact.phones));
+    (clientDraft.firstName.trim() !== baseFirstName ||
+      clientDraft.lastName.trim() !== baseLastName);
   // A service location the client doesn't have on file yet.
   const newAddress =
     contact && dealPatch?.address && !addressInList(dealDraft.address, contact.addresses)
@@ -301,45 +320,42 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   const [asking, setAsking] = useState(false);
 
   const save = () => {
-    // Same question the job's creation asks: is this the same client corrected,
-    // or someone else — and does a new address belong on their record? Skipped
-    // when nothing about the client itself moved.
-    if (canEditClient && contact && (clientChanged || newAddress)) {
+    // A rename (or a new address) is the only thing worth asking about;
+    // everything else saves straight through.
+    if (canEditClient && contact && (nameChanged || newAddress)) {
       setAsking(true);
       return;
     }
-    commit({ client: "update", address: "job-only" });
+    commit({ applyToClient: true, address: "job-only" });
   };
 
   const commit = (decision: ClientSaveDecision) => {
     setAsking(false);
-    if (dealPatch) update.mutate(dealPatch);
+
+    // "Just here" pins the new name to this job; "Yes, make change" writes it
+    // to the contact record and drops any stale per-job pin.
+    const overridePatch: Partial<UpdateDealValues> =
+      canEditClient && contact && clientDraft && nameChanged
+        ? decision.applyToClient
+          ? deal.clientName
+            ? { clientName: null }
+            : {}
+          : {
+              clientName: {
+                firstName: clientDraft.firstName.trim(),
+                lastName: clientDraft.lastName.trim(),
+              },
+            }
+        : {};
+    const patch = { ...(dealPatch ?? {}), ...overridePatch };
+    if (Object.keys(patch).length > 0) update.mutate(patch);
+
     if (!contact || !clientDraft || !canEditClient) return;
-
-    if (clientChanged && decision.client === "create") {
-      // The number follows the new client, so future calls from it resolve to
-      // whoever this job is actually for; the job moves with them.
-      createContact.mutate(
-        {
-          firstName: clientDraft.firstName.trim(),
-          lastName: clientDraft.lastName.trim(),
-          phones: clientDraft.phones.map((p) => p.trim()).filter(Boolean),
-          emails: clientDraft.email.trim() ? [clientDraft.email.trim()] : [],
-          addresses: decision.address === "save" && newAddress ? [newAddress] : [],
-          type: contact.type,
-          companyId: contact.companyId,
-          source: ContactSource.PHONE_CALL,
-          reassignPhones: true,
-        },
-        { onSuccess: (c) => changeClient.mutate(c.id) },
-      );
-      return;
-    }
-
     const body = buildContactBody(
       contact,
       clientDraft,
       decision.address === "save" ? newAddress : undefined,
+      { includeName: decision.applyToClient },
     );
     if (body) updateContact.mutate({ id: contact.id, body });
   };
@@ -349,7 +365,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
   };
 
   return (
-    <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 lg:grid-cols-2">
+    <>
+    <div className="flex-1 overflow-y-auto p-6">
+    <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
         title="Client"
@@ -368,32 +386,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         ) : (
           <Skeleton className="h-24 w-full" />
         )}
-      </Section>
-
-      {/* Schedule + Team */}
-      <Section title="Schedule">
-        <ScheduleField
-          date={dealDraft.scheduledDate || undefined}
-          slot={dealDraft.scheduledTimeSlot || undefined}
-          disabled={!canEdit}
-          onDate={(d) => setDeal({ scheduledDate: d ?? "" })}
-          onSlot={(s) => setDeal({ scheduledTimeSlot: s })}
-        />
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <Label>Team</Label>
-            {canEdit ? (
-              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setAssigning(true)}>
-                <UserCog className="size-3.5" /> Assign
-              </Button>
-            ) : null}
-          </div>
-          <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
-        </div>
-      </Section>
-
-      {/* Service location */}
-      <Section title="Service location">
+        {/* Address lives in the Client card, as on the Workiz form. */}
         <DealAddressEditor
           value={dealDraft.address}
           onChange={(a) => setDeal({ address: a })}
@@ -406,6 +399,26 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         </Field>
       </Section>
 
+      {/* Schedule */}
+      <Section title="Schedule">
+        <ScheduledBlock
+          date={dealDraft.scheduledDate || ""}
+          endDate={dealDraft.scheduledEndDate || ""}
+          slot={dealDraft.scheduledTimeSlot || ""}
+          allDay={dealDraft.allDay}
+          tz={jobTz}
+          areaName={jobArea?.name}
+          onChange={(s) =>
+            setDeal({
+              scheduledDate: s.date,
+              scheduledEndDate: s.endDate,
+              scheduledTimeSlot: s.slot,
+              allDay: s.allDay,
+            })
+          }
+        />
+      </Section>
+
       {/* Job */}
       <Section title="Job">
         <Field label="Job type">
@@ -414,6 +427,13 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         <div className="grid grid-cols-2 gap-3">
           <Field label="Source">
             <JobSourceSelect value={dealDraft.sourceId} onChange={(val) => setDeal({ sourceId: val })} disabled={!canEdit} />
+          </Field>
+          <Field label="External company">
+            <ExternalCompanySelect
+              value={dealDraft.externalCompanyId}
+              onChange={(val) => setDeal({ externalCompanyId: val ?? "" })}
+              disabled={!canEdit}
+            />
           </Field>
           <Field label="Priority">
             <Select value={dealDraft.priority} onValueChange={(val) => setDeal({ priority: val as DealPriority })} disabled={!canEdit}>
@@ -425,16 +445,20 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="PO number">
-            <Input className="h-9" value={dealDraft.poNumber} disabled={!canEdit} placeholder="C-PO / VPO"
-              onChange={(e) => setDeal({ poNumber: e.target.value })} />
-          </Field>
-          <Field label="Work order link">
-            <Input className="h-9" value={dealDraft.workOrderId} disabled={!canEdit} placeholder="https://…"
-              onChange={(e) => setDeal({ workOrderId: e.target.value })} />
-          </Field>
-        </div>
+      </Section>
+
+      {/* Team — inline assign (Workiz-style): pick techs who can do the job. */}
+      <Section title="Team">
+        {canEdit ? (
+          <TechSuggestions
+            jobTypeId={dealDraft.jobTypeId}
+            address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
+            selected={deal.assignedTechIds}
+            onChange={(ids) => assignTechs.mutate(ids)}
+          />
+        ) : (
+          <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
+        )}
       </Section>
 
       {/* Custom fields — user-defined answers, held in the same draft and saved
@@ -463,39 +487,33 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         />
       </div>
 
-      {/* The one Save for the whole page */}
-      {canEdit || canEditClient ? (
-        <div className="flex justify-end gap-2 lg:col-span-2">
-          <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
-            {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
-          </Button>
-        </div>
-      ) : null}
+      </div>
 
       {confirm}
 
       {contact && clientDraft && asking ? (
-        <ClientSaveDialog
+        <ChangeClientDialog
           open
-          original={contact}
-          edits={{
-            firstName: clientDraft.firstName,
-            lastName: clientDraft.lastName,
-            phone: clientDraft.phones[0] ?? "",
-          }}
-          clientChanged={clientChanged}
+          nameChanged={nameChanged}
           newAddress={newAddress}
           pending={pending}
           onCancel={() => setAsking(false)}
           onConfirm={commit}
         />
       ) : null}
+      </div>
 
-      {assigning ? (
-        <AssignTechDialog dealId={deal.id} assignedTechIds={deal.assignedTechIds} open={assigning} onOpenChange={setAssigning} />
+      {/* One Save for the whole page — a real footer outside the scroll region,
+          so it's always pinned to the bottom; the fields scroll under it. */}
+      {canEdit || canEditClient ? (
+        <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
+          <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
+          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
+          </Button>
+        </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -555,7 +573,7 @@ function ClientEditor({
             className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2"
           >
             <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-              <span className="truncate">{formatPhone(p)}</span>
+              <span className="truncate">{formatPhoneWithExtension(p, extensionOf(contact, p))}</span>
               {i === 0 ? <PrimaryBadge /> : null}
             </span>
             <CallClientButton to={p} partyId={contact.id} dealId={dealId} contactId={contact.id} phoneIndex={i} variant="prominent" />
@@ -587,31 +605,69 @@ function ClientEditor({
       </div>
       <Field label="Phones">
         <div className="space-y-2">
-          {draft.phones.map((p, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <PhoneInput
-                className="flex-1"
-                value={p}
-                onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
-              />
-              {i === 0 ? <PrimaryBadge /> : null}
-              {/* Dials what's on file, not the half-typed draft. */}
-              {contact.phones.includes(p) ? (
-                <CallClientButton
-                  to={p}
-                  partyId={contact.id}
-                  dealId={dealId}
-                  contactId={contact.id}
-                  // `i` indexes the DRAFT, which may hold unsaved rows; the
-                  // server resolves against what is on file.
-                  phoneIndex={contact.phones.indexOf(p)}
+          {draft.phones.map((p, i) => {
+            // The number the job was created with is permanently bound to it:
+            // it can't be edited or removed here, only new ones added.
+            const locked = i === 0 && contact.phones.length > 0;
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <PhoneInput
+                  className="flex-1"
+                  value={p}
+                  onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
+                  lockCountry
+                  disabled={locked}
                 />
-              ) : null}
-              {draft.phones.length > 1 ? (
-                <Button variant="ghost" size="icon" className="size-9 flex-none" onClick={() => set({ phones: draft.phones.filter((_, j) => j !== i) })} aria-label="Remove phone"><X className="size-4" /></Button>
-              ) : null}
-            </div>
-          ))}
+                {/* What to press once this line answers — editable even on the
+                    locked original number, since only the number itself is
+                    bound to the job. */}
+                <Input
+                  className="h-9 w-[4.5rem] flex-none px-2 text-center text-sm"
+                  placeholder="Ext."
+                  aria-label={`Extension for phone ${i + 1}`}
+                  inputMode="tel"
+                  maxLength={MAX_EXTENSION_LENGTH}
+                  value={draft.phoneExts[i] ?? ""}
+                  onChange={(e) =>
+                    set({
+                      phoneExts: draft.phones.map((_, j) =>
+                        j === i ? normalizeExtension(e.target.value) : draft.phoneExts[j] ?? "",
+                      ),
+                    })
+                  }
+                />
+                {i === 0 ? <PrimaryBadge /> : null}
+                {/* Dials what's on file, not the half-typed draft. */}
+                {contact.phones.includes(p) ? (
+                  <CallClientButton
+                    to={p}
+                    partyId={contact.id}
+                    dealId={dealId}
+                    contactId={contact.id}
+                    // `i` indexes the DRAFT, which may hold unsaved rows; the
+                    // server resolves against what is on file.
+                    phoneIndex={contact.phones.indexOf(p)}
+                  />
+                ) : null}
+                {!locked && draft.phones.length > 1 ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 flex-none"
+                    onClick={() =>
+                      set({
+                        phones: draft.phones.filter((_, j) => j !== i),
+                        phoneExts: draft.phoneExts.filter((_, j) => j !== i),
+                      })
+                    }
+                    aria-label="Remove phone"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+            );
+          })}
           {contact.phonesMasked ? (
             <MaskedClientPhones
               phoneCount={contact.phoneCount ?? 0}
@@ -620,9 +676,9 @@ function ClientEditor({
               className="space-y-1"
             />
           ) : null}
-          <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""] })}>＋ Add phone</button>
+          <button type="button" className="text-xs font-medium text-brand" onClick={() => set({ phones: [...draft.phones, ""], phoneExts: [...draft.phoneExts, ""] })}>＋ Add phone</button>
         </div>
-        <p className="text-xs text-muted-foreground">The first phone is the client&apos;s primary number.</p>
+        <p className="text-xs text-muted-foreground">The first number is the one the job was created with — it stays with the job.</p>
       </Field>
       <Field label="Email"><Input className="h-9" value={draft.email} placeholder="name@example.com" onChange={(e) => set({ email: e.target.value })} /></Field>
       {/* Needed just as much by somebody who CAN edit the client: the card is
@@ -642,7 +698,7 @@ function PrimaryBadge() {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5">
       <Label>{label}</Label>
       {children}
     </div>

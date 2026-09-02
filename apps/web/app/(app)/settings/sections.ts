@@ -5,6 +5,7 @@ import {
   SlidersHorizontal,
   Wrench,
   Megaphone,
+  Building2,
   Tags,
   ListChecks,
   ListPlus,
@@ -50,6 +51,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Where your jobs come from. Jobs pick one when created.",
     icon: Megaphone,
     resource: "job_sources",
+  },
+  {
+    label: "External Companies",
+    href: "/settings/external-companies",
+    description: "Partners that send you work. Jobs can record which one referred them.",
+    icon: Building2,
+    resource: "external_companies",
   },
   {
     label: "Job Tags",

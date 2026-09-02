@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray, IsBoolean,
+  IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsObject,
   ArrayMinSize, ArrayMaxSize, MinLength, IsEmail, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -34,6 +34,17 @@ export class CreateContactDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(10)
   phones!: string[];
+
+  @ApiPropertyOptional({
+    example: { '+14045551234': '102' },
+    description:
+      'What to press once the call is answered, keyed by the number it ' +
+      'belongs to. Keys are re-normalized server-side and entries for ' +
+      'numbers not on the record are dropped.',
+  })
+  @IsOptional()
+  @IsObject()
+  phoneExtensions?: Record<string, string>;
 
   @ApiPropertyOptional({ example: ['john@example.com'] })
   @IsOptional()

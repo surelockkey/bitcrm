@@ -13,7 +13,12 @@ import type {
   Deal,
   DealProduct,
 } from "@bitcrm/types";
-import { addressInList } from "@/features/clients/lib";
+import {
+  addressInList,
+  contactName,
+  extensionRows,
+  extensionsFromRows,
+} from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { UpdateDealValues } from "./schemas";
 
@@ -166,7 +171,7 @@ export function jobHourKey(d: Deal, basis: JobDateBasis): string {
 
 /* ------------------------------------------------------------------- sort */
 
-export type JobSortKey = "day" | "hour";
+export type JobSortKey = "day" | "hour" | "schedule";
 
 export interface JobSort {
   key: JobSortKey;
@@ -174,18 +179,24 @@ export interface JobSort {
 }
 
 /**
- * Order jobs by day or by time of day, over the schedule (default) or the
- * created timestamp. Hour sorting compares only the time — 08:00 sorts before
- * 14:00 across different dates (a dispatcher's morning-first view). Jobs
- * missing the key always sink to the bottom, in either direction.
+ * Order jobs by day, by time of day, or by the full schedule (day + slot
+ * start — the board's default "soonest upcoming first" order), over the
+ * schedule (default) or the created timestamp. Hour sorting compares only the
+ * time — 08:00 sorts before 14:00 across different dates (a dispatcher's
+ * morning-first view). Jobs missing the key always sink to the bottom, in
+ * either direction.
  */
 export function sortJobs(
   deals: Deal[],
   sort: JobSort,
   field: JobDateBasis = "scheduledDate",
 ): Deal[] {
-  const key = (d: Deal): string =>
-    sort.key === "day" ? jobDayKey(d, field) : jobHourKey(d, field);
+  const key = (d: Deal): string => {
+    if (sort.key === "day") return jobDayKey(d, field);
+    if (sort.key === "hour") return jobHourKey(d, field);
+    const day = jobDayKey(d, field);
+    return day ? `${day} ${jobHourKey(d, field)}` : "";
+  };
   const mult = sort.dir === "asc" ? 1 : -1;
   return [...deals].sort((a, b) => {
     const ka = key(a);
@@ -213,12 +224,46 @@ export function formatSchedule(date?: string, slot?: string): string {
  * a tone the table uses to colour it: past → `overdue`, today → `soon`, else `ok`.
  * Returns null for undated deals.
  */
+export interface ScheduleMarker {
+  label: string;
+  tone: "overdue" | "soon" | "ok";
+}
+
+/**
+ * How far a job's schedule is from now. A passed slot reads by the minute and
+ * hour, Workiz-style ("3 hours ago"), until a full day has gone by; without a
+ * slot the arithmetic stays whole-day. Future days keep the calm day labels.
+ * Returns null for undated deals.
+ */
 export function scheduleRelative(
   date: string | undefined,
-  todayIso: string,
-): { label: string; tone: "overdue" | "soon" | "ok" } | null {
+  slot: string | undefined,
+  now: Date = new Date(),
+): ScheduleMarker | null {
   if (!date) return null;
   const day = 86_400_000;
+
+  const start = slot?.split("-")[0]?.trim();
+  const hasTime = !!start && /^\d{2}:\d{2}$/.test(start);
+  const at = new Date(`${date}T${hasTime ? start : "00:00"}:00`);
+  if (Number.isNaN(at.getTime())) return null;
+
+  // Time-of-day precision only makes sense once a slot has actually passed.
+  if (hasTime && at.getTime() <= now.getTime()) {
+    const ms = now.getTime() - at.getTime();
+    if (ms < day) {
+      const hours = Math.floor(ms / 3_600_000);
+      if (hours < 1) {
+        const minutes = Math.max(1, Math.floor(ms / 60_000));
+        return { label: `${minutes} minute${minutes === 1 ? "" : "s"} ago`, tone: "overdue" };
+      }
+      return { label: `${hours} hour${hours === 1 ? "" : "s"} ago`, tone: "overdue" };
+    }
+    const days = Math.floor(ms / day);
+    return { label: `${days} day${days === 1 ? "" : "s"} ago`, tone: "overdue" };
+  }
+
+  const todayIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const diff = Math.round(
     (new Date(`${date}T00:00:00`).getTime() - new Date(`${todayIso}T00:00:00`).getTime()) / day,
   );
@@ -227,6 +272,23 @@ export function scheduleRelative(
   if (diff === 0) return { label: "Today", tone: "soon" };
   if (diff === 1) return { label: "Tomorrow", tone: "ok" };
   return { label: `in ${diff} days`, tone: "ok" };
+}
+
+/** Statuses whose schedule is settled — a passed slot is expected, not late. */
+const CLOSED_STATUSES: readonly JobSuperStatus[] = [
+  JobSuperStatus.DONE,
+  JobSuperStatus.DONE_PENDING_APPROVAL,
+  JobSuperStatus.CANCELED,
+];
+
+/**
+ * The relative marker a job's row shows under its schedule. Closed jobs stay
+ * quiet: a done or canceled job whose slot has passed is history, not overdue
+ * — only actionable jobs get the red "N hours ago".
+ */
+export function scheduleMarker(d: Deal, now: Date = new Date()): ScheduleMarker | null {
+  if (CLOSED_STATUSES.includes(d.superStatus)) return null;
+  return scheduleRelative(d.scheduledDate, d.scheduledTimeSlot, now);
 }
 
 export type DatePreset = "all" | "today" | "week";
@@ -268,11 +330,14 @@ export interface DealDraft {
   serviceArea: string;
   jobTypeId: string;
   sourceId: string;
+  externalCompanyId: string;
   priority: DealPriority;
   poNumber: string;
   workOrderId: string;
   scheduledDate: string;
+  scheduledEndDate: string;
   scheduledTimeSlot: string;
+  allDay: boolean;
   notes: string;
   internalNotes: string;
   /** User-defined field answers, keyed by CustomFieldDefinition id. */
@@ -284,6 +349,8 @@ export interface ClientDraft {
   firstName: string;
   lastName: string;
   phones: string[];
+  /** What to press once each line answers — one row per `phones` entry. */
+  phoneExts: string[];
   email: string;
 }
 
@@ -301,24 +368,44 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
     serviceArea: d.serviceArea ?? "",
     jobTypeId: d.jobTypeId,
     sourceId: d.sourceId ?? "",
+    externalCompanyId: d.externalCompanyId ?? "",
     priority: d.priority,
     poNumber: d.poNumber ?? "",
     workOrderId: d.workOrderId ?? "",
     scheduledDate: d.scheduledDate ?? "",
+    scheduledEndDate: d.scheduledEndDate ?? "",
     scheduledTimeSlot: d.scheduledTimeSlot ?? "",
+    allDay: Boolean(d.allDay),
     notes: d.notes ?? "",
     internalNotes: d.internalNotes ?? "",
     customFields: { ...(d.customFields ?? {}) },
   };
 }
 
-export function clientDraftFromContact(c: Contact): ClientDraft {
+export function clientDraftFromContact(
+  c: Contact,
+  nameOverride?: { firstName: string; lastName: string },
+): ClientDraft {
+  const phones = c.phones.length ? [...c.phones] : [""];
   return {
-    firstName: c.firstName,
-    lastName: c.lastName,
-    phones: c.phones.length ? [...c.phones] : [""],
+    firstName: nameOverride?.firstName ?? c.firstName,
+    lastName: nameOverride?.lastName ?? c.lastName,
+    phones,
+    phoneExts: extensionRows(phones, c.phoneExtensions),
     email: c.emails[0] ?? "",
   };
+}
+
+/**
+ * The client name a job displays: its own "Just here" override when one was
+ * saved, otherwise the contact's record name.
+ */
+export function dealClientName(deal: Deal, contact: Contact | undefined): string {
+  if (deal.clientName) {
+    const name = `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim();
+    if (name) return name;
+  }
+  return contact ? contactName(contact) : "—";
 }
 
 const sameAddress = (a: Address, b: Address): boolean =>
@@ -357,13 +444,22 @@ const sameCustomFields = (
 
 /** Optional string fields where an emptied draft value means "clear it". */
 const OPTIONAL_DEAL_FIELDS = [
-  "sourceId", "poNumber", "workOrderId", "scheduledDate", "scheduledTimeSlot",
+  "sourceId", "externalCompanyId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
 ] as const;
 
 /**
+ * Of those, the ones whose API DTO accepts an explicit `null` (which the
+ * repository turns into a DynamoDB REMOVE). The rest still patch to
+ * `undefined`, which JSON.stringify drops — a long-standing quirk that means
+ * they can be set but not cleared; widening it is a separate change.
+ */
+const NULLABLE_DEAL_FIELDS = new Set<string>(["externalCompanyId"]);
+
+/**
  * Diff a draft against the server deal → the PUT patch with only the changed
- * keys, or null when nothing changed. Emptied optional fields patch to
- * `undefined`; notes are trimmed, so whitespace-only edits aren't changes.
+ * keys, or null when nothing changed. Emptied optional fields patch to `null`
+ * where the DTO accepts it (see NULLABLE_DEAL_FIELDS) and `undefined`
+ * otherwise; notes are trimmed, so whitespace-only edits aren't changes.
  */
 export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues | null {
   const base = dealDraftFromDeal(deal);
@@ -374,8 +470,17 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   if (draft.serviceArea !== base.serviceArea) { patch.serviceArea = draft.serviceArea; dirty = true; }
   if (draft.jobTypeId !== base.jobTypeId) { patch.jobTypeId = draft.jobTypeId; dirty = true; }
   if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
+  if (draft.allDay !== base.allDay) { patch.allDay = draft.allDay; dirty = true; }
   for (const key of OPTIONAL_DEAL_FIELDS) {
-    if (draft[key] !== base[key]) { patch[key] = draft[key] || undefined; dirty = true; }
+    if (draft[key] === base[key]) continue;
+    // An emptied field must reach the API as an explicit null — `undefined` is
+    // dropped by JSON.stringify, so the PUT body would omit the key entirely
+    // and the stored value would survive. (Only wired for the fields whose DTO
+    // accepts null; the rest keep today's semantics.)
+    const cleared = NULLABLE_DEAL_FIELDS.has(key) ? null : undefined;
+    // The union widens per key; the assignment is sound for each of them.
+    (patch as Record<string, unknown>)[key] = draft[key] || cleared;
+    dirty = true;
   }
   for (const key of ["notes", "internalNotes"] as const) {
     const next = draft[key].trim();
@@ -396,27 +501,52 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
  * replaces, not merges), or null when clean. A `newAddress` not yet on the
  * client is appended for next time; duplicates (per `addressInList`) aren't.
  * Phones are trimmed with empties dropped; an emptied-out draft keeps the
- * contact's phones. Only the first email is editable — the rest are preserved.
+ * contact's phones — and, with them, their extensions. Only the first email is
+ * editable — the rest are preserved.
  */
+/** Key order isn't meaningful in the stored map, so compare it sorted. */
+function sameExtensions(
+  a: Record<string, string>,
+  b: Record<string, string> | undefined,
+): boolean {
+  const flat = (m: Record<string, string>) =>
+    Object.entries(m)
+      .sort(([x], [y]) => x.localeCompare(y))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("|");
+  return flat(a) === flat(b ?? {});
+}
+
 export function buildContactBody(
   c: Contact,
   draft: ClientDraft,
   newAddress?: Address,
+  opts: { includeName?: boolean } = {},
 ): UpdateContactValues | null {
-  const phones = draft.phones.map((p) => p.trim()).filter(Boolean);
+  // "Just here" renames stay on the job — the contact keeps its own name.
+  const includeName = opts.includeName ?? true;
+  const trimmed = draft.phones.map((p) => p.trim());
+  const phones = trimmed.filter(Boolean);
+  // Extensions are read off the untrimmed rows so each one stays beside the
+  // number it was typed against; an emptied-out draft keeps what's on file.
+  const phoneExtensions = phones.length
+    ? extensionsFromRows(trimmed, draft.phoneExts)
+    : { ...(c.phoneExtensions ?? {}) };
   const email = draft.email.trim();
   const appendAddress = !!newAddress && !addressInList(newAddress, c.addresses);
   const dirty =
-    draft.firstName !== c.firstName ||
-    draft.lastName !== c.lastName ||
+    (includeName &&
+      (draft.firstName !== c.firstName || draft.lastName !== c.lastName)) ||
     JSON.stringify(phones) !== JSON.stringify(c.phones) ||
+    !sameExtensions(phoneExtensions, c.phoneExtensions) ||
     email !== (c.emails[0] ?? "");
   if (!dirty && !appendAddress) return null;
 
   return {
-    firstName: draft.firstName.trim(),
-    lastName: draft.lastName.trim(),
+    firstName: includeName ? draft.firstName.trim() : c.firstName,
+    lastName: includeName ? draft.lastName.trim() : c.lastName,
     phones: phones.length ? phones : c.phones,
+    phoneExtensions,
     emails: email ? [email, ...c.emails.slice(1)] : c.emails.slice(1),
     addresses: appendAddress && newAddress ? [...c.addresses, newAddress] : c.addresses,
     companyId: c.companyId,
@@ -460,17 +590,39 @@ export interface DealFilter {
 const customFieldText = (v: CustomFieldValue): string =>
   Array.isArray(v) ? v.join(" ") : String(v);
 
+/** A query made only of digits and phone punctuation, with 4+ digits. */
+const PHONE_QUERY = /^[\d\s().+\-–—]+$/;
+
+/**
+ * True when the stored value's collapsed digits contain the query's collapsed
+ * digits — "(292) 839-8283" matches "8398283", "292 839 8283", "8283"… A
+ * query with a leading +1 also matches a number stored without it.
+ */
+function phoneDigitsMatch(stored: string, qDigits: string): boolean {
+  const digits = stored.replace(/\D/g, "");
+  if (digits.length < 4) return false;
+  if (digits.includes(qDigits)) return true;
+  return (
+    qDigits.length === 11 &&
+    qDigits.startsWith("1") &&
+    digits.includes(qDigits.slice(1))
+  );
+}
+
 /** Client-side filtering + search over loaded deals (the server barely filters). */
 export function filterDeals(
   deals: Deal[],
   filter: DealFilter,
-  contactNames: Map<string, string>,
+  contacts: Map<string, Contact>,
   customFieldDefs: CustomFieldDefinition[] = [],
 ): Deal[] {
   const q = (filter.search ?? "").trim().toLowerCase();
   // Job IDs are 6-char letter+digit codes (legacy ones pure digits); strip
   // everything else so "#K4T9ZW" and "k4t9zw" both match the stored code.
   const qAlnum = q.replace(/[^a-z0-9]/g, "");
+  // A phone-shaped query is also matched digit-to-digit, in any format.
+  const qDigits = PHONE_QUERY.test(q) ? q.replace(/\D/g, "") : "";
+  const qIsPhone = qDigits.length >= 4;
   // Only searchable definitions contribute their answers to free-text search.
   const searchableFieldIds = customFieldDefs.filter((f) => f.searchable).map((f) => f.id);
   return deals.filter((d) => {
@@ -497,16 +649,43 @@ export function filterDeals(
     if (filter.techId && !d.assignedTechIds.includes(filter.techId)) return false;
     if (filter.tagId && !d.tagIds.includes(filter.tagId)) return false;
     if (q) {
-      const name = (contactNames.get(d.contactId) ?? "").toLowerCase();
+      const contact = contacts.get(d.contactId);
+      // The job's own name override and the contact's record name both match.
+      const name = [
+        d.clientName ? `${d.clientName.firstName} ${d.clientName.lastName}` : "",
+        contact ? `${contact.firstName} ${contact.lastName}` : "",
+      ]
+        .join(" ")
+        .trim()
+        .toLowerCase();
       const num = String(d.dealNumber).toLowerCase();
       const matchesNum = qAlnum.length > 0 && num.includes(qAlnum);
       const matchesName = name.includes(q);
+      const matchesEmail = (contact?.emails ?? []).some((e) =>
+        e.toLowerCase().includes(q),
+      );
+      const matchesPhone =
+        qIsPhone &&
+        (contact?.phones ?? []).some((p) => phoneDigitsMatch(p, qDigits));
       const matchesArea = d.serviceArea.toLowerCase().includes(q);
       const matchesCustomField = searchableFieldIds.some((id) => {
         const v = d.customFields?.[id];
-        return v !== undefined && customFieldText(v).toLowerCase().includes(q);
+        if (v === undefined) return false;
+        const text = customFieldText(v);
+        return (
+          text.toLowerCase().includes(q) ||
+          (qIsPhone && phoneDigitsMatch(text, qDigits))
+        );
       });
-      if (!matchesNum && !matchesName && !matchesArea && !matchesCustomField) return false;
+      if (
+        !matchesNum &&
+        !matchesName &&
+        !matchesEmail &&
+        !matchesPhone &&
+        !matchesArea &&
+        !matchesCustomField
+      )
+        return false;
     }
     return true;
   });

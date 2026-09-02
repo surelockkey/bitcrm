@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Loader2, Search, Truck } from "lucide-react";
+import { ArrowUpRight, Loader2, Plus, Search, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -17,7 +17,8 @@ import { DataScope } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContainersList } from "../hooks";
 import { containerTitle } from "../lib";
-import { ContainerCard } from "./container-card";
+import { ContainersTable } from "./containers-table";
+import { ContainerCreateDialog } from "./container-create-dialog";
 import { MyContainerView } from "./my-container-view";
 
 export function ContainersPage() {
@@ -35,16 +36,23 @@ export function ContainersPage() {
 }
 
 function Fleet() {
+  const { can } = usePermissions();
   const query = useContainersList();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const containers = useMemo(
     () => query.data?.pages.flatMap((p) => p.data) ?? [],
     [query.data],
   );
   const departments = useMemo(
-    () => [...new Set(containers.map((c) => c.department).filter(Boolean))].sort(),
+    () =>
+      [
+        ...new Set(
+          containers.map((c) => c.department).filter((d): d is string => !!d),
+        ),
+      ].sort(),
     [containers],
   );
 
@@ -56,21 +64,6 @@ function Fleet() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Containers</h1>
-          <p className="text-sm text-muted-foreground">
-            Technician van inventory. Provisioned automatically when a tech is activated.
-          </p>
-        </div>
-        <Button asChild variant="outline" className="h-9 gap-1.5">
-          <Link href="/technicians">
-            Technicians
-            <ArrowUpRight className="size-3.5" />
-          </Link>
-        </Button>
-      </div>
-
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         <div className="relative w-full max-w-xs">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -99,13 +92,29 @@ function Fleet() {
         <span className="ml-auto text-sm text-muted-foreground">
           {visible.length} {visible.length === 1 ? "container" : "containers"}
         </span>
+        <Button asChild variant="outline" className="h-9 gap-1.5">
+          <Link href="/technicians">
+            Technicians
+            <ArrowUpRight className="size-3.5" />
+          </Link>
+        </Button>
+        {can("containers", "create") ? (
+          <Button
+            variant="brand"
+            className="h-9 gap-1.5 px-3.5"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="size-4" />
+            New container
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex-1 px-6 pb-6">
         {query.isLoading ? (
-          <div className="grid gap-3.5 sm:grid-cols-2">
+          <div className="space-y-2">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-32 w-full rounded-xl" />
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
             ))}
           </div>
         ) : visible.length === 0 ? (
@@ -124,11 +133,7 @@ function Fleet() {
           </div>
         ) : (
           <>
-            <div className="grid gap-3.5 sm:grid-cols-2">
-              {visible.map((c) => (
-                <ContainerCard key={c.id} container={c} />
-              ))}
-            </div>
+            <ContainersTable containers={visible} />
             {query.hasNextPage ? (
               <div className="mt-4 flex justify-center">
                 <Button
@@ -145,6 +150,8 @@ function Fleet() {
           </>
         )}
       </div>
+
+      <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

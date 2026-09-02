@@ -41,13 +41,13 @@ export function groupFields(
 
 /** Card order of the custom-field groups on the Workiz job forms. */
 export const WORKIZ_GROUP_ORDER = [
-  "Extra Info",
   "Other Contact",
   "Dispatchers",
   "Tech",
   "Platinum",
   "Company",
   "Need To Order",
+  "Extra Info",
 ];
 
 /**

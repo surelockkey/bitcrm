@@ -23,6 +23,7 @@ export const JOB_FIELDS = [
   { id: "scheduled", label: "Scheduled" },
   { id: "jobType", label: "Job type" },
   { id: "source", label: "Source" },
+  { id: "externalCompany", label: "External company" },
   { id: "poNumber", label: "PO number" },
   { id: "total", label: "Total" },
   { id: "paymentStatus", label: "Payment status" },

@@ -22,19 +22,16 @@ const techUser: JwtUser = {
   department: 'Atlanta',
 };
 
-const techUser2: JwtUser = {
-  id: 'tech-2',
-  cognitoSub: 'sub-tech-2',
-  email: 'tech2@test.com',
-  roleId: 'role-technician',
-  department: 'Atlanta',
-};
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 const BASE = '/api/inventory/containers';
-const INTERNAL_SECRET = 'test-secret';
+
+const createVan = (app: INestApplication, body: Record<string, unknown> = {}) =>
+  request(app.getHttpServer())
+    .post(BASE)
+    .set('x-test-user', createTestUserHeader(adminUser))
+    .send({ name: 'Van 1', description: 'North route', department: 'Atlanta', ...body });
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -54,54 +51,117 @@ describe('Containers E2E', () => {
     await cleanupData();
   });
 
+  // ---- CREATE ----
+
+  it('POST /containers - admin creates a container manually', async () => {
+    const res = await createVan(app).expect(201);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.name).toBe('Van 1');
+    expect(res.body.data.description).toBe('North route');
+    expect(res.body.data.technicianId).toBeUndefined();
+  });
+
+  it('POST /containers - name is required', async () => {
+    await request(app.getHttpServer())
+      .post(BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ description: 'no name' })
+      .expect(400);
+  });
+
+  it('POST /containers - technician cannot create (403)', async () => {
+    await request(app.getHttpServer())
+      .post(BASE)
+      .set('x-test-user', createTestUserHeader(techUser))
+      .send({ name: 'Van X' })
+      .expect(403);
+  });
+
+  // ---- UPDATE / ASSIGNMENT ----
+
+  it('PUT /containers/:id - edits name and description', async () => {
+    const created = await createVan(app).expect(201);
+
+    const res = await request(app.getHttpServer())
+      .put(`${BASE}/${created.body.data.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ name: 'Van 2', description: 'South route' })
+      .expect(200);
+
+    expect(res.body.data.name).toBe('Van 2');
+    expect(res.body.data.description).toBe('South route');
+  });
+
+  it('PUT /containers/:id - assigns and unassigns a technician', async () => {
+    const created = await createVan(app).expect(201);
+    const id = created.body.data.id;
+
+    const assigned = await request(app.getHttpServer())
+      .put(`${BASE}/${id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ technicianId: techUser.id, technicianName: 'Tech One' })
+      .expect(200);
+    expect(assigned.body.data.technicianId).toBe(techUser.id);
+
+    const unassigned = await request(app.getHttpServer())
+      .put(`${BASE}/${id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ technicianId: null })
+      .expect(200);
+    expect(unassigned.body.data.technicianId).toBeUndefined();
+    expect(unassigned.body.data.technicianName).toBeUndefined();
+  });
+
+  it('PUT /containers/:id - rejects assigning a technician who already has a container', async () => {
+    const first = await createVan(app, { name: 'Van A' }).expect(201);
+    const second = await createVan(app, { name: 'Van B' }).expect(201);
+
+    await request(app.getHttpServer())
+      .put(`${BASE}/${first.body.data.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ technicianId: techUser.id, technicianName: 'Tech One' })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .put(`${BASE}/${second.body.data.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ technicianId: techUser.id, technicianName: 'Tech One' })
+      .expect(400);
+  });
+
   // ---- GET MY CONTAINER ----
 
-  it('GET /containers/my - technician gets their container (lazy created)', async () => {
+  it('GET /containers/my - technician sees their assigned container', async () => {
+    const created = await createVan(app).expect(201);
+
+    await request(app.getHttpServer())
+      .put(`${BASE}/${created.body.data.id}`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ technicianId: techUser.id, technicianName: 'Tech One' })
+      .expect(200);
+
     const res = await request(app.getHttpServer())
       .get(`${BASE}/my`)
       .set('x-test-user', createTestUserHeader(techUser))
       .expect(200);
 
-    expect(res.body.success).toBe(true);
-    expect(res.body.data).toBeDefined();
+    expect(res.body.data.id).toBe(created.body.data.id);
     expect(res.body.data.technicianId).toBe(techUser.id);
-    expect(res.body.data.department).toBe(techUser.department);
   });
 
-  it('GET /containers/my - calling twice returns same container', async () => {
-    const res1 = await request(app.getHttpServer())
-      .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(techUser))
-      .expect(200);
-
-    const res2 = await request(app.getHttpServer())
-      .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(techUser))
-      .expect(200);
-
-    expect(res1.body.data.id).toBe(res2.body.data.id);
-  });
-
-  it('GET /containers/my - admin gets 404 (not a technician)', async () => {
+  it('GET /containers/my - 404 when nothing is assigned (no lazy creation)', async () => {
     await request(app.getHttpServer())
       .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(adminUser))
+      .set('x-test-user', createTestUserHeader(techUser))
       .expect(404);
   });
 
   // ---- LIST ----
 
   it('GET /containers - admin lists all containers', async () => {
-    // Create containers for two technicians via the /my endpoint
-    await request(app.getHttpServer())
-      .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(techUser))
-      .expect(200);
-
-    await request(app.getHttpServer())
-      .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(techUser2))
-      .expect(200);
+    await createVan(app, { name: 'Van A' }).expect(201);
+    await createVan(app, { name: 'Van B' }).expect(201);
 
     const res = await request(app.getHttpServer())
       .get(BASE)
@@ -116,20 +176,15 @@ describe('Containers E2E', () => {
   // ---- GET BY ID ----
 
   it('GET /containers/:id - gets by ID', async () => {
-    const myRes = await request(app.getHttpServer())
-      .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(techUser))
-      .expect(200);
-
-    const containerId = myRes.body.data.id;
+    const created = await createVan(app).expect(201);
 
     const res = await request(app.getHttpServer())
-      .get(`${BASE}/${containerId}`)
+      .get(`${BASE}/${created.body.data.id}`)
       .set('x-test-user', createTestUserHeader(adminUser))
       .expect(200);
 
     expect(res.body.success).toBe(true);
-    expect(res.body.data.id).toBe(containerId);
+    expect(res.body.data.id).toBe(created.body.data.id);
   });
 
   it('GET /containers/:id - nonexistent returns 404', async () => {
@@ -142,70 +197,14 @@ describe('Containers E2E', () => {
   // ---- GET STOCK ----
 
   it('GET /containers/:id/stock - gets stock levels', async () => {
-    const myRes = await request(app.getHttpServer())
-      .get(`${BASE}/my`)
-      .set('x-test-user', createTestUserHeader(techUser))
-      .expect(200);
-
-    const containerId = myRes.body.data.id;
+    const created = await createVan(app).expect(201);
 
     const res = await request(app.getHttpServer())
-      .get(`${BASE}/${containerId}/stock`)
+      .get(`${BASE}/${created.body.data.id}/stock`)
       .set('x-test-user', createTestUserHeader(adminUser))
       .expect(200);
 
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
-  });
-
-  // ---- INTERNAL ENSURE ----
-
-  it('POST /containers/internal/ensure - creates container with internal secret header', async () => {
-    const res = await request(app.getHttpServer())
-      .post(`${BASE}/internal/ensure`)
-      .set('x-internal-secret', INTERNAL_SECRET)
-      .send({
-        technicianId: 'new-tech-42',
-        technicianName: 'New Technician',
-        department: 'Miami',
-      })
-      .expect(201);
-
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.technicianId).toBe('new-tech-42');
-    expect(res.body.data.department).toBe('Miami');
-  });
-
-  it('POST /containers/internal/ensure - rejected without secret (403)', async () => {
-    await request(app.getHttpServer())
-      .post(`${BASE}/internal/ensure`)
-      .send({
-        technicianId: 'new-tech-99',
-        technicianName: 'Hacker',
-        department: 'Evil',
-      })
-      .expect(403);
-  });
-
-  it('POST /containers/internal/ensure - idempotent (returns existing)', async () => {
-    const payload = {
-      technicianId: 'idempotent-tech',
-      technicianName: 'Idemp Tech',
-      department: 'Test',
-    };
-
-    const res1 = await request(app.getHttpServer())
-      .post(`${BASE}/internal/ensure`)
-      .set('x-internal-secret', INTERNAL_SECRET)
-      .send(payload)
-      .expect(201);
-
-    const res2 = await request(app.getHttpServer())
-      .post(`${BASE}/internal/ensure`)
-      .set('x-internal-secret', INTERNAL_SECRET)
-      .send(payload)
-      .expect(201);
-
-    expect(res1.body.data.id).toBe(res2.body.data.id);
   });
 });

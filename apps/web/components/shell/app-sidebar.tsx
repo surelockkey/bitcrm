@@ -25,6 +25,8 @@ import {
   type NavItem,
 } from "@/lib/nav/nav-config";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { Plus } from "lucide-react";
+import { Button } from "../ui/button";
 
 function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -55,9 +57,12 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
+        {/* Constant padding keeps the icon's x-position identical in both
+            sidebar states, so nothing jumps while the width animates; the
+            wordmark clips (overflow-hidden) and fades instead of popping. */}
         <Link
           href="/"
-          className="flex items-center gap-2 px-1 py-1.5"
+          className="flex items-center gap-2 overflow-hidden px-0.5 py-1.5"
           aria-label="BitCRM home"
         >
           <Image
@@ -67,10 +72,24 @@ export function AppSidebar() {
             height={28}
             className="size-7 shrink-0"
           />
-          <span className="text-base font-bold tracking-tight group-data-[collapsible=icon]:hidden">
+          <span className="whitespace-nowrap text-base font-bold tracking-tight transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
             BitCRM
           </span>
         </Link>
+        {can("deals", "create") ? (
+          <Button
+            asChild
+            variant="brand"
+            className="h-9 w-30 justify-start gap-1.5 overflow-hidden px-2 transition-[width,height] duration-200 ease-linear group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
+          >
+            <Link href="/deals/new">
+              <Plus className="size-4 shrink-0" />
+              <span className="whitespace-nowrap transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
+                New Job
+              </span>
+            </Link>
+          </Button>
+        ) : null}
       </SidebarHeader>
 
       <SidebarContent>
@@ -98,7 +117,11 @@ export function AppSidebar() {
                   <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
                   <SidebarMenu>
                     {items.map((item) => (
-                      <NavLink key={item.href} item={item} pathname={pathname} />
+                      <NavLink
+                        key={item.href}
+                        item={item}
+                        pathname={pathname}
+                      />
                     ))}
                   </SidebarMenu>
                 </SidebarGroup>

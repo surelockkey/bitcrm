@@ -21,6 +21,7 @@ import {
   isPriceInBand,
   filterDeals,
   datePresetRange,
+  scheduleMarker,
   scheduleRelative,
   JOB_TABS,
   jobTabLabel,
@@ -33,6 +34,7 @@ import {
   sortJobs,
   jobDayKey,
   jobHourKey,
+  dealClientName,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -143,22 +145,66 @@ describe("price band (±15%)", () => {
 });
 
 describe("filterDeals", () => {
-  const names = new Map<string, string>([["c1", "Jane Smith"], ["c2", "Marcus Reyes"]]);
+  const contacts = new Map<string, Contact>([
+    ["c1", contact({ id: "c1", firstName: "Jane", lastName: "Smith", phones: ["(292) 839-8283"], emails: ["jane@example.com"] })],
+    ["c2", contact({ id: "c2", firstName: "Marcus", lastName: "Reyes", phones: ["404-555-0177"], emails: [] })],
+  ]);
   const list = [
     deal({ id: "a", dealNumber: "1042", contactId: "c1", superStatus: JobSuperStatus.SUBMITTED, priority: DealPriority.URGENT, jobTypeId: "jt-lockout" }),
     deal({ id: "b", dealNumber: "1040", contactId: "c2", superStatus: JobSuperStatus.IN_PROGRESS, jobTypeId: "jt-rekey", assignedTechIds: ["t9"] }),
   ];
   it("returns all with no filters", () => {
-    expect(filterDeals(list, {}, names)).toHaveLength(2);
+    expect(filterDeals(list, {}, contacts)).toHaveLength(2);
   });
   it("filters by super-status and priority", () => {
-    expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
-    expect(filterDeals(list, { priority: DealPriority.URGENT }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, contacts).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { priority: DealPriority.URGENT }, contacts).map((d) => d.id)).toEqual(["a"]);
   });
   it("searches by deal number and client name", () => {
-    expect(filterDeals(list, { search: "1040" }, names).map((d) => d.id)).toEqual(["b"]);
-    expect(filterDeals(list, { search: "jane" }, names).map((d) => d.id)).toEqual(["a"]);
-    expect(filterDeals(list, { search: "#1042" }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { search: "1040" }, contacts).map((d) => d.id)).toEqual(["b"]);
+    expect(filterDeals(list, { search: "jane" }, contacts).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { search: "#1042" }, contacts).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("finds the job by its client's phone in every format users type", () => {
+    for (const q of [
+      "2928398283", // collapsed
+      "(292) 839-8283", // as stored
+      "292 839 8283", // different separators
+      "+1 292 839 8283", // country code the contact was stored without
+      "839-8283", // formatted tail
+      "8398283", // collapsed tail
+      "398283", // middle fragment
+      "8283", // last four
+    ]) {
+      expect(filterDeals(list, { search: q }, contacts).map((d) => d.id), q).toEqual(["a"]);
+    }
+  });
+
+  it("does not phone-match digits that are not in any phone", () => {
+    expect(filterDeals(list, { search: "9999" }, contacts)).toHaveLength(0);
+  });
+
+  it("finds the job by its client's email", () => {
+    expect(filterDeals(list, { search: "jane@example" }, contacts).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("finds the job by its per-job client-name override as well as the contact name", () => {
+    const rows = [
+      deal({ id: "o", contactId: "c1", clientName: { firstName: "Janet", lastName: "Poole" } }),
+    ];
+    expect(filterDeals(rows, { search: "poole" }, contacts).map((d) => d.id)).toEqual(["o"]);
+    // The underlying contact's name still matches too.
+    expect(filterDeals(rows, { search: "jane smith" }, contacts).map((d) => d.id)).toEqual(["o"]);
+  });
+
+  it("matches a phone fragment inside a searchable custom-field value", () => {
+    const defs = [cfDef({ id: "cf-alt", searchable: true })];
+    const rows = [
+      deal({ id: "p", contactId: "c2", customFields: { "cf-alt": "(555) 010-2233" } }),
+    ];
+    expect(filterDeals(rows, { search: "0102233" }, contacts, defs).map((d) => d.id)).toEqual(["p"]);
+    expect(filterDeals(rows, { search: "555 010 2233" }, contacts, defs).map((d) => d.id)).toEqual(["p"]);
   });
 
   it("searches by random job id code, case-insensitively and with # prefix", () => {
@@ -166,9 +212,9 @@ describe("filterDeals", () => {
       deal({ id: "x", dealNumber: "K4T9ZW", contactId: "c1" }),
       deal({ id: "y", dealNumber: "X7B2QP", contactId: "c2" }),
     ];
-    expect(filterDeals(codes, { search: "k4t9" }, names).map((d) => d.id)).toEqual(["x"]);
-    expect(filterDeals(codes, { search: "#X7B2QP" }, names).map((d) => d.id)).toEqual(["y"]);
-    expect(filterDeals(codes, { search: "x7b2qp" }, names).map((d) => d.id)).toEqual(["y"]);
+    expect(filterDeals(codes, { search: "k4t9" }, contacts).map((d) => d.id)).toEqual(["x"]);
+    expect(filterDeals(codes, { search: "#X7B2QP" }, contacts).map((d) => d.id)).toEqual(["y"]);
+    expect(filterDeals(codes, { search: "x7b2qp" }, contacts).map((d) => d.id)).toEqual(["y"]);
   });
 
   it("matches the string form of a searchable custom-field value", () => {
@@ -178,14 +224,14 @@ describe("filterDeals", () => {
       deal({ id: "h", contactId: "c2" }),
     ];
     expect(
-      filterDeals(withCf, { search: "4471" }, names, defs).map((d) => d.id),
+      filterDeals(withCf, { search: "4471" }, contacts, defs).map((d) => d.id),
     ).toEqual(["g"]);
     // Array (multi_select) values match on any member.
     const multi = [
       deal({ id: "m", contactId: "c1", customFields: { "cf-gate": ["North Gate", "Loading Dock"] } }),
     ];
     expect(
-      filterDeals(multi, { search: "loading" }, names, [cfDef({ id: "cf-gate", type: "multi_select", searchable: true })]).map((d) => d.id),
+      filterDeals(multi, { search: "loading" }, contacts, [cfDef({ id: "cf-gate", type: "multi_select", searchable: true })]).map((d) => d.id),
     ).toEqual(["m"]);
   });
 
@@ -194,7 +240,7 @@ describe("filterDeals", () => {
     const withCf = [
       deal({ id: "g", contactId: "c1", customFields: { "cf-gate": "Ring twice #4471" } }),
     ];
-    expect(filterDeals(withCf, { search: "4471" }, names, defs)).toHaveLength(0);
+    expect(filterDeals(withCf, { search: "4471" }, contacts, defs)).toHaveLength(0);
   });
 
   it("filters by service area (exact)", () => {
@@ -202,15 +248,15 @@ describe("filterDeals", () => {
       deal({ id: "atl", serviceArea: "Atlanta Metro" }),
       deal({ id: "nga", serviceArea: "North GA" }),
     ];
-    expect(filterDeals(areas, { serviceArea: "North GA" }, names).map((d) => d.id)).toEqual(["nga"]);
+    expect(filterDeals(areas, { serviceArea: "North GA" }, contacts).map((d) => d.id)).toEqual(["nga"]);
   });
 
   it("filters by status group", () => {
     // a = Submitted, b = In Progress
     expect(
-      filterDeals(list, { statusGroups: [JobSuperStatus.SUBMITTED] }, names).map((d) => d.id),
+      filterDeals(list, { statusGroups: [JobSuperStatus.SUBMITTED] }, contacts).map((d) => d.id),
     ).toEqual(["a"]);
-    expect(filterDeals(list, { statusGroups: [] }, names)).toHaveLength(2);
+    expect(filterDeals(list, { statusGroups: [] }, contacts)).toHaveLength(2);
   });
 
   it("datePresetRange maps presets to ranges", () => {
@@ -227,13 +273,13 @@ describe("filterDeals", () => {
       deal({ id: "none" }),
     ];
     expect(
-      filterDeals(dated, { dateFrom: "2026-07-14", dateTo: "2026-07-16" }, names).map((d) => d.id),
+      filterDeals(dated, { dateFrom: "2026-07-14", dateTo: "2026-07-16" }, contacts).map((d) => d.id),
     ).toEqual(["wed"]);
   });
 });
 
 describe("status tabs", () => {
-  const names = new Map<string, string>();
+  const contacts = new Map<string, Contact>();
   it("orders the 6 super-statuses then unscheduled, and labels them", () => {
     expect(JOB_TABS).toEqual([
       JobSuperStatus.SUBMITTED,
@@ -272,13 +318,66 @@ describe("status tabs", () => {
     expect(c.unscheduled).toBe(2);
   });
 
-  it("scheduleRelative labels dates relative to today", () => {
-    expect(scheduleRelative(undefined, "2026-07-16")).toBeNull();
-    expect(scheduleRelative("2026-07-16", "2026-07-16")).toEqual({ label: "Today", tone: "soon" });
-    expect(scheduleRelative("2026-07-17", "2026-07-16")).toEqual({ label: "Tomorrow", tone: "ok" });
-    expect(scheduleRelative("2026-07-19", "2026-07-16")).toEqual({ label: "in 3 days", tone: "ok" });
-    expect(scheduleRelative("2026-07-14", "2026-07-16")).toEqual({ label: "2 days ago", tone: "overdue" });
-    expect(scheduleRelative("2026-07-15", "2026-07-16")).toEqual({ label: "1 day ago", tone: "overdue" });
+  it("scheduleRelative labels future dates relative to today", () => {
+    const now = new Date("2026-07-16T12:00:00");
+    expect(scheduleRelative(undefined, undefined, now)).toBeNull();
+    expect(scheduleRelative("2026-07-16", "14:00-15:00", now)).toEqual({ label: "Today", tone: "soon" });
+    expect(scheduleRelative("2026-07-17", undefined, now)).toEqual({ label: "Tomorrow", tone: "ok" });
+    expect(scheduleRelative("2026-07-19", undefined, now)).toEqual({ label: "in 3 days", tone: "ok" });
+  });
+
+  it("scheduleRelative reports a passed slot by the hour, Workiz-style", () => {
+    const now = new Date("2026-07-16T12:00:00");
+    // 09:00 slot at noon → "3 hours ago"
+    expect(scheduleRelative("2026-07-16", "09:00-10:00", now)).toEqual({
+      label: "3 hours ago",
+      tone: "overdue",
+    });
+    expect(scheduleRelative("2026-07-16", "11:30-12:30", now)).toEqual({
+      label: "30 minutes ago",
+      tone: "overdue",
+    });
+    // Yesterday 13:00 → not a full day yet, still hours.
+    expect(scheduleRelative("2026-07-15", "13:00-14:00", now)).toEqual({
+      label: "23 hours ago",
+      tone: "overdue",
+    });
+    expect(scheduleRelative("2026-07-14", "09:00-10:00", now)).toEqual({
+      label: "2 days ago",
+      tone: "overdue",
+    });
+    // Undated slots fall back to whole-day arithmetic.
+    expect(scheduleRelative("2026-07-15", undefined, now)).toEqual({
+      label: "1 day ago",
+      tone: "overdue",
+    });
+    expect(scheduleRelative("2026-07-14", undefined, now)).toEqual({
+      label: "2 days ago",
+      tone: "overdue",
+    });
+  });
+
+  it("scheduleMarker stays quiet on closed jobs", () => {
+    const now = new Date("2026-07-16T12:00:00");
+    const overdue = { scheduledDate: "2026-07-14", scheduledTimeSlot: "09:00-10:00" };
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.SUBMITTED }), now),
+    ).toEqual({ label: "2 days ago", tone: "overdue" });
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.IN_PROGRESS }), now),
+    ).not.toBeNull();
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.DONE }), now),
+    ).toBeNull();
+    expect(
+      scheduleMarker(deal({ ...overdue, superStatus: JobSuperStatus.CANCELED }), now),
+    ).toBeNull();
+    expect(
+      scheduleMarker(
+        deal({ ...overdue, superStatus: JobSuperStatus.DONE_PENDING_APPROVAL }),
+        now,
+      ),
+    ).toBeNull();
   });
 
   it("filterDeals honors a single tab", () => {
@@ -286,8 +385,8 @@ describe("status tabs", () => {
       deal({ id: "a", superStatus: JobSuperStatus.SUBMITTED, scheduledDate: "2026-07-13" }),
       deal({ id: "b", superStatus: JobSuperStatus.IN_PROGRESS }),
     ];
-    expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, names).map((d) => d.id)).toEqual(["a"]);
-    expect(filterDeals(list, { tab: "unscheduled" }, names).map((d) => d.id)).toEqual(["b"]);
+    expect(filterDeals(list, { tab: JobSuperStatus.SUBMITTED }, contacts).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(list, { tab: "unscheduled" }, contacts).map((d) => d.id)).toEqual(["b"]);
   });
 });
 
@@ -326,12 +425,29 @@ describe("buildDealPatch", () => {
       poNumber: "PO-1",
       workOrderId: "wo-1",
       sourceId: "src-1",
+      externalCompanyId: "ec-1",
       scheduledDate: "2026-08-01",
       scheduledTimeSlot: "08:00-10:00",
       notes: "hello",
       internalNotes: "internal",
     });
     expect(buildDealPatch(full, dealDraftFromDeal(full))).toBeNull();
+  });
+
+  it("sends the external company as a changed key, and clears it when emptied", () => {
+    const d = deal();
+    const set = buildDealPatch(d, { ...dealDraftFromDeal(d), externalCompanyId: "ec-1" });
+    expect(Object.keys(set!)).toEqual(["externalCompanyId"]);
+    expect(set!.externalCompanyId).toBe("ec-1");
+
+    // Clearing must send an explicit null: `undefined` is dropped by
+    // JSON.stringify, so the PUT body would omit the key and the backend
+    // would leave the old company attached.
+    const had = deal({ externalCompanyId: "ec-1" });
+    const cleared = buildDealPatch(had, { ...dealDraftFromDeal(had), externalCompanyId: "" });
+    expect(Object.keys(cleared!)).toEqual(["externalCompanyId"]);
+    expect(cleared!.externalCompanyId).toBeNull();
+    expect(JSON.parse(JSON.stringify(cleared))).toEqual({ externalCompanyId: null });
   });
 
   it("returns only the changed key", () => {
@@ -434,6 +550,17 @@ describe("custom fields (single-save draft)", () => {
   });
 });
 
+describe("dealClientName", () => {
+  it("prefers the per-job override and falls back to the contact", () => {
+    const c = contact();
+    expect(dealClientName(deal(), c)).toBe("Jane Smith");
+    expect(
+      dealClientName(deal({ clientName: { firstName: "Janet", lastName: "Poole" } }), c),
+    ).toBe("Janet Poole");
+    expect(dealClientName(deal(), undefined)).toBe("—");
+  });
+});
+
 describe("buildContactBody", () => {
   it("returns null when nothing changed and there is no new address", () => {
     const c = contact();
@@ -453,6 +580,7 @@ describe("buildContactBody", () => {
       type: ContactType.COMPANY_REPRESENTATIVE,
       title: "Office manager",
       notes: "VIP",
+      phoneExtensions: {},
     });
   });
 
@@ -461,6 +589,35 @@ describe("buildContactBody", () => {
     const body = buildContactBody(c, { ...clientDraftFromContact(c), email: "new@example.com" });
     expect(body).not.toBeNull();
     expect(body!.emails).toEqual(["new@example.com", "billing@example.com"]);
+  });
+
+  it("with includeName: false a pure rename is clean and the contact keeps its name", () => {
+    const c = contact();
+    // Rename only → nothing to write on the contact ('Just here' path).
+    expect(
+      buildContactBody(c, { ...clientDraftFromContact(c), firstName: "Janet" }, undefined, {
+        includeName: false,
+      }),
+    ).toBeNull();
+    // Rename + new phone → the phone is written, the name is NOT.
+    const body = buildContactBody(
+      c,
+      { ...clientDraftFromContact(c), firstName: "Janet", phones: ["+14045551234", "+12928398283"] },
+      undefined,
+      { includeName: false },
+    );
+    expect(body).not.toBeNull();
+    expect(body!.firstName).toBe("Jane");
+    expect(body!.phones).toEqual(["+14045551234", "+12928398283"]);
+  });
+
+  it("clientDraftFromContact seeds names from the per-job override when given", () => {
+    const c = contact();
+    const draft = clientDraftFromContact(c, { firstName: "Janet", lastName: "Poole" });
+    expect(draft.firstName).toBe("Janet");
+    expect(draft.lastName).toBe("Poole");
+    // Phones/email still come from the contact record.
+    expect(draft.phones).toEqual(["+14045551234"]);
   });
 
   it("cleans phones (trim, drop empties) and treats a no-op cleanup as clean", () => {
@@ -535,6 +692,17 @@ describe("sortJobs", () => {
     sortJobs(rows, { key: "day", dir: "desc" });
     expect(rows.map((d) => d.id)).toEqual(before);
   });
+
+  it("schedule key orders soonest → latest by day then hour, unscheduled last", () => {
+    // b (18th 08:00) → c (19th, no slot) → a (20th 14:00) → d (unscheduled).
+    expect(sortJobs(rows, { key: "schedule", dir: "asc" }).map((d) => d.id)).toEqual(["b", "c", "a", "d"]);
+    // Same day, different slots: the earlier start goes first.
+    const sameDay = [
+      deal({ id: "late", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" }),
+      deal({ id: "early", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" }),
+    ];
+    expect(sortJobs(sameDay, { key: "schedule", dir: "asc" }).map((d) => d.id)).toEqual(["early", "late"]);
+  });
 });
 
 describe("filterDeals — hour range", () => {
@@ -544,22 +712,22 @@ describe("filterDeals — hour range", () => {
     deal({ id: "c", scheduledDate: "2026-08-21", scheduledTimeSlot: "15:00-16:00" }),
     deal({ id: "d", scheduledDate: "2026-08-21", scheduledTimeSlot: undefined }),
   ];
-  const names = new Map<string, string>();
+  const contacts = new Map<string, Contact>();
 
   it("keeps only jobs whose slot starts inside the inclusive hour window", () => {
-    expect(filterDeals(rows, { hourFrom: "08:00", hourTo: "11:30" }, names).map((d) => d.id)).toEqual(["a", "b"]);
-    expect(filterDeals(rows, { hourFrom: "12:00" }, names).map((d) => d.id)).toEqual(["c"]);
-    expect(filterDeals(rows, { hourTo: "09:00" }, names).map((d) => d.id)).toEqual(["a"]);
+    expect(filterDeals(rows, { hourFrom: "08:00", hourTo: "11:30" }, contacts).map((d) => d.id)).toEqual(["a", "b"]);
+    expect(filterDeals(rows, { hourFrom: "12:00" }, contacts).map((d) => d.id)).toEqual(["c"]);
+    expect(filterDeals(rows, { hourTo: "09:00" }, contacts).map((d) => d.id)).toEqual(["a"]);
   });
 
   it("drops slotless jobs when an hour window is set, keeps them otherwise", () => {
-    expect(filterDeals(rows, { hourFrom: "00:00", hourTo: "23:59" }, names).map((d) => d.id)).toEqual(["a", "b", "c"]);
-    expect(filterDeals(rows, {}, names)).toHaveLength(4);
+    expect(filterDeals(rows, { hourFrom: "00:00", hourTo: "23:59" }, contacts).map((d) => d.id)).toEqual(["a", "b", "c"]);
+    expect(filterDeals(rows, {}, contacts)).toHaveLength(4);
   });
 
   it("combines with the day range", () => {
     expect(
-      filterDeals(rows, { dateFrom: "2026-08-21", dateTo: "2026-08-21", hourFrom: "14:00" }, names).map((d) => d.id),
+      filterDeals(rows, { dateFrom: "2026-08-21", dateTo: "2026-08-21", hourFrom: "14:00" }, contacts).map((d) => d.id),
     ).toEqual(["c"]);
   });
 });
@@ -601,5 +769,69 @@ describe("jobDayKey / jobHourKey — one basis for both filters", () => {
     // A job that isn't closed has no closed day/hour.
     expect(jobDayKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
     expect(jobHourKey(deal({ closedAt: undefined }), "closedAt")).toBe("");
+  });
+});
+
+/**
+ * The job's client card edits extensions beside the phones, and the endpoint
+ * replaces rather than merges — so the body has to carry the whole map, and an
+ * extension must never survive the number it was attached to.
+ */
+describe("buildContactBody — phone extensions", () => {
+  it("seeds the draft with an extension row per phone", () => {
+    const c = contact({
+      phones: ["+14045551234", "+15558675309"],
+      phoneExtensions: { "+15558675309": "7" },
+    });
+    expect(clientDraftFromContact(c).phoneExts).toEqual(["", "7"]);
+  });
+
+  it("is dirty on an extension change alone", () => {
+    const c = contact();
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      phoneExts: ["102"],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phoneExtensions).toEqual({ "+14045551234": "102" });
+  });
+
+  it("clearing an extension is a change, not a no-op", () => {
+    const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+    const body = buildContactBody(c, { ...clientDraftFromContact(c), phoneExts: [""] });
+    expect(body).not.toBeNull();
+    expect(body!.phoneExtensions).toEqual({});
+  });
+
+  it("drops the extension of a phone the draft removed", () => {
+    const c = contact({
+      phones: ["+14045551234", "+15558675309"],
+      phoneExtensions: { "+14045551234": "102", "+15558675309": "7" },
+    });
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      phones: ["+14045551234"],
+      phoneExts: ["102"],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phoneExtensions).toEqual({ "+14045551234": "102" });
+  });
+
+  it("keeps the stored extensions when the draft would empty every phone", () => {
+    const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+    const body = buildContactBody(c, {
+      ...clientDraftFromContact(c),
+      firstName: "Janet",
+      phones: ["", "  "],
+      phoneExts: ["", ""],
+    });
+    expect(body).not.toBeNull();
+    expect(body!.phones).toEqual(["+14045551234"]);
+    expect(body!.phoneExtensions).toEqual({ "+14045551234": "102" });
+  });
+
+  it("an unchanged draft stays clean", () => {
+    const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+    expect(buildContactBody(c, clientDraftFromContact(c))).toBeNull();
   });
 });

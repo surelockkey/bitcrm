@@ -1,6 +1,7 @@
 "use client";
 
-import { Building2 } from "lucide-react";
+import { useState } from "react";
+import { Building2, Plus } from "lucide-react";
 import type { Company } from "@bitcrm/types";
 import {
   Command,
@@ -13,27 +14,35 @@ import {
 } from "@/components/ui/command";
 import { clientTypeLabel } from "../lib";
 
-/** Searchable modal to attach a contact to a company. */
+/** Searchable modal to attach a contact to a company, or create a new one. */
 export function CompanyPickerDialog({
   open,
   onOpenChange,
   companies,
   onSelect,
+  onCreate,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   companies: Company[];
   onSelect: (companyId: string) => void;
+  /** When given, offers to create a company from the typed name. */
+  onCreate?: (name: string) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const typed = query.trim();
+  const exists = companies.some((c) => c.title.toLowerCase() === typed.toLowerCase());
+  const canCreate = Boolean(onCreate) && typed.length > 0 && !exists;
+
   return (
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
       title="Attach to company"
-      description="Search your companies and pick one to attach."
+      description="Search your companies and pick one, or create a new one."
     >
-      <Command>
-        <CommandInput placeholder="Search companies…" />
+      <Command shouldFilter>
+        <CommandInput placeholder="Search companies…" value={query} onValueChange={setQuery} />
         <CommandList>
           <CommandEmpty>No companies found.</CommandEmpty>
           <CommandGroup>
@@ -53,6 +62,15 @@ export function CompanyPickerDialog({
             ))}
           </CommandGroup>
         </CommandList>
+        {canCreate ? (
+          <button
+            type="button"
+            onClick={() => onCreate!(typed)}
+            className="flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm font-medium text-brand hover:bg-muted/50"
+          >
+            <Plus className="size-4" /> Create &ldquo;{typed}&rdquo;
+          </button>
+        ) : null}
       </Command>
     </CommandDialog>
   );

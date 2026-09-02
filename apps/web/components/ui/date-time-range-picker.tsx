@@ -33,12 +33,14 @@ function rangesEqual(a: DateTimeRange, b: DateTimeRange): boolean {
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-const PRESETS: RangePreset[] = [
+const DEFAULT_PRESETS: RangePreset[] = [
   "today",
   "yesterday",
   "last7",
   "last30",
   "thisMonth",
+  "lastMonth",
+  "thisYear",
 ];
 
 /**
@@ -54,6 +56,7 @@ export function DateTimeRangePicker({
   className,
   label = "Date & time",
   dateOnly = false,
+  presets = DEFAULT_PRESETS,
 }: {
   value: DateTimeRange;
   onChange: (range: DateTimeRange) => void;
@@ -62,6 +65,8 @@ export function DateTimeRangePicker({
   label?: string;
   /** Hide the time-of-day fields — a pure day-range picker. */
   dateOnly?: boolean;
+  /** Which one-click ranges to offer ("All time" is always there). */
+  presets?: RangePreset[];
 }) {
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -208,7 +213,7 @@ export function DateTimeRangePicker({
                 >
                   All time
                 </button>
-                {PRESETS.map((preset) => {
+                {presets.map((preset) => {
                   const active = rangesEqual(value, presetRange(preset));
                   return (
                     <button

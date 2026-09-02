@@ -9,6 +9,7 @@ import { InternalHttpService } from 'src/common/services/internal-http.service';
 import { ServiceAreasService } from 'src/service-areas/service-areas.service';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { JobSourcesService } from 'src/job-sources/job-sources.service';
+import { ExternalCompaniesService } from 'src/external-companies/external-companies.service';
 import { JobTagsService } from 'src/job-tags/job-tags.service';
 import { JobStatusesService } from 'src/job-statuses/job-statuses.service';
 import { TechnicianEligibilityRepository } from 'src/technician-eligibility/technician-eligibility.repository';
@@ -35,12 +36,14 @@ describe('DealsService.reassignContact', () => {
   let cache: ReturnType<typeof createMockDealsCacheService>;
   let timeline: ReturnType<typeof createMockTimelineRepository>;
   let internalHttp: ReturnType<typeof createMockInternalHttpService>;
+  let sns: ReturnType<typeof createMockSnsPublisherService>;
 
   beforeEach(async () => {
     repo = createMockDealsRepository();
     cache = createMockDealsCacheService();
     timeline = createMockTimelineRepository();
     internalHttp = createMockInternalHttpService();
+    sns = createMockSnsPublisherService();
 
     const module = await Test.createTestingModule({
       providers: [
@@ -49,12 +52,13 @@ describe('DealsService.reassignContact', () => {
         { provide: DealsCacheService, useValue: cache },
         { provide: TimelineRepository, useValue: timeline },
         { provide: DealProductsRepository, useValue: createMockDealProductsRepository() },
-        { provide: SnsPublisherService, useValue: createMockSnsPublisherService() },
+        { provide: SnsPublisherService, useValue: sns },
         { provide: InternalHttpService, useValue: internalHttp },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
         { provide: JobTypesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobType()) } },
         { provide: JobSourcesService, useValue: { findById: jest.fn().mockResolvedValue(createMockJobSource()) } },
+        { provide: ExternalCompaniesService, useValue: { findById: jest.fn().mockResolvedValue({ id: 'extco-1', active: true }) } },
         { provide: JobTagsService, useValue: { list: jest.fn().mockResolvedValue([]) } },
         { provide: JobStatusesService, useValue: { findById: jest.fn() } },
         { provide: TechnicianEligibilityRepository, useValue: createMockTechnicianEligibilityRepository() },
@@ -127,6 +131,11 @@ describe('DealsService.reassignContact', () => {
 
       expect(repo.reassignContact).toHaveBeenCalledWith('deal-a', 'contact-new');
       expect(cache.invalidate).toHaveBeenCalledWith('deal-a');
+      expect(sns.publish).toHaveBeenCalledWith(
+        'deal-events',
+        'deal.updated',
+        expect.objectContaining({ dealId: 'deal-a' }),
+      );
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           dealId: 'deal-a',

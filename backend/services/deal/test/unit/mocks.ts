@@ -2,7 +2,7 @@ import {
   ClientType, DealStage, JobSuperStatus, DealPriority, DealStatus, TimelineEventType,
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
-  type ServiceArea, type JobType, type JobSource, type JobTag,
+  type ServiceArea, type JobType, type JobSource, type JobTag, type ExternalCompany,
   type CustomFieldDefinition,
 } from '@bitcrm/types';
 
@@ -82,6 +82,7 @@ export function createMockServiceArea(overrides?: Partial<ServiceArea>): Service
     name: 'Atlanta Metro',
     priority: 0,
     active: true,
+    timezone: 'America/New_York',
     type: ServiceAreaType.ZIPS,
     definition: { type: ServiceAreaType.ZIPS, zips: [{ zip: '30301', radiusMiles: 10 }] },
     coverage: [{ kind: 'circle', lat: 33.749, lng: -84.388, radiusMiles: 10 }],
@@ -110,6 +111,23 @@ export function createMockJobSource(overrides?: Partial<JobSource>): JobSource {
     id: 'jobsource-1',
     name: 'Google Ads',
     priority: 0,
+    active: true,
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export function createMockExternalCompany(
+  overrides?: Partial<ExternalCompany>,
+): ExternalCompany {
+  return {
+    id: 'extco-1',
+    name: 'Allied Dispatch Solutions',
+    email: 'Tammy.Killen@allieddispatch.com',
+    address: '500 Borla Dr, Johnson City, TN 37604',
+    phone: '(855) 281-0219',
     active: true,
     createdBy: 'admin-1',
     createdAt: '2026-04-16T10:00:00.000Z',
@@ -267,6 +285,17 @@ export function createMockJobTypesRepository() {
 }
 
 export function createMockJobSourcesRepository() {
+  return {
+    create: jest.fn(),
+    put: jest.fn(),
+    get: jest.fn(),
+    listAll: jest.fn().mockResolvedValue([]),
+    isReferencedByDeal: jest.fn().mockResolvedValue(false),
+    remove: jest.fn(),
+  };
+}
+
+export function createMockExternalCompaniesRepository() {
   return {
     create: jest.fn(),
     put: jest.fn(),

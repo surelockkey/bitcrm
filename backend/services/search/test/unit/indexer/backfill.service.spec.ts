@@ -1,7 +1,11 @@
 import { BackfillService } from 'src/indexer/backfill/backfill.service';
 
 function stubCatalogNames() {
-  return { nameOf: jest.fn().mockResolvedValue(undefined), invalidate: jest.fn() };
+  return {
+    nameOf: jest.fn().mockResolvedValue(undefined),
+    invalidate: jest.fn(),
+    customFieldDefs: jest.fn().mockResolvedValue([]),
+  };
 }
 
 describe('BackfillService', () => {
@@ -12,7 +16,10 @@ describe('BackfillService', () => {
   });
 
   function fakeIndexer() {
-    return { bulkIndex: jest.fn().mockImplementation((docs: any[]) => Promise.resolve(docs.length)) };
+    return {
+      bulkIndex: jest.fn().mockImplementation((docs: any[]) => Promise.resolve(docs.length)),
+      resolveDealClient: jest.fn().mockResolvedValue(undefined),
+    };
   }
 
   it('reads the wrapped { data: { items, nextCursor } } shape and bulk-indexes', async () => {
@@ -78,6 +85,49 @@ describe('BackfillService', () => {
     await new BackfillService(indexer as any, stubCatalogNames() as any).run();
     // 8 sources + 1 extra page from the paginated first source
     expect(global.fetch).toHaveBeenCalledTimes(9);
+  });
+
+  it('rebuilds only the requested types when given a filter', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { items: [], nextCursor: undefined } }),
+    }) as any;
+
+    const totals = await new BackfillService(fakeIndexer() as any, stubCatalogNames() as any).run(['deal']);
+
+    expect(Object.keys(totals)).toEqual(['deal']);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(String((global.fetch as jest.Mock).mock.calls[0][0])).toContain('/api/deals/');
+  });
+
+  it('enriches deal docs with their client via the indexer', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          items: [{
+            id: 'd1', dealNumber: 'K4T9ZW', contactId: 'c1', address: {},
+            assignedTechIds: [], assignedDispatcherId: 'u1', tagIds: [],
+            status: 'active', createdBy: 'u1',
+            createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z',
+          }],
+          nextCursor: undefined,
+        },
+      }),
+    }) as any;
+
+    const indexer = fakeIndexer();
+    indexer.resolveDealClient.mockResolvedValue({ name: 'John Smith', phones: ['(728) 347-8370'] });
+
+    await new BackfillService(indexer as any, stubCatalogNames() as any).run(['deal']);
+
+    expect(indexer.resolveDealClient).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'd1' }),
+      expect.any(Map),
+    );
+    const doc = indexer.bulkIndex.mock.calls[0][0][0];
+    expect(doc.keywords).toEqual(expect.arrayContaining(['John Smith', '7283478370']));
   });
 
   it('records -1 for a source whose endpoint errors, without aborting the rest', async () => {

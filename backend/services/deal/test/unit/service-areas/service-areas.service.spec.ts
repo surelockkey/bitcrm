@@ -45,6 +45,22 @@ describe('ServiceAreasService', () => {
       );
     });
 
+    it('defaults the timezone to Connecticut and honors a provided one', async () => {
+      geocoding.geocode.mockResolvedValue({ lat: 33.75, lng: -84.39 });
+
+      const def = await service.create(
+        { name: 'A', type: ServiceAreaType.ZIPS, zips: [{ zip: '30301' }] } as any,
+        caller,
+      );
+      expect(def.timezone).toBe('America/New_York');
+
+      const chicago = await service.create(
+        { name: 'B', type: ServiceAreaType.ZIPS, zips: [{ zip: '60601' }], timezone: 'America/Chicago' } as any,
+        caller,
+      );
+      expect(chicago.timezone).toBe('America/Chicago');
+    });
+
     it('rejects a new area that overlaps an existing active one', async () => {
       geocoding.geocode.mockResolvedValue({ lat: 33.75, lng: -84.39 });
       repo.listAll.mockResolvedValue([

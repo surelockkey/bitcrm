@@ -19,6 +19,7 @@ const FILLED: Partial<Record<string, (dto: CreateDealDto) => boolean>> = {
   serviceArea: (dto) => Boolean(dto.serviceArea?.trim()),
   jobType: (dto) => Boolean(dto.jobTypeId),
   source: (dto) => Boolean(dto.sourceId),
+  externalCompany: (dto) => Boolean(dto.externalCompanyId),
   scheduled: (dto) => Boolean(dto.scheduledDate),
   description: (dto) => Boolean(dto.notes?.trim()),
   poNumber: (dto) => Boolean(dto.poNumber?.trim()),

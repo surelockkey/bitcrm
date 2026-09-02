@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ChevronLeft, Loader2, X } from "lucide-react";
+import { Building2, ChevronLeft, Loader2, X } from "lucide-react";
 import { ClientType, ContactSource, ContactType, DealPriority } from "@bitcrm/types";
 import type { Contact, CustomFieldValue } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -22,10 +22,12 @@ import {
 import {
   useContact,
   useCreateContact,
+  useCreateCompany,
   useUpdateContact,
   useCompanyMap,
 } from "@/features/clients/hooks";
 import { addressInList, clientTypeLabel, contactName } from "@/features/clients/lib";
+import { CompanyPickerDialog } from "@/features/clients/components/company-picker-dialog";
 import { PhoneInput } from "@/components/ui/phone-input";
 import {
   ClientSaveDialog,
@@ -35,18 +37,22 @@ import {
 import { toast } from "sonner";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useCreateDeal } from "../hooks";
-import { updateDeal as updateDealApi } from "../api";
+import { updateDeal as updateDealApi, assignTechs as assignTechsApi } from "../api";
 import { requestAttachmentUpload, uploadAttachmentBytes } from "../attachments-api";
 import { useLinkCallToDeal } from "@/features/calls/hooks";
 import { CallsToLink } from "@/features/calls/components/calls-to-link";
 import { dealJobSchema, type DealJobValues } from "../schemas";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { ClientPicker, type ClientDraft } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
-import { ScheduleField } from "./schedule-field";
+import { ScheduledBlock } from "./scheduled-block";
+import { TechSuggestions } from "./tech-suggestions";
+import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { DEFAULT_TZ, nowScheduleDefault } from "@/lib/timezone";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobFieldSettings } from "@/features/job-field-settings/hooks";
@@ -62,13 +68,18 @@ export function NewDealPage() {
 
   // Opened from a call: the dialer sends the call and, when it knows them,
   // the client — so neither has to be typed while somebody is on the line.
+  // The call's tracked number can also carry a job source; it lands on the
+  // form so the created job keeps the call's attribution.
   const callSid = params.get("callSid") ?? undefined;
   const prefillContactId = params.get("contactId") ?? undefined;
   const prefillPhone = params.get("phone") ?? undefined;
+  const prefillSourceId = params.get("sourceId") ?? undefined;
 
   const [callsToLink, setCallsToLink] = useState<string[]>(
     callSid ? [callSid] : [],
   );
+  // Tags live at the page top (in the header), above the form.
+  const [tagIds, setTagIds] = useState<string[]>([]);
 
   // The client is derived, not assigned during render: a call arrives with one
   // already resolved, and writing that into state while rendering is what React
@@ -89,15 +100,18 @@ export function NewDealPage() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center gap-3 border-b px-6 py-4">
+      <div className="flex flex-wrap items-center gap-3 border-b px-6 py-4">
         <Link href="/deals" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ChevronLeft className="size-4" /> Jobs
         </Link>
         <h1 className="text-base font-semibold">New deal</h1>
         <span className="text-sm text-muted-foreground">· everything on one page</span>
+        <span className="flex-1" />
+        {/* Tags live up here so they can be set before diving into the form. */}
+        <JobTagCombobox value={tagIds} onChange={setTagIds} />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex flex-1 flex-col overflow-hidden">
         {/* Keyed on the client so the form takes fresh defaults — chiefly their
             address — when one resolves or is swapped, instead of writing to the
             form from render. Nothing typed is lost: picking a client is the
@@ -108,9 +122,11 @@ export function NewDealPage() {
           onContact={setContact}
           createdHere={!!contact && contact.id === createdId}
           prefillPhone={prefillPhone}
+          prefillSourceId={prefillSourceId}
           callSid={callSid}
           callsToLink={callsToLink}
           onCallsToLink={setCallsToLink}
+          tagIds={tagIds}
         />
       </div>
     </div>
@@ -134,18 +150,24 @@ function DealForm({
   onContact,
   createdHere,
   prefillPhone,
+  prefillSourceId,
   callSid,
   callsToLink,
   onCallsToLink,
+  tagIds,
 }: {
   contact: Contact | null;
   onContact: (c: Contact | null, created?: boolean) => void;
   /** The client was added on this page, so their details are already right. */
   createdHere: boolean;
   prefillPhone?: string;
+  /** Job source the referring call was attributed to. */
+  prefillSourceId?: string;
   callSid?: string;
   callsToLink: string[];
   onCallsToLink: (sids: string[]) => void;
+  /** Tags picked in the page header, sent with the job on create. */
+  tagIds: string[];
 }) {
   const router = useRouter();
   const createDeal = useCreateDeal();
@@ -167,6 +189,8 @@ function DealForm({
   const [cfError, setCfError] = useState<string | null>(null);
   // Files picked for file-type custom fields before the job exists (up to 5
   // per field). Held in memory and uploaded to S3 right after create.
+  // Technicians chosen on the form, assigned to the job right after it's made.
+  const [assignTechIds, setAssignTechIds] = useState<string[]>([]);
   const [pendingFiles, setPendingFiles] = useState<Record<string, File[]>>({});
   const setPendingFilesFor = (fieldId: string, files: File[]) =>
     setPendingFiles((prev) => {
@@ -198,6 +222,9 @@ function DealForm({
   /** Job values held back until the save-time questions are answered. */
   const [pendingSave, setPendingSave] = useState<DealJobValues | null>(null);
 
+  // Prefill the schedule with "now" in the business timezone (Connecticut).
+  const scheduleNow = useMemo(() => nowScheduleDefault(), []);
+
   const form = useForm<DealJobValues>({
     resolver: zodResolver(dealJobSchema),
     defaultValues: {
@@ -215,16 +242,22 @@ function DealForm({
             lng: contact.addresses[0].lng,
           }
         : { street: "", unit: "", city: "", state: "", zip: "" },
-      scheduledDate: "",
-      scheduledTimeSlot: "",
+      scheduledDate: scheduleNow.date,
+      scheduledEndDate: scheduleNow.date,
+      scheduledTimeSlot: `${scheduleNow.start}-${scheduleNow.end}`,
+      allDay: false,
       priority: DealPriority.NORMAL,
-      sourceId: "",
+      sourceId: prefillSourceId ?? "",
+      externalCompanyId: "",
       notes: "",
       tagIds: [],
     },
   });
   const err = form.formState.errors;
   const v = useWatch({ control: form.control }) as DealJobValues;
+  // The job's timezone: its resolved service area's, else Connecticut.
+  const scheduledArea = useResolvedServiceArea(v.address?.lat, v.address?.lng);
+  const jobTz = scheduledArea.data?.timezone ?? DEFAULT_TZ;
 
   /** Details differ from what's on file. */
   const clientChanged =
@@ -279,8 +312,13 @@ function DealForm({
             firstName: clientDraft.firstName,
             lastName: clientDraft.lastName,
             phones: clientDraft.phone ? [clientDraft.phone] : [],
+            phoneExtensions:
+              clientDraft.phone && clientDraft.phoneExt
+                ? { [clientDraft.phone]: clientDraft.phoneExt }
+                : undefined,
             emails: clientDraft.email ? [clientDraft.email] : [],
             addresses: values.address?.street ? [values.address] : [],
+            companyId: clientDraft.companyId,
             type: ContactType.RESIDENTIAL,
             source: ContactSource.PHONE_CALL,
           },
@@ -378,9 +416,13 @@ function DealForm({
         contactId: contact.id,
         companyId: contact.companyId,
         ...values,
+        tagIds,
         scheduledDate: values.scheduledDate || undefined,
-        scheduledTimeSlot: values.scheduledTimeSlot || undefined,
+        scheduledEndDate: values.scheduledEndDate || undefined,
+        scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
+        allDay: values.allDay || undefined,
         sourceId: values.sourceId || undefined,
+        externalCompanyId: values.externalCompanyId || undefined,
         notes: values.notes || undefined,
         poNumber: values.poNumber || undefined,
         workOrderId: values.workOrderId || undefined,
@@ -393,6 +435,14 @@ function DealForm({
           // call afterwards.
           for (const sid of callsToLink) {
             linkCall.mutate({ sid, dealId: deal.id });
+          }
+          // Assign the technicians chosen on the form to the fresh job.
+          // Fire-and-forget: the job exists regardless, and the roster can be
+          // fixed on the job page if this ever fails.
+          if (assignTechIds.length) {
+            void assignTechsApi(deal.id, assignTechIds).catch((e) =>
+              toast.error(`Job created, but assigning technicians failed (${getApiErrorMessage(e)}).`),
+            );
           }
           void (async () => {
             // Files picked on the form upload now, under the fresh job, and
@@ -436,7 +486,9 @@ function DealForm({
   const orderedCfGroups = workizOrderedGroups(applicableFields(customFieldDefs, v.jobTypeId));
 
   return (
-    <form onSubmit={submit} className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6" noValidate>
+    <form onSubmit={submit} className="flex flex-1 flex-col overflow-hidden" noValidate>
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Row 1 — Client Details | Service Location, as on the Workiz form. */}
         <Section title="Client Details">
@@ -446,6 +498,7 @@ function DealForm({
               edits={clientEdits}
               onEdits={onClientEdits}
               onClear={() => onContact(null)}
+              onContact={(c) => onContact(c)}
             />
           ) : null}
           <ClientPicker
@@ -474,33 +527,57 @@ function DealForm({
         {/* Row 2 — Job Details | Scheduled. */}
         <Section title="Job Details">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               <Label>Job type</Label>
               <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
               {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2.5">
               <Label>Job source{req("source")}</Label>
               <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Sel label="Priority" value={v.priority} onChange={(val) => form.setValue("priority", val as DealPriority)} options={[{ value: DealPriority.NORMAL, label: "Normal" }, { value: DealPriority.URGENT, label: "Urgent" }]} />
+            <div className="space-y-2.5">
+              <Label>External company{req("externalCompany")}</Label>
+              <ExternalCompanySelect
+                value={v.externalCompanyId}
+                onChange={(val) => form.setValue("externalCompanyId", val ?? "")}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
-          <div className="space-y-1.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
-          <div className="space-y-1.5"><Label>Tags{req("tags")}</Label><JobTagCombobox value={v.tagIds ?? []} onChange={(ids) => form.setValue("tagIds", ids)} /></div>
+          <div className="space-y-2.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
         </Section>
 
         <Section title="Scheduled">
-          <ScheduleField
-            date={v.scheduledDate || undefined}
-            slot={v.scheduledTimeSlot || undefined}
-            onDate={(d) => form.setValue("scheduledDate", d ?? "")}
-            onSlot={(s) => form.setValue("scheduledTimeSlot", s, { shouldValidate: true })}
+          <ScheduledBlock
+            date={v.scheduledDate || ""}
+            endDate={v.scheduledEndDate || ""}
+            slot={v.scheduledTimeSlot || ""}
+            allDay={Boolean(v.allDay)}
+            tz={jobTz}
+            areaName={scheduledArea.data?.name}
+            onChange={(s) => {
+              form.setValue("scheduledDate", s.date);
+              form.setValue("scheduledEndDate", s.endDate);
+              form.setValue("scheduledTimeSlot", s.slot, { shouldValidate: true });
+              form.setValue("allDay", s.allDay);
+            }}
           />
           {typeof err.scheduledTimeSlot?.message === "string" ? <p className="text-xs text-destructive">{err.scheduledTimeSlot.message}</p> : null}
-          <p className="text-xs text-muted-foreground">Assign technicians and add line items on the job page after creating.</p>
+
+          <div className="space-y-2.5">
+            <Label>Assign team members</Label>
+            <TechSuggestions
+              jobTypeId={v.jobTypeId}
+              address={{ lat: v.address?.lat, lng: v.address?.lng }}
+              selected={assignTechIds}
+              onChange={setAssignTechIds}
+            />
+          </div>
         </Section>
 
         {/* Custom-field groups, one Workiz-style card each. File fields prompt
@@ -534,25 +611,28 @@ function DealForm({
         {/* Work order / Platinum */}
         <Section title="Work order / Platinum">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5"><Label>PO number{req("poNumber")}</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
-            <div className="space-y-1.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
+            <div className="space-y-2.5"><Label>PO number{req("poNumber")}</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
+            <div className="space-y-2.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
           </div>
           <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
         </Section>
       </div>
 
       {cfError ? <p className="text-sm text-destructive">{cfError}</p> : null}
+        </div>
+      </div>
 
-      {/* Sticky footer */}
-      <div className="sticky bottom-0 -mx-6 flex items-center justify-between gap-3 border-t bg-background/90 px-6 py-3 backdrop-blur">
-        <span className="text-xs text-muted-foreground">
-          {contact
-            ? `Client: ${contactName(contact)}`
-            : clientDraft
-              ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
-              : "Pick a client or type new details to continue."}
-        </span>
-        <div className="flex gap-2">
+      {/* Footer — a real footer outside the scroll region, always pinned to the
+          bottom; primary action bottom-center, client hint floated left. */}
+      <div className="border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
+        <div className="relative flex items-center justify-center gap-2">
+          <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
+            {contact
+              ? `Client: ${contactName(contact)}`
+              : clientDraft
+                ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
+                : "Pick a client or type new details to continue."}
+          </span>
           <Button type="button" variant="ghost" asChild><Link href="/deals">Cancel</Link></Button>
           <Button
             type="submit"
@@ -619,21 +699,58 @@ function ResolvedClient({
   edits,
   onEdits,
   onClear,
+  onContact,
 }: {
   contact: Contact;
   edits: ClientEdits;
   onEdits: (e: ClientEdits) => void;
   onClear: () => void;
+  /** Bubble the updated contact up after a company is (re)assigned. */
+  onContact: (c: Contact) => void;
 }) {
-  const { map: companyMap } = useCompanyMap();
+  const { map: companyMap, companies } = useCompanyMap();
+  const update = useUpdateContact();
+  const createCompany = useCreateCompany();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const companyName = contact.companyId
+    ? (companyMap.get(contact.companyId)?.title ?? contact.companyId)
+    : "";
+
+  // Assigning a company is a direct write to the client's record (unlike the
+  // name/phone edits, which are deferred to the save-time question).
+  const assign = (companyId: string) => {
+    setPickerOpen(false);
+    update.mutate(
+      {
+        id: contact.id,
+        body: {
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          phones: contact.phones,
+          emails: contact.emails,
+          addresses: contact.addresses,
+          companyId,
+          type: contact.type,
+          title: contact.title,
+          notes: contact.notes,
+        },
+      },
+      { onSuccess: (c) => onContact(c) },
+    );
+  };
+
+  const createAndAssign = (name: string) => {
+    createCompany.mutate(
+      { title: name, clientType: ClientType.COMMERCIAL, phones: [], emails: [] },
+      { onSuccess: (co) => assign(co.id) },
+    );
+  };
 
   return (
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="text-xs text-muted-foreground">
-          {contact.companyId
-            ? companyMap.get(contact.companyId)?.title
-            : "Residential"}
+          {contact.companyId ? companyName : "Residential"}
         </div>
         <Button
           type="button"
@@ -659,10 +776,33 @@ function ResolvedClient({
           placeholder="Last name"
         />
       </div>
+      <div className="space-y-2.5">
+        <Label>Company name</Label>
+        <Button
+          type="button"
+          variant="outline"
+          aria-label="Company name"
+          className="h-9 w-full justify-start gap-2 font-normal"
+          onClick={() => setPickerOpen(true)}
+        >
+          <Building2 className="size-4 flex-none text-muted-foreground" />
+          <span className={companyName ? "flex-1 truncate text-left" : "flex-1 truncate text-left text-muted-foreground"}>
+            {companyName || "Select or create a company…"}
+          </span>
+        </Button>
+      </div>
+      <CompanyPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        companies={companies}
+        onSelect={assign}
+        onCreate={createAndAssign}
+      />
       <PhoneInput
         value={edits.phone}
         onChange={(v) => onEdits({ ...edits, phone: v })}
         placeholder="Phone"
+        lockCountry
       />
       <p className="text-xs text-muted-foreground">
         Edits here are saved with the job — you&apos;ll be asked whether they
@@ -684,7 +824,7 @@ function Sel({
   options: { value: string; label: string }[];
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5">
       <Label>{label}</Label>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>

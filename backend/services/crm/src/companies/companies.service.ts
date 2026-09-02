@@ -8,6 +8,7 @@ import {
   SnsPublisherService,
   BusinessMetricsService,
   tryNormalizePhone,
+  normalizePhoneExtensions,
 } from '@bitcrm/shared';
 import { CrmStatus, type Company, type JwtUser } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
@@ -46,6 +47,7 @@ export class CompaniesService {
       id: randomUUID(),
       title: dto.title,
       phones,
+      phoneExtensions: normalizePhoneExtensions(dto.phoneExtensions, phones),
       emails: dto.emails || [],
       address: dto.address,
       website: dto.website,
@@ -110,6 +112,15 @@ export class CompaniesService {
     if (dto.phones) {
       attrs.phones = [...new Set(dto.phones.map(safePhone))];
       await this.repository.syncPhoneIndex(id, existing.phones, attrs.phones);
+    }
+    // Re-keyed against the phones actually being saved, so an extension can
+    // never outlive the number it belongs to — including when a caller sends
+    // `phones` on its own and leaves the map to be worked out here.
+    if (dto.phoneExtensions || attrs.phones) {
+      attrs.phoneExtensions = normalizePhoneExtensions(
+        dto.phoneExtensions ?? existing.phoneExtensions,
+        attrs.phones ?? existing.phones,
+      );
     }
 
     const updated = await this.repository.update(id, attrs);

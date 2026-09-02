@@ -3,8 +3,46 @@ import type { Contact, Company, Address } from "@bitcrm/types";
 
 // The canonical phone formatter lives in lib/phone; re-exported so existing
 // `@/features/clients/lib` imports render the same `+1 404 555 1234` everywhere.
-import { formatPhone } from "@/lib/phone";
-export { formatPhone };
+import { formatPhone, formatPhoneWithExtension, normalizeExtension } from "@/lib/phone";
+export { formatPhone, formatPhoneWithExtension };
+
+/* --------------------------------------------------------- phone extensions */
+
+/**
+ * Extensions are stored keyed by the number they belong to; forms edit them as
+ * a row beside each phone. These are the two conversions between the shapes —
+ * the whole risk being a row drifting away from the number it describes.
+ */
+
+/** What to press for this number on this record, or "" when nothing is stored. */
+export function extensionOf(
+  record: Pick<Contact | Company, "phoneExtensions">,
+  phone: string,
+): string {
+  return record.phoneExtensions?.[phone] ?? "";
+}
+
+/** Seed the form: one extension row per phone row, in the same order. */
+export function extensionRows(
+  phones: string[],
+  extensions: Record<string, string> | undefined,
+): string[] {
+  return phones.map((p) => extensions?.[p] ?? "");
+}
+
+/** Submit the form: rows back into the stored map, keyed by their phone. */
+export function extensionsFromRows(
+  phones: string[],
+  rows: string[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  phones.forEach((phone, i) => {
+    if (!phone.trim()) return;
+    const extension = normalizeExtension(rows[i]);
+    if (extension) out[phone] = extension;
+  });
+  return out;
+}
 
 /** Structured address → single display line, e.g. `123 Main St, Apt 4B, Atlanta, GA 30301`. */
 export function formatAddress(a: Address): string {

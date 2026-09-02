@@ -21,6 +21,33 @@ export function getContainer(id: string): Promise<Container> {
   return http.get<Container>(`/inventory/containers/${id}`);
 }
 
+export interface CreateContainerBody {
+  name: string;
+  description?: string;
+  department?: string;
+  technicianId?: string;
+  technicianName?: string;
+}
+
+/** `technicianId: null` unassigns the technician. */
+export type UpdateContainerBody = Partial<
+  Pick<Container, "name" | "description" | "department" | "status">
+> & {
+  technicianId?: string | null;
+  technicianName?: string | null;
+};
+
+export function createContainer(body: CreateContainerBody): Promise<Container> {
+  return http.post<Container>("/inventory/containers", body);
+}
+
+export function updateContainer(
+  id: string,
+  body: UpdateContainerBody,
+): Promise<Container> {
+  return http.put<Container>(`/inventory/containers/${id}`, body);
+}
+
 export function getContainerStock(id: string): Promise<StockItem[]> {
   return http.get<StockItem[]>(`/inventory/containers/${id}/stock`);
 }

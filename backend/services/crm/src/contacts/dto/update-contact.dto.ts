@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray,
+  IsString, IsOptional, IsEnum, IsArray, IsObject,
   ArrayMinSize, ArrayMaxSize, MinLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -27,6 +27,17 @@ export class UpdateContactDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(10)
   phones?: string[];
+
+  @ApiPropertyOptional({
+    example: { '+14045551234': '102' },
+    description:
+      'What to press once the call is answered, keyed by the number it ' +
+      'belongs to. Keys are re-normalized server-side and entries for ' +
+      'numbers not on the record are dropped.',
+  })
+  @IsOptional()
+  @IsObject()
+  phoneExtensions?: Record<string, string>;
 
   @ApiPropertyOptional({ example: ['jane@example.com'] })
   @IsOptional()

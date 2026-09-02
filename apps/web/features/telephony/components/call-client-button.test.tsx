@@ -281,7 +281,7 @@ describe("CallClientButton — masked bridge", () => {
     render(<CallClientButton to="+14045551234" partyId="contact-1" />);
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Call +1 (404) 555-1234" }),
+      screen.getByRole("button", { name: "Call (404) 555-1234" }),
     );
 
     // The distinction that matters: masked places the call on one tap, while

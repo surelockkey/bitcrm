@@ -12,12 +12,19 @@ import { PermissionLookupService } from '../common/permission-lookup.service';
 import { BridgeService } from '../common/bridge.service';
 import { PresenceModule } from '../presence/presence.module';
 import { TelephonyModule } from '../telephony/telephony.module';
+import { NumbersModule } from '../numbers/numbers.module';
 import { VoiceModule } from '../voice/voice.module';
 
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
-  imports: [TelephonyModule, PresenceModule, forwardRef(() => VoiceModule)],
+  // NumbersModule: per-number source assignments for call attribution.
+  imports: [
+    TelephonyModule,
+    PresenceModule,
+    NumbersModule,
+    forwardRef(() => VoiceModule),
+  ],
   controllers: [CallsController],
   providers: [
     CallsService,

@@ -69,6 +69,7 @@ export {
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
+export { ExternalCompany } from './entities/external-company.entity';
 export { JobTag } from './entities/job-tag.entity';
 export {
   JOB_REQUIRABLE_FIELDS,
@@ -87,12 +88,15 @@ export {
   CoverageShape,
   GeoPoint,
   ZipEntry,
+  DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
 export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
+export { ProductCategory } from './entities/product-category.entity';
+export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
 export {

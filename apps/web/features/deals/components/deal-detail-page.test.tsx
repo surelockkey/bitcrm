@@ -64,12 +64,23 @@ vi.mock("@/features/job-sources/components/job-source-select", () => ({
     <button type="button" onClick={() => onChange("src-web")}>pick source</button>
   ),
 }));
-vi.mock("./schedule-field", () => ({
-  ScheduleField: ({ onDate }: { onDate: (d: string | undefined) => void }) => (
-    <button type="button" onClick={() => onDate("2026-09-01")}>set date</button>
+vi.mock("@/features/external-companies/components/external-company-select", () => ({
+  ExternalCompanySelect: ({ onChange }: { onChange: (v: string) => void }) => (
+    <button type="button" onClick={() => onChange("ec-1")}>pick external company</button>
   ),
 }));
+vi.mock("./scheduled-block", () => ({
+  ScheduledBlock: ({ onChange }: { onChange: (v: { date: string; endDate: string; slot: string; allDay: boolean }) => void }) => (
+    <button type="button" onClick={() => onChange({ date: "2026-09-01", endDate: "2026-09-01", slot: "", allDay: false })}>set date</button>
+  ),
+}));
+vi.mock("@/features/service-areas/hooks", () => ({
+  useResolvedServiceArea: () => ({ data: undefined }),
+}));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
+// The Team section assigns inline via TechSuggestions, which fetches eligible
+// techs through react-query; stub it — its own tests cover the assign flow.
+vi.mock("./tech-suggestions", () => ({ TechSuggestions: () => null }));
 // The job page carries a strip for linking the call you're on; it queries
 // telephony, which this test has no client for. Its own tests cover it.
 vi.mock("@/features/calls/components/live-call-strip", () => ({
@@ -159,6 +170,7 @@ vi.mock("../hooks", () => ({
   useDeleteDeal: () => ({ mutate: vi.fn() }),
   useUpdateDeal: () => ({ mutate: mocks.updateDeal, isPending: false }),
   useSetDealTags: () => ({ mutate: vi.fn(), isPending: false }),
+  useAssignTechs: () => ({ mutate: vi.fn(), isPending: false }),
   useMoveStatus: () => ({ mutate: vi.fn() }),
   useChangeDealClient: () => ({ mutate: mocks.changeClient, isPending: false }),
   useDealTimeline: () => ({
@@ -200,7 +212,7 @@ beforeEach(() => {
 // Radix dialogs set pointer-events on <body> while open; skip the check in jsdom.
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
-const poInput = () => screen.getByPlaceholderText("C-PO / VPO");
+const poInput = () => screen.getByPlaceholderText(/notes visible to the team/i);
 const firstNameInput = () => screen.getByDisplayValue("Jane");
 const saveButton = () => screen.getByRole("button", { name: "Save" });
 const jobsLink = () => screen.getByRole("link", { name: /jobs/i });
@@ -320,7 +332,7 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.click(saveButton());
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ poNumber: "PO-777" });
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-777" });
     expect(mocks.updateContact).not.toHaveBeenCalled();
   });
 
@@ -332,11 +344,11 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.type(poInput(), "PO-9");
 
     await u.click(saveButton());
-    // Renaming the client asks who that edit is for; "same client" is preselected.
-    await u.click(screen.getByRole("button", { name: /save job/i }));
+    // Renaming the client asks whether the change is for the client too.
+    await u.click(screen.getByRole("button", { name: /yes, make change/i }));
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
-    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ poNumber: "PO-9" });
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ notes: "PO-9" });
     expect(mocks.updateContact).toHaveBeenCalledTimes(1);
     expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
       id: "c1",
@@ -345,22 +357,84 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
-  it("makes a separate client and moves the job when the details are somebody else's", async () => {
+  it("saves the external company picked on the job", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.click(screen.getByRole("button", { name: /pick external company/i }));
+    await u.click(saveButton());
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ externalCompanyId: "ec-1" });
+  });
+
+  it("locks the number the job was created with — no editing, no removing it", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    // The first (primary) number is permanently bound to the job.
+    expect(screen.getByDisplayValue("(404) 555-1234")).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /remove phone/i }),
+    ).not.toBeInTheDocument();
+    // Extra numbers can still be added.
+    expect(screen.getByRole("button", { name: /add phone/i })).toBeInTheDocument();
+  });
+
+  it("adds a second number straight to the client — phones never prompt", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.click(screen.getByRole("button", { name: /add phone/i }));
+    const inputs = screen.getAllByPlaceholderText("Phone number");
+    await u.type(inputs[1], "2928398283");
+    await u.click(saveButton());
+
+    expect(screen.queryByText("Change client")).not.toBeInTheDocument();
+    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
+    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
+      id: "c1",
+      body: { phones: ["+14045551234", "+12928398283"] },
+    });
+    expect(mocks.createContact).not.toHaveBeenCalled();
+  });
+
+  it("renaming asks 'Change client'; 'Just here' keeps the name on the job only", async () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
     await u.type(firstNameInput(), "t"); // Jane → Janet
     await u.click(saveButton());
-    await u.click(screen.getByRole("radio", { name: /a different client/i }));
-    await u.click(screen.getByRole("button", { name: /save job/i }));
 
-    expect(mocks.createContact).toHaveBeenCalledTimes(1);
-    expect(mocks.createContact.mock.calls[0][0]).toMatchObject({
-      firstName: "Janet",
-      reassignPhones: true,
+    expect(screen.getByText("Change client")).toBeInTheDocument();
+    expect(
+      screen.getByText(/also be applied to the client/i),
+    ).toBeInTheDocument();
+    await u.click(screen.getByRole("button", { name: /just here/i }));
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toMatchObject({
+      clientName: { firstName: "Janet", lastName: "Smith" },
     });
-    // The old client is left exactly as they were.
     expect(mocks.updateContact).not.toHaveBeenCalled();
+    expect(mocks.createContact).not.toHaveBeenCalled();
+  });
+
+  it("'Yes, make change' applies the rename to the client record", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.type(firstNameInput(), "t"); // Jane → Janet
+    await u.click(saveButton());
+    await u.click(screen.getByRole("button", { name: /yes, make change/i }));
+
+    expect(mocks.updateContact).toHaveBeenCalledTimes(1);
+    expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
+      id: "c1",
+      body: { firstName: "Janet" },
+    });
+    // No per-job override to write or clear on this deal.
+    expect(mocks.updateDeal).not.toHaveBeenCalled();
+    expect(mocks.createContact).not.toHaveBeenCalled();
   });
 
   it("only asks about the client when the client itself changed", async () => {
@@ -391,6 +465,7 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({
       serviceArea: "West Valley North",
       scheduledDate: "2026-09-01",
+      scheduledEndDate: "2026-09-01",
       jobTypeId: "jt-rekey",
       sourceId: "src-web",
     });

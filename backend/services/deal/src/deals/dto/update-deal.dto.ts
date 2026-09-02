@@ -1,11 +1,20 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray,
+  IsString, IsOptional, IsEnum, IsArray, IsBoolean,
   ValidateNested, Matches, IsDateString, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { DealPriority } from '@bitcrm/types';
 import { AddressDto } from './address.dto';
+
+/** Per-job client display name ("Just here" edits that don't touch the contact). */
+export class ClientNameDto {
+  @IsString()
+  firstName!: string;
+
+  @IsString()
+  lastName!: string;
+}
 
 export class UpdateDealDto {
   @ApiPropertyOptional({ example: '2026-04-22' })
@@ -19,6 +28,16 @@ export class UpdateDealDto {
     message: 'scheduledTimeSlot must match format HH:MM-HH:MM',
   })
   scheduledTimeSlot?: string;
+
+  @ApiPropertyOptional({ example: '2026-04-20' })
+  @IsOptional()
+  @IsDateString()
+  scheduledEndDate?: string;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  allDay?: boolean;
 
   @ApiPropertyOptional({ example: 'North GA' })
   @IsOptional()
@@ -51,6 +70,17 @@ export class UpdateDealDto {
   @IsOptional()
   @IsString()
   sourceId?: string;
+
+  @ApiPropertyOptional({
+    example: 'c7d2e9f1-3b4a-4c8d-9e2f-6a1b5c0d7e34',
+    nullable: true,
+    description:
+      'Catalog external-company id. A disabled company is accepted here so old jobs stay ' +
+      'editable; an explicit null detaches the company from the job.',
+  })
+  @IsOptional()
+  @IsString()
+  externalCompanyId?: string | null;
 
   @ApiPropertyOptional({ example: 'wo-uuid' })
   @IsOptional()
@@ -85,4 +115,15 @@ export class UpdateDealDto {
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    type: ClientNameDto,
+    nullable: true,
+    description:
+      "Per-job client display name override ('Just here' edits). Explicit null clears it (e.g. after the change is applied to the contact instead).",
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ClientNameDto)
+  clientName?: ClientNameDto | null;
 }

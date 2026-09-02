@@ -37,14 +37,14 @@ describe("LiveCalls", () => {
     render(<LiveCalls />);
 
     expect(screen.getByText("Jane Roe")).toBeInTheDocument();
-    expect(screen.getByText(/\+1 404 555 1234/)).toBeInTheDocument();
+    expect(screen.getByText(/\(404\) 555-1234/)).toBeInTheDocument();
   });
 
   it("falls back to the number for a caller the CRM doesn't know", () => {
     liveCalls.mockReturnValue({ data: [base] });
     render(<LiveCalls />);
 
-    expect(screen.getByText("+1 404 555 1234")).toBeInTheDocument();
+    expect(screen.getByText("(404) 555-1234")).toBeInTheDocument();
     expect(screen.getByText(/Incoming/)).toBeInTheDocument();
   });
 

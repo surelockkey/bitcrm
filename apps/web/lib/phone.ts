@@ -8,14 +8,16 @@ import {
 
 /**
  * The one place phone numbers are validated and formatted across the app. Every
- * input normalizes to E.164 for storage and every display renders the same
- * international format (with country code), e.g. `+1 404 555 1234`.
+ * input normalizes to E.164 for storage; display is national for the default
+ * country (`(404) 555-1234` — no +1 anywhere on the site) and international
+ * for everything else (`+380 95 860 1427`).
  *
  * Numbers typed without a country code are assumed to be from DEFAULT_COUNTRY;
  * a number typed with a leading `+` is parsed in its own country. This mirrors
  * the backend's E.164 normalization so the two never disagree.
  */
 export const DEFAULT_COUNTRY: CountryCode = "US";
+const DEFAULT_CALLING_CODE = getCountryCallingCode(DEFAULT_COUNTRY);
 
 /** Normalize any input to E.164 (`+14045551234`) or null if it isn't a valid number. */
 export function normalizePhone(input: string): string | null {
@@ -30,14 +32,48 @@ export function isValidPhone(input: string): boolean {
 }
 
 /**
- * Canonical display: the country dial code followed by the national format, e.g.
- * `+1 (404) 555-1234`. Keeps the familiar national grouping while still showing
- * which country the number belongs to. Unparseable input passes through.
+ * Canonical display: numbers from the default country render nationally —
+ * `(404) 555-1234`, never `+1` — since this is a US product; anything foreign
+ * keeps its code in international grouping, `+380 95 860 1427` (which, unlike
+ * the national format, carries no trunk prefix to read like an extra digit).
+ * Unparseable input passes through.
  */
 export function formatPhone(input: string): string {
   if (!input) return input;
   const parsed = parsePhoneNumberFromString(input, DEFAULT_COUNTRY);
-  return parsed ? `+${parsed.countryCallingCode} ${parsed.formatNational()}` : input;
+  if (!parsed) return input;
+  return parsed.countryCallingCode === DEFAULT_CALLING_CODE
+    ? parsed.formatNational()
+    : parsed.formatInternational();
+}
+
+/**
+ * How many characters an extension may keep — mirrors the backend cap. Long
+ * enough for the longest real PBX extension plus a pause or two, short enough
+ * that the field can't quietly become a notes box.
+ */
+export const MAX_EXTENSION_LENGTH = 10;
+
+/** Everything that isn't a key you can press once the call connects. */
+const NOT_DIALABLE = /[^0-9*#,]/g;
+
+/**
+ * An extension is what somebody presses after the call is answered, so it
+ * reduces to dial keys: digits, `*`, `#`, and `,` for a pause. The wrappers
+ * people type around it — `ext.`, `x`, `press` — carry no dial meaning and are
+ * dropped, which also means a note like "ask for dispatch" comes out empty
+ * rather than being saved as an undialable extension. Kept byte-for-byte in
+ * step with the backend's `normalizeExtension`, which re-runs this on save.
+ */
+export function normalizeExtension(raw: string | undefined | null): string {
+  if (!raw) return "";
+  return raw.replace(NOT_DIALABLE, "").slice(0, MAX_EXTENSION_LENGTH);
+}
+
+/** `+14045551234` + `102` → `(404) 555-1234 ext. 102`. */
+export function formatPhoneWithExtension(phone: string, extension?: string): string {
+  const ext = (extension ?? "").trim();
+  return ext ? `${formatPhone(phone)} ext. ${ext}` : formatPhone(phone);
 }
 
 /** Live national formatting while typing in the given country's style. */
@@ -48,17 +84,6 @@ export function formatAsYouType(input: string, country: CountryCode = DEFAULT_CO
 /** The dial code for a country, e.g. `US` → `1`, `UA` → `380`. */
 export function callingCode(country: CountryCode): string {
   return getCountryCallingCode(country);
-}
-
-/**
- * Single-field international formatting: any E.164-ish input → `+380 95 860 1427`
- * (country code + grouped national), formatting incrementally so it works while
- * typing. Empty input stays empty.
- */
-export function formatIntl(input: string): string {
-  const digits = input.replace(/\D/g, "");
-  if (!digits) return "";
-  return new AsYouType().input(`+${digits}`);
 }
 
 /** The country a number belongs to, or the default when it can't be determined. */
@@ -80,32 +105,31 @@ export function toE164(country: CountryCode, national: string): string {
 }
 
 /**
- * When a raw input carries its own country code (starts with `+`), detect the
- * country and split off the national part — so typing/pasting `+44 20 7946 0000`
- * flips the selector to 🇬🇧 and reformats the number. Returns null for plain
- * national input (no `+`).
+ * What typed or pasted text means as a national number of the selected country.
+ * The country is a fixed input here, never inferred from the text — pastes like
+ * `+1 (404) 555-1234`, `14045551234` or a trunk-prefixed `0958601427` all
+ * reduce to their national digits, while a foreign `+code` is left as plain
+ * digits rather than switching the country out from under the user.
  */
-export function detectInternational(
-  raw: string,
-): { country: CountryCode; national: string } | null {
-  if (!raw.trim().startsWith("+")) return null;
+export function nationalInput(raw: string, country: CountryCode = DEFAULT_COUNTRY): string {
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return "";
 
-  const parsed = parsePhoneNumberFromString(raw);
-  if (parsed?.country) {
-    return { country: parsed.country, national: formatAsYouType(parsed.nationalNumber, parsed.country) };
+  // A complete, valid number in this country — however it was written (with
+  // dial code, national/trunk prefix, or plain) — is its national digits.
+  const parsed = parsePhoneNumberFromString(
+    trimmed.startsWith("+") ? trimmed : digits,
+    country,
+  );
+  if (parsed?.isValid() && parsed.countryCallingCode === getCountryCallingCode(country)) {
+    return parsed.nationalNumber;
   }
 
-  // Still incomplete — let AsYouType infer the country from the digits so far.
-  const ayt = new AsYouType();
-  ayt.input(raw);
-  const country = ayt.getCountry();
-  if (country) {
-    const cc = getCountryCallingCode(country);
-    const digits = raw.replace(/\D/g, "");
-    const national = digits.startsWith(cc) ? digits.slice(cc.length) : digits;
-    return { country, national: formatAsYouType(national, country) };
-  }
-  return null;
+  // Still incomplete: only an explicit `+<own dial code>` prefix is stripped.
+  const cc = getCountryCallingCode(country);
+  if (trimmed.startsWith("+") && digits.startsWith(cc)) return digits.slice(cc.length);
+  return digits;
 }
 
 /** 🇺🇸 flag emoji for an ISO country code. */

@@ -59,6 +59,11 @@ export function summarizeStock(rows: EnrichedStockRow[]): StockSummary {
   };
 }
 
+/** Detail-page tab from the `?tab=` deep link; anything unknown → stock. */
+export function detailTab(param: string | null): "stock" | "activity" | "settings" {
+  return param === "activity" || param === "settings" ? param : "stock";
+}
+
 /* ------------------------------------------------------------------ *
  * Transfers
  * ------------------------------------------------------------------ */
@@ -81,6 +86,8 @@ export function transferUnits(t: Transfer): number {
  * Containers
  * ------------------------------------------------------------------ */
 
-export function containerLabel(c: Pick<Container, "technicianName">): string {
-  return c.technicianName || "Container";
+export function containerLabel(
+  c: Pick<Container, "name" | "technicianName">,
+): string {
+  return c.name?.trim() || c.technicianName?.trim() || "Container";
 }

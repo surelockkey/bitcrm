@@ -19,6 +19,9 @@ import {
   coiStatus,
   paymentTermsLabel,
   dueDateFrom,
+  extensionOf,
+  extensionRows,
+  extensionsFromRows,
 } from "./lib";
 
 function contact(over: Partial<Contact> = {}): Contact {
@@ -59,11 +62,11 @@ function company(over: Partial<Company> = {}): Company {
 }
 
 describe("formatPhone", () => {
-  it("formats every US number the same way — country code + national grouping", () => {
-    expect(formatPhone("+14045551234")).toBe("+1 (404) 555-1234");
-    expect(formatPhone("4045551234")).toBe("+1 (404) 555-1234");
-    expect(formatPhone("14045551234")).toBe("+1 (404) 555-1234");
-    expect(formatPhone("(404) 555-1234")).toBe("+1 (404) 555-1234");
+  it("formats every US number the same way — national grouping, no +1", () => {
+    expect(formatPhone("+14045551234")).toBe("(404) 555-1234");
+    expect(formatPhone("4045551234")).toBe("(404) 555-1234");
+    expect(formatPhone("14045551234")).toBe("(404) 555-1234");
+    expect(formatPhone("(404) 555-1234")).toBe("(404) 555-1234");
   });
   it("passes through anything it can't normalize", () => {
     expect(formatPhone("")).toBe("");
@@ -260,5 +263,59 @@ describe("findDuplicateGroups", () => {
   it("does not pair a contact with itself when it repeats the same phone", () => {
     const a = contact({ id: "a", phones: ["+14045551234", "(404) 555-1234"] });
     expect(findDuplicateGroups([a], "phone")).toEqual([]);
+  });
+});
+
+/**
+ * The form edits phones and extensions as two parallel rows; storage keys the
+ * extension by the number it belongs to. These are the two conversions, and
+ * the risk in both is a row drifting away from the number it describes.
+ */
+describe("phone extensions", () => {
+  describe("extensionOf", () => {
+    it("finds the extension stored for a number", () => {
+      const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+      expect(extensionOf(c, "+14045551234")).toBe("102");
+    });
+
+    it("is empty for a number with none, or a record predating extensions", () => {
+      const c = contact({ phoneExtensions: { "+14045551234": "102" } });
+      expect(extensionOf(c, "+15558675309")).toBe("");
+      expect(extensionOf(contact(), "+14045551234")).toBe("");
+    });
+  });
+
+  describe("extensionRows", () => {
+    it("lines the extensions up with the phone rows", () => {
+      expect(
+        extensionRows(["+14045551234", "+15558675309"], { "+15558675309": "7" }),
+      ).toEqual(["", "7"]);
+    });
+
+    it("is one empty row per phone when there are none", () => {
+      expect(extensionRows(["+14045551234"], undefined)).toEqual([""]);
+    });
+  });
+
+  describe("extensionsFromRows", () => {
+    it("keys each extension by the number typed beside it", () => {
+      expect(
+        extensionsFromRows(["+14045551234", "+15558675309"], ["102", ""]),
+      ).toEqual({ "+14045551234": "102" });
+    });
+
+    it("normalizes what was typed into a dial string", () => {
+      expect(extensionsFromRows(["+14045551234"], ["ext. 102"])).toEqual({
+        "+14045551234": "102",
+      });
+    });
+
+    it("ignores an extension typed beside an empty phone", () => {
+      expect(extensionsFromRows(["", "+14045551234"], ["102", ""])).toEqual({});
+    });
+
+    it("is an empty map when nothing was filled in", () => {
+      expect(extensionsFromRows(["+14045551234"], [])).toEqual({});
+    });
   });
 });

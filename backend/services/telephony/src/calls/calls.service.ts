@@ -8,6 +8,7 @@ import {
 } from './calls.repository';
 import { CallEventsBus } from './call-events.bus';
 import { DealLinkService } from '../common/deal-link.service';
+import { NumberSettingsRepository } from '../numbers/number-settings.repository';
 
 /** Raw form params Twilio POSTs to the status callback (subset we use). */
 export interface TwilioStatusParams {
@@ -85,7 +86,38 @@ export class CallsService {
     @Optional() private readonly bus?: CallEventsBus,
     @Optional() private readonly dealLinks?: DealLinkService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly numberSettings?: NumberSettingsRepository,
   ) {}
+
+  /**
+   * Call-tracking attribution: the tracked number a call came through decides
+   * its job source (inbound → the number dialed, outbound → our caller id).
+   * Resolved only while the record has no source yet — a number reassigned to
+   * another campaign later must not rewrite settled history — and a lookup
+   * failure never fails the call write.
+   */
+  private async resolveSource(
+    update: LifecycleUpdate,
+    existing: CallRecord | null,
+  ): Promise<string | undefined> {
+    if (existing?.sourceId || !this.numberSettings) return undefined;
+    const direction = update.direction ?? existing?.direction;
+    const tracked =
+      direction === 'inbound'
+        ? (update.to ?? existing?.to)
+        : direction === 'outbound'
+          ? (update.from ?? existing?.from)
+          : undefined;
+    if (!tracked) return undefined;
+    try {
+      return (await this.numberSettings.get(tracked))?.sourceId;
+    } catch (err) {
+      this.logger.warn(
+        `Source lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
+      );
+      return undefined;
+    }
+  }
 
   /** Fire-and-forget SNS publish — event failures never fail a call write. */
   private publishSns(eventType: string, payload: Record<string, unknown>): void {
@@ -131,10 +163,18 @@ export class CallsService {
       );
     }
 
+    // Guarded before the await: without a settings repo (or with the source
+    // already settled) the write path keeps its exact microtask profile —
+    // fire-and-forget callers (the stale-live heal) rely on it landing fast.
+    const needSource =
+      !update.sourceId && !existing?.sourceId && !!this.numberSettings;
     const record: CallRecord = {
       ...update,
       status,
       durationSeconds,
+      sourceId:
+        update.sourceId ??
+        (needSource ? await this.resolveSource(update, existing) : undefined),
       startedAt: update.startedAt ?? existing?.startedAt ?? now,
       updatedAt: now,
     };

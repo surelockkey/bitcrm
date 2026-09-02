@@ -28,14 +28,15 @@ import {
 import { usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useCompanyMap } from "@/features/clients/hooks";
-import { contactName, formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
+import { formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
 import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
-import { formatSchedule, superStatusLabel } from "@/features/deals/lib";
+import { dealClientName, formatSchedule, superStatusLabel } from "@/features/deals/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes, useJobTypeName } from "@/features/job-types/lib";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { activeJobSources, useJobSourceName } from "@/features/job-sources/lib";
+import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { activeJobStatuses, useJobStatusName } from "@/features/job-statuses/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -181,6 +182,7 @@ export function JobsReportPage() {
   const jobTagsQuery = useJobTags();
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
+  const externalCompanyName = useExternalCompanyName();
   const subStatusName = useJobStatusName();
 
   const [search, setSearch] = useState("");
@@ -212,12 +214,6 @@ export function JobsReportPage() {
   const [hourFrom, setHourFrom] = useState("");
   const [hourTo, setHourTo] = useState("");
 
-  const contactNames = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const [id, c] of contactMap) m.set(id, contactName(c));
-    return m;
-  }, [contactMap]);
-
   const searchableFields = useMemo(
     () => (customFieldDefs ?? []).filter((f) => f.searchable),
     [customFieldDefs],
@@ -246,11 +242,11 @@ export function JobsReportPage() {
           // The hour window reads the same timestamp as the "By:" switch.
           hourBasis: dateField,
         },
-        contactNames,
+        contactMap,
         searchableFields,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- range derives from preset/custom values
-    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactNames, searchableFields],
+    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactMap, searchableFields],
   );
 
   const sorted = useMemo(() => {
@@ -282,7 +278,7 @@ export function JobsReportPage() {
         const c = contactMap.get(d.contactId);
         return {
           "Job #": String(d.dealNumber),
-          Client: c ? contactName(c) : "",
+          Client: dealClientName(d, c),
           Type: jobTypeName(d.jobTypeId),
           Created: d.createdAt,
           Scheduled: d.scheduledDate ?? "",
@@ -297,6 +293,7 @@ export function JobsReportPage() {
           "Service area": d.serviceArea,
           Total: money(d.actualTotal ?? d.estimatedTotal),
           Source: sourceName(d.sourceId),
+          "External company": d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "",
         };
       }),
     );
@@ -458,6 +455,7 @@ export function JobsReportPage() {
                 <TableHead>Service area</TableHead>
                 <TableHead>Total</TableHead>
                 <TableHead>Source</TableHead>
+                <TableHead>External company</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -471,7 +469,7 @@ export function JobsReportPage() {
                         {d.dealNumber}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm font-medium">{c ? contactName(c) : "—"}</TableCell>
+                    <TableCell className="text-sm font-medium">{dealClientName(d, c)}</TableCell>
                     <TableCell>{d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={2} /> : "—"}</TableCell>
                     <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
                     <TableCell className="text-sm">{when(d.createdAt)}</TableCell>
@@ -493,6 +491,9 @@ export function JobsReportPage() {
                     <TableCell className="text-sm text-muted-foreground">{d.serviceArea || "—"}</TableCell>
                     <TableCell className="text-sm tabular-nums">{money(d.actualTotal ?? d.estimatedTotal)}</TableCell>
                     <TableCell className="text-sm">{sourceName(d.sourceId)}</TableCell>
+                    <TableCell className="text-sm">
+                      {d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "—"}
+                    </TableCell>
                   </TableRow>
                 );
               })}

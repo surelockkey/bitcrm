@@ -10,8 +10,8 @@ Publishers and consumers import these so the wire format can't drift; the
 
 | eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
 |---|---|---|---|
-| `user.activated` | `UserActivatedEvent` | user created / reactivated | inventory (provision container) |
-| `user.role-changed` | `UserRoleChangedEvent` | role assigned | inventory |
+| `user.activated` | `UserActivatedEvent` | user created / reactivated | — (containers are created manually and technicians assigned to them; no auto-provisioning) |
+| `user.role-changed` | `UserRoleChangedEvent` | role assigned | — |
 | `user.invite-resent` | `UserInviteResentEvent` | invite re-sent | — (audit) |
 | `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change | deal (eligibility), reporting |
 | `tech.approved` | `TechApprovedEvent` `{technicianId, jobTypeIds, serviceAreaIds}` | technician first becomes assignable | **deal (eligibility projection)** |
@@ -20,7 +20,17 @@ Publishers and consumers import these so the wire format can't drift; the
 | `sensitive.accessed` | `SensitiveAccessedEvent` | SSN/bank read | — (compliance/audit) |
 
 ## Topic: `deal-events` (published by deal-service)
-`deal.created`, `deal.stage_changed`, `deal.completed`, `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
+`deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
+`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
+
+`deal.updated` (`{dealId, updatedBy?}`) fires on any field edit (update, client
+reassignment, payment status) so the search index stays fresh; `deal.deleted`
+(`{dealId, deletedBy}`) fires on soft delete so the doc leaves the index.
+
+Custom-field catalog: `custom-field.created` / `.updated` / `.archived` / `.deleted`
+(`{customFieldId, …}`) — emitted by `CustomFieldsService`. The `searchable` toggle
+lives on the definition, so the search indexer invalidates its cached defs and
+rebuilds all deal docs on any of these.
 
 A deal carries **many** technicians (`assignedTechIds`), so `deal.tech_assigned` /
 `deal.tech_unassigned` (`{dealId, techId, …}`) fire **once per technician** added or
@@ -76,14 +86,16 @@ them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub
 (`telephony:call-events`) so every service instance sees every webhook.
 
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
-- **inventory-service** ← `user.activated`, `user.role-changed` → `ContainersEventHandler`
+- **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
 
 ## Topic: `inventory-events` (published by inventory-service)
 `product.created` / `product.updated` (archive/reactivate emit `product.updated`),
 `warehouse.created` / `warehouse.updated` (archive emits `warehouse.updated`),
-`container.created`, `transfer.created`. Payloads carry the entity id
+`container.created` / `container.updated`, `transfer.created`,
+`item-category.created/updated/archived/deleted`, `brand.created/updated/deleted`
+(settings catalogs; not consumed anywhere yet). Payloads carry the entity id
 (`{productId}` / `{warehouseId}` / `{containerId}` / `{transferId}`). Published
 fire-and-forget via `publishInventoryEvent` (never fails the write). Consumed by
 the search indexer (`search-index` queue). Internal stock deduct/restore transfers

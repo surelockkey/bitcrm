@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -12,8 +13,9 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { ContainersService } from './containers.service';
-import { EnsureContainerDto } from './dto/ensure-container.dto';
+import { CreateContainerDto } from './dto/create-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
+import { UpdateContainerDto } from './dto/update-container.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { coerceInternalLimit } from '../common/utils/internal-pagination';
 
@@ -23,8 +25,16 @@ import { coerceInternalLimit } from '../common/utils/internal-pagination';
 export class ContainersController {
   constructor(private readonly containersService: ContainersService) {}
 
+  @Post()
+  @RequirePermission('containers', 'create')
+  @ApiOperation({ summary: 'Create a container', description: '**Guard:** `containers.create` permission required.' })
+  async create(@Body() dto: CreateContainerDto) {
+    const data = await this.containersService.create(dto);
+    return { success: true, data };
+  }
+
   @Get('my')
-  @ApiOperation({ summary: "Get current technician's container (lazy-created)", description: '**Guard:** Authenticated (any role). Only creates a container for technicians.' })
+  @ApiOperation({ summary: "Get the container assigned to the current user", description: '**Guard:** Authenticated (any role). 404 when no container is assigned.' })
   async getMyContainer(@CurrentUser() user: JwtUser) {
     const data = await this.containersService.getMyContainer(user);
     return { success: true, data };
@@ -59,19 +69,19 @@ export class ContainersController {
     return { success: true, data };
   }
 
+  @Put(':id')
+  @RequirePermission('containers', 'edit')
+  @ApiOperation({ summary: 'Update a container', description: '**Guard:** `containers.edit` permission required.' })
+  async update(@Param('id') id: string, @Body() dto: UpdateContainerDto) {
+    const data = await this.containersService.update(id, dto);
+    return { success: true, data };
+  }
+
   @Get(':id/stock')
   @RequirePermission('containers', 'view')
   @ApiOperation({ summary: 'Get stock levels in container', description: '**Guard:** `containers.view` permission required.' })
   async getStock(@Param('id') id: string) {
     const data = await this.containersService.getStock(id);
-    return { success: true, data };
-  }
-
-  @Post('internal/ensure')
-  @Internal()
-  @ApiOperation({ summary: 'Internal: ensure container exists for technician', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
-  async ensureContainer(@Body() dto: EnsureContainerDto) {
-    const data = await this.containersService.ensureContainer(dto);
     return { success: true, data };
   }
 

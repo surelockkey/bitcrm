@@ -36,9 +36,12 @@ export const dealJobSchema = z.object({
   serviceArea: z.string().trim().optional(),
   address: addressSchema,
   scheduledDate: z.string().trim().optional().or(z.literal("")),
+  scheduledEndDate: z.string().trim().optional().or(z.literal("")),
   scheduledTimeSlot: timeSlot,
+  allDay: z.boolean().optional(),
   priority: z.nativeEnum(DealPriority),
   sourceId: z.string().trim().optional(),
+  externalCompanyId: z.string().trim().optional(),
   notes: z.string().trim().optional(),
   tagIds: z.array(z.string()).default([]),
   // Optional platinum / work-order fields.
@@ -63,7 +66,14 @@ export type CreateDealValues = DealJobValues & {
 
 /** API update body (subset of deal fields the PUT accepts). */
 export type UpdateDealValues = Partial<
-  Omit<DealJobValues, "clientType"> & { internalNotes: string }
+  // externalCompanyId is re-declared below because the PUT also accepts null.
+  Omit<DealJobValues, "clientType" | "externalCompanyId"> & {
+    internalNotes: string;
+    /** Per-job client display name ("Just here" rename); null clears it. */
+    clientName: { firstName: string; lastName: string } | null;
+    /** Referring partner; null clears it (undefined would be dropped by JSON). */
+    externalCompanyId: string | null;
+  }
 >;
 
 export const changeStageSchema = z.object({

@@ -48,17 +48,17 @@ export function ProductEditorPage({ productId }: { productId: string }) {
   const canArchive = can("products", "delete");
 
   if (!can("products", "view")) {
-    return <Center title="No access" body="You don't have permission to view products." />;
+    return <Center title="No access" body="You don't have permission to view items." />;
   }
   if (query.isLoading) return <EditorSkeleton />;
   if (query.isError || !query.data) {
     return (
       <Center
-        title="Product not found"
+        title="Item not found"
         body="It may have been deleted."
         action={
-          <Button variant="outline" onClick={() => router.push("/inventory/products")}>
-            Back to products
+          <Button variant="outline" onClick={() => router.push("/inventory/items")}>
+            Back to items
           </Button>
         }
       />
@@ -92,10 +92,10 @@ export function ProductEditorPage({ productId }: { productId: string }) {
           variant="ghost"
           size="sm"
           className="gap-1.5"
-          onClick={() => router.push("/inventory/products")}
+          onClick={() => router.push("/inventory/items")}
         >
           <ArrowLeft className="size-4" />
-          Products
+          Items
         </Button>
         <h1 className="truncate text-lg font-semibold tracking-tight">{product.name}</h1>
         <ProductTypeBadge product={product} />
@@ -123,7 +123,7 @@ export function ProductEditorPage({ productId }: { productId: string }) {
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Archive product"
+            aria-label="Archive item"
             className="text-muted-foreground hover:text-destructive"
             onClick={() => setConfirmArchive(true)}
           >
@@ -135,7 +135,7 @@ export function ProductEditorPage({ productId }: { productId: string }) {
       {!canEdit ? (
         <div className="flex items-center gap-2 border-b bg-muted/40 px-6 py-2 text-sm text-muted-foreground">
           <Info className="size-4" />
-          You have view-only access to products.
+          You have view-only access to items.
         </div>
       ) : null}
 
@@ -166,7 +166,7 @@ export function ProductEditorPage({ productId }: { productId: string }) {
                   categories={[]}
                   submitting={update.isPending}
                   submitLabel="Save changes"
-                  onCancel={() => router.push("/inventory/products")}
+                  onCancel={() => router.push("/inventory/items")}
                   onSubmit={(values) => update.mutate({ id: product.id, body: values })}
                 />
 

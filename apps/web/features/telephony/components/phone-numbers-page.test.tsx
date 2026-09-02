@@ -4,20 +4,56 @@ import userEvent from "@testing-library/user-event";
 import { PhoneNumbersPage } from "./phone-numbers-page";
 
 const mocks = vi.hoisted(() => ({
+  can: vi.fn(() => true),
   numbers: [] as unknown[],
+  settings: [{ phoneNumber: "+14045551234", sourceId: "src-google-ads" }],
   setTechLine: vi.fn(),
   release: vi.fn(),
+  updateSettings: vi.fn(),
 }));
 
+/** The roster both suites start from; each restores it after mutating. */
+const DEFAULT_NUMBERS = [
+  { sid: "PN1", phoneNumber: "+15412830739", friendlyName: "Main line" },
+  { sid: "PN2", phoneNumber: "+14045551234", friendlyName: "Ads line" },
+];
+
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({ can: mocks.can }),
+}));
 vi.mock("../numbers-hooks", () => ({
   useNumbers: () => ({ data: mocks.numbers, isLoading: false }),
   useReleaseNumber: () => ({ mutate: mocks.release, isPending: false }),
   useSetTechnicianLine: () => ({ mutate: mocks.setTechLine, isPending: false }),
-}));
-vi.mock("@/features/auth/use-permissions", () => ({
-  usePermissions: () => ({ can: () => true }),
+  useNumberSettings: () => ({ data: mocks.settings, isLoading: false }),
+  useUpdateNumberSettings: () => ({
+    mutate: mocks.updateSettings,
+    isPending: false,
+  }),
 }));
 vi.mock("./buy-number-dialog", () => ({ BuyNumberDialog: () => null }));
+
+// A plain button standing in for the source picker: shows the current value,
+// clicking it "picks" a fixed source.
+vi.mock("@/features/job-sources/components/job-source-select", () => ({
+  JobSourceSelect: ({
+    value,
+    onChange,
+  }: {
+    value?: string;
+    onChange: (v: string | undefined) => void;
+  }) => (
+    <button type="button" onClick={() => onChange("src-picked")}>
+      source:{value ?? "none"}
+    </button>
+  ),
+}));
+
+beforeEach(() => {
+  mocks.can.mockReturnValue(true);
+  mocks.updateSettings.mockReset();
+  mocks.numbers = DEFAULT_NUMBERS;
+});
 
 /**
  * The technician line is a workspace-level designation that happens to be
@@ -81,5 +117,27 @@ describe("PhoneNumbersPage — technician line", () => {
     expect(
       screen.getByRole("button", { name: /make technician line/i }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("PhoneNumbersPage — job source per number", () => {
+  it("shows each number's assigned source", () => {
+    render(<PhoneNumbersPage />);
+
+    expect(screen.getByText("Job source")).toBeInTheDocument();
+    expect(screen.getByText("source:src-google-ads")).toBeInTheDocument();
+    expect(screen.getByText("source:none")).toBeInTheDocument();
+  });
+
+  it("saves a new assignment for the number", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+
+    await u.click(screen.getByText("source:none"));
+
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      phoneNumber: "+15412830739",
+      sourceId: "src-picked",
+    });
   });
 });

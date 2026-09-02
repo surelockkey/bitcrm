@@ -32,6 +32,8 @@ import { ProductsModule } from 'src/products/products.module';
 import { WarehousesModule } from 'src/warehouses/warehouses.module';
 import { ContainersModule } from 'src/containers/containers.module';
 import { TransfersModule } from 'src/transfers/transfers.module';
+import { ItemCategoriesModule } from 'src/item-categories/item-categories.module';
+import { BrandsModule } from 'src/brands/brands.module';
 import {
   createTestTable,
   clearTestTable,
@@ -109,12 +111,16 @@ export function createTestUserHeader(user: JwtUser): string {
 const superAdminPermissions = {
   permissions: {
     products: { view: true, create: true, edit: true, delete: true },
+    product_categories: { view: true, create: true, edit: true, delete: true },
+    brands: { view: true, create: true, edit: true, delete: true },
     warehouses: { view: true, create: true, edit: true, delete: true },
     containers: { view: true, create: true, edit: true, delete: true },
     transfers: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: {
     products: 'all',
+    product_categories: 'all',
+    brands: 'all',
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
@@ -124,12 +130,16 @@ const superAdminPermissions = {
 const adminPermissions = {
   permissions: {
     products: { view: true, create: true, edit: true, delete: true },
+    product_categories: { view: true, create: true, edit: true, delete: true },
+    brands: { view: true, create: true, edit: true, delete: true },
     warehouses: { view: true, create: true, edit: true, delete: false },
     containers: { view: true, create: true, edit: true, delete: false },
     transfers: { view: true, create: true, edit: true, delete: false },
   },
   dataScope: {
     products: 'all',
+    product_categories: 'all',
+    brands: 'all',
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
@@ -139,12 +149,16 @@ const adminPermissions = {
 const techPermissions = {
   permissions: {
     products: { view: true, create: false, edit: false, delete: false },
+    product_categories: { view: true, create: false, edit: false, delete: false },
+    brands: { view: true, create: false, edit: false, delete: false },
     warehouses: { view: false, create: false, edit: false, delete: false },
     containers: { view: true, create: false, edit: false, delete: false },
     transfers: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
+    product_categories: 'all',
+    brands: 'all',
     warehouses: 'assigned_only',
     containers: 'assigned_only',
     transfers: 'assigned_only',
@@ -154,12 +168,16 @@ const techPermissions = {
 const dispatcherPermissions = {
   permissions: {
     products: { view: true, create: false, edit: false, delete: false },
+    product_categories: { view: true, create: false, edit: false, delete: false },
+    brands: { view: true, create: false, edit: false, delete: false },
     warehouses: { view: true, create: false, edit: false, delete: false },
     containers: { view: true, create: false, edit: false, delete: false },
     transfers: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
+    product_categories: 'all',
+    brands: 'all',
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
@@ -169,12 +187,16 @@ const dispatcherPermissions = {
 const readOnlyPermissions = {
   permissions: {
     products: { view: true, create: false, edit: false, delete: false },
+    product_categories: { view: true, create: false, edit: false, delete: false },
+    brands: { view: true, create: false, edit: false, delete: false },
     warehouses: { view: true, create: false, edit: false, delete: false },
     containers: { view: true, create: false, edit: false, delete: false },
     transfers: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
+    product_categories: 'all',
+    brands: 'all',
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
@@ -232,6 +254,8 @@ export async function setupApp(): Promise<INestApplication> {
       WarehousesModule,
       ContainersModule,
       TransfersModule,
+      ItemCategoriesModule,
+      BrandsModule,
     ],
     providers: [
       { provide: APP_GUARD, useClass: TestAuthGuard },

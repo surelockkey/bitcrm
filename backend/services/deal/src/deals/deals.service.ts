@@ -41,6 +41,7 @@ import { InternalHttpService } from '../common/services/internal-http.service';
 import { ServiceAreasService } from '../service-areas/service-areas.service';
 import { JobTypesService } from '../job-types/job-types.service';
 import { JobSourcesService } from '../job-sources/job-sources.service';
+import { ExternalCompaniesService } from '../external-companies/external-companies.service';
 import { JobTagsService } from '../job-tags/job-tags.service';
 import { JobStatusesService } from '../job-statuses/job-statuses.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
@@ -70,6 +71,7 @@ export class DealsService {
     private readonly serviceAreas: ServiceAreasService,
     private readonly jobTypes: JobTypesService,
     private readonly jobSources: JobSourcesService,
+    private readonly externalCompanies: ExternalCompaniesService,
     private readonly jobTags: JobTagsService,
     private readonly jobStatuses: JobStatusesService,
     private readonly customFields: CustomFieldsService,
@@ -313,6 +315,16 @@ export class DealsService {
       }
     }
 
+    // The referring partner is optional; same rule — a disabled one can't start a new job.
+    if (dto.externalCompanyId) {
+      const company = await this.externalCompanies.findById(dto.externalCompanyId);
+      if (!company.active) {
+        throw new BadRequestException(
+          `External company "${company.name}" is disabled and cannot be used on a new deal`,
+        );
+      }
+    }
+
     // Tags are optional and many; validate all against the catalog in one read,
     // rejecting unknown or archived ids on a new deal.
     const tagIds = dto.tagIds ?? [];
@@ -338,7 +350,9 @@ export class DealsService {
       companyId: dto.companyId,
       clientType: dto.clientType,
       scheduledDate: dto.scheduledDate,
-      scheduledTimeSlot: dto.scheduledTimeSlot,
+      scheduledEndDate: dto.scheduledEndDate,
+      scheduledTimeSlot: dto.allDay ? undefined : dto.scheduledTimeSlot,
+      allDay: dto.allDay,
       serviceArea,
       serviceAreaId,
       address,
@@ -348,6 +362,7 @@ export class DealsService {
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
+      externalCompanyId: dto.externalCompanyId,
       workOrderId: dto.workOrderId,
       poNumber: dto.poNumber,
       notes: dto.notes,
@@ -355,6 +370,8 @@ export class DealsService {
       customFields: dto.customFields as Record<string, CustomFieldValue> | undefined,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
+      // The status clock starts with the job itself (drives "time in status").
+      statusChangedAt: now,
       createdAt: now,
       updatedAt: now,
     };
@@ -491,6 +508,8 @@ export class DealsService {
     if (updates.jobTypeId) await this.jobTypes.findById(updates.jobTypeId);
     // Archived source allowed on update so an old deal stays editable.
     if (updates.sourceId) await this.jobSources.findById(updates.sourceId);
+    // Disabled company allowed on update so an old job stays editable.
+    if (updates.externalCompanyId) await this.externalCompanies.findById(updates.externalCompanyId);
     // Tags: archived allowed on update; enforce each id exists.
     if (updates.tagIds?.length) {
       const known = new Set((await this.jobTags.list()).map((t) => t.id));
@@ -516,6 +535,8 @@ export class DealsService {
 
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
+    // Any edit must reach the search index (address, custom fields, notes…).
+    this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
 
     // Moving the deal's date re-stamps its assignment rows (so each tech's day
     // re-sorts on the tech index) and renumbers both the old and new days.
@@ -584,6 +605,7 @@ export class DealsService {
       oldValue: existing.contactId,
       newValue: contactId,
     });
+    this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
 
     return this.findById(id);
   }
@@ -592,6 +614,7 @@ export class DealsService {
     await this.findById(id);
     await this.repository.softDelete(id);
     await this.cache.invalidate(id);
+    this.publishEvent('deal.deleted', { dealId: id, deletedBy: caller.id });
   }
 
   /**
@@ -644,6 +667,13 @@ export class DealsService {
     };
     if (cancellationReason) {
       updates.cancellationReason = cancellationReason;
+    }
+
+    // Re-stamp the status clock only on a real move — repeating the current
+    // status (and sub-status) must not reset "time in status".
+    const subChanged = (dto.subStatusId || null) !== (deal.subStatusId ?? null);
+    if (dto.superStatus !== from || subChanged) {
+      updates.statusChangedAt = new Date().toISOString();
     }
 
     // Closing (Done/Canceled, or their sub-statuses) stamps closedAt; leaving a
@@ -699,12 +729,19 @@ export class DealsService {
     actor: { id: string; name: string },
   ): Promise<void> {
     await this.findById(dealId);
-    await this.addTimelineEntry(
+    // Written directly: addTimelineEntry stamps `caller.email` as the label,
+    // and this actor arrives with a display name instead of a JWT.
+    await this.timelineRepo.addEntry({
+      id: randomUUID(),
       dealId,
-      linked ? TimelineEventType.CALL_LINKED : TimelineEventType.CALL_UNLINKED,
-      { id: actor.id, firstName: actor.name, lastName: '' } as unknown as JwtUser,
+      eventType: linked
+        ? TimelineEventType.CALL_LINKED
+        : TimelineEventType.CALL_UNLINKED,
+      actorId: actor.id,
+      actorName: actor.name,
+      timestamp: new Date().toISOString(),
       details,
-    );
+    });
   }
 
   async addNote(id: string, dto: AddNoteDto, caller: JwtUser): Promise<void> {
@@ -757,28 +794,46 @@ export class DealsService {
    */
   async getQualifiedTechs(id: string) {
     const deal = await this.findById(id);
+    return this.rankQualifiedTechsFor({
+      jobTypeId: deal.jobTypeId,
+      serviceAreaId: deal.serviceAreaId,
+      lat: deal.address.lat,
+      lng: deal.address.lng,
+    });
+  }
+
+  /**
+   * Rank technicians for a job described by params rather than a saved deal —
+   * so the New Job form can suggest who can do the work (right job type, in the
+   * service area) before the deal exists. Same scoring and shape as
+   * getQualifiedTechs; distance is measured from the given point when present.
+   */
+  async rankQualifiedTechsFor(params: {
+    jobTypeId: string;
+    serviceAreaId?: string;
+    lat?: number;
+    lng?: number;
+  }) {
     const candidates = await this.eligibility.listAll();
 
     return candidates
       .map((tech) => {
         const reasons: string[] = [];
         if (!tech.assignable) reasons.push('not_assignable');
-        if (!tech.jobTypeIds.includes(deal.jobTypeId)) reasons.push('missing_job_type');
-        if (!deal.serviceAreaId || !tech.serviceAreaIds.includes(deal.serviceAreaId)) {
+        // An empty job type means "any" — skip the job-type check entirely.
+        if (params.jobTypeId && !tech.jobTypeIds.includes(params.jobTypeId)) {
+          reasons.push('missing_job_type');
+        }
+        if (!params.serviceAreaId || !tech.serviceAreaIds.includes(params.serviceAreaId)) {
           reasons.push('outside_area');
         }
 
         const distance =
-          deal.address.lat !== undefined &&
-          deal.address.lng !== undefined &&
+          params.lat !== undefined &&
+          params.lng !== undefined &&
           tech.homeAddress?.lat !== undefined &&
           tech.homeAddress?.lng !== undefined
-            ? distanceMiles(
-                deal.address.lat,
-                deal.address.lng,
-                tech.homeAddress.lat,
-                tech.homeAddress.lng,
-              )
+            ? distanceMiles(params.lat, params.lng, tech.homeAddress.lat, tech.homeAddress.lng)
             : null;
 
         return {
@@ -1348,6 +1403,7 @@ export class DealsService {
         amount: dto.amount,
       },
     });
+    this.publishEvent('deal.updated', { dealId: id });
   }
 
   // Private helpers
