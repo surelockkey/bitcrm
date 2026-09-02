@@ -4,6 +4,7 @@ import { TechniciansService } from '../../../src/technicians/technicians.service
 import { TechniciansRepository } from '../../../src/technicians/technicians.repository';
 import { TechniciansCacheService } from '../../../src/technicians/technicians-cache.service';
 import { RolesService } from '../../../src/roles/roles.service';
+import { UsersService } from '../../../src/users/users.service';
 import {
   createMockJwtUser,
   createMockTechniciansRepository,
@@ -47,6 +48,11 @@ describe('TechniciansService — home address geocoding', () => {
         { provide: TechniciansCacheService, useValue: createMockTechniciansCacheService() },
         { provide: RolesService, useValue: createMockRolesServiceByPriority() },
         { provide: GeocodingService, useValue: geocoding },
+        // The phone lives on the user record; nothing here touches it.
+        {
+          provide: UsersService,
+          useValue: { findById: jest.fn().mockResolvedValue(null), setPhone: jest.fn() },
+        },
       ],
     }).compile();
 

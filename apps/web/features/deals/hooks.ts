@@ -12,6 +12,8 @@ import type { Contact, Deal, JobSuperStatus, User } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
+import { getUserNames } from "@/features/users/api";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
@@ -93,17 +95,78 @@ export function useContactMap() {
 }
 
 /** userId → User (technicians + dispatchers), shared with the Technicians cache. */
-export function useUserMap() {
-  const q = useQuery({
+/**
+ * What a name join needs, and no more.
+ *
+ * A restricted viewer only ever gets these three fields back, so this is the
+ * honest type for a shared user map — widening it to `User` would let a
+ * consumer read an email or a phone that is simply absent for them.
+ */
+export type DirectoryUser = Pick<User, "id" | "firstName" | "lastName"> & {
+  /**
+   * Present only when the viewer may list users. Several screens fall back to
+   * it when somebody has no name set — a restricted viewer simply falls
+   * through to the id instead, which is the honest outcome.
+   */
+  email?: string;
+  /** Same: present only when the viewer may list users. */
+  department?: string;
+};
+
+/**
+ * id → teammate, for turning assignment ids into names.
+ *
+ * Two paths, because two kinds of viewer:
+ *
+ *  - **May list users** → the whole directory, as before. `ids` is ignored.
+ *  - **May not** (a technician holds `users.view: false`) → `GET /users` would
+ *    403, the map would come back empty, and every consumer would render a raw
+ *    uuid where a name belongs. So those ids are resolved through
+ *    `POST /users/by-ids`, which returns a name and nothing else and cannot be
+ *    used to enumerate.
+ *
+ * A restricted viewer who passes no ids gets an empty map and makes no request
+ * — there is nothing to look up, and nothing to fish for.
+ */
+export function useUserMap(ids?: string[]) {
+  const { can, isLoading: permsLoading } = usePermissions();
+  // While permissions are still resolving, `can()` answers false for
+  // everything — so committing to the restricted path here would flash raw
+  // uuids at a manager before flipping to names. Assume the directory (which
+  // may already be cached) and fetch nothing until we actually know.
+  const canList = permsLoading || can("users", "view");
+
+  // Sorted and de-duplicated so the cache key is stable across renders.
+  const wanted = useMemo(
+    () => [...new Set(ids ?? [])].filter(Boolean).sort(),
+    [ids],
+  );
+
+  const directory = useQuery({
     queryKey: queryKeys.technicians.userMap(),
     queryFn: () => fetchAllUsers(),
+    enabled: !permsLoading && canList,
   });
+
+  const names = useQuery({
+    queryKey: ["user-names", wanted],
+    queryFn: () => getUserNames(wanted),
+    enabled: !permsLoading && !canList && wanted.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const q = canList ? directory : names;
   const map = useMemo(() => {
-    const m = new Map<string, User>();
-    for (const u of q.data ?? []) m.set(u.id, u);
+    const m = new Map<string, DirectoryUser>();
+    for (const u of (q.data as DirectoryUser[] | undefined) ?? []) m.set(u.id, u);
     return m;
   }, [q.data]);
-  return { map, users: q.data ?? [], isLoading: q.isLoading };
+
+  return {
+    map,
+    users: canList ? (directory.data ?? []) : [],
+    isLoading: q.isLoading && (canList || wanted.length > 0),
+  };
 }
 
 /* ----------------------------------------------------------- mutations */

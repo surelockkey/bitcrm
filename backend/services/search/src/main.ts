@@ -2,7 +2,10 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../.env') });
 
-import { initTracing, shutdownTracing } from '@bitcrm/shared';
+import { initTracing,
+  installGracefulShutdown,
+  runBootstrap,
+} from '@bitcrm/shared';
 initTracing('search-service');
 
 import { NestFactory } from '@nestjs/core';
@@ -36,12 +39,8 @@ async function bootstrap() {
   await app.listen(port);
   app.get(Logger).log(`Search service running on http://localhost:${port}`);
 
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.on(signal, async () => {
-      await app.close();
-      await shutdownTracing();
-      process.exit(0);
-    });
-  }
+  // Bounded: a half-open keep-alive connection can make app.close()
+  // wait forever, and in a --watch loop nothing follows up with a kill.
+  installGracefulShutdown(app);
 }
-bootstrap();
+runBootstrap(bootstrap);

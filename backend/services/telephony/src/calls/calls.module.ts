@@ -8,6 +8,9 @@ import { ContactLookupService } from '../common/contact-lookup.service';
 import { UserPhoneLookupService } from '../common/user-phone-lookup.service';
 import { UserDirectoryService } from '../common/user-directory.service';
 import { DealLinkService } from '../common/deal-link.service';
+import { PermissionLookupService } from '../common/permission-lookup.service';
+import { BridgeService } from '../common/bridge.service';
+import { PresenceModule } from '../presence/presence.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
 import { VoiceModule } from '../voice/voice.module';
@@ -16,7 +19,12 @@ import { VoiceModule } from '../voice/voice.module';
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
   // NumbersModule: per-number source assignments for call attribution.
-  imports: [TelephonyModule, NumbersModule, forwardRef(() => VoiceModule)],
+  imports: [
+    TelephonyModule,
+    PresenceModule,
+    NumbersModule,
+    forwardRef(() => VoiceModule),
+  ],
   controllers: [CallsController],
   providers: [
     CallsService,
@@ -27,7 +35,9 @@ import { VoiceModule } from '../voice/voice.module';
     UserPhoneLookupService,
     UserDirectoryService,
     DealLinkService,
+    PermissionLookupService,
+    BridgeService,
   ],
-  exports: [CallsService, CallEventsBus],
+  exports: [CallsService, CallEventsBus, BridgeService],
 })
 export class CallsModule {}

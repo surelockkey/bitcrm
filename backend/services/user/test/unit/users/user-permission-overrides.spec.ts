@@ -310,4 +310,91 @@ describe('UsersService — Permission Overrides', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  /**
+   * The role-change hole this feature had to close.
+   *
+   * `assignRole` wipes permissionOverrides — right for almost every override,
+   * and wrong for exactly one: a masked technician promoted to dispatcher
+   * would silently regain every client's number.
+   *
+   * The rule: a privacy RESTRICTION survives a role change; a privacy
+   * EXEMPTION does not. It can only ever quietly restrict, never quietly widen.
+   */
+  describe('assignRole — carrying a masking restriction forward', () => {
+    const caller = createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' });
+
+    const dispatcherRole = createMockRole({
+      id: 'role-dispatcher',
+      name: 'Dispatcher',
+      priority: 40,
+      isSystem: true,
+      permissions: { contacts: { view: true, view_numbers: true } },
+    });
+
+    const withOverrides = (o: UserPermissionOverrides | undefined) => {
+      const user = createMockUser({
+        id: 'user-1',
+        roleId: 'role-technician',
+        permissionOverrides: o,
+      });
+      repository.findById.mockResolvedValue(user);
+      repository.update.mockResolvedValue(user);
+      rolesService.findById.mockImplementation((roleId: string) => {
+        if (roleId === 'role-admin') return Promise.resolve(callerRole);
+        if (roleId === 'role-technician') return Promise.resolve(targetRole);
+        if (roleId === 'role-dispatcher') return Promise.resolve(dispatcherRole);
+        return Promise.reject(new NotFoundException());
+      });
+    };
+
+    it('keeps the restriction when the new role would grant numbers', async () => {
+      withOverrides({ permissions: { contacts: { view_numbers: false } } });
+
+      await service.assignRole('user-1', 'role-dispatcher', caller);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          roleId: 'role-dispatcher',
+          permissionOverrides: {
+            permissions: { contacts: { view_numbers: false } },
+          },
+        }),
+      );
+    });
+
+    it('drops every other override, exactly as before', async () => {
+      withOverrides({ permissions: { deals: { delete: true } } });
+
+      await service.assignRole('user-1', 'role-dispatcher', caller);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ permissionOverrides: undefined }),
+      );
+    });
+
+    it('does not carry an EXEMPTION forward — it can only restrict', async () => {
+      withOverrides({ permissions: { contacts: { view_numbers: true } } });
+
+      await service.assignRole('user-1', 'role-dispatcher', caller);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ permissionOverrides: undefined }),
+      );
+    });
+
+    it('drops it when the incoming role denies numbers anyway', async () => {
+      withOverrides({ permissions: { contacts: { view_numbers: false } } });
+      // targetRole (Technician) has no view_numbers grant of its own.
+      await service.assignRole('user-1', 'role-technician', caller);
+
+      expect(repository.update).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ permissionOverrides: undefined }),
+      );
+    });
+  });
 });

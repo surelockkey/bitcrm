@@ -95,6 +95,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
                   label="Phones"
                   icon={Phone}
                   values={company.phones}
+                  maskedCount={company.phoneCount}
                   format={(p) => formatPhoneWithExtension(p, extensionOf(company, p))}
                   primaryFirst
                   action={(phone) => (

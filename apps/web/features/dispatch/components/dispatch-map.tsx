@@ -17,6 +17,7 @@ import {
   type LocatedDeal,
   type TechnicianPosition,
 } from "../lib";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 /** Atlanta — the metro the platform serves; only used until real pins arrive. */
 const FALLBACK_CENTER = { lat: 33.749, lng: -84.388 };
@@ -123,7 +124,7 @@ export function DispatchMap({
   technicians: TechnicianPosition[];
   /** Coverage polygons to draw underneath the pins; empty hides the layer. */
   serviceAreas: ServiceArea[];
-  userMap: Map<string, User>;
+  userMap: Map<string, DirectoryUser>;
   hoveredId: string | null;
   selectedId: string | null;
   /** When set, the map re-centres here — the selected job pin or technician. */
@@ -161,7 +162,7 @@ export function DispatchMap({
       {technicians.map((position) => {
         const user = userMap.get(position.userId);
         const name = user
-          ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email
+          ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email || position.userId
           : "Technician";
         const jobs = techJobsToday(allDeals, position.userId, today);
         return (

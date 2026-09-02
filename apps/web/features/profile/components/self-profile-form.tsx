@@ -6,16 +6,18 @@ import { z } from "zod";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TechnicianProfile } from "@bitcrm/types";
 import { useProfile, useUpdateProfile } from "@/features/technicians/hooks";
 import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
 
-/** Self-fill only — labor cost, status and the GPS/masking flags are manager-owned. */
+/**
+ * Self-fill only — labor cost, status and the GPS/masking flags are
+ * manager-owned, and the phone belongs to the account card above: there is one
+ * number per person and telephony reads it from the user record.
+ */
 const selfSchema = z.object({
-  phone: z.string().trim().max(30).optional(),
   line1: z.string().trim().max(120).optional(),
   line2: z.string().trim().max(120).optional(),
   city: z.string().trim().max(80).optional(),
@@ -39,7 +41,6 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
   const form = useForm<SelfValues>({
     resolver: zodResolver(selfSchema),
     defaultValues: {
-      phone: profile.phone ?? "",
       line1: a?.line1 ?? "",
       line2: a?.line2 ?? "",
       city: a?.city ?? "",
@@ -49,30 +50,24 @@ function Form({ technicianId, profile }: { technicianId: string; profile: Techni
   });
 
   const line1 = useWatch({ control: form.control, name: "line1" }) ?? "";
-  const phoneVal = useWatch({ control: form.control, name: "phone" }) ?? "";
 
   const onSubmit = (v: SelfValues) => {
     const homeAddress =
       v.line1 && v.city && v.state && v.zip
         ? { line1: v.line1, line2: v.line2 || undefined, city: v.city, state: v.state, zip: v.zip, lat: v.lat, lng: v.lng }
         : undefined;
-    update.mutate({ id: technicianId, body: { phone: v.phone || undefined, homeAddress } });
+    update.mutate({ id: technicianId, body: { homeAddress } });
   };
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="max-w-xl space-y-5" noValidate>
-      <div className="space-y-1.5">
-        <Label>Dispatch phone</Label>
-        <PhoneInput value={phoneVal} onChange={(v) => form.setValue("phone", v, { shouldValidate: true, shouldDirty: true })} />
-        {/* Distinct from the account phone above: this one rides on the
-            technician record (dispatch, onboarding), that one identifies you
-            in the call log. They can be the same number. */}
-        <p className="text-xs text-muted-foreground">
-          Shown on your technician record for dispatch. To be recognised in the
-          call log, set the phone on your account above.
-        </p>
-        {form.formState.errors.phone ? <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p> : null}
-      </div>
+      {/* The phone used to live here too, as a second "dispatch phone" a
+          technician could fill in and still be unreachable. There is one
+          number now, on the account card above. */}
+      <p className="text-xs text-muted-foreground">
+        Your phone is on your account above — that is the number we ring and the
+        one that identifies you in the call log.
+      </p>
       <div className="space-y-1.5">
         <Label>Home address</Label>
         <AddressAutocomplete

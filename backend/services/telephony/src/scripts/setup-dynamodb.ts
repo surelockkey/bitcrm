@@ -9,6 +9,7 @@ import {
   CALLS_GSI2_NAME,
 } from '../common/constants/dynamo.constants';
 import { CALL_GROUPS_TABLE } from '../call-groups/call-groups.constants';
+import { CALL_FLOWS_TABLE } from '../call-flows/call-flows.constants';
 
 async function createCallsTable(client: DynamoDBClient) {
   try {
@@ -85,6 +86,33 @@ async function createCallGroupsTable(client: DynamoDBClient) {
   }
 }
 
+/** Call flows: one partition, one item per flow — no index needed. */
+async function createCallFlowsTable(client: DynamoDBClient) {
+  try {
+    await client.send(
+      new CreateTableCommand({
+        TableName: CALL_FLOWS_TABLE,
+        KeySchema: [
+          { AttributeName: 'PK', KeyType: 'HASH' },
+          { AttributeName: 'SK', KeyType: 'RANGE' },
+        ],
+        AttributeDefinitions: [
+          { AttributeName: 'PK', AttributeType: 'S' },
+          { AttributeName: 'SK', AttributeType: 'S' },
+        ],
+        BillingMode: 'PAY_PER_REQUEST',
+      }),
+    );
+    console.log(`Table "${CALL_FLOWS_TABLE}" created successfully`);
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'ResourceInUseException') {
+      console.log(`Table "${CALL_FLOWS_TABLE}" already exists`);
+    } else {
+      throw error;
+    }
+  }
+}
+
 async function main() {
   const client = new DynamoDBClient({
     region: process.env.AWS_REGION || 'us-east-1',
@@ -96,6 +124,7 @@ async function main() {
 
   await createCallsTable(client);
   await createCallGroupsTable(client);
+  await createCallFlowsTable(client);
 }
 
 main().catch((err) => {

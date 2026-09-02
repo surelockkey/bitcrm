@@ -4,6 +4,17 @@ import { ContactsService } from 'src/contacts/contacts.service';
 import { createMockContact, createMockJwtUser } from '../mocks';
 import { ContactType, ContactSource } from '@bitcrm/types';
 
+/** A viewer holding contacts.view_numbers — the pre-masking status quo. */
+const GRANTED = {
+  roleId: 'role-admin',
+  roleName: 'Admin',
+  isSystemRole: true,
+  permissions: { contacts: { view: true, view_numbers: true } },
+  dataScope: {},
+  dealStageTransitions: [],
+  hasOverrides: false,
+} as any;
+
 describe('ContactsController', () => {
   let controller: ContactsController;
   let service: Record<string, jest.Mock>;
@@ -52,7 +63,7 @@ describe('ContactsController', () => {
       const contacts = [createMockContact()];
       service.list.mockResolvedValue({ items: contacts, nextCursor: undefined });
 
-      const result = await controller.list({ limit: 20 } as any);
+      const result = await controller.list({ limit: 20 } as any, GRANTED);
 
       expect(result).toEqual({
         success: true,
@@ -67,7 +78,7 @@ describe('ContactsController', () => {
       const contact = createMockContact();
       service.findById.mockResolvedValue(contact);
 
-      const result = await controller.findById('contact-1');
+      const result = await controller.findById('contact-1', GRANTED);
 
       expect(result).toEqual({ success: true, data: contact });
       expect(service.findById).toHaveBeenCalledWith('contact-1');
@@ -122,7 +133,7 @@ describe('ContactsController', () => {
       const contact = createMockContact({ firstName: 'Jane' });
       service.update.mockResolvedValue(contact);
 
-      const result = await controller.update('contact-1', { firstName: 'Jane' } as any);
+      const result = await controller.update('contact-1', { firstName: 'Jane' } as any, GRANTED);
 
       expect(result).toEqual({ success: true, data: contact });
       expect(service.update).toHaveBeenCalledWith('contact-1', { firstName: 'Jane' });
@@ -170,6 +181,110 @@ describe('ContactsController', () => {
       const result = await controller.searchByPhone('(999) 999-9999');
 
       expect(result).toEqual({ success: true, data: null });
+    });
+  });
+
+  /**
+   * Call masking, from the controller's side: the grant is read off the
+   * permissions the guard already resolved for `contacts.view`, and only the
+   * user-facing routes redact. The internal routes must NOT — telephony
+   * resolves the real number server-side to place the masked call.
+   */
+  describe('contacts.view_numbers', () => {
+    const perms = (viewNumbers: boolean) =>
+      ({
+        roleId: 'role-technician',
+        roleName: 'Technician',
+        isSystemRole: true,
+        permissions: { contacts: { view: true, view_numbers: viewNumbers } },
+        dataScope: {},
+        dealStageTransitions: [],
+        hasOverrides: false,
+      }) as any;
+
+    it('list returns real numbers to a granted viewer', async () => {
+      const contact = createMockContact({ phones: ['+14045551234'] });
+      service.list.mockResolvedValue({ items: [contact], nextCursor: undefined });
+
+      const result = await controller.list({ limit: 20 } as any, perms(true));
+
+      expect(result.data[0].phones).toEqual(['+14045551234']);
+      expect(result.data[0]).not.toHaveProperty('phonesMasked');
+    });
+
+    it('list hides numbers but keeps the count for a masked viewer', async () => {
+      const contact = createMockContact({ phones: ['+14045551234'] });
+      service.list.mockResolvedValue({ items: [contact], nextCursor: undefined });
+
+      const result = await controller.list({ limit: 20 } as any, perms(false));
+
+      expect(result.data[0].phones).toEqual([]);
+      expect(result.data[0].phoneCount).toBe(1);
+      expect(result.data[0].phonesMasked).toBe(true);
+    });
+
+    it('findById hides numbers for a masked viewer', async () => {
+      service.findById.mockResolvedValue(
+        createMockContact({ phones: ['+14045551234', '+14045555678'] }),
+      );
+
+      const result = await controller.findById('contact-1', perms(false));
+
+      expect(result.data.phones).toEqual([]);
+      expect(result.data.phoneCount).toBe(2);
+    });
+
+    it('fails closed when permissions could not be resolved', async () => {
+      service.findById.mockResolvedValue(
+        createMockContact({ phones: ['+14045551234'] }),
+      );
+
+      const result = await controller.findById('contact-1', undefined as any);
+
+      expect(result.data.phones).toEqual([]);
+    });
+
+    it('never masks the internal by-id route', async () => {
+      const contact = createMockContact({ phones: ['+14045551234'] });
+      service.findById.mockResolvedValue(contact);
+
+      const result = await controller.findByIdInternal('contact-1');
+
+      expect(result.data.phones).toEqual(['+14045551234']);
+    });
+
+    /**
+     * The destroy-on-edit trap: CRM has no whitelisting ValidationPipe, a
+     * masked edit form loads `phones: []`, and `if (dto.phones)` is true for an
+     * empty array — so without this the first unrelated save wipes every number.
+     */
+    it('drops phones from a masked caller update instead of blanking them', async () => {
+      service.update.mockResolvedValue(createMockContact());
+
+      await controller.update(
+        'contact-1',
+        { firstName: 'Jane', phones: [] } as any,
+        perms(false),
+      );
+
+      expect(service.update).toHaveBeenCalledWith('contact-1', {
+        firstName: 'Jane',
+      });
+    });
+
+    it('passes phones through from a granted caller update', async () => {
+      service.update.mockResolvedValue(createMockContact());
+
+      await controller.update(
+        'contact-1',
+        { firstName: 'Jane', phones: ['+14045559999'] } as any,
+        perms(true),
+      );
+
+      expect(service.update).toHaveBeenCalledWith('contact-1', {
+        firstName: 'Jane',
+        phones: ['+14045559999'],
+      });
     });
   });
 

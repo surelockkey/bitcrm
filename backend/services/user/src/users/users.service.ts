@@ -54,6 +54,19 @@ export interface TechnicianEligibilityInfo {
   homeAddress?: { lat: number; lng: number };
 }
 
+/**
+ * A teammate reduced to what a name join needs. Deliberately NOT a `Partial<User>`
+ * — the point is that nothing else can be added by accident.
+ */
+export interface UserName {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+/** One request may not sweep a generated id space. */
+const MAX_NAME_LOOKUP = 200;
+
 @Injectable()
 export class UsersService implements OnModuleInit {
   private readonly logger = new Logger(UsersService.name);
@@ -414,11 +427,13 @@ export class UsersService implements OnModuleInit {
   }
 
   /**
-   * Your own phone, settable by anyone for themselves — a technician has no
-   * `users.edit` permission but must still be reachable on their own number,
-   * which is the whole point of the field.
+   * Set a person's phone — the only place a phone number is stored. Anyone may
+   * set their own (a technician has no `users.edit` permission but must still
+   * be reachable on their own number, which is the whole point of the field),
+   * and the technician module routes its profile form here rather than keeping
+   * a second copy. Authorization is the caller's job.
    */
-  async updateOwnPhone(userId: string, raw: string): Promise<User> {
+  async setPhone(userId: string, raw: string): Promise<User> {
     const existing = await this.findById(userId);
     const phone = await this.applyPhoneChange(userId, existing.phone, raw);
     const updated = await this.repository.update(userId, { phone });
@@ -448,6 +463,41 @@ export class UsersService implements OnModuleInit {
    * tell "we rang Nazarii's mobile" apart from "an unknown number called in".
    * Misses and unparseable input are simply absent from the map.
    */
+  /**
+   * Teammate names for ids the caller already holds.
+   *
+   * The narrow alternative to `users.view` for the screens that only need to
+   * turn an id into something readable. A technician holds `users.view: false`,
+   * so `GET /users` 403s for them and every name join falls back to rendering a
+   * raw uuid — while they still legitimately need to see who else is on their
+   * job.
+   *
+   * Three properties make this safe to expose to any authenticated user:
+   *  - you must already HOLD the id, so there is nothing to enumerate;
+   *  - the batch is capped, so a generated id space cannot be swept;
+   *  - the shape is `{id, firstName, lastName}` and nothing else — in
+   *    particular not a teammate's personal phone, which the call log treats
+   *    as identifying.
+   */
+  async namesByIds(ids: string[]): Promise<UserName[]> {
+    const wanted = [...new Set((ids ?? []).filter((id) => typeof id === 'string' && id))]
+      .slice(0, MAX_NAME_LOOKUP);
+    if (wanted.length === 0) return [];
+
+    const found = await Promise.all(
+      wanted.map((id) =>
+        this.repository
+          .findById(id)
+          // One unreadable row must not cost the caller every other name.
+          .catch(() => null),
+      ),
+    );
+
+    return found
+      .filter((u): u is NonNullable<typeof u> => Boolean(u))
+      .map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName }));
+  }
+
   async findManyByPhone(phones: string[]): Promise<Record<string, User>> {
     const wanted = new Map<string, string>(); // normalized -> raw input
     for (const raw of new Set(phones)) {
@@ -578,9 +628,16 @@ export class UsersService implements OnModuleInit {
       }
     }
 
+    // A PRIVACY RESTRICTION SURVIVES A ROLE CHANGE; A PRIVACY EXEMPTION DOES
+    // NOT. Every other override still drops, exactly as before — but a masked
+    // technician promoted to dispatcher would otherwise silently regain every
+    // client's number, which is a privacy regression nobody would notice until
+    // it mattered.
+    const carried = await this.carryForwardPrivacy(targetUser, roleId);
+
     const updatedUser = await this.repository.update(userId, {
       roleId,
-      permissionOverrides: undefined,
+      permissionOverrides: carried,
     });
 
     await this.cognitoAdmin.updateUserAttributes(targetUser.cognitoSub, {
@@ -702,6 +759,30 @@ export class UsersService implements OnModuleInit {
         `Failed to provision technician profile for ${userId}: ${(err as Error).message}`,
       );
     }
+  }
+
+  /**
+   * Keep a masking restriction across a role change.
+   *
+   * Only ever carries a DENIAL forward, and only when the incoming role would
+   * grant it — so this can quietly restrict, never quietly widen. Returns
+   * undefined (drop everything, as before) when there is nothing to keep.
+   */
+  private async carryForwardPrivacy(
+    user: User,
+    incomingRoleId: string,
+  ): Promise<User['permissionOverrides']> {
+    const wasDenied =
+      user.permissionOverrides?.permissions?.contacts?.view_numbers === false;
+    if (!wasDenied) return undefined;
+
+    const incoming = await this.rolesService.findById(incomingRoleId).catch(() => null);
+    if (incoming?.permissions?.contacts?.view_numbers !== true) return undefined;
+
+    this.logger.log(
+      `Carrying the client-number restriction forward for ${user.id} into ${incomingRoleId}`,
+    );
+    return { permissions: { contacts: { view_numbers: false } } };
   }
 
   private publishUserEvent(eventType: string, user: User): void {

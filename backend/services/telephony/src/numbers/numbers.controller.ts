@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -18,6 +19,10 @@ import { IsOptional, IsString, ValidateIf } from 'class-validator';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { NumbersService } from './numbers.service';
+import { CallFlowsService } from '../call-flows/call-flows.service';
+import { ServiceAreaNumbersService } from '../common/service-area-numbers.service';
+import { LinesHealthService } from './lines-health.service';
+import { TelephonySettingsService } from '../telephony/telephony-settings.service';
 import { NumberSettingsRepository } from './number-settings.repository';
 
 class BuyNumberDto {
@@ -42,8 +47,71 @@ class UpdateNumberSettingsDto {
 export class NumbersController {
   constructor(
     private readonly numbers: NumbersService,
-    private readonly settings: NumberSettingsRepository,
+    private readonly flows: CallFlowsService,
+    private readonly areaNumbers: ServiceAreaNumbersService,
+    private readonly linesHealth: LinesHealthService,
+    private readonly settings: TelephonySettingsService,
+    private readonly numberSettings: NumberSettingsRepository,
   ) {}
+
+  @Put(':sid/technician-line')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Make this the technician dial-in line',
+    description:
+      '**Guard:** `settings.edit`. A workspace has exactly ONE technician ' +
+      'line, so designating a number releases whichever number held it — no ' +
+      'separate unset step, and no way to end up with two.',
+  })
+  async makeTechnicianLine(@Param('sid') sid: string) {
+    const owned = await this.numbers.listOwned();
+    const number = owned.find((n) => n.sid === sid);
+    if (!number) throw new NotFoundException('That number is not in this workspace');
+
+    const settings = await this.settings.setTechnicianLine(number.phoneNumber);
+    return { success: true, data: settings };
+  }
+
+  @Delete(':sid/technician-line')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Stop using this number as the technician line',
+    description:
+      '**Guard:** `settings.edit`. Technicians can no longer dial in until ' +
+      'another number is designated — the in-app call button is unaffected.',
+  })
+  async clearTechnicianLine(@Param('sid') sid: string) {
+    const owned = await this.numbers.listOwned();
+    const number = owned.find((n) => n.sid === sid);
+    const current = await this.settings.technicianLine();
+    // Only the number that actually holds it may release it, so a stale tab
+    // cannot clear somebody else's designation.
+    if (number && current === number.phoneNumber) {
+      await this.settings.setTechnicianLine(null);
+    }
+    return { success: true, data: { technicianLine: await this.settings.technicianLine() } };
+  }
+
+  @Get('health/lines')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: 'Is every number this workspace depends on still wired up?',
+    description:
+      '**Guard:** `settings.view`. Cross-checks each market number and the ' +
+      'technician line against what the account owns and which active call ' +
+      'flow answers it. This is what catches a number released weeks ago, ' +
+      'whose market is still dialling clients from it.',
+  })
+  async linesHealthCheck() {
+    const lines = await this.linesHealth.check();
+    return {
+      success: true,
+      data: {
+        lines,
+        healthy: lines.every((l) => l.problems.length === 0),
+      },
+    };
+  }
 
   @Get()
   @ApiOperation({
@@ -52,8 +120,17 @@ export class NumbersController {
       'Any authenticated user — the dialer uses this to offer caller-id choices.',
   })
   async list() {
-    const data = await this.numbers.listOwned();
-    return { success: true, data };
+    const [owned, technicianLine] = await Promise.all([
+      this.numbers.listOwned(),
+      this.settings.technicianLine(),
+    ]);
+    return {
+      success: true,
+      data: owned.map((n) => ({
+        ...n,
+        technicianLine: n.phoneNumber === technicianLine,
+      })),
+    };
   }
 
   @Get('settings')
@@ -65,7 +142,7 @@ export class NumbersController {
       'without an entry have none.',
   })
   async listSettings() {
-    const data = await this.settings.list();
+    const data = await this.numberSettings.list();
     return { success: true, data };
   }
 
@@ -82,7 +159,7 @@ export class NumbersController {
     @Body() dto: UpdateNumberSettingsDto,
     @CurrentUser() user: JwtUser,
   ) {
-    const data = await this.settings.put(
+    const data = await this.numberSettings.put(
       phoneNumber,
       { sourceId: dto.sourceId },
       user.id,
@@ -124,10 +201,45 @@ export class NumbersController {
   @RequirePermission('settings', 'edit')
   @ApiOperation({
     summary: 'Release (delete) a phone number',
-    description: '**Guard:** `settings.edit`. Permanently releases the number.',
+    description:
+      '**Guard:** `settings.edit`. Permanently releases the number. Refuses ' +
+      'while a call flow answers it or a service area dials from it — pass ' +
+      '`?force=1` to release anyway, which leaves those references dangling.',
   })
-  async release(@Param('sid') sid: string) {
-    await this.numbers.release(sid);
+  async release(
+    @Param('sid') sid: string,
+    @Query('force') force?: string,
+  ) {
+    await this.numbers.release(sid, {
+      force: force === '1',
+      referencedBy: () => this.referencesTo(sid),
+    });
     return { success: true, data: { sid, released: true } };
+  }
+
+  /**
+   * What still points at this number, in words an operator can act on.
+   *
+   * Best-effort: a lookup that fails must not block a release, because the
+   * alternative is a number nobody can ever give back.
+   */
+  private async referencesTo(sid: string): Promise<string[]> {
+    const owned = await this.numbers.listOwned().catch(() => []);
+    const number = owned.find((n) => n.sid === sid)?.phoneNumber;
+    if (!number) return [];
+
+    const [flows, areas] = await Promise.all([
+      this.flows.list().catch(() => []),
+      this.areaNumbers.listAll().catch(() => []),
+    ]);
+
+    return [
+      ...flows
+        .filter((f) => f.numbers?.includes(number))
+        .map((f) => `the "${f.name}" call flow`),
+      ...areas
+        .filter((a) => a.callerId === number)
+        .map((a) => `the ${a.name} service area`),
+    ];
   }
 }

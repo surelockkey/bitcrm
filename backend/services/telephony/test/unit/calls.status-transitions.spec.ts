@@ -109,30 +109,96 @@ describe('CallsService — hidden internal legs never reach the live stream', ()
 });
 
 describe('CallsService.recordStatus — legacy no-conference path', () => {
-  it('never touches a conference-managed record (TwiML-App-level callbacks lie about SDK legs)', async () => {
+  function conferenceManaged(over: Partial<CallRecord> = {}) {
     const upserts: CallRecord[] = [];
     const repo = {
       getBySid: jest.fn().mockResolvedValue({
         callSid: 'CAconf',
         conferenceName: 'conf-CAconf',
+        status: 'initiated',
         from: '+12624061115',
         to: '+380958601427',
         startedAt: '2026-08-05T10:00:00.000Z',
         updatedAt: '2026-08-05T10:00:00.000Z',
+        ...over,
       } satisfies CallRecord),
       upsert: jest.fn().mockImplementation(async (r: CallRecord) => {
         upserts.push(r);
       }),
     } as unknown as CallsRepository;
-    const service = new CallsService(repo);
+    return { service: new CallsService(repo), upserts };
+  }
 
-    await service.recordStatus({
-      CallSid: 'CAconf',
-      CallStatus: 'completed',
-      From: 'client:agent-1',
-      To: '',
-      Direction: 'inbound', // Twilio reports SDK legs as inbound
+  const sdkLegCallback = {
+    CallSid: 'CAconf',
+    CallStatus: 'completed',
+    From: 'client:agent-1',
+    To: '',
+    Direction: 'inbound', // Twilio reports SDK legs as inbound
+  };
+
+  it('never overwrites a conference-managed record with what an SDK leg reports', async () => {
+    const { service, upserts } = conferenceManaged();
+
+    await service.recordStatus(sdkLegCallback);
+
+    // Whatever else happens, the lying fields must not land.
+    for (const u of upserts) {
+      expect(u.from).not.toBe('client:agent-1');
+      expect(u.to).not.toBe('');
+      expect(u.direction).not.toBe('inbound');
+    }
+  });
+
+  /**
+   * The bug this exists for: hang up fast enough and the browser leg dies
+   * before it ever joins its conference — so no conference is created, no
+   * conference-end fires, and the ONLY word that the call is over is this
+   * callback. Dropping it left the record live for the ten minutes the stale
+   * sweep allows, and `activeCallFor` refused to place another call that whole
+   * time: one quick hang-up cost the technician their phone.
+   */
+  it('finalises a conference leg that died before its conference existed', async () => {
+    const { service, upserts } = conferenceManaged();
+
+    await service.recordStatus(sdkLegCallback);
+
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]).toMatchObject({ callSid: 'CAconf', status: 'canceled' });
+    expect(upserts[0].endedAt).toBeTruthy();
+  });
+
+  /** Nobody spoke, so it is not a completed call — same rule the conference-end
+   *  handler applies, so both routes agree on what happened. */
+  it('keeps a more specific failure over the generic hang-up', async () => {
+    const { service, upserts } = conferenceManaged();
+
+    await service.recordStatus({ ...sdkLegCallback, CallStatus: 'busy' });
+
+    expect(upserts[0]).toMatchObject({ status: 'busy' });
+  });
+
+  /**
+   * Once the client has answered, the conference exists and its own end event
+   * is the authority — it completes the child legs and finalises with the
+   * duration. Racing it from here would only risk a worse answer.
+   */
+  it('leaves an answered call to the conference-end handler', async () => {
+    const { service, upserts } = conferenceManaged({
+      answeredAt: '2026-08-05T10:00:05.000Z',
+      status: 'in-progress',
     });
+
+    await service.recordStatus(sdkLegCallback);
+
+    expect(upserts).toHaveLength(0);
+  });
+
+  it('ignores a non-terminal report about a conference call', async () => {
+    const { service, upserts } = conferenceManaged();
+
+    await service.recordStatus({ ...sdkLegCallback, CallStatus: 'ringing' });
+
     expect(upserts).toHaveLength(0);
   });
 

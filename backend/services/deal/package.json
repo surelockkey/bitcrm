@@ -20,7 +20,8 @@
     "migrate:deal-job-types": "ts-node src/scripts/migrate-deal-job-types.ts",
     "migrate:deal-assignments": "ts-node src/scripts/migrate-deal-assignments.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
-    "setup": "npm run setup:db && npm run setup:aws"
+    "setup": "npm run setup:db && npm run setup:aws",
+    "backfill:tech-index": "ts-node src/scripts/backfill-tech-index.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

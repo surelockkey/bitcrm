@@ -20,7 +20,8 @@
     "db:backfill-commission": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-commission.ts",
     "migrate:technician-skills": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/migrate-technician-skills.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
-    "setup": "npm run db:setup && npm run setup:aws"
+    "setup": "npm run db:setup && npm run setup:aws",
+    "migrate:call-masking": "ts-node src/scripts/migrate-call-masking.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

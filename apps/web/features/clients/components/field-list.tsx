@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { EyeOff } from "lucide-react";
 import type { Phone } from "lucide-react";
 
 /**
@@ -15,6 +16,7 @@ export function FieldList({
   label,
   icon: Icon,
   values,
+  maskedCount,
   primaryFirst = false,
   format,
   action,
@@ -22,6 +24,13 @@ export function FieldList({
   label: string;
   icon: typeof Phone;
   values: string[];
+  /**
+   * How many values were withheld because the viewer lacks
+   * `contacts.view_numbers`. A masked record arrives with an empty `values`
+   * exactly like a client who has no phone at all, and the two must not read
+   * the same — "—" would send somebody hunting for a number that is on file.
+   */
+  maskedCount?: number;
   /** Mark the first value as the primary one. */
   primaryFirst?: boolean;
   /** Display transform; the raw value still reaches `action`. */
@@ -34,7 +43,12 @@ export function FieldList({
       <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      {values.length === 0 ? (
+      {values.length === 0 && maskedCount ? (
+        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <EyeOff className="size-3.5 shrink-0" />
+          {maskedCount} {maskedCount === 1 ? "number" : "numbers"}, hidden
+        </p>
+      ) : values.length === 0 ? (
         <p className="text-sm text-muted-foreground">—</p>
       ) : (
         <div className="space-y-1">

@@ -31,6 +31,11 @@ export const serviceAreaFormSchema = z
     type: z.nativeEnum(ServiceAreaType),
     zips: z.array(zipEntrySchema).default([]),
     vertices: z.array(geoPointSchema).default([]),
+    /**
+     * The workspace number clients in this market are dialled FROM on masked
+     * calls. Empty string clears it — the API treats "" and null the same.
+     */
+    callerId: z.string().default(""),
   })
   .superRefine((val, ctx) => {
     if (val.type === ServiceAreaType.ZIPS && val.zips.length === 0) {
@@ -54,7 +59,16 @@ export type ServiceAreaFormOutput = z.output<typeof serviceAreaFormSchema>;
 
 /** Turn validated form output into the API create/update body. */
 export function toServiceAreaBody(v: ServiceAreaFormOutput) {
-  const base = { name: v.name, priority: v.priority, active: v.active, timezone: v.timezone, type: v.type };
+  // A whitelist: a field missing here never leaves the browser, and the
+  // symptom is a setting that silently refuses to save.
+  const base = {
+    name: v.name,
+    priority: v.priority,
+    active: v.active,
+    timezone: v.timezone,
+    type: v.type,
+    callerId: v.callerId,
+  };
   return v.type === ServiceAreaType.ZIPS
     ? { ...base, zips: v.zips }
     : { ...base, vertices: v.vertices };

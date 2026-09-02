@@ -7,7 +7,6 @@ import {
   Loader2,
   Mail,
   MapPin,
-  Phone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +26,7 @@ import {
   primaryEmail,
   primaryPhone,
 } from "@/features/clients/lib";
+import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
@@ -139,14 +139,27 @@ function QuickViewBody({ dealId }: { dealId: string }) {
               ) : null}
             </div>
             <div className="flex gap-1.5">
-              {phone ? (
-                <Button asChild variant="outline" size="icon" className="size-8" title={formatPhone(phone)}>
-                  <a href={`tel:${phone}`}><Phone className="size-3.5" /></a>
-                </Button>
+              {/* Was a bare tel: anchor, which handed the dial to the OS: the
+                  client's phone rang showing the technician's personal mobile
+                  and no call record existed. It goes through the masked bridge
+                  now, which is why this could not ship before the bridge did. */}
+              {contact ? (
+                <CallClientButton
+                  to={phone ?? ""}
+                  partyId={contact.id}
+                  dealId={deal.id}
+                  contactId={contact.id}
+                  phoneIndex={0}
+                  // Peeking at a job is usually a prelude to ringing the
+                  // client; email is the afterthought beside it, not the peer.
+                  variant="prominent"
+                />
               ) : null}
               {email ? (
-                <Button asChild variant="outline" size="icon" className="size-8" title={email}>
-                  <a href={`mailto:${email}`}><Mail className="size-3.5" /></a>
+                // Matched to the call button's height so the pair sits level,
+                // and left as an icon so the hierarchy between them is plain.
+                <Button asChild variant="outline" size="icon-lg" title={email}>
+                  <a href={`mailto:${email}`}><Mail className="size-4" /></a>
                 </Button>
               ) : null}
             </div>

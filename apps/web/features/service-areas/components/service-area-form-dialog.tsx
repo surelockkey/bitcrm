@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { DEFAULT_TZ, US_TIMEZONES } from "@/lib/timezone";
 import { useCreateServiceArea, useUpdateServiceArea } from "../hooks";
 import { serviceAreaFormSchema, toServiceAreaBody } from "../schemas";
+import { useNumbers } from "@/features/telephony/numbers-hooks";
+import { formatPhone } from "@/lib/phone";
 import { ZipListEditor, type ZipRow } from "./zip-list-editor";
 import { PolygonMapEditor } from "./polygon-map-editor";
 
@@ -46,6 +48,8 @@ export function ServiceAreaFormDialog({
   const create = useCreateServiceArea();
   const update = useUpdateServiceArea(area?.id ?? "");
   const pending = create.isPending || update.isPending;
+  // Only fetched while the dialog is open.
+  const { data: numbers } = useNumbers(open);
 
   const [name, setName] = useState(area?.name ?? "");
   const [priority, setPriority] = useState(String(area?.priority ?? 0));
@@ -54,6 +58,7 @@ export function ServiceAreaFormDialog({
   const [type, setType] = useState<ServiceAreaType>(area?.type ?? ServiceAreaType.ZIPS);
   const [zips, setZips] = useState<ZipRow[]>(initialZips(area));
   const [vertices, setVertices] = useState<GeoPoint[]>(initialVertices(area));
+  const [callerId, setCallerId] = useState(area?.callerId ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const parsed = useMemo(
@@ -66,8 +71,9 @@ export function ServiceAreaFormDialog({
         type,
         zips: type === ServiceAreaType.ZIPS ? zips : [],
         vertices: type === ServiceAreaType.POLYGON ? vertices : [],
+        callerId,
       }),
-    [name, priority, active, timezone, type, zips, vertices],
+    [name, priority, active, timezone, type, zips, vertices, callerId],
   );
 
   const submit = () => {
@@ -117,6 +123,32 @@ export function ServiceAreaFormDialog({
               ))}
             </select>
             <p className="text-xs text-muted-foreground">Jobs in this area show their schedule in this timezone.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Client-facing number</Label>
+            <p className="text-xs text-muted-foreground">
+              Clients on jobs in this territory are called from this number, and
+              call it back. Leave blank to use the workspace default.
+            </p>
+            {/* A picker, never free text: caller id is not validated at dial
+                time, so a typo would surface weeks later as a client whose
+                call simply hangs up. */}
+            <select
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={callerId}
+              onChange={(e) => setCallerId(e.target.value)}
+            >
+              <option value="">Workspace default</option>
+              {(numbers ?? []).map((n) => (
+                <option key={n.sid} value={n.phoneNumber}>
+                  {formatPhone(n.phoneNumber)}
+                  {n.friendlyName && n.friendlyName !== n.phoneNumber
+                    ? ` — ${n.friendlyName}`
+                    : ""}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center justify-between rounded-md border px-3 py-2.5">

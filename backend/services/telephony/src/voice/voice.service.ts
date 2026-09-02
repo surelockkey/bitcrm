@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import twilio from 'twilio';
 import {
   TELEPHONY_CONFIG,
@@ -7,7 +7,10 @@ import {
 import { PresenceService } from '../presence/presence.service';
 import { NumbersService } from '../numbers/numbers.service';
 import { ConferenceService, confName } from './conference.service';
+import { FlowRunnerService } from './flow-runner.service';
 import { agentFromEndpoint } from '../calls/calls.service';
+import { BridgeService } from '../common/bridge.service';
+import { TelephonySettingsService } from '../telephony/telephony-settings.service';
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
 type ConferenceAttrs = Parameters<
@@ -20,6 +23,8 @@ export interface OutboundBody {
   From?: string;
   To?: string;
   CallerId?: string;
+  /** Set when a masked bridge connects from the browser — see buildBridged. */
+  Bridge?: string;
   /** Set when a supervisor connects to monitor: the conference name. */
   Monitor?: string;
   MonitorMode?: string;
@@ -44,24 +49,15 @@ export class VoiceService {
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
     private readonly presence: PresenceService,
     private readonly conference: ConferenceService,
+    private readonly flowRunner: FlowRunnerService,
     private readonly numbers?: NumbersService,
+    @Optional() private readonly bridge?: BridgeService,
+    @Optional() private readonly settings?: TelephonySettingsService,
   ) {}
 
-  /**
-   * Lifecycle + recording attributes shared by every <Conference> noun we emit
-   * — Twilio takes them from whichever participant creates the conference, so
-   * they must be identical everywhere.
-   */
+  /** Shared by every <Conference> we emit — see ConferenceService. */
   private sharedConferenceAttrs(): ConferenceAttrs {
-    const base = `${this.config.publicBaseUrl}/api/telephony/voice`;
-    return {
-      statusCallback: `${base}/conference-events`,
-      statusCallbackMethod: 'POST',
-      statusCallbackEvent: ['start', 'end', 'join', 'leave'],
-      record: 'record-from-start',
-      recordingStatusCallback: `${base}/recording-status`,
-      recordingStatusCallbackMethod: 'POST',
-    };
+    return this.conference.sharedConferenceAttrs() as ConferenceAttrs;
   }
 
   /**
@@ -92,6 +88,10 @@ export class VoiceService {
    */
   async buildOutbound(body: OutboundBody): Promise<string> {
     if (body.Monitor) return this.buildMonitor(body);
+    // Must sit HERE, beside the Monitor branch: the ordinary path destructures
+    // `To` two lines down and hangs up when it is missing, and a softphone
+    // bridge deliberately sends no `To` — the number is server-side only.
+    if (body.Bridge) return this.buildBridged(body, body.Bridge);
 
     const twiml = new VoiceResponse();
     const { To: to, CallSid: callSid } = body;
@@ -126,6 +126,55 @@ export class VoiceService {
         beep: 'false',
       },
       name,
+    );
+    return twiml.toString();
+  }
+
+  /**
+   * A masked call placed from the browser: the technician's own leg arrives
+   * with nothing but a bridge id, and the client's number is read from the
+   * Redis context rather than from anything the browser sent.
+   *
+   * Shares every line after this with the cell path — same conference, same
+   * TwiML, same unmodified `onParticipantJoin` doing the customer dial.
+   */
+  private async buildBridged(
+    body: OutboundBody,
+    bridgeId: string,
+  ): Promise<string> {
+    const twiml = new VoiceResponse();
+    const callSid = body.CallSid;
+    const ctx = callSid ? await this.bridge?.context(bridgeId) : null;
+
+    if (!callSid || !ctx) {
+      twiml.say('That call is no longer available.');
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    // Idempotent against Twilio answer-URL retries, exactly as the customer
+    // dial is — two conferences for one intent would ring the client twice.
+    if (!(await this.bridge!.claimAnswer(bridgeId, callSid))) {
+      twiml.say('That call is already connecting.');
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    await this.conference.initOutbound(callSid, ctx.technicianId, ctx.to, ctx.from, {
+      dealId: ctx.dealId,
+      origin: 'bridge',
+      callerIdSource: ctx.callerIdSource as never,
+    });
+
+    const dial = twiml.dial();
+    dial.conference(
+      {
+        ...this.sharedConferenceAttrs(),
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        beep: 'false',
+      },
+      confName(callSid),
     );
     return twiml.toString();
   }
@@ -202,6 +251,38 @@ export class VoiceService {
    * online → a short message, then hang up.
    */
   async buildInbound(body: InboundBody): Promise<string> {
+    const { CallSid: callSid, From: from = '', To: to = '' } = body;
+
+    // A flow for this number decides everything from here — greeting, who
+    // rings, what happens when nobody does. It returns null when there is no
+    // flow, or the flow is unusable, and the legacy path below takes over: a
+    // misconfigured flow must never mean a silent line.
+    if (callSid) {
+      const fromFlow = await this.flowRunner.startInbound(callSid, from, to);
+      if (fromFlow) return fromFlow;
+    }
+
+    // The technician line needs no flow behind it: designating the number IS
+    // the configuration. A workspace that wants a greeting or custom fallback
+    // can still build a flow with a Technician line step — that flow is found
+    // above and this never runs.
+    //
+    // What must never happen here is falling through to buildLegacyInbound,
+    // which rings every online softphone for a caller who has not identified
+    // themselves — the opposite of what this line is for.
+    const techLine = await this.settings?.technicianLine();
+    if (callSid && techLine && to === techLine) {
+      return this.flowRunner.startTechnicianLine(callSid, from, to);
+    }
+
+    return this.buildLegacyInbound(body);
+  }
+
+  /**
+   * Ring every registered softphone. What every number did before call flows,
+   * and still the answer for a number with no flow attached.
+   */
+  private async buildLegacyInbound(body: InboundBody): Promise<string> {
     const twiml = new VoiceResponse();
     const { CallSid: callSid, From: from = '', To: to = '' } = body;
 
@@ -222,7 +303,14 @@ export class VoiceService {
     }
 
     const name = confName(callSid);
-    await this.conference.initInbound(callSid, from, to, online, internalLegOf);
+    await this.conference.initInbound(
+      callSid,
+      from,
+      to,
+      // The customer's number as caller id, so the softphone screen-pops.
+      online.map((identity) => ({ endpoint: `client:${identity}`, callerId: from })),
+      { internalLegOf },
+    );
 
     const dial = twiml.dial();
     dial.conference(
@@ -237,19 +325,120 @@ export class VoiceService {
   }
 
   /**
+   * Answer webhook for the technician's own handset on a masked bridge.
+   *
+   * THIS webhook owns `initOutbound`, not the service that placed the leg.
+   * Twilio can fetch an answer URL before a Redis write lands — a retry storm,
+   * a GC pause, a leg answered in 50ms — and `onParticipantJoin` would then
+   * read empty meta, hit its `if (!meta.to) return`, and silently park the
+   * technician in a conference that never dials out. No error, record stuck at
+   * `initiated` for ten minutes. Making the webhook self-sufficient closes
+   * that window entirely.
+   *
+   * The whisper is the load-bearing defence against carrier voicemail: a
+   * voicemail box cannot press a key, so it hangs up and the client is never
+   * dialled. The ring timeout is not that defence — Twilio adds up to a
+   * 5-second buffer to it, which leaves no useful margin.
+   */
+  async buildBridgeJoin(
+    bridgeId: string,
+    body: { CallSid?: string; Digits?: string },
+    whisper: boolean,
+  ): Promise<string> {
+    const twiml = new VoiceResponse();
+    const callSid = body.CallSid;
+    const ctx = callSid ? await this.bridge?.context(bridgeId) : null;
+
+    if (!callSid || !ctx) {
+      twiml.say('That call is no longer available.');
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    if (whisper && !body.Digits) {
+      const who = ctx.clientName ? ` for ${ctx.clientName}` : '';
+      const job = ctx.dealNumber ? ` about job ${ctx.dealNumber}` : '';
+      const gather = twiml.gather({
+        numDigits: 1,
+        timeout: 15,
+        action:
+          `${this.config.publicBaseUrl}/api/telephony/voice/bridge-join` +
+          `?b=${encodeURIComponent(bridgeId)}&whisper=1`,
+        method: 'POST',
+      });
+      gather.say(
+        `Call${who}${job}. This call is recorded. Press any key to connect.`,
+      );
+      // No key pressed: hang this leg up rather than joining silently. The
+      // client is never dialled, because initOutbound never runs.
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    if (!(await this.bridge!.claimAnswer(bridgeId, callSid))) {
+      twiml.say('That call is already connecting.');
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    await this.conference.initOutbound(callSid, ctx.technicianId, ctx.to, ctx.from, {
+      dealId: ctx.dealId,
+      origin: 'bridge',
+      callerIdSource: ctx.callerIdSource as never,
+    });
+
+    const dial = twiml.dial();
+    dial.conference(
+      {
+        ...this.sharedConferenceAttrs(),
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        beep: 'false',
+      },
+      confName(callSid),
+    );
+    return twiml.toString();
+  }
+
+  /**
    * Answer webhook for an inbound agent ring leg. First answer wins the atomic
    * claim and enters (starting) the conference; late answers are told the call
    * was taken. This webhook — not inline TwiML — is what makes the race safe.
    */
   async buildAgentJoin(
     name: string,
-    body: { CallSid?: string; To?: string },
+    body: { CallSid?: string; To?: string; Digits?: string },
+    whisper = false,
   ): Promise<string> {
     const twiml = new VoiceResponse();
     const agentCallSid = body.CallSid;
     const identity = agentFromEndpoint(body.To);
 
-    if (!agentCallSid || !identity) {
+    if (!agentCallSid) {
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    // A phone that hasn't proved a human is holding it doesn't get the call:
+    // carrier voicemail answers, and would win the race against everyone else
+    // still ringing. Asked before the claim, so a voicemail that never presses
+    // anything simply times out and the others keep ringing.
+    if (whisper && !body.Digits) {
+      const gather = twiml.gather({
+        numDigits: 1,
+        timeout: 15,
+        action:
+          `${this.config.publicBaseUrl}/api/telephony/voice/agent-join` +
+          `?conf=${encodeURIComponent(name)}&whisper=1`,
+        method: 'POST',
+      });
+      gather.say('You have a call. Press any key to take it.');
+      // No key: hang this leg up rather than joining silently.
+      twiml.hangup();
+      return twiml.toString();
+    }
+
+    if (!identity) {
       twiml.hangup();
       return twiml.toString();
     }

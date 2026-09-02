@@ -117,3 +117,73 @@ describe('ConferenceService — outbound flow', () => {
     expect(applied.at(-1)).toMatchObject({ callSid: 'CAagent1', status: 'completed' });
   });
 });
+
+/**
+ * The claim `prepare()` takes on a technician is what stops a second tap
+ * placing a second real call. It has to come off the moment the call is over,
+ * or a fast hang-up locks them out of their own phone until the TTL lapses —
+ * which is exactly what somebody hitting redial experiences as "I can't call
+ * anymore".
+ */
+describe('ConferenceService — freeing the technician after a bridged call', () => {
+  const ended = {
+    callSid: 'CAbridge',
+    origin: 'bridge',
+    agentId: 'tech-1',
+    status: 'completed',
+  };
+
+  it('frees the technician when their bridged call ends', async () => {
+    const { service, records, bridge } = makeHarness();
+    records.set('CAbridge', ended);
+
+    await service.releaseFinishedBridge('CAbridge');
+
+    expect(bridge.release).toHaveBeenCalledWith('tech-1');
+  });
+
+  /** Mid-call is not over: releasing here would let a second call start while
+   *  the first is still connected. */
+  it('does not free them while the call is still live', async () => {
+    const { service, records, bridge } = makeHarness();
+    records.set('CAbridge', { ...ended, status: 'in-progress' });
+
+    await service.releaseFinishedBridge('CAbridge');
+
+    expect(bridge.release).not.toHaveBeenCalled();
+  });
+
+  it('ignores calls that were never bridges', async () => {
+    const { service, records, bridge } = makeHarness();
+    records.set('CAplain', { ...ended, callSid: 'CAplain', origin: undefined });
+
+    await service.releaseFinishedBridge('CAplain');
+
+    expect(bridge.release).not.toHaveBeenCalled();
+  });
+
+  it('says nothing about a call it has never heard of', async () => {
+    const { service, bridge } = makeHarness();
+
+    await service.releaseFinishedBridge('CAunknown');
+
+    expect(bridge.release).not.toHaveBeenCalled();
+  });
+
+  /** The ordinary route: the conference ends, and the technician is free
+   *  before they have finished putting the phone down. */
+  it('frees them as part of the conference ending', async () => {
+    const { service, records, bridge } = makeHarness();
+    records.set('CAbridge', {
+      callSid: 'CAbridge',
+      origin: 'bridge',
+      agentId: 'tech-1',
+      status: 'in-progress',
+      answeredAt: '2026-08-26T10:00:05.000Z',
+    });
+
+    await service.onConferenceEnd('conf-CAbridge');
+
+    expect(bridge.release).toHaveBeenCalledWith('tech-1');
+  });
+});

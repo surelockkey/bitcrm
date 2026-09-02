@@ -6,7 +6,7 @@ describe('ConferenceService — inbound flow', () => {
       'CAcust1',
       '+380958601427',
       '+12624061115',
-      ['agent-1', 'agent-2'],
+      [{ endpoint: 'client:agent-1', callerId: '+380958601427' }, { endpoint: 'client:agent-2', callerId: '+380958601427' }],
     );
     return h;
   }

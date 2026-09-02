@@ -8,7 +8,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     permissions: {
       deals: { view: true, create: true, edit: true, delete: true, move_status: true },
       service_areas: { view: true, create: true, edit: true, delete: true, propose: true, approve: true, revoke: true },
-      contacts: { view: true, create: true, edit: true, delete: true },
+      contacts: { view: true, create: true, edit: true, delete: true, view_numbers: true },
       companies: { view: true, create: true, edit: true, delete: true },
       products: { view: true, create: true, edit: true, delete: true },
       product_categories: { view: true, create: true, edit: true, delete: true },
@@ -70,7 +70,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     permissions: {
       deals: { view: true, create: true, edit: true, delete: true, move_status: true },
       service_areas: { view: true, create: true, edit: true, delete: true, propose: false, approve: true, revoke: true },
-      contacts: { view: true, create: true, edit: true, delete: true },
+      contacts: { view: true, create: true, edit: true, delete: true, view_numbers: true },
       companies: { view: true, create: true, edit: true, delete: true },
       products: { view: true, create: true, edit: true, delete: false },
       product_categories: { view: true, create: true, edit: true, delete: false },
@@ -132,7 +132,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     permissions: {
       deals: { view: true, create: true, edit: true, delete: false, move_status: true },
       service_areas: { view: true, create: true, edit: true, delete: false, propose: false, approve: true, revoke: true },
-      contacts: { view: true, create: true, edit: true, delete: false },
+      contacts: { view: true, create: true, edit: true, delete: false, view_numbers: true },
       companies: { view: true, create: true, edit: true, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
       product_categories: { view: true, create: false, edit: false, delete: false },
@@ -194,7 +194,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     permissions: {
       deals: { view: true, create: true, edit: true, delete: false, move_status: true },
       service_areas: { view: true, create: false, edit: false, delete: false, propose: false, approve: false, revoke: false },
-      contacts: { view: true, create: true, edit: true, delete: false },
+      contacts: { view: true, create: true, edit: true, delete: false, view_numbers: true },
       companies: { view: true, create: false, edit: false, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
       product_categories: { view: true, create: false, edit: false, delete: false },
@@ -264,7 +264,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     permissions: {
       deals: { view: true, create: false, edit: true, delete: false, move_status: true },
       service_areas: { view: true, create: false, edit: false, delete: false, propose: true, approve: false, revoke: false },
-      contacts: { view: true, create: false, edit: false, delete: false },
+      contacts: { view: true, create: false, edit: false, delete: false, view_numbers: true },
       companies: { view: true, create: false, edit: false, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
       product_categories: { view: true, create: false, edit: false, delete: false },
@@ -332,7 +332,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
     permissions: {
       deals: { view: true, create: false, edit: false, delete: false, move_status: false },
       service_areas: { view: true, create: false, edit: false, delete: false, propose: false, approve: false, revoke: false },
-      contacts: { view: true, create: false, edit: false, delete: false },
+      contacts: { view: true, create: false, edit: false, delete: false, view_numbers: true },
       companies: { view: true, create: false, edit: false, delete: false },
       products: { view: true, create: false, edit: false, delete: false },
       product_categories: { view: true, create: false, edit: false, delete: false },

@@ -1,11 +1,15 @@
 import {
   Body,
   Controller,
+  Get,
   Header,
+  Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { type Response } from 'express';
 import { ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { Public } from '@bitcrm/shared';
 import {
@@ -14,6 +18,8 @@ import {
   type OutboundBody,
 } from './voice.service';
 import { ConferenceService } from './conference.service';
+import { FlowRunnerService } from './flow-runner.service';
+import { FlowAudioService } from '../call-flows/flow-audio.service';
 import { CallsService, type TwilioStatusParams } from '../calls/calls.service';
 import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
 
@@ -32,6 +38,8 @@ export class VoiceController {
     private readonly voiceService: VoiceService,
     private readonly conferenceService: ConferenceService,
     private readonly callsService: CallsService,
+    private readonly flowRunner: FlowRunnerService,
+    private readonly flowAudio: FlowAudioService,
   ) {}
 
   @Post('outbound')
@@ -48,15 +56,98 @@ export class VoiceController {
     return this.voiceService.buildInbound(body);
   }
 
+  /**
+   * The next step of a call flow. Twilio comes back here after a greeting
+   * finishes, or when nobody answered a ring step. A step that can't run
+   * returns the legacy inbound answer rather than silence.
+   */
+  @Post('flow')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  async flowStep(
+    @Query('node') node: string,
+    @Query('after') after: string | undefined,
+    @Body() body: InboundBody & { Digits?: string; CallStatus?: string },
+  ): Promise<string> {
+    const fromFlow = body.CallSid
+      ? await this.flowRunner.resume(
+          body.CallSid,
+          node ?? '',
+          body.Digits,
+          body.CallStatus,
+          after === '1',
+        )
+      : null;
+    return fromFlow ?? this.voiceService.buildInbound(body);
+  }
+
+  /**
+   * A recorded greeting, streamed to whoever asks.
+   *
+   * Deliberately unauthenticated: Twilio fetches this itself while the call is
+   * ringing and cannot carry a token. The id is an unguessable uuid, and the
+   * content is a greeting a caller is about to hear anyway.
+   */
+  @Get('audio/:id')
+  @Public()
+  @ApiExcludeEndpoint()
+  async audio(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const found = await this.flowAudio.read(id);
+    if (!found) {
+      res.status(404).end();
+      return;
+    }
+    res.set({
+      'Content-Type': found.contentType,
+      // Greetings change rarely, and Twilio re-fetches on every call.
+      'Cache-Control': 'public, max-age=3600',
+    });
+    (found.body as unknown as NodeJS.ReadableStream).pipe(res);
+  }
+
+  /** A voicemail finished recording. */
+  @Post('voicemail-recording')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  async voicemailRecording(
+    @Body()
+    body: {
+      CallSid?: string;
+      RecordingSid?: string;
+      RecordingStatus?: string;
+      RecordingDuration?: string;
+    },
+  ): Promise<string> {
+    await this.flowRunner.onVoicemailRecording(body);
+    return '<Response/>';
+  }
+
+  /** Answer webhook for the technician's leg on a masked bridge. */
+  @Post('bridge-join')
+  @Header('Content-Type', 'text/xml')
+  @ApiExcludeEndpoint()
+  bridgeJoin(
+    @Query('b') bridgeId: string,
+    @Query('whisper') whisper: string | undefined,
+    @Body() body: { CallSid?: string; Digits?: string },
+  ): Promise<string> {
+    return this.voiceService.buildBridgeJoin(
+      bridgeId ?? '',
+      body,
+      whisper === '1',
+    );
+  }
+
   /** Answer webhook for inbound agent ring legs — first answer wins here. */
   @Post('agent-join')
   @Header('Content-Type', 'text/xml')
   @ApiExcludeEndpoint()
   agentJoin(
     @Query('conf') conf: string,
-    @Body() body: { CallSid?: string; To?: string },
+    @Query('whisper') whisper: string | undefined,
+    @Body() body: { CallSid?: string; To?: string; Digits?: string },
   ): Promise<string> {
-    return this.voiceService.buildAgentJoin(conf ?? '', body);
+    return this.voiceService.buildAgentJoin(conf ?? '', body, whisper === '1');
   }
 
   /** Conference lifecycle events (start/end/join/leave). */
@@ -128,11 +219,20 @@ export class VoiceController {
     @Body() body: TwilioStatusParams,
     @Query('conf') conf?: string,
     @Query('role') role?: string,
+    @Query('bridge') bridge?: string,
   ): Promise<string> {
-    if (conf && (role === 'customer' || role === 'agent')) {
+    // The technician's leg on a cell bridge cannot carry ?conf=: the sid does
+    // not exist when calls.create is issued. Its own CallSid IS the primary
+    // sid, so the handler derives the conference name itself.
+    if (bridge) {
+      await this.conferenceService.onBridgeLegStatus(bridge, body);
+    } else if (conf && (role === 'customer' || role === 'agent')) {
       await this.conferenceService.onLegStatus(conf, role, body);
     } else {
       await this.callsService.recordStatus(body);
+      // A bridged leg that died before it joined its conference ends here and
+      // nowhere else — without this the technician stays claimed until the TTL.
+      await this.conferenceService.releaseFinishedBridge(body.CallSid);
     }
     return '<Response/>';
   }

@@ -9,7 +9,8 @@ import { TechniciansModule } from '../technicians/technicians.module';
 @Module({
   imports: [forwardRef(() => RolesModule), forwardRef(() => TechniciansModule)],
   controllers: [UsersController],
-  providers: [UsersService, UsersRepository, UsersCacheService],
+  providers: [
+    UsersService, UsersRepository, UsersCacheService],
   exports: [UsersService, UsersRepository],
 })
 export class UsersModule {}

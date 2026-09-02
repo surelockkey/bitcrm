@@ -15,9 +15,11 @@ import { TwilioRest } from '../common/twilio-client';
 import { PresenceService } from '../presence/presence.service';
 import {
   CallsService,
+  isTerminalStatus,
   normalizeStatus,
   type TwilioStatusParams,
 } from '../calls/calls.service';
+import { BridgeService } from '../common/bridge.service';
 
 export type MonitorMode = 'listen' | 'join';
 
@@ -33,6 +35,36 @@ const TERMINAL_LEG = new Set([
 /** Redis state TTL — well past any realistic call length. */
 const CONF_TTL_SECONDS = 4 * 60 * 60;
 const MONITOR_GRANT_TTL_SECONDS = 120;
+
+/** One phone to ring for an inbound call. */
+export interface InboundLeg {
+  /** `client:<userId>` for a softphone, E.164 for a real phone. */
+  endpoint: string;
+  /** What that phone displays as the caller. */
+  callerId: string;
+  /**
+   * Require a keypress before joining. Set for personal numbers, whose
+   * voicemail would otherwise answer and take the call from everyone else
+   * still ringing.
+   */
+  whisper?: boolean;
+}
+
+export interface InboundOptions {
+  internalLegOf?: string;
+  /** How long each phone rings before giving up. */
+  ringSeconds?: number;
+  /** Where to send the caller when nobody answers. */
+  noAnswerUrl?: string;
+}
+
+/** What distinguishes a masked call from an ordinary agent-dialled one. */
+export interface InitOutboundOptions {
+  /** The job this call is about; linked immediately, not at read time. */
+  dealId?: string;
+  origin?: 'softphone' | 'bridge' | 'inbound';
+  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
+}
 
 export const confName = (primarySid: string) => `conf-${primarySid}`;
 export const primarySidOf = (name: string): string | null =>
@@ -56,6 +88,7 @@ export class ConferenceService {
     // Optional so the conference specs can construct this without it; without
     // presence we simply can't check whether a softphone is registered.
     @Optional() private readonly presence?: PresenceService,
+    @Optional() private readonly bridge?: BridgeService,
   ) {
     this.rest = new TwilioRest(config);
   }
@@ -68,6 +101,15 @@ export class ConferenceService {
   private pendingKey(name: string) {
     return `telephony:conf:${name}:pending`;
   }
+  /**
+   * Set while a flow is taking the caller out of one conference and into the
+   * next. Short-lived on purpose: if the move never completes, the marker
+   * expires and the call finalises normally rather than hanging open.
+   */
+  private movingKey(name: string) {
+    return `telephony:conf:${name}:moving`;
+  }
+
   private winnerKey(name: string) {
     return `telephony:conf:${name}:winner`;
   }
@@ -80,12 +122,21 @@ export class ConferenceService {
 
   /* -------------------------------------------------------- lifecycle */
 
-  /** Outbound: agent leg hit /voice/outbound; stash context + open the record. */
+  /**
+   * Outbound: agent leg hit /voice/outbound; stash context + open the record.
+   *
+   * Both ways into a masked call land here — the in-app bridge and the
+   * technician dial-in — because on both of them the technician's leg IS the
+   * primary sid, which is the only thing `onParticipantJoin` cares about.
+   * `options` carries what distinguishes a masked call from an ordinary one;
+   * everything else about the conference is identical, deliberately.
+   */
   async initOutbound(
     agentCallSid: string,
     agentId: string | undefined,
     to: string,
     callerId: string,
+    options: InitOutboundOptions = {},
   ): Promise<void> {
     const name = confName(agentCallSid);
     await this.redis.client.hset(this.metaKey(name), {
@@ -94,6 +145,8 @@ export class ConferenceService {
       to,
       from: callerId,
       ...(agentId && { agentId }),
+      ...(options.dealId && { dealId: options.dealId }),
+      ...(options.origin && { origin: options.origin }),
     });
     await this.redis.client.expire(this.metaKey(name), CONF_TTL_SECONDS);
 
@@ -105,7 +158,17 @@ export class ConferenceService {
       status: 'initiated',
       agentId,
       conferenceName: name,
+      ...(options.origin && { origin: options.origin }),
+      ...(options.callerIdSource && { callerIdSource: options.callerIdSource }),
     });
+
+    // `dealId` is deliberately NOT in the upsert whitelist — it is written
+    // only by setDeal, via linkDeal, which also tells the job's timeline.
+    if (options.dealId) {
+      void this.calls
+        .linkDeal(agentCallSid, options.dealId, { id: agentId ?? 'system' })
+        .catch(() => undefined);
+    }
     if (agentId) {
       await this.calls.appendParticipant(agentCallSid, {
         userId: agentId,
@@ -135,9 +198,10 @@ export class ConferenceService {
     customerCallSid: string,
     from: string,
     to: string,
-    agentIdentities: string[],
-    internalLegOf?: string,
+    legs: InboundLeg[],
+    options: InboundOptions = {},
   ): Promise<void> {
+    const { internalLegOf, ringSeconds = 25, noAnswerUrl } = options;
     const name = confName(customerCallSid);
     await this.redis.client.hset(this.metaKey(name), {
       type: 'inbound',
@@ -145,6 +209,9 @@ export class ConferenceService {
       from,
       to,
       ...(internalLegOf && { internalLegOf }),
+      // Where the caller goes if nobody picks up. Held here so the leg-status
+      // handler can send them on without knowing anything about call flows.
+      ...(noAnswerUrl && { noAnswerUrl }),
     });
     await this.redis.client.expire(this.metaKey(name), CONF_TTL_SECONDS);
 
@@ -158,32 +225,33 @@ export class ConferenceService {
       internalLegOf,
     });
 
-    for (const identity of agentIdentities) {
+    for (const leg of legs) {
       try {
-        const leg = await this.rest.run((c) =>
+        const created = await this.rest.run((c) =>
           c.calls.create({
-            to: `client:${identity}`,
-            // caller id = the customer's number so the softphone screen-pop works
-            from,
-            url: `${this.config.publicBaseUrl}/api/telephony/voice/agent-join?conf=${name}`,
+            to: leg.endpoint,
+            from: leg.callerId,
+            url:
+              `${this.config.publicBaseUrl}/api/telephony/voice/agent-join?conf=${name}` +
+              (leg.whisper ? '&whisper=1' : ''),
             method: 'POST',
-            timeout: 25,
+            timeout: ringSeconds,
             statusCallback: this.statusUrl(name, 'agent'),
             statusCallbackMethod: 'POST',
             statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
           }),
         );
-        await this.redis.client.sadd(this.pendingKey(name), leg.sid);
-        await this.calls.appendChildSid(customerCallSid, leg.sid);
+        await this.redis.client.sadd(this.pendingKey(name), created.sid);
+        await this.calls.appendChildSid(customerCallSid, created.sid);
       } catch (error) {
         this.logger.warn(
-          `Inbound ${name}: failed to ring agent ${identity}: ${error instanceof Error ? error.message : error}`,
+          `Inbound ${name}: failed to ring ${leg.endpoint}: ${error instanceof Error ? error.message : error}`,
         );
       }
     }
     await this.redis.client.expire(this.pendingKey(name), CONF_TTL_SECONDS);
     this.logger.log(
-      `Inbound call ${customerCallSid} ringing ${agentIdentities.length} agent(s) (conf ${name})`,
+      `Inbound call ${customerCallSid} ringing ${legs.length} leg(s) (conf ${name})`,
     );
   }
 
@@ -261,6 +329,22 @@ export class ConferenceService {
    */
   async onParticipantLeave(name: string, conferenceSid: string): Promise<void> {
     const meta = await this.redis.client.hgetall(this.metaKey(name));
+
+    // Between two ring steps the caller is alone on purpose: the flow is about
+    // to try another group. Ending the conference here would cut the call
+    // short, fire the "after the call" branch of a group nobody answered, and
+    // mark the record completed while the caller is still on the line — so the
+    // person who eventually picks up is never recorded as having answered.
+    //
+    // A winner is the thing that separates the two: once anybody has answered,
+    // a room left with only the customer really is over.
+    if (meta.noAnswerUrl) {
+      const answered = await this.redis.client.get(this.winnerKey(name));
+      if (!answered) {
+        this.logger.log(`Conference ${name}: nobody yet — the flow decides what is next`);
+        return;
+      }
+    }
     // Outbound: the customer is the leg we dialled. Inbound: they are the call
     // that created the conference.
     const customerSid =
@@ -311,6 +395,21 @@ export class ConferenceService {
     const primarySid = primarySidOf(name);
     if (!primarySid) return;
 
+    // A conference also ends when the caller is simply moved on: a flow that
+    // rings a second group takes them out of one room and puts them in the
+    // next, and Twilio reports that as an ending. Finalising there marks a
+    // call canceled while it is still going, and because every terminal status
+    // outranks "in-progress", whoever answers next can never set it back.
+    //
+    // Decided by whether *we* moved them, not by asking Twilio how the leg is
+    // doing: that answer races the webhook, and losing the race leaves a call
+    // that is over sitting open forever. This handler is the only thing that
+    // finalises a call, so it must not be skippable by guesswork.
+    if (await this.redis.client.get(this.movingKey(name))) {
+      this.logger.log(`Conference ${name} ended while moving the caller on`);
+      return;
+    }
+
     const record = await this.calls.getBySid(primarySid);
     const endedAt = new Date().toISOString();
 
@@ -331,6 +430,8 @@ export class ConferenceService {
       // keeps any earlier terminal status (busy/no-answer/failed) in place.
       status: record?.answeredAt ? 'completed' : 'canceled',
     });
+
+    await this.releaseFinishedBridge(primarySid);
 
     await this.redis.client.del(
       this.metaKey(name),
@@ -412,6 +513,76 @@ export class ConferenceService {
   /* --------------------------------------------------- leg callbacks */
 
   /** Status callback for a REST-created leg (?conf=<name>&role=…). */
+  /**
+   * Status callbacks for the technician's own leg on a masked bridge.
+   *
+   * Two things this must do that the ordinary leg handler does not:
+   *
+   *  - **Advance a record that already exists.** BridgeService opens it right
+   *    after `calls.create`, because otherwise a leg that rings and is never
+   *    answered leaves a party-less orphan — no from, no to, no agentId — that
+   *    every read path and display helper then has to survive.
+   *  - **Release the per-user claim on EVERY terminal status.** A successful,
+   *    answered call takes neither the cancel path nor the no-answer path, so
+   *    without this the claim sits until its TTL and the technician cannot
+   *    place their next call for a minute and a half.
+   */
+  async onBridgeLegStatus(
+    bridgeId: string,
+    params: TwilioStatusParams,
+  ): Promise<void> {
+    const callSid = params.CallSid;
+    if (!callSid) return;
+    const status = normalizeStatus(params.CallStatus);
+    if (!status) return;
+
+    const ctx = await this.bridge?.context(bridgeId);
+
+    if (status === 'ringing') {
+      await this.calls.applyLifecycle({ callSid, status: 'ringing' });
+      return;
+    }
+
+    // `in-progress` on THIS leg means the technician picked up, not that the
+    // call connected — answeredAt still comes from the customer leg, exactly
+    // as it does for an agent-dialled call.
+    if (!TERMINAL_LEG.has(status)) return;
+
+    const record = await this.calls.getBySid(callSid);
+    if (record && !record.answeredAt) {
+      await this.calls.applyLifecycle({
+        callSid,
+        status,
+        endedAt: new Date().toISOString(),
+      });
+    }
+
+    if (ctx?.technicianId) await this.bridge?.release(ctx.technicianId, bridgeId);
+  }
+
+  /**
+   * Let a technician place their next call the moment this one is over.
+   *
+   * `BridgeService.prepare` takes a claim on the user so a double-tap cannot
+   * fire two real calls. That claim expires on its own, but waiting for the
+   * TTL means a technician who hangs up after two seconds cannot redial for
+   * the rest of the window — which is experienced, correctly, as the phone
+   * being broken.
+   *
+   * Called from both places a bridged call can end: the conference ending
+   * (the ordinary route) and the leg's own terminal status (when the caller
+   * hung up before a conference ever existed).
+   */
+  async releaseFinishedBridge(callSid?: string): Promise<void> {
+    if (!callSid || !this.bridge) return;
+    const record = await this.calls.getBySid(callSid);
+    if (record?.origin !== 'bridge' || !record.agentId) return;
+    // Mid-call is not over — releasing here would let a second call start
+    // while the first is still connected.
+    if (!isTerminalStatus(record.status)) return;
+    await this.bridge.release(record.agentId);
+  }
+
   async onLegStatus(
     name: string,
     role: 'customer' | 'agent',
@@ -448,19 +619,35 @@ export class ConferenceService {
         this.redis.client.get(this.winnerKey(name)),
       ]);
       if (remaining === 0 && !winner) {
-        // Every agent leg died without anyone answering — release the customer.
+        // Every agent leg died without anyone answering. If a flow said where
+        // to go next — voicemail, another group — send them there; otherwise
+        // fall back to the apology this has always given.
         this.logger.log(`Conference ${name}: no agent answered`);
+        const { noAnswerUrl } = await this.redis.client.hgetall(this.metaKey(name));
+        if (noAnswerUrl) {
+          // Claimed before the redirect, so the conference-end it causes is
+          // recognised as a move rather than the end of the call.
+          await this.redis.client.set(this.movingKey(name), '1', 'EX', 20);
+        }
         try {
           await this.rest.run((c) =>
-            c.calls(primarySid).update({
-              twiml:
-                '<Response><Say>Sorry, no agents are available to take your call right now. Please try again later.</Say><Hangup/></Response>',
-            }),
+            c.calls(primarySid).update(
+              noAnswerUrl
+                ? { url: noAnswerUrl, method: 'POST' }
+                : {
+                    twiml:
+                      '<Response><Say>Sorry, no agents are available to take your call right now. Please try again later.</Say><Hangup/></Response>',
+                  },
+            ),
           );
         } catch {
           /* customer already gone */
         }
-        await this.calls.applyLifecycle({ callSid: primarySid, status: 'no-answer' });
+        // Only a call that truly ended here is a missed call; one moving on to
+        // voicemail is still in progress.
+        if (!noAnswerUrl) {
+          await this.calls.applyLifecycle({ callSid: primarySid, status: 'no-answer' });
+        }
       }
     }
   }
@@ -572,6 +759,24 @@ export class ConferenceService {
       `Conference ${name}: ${addedBy} added ${target.userId} (${target.channel})`,
     );
     return { callSid: participant.callSid };
+  }
+
+  /**
+   * Lifecycle + recording attributes shared by every <Conference> noun we
+   * emit. Twilio takes them from whichever participant creates the conference,
+   * so they must be identical everywhere — which is why they live here rather
+   * than with any one caller.
+   */
+  sharedConferenceAttrs(): Record<string, unknown> {
+    const base = `${this.config.publicBaseUrl}/api/telephony/voice`;
+    return {
+      statusCallback: `${base}/conference-events`,
+      statusCallbackMethod: 'POST',
+      statusCallbackEvent: ['start', 'end', 'join', 'leave'],
+      record: 'record-from-start',
+      recordingStatusCallback: `${base}/recording-status`,
+      recordingStatusCallbackMethod: 'POST',
+    };
   }
 
   /**

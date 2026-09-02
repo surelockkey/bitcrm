@@ -92,7 +92,7 @@ export function createTestUserHeader(user: JwtUser): string {
 // ---------------------------------------------------------------------------
 const superAdminPermissions = {
   permissions: {
-    contacts: { view: true, create: true, edit: true, delete: true },
+    contacts: { view: true, create: true, edit: true, delete: true, view_numbers: true },
     companies: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { contacts: 'all', companies: 'all' },
@@ -100,7 +100,7 @@ const superAdminPermissions = {
 
 const adminPermissions = {
   permissions: {
-    contacts: { view: true, create: true, edit: true, delete: true },
+    contacts: { view: true, create: true, edit: true, delete: true, view_numbers: true },
     companies: { view: true, create: true, edit: true, delete: false },
   },
   dataScope: { contacts: 'all', companies: 'all' },
@@ -108,7 +108,7 @@ const adminPermissions = {
 
 const dispatcherPermissions = {
   permissions: {
-    contacts: { view: true, create: true, edit: true, delete: false },
+    contacts: { view: true, create: true, edit: true, delete: false, view_numbers: true },
     companies: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { contacts: 'all', companies: 'all' },
@@ -116,7 +116,7 @@ const dispatcherPermissions = {
 
 const techPermissions = {
   permissions: {
-    contacts: { view: true, create: false, edit: false, delete: false },
+    contacts: { view: true, create: false, edit: false, delete: false, view_numbers: true },
     companies: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { contacts: 'assigned_only', companies: 'all' },
@@ -124,13 +124,26 @@ const techPermissions = {
 
 const readOnlyPermissions = {
   permissions: {
-    contacts: { view: true, create: false, edit: false, delete: false },
+    contacts: { view: true, create: false, edit: false, delete: false, view_numbers: true },
+    companies: { view: true, create: false, edit: false, delete: false },
+  },
+  dataScope: { contacts: 'all', companies: 'all' },
+};
+
+/**
+ * A technician with masking ON — the only difference from `techPermissions` is
+ * the ABSENCE of the grant, which is what call masking is.
+ */
+const maskedTechPermissions = {
+  permissions: {
+    contacts: { view: true, create: false, edit: true, delete: false, view_numbers: false },
     companies: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { contacts: 'all', companies: 'all' },
 };
 
 async function seedPermissions(redis: Redis): Promise<void> {
+  await redis.set('role:permissions:role-masked-tech', JSON.stringify(maskedTechPermissions), 'EX', 3600);
   await redis.set('role:permissions:role-super-admin', JSON.stringify(superAdminPermissions), 'EX', 3600);
   await redis.set('role:permissions:role-admin', JSON.stringify(adminPermissions), 'EX', 3600);
   await redis.set('role:permissions:role-dispatcher', JSON.stringify(dispatcherPermissions), 'EX', 3600);

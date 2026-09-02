@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { ConflictReason } from "../lib";
 import type { RescheduleTarget } from "./day-grid";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 const REASON_LABELS: Record<ConflictReason, string> = {
   double_booked: "overlaps another job",
@@ -29,7 +30,7 @@ export function RescheduleConfirmDialog({
   onCancel,
 }: {
   target: RescheduleTarget | null;
-  users: Map<string, User>;
+  users: Map<string, DirectoryUser>;
   conflicts: ConflictReason[];
   onConfirm: () => void;
   onCancel: () => void;

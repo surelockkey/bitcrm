@@ -45,6 +45,15 @@ export interface CallParticipant {
   roleId?: string;
 }
 
+/** One step a caller passed through on their way to (or instead of) an answer. */
+export interface CallFlowStepRecord {
+  nodeId: string;
+  type: string;
+  at: string;
+  /** What happened here in words — the key pressed, the group rung, open/closed. */
+  detail?: string;
+}
+
 export interface CallRecord {
   /** Primary sid: outbound = agent leg, inbound = customer leg. */
   callSid: string;
@@ -93,6 +102,12 @@ export interface CallRecord {
   endedAt?: string;
   conferenceName?: string;
   conferenceSid?: string;
+  /**
+   * How this caller travelled through the call flow. Written as it happens, so
+   * a call that never reached anybody still says where it went instead.
+   */
+  flowName?: string;
+  flowPath?: CallFlowStepRecord[];
   recordingSid?: string;
   recordingDurationSeconds?: number;
   /** Secondary leg sids (customer participant / agent ring legs). */
@@ -104,6 +119,17 @@ export interface CallRecord {
    * own numbers — the linked (outbound) record is the one shown in the log.
    */
   internalLegOf?: string;
+  /**
+   * How the call was placed. `bridge` is a masked, server-originated call —
+   * the technician never held the client's number. Drives the "via company
+   * line" badge and the "is anyone still dialling clients directly?" filter.
+   */
+  origin?: 'softphone' | 'bridge' | 'inbound';
+  /**
+   * Which rung of the caller-id chain won, so "why did this client see that
+   * number?" is answerable from the log rather than by re-deriving the chain.
+   */
+  callerIdSource?: 'agent' | 'history' | 'area' | 'default' | 'owned';
 }
 
 export interface ListCallsFilter {
@@ -118,6 +144,12 @@ export interface ListCallsFilter {
   dateFrom?: string;
   /** ISO (or prefix) upper bound on startedAt — inclusive of the whole day. */
   dateTo?: string;
+  /**
+   * How the call was placed. The read path for the question a manager asks a
+   * month after switching masking on: "is anyone still dialling clients
+   * directly?" — which is `origin=softphone` on outbound calls.
+   */
+  origin?: string;
 }
 
 export interface ListCallsResult {
@@ -192,9 +224,15 @@ export class CallsRepository {
       ['endedAt', rec.endedAt],
       ['conferenceName', rec.conferenceName],
       ['conferenceSid', rec.conferenceSid],
+      ['flowName', rec.flowName],
       ['recordingSid', rec.recordingSid],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
       ['internalLegOf', rec.internalLegOf],
+      // NOTE: a field added to CallRecord but forgotten here is dropped on
+      // every write with no type error, no runtime warning and no failing
+      // build. calls.repository.whitelist.spec.ts is the guard.
+      ['origin', rec.origin],
+      ['callerIdSource', rec.callerIdSource],
       ['sourceId', rec.sourceId],
     ];
     for (const [field, value] of optional) {
@@ -365,6 +403,25 @@ export class CallsRepository {
   }
 
   /** Record a system user's involvement (caller/answered/listened/joined). */
+  /**
+   * Add one step to the call's journey through its flow. Appended rather than
+   * rewritten so two webhooks racing can't lose a step.
+   */
+  async appendFlowStep(
+    callSid: string,
+    step: CallFlowStepRecord,
+  ): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: callPk(callSid), SK: 'METADATA' },
+        UpdateExpression:
+          'SET flowPath = list_append(if_not_exists(flowPath, :empty), :s)',
+        ExpressionAttributeValues: { ':empty': [], ':s': [step] },
+      }),
+    );
+  }
+
   async appendParticipant(
     callSid: string,
     participant: CallParticipant,
@@ -578,6 +635,11 @@ export class CallsRepository {
     if (filter.agentId) {
       clauses.push('agentId = :agentId');
       values[':agentId'] = filter.agentId;
+    }
+    if (filter.origin) {
+      clauses.push('#origin = :origin');
+      names['#origin'] = 'origin';
+      values[':origin'] = filter.origin;
     }
     if (filter.number) {
       clauses.push('(contains(#from, :number) OR contains(#to, :number))');

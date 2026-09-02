@@ -13,7 +13,9 @@ describe('ConferenceService — participant tracking', () => {
 
   it('records the answering agent on an inbound win', async () => {
     const { service, records } = makeHarness();
-    await service.initInbound('CAin', '+380958601427', '+15412830739', ['agent-B']);
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-B', callerId: '+380958601427' },
+    ]);
     await service.claimWinner('conf-CAin', 'CAleg-agent-B');
     await service.onWinner('conf-CAin', 'CAleg-agent-B', 'agent-B');
 
@@ -52,7 +54,9 @@ describe('ConferenceService — internal (our-number-to-our-number) calls', () =
     await service.initOutbound('CAout', 'agent-A', '+15412830739', '+15559998888');
     // the receiving side arrives as inbound, linked to CAout
     await service.initInbound(
-      'CAin', '+15559998888', '+15412830739', ['agent-B'], 'CAout',
+      'CAin', '+15559998888', '+15412830739',
+      [{ endpoint: 'client:agent-B', callerId: '+15559998888' }],
+      { internalLegOf: 'CAout' },
     );
     expect(records.get('CAin')?.internalLegOf).toBe('CAout');
 
@@ -107,7 +111,9 @@ describe('ConferenceService — nobody left but the customer', () => {
   it('ends an inbound call when the answering agent is the one who left', async () => {
     const { service, twilio } = makeHarness();
     // Inbound: the customer IS the call that made the conference.
-    await service.initInbound('CAin', '+380958601427', '+15412830739', ['agent-B']);
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-B', callerId: '+380958601427' },
+    ]);
     twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
 
     await service.onParticipantLeave('conf-CAin', 'CF2');
@@ -123,5 +129,104 @@ describe('ConferenceService — nobody left but the customer', () => {
     await service.onParticipantLeave('conf-CAout', 'CF1');
 
     expect(twilio.conferenceUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConferenceService — a flow still working through its groups', () => {
+  /**
+   * The sequence that broke: ring one group, nobody answers, their legs drop,
+   * and the caller is briefly alone in the conference while the flow lines up
+   * the next group. Ending the room there cuts the call short, fires the
+   * "after the call" branch of a group nobody answered, and marks the record
+   * completed — so whoever picks up on the second group is never recorded as
+   * having answered, and the call never appears as live.
+   */
+  it('leaves the caller in the room while the flow has somewhere else to try', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound(
+      'CAin', '+380958601427', '+15412830739',
+      [{ endpoint: 'client:agent-A', callerId: '+380958601427' }],
+      { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=second-ring' },
+    );
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF1');
+
+    expect(twilio.conferenceUpdate).not.toHaveBeenCalled();
+  });
+
+  it('ends the room once somebody has answered and then left', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound(
+      'CAin', '+380958601427', '+15412830739',
+      [{ endpoint: 'client:agent-B', callerId: '+380958601427' }],
+      { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=vm' },
+    );
+    // Somebody took the call — from here a room with only the customer in it
+    // really is over.
+    await service.claimWinner('conf-CAin', 'CAleg-agent-B');
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF1');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+
+  it('still ends a room with no flow behind it', async () => {
+    const { service, twilio } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-C', callerId: '+380958601427' },
+    ]);
+    twilio.participantsList.mockResolvedValue([{ callSid: 'CAin' }]);
+
+    await service.onParticipantLeave('conf-CAin', 'CF1');
+
+    expect(twilio.conferenceUpdate).toHaveBeenCalledWith({ status: 'completed' });
+  });
+});
+
+describe('ConferenceService — a conference ending is not always a call ending', () => {
+  it('does not finalise while a flow is moving the caller to the next group', async () => {
+    const { service, redis, applied } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-A', callerId: '+380958601427' },
+    ]);
+    await redis.set('telephony:conf:conf-CAin:moving', '1');
+    applied.length = 0;
+
+    await service.onConferenceEnd('conf-CAin');
+
+    // Marking it canceled here is unrecoverable: a terminal status outranks
+    // the "in-progress" that whoever answers next would set.
+    expect(applied.map((a: { status?: string }) => a.status)).not.toContain('canceled');
+  });
+
+  it('keeps the flow state, so the next ring still knows where to go', async () => {
+    const { service, redis } = makeHarness();
+    await service.initInbound(
+      'CAin', '+380958601427', '+15412830739',
+      [{ endpoint: 'client:agent-A', callerId: '+380958601427' }],
+      { noAnswerUrl: 'https://api.test/api/telephony/voice/flow?node=vm' },
+    );
+    await redis.set('telephony:conf:conf-CAin:moving', '1');
+
+    await service.onConferenceEnd('conf-CAin');
+
+    const meta = await redis.hgetall('telephony:conf:conf-CAin:meta');
+    expect(meta.noAnswerUrl).toContain('node=vm');
+  });
+
+  it('finalises every other ending, so a finished call cannot hang open', async () => {
+    const { service, applied } = makeHarness();
+    await service.initInbound('CAin', '+380958601427', '+15412830739', [
+      { endpoint: 'client:agent-A', callerId: '+380958601427' },
+    ]);
+    applied.length = 0;
+
+    // No move in progress — this is the call ending, whatever Twilio's leg
+    // status happens to say at this instant.
+    await service.onConferenceEnd('conf-CAin');
+
+    expect(applied.map((a: { status?: string }) => a.status)).toContain('canceled');
   });
 });

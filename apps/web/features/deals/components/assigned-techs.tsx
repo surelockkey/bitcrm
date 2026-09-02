@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import type { User } from "@bitcrm/types";
+import type { DirectoryUser } from "../hooks";
 import { initials } from "@/features/clients/lib";
 import { cn } from "@/lib/utils";
 import { useUserMap } from "../hooks";
@@ -25,7 +25,7 @@ export function TechChips({
   size = "sm",
   emptyText = "Unassigned",
   className,
-}: ChipProps & { userMap: Map<string, User> }) {
+}: ChipProps & { userMap: Map<string, DirectoryUser> }) {
   if (!techIds.length) {
     return emptyText ? <span className="text-sm text-muted-foreground">{emptyText}</span> : null;
   }
@@ -64,8 +64,14 @@ export function TechChips({
   );
 }
 
-/** Same chips, resolving names via the shared user map itself. */
+/**
+ * Same chips, resolving names itself.
+ *
+ * Passes its own `techIds` down: a viewer who may not list users (a technician)
+ * cannot fetch the directory, so the map is built from exactly these ids —
+ * otherwise the chips render raw uuids.
+ */
 export function AssignedTechs(props: ChipProps) {
-  const { map } = useUserMap();
+  const { map } = useUserMap(props.techIds);
   return <TechChips {...props} userMap={map} />;
 }

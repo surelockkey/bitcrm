@@ -42,6 +42,13 @@ export interface CallRecord {
    */
   fromParty?: CallParty;
   toParty?: CallParty;
+  /**
+   * Set when the viewer lacks `contacts.view_numbers`: the corresponding
+   * `from`/`to` has been withheld rather than being genuinely absent. The
+   * resolved party stays — masking removes digits, not identities.
+   */
+  fromMasked?: true;
+  toMasked?: true;
   /** The job this call was linked to, if any. */
   dealId?: string;
   dealLinkedBy?: string;
@@ -50,6 +57,9 @@ export interface CallRecord {
   sourceId?: string;
   /** How the party was decided — a manual choice is never re-derived. */
   partySource?: "auto" | "manual";
+  /** The call flow that answered, and where it took the caller. */
+  flowName?: string;
+  flowPath?: CallFlowStep[];
   durationSeconds?: number;
   startedAt: string;
   updatedAt: string;
@@ -253,6 +263,14 @@ export function otherPartyNumber(
  * telephony's `party-resolver`. The UI does not re-derive it, because two
  * implementations of the same rules is how they end up disagreeing.
  */
+/** One step a caller passed through in the call flow. */
+export interface CallFlowStep {
+  nodeId: string;
+  type: string;
+  at: string;
+  detail?: string;
+}
+
 export interface CallParty {
   kind: "user" | "contact" | "company" | "unknown";
   /** Identity within `kind`; absent for `unknown`. */
@@ -268,6 +286,8 @@ export interface CallParty {
   name?: string;
   /** The raw endpoint, E.164 or a legacy `client:` leg. */
   number?: string;
+  /** The number exists but was withheld from this viewer. */
+  masked?: boolean;
 }
 
 /**
@@ -277,9 +297,10 @@ export interface CallParty {
  */
 export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
   const number = side === "from" ? call.from : call.to;
+  const masked = side === "from" ? call.fromMasked : call.toMasked;
   const party = side === "from" ? call.fromParty : call.toParty;
-  if (!party) return { kind: "unknown", number };
-  return { ...party, number: party.number ?? number };
+  if (!party) return { kind: "unknown", number, masked };
+  return { ...party, number: party.number ?? number, masked };
 }
 
 /** True when both sides are our own people — an internal call. */

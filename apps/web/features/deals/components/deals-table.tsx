@@ -36,6 +36,7 @@ import {
 import { dealClientName, formatSchedule, isUrgent, scheduleMarker } from "../lib";
 import { TechChips } from "./assigned-techs";
 import { PriorityFlag, StageBadge } from "./deal-badges";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 /** "RESIDENTIAL" → "Residential", "IN_PROGRESS" → "In progress". */
 const pretty = (v?: string) =>
@@ -52,7 +53,7 @@ export function DealsTable({
 }: {
   deals: Deal[];
   contactMap: Map<string, Contact>;
-  userMap: Map<string, User>;
+  userMap: Map<string, DirectoryUser>;
   onOpen: (deal: Deal) => void;
   visibleFields?: VisibleFields;
 }) {

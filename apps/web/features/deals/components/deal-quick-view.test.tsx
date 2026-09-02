@@ -45,6 +45,14 @@ vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStat
 // Custom-fields catalog fetches via react-query; stub it (empty catalog → the
 // read-only custom-fields row stays hidden) so the drawer renders sans QueryClient.
 vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: () => ({ data: [] }) }));
+// Calling the client goes through the masked bridge, which queries telephony
+// for the workspace's numbers. This test is about the client LINK; the button
+// has its own tests.
+vi.mock("@/features/telephony/components/call-client-button", () => ({
+  CallClientButton: ({ to, variant }: { to: string; variant?: string }) => (
+    <button type="button" aria-label={`Call ${to}`} data-variant={variant} />
+  ),
+}));
 
 const contact: Contact = {
   id: "c1",
@@ -93,6 +101,20 @@ vi.mock("../hooks", () => ({
 import { DealQuickView } from "./deal-quick-view";
 
 describe("DealQuickView", () => {
+  /**
+   * Peeking at a job is usually a prelude to ringing the client, so the call
+   * is the primary action on the card rather than one more glyph in a row of
+   * them.
+   */
+  it("makes calling the client the card's obvious action", () => {
+    render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+
+    expect(screen.getByRole("button", { name: /call \+14045551234/i })).toHaveAttribute(
+      "data-variant",
+      "prominent",
+    );
+  });
+
   it("links the client name to the contact page so you can jump from the job to the client", () => {
     render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
 

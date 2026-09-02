@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Phone, Plus, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Phone, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -29,6 +29,7 @@ import {
   useNumbers,
   useNumberSettings,
   useReleaseNumber,
+  useSetTechnicianLine,
   useUpdateNumberSettings,
 } from "../numbers-hooks";
 import type { OwnedNumber } from "../numbers-api";
@@ -40,6 +41,7 @@ export function PhoneNumbersPage() {
   const { data: numberSettings } = useNumberSettings(can("settings"));
   const updateSettings = useUpdateNumberSettings();
   const release = useReleaseNumber();
+  const setTechLine = useSetTechnicianLine();
 
   const [buyOpen, setBuyOpen] = useState(false);
   const [deleting, setDeleting] = useState<OwnedNumber | undefined>();
@@ -104,7 +106,7 @@ export function PhoneNumbersPage() {
                 <TableHead>Label</TableHead>
                 <TableHead>Job source</TableHead>
                 {canManage ? (
-                  <TableHead className="w-16 text-right">Actions</TableHead>
+                  <TableHead className="w-24 text-right">Actions</TableHead>
                 ) : null}
               </TableRow>
             </TableHeader>
@@ -115,7 +117,14 @@ export function PhoneNumbersPage() {
                     {formatPhone(n.phoneNumber)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {n.friendlyName}
+                    <span className="flex items-center gap-2">
+                      {n.friendlyName}
+                      {n.technicianLine ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                          <KeyRound className="size-3" /> Technician line
+                        </span>
+                      ) : null}
+                    </span>
                   </TableCell>
                   {/* Call tracking: calls through this number are attributed
                       to the chosen source, and a job created from such a call
@@ -134,6 +143,36 @@ export function PhoneNumbersPage() {
                   </TableCell>
                   {canManage ? (
                     <TableCell className="text-right">
+                      {/* A workspace has exactly one technician line, so this
+                          reads as a designation rather than a per-number
+                          setting: turning it on elsewhere moves it. */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={setTechLine.isPending}
+                        onClick={() =>
+                          setTechLine.mutate({ sid: n.sid, on: !n.technicianLine })
+                        }
+                        title={
+                          n.technicianLine
+                            ? "Stop using this as the technician line"
+                            : "Make this the technician dial-in line"
+                        }
+                        aria-label={
+                          n.technicianLine
+                            ? "Clear technician line"
+                            : "Make technician line"
+                        }
+                      >
+                        <KeyRound
+                          className={
+                            n.technicianLine
+                              ? "size-4 text-brand"
+                              : "size-4 text-muted-foreground"
+                          }
+                        />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

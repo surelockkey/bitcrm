@@ -5,7 +5,9 @@ import type { CallRecord } from "../lib";
 import { LiveCallStrip } from "./live-call-strip";
 
 const callState = vi.fn(() => "active");
-const activeCall = vi.fn<() => { data: CallRecord | null }>();
+const activeCall = vi.fn<
+  () => { data: CallRecord | null; isError?: boolean; dataUpdatedAt?: number }
+>();
 const linkMutate = vi.fn();
 
 vi.mock("@/features/telephony/softphone-store", () => ({
@@ -98,5 +100,89 @@ describe("LiveCallStrip", () => {
     activeCall.mockReturnValue({ data: null });
     const { container } = render(<LiveCallStrip dealId="d1" />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  /**
+   * The strip asserts a fact about right now, and it learns that fact from a
+   * 5s poll. React Query keeps the last successful value when a refetch
+   * fails — so a dropped session or a restarted service used to freeze
+   * "Call in progress" on screen indefinitely, for a call that had ended.
+   */
+  describe("when it can no longer confirm the call", () => {
+    it("stops claiming a call is in progress after a failed poll", () => {
+      activeCall.mockReturnValue({ data: call, isError: true });
+
+      const { container } = render(<LiveCallStrip dealId="deal-1" />);
+
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("stops claiming it when the answer has simply gone stale", () => {
+      vi.setSystemTime(new Date("2026-08-14T10:05:00.000Z"));
+      activeCall.mockReturnValue({
+        data: call,
+        dataUpdatedAt: new Date("2026-08-14T10:04:00.000Z").getTime(),
+      });
+
+      const { container } = render(<LiveCallStrip dealId="deal-1" />);
+
+      expect(container).toBeEmptyDOMElement();
+      vi.useRealTimers();
+    });
+
+    it("keeps showing a call it confirmed moments ago", () => {
+      vi.setSystemTime(new Date("2026-08-14T10:05:00.000Z"));
+      activeCall.mockReturnValue({
+        data: call,
+        dataUpdatedAt: new Date("2026-08-14T10:04:57.000Z").getTime(),
+      });
+
+      render(<LiveCallStrip dealId="deal-1" />);
+
+      expect(screen.getByText(/call in progress/i)).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+  });
+
+  /**
+   * A call that has been "connecting" for minutes is not a call anybody is on:
+   * the ring gave up, or the leg never opened and no webhook said so. The
+   * server keeps ring-phase records live for ten minutes for the dispatch
+   * board's benefit, which is far too long to tell one person they are mid-call.
+   */
+  it("does not call a leg that never connected an ongoing call", () => {
+    vi.setSystemTime(new Date("2026-08-14T10:03:00.000Z"));
+    activeCall.mockReturnValue({
+      data: {
+        ...call,
+        status: "ringing",
+        answeredAt: undefined,
+        startedAt: "2026-08-14T10:00:00.000Z",
+      },
+      dataUpdatedAt: new Date("2026-08-14T10:03:00.000Z").getTime(),
+    });
+
+    const { container } = render(<LiveCallStrip dealId="deal-1" />);
+
+    expect(container).toBeEmptyDOMElement();
+    vi.useRealTimers();
+  });
+
+  it("still shows a call that is ringing right now", () => {
+    vi.setSystemTime(new Date("2026-08-14T10:00:10.000Z"));
+    activeCall.mockReturnValue({
+      data: {
+        ...call,
+        status: "ringing",
+        answeredAt: undefined,
+        startedAt: "2026-08-14T10:00:00.000Z",
+      },
+      dataUpdatedAt: new Date("2026-08-14T10:00:10.000Z").getTime(),
+    });
+
+    render(<LiveCallStrip dealId="deal-1" />);
+
+    expect(screen.getByText(/connecting/i)).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

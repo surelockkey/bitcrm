@@ -46,6 +46,9 @@ export const ACTION_LABELS: Record<string, string> = {
   approve: "Approve",
   revoke: "Revoke",
   upload: "Upload",
+  // Governs client phone numbers on contacts AND companies — turning it off is
+  // what switches call masking on for that role or user.
+  view_numbers: "See client numbers",
 };
 
 /** Domain grouping for the matrix — keeps 15 resources scannable. */

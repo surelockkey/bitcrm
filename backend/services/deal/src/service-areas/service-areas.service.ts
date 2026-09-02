@@ -6,7 +6,7 @@ import {
   ConflictException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService, GeocodingService } from '@bitcrm/shared';
+import { SnsPublisherService, BusinessMetricsService, GeocodingService, tryNormalizePhone } from '@bitcrm/shared';
 import {
   ServiceAreaType,
   DEFAULT_TIMEZONE,
@@ -91,6 +91,7 @@ export class ServiceAreasService {
       type: dto.type,
       definition,
       coverage,
+      ...(this.normalizeCallerId(dto.callerId) ?? {}),
       createdBy: caller.id,
       createdAt: now,
       updatedAt: now,
@@ -145,9 +146,38 @@ export class ServiceAreasService {
       updatedAt: new Date().toISOString(),
     };
 
+    // Not `?? existing`: the whole point is that an operator can UNSET the
+    // number, and a nullish coalesce can only ever set one.
+    if (dto.callerId !== undefined) {
+      const normalized = this.normalizeCallerId(dto.callerId);
+      if (normalized) updated.callerId = normalized.callerId;
+      else delete updated.callerId;
+    }
+
     await this.repository.put(updated);
     this.publishEvent('service-area.updated', { serviceAreaId: id, name: updated.name });
     return updated;
+  }
+
+  /**
+   * Normalise and validate a market caller id, or `undefined` to clear it.
+   *
+   * Rejected at SAVE time deliberately. Caller id is never checked against
+   * account ownership at dial time — `pickCallerId` in telephony is a regex
+   * sanity filter and says so — meaning a typo would otherwise surface three
+   * weeks later as a client whose call hangs up.
+   */
+  private normalizeCallerId(
+    raw: string | null | undefined,
+  ): { callerId: string } | undefined {
+    if (raw === undefined || raw === null || raw.trim() === '') return undefined;
+    const normalized = tryNormalizePhone(raw);
+    if (!normalized) {
+      throw new BadRequestException(
+        `callerId "${raw}" is not a valid phone number`,
+      );
+    }
+    return { callerId: normalized };
   }
 
   async remove(id: string, caller: { id: string }): Promise<void> {

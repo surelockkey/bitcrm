@@ -445,6 +445,46 @@ describe('DealsService', () => {
       );
     });
 
+    /**
+     * A job edited to an address outside every service area kept its OLD
+     * serviceAreaId: the resolver returns nothing, and the update builder skips
+     * `undefined`. Harmless while nothing read the field — but the moment
+     * caller id does, that job dials from the wrong market's number forever.
+     */
+    it('clears serviceAreaId when the new address is outside all coverage', async () => {
+      const deal = mockFindById(
+        createMockDeal({ serviceAreaId: 'area-old', serviceArea: 'Atlanta Metro' }),
+      );
+      repo.update.mockResolvedValue(deal);
+      serviceAreas.resolvePoint.mockResolvedValue(null);
+
+      await service.update(
+        'deal-1',
+        { address: { street: '1 Nowhere Rd', city: 'Nowhere', state: 'MT', zip: '59001', lat: 45.7, lng: -110.5 } } as any,
+        caller,
+      );
+
+      const [, updates] = repo.update.mock.calls.at(-1)!;
+      // null REMOVEs the attribute; undefined would leave the stale id in place.
+      expect(updates.serviceAreaId).toBeNull();
+    });
+
+    it('sets serviceAreaId when the new address lands in an area', async () => {
+      const deal = mockFindById(createMockDeal({ serviceAreaId: 'area-old' }));
+      repo.update.mockResolvedValue(deal);
+      serviceAreas.resolvePoint.mockResolvedValue({ id: 'area-new', name: 'Savannah' });
+
+      await service.update(
+        'deal-1',
+        { address: { street: '2 Bay St', city: 'Savannah', state: 'GA', zip: '31401', lat: 32.08, lng: -81.09 } } as any,
+        caller,
+      );
+
+      const [, updates] = repo.update.mock.calls.at(-1)!;
+      expect(updates.serviceAreaId).toBe('area-new');
+      expect(updates.serviceArea).toBe('Savannah');
+    });
+
     it('clears the external company when the patch sends null', async () => {
       const deal = mockFindById();
       repo.update.mockResolvedValue({ ...deal });

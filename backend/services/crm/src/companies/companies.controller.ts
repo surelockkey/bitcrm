@@ -10,9 +10,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RequirePermission, CurrentUser } from '@bitcrm/shared';
+import { RequirePermission, CurrentUser, hasPermission } from '@bitcrm/shared';
 import { Internal } from '../common/decorators/internal.decorator';
-import { type JwtUser } from '@bitcrm/types';
+import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
+import { maskPhones, maskPhonesEach, stripUnwritablePhones } from '../common/phone-masking';
+
+/**
+ * Company main lines ride the same grant as contact numbers on purpose: masked
+ * on residential jobs but not commercial ones is a state nobody wants and
+ * everybody would eventually configure by accident.
+ */
+const maySeeNumbers = (perms?: ResolvedPermissions) =>
+  hasPermission(perms, 'contacts', 'view_numbers');
+import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { CompaniesService } from './companies.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -49,11 +59,14 @@ export class CompaniesController {
     summary: 'List companies with pagination',
     description: '**Guard:** `companies.view` permission required.',
   })
-  async list(@Query() query: ListCompaniesQueryDto) {
+  async list(
+    @Query() query: ListCompaniesQueryDto,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
     const result = await this.companiesService.list(query);
     return {
       success: true,
-      data: result.items,
+      data: maskPhonesEach(result.items, maySeeNumbers(perms)),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
   }
@@ -64,9 +77,12 @@ export class CompaniesController {
     summary: 'Get company by ID',
     description: '**Guard:** `companies.view` permission required.',
   })
-  async findById(@Param('id') id: string) {
+  async findById(
+    @Param('id') id: string,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
     const data = await this.companiesService.findById(id);
-    return { success: true, data };
+    return { success: true, data: maskPhones(data, maySeeNumbers(perms)) };
   }
 
   @Put(':id')
@@ -78,9 +94,14 @@ export class CompaniesController {
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateCompanyDto,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
-    const data = await this.companiesService.update(id, dto);
-    return { success: true, data };
+    const allowed = maySeeNumbers(perms);
+    const data = await this.companiesService.update(
+      id,
+      stripUnwritablePhones(dto, allowed),
+    );
+    return { success: true, data: maskPhones(data, allowed) };
   }
 
   @Delete(':id')
@@ -103,6 +124,7 @@ export class CompaniesController {
   async getCompanyContacts(
     @Param('id') id: string,
     @Query() query: ListContactsQueryDto,
+    @ResolvedPerms() perms: ResolvedPermissions,
   ) {
     const result = await this.contactsService.list({
       companyId: id,
@@ -110,7 +132,7 @@ export class CompaniesController {
     });
     return {
       success: true,
-      data: result.items,
+      data: maskPhonesEach(result.items, maySeeNumbers(perms)),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
   }

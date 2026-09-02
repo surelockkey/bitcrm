@@ -21,6 +21,7 @@ import { AddressAutocomplete } from "@/features/deals/components/address-autocom
 import { useProfile, useUpdateProfile } from "../hooks";
 import { WorkingHoursEditor } from "@/features/schedule/components/working-hours-editor";
 import { profileSchema, type ProfileValues } from "../schemas";
+import { useSetClientNumberVisibility } from "../masking-hooks";
 
 export function ProfileTab({
   technicianId,
@@ -66,6 +67,8 @@ function ProfileForm({
     },
   });
   const { register, control, setValue, handleSubmit } = form;
+  const setMasking = useSetClientNumberVisibility();
+  const maskingPending = setMasking.isPending;
   const status = useWatch({ control, name: "status" });
   const callMasking = useWatch({ control, name: "callMaskingEnabled" });
   const gps = useWatch({ control, name: "gpsTrackingEnabled" });
@@ -97,6 +100,12 @@ function ProfileForm({
       <Group label="Contact (self-filled)">
         <Field label="Phone">
           <PhoneInput disabled={readOnly} value={phone} onChange={(v) => setValue("phone", v, { shouldValidate: true, shouldDirty: true })} />
+          {/* Saved onto the user record, not this one — the same number the
+              technician sets on their own account page. */}
+          <p className="text-xs text-muted-foreground">
+            The number we ring for this technician, and the one that identifies
+            them in the call log.
+          </p>
           {form.formState.errors.phone ? <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p> : null}
         </Field>
         <Field label="Address line 1">
@@ -143,7 +152,24 @@ function ProfileForm({
             </Select>
           </Field>
         </div>
-        <Toggle label="Call masking" hint="Hide the tech's number on calls" checked={callMasking} disabled={readOnly} onChange={(c) => setValue("callMaskingEnabled", c)} />
+        {/* The label used to read "Hide the tech's number on calls", which is
+            what a manager WANTS but not what the switch does. It hides CLIENT
+            numbers from the technician; their own number is hidden from clients
+            by every masked call, always, and is not optional.
+
+            It writes through the permission that actually governs this, so
+            there is only ever one switch — two switches for one behaviour is
+            how a privacy setting ends up wrong. */}
+        <Toggle
+          label="Hide client numbers"
+          hint="They see the client's name and call through the system, never the number"
+          checked={callMasking}
+          disabled={readOnly || maskingPending}
+          onChange={(c) => {
+            setValue("callMaskingEnabled", c);
+            setMasking.mutate({ userId: technicianId, hideNumbers: c });
+          }}
+        />
         <Toggle label="GPS tracking" hint="Location during shifts" checked={gps} disabled={readOnly} onChange={(c) => setValue("gpsTrackingEnabled", c)} />
         <Toggle label="Mobile app installed" checked={mobile} disabled={readOnly} onChange={(c) => setValue("mobileAppInstalled", c)} />
       </Group>

@@ -69,6 +69,11 @@ export function statusRank(status: CallStatus): number {
   return STATUS_RANK[status];
 }
 
+/** Nothing follows these — the call is over. */
+export function isTerminalStatus(status?: CallStatus): boolean {
+  return !!status && STATUS_RANK[status] === 4;
+}
+
 /** A partial lifecycle update; callSid is the only required field. */
 export type LifecycleUpdate = Partial<CallRecord> & { callSid: string };
 
@@ -262,6 +267,16 @@ export class CallsService {
     );
   }
 
+  /** Record one step of the caller's journey through a call flow. */
+  async recordFlowStep(
+    callSid: string,
+    step: { nodeId: string; type: string; detail?: string },
+  ): Promise<void> {
+    await this.repo
+      .appendFlowStep(callSid, { ...step, at: new Date().toISOString() })
+      .catch(() => undefined);
+  }
+
   /** Attach a call to a job, or detach it, and tell the job about it. */
   async linkDeal(
     callSid: string,
@@ -365,11 +380,34 @@ export class CallsService {
   ): Promise<void> {
     if (!params.CallSid) return;
 
+    const existing = await this.repo.getBySid(params.CallSid);
+    const reported = normalizeStatus(params.CallStatus);
+
     // Conference-managed calls are written exclusively by the orchestration —
     // the TwiML-App-level status callback reports SDK legs as
     // Direction=inbound / From=client:… / To="" and would trash the record.
-    const existing = await this.repo.getBySid(params.CallSid);
-    if (existing?.conferenceName) return;
+    //
+    // The STATUS, though, is the one thing this callback is honest about, and
+    // sometimes it is the only word we get: hang up fast enough and the leg
+    // dies before it joins its conference, so no conference is ever created
+    // and no conference-end fires. Dropping this left the record live until
+    // the ten-minute stale sweep, and `activeCallFor` refused to place another
+    // call for that whole time — one quick hang-up cost somebody their phone.
+    if (existing?.conferenceName) {
+      if (isTerminalStatus(reported) && !existing.answeredAt) {
+        await this.applyLifecycle({
+          callSid: params.CallSid,
+          // Nobody spoke, so it is not a "completed" call — the same rule the
+          // conference-end handler applies, so both routes agree. A more
+          // specific failure (busy, no-answer) says more and is kept.
+          status: reported === 'completed' ? 'canceled' : reported,
+          endedAt: now,
+        });
+      }
+      // An answered call has a conference, and its end event is the authority:
+      // it completes the child legs and finalises with the duration.
+      return;
+    }
 
     // The agent leg appears as `client:<identity>` on either From (outbound)
     // or To (inbound routed to <Client>).
@@ -378,7 +416,7 @@ export class CallsService {
 
     const record: CallRecord = {
       callSid: params.CallSid,
-      status: normalizeStatus(params.CallStatus),
+      status: reported,
       from: params.From,
       to: params.To,
       direction: normalizeDirection(params.Direction),

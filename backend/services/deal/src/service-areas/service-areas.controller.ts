@@ -71,7 +71,12 @@ export class ServiceAreasController {
     const areas = await this.service.list();
     return {
       success: true,
-      data: areas.map((a) => ({ id: a.id, name: a.name, active: a.active })),
+      data: areas.map((a) => ({
+        id: a.id,
+        name: a.name,
+        active: a.active,
+        callerId: a.callerId,
+      })),
     };
   }
 

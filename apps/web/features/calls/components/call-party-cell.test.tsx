@@ -151,3 +151,56 @@ describe("CallPartyCell", () => {
     });
   });
 });
+
+/**
+ * Masking removes digits, never identities: the technician still has to see
+ * that they spoke to Maria Alvarez. An absent number and a withheld one must
+ * also read differently, or "—" sends somebody hunting for it elsewhere.
+ */
+describe("CallPartyCell — masked numbers", () => {
+  it("still shows the client's name", () => {
+    render(
+      <CallPartyCell
+        party={{ kind: "contact", id: "c1", name: "Maria Alvarez", masked: true }}
+      />,
+    );
+    expect(screen.getByText("Maria Alvarez")).toBeInTheDocument();
+  });
+
+  it("says the number is hidden rather than showing nothing", () => {
+    render(
+      <CallPartyCell
+        party={{ kind: "contact", id: "c1", name: "Maria Alvarez", masked: true }}
+      />,
+    );
+    expect(screen.getByText(/number hidden/i)).toBeInTheDocument();
+  });
+
+  it("shows the number when it was not masked", () => {
+    render(
+      <CallPartyCell
+        party={{
+          kind: "contact",
+          id: "c1",
+          name: "Maria Alvarez",
+          number: "+14045551234",
+        }}
+      />,
+    );
+    expect(screen.queryByText(/number hidden/i)).not.toBeInTheDocument();
+  });
+
+  /**
+   * A masked call the CRM could not name at all: without this the cell renders
+   * a bare em dash, which reads as "no caller id" rather than "withheld from
+   * you", and offers an "Add client" button for a number nobody can supply.
+   */
+  it("does not offer Add client for a party whose number is withheld", () => {
+    const onAddClient = vi.fn();
+    render(
+      <CallPartyCell party={{ kind: "unknown", masked: true }} onAddClient={onAddClient} />,
+    );
+    expect(screen.getByText(/number hidden/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add client/i })).toBeNull();
+  });
+});

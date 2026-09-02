@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { CallsController } from '../../src/calls/calls.controller';
 import { CallsService } from '../../src/calls/calls.service';
@@ -60,6 +61,24 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     list: jest.fn().mockResolvedValue([]),
     find: jest.fn().mockResolvedValue({ id: 'u9', name: 'Tamir Levi' }),
   } as unknown as import('../../src/common/user-directory.service').UserDirectoryService;
+  // Defaults to granted, so every pre-masking assertion keeps its meaning.
+  // Pass `permissions` to makeController() to exercise a masked viewer.
+  const permissions = {
+    maySeeClientNumbers: jest.fn().mockResolvedValue(true),
+    ...(over.permissions as object),
+  } as unknown as import('../../src/common/permission-lookup.service').PermissionLookupService;
+  const bridge = {
+    prepare: jest.fn(),
+    context: jest.fn().mockResolvedValue(null),
+    release: jest.fn().mockResolvedValue(undefined),
+    answerClaim: jest.fn().mockResolvedValue(null),
+    mayReachDeal: jest.fn().mockReturnValue(true),
+    ...(over.bridge as object),
+  } as unknown as import('../../src/common/bridge.service').BridgeService;
+  const presence = {
+    listOnline: jest.fn().mockResolvedValue([]),
+    ...(over.presence as object),
+  } as unknown as import('../../src/presence/presence.service').PresenceService;
   const controller = new CallsController(
     calls,
     bus,
@@ -68,6 +87,9 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     contacts,
     userPhones,
     directory,
+    permissions,
+    bridge,
+    presence,
     CONFIG,
   );
   return {
@@ -79,6 +101,9 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     contacts,
     userPhones,
     directory,
+    permissions,
+    bridge,
+    presence,
   };
 }
 
@@ -702,5 +727,225 @@ describe('CallsController — taking a call into another tab', () => {
 
     expect(conference.promoteLeg).toHaveBeenCalledTimes(1);
     expect(conference.promoteLeg).toHaveBeenCalledWith('CA1', 'CAnew');
+  });
+});
+
+/**
+ * Call masking on the read paths. The grant lives on `contacts`, not `calls`,
+ * so these routes cannot express it as a decorator — three of them
+ * (`active`, `recent`, `stream`) are reachable by a technician who holds no
+ * `calls` permission at all, which is exactly who must not see the numbers.
+ */
+describe('CallsController — masking client numbers', () => {
+  const masked = () => ({
+    permissions: { maySeeClientNumbers: jest.fn().mockResolvedValue(false) },
+  });
+
+  const withNumbers = (over: Partial<CallRecord> = {}) =>
+    record({ from: '+14045550100', to: '+14045551234', ...over });
+
+  it('drops both numbers from the global log', async () => {
+    const { controller } = makeController({
+      ...masked(),
+      list: jest.fn().mockResolvedValue({ items: [withNumbers()] }),
+    });
+
+    const res = await controller.list();
+
+    expect(res.data[0].from).toBeUndefined();
+    expect(res.data[0].to).toBeUndefined();
+    expect(res.data[0].fromMasked).toBe(true);
+    expect(res.data[0].toMasked).toBe(true);
+  });
+
+  it('keeps the numbers for a granted viewer', async () => {
+    const { controller } = makeController({
+      list: jest.fn().mockResolvedValue({ items: [withNumbers()] }),
+    });
+
+    const res = await controller.list();
+
+    expect(res.data[0].to).toBe('+14045551234');
+  });
+
+  it('masks the call you are currently on', async () => {
+    const { controller } = makeController({
+      ...masked(),
+      activeCallFor: jest.fn().mockResolvedValue(withNumbers()),
+    });
+
+    const res = await controller.active(USER);
+
+    expect(res.data?.to).toBeUndefined();
+    expect(res.data?.toMasked).toBe(true);
+  });
+
+  /**
+   * Previously this route returned RAW records straight from the GSI — no
+   * enrichment and no redaction — on a handler documented as "any
+   * authenticated user". It is the read path behind a technician's own history.
+   */
+  it('masks and enriches the current agent history', async () => {
+    const { controller } = makeController({
+      ...masked(),
+      listByAgent: jest.fn().mockResolvedValue([withNumbers()]),
+    });
+
+    const res = await controller.recent(USER);
+
+    expect(res.data[0].to).toBeUndefined();
+    expect(res.data[0].toMasked).toBe(true);
+  });
+
+  it('masks a single call detail', async () => {
+    const { controller } = makeController({
+      ...masked(),
+      getBySid: jest.fn().mockResolvedValue(withNumbers()),
+    });
+
+    const res = await controller.detail('CA1');
+
+    expect(res.data?.from).toBeUndefined();
+  });
+
+  it('masks the live list', async () => {
+    const { controller } = makeController({
+      ...masked(),
+      listLive: jest.fn().mockResolvedValue([withNumbers({ status: 'in-progress' })]),
+    });
+
+    const res = await controller.live();
+
+    expect(res.data[0].to).toBeUndefined();
+  });
+
+  it('masks events on the SSE stream', async () => {
+    const { controller, subject } = makeController(masked());
+    const { res, chunks } = makeRes();
+    controller.stream(res as never);
+
+    subject.next({ type: 'call.upserted', call: withNumbers() } as CallEvent);
+    await new Promise((r) => setImmediate(r));
+
+    const frame = chunks.find((c) => c.startsWith('data:'))!;
+    const payload = JSON.parse(frame.replace('data: ', ''));
+    expect(payload.call.to).toBeUndefined();
+    expect(payload.call.toMasked).toBe(true);
+  });
+
+  it('masks the stream when the permission lookup itself fails', async () => {
+    // Falling through to the unmasked event on a Redis blip would defeat the
+    // whole feature at exactly the moment nobody is watching.
+    const { controller, subject } = makeController({
+      permissions: {
+        maySeeClientNumbers: jest.fn().mockRejectedValue(new Error('down')),
+      },
+    });
+    const { res, chunks } = makeRes();
+    controller.stream(res as never);
+
+    subject.next({ type: 'call.upserted', call: withNumbers() } as CallEvent);
+    await new Promise((r) => setImmediate(r));
+
+    const frame = chunks.find((c) => c.startsWith('data:'))!;
+    expect(JSON.parse(frame.replace('data: ', '')).call.to).toBeUndefined();
+  });
+
+  it('still names the parties for a masked viewer', async () => {
+    // The screen-pop and a readable log are built from the party, not the
+    // number — stripping names would push technicians back to their own phones.
+    const { controller, contacts } = makeController({
+      ...masked(),
+      list: jest.fn().mockResolvedValue({ items: [withNumbers()] }),
+    });
+    (contacts.resolve as jest.Mock).mockResolvedValue({
+      '+14045551234': { kind: 'contact', id: 'c1', name: 'Maria Alvarez' },
+    });
+
+    const res = await controller.list();
+
+    expect(res.data[0].toParty).toMatchObject({ name: 'Maria Alvarez' });
+    expect(res.data[0].to).toBeUndefined();
+  });
+});
+
+/**
+ * Which end rings the technician.
+ *
+ * Presence is a good DEFAULT — somebody sitting at a browser wants the call in
+ * the browser — but it is a bad rule: a technician with the app open on a
+ * laptop in the van still wants the call on the phone in their hand. So the
+ * caller may say, and presence only decides when they do not.
+ */
+describe('CallsController.startBridge — choosing which end rings', () => {
+  const user = { id: 'tech-1', roleId: 'role-technician' } as never;
+  const req = { dealId: 'deal-1', contactId: 'contact-1' };
+
+  function make(over: Record<string, unknown> = {}) {
+    const harness = makeController({
+      bridge: {
+        prepare: jest.fn().mockResolvedValue({
+          bridgeId: 'b-1',
+          clientName: 'Maria Alvarez',
+        }),
+      },
+      presence: { listOnline: jest.fn().mockResolvedValue(['tech-1']) },
+      ...over,
+    });
+    // The Twilio leg is created inside ringTechnician; stub it out so these
+    // cases are about the decision, not about placing a real call.
+    const rang: string[] = [];
+    (harness.controller as never as Record<string, unknown>).ringTechnician =
+      jest.fn(async (bridgeId: string) => {
+        rang.push(bridgeId);
+        return 'CAtech';
+      });
+    return { ...harness, rang };
+  }
+
+  it('rings the handset when asked to, even with the softphone online', async () => {
+    const { controller, rang } = make();
+
+    const res = await controller.startBridge({ ...req, via: 'cell' }, user);
+
+    expect(res.data.mode).toBe('cell');
+    expect(rang).toEqual(['b-1']);
+  });
+
+  it('takes the browser leg when asked to', async () => {
+    const { controller, rang } = make({
+      presence: { listOnline: jest.fn().mockResolvedValue([]) },
+    });
+
+    const res = await controller.startBridge({ ...req, via: 'softphone' }, user);
+
+    expect(res.data.mode).toBe('softphone');
+    expect(rang).toEqual([]);
+  });
+
+  it('still follows presence when the caller does not say', async () => {
+    const { controller } = make();
+
+    const res = await controller.startBridge(req, user);
+
+    expect(res.data.mode).toBe('softphone');
+  });
+
+  it('rings the handset when nobody is at a browser', async () => {
+    const { controller } = make({
+      presence: { listOnline: jest.fn().mockResolvedValue([]) },
+    });
+
+    const res = await controller.startBridge(req, user);
+
+    expect(res.data.mode).toBe('cell');
+  });
+
+  it('refuses a choice that is not one of the two', async () => {
+    const { controller } = make();
+
+    await expect(
+      controller.startBridge({ ...req, via: 'carrier-pigeon' } as never, user),
+    ).rejects.toThrow(BadRequestException);
   });
 });

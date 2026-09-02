@@ -58,6 +58,31 @@ describe("SYSTEM_ROLES <-> RESOURCE_REGISTRY consistency", () => {
       }
     },
   );
+
+  /**
+   * The `view`-only check above is not a tripwire for a NEW ACTION on an
+   * existing resource: the resource is already present, `view` is already a
+   * boolean, and the mirror stays green while the new action reads as
+   * undefined -> denied for everyone. The backend twin
+   * (backend/services/user/test/unit/roles/default-roles.spec.ts) has always
+   * iterated the registry's actions; this one did not, so six hand-maintained
+   * mirror blocks had no automated guard at all.
+   */
+  it.each(Object.entries(SYSTEM_ROLES))(
+    "role %s declares every registered ACTION, not just view",
+    (_roleId, role) => {
+      for (const resource of resources) {
+        const perms = role.permissions[resource];
+        expect(perms, `${role.id} is missing ${resource}`).toBeDefined();
+        for (const action of RESOURCE_REGISTRY[resource]) {
+          expect(
+            typeof perms![action],
+            `${role.id}.${resource}.${action} must be a boolean`,
+          ).toBe("boolean");
+        }
+      }
+    },
+  );
 });
 
 describe("SYSTEM_ROLES custom_fields grant", () => {

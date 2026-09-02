@@ -45,6 +45,48 @@ export class ContactLookupService {
     { name: string | null; expiresAt: number }
   >();
 
+  /**
+   * The numbers on one client record, read live at dial time.
+   *
+   * The whole point of the masked bridge: the browser sends a `contactId` and
+   * a `phoneIndex`, never an E.164, and this is where the digits enter the
+   * system — server-side, moments before Twilio dials them.
+   *
+   * Deliberately NOT cached. Everything else here is a display lookup where a
+   * stale answer costs a wrong label; this one decides who gets rung, and a
+   * number corrected two minutes ago must be the number we call. It is also
+   * one request per placed call, which is nothing.
+   */
+  async phonesOf(
+    contactId: string,
+  ): Promise<{ phones: string[]; name?: string } | null> {
+    if (!contactId) return null;
+    try {
+      const res = await fetch(
+        `${CRM_SERVICE_URL}/api/crm/contacts/internal/${encodeURIComponent(contactId)}`,
+        { headers: { 'x-internal-secret': INTERNAL_SECRET } },
+      );
+      if (!res.ok) {
+        this.logger.warn(`contact ${contactId} lookup returned ${res.status}`);
+        return null;
+      }
+      const body = (await res.json()) as {
+        data?: { phones?: string[]; firstName?: string; lastName?: string };
+      };
+      if (!body.data) return null;
+      const name = [body.data.firstName, body.data.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      return { phones: body.data.phones ?? [], name: name || undefined };
+    } catch (error) {
+      this.logger.warn(
+        `contact ${contactId} lookup failed: ${error instanceof Error ? error.message : error}`,
+      );
+      return null;
+    }
+  }
+
   async resolve(phones: string[]): Promise<Record<string, CallContact>> {
     // `client:<id>` legs and blanks aren't numbers — never ask about them.
     const unique = [

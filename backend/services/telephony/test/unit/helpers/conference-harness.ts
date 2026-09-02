@@ -10,6 +10,9 @@ export const CONFIG: TelephonyConfig = {
   apiSecret: 'the-api-secret',
   twimlAppSid: 'AP00000000000000000000000000000000',
   callerId: '+12624061115',
+  // No per-market default in tests: the market chain falls straight
+  // through to callerId, which is what the pre-masking behaviour was.
+  defaultAreaCallerId: '',
   publicBaseUrl: 'https://example.ngrok-free.dev',
   tokenTtlSeconds: 3600,
   validateSignature: true,
@@ -78,6 +81,8 @@ export function makeFakeTwilio() {
     sid: `CAleg-${to.replace('client:', '')}`,
   }));
   const callUpdate = jest.fn().mockResolvedValue({});
+  /** The caller's leg. Ended by default — tests that keep them on say so. */
+  const callFetch = jest.fn().mockResolvedValue({ status: 'completed' });
 
   const client = {
     conferences: Object.assign(
@@ -92,15 +97,17 @@ export function makeFakeTwilio() {
       }),
       {},
     ),
-    calls: Object.assign((sid: string) => ({ update: callUpdate, sid }), {
-      create: callsCreate,
-    }),
+    calls: Object.assign(
+      (sid: string) => ({ update: callUpdate, fetch: callFetch, sid }),
+      { create: callsCreate },
+    ),
   };
 
   return {
     client,
     participantsCreate,
     participantsList,
+    callFetch,
     conferenceUpdate,
     conferenceFetch,
     callsCreate,
@@ -110,6 +117,9 @@ export function makeFakeTwilio() {
 
 export function makeHarness() {
   const redis = new FakeRedis();
+  /** The per-user bridge claim is what stops a technician placing their next
+   *  call, so tests need to see it dropped. */
+  const bridge = { release: jest.fn().mockResolvedValue(undefined) };
   const twilio = makeFakeTwilio();
   const applied: any[] = [];
   // Stateful mock: applyLifecycle merges into an in-memory record store so
@@ -148,11 +158,13 @@ export function makeHarness() {
     CONFIG,
     { client: redis } as unknown as RedisService,
     callsService,
+    undefined,
+    bridge as never,
   );
   (service as any).rest = {
     client: twilio.client,
     run: (fn: (c: unknown) => Promise<unknown>) => fn(twilio.client),
   };
 
-  return { service, redis, twilio, callsService, applied, records };
+  return { service, redis, twilio, callsService, applied, records, bridge };
 }

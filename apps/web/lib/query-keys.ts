@@ -18,6 +18,7 @@ export const queryKeys = {
     /** Teammates a live call can be handed to or pulled onto. */
     transferTargets: () => ["telephony", "transfer-targets"] as const,
     callGroups: () => ["telephony", "call-groups"] as const,
+    callFlows: () => ["telephony", "call-flows"] as const,
   },
 
   calls: {

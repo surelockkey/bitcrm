@@ -9,6 +9,8 @@ const CACHE_TTL_MS = 60_000;
 export interface DirectoryUser {
   id: string;
   name: string;
+  /** The one field that is unique — two people can share a name. */
+  email?: string;
   roleId?: string;
   /** Their own number, when they've set one — the "not at their desk" route. */
   phone?: string;
@@ -58,6 +60,7 @@ export class UserDirectoryService {
             [u.firstName, u.lastName].filter(Boolean).join(' ').trim() ||
             u.email ||
             u.id,
+          email: u.email,
           roleId: u.roleId,
           phone: u.phone,
         }));

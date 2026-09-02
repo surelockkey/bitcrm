@@ -1,6 +1,8 @@
 import { http } from "@/lib/api/http";
 
 export interface OwnedNumber {
+  /** True for the one number technicians dial in on. */
+  technicianLine?: boolean;
   sid: string;
   phoneNumber: string;
   friendlyName: string;
@@ -62,6 +64,20 @@ export const releaseNumber = (
   sid: string,
 ): Promise<{ sid: string; released: boolean }> =>
   http.delete<{ sid: string; released: boolean }>(`/telephony/numbers/${sid}`);
+
+/**
+ * Make this number the technician dial-in line.
+ *
+ * A workspace has exactly one, so designating a number releases whichever
+ * number held it — there is no separate unset step and no way to end up
+ * with two.
+ */
+export const makeTechnicianLine = (sid: string): Promise<{ technicianLine: string | null }> =>
+  http.put(`/telephony/numbers/${sid}/technician-line`);
+
+/** Stop using this number as the technician line. */
+export const clearTechnicianLine = (sid: string): Promise<{ technicianLine: string | null }> =>
+  http.delete(`/telephony/numbers/${sid}/technician-line`);
 
 /**
  * Per-number settings — the job source calls through the number are

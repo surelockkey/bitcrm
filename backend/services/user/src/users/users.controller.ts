@@ -18,6 +18,7 @@ import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
 import { UpdateMyProfileDto } from "./dto/update-my-profile.dto";
 import { LookupUsersByPhonesDto } from "./dto/lookup-users-by-phones.dto";
+import { LookupUserNamesDto } from "./dto/lookup-user-names.dto";
 import { ListUsersQueryDto } from "./dto/list-users-query.dto";
 import { AssignRoleDto } from "./dto/assign-role.dto";
 import { SetPermissionOverridesDto } from "./dto/set-permission-overrides.dto";
@@ -26,7 +27,9 @@ import { SetPermissionOverridesDto } from "./dto/set-permission-overrides.dto";
 @ApiBearerAuth()
 @Controller()
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+  ) {}
 
   @Get("me")
   @ApiOperation({
@@ -52,7 +55,7 @@ export class UsersController {
     @Body() dto: UpdateMyProfileDto,
     @CurrentUser() user: JwtUser,
   ) {
-    const data = await this.usersService.updateOwnPhone(user.id, dto.phone);
+    const data = await this.usersService.setPhone(user.id, dto.phone);
     return { success: true, data };
   }
 
@@ -75,6 +78,23 @@ export class UsersController {
   })
   async list(@Query() query: ListUsersQueryDto) {
     return this.usersService.list(query);
+  }
+
+  @Post("by-ids")
+  @ApiOperation({
+    summary: "Resolve user ids to names",
+    description:
+      "**Guard:** any authenticated user — deliberately NOT `users.view`. " +
+      "A technician does not hold that permission, so `GET /users` 403s for " +
+      "them and every screen that joins ids to names renders a raw uuid " +
+      "instead; they still need to see who else is on their job. This is the " +
+      "narrow alternative: you must already hold the id, the batch is capped " +
+      "at 200 so nothing can be enumerated, and the response carries the name " +
+      "and nothing else — no email, no phone, no role.",
+  })
+  async namesByIds(@Body() dto: LookupUserNamesDto) {
+    const data = await this.usersService.namesByIds(dto.userIds ?? []);
+    return { success: true, data };
   }
 
   @Get("internal/permissions/:userId")

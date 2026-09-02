@@ -54,6 +54,15 @@ export interface ServiceArea {
   definition: ServiceAreaDefinition;
   /** Derived from `definition` at write time; drives resolve/overlap/match. */
   coverage: CoverageShape[];
+  /**
+   * The number clients in this market are dialled FROM on every leg the system
+   * places — the masked bridge and the technician dial-in. E.164, and it must
+   * be a number the workspace owns.
+   *
+   * Optional: an area with none falls through to the configured default, and a
+   * call is never refused for want of a caller id.
+   */
+  callerId?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;

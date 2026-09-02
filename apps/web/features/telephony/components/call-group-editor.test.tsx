@@ -18,8 +18,19 @@ vi.mock("../call-groups-hooks", () => ({
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({
     data: [
-      { id: "u-dana", name: "Dana Petrenko", phone: "+14045550101", softphoneOnline: true },
-      { id: "u-tamir", name: "Tamir Levi", softphoneOnline: false },
+      {
+        id: "u-dana", name: "Dana Petrenko", email: "dana@surelockkey.com",
+        phone: "+14045550101", softphoneOnline: true,
+      },
+      {
+        id: "u-tamir", name: "Tamir Levi", email: "tamir@surelockkey.com",
+        softphoneOnline: false,
+      },
+      // The case that made a group quietly never ring: two accounts, one name.
+      {
+        id: "u-me", name: "Dana Petrenko", email: "dana@gmail.com",
+        softphoneOnline: false,
+      },
     ],
     isLoading: false,
   }),
@@ -65,7 +76,7 @@ describe("CallGroupEditor", () => {
 
     await u.type(screen.getByLabelText("Name"), "Dispatch");
     await u.click(screen.getByRole("button", { name: /add member/i }));
-    await u.click(screen.getByRole("button", { name: /Dana Petrenko/ }));
+    await u.click(screen.getByRole("button", { name: /dana@surelockkey/ }));
     await u.click(screen.getByRole("button", { name: /create group/i }));
 
     expect(mocks.create).toHaveBeenCalledWith(
@@ -85,10 +96,11 @@ describe("CallGroupEditor", () => {
     render(<CallGroupEditor open onClose={vi.fn()} />);
 
     await u.click(screen.getByRole("button", { name: /add member/i }));
-    await u.click(screen.getByRole("button", { name: /Tamir Levi/ }));
+    await u.click(screen.getByRole("button", { name: /tamir@surelockkey/ }));
 
     const row = memberRow("Tamir Levi");
-    expect(within(row).getByText("No personal number on file")).toBeInTheDocument();
+    // Offline softphone and no number of his own — he simply wouldn't ring.
+    expect(within(row).getByText(/Won't ring/)).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Personal" })).toBeDisabled();
     expect(within(row).getByRole("button", { name: "Both" })).toBeDisabled();
     expect(within(row).getByRole("button", { name: "Softphone" })).toBeEnabled();
@@ -99,13 +111,15 @@ describe("CallGroupEditor", () => {
     render(<CallGroupEditor open onClose={vi.fn()} />);
 
     await u.click(screen.getByRole("button", { name: /add member/i }));
-    await u.click(screen.getByRole("button", { name: /Dana Petrenko/ }));
+    await u.click(screen.getByRole("button", { name: /dana@surelockkey/ }));
     await u.click(screen.getByRole("button", { name: /add member/i }));
 
-    // The picker no longer offers her.
+    // The picker no longer offers that account — though the other Dana, a
+    // different person entirely, is still there.
     expect(
-      screen.queryByRole("button", { name: /Dana Petrenko/ }),
+      screen.queryByRole("button", { name: /dana@surelockkey/ }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dana@gmail/ })).toBeInTheDocument();
   });
 
   it("saves an edit as fields first, then the whole membership", async () => {
@@ -143,5 +157,54 @@ describe("CallGroupEditor", () => {
     expect(screen.getByRole("button", { name: /create group/i })).toBeDisabled();
     await u.type(screen.getByLabelText("Name"), "D");
     expect(screen.getByRole("button", { name: /create group/i })).toBeEnabled();
+  });
+
+  describe("telling two accounts with one name apart", () => {
+    it("shows each person's email in the picker", async () => {
+      const u = userEvent.setup();
+      render(<CallGroupEditor open onClose={vi.fn()} />);
+
+      await u.click(screen.getByRole("button", { name: /add member/i }));
+
+      // Two "Dana Petrenko" — only the email says which is which.
+      expect(screen.getByText(/dana@surelockkey\.com/)).toBeInTheDocument();
+      expect(screen.getByText(/dana@gmail\.com/)).toBeInTheDocument();
+    });
+
+    it("finds somebody by email as well as by name", async () => {
+      const u = userEvent.setup();
+      render(<CallGroupEditor open onClose={vi.fn()} />);
+
+      await u.click(screen.getByRole("button", { name: /add member/i }));
+      await u.type(screen.getByPlaceholderText(/search teammates/i), "gmail");
+
+      expect(screen.getByText(/dana@gmail\.com/)).toBeInTheDocument();
+      expect(screen.queryByText(/dana@surelockkey\.com/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("whether the group can actually be reached", () => {
+    it("counts who would ring right now", async () => {
+      const u = userEvent.setup();
+      render(<CallGroupEditor open onClose={vi.fn()} />);
+
+      await u.click(screen.getByRole("button", { name: /add member/i }));
+      await u.click(screen.getByRole("button", { name: /dana@surelockkey/ }));
+
+      expect(screen.getByText("1 of 1 reachable right now.")).toBeInTheDocument();
+    });
+
+    it("warns plainly when a call to this group would go unanswered", async () => {
+      const u = userEvent.setup();
+      render(<CallGroupEditor open onClose={vi.fn()} />);
+
+      await u.click(screen.getByRole("button", { name: /add member/i }));
+      // Offline softphone, no number of his own.
+      await u.click(screen.getByRole("button", { name: /tamir@surelockkey/ }));
+
+      expect(
+        screen.getByText(/would go unanswered/i),
+      ).toBeInTheDocument();
+    });
   });
 });

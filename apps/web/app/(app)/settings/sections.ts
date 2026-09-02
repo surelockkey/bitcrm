@@ -11,6 +11,7 @@ import {
   ListPlus,
   Phone,
   Users,
+  Workflow,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -85,6 +86,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "User-defined fields on deals, grouped and scoped to job types.",
     icon: ListPlus,
     resource: "custom_fields",
+  },
+  {
+    label: "Call Flows",
+    href: "/settings/call-flows",
+    description: "What a caller hears, and who gets rung, before anybody picks up.",
+    icon: Workflow,
+    resource: "settings",
   },
   {
     label: "Call Groups",

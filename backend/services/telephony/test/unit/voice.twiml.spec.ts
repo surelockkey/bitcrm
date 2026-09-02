@@ -10,6 +10,9 @@ export const CONFIG: TelephonyConfig = {
   apiSecret: 'the-api-secret',
   twimlAppSid: 'AP00000000000000000000000000000000',
   callerId: '+12624061115',
+  // No per-market default in tests: the market chain falls straight
+  // through to callerId, which is what the pre-masking behaviour was.
+  defaultAreaCallerId: '',
   publicBaseUrl: 'https://example.ngrok-free.dev',
   tokenTtlSeconds: 3600,
   validateSignature: true,
@@ -20,6 +23,7 @@ const BASE = 'https://example.ngrok-free.dev/api/telephony';
 function makeService(opts: {
   online?: string[];
   conference?: Partial<Record<keyof ConferenceService, unknown>>;
+  technicianLine?: string | null;
 } = {}) {
   const presence = {
     listOnline: jest.fn().mockResolvedValue(opts.online ?? []),
@@ -34,12 +38,41 @@ function makeService(opts: {
     isConferenceLive: jest.fn().mockResolvedValue(true),
     recordMonitorParticipant: jest.fn().mockResolvedValue(undefined),
     findLinkedOutbound: jest.fn().mockResolvedValue(undefined),
+    // Conference lifecycle/recording attributes now live on the conference
+    // service, so every <Conference> we emit agrees on them.
+    sharedConferenceAttrs: jest.fn(() => ({
+      statusCallback: `${BASE}/voice/conference-events`,
+      statusCallbackMethod: 'POST',
+      statusCallbackEvent: ['start', 'end', 'join', 'leave'],
+      record: 'record-from-start',
+      recordingStatusCallback: `${BASE}/voice/recording-status`,
+      recordingStatusCallbackMethod: 'POST',
+    })),
     ...opts.conference,
   } as unknown as ConferenceService;
+  const flowRunner = {
+    startInbound: jest.fn(async () => null),
+    startTechnicianLine: jest.fn(async () => '<Response>dial-in</Response>'),
+  };
+  const settings = {
+    technicianLine: jest.fn(async () => opts.technicianLine ?? null),
+  };
   return {
-    service: new VoiceService(CONFIG, presence, conference),
+    // A number with no flow: the runner declines and the legacy path answers,
+    // which is exactly what these cases exercise.
+    service: new VoiceService(
+      CONFIG,
+      presence,
+      conference,
+      flowRunner as never,
+      undefined,
+      undefined,
+      settings as never,
+    ),
     conference,
     presence,
+    flowRunner,
+    settings,
   };
 }
 
@@ -168,8 +201,12 @@ describe('VoiceService.buildInbound — customer leg TwiML', () => {
       'CAcust1',
       '+380958601427',
       '+12624061115',
-      ['agent-1', 'agent-2'],
-      undefined, // not an internal call
+      // Each softphone is rung showing the customer's number, so it screen-pops.
+      [
+        { endpoint: 'client:agent-1', callerId: '+380958601427' },
+        { endpoint: 'client:agent-2', callerId: '+380958601427' },
+      ],
+      { internalLegOf: undefined }, // not an internal call
     );
   });
 
@@ -220,5 +257,80 @@ describe('VoiceService.buildAgentJoin — first-answer-wins', () => {
     expect(xml).toContain('<Hangup');
     expect(xml).not.toContain('<Conference');
     expect(conference.onWinner).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The technician line is the one number where the ring-everyone fallback is
+ * WRONG: the caller has not said who they are yet, so answering by ringing
+ * every online softphone is the opposite of what the line is for.
+ */
+describe('VoiceService.buildInbound — the technician line', () => {
+  const TECH_LINE = '+14098777774';
+
+  it('runs the dial-in with no flow configured at all', async () => {
+    const { service, flowRunner } = makeService({
+      technicianLine: TECH_LINE,
+      online: ['agent-1'],
+    });
+
+    const xml = await service.buildInbound({
+      CallSid: 'CAtech',
+      From: '+14045550134',
+      To: TECH_LINE,
+    });
+
+    expect(flowRunner.startTechnicianLine).toHaveBeenCalledWith(
+      'CAtech',
+      '+14045550134',
+      TECH_LINE,
+    );
+    expect(xml).toBe('<Response>dial-in</Response>');
+  });
+
+  it('never rings the whole workspace for an unidentified caller', async () => {
+    const { service, conference } = makeService({
+      technicianLine: TECH_LINE,
+      online: ['agent-1', 'agent-2'],
+    });
+
+    await service.buildInbound({
+      CallSid: 'CAtech',
+      From: '+14045550134',
+      To: TECH_LINE,
+    });
+
+    expect(conference.initInbound).not.toHaveBeenCalled();
+  });
+
+  /** A flow attached to the line still wins — that is how a workspace adds a
+   *  greeting or after-hours handling on top of the built-in behaviour. */
+  it('lets a real flow on that number take precedence', async () => {
+    const { service, flowRunner } = makeService({ technicianLine: TECH_LINE });
+    flowRunner.startInbound.mockResolvedValue('<Response>from flow</Response>' as never);
+
+    const xml = await service.buildInbound({
+      CallSid: 'CAtech',
+      From: '+14045550134',
+      To: TECH_LINE,
+    });
+
+    expect(xml).toBe('<Response>from flow</Response>');
+    expect(flowRunner.startTechnicianLine).not.toHaveBeenCalled();
+  });
+
+  it('leaves every other number on the ordinary path', async () => {
+    const { service, flowRunner } = makeService({
+      technicianLine: TECH_LINE,
+      online: ['agent-1'],
+    });
+
+    await service.buildInbound({
+      CallSid: 'CAmain',
+      From: '+14045550134',
+      To: '+15412830739',
+    });
+
+    expect(flowRunner.startTechnicianLine).not.toHaveBeenCalled();
   });
 });

@@ -87,6 +87,19 @@ export function CallGroupEditor({
   const setServerMembers = useSetCallGroupMembers(group?.id ?? "");
   const pending = create.isPending || update.isPending || setServerMembers.isPending;
 
+  /**
+   * How this member would be reached if a call arrived now, or null if they
+   * wouldn't be. A group full of unreachable people looks perfectly healthy
+   * otherwise — you find out from a missed call.
+   */
+  const reachOf = (m: Draft): string | null => {
+    const ways: string[] = [];
+    if (m.channel !== "personal" && m.softphoneOnline) ways.push("softphone");
+    if (m.channel !== "softphone" && m.phone) ways.push(formatPhone(m.phone));
+    return ways.length ? ways.join(" + ") : null;
+  };
+  const reachable = members.filter((m) => m.enabled && reachOf(m)).length;
+
   const payload = () =>
     members.map((m, i) => ({
       userId: m.userId,
@@ -204,6 +217,20 @@ export function CallGroupEditor({
               </Button>
             </div>
 
+            {members.length > 0 ? (
+              <p
+                className={
+                  reachable === 0
+                    ? "rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400"
+                    : "text-xs text-muted-foreground"
+                }
+              >
+                {reachable === 0
+                  ? "Nobody here can be reached right now — a call to this group would go unanswered."
+                  : `${reachable} of ${members.length} reachable right now.`}
+              </p>
+            ) : null}
+
             {members.length === 0 ? (
               <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
                 Nobody yet. A group with no members can be saved, but not switched
@@ -228,14 +255,12 @@ export function CallGroupEditor({
                         {m.name}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {m.phone
-                          ? formatPhone(m.phone)
-                          : "No personal number on file"}
-                        {type === "in_order"
-                          ? ` · rings ${members.indexOf(m) + 1}${
-                              members.indexOf(m) === 0 ? "st" : ""
-                            }`
-                          : ""}
+                        {reachOf(m) ?? (
+                          <span className="text-amber-600 dark:text-amber-500">
+                            Won&apos;t ring — softphone offline and no personal
+                            number
+                          </span>
+                        )}
                       </span>
                     </span>
 
@@ -370,15 +395,22 @@ function MemberPicker({
 }) {
   const [query, setQuery] = useState("");
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.telephony.transferTargets(),
-    queryFn: listTransferTargets,
+    queryKey: [...queryKeys.telephony.transferTargets(), "with-self"],
+    // Including yourself: adding yourself to a group is the common case, and
+    // leaving yourself out is how somebody ends up adding the wrong account.
+    queryFn: () => listTransferTargets(true),
     staleTime: 60_000,
   });
 
   const q = query.trim().toLowerCase();
   const hits = (data ?? [])
     .filter((u) => !exclude.includes(u.id))
-    .filter((u) => !q || u.name.toLowerCase().includes(q));
+    .filter(
+      (u) =>
+        !q ||
+        u.name.toLowerCase().includes(q) ||
+        (u.email ?? "").toLowerCase().includes(q),
+    );
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -428,8 +460,13 @@ function MemberPicker({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{u.name}</span>
+                    {/* Two accounts can carry the same name; the email is what
+                        tells them apart, and picking the wrong one is a group
+                        that quietly never rings. */}
                     <span className="block truncate text-xs text-muted-foreground">
-                      {u.phone ? formatPhone(u.phone) : "No personal number"}
+                      {u.email ?? "no email"}
+                      {" · "}
+                      {u.phone ? formatPhone(u.phone) : "no personal number"}
                     </span>
                   </span>
                 </button>

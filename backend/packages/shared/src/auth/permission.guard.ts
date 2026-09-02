@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { PERMISSION_KEY } from './permission.decorator';
 import { PermissionCacheReader } from './permission-cache-reader';
 import { type ResolvedPermissions } from '@bitcrm/types';
+import { fetchResolvedPermissions } from './fetch-resolved-permissions';
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
@@ -100,19 +101,16 @@ export class PermissionGuard implements CanActivate {
     return true;
   }
 
-  private async resolveViaInternalApi(
+  /**
+   * Resolve permissions straight from user-service, used on every Redis cache
+   * miss (60s TTL) and for tokens minted before `roleId` was a claim.
+   *
+   * Delegates to the shared helper so the internal-secret header lives in one
+   * place — ungated handlers elsewhere resolve permissions the same way.
+   */
+  private resolveViaInternalApi(
     userId: string,
   ): Promise<ResolvedPermissions | null> {
-    try {
-      const url = `${this.userServiceUrl}/api/users/internal/permissions/${userId}`;
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      return (await response.json()) as ResolvedPermissions;
-    } catch (error) {
-      this.logger.warn(
-        `Failed to resolve permissions via internal API for user ${userId}: ${error}`,
-      );
-      return null;
-    }
+    return fetchResolvedPermissions(this.userServiceUrl, userId);
   }
 }

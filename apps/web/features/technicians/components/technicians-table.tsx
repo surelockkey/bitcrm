@@ -15,13 +15,14 @@ import type { TechnicianProfile, User } from "@bitcrm/types";
 import { initials } from "@/features/users/lib";
 import { formatMoney, techName, techUser } from "../lib";
 import { TechnicianStatusBadge } from "./technician-status-badge";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 export function TechniciansTable({
   technicians,
   userMap,
 }: {
   technicians: TechnicianProfile[];
-  userMap: Map<string, User>;
+  userMap: Map<string, DirectoryUser>;
 }) {
   const router = useRouter();
 

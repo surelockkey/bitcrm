@@ -96,6 +96,10 @@ export class ServiceAreasRepository {
       type: item.type as ServiceArea['type'],
       definition: item.definition as ServiceArea['definition'],
       coverage: (item.coverage as ServiceArea['coverage']) || [],
+      // Missing this line does not merely hide the field: update() is a
+      // read-modify-full-Put, so the next edit of the area DELETES it — as can
+      // the boot self-heal, with nobody touching anything.
+      ...(item.callerId ? { callerId: item.callerId as string } : {}),
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

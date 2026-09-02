@@ -206,6 +206,39 @@ export async function startCall(rawNumber: string): Promise<void> {
 }
 
 /**
+ * Take a prepared masked call through this browser.
+ *
+ * The counterpart of `startCall`, and the difference is the whole feature: no
+ * number is passed. The server already resolved the client's phone and stashed
+ * it; this leg carries only a bridge id, and the outbound webhook reads the
+ * rest from Redis. The client's number never enters this process.
+ */
+export async function startBridgedCall(
+  bridgeId: string,
+  clientName?: string,
+): Promise<void> {
+  if (!device) await enableSoftphone();
+  if (!device) return;
+  store().setStatus("online");
+  store().setCall("connecting", {
+    direction: "outbound",
+    // There is no number to show, and that is the point — the label is who
+    // they are, not what they are reachable on.
+    number: clientName ?? "Client",
+    contactName: clientName,
+  });
+  store().setDialerOpen(true);
+  try {
+    const call = await device.connect({ params: { Bridge: bridgeId } });
+    wireCall(call);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Call failed";
+    store().setStatus("error", message);
+    endCall();
+  }
+}
+
+/**
  * Supervise a live call: connect this device into its conference. The backend
  * webhook validates the single-use grant (requested just before via
  * `requestMonitor`) and joins muted (listen) or unmuted (join). Leaving never

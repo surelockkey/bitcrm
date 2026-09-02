@@ -19,6 +19,7 @@ describe('TechniciansService (unit)', () => {
   let roles: ReturnType<typeof createMockRolesServiceByPriority>;
   let sns: ReturnType<typeof createMockSnsPublisher>;
   let geocoding: { geocode: jest.Mock };
+  let users: { findById: jest.Mock; setPhone: jest.Mock };
   let service: TechniciansService;
 
   beforeEach(() => {
@@ -27,11 +28,18 @@ describe('TechniciansService (unit)', () => {
     roles = createMockRolesServiceByPriority();
     sns = createMockSnsPublisher();
     geocoding = { geocode: jest.fn().mockResolvedValue(null) };
+    // The one phone lives on the user record; the technician module reads and
+    // writes it through here.
+    users = {
+      findById: jest.fn().mockResolvedValue({ id: 'tech-1' }),
+      setPhone: jest.fn().mockResolvedValue({ id: 'tech-1' }),
+    };
     service = new TechniciansService(
       repo as never,
       cache as never,
       roles as never,
       geocoding as never,
+      users as never,
       sns as never,
     );
   });
@@ -75,7 +83,6 @@ describe('TechniciansService (unit)', () => {
       );
       await service.updateProfile('tech-1', { phone: '999' }, caller('role-technician', 'tech-1'));
 
-      expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', { phone: '999' });
       expect(cache.invalidateProfile).toHaveBeenCalledWith('tech-1');
       expect(sns.publish).toHaveBeenCalledWith(
         'user-events',
@@ -119,8 +126,10 @@ describe('TechniciansService (unit)', () => {
       repo.getProfile.mockResolvedValue(null);
       await service.updateProfile('tech-1', { phone: '999' }, caller('role-technician', 'tech-1'));
       expect(repo.upsertProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'tech-1', phone: '999', status: 'pending' }),
+        expect.objectContaining({ userId: 'tech-1', status: 'pending' }),
       );
+      expect(repo.upsertProfile.mock.calls[0][0]).not.toHaveProperty('phone');
+      expect(users.setPhone).toHaveBeenCalledWith('tech-1', '999');
       expect(repo.updateProfile).not.toHaveBeenCalled();
     });
 
@@ -130,12 +139,142 @@ describe('TechniciansService (unit)', () => {
         cache as never,
         roles as never,
         geocoding as never,
+        users as never,
       );
       repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
       repo.updateProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
       await expect(
         noSns.updateProfile('tech-1', { phone: '5' }, caller('role-technician', 'tech-1')),
       ).resolves.toBeDefined();
+    });
+  });
+
+  /**
+   * There is exactly one phone number for a person, and it lives on the user
+   * record — that is the one telephony rings and the one the call log matches
+   * against. The technician record used to carry a second, independently
+   * editable "dispatch phone", which let a technician fill one in and still be
+   * unreachable.
+   */
+  describe('phone (single source of truth)', () => {
+    it('routes a phone update to the user record instead of the technician record', async () => {
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: undefined }),
+      );
+      repo.updateProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: undefined }),
+      );
+
+      await service.updateProfile(
+        'tech-1',
+        { phone: '(541) 283-0739' },
+        caller('role-technician', 'tech-1'),
+      );
+
+      expect(users.setPhone).toHaveBeenCalledWith('tech-1', '(541) 283-0739');
+      expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', {});
+    });
+
+    it('drops a legacy dispatch phone from the technician record on save', async () => {
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: '404-555-0123' }),
+      );
+      repo.updateProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: undefined }),
+      );
+
+      await service.updateProfile(
+        'tech-1',
+        { phone: '(541) 283-0739' },
+        caller('role-technician', 'tech-1'),
+      );
+
+      expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', { phone: undefined });
+    });
+
+    it('leaves the phone alone when the update does not mention it', async () => {
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: undefined }),
+      );
+      repo.updateProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: undefined }),
+      );
+
+      await service.updateProfile(
+        'tech-1',
+        { profilePhotoUrl: 'https://x/y.jpg' },
+        caller('role-technician', 'tech-1'),
+      );
+
+      expect(users.setPhone).not.toHaveBeenCalled();
+      expect(repo.updateProfile).toHaveBeenCalledWith('tech-1', {
+        profilePhotoUrl: 'https://x/y.jpg',
+      });
+    });
+
+    it('reads the phone from the user record, not the technician record', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: '404-555-0123' }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1', phone: '+15412830739' });
+
+      const result = await service.getProfile('tech-1', caller('role-technician', 'tech-1'));
+
+      expect(result.phone).toBe('+15412830739');
+    });
+
+    it('reports no phone when the user record has none and nothing is stranded', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: undefined }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1' });
+
+      const result = await service.getProfile('tech-1', caller('role-technician', 'tech-1'));
+
+      expect(result.phone).toBeUndefined();
+      expect(users.setPhone).not.toHaveBeenCalled();
+    });
+
+    it('adopts a stranded dispatch phone onto the user record on first read', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: '(404) 555-0123' }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1' });
+      users.setPhone.mockResolvedValue({ id: 'tech-1', phone: '+14045550123' });
+
+      const result = await service.getProfile('tech-1', caller('role-technician', 'tech-1'));
+
+      expect(users.setPhone).toHaveBeenCalledWith('tech-1', '(404) 555-0123');
+      expect(result.phone).toBe('+14045550123');
+    });
+
+    it('still serves the profile when adopting a stranded phone fails', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: '(404) 555-0123' }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1' });
+      users.setPhone.mockRejectedValue(new Error('already on another profile'));
+
+      const result = await service.getProfile('tech-1', caller('role-technician', 'tech-1'));
+
+      expect(result.userId).toBe('tech-1');
+      expect(result.phone).toBe('(404) 555-0123');
+    });
+
+    it('resolves the phone on a cache hit too', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', phone: '404-555-0123' }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1', phone: '+15412830739' });
+
+      const result = await service.getProfile('tech-1', caller('role-technician', 'tech-1'));
+
+      expect(result.phone).toBe('+15412830739');
+      expect(repo.getProfile).not.toHaveBeenCalled();
     });
   });
 
@@ -148,10 +287,27 @@ describe('TechniciansService (unit)', () => {
           profilePhotoUrl: 'https://x/y.jpg',
         }),
       );
+      users.findById.mockResolvedValue({ id: 'tech-1', phone: '+15412830739' });
       const status = await service.getOnboardingStatus('tech-1', caller('role-technician', 'tech-1'));
       expect(status.checklist.profileComplete).toBe(true);
       expect(status.checklist.assignmentsApproved).toBe(false); // phase-2 stub
       expect(status.totalSteps).toBe(3);
+    });
+
+    it('marks the profile incomplete when no phone is on the user record', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({
+          userId: 'tech-1',
+          phone: undefined,
+          homeAddress: { line1: '1 Main', city: 'Atlanta', state: 'GA', zip: '30301' },
+          profilePhotoUrl: 'https://x/y.jpg',
+        }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1' });
+
+      const status = await service.getOnboardingStatus('tech-1', caller('role-technician', 'tech-1'));
+
+      expect(status.checklist.profileComplete).toBe(false);
     });
   });
 

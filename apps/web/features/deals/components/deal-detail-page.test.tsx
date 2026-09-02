@@ -89,9 +89,17 @@ vi.mock("@/features/calls/components/live-call-strip", () => ({
 // Calling a client queries telephony for our numbers and their call history;
 // this test has no client for either. Its own tests cover the picker.
 vi.mock("@/features/telephony/components/call-client-button", () => ({
-  CallClientButton: ({ to }: { to: string }) => (
-    <button type="button" aria-label={`Call ${to}`} />
+  CallClientButton: ({ to, variant }: { to: string; variant?: string }) => (
+    <button type="button" aria-label={`Call ${to}`} data-variant={variant} />
   ),
+}));
+// The dial card queries telephony for the job code and the shared line; this
+// test has neither a QueryClient nor a client. Its own tests cover it.
+vi.mock("@/features/telephony/components/job-dial-card", () => ({
+  JobDialCard: () => null,
+}));
+vi.mock("@/features/telephony/config-hooks", () => ({
+  useTelephonyConfig: () => ({ data: { technicianLine: "+14045550140" } }),
 }));
 
 // One applicable custom field (scoped to all job types) so the details tab
@@ -223,6 +231,20 @@ describe("DealDetailPage (read only)", () => {
 
     const link = screen.getByRole("link", { name: /view client/i });
     expect(link).toHaveAttribute("href", "/contacts/c1");
+  });
+
+  /**
+   * What a technician opens this page for. On a job page the call is the
+   * action, not an icon tucked against the end of a phone number — and half
+   * the time the number beside it is masked anyway.
+   */
+  it("gives the client's call the weight of a job-page action", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("button", { name: /call \+14045551234/i })).toHaveAttribute(
+      "data-variant",
+      "prominent",
+    );
   });
 
   it("upgrades the visit-history label to the job number", () => {

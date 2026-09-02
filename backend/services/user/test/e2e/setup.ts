@@ -191,6 +191,30 @@ export async function teardownApp(): Promise<void> {
   if (app) await app.close();
 }
 
+/**
+ * Put a user record in place. A technician *is* a user, and their phone lives
+ * on that record — profile tests that save one need it to exist.
+ */
+export async function seedUser(user: JwtUser): Promise<void> {
+  const { UsersRepository } = await import('../../src/users/users.repository');
+  const { UserStatus } = await import('@bitcrm/types');
+  const repo = app.get(UsersRepository);
+  const now = new Date().toISOString();
+  await repo.create({
+    id: user.id,
+    cognitoSub: user.cognitoSub,
+    email: user.email,
+    firstName: 'Test',
+    lastName: user.id,
+    roleId: user.roleId,
+    department: user.department,
+    status: UserStatus.ACTIVE,
+    permissionOverrides: undefined,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 export async function cleanupData(): Promise<void> {
   // Clear user items and custom (non-system) role items
   await clearUserItems();

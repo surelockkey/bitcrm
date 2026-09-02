@@ -29,9 +29,15 @@ describe('UsersController', () => {
       clearPermissionOverrides: jest.fn(),
     };
 
+
+
     const module = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [{ provide: UsersService, useValue: service }],
+      providers: [
+        { provide: UsersService, useValue: service },
+        // The dial-in PIN lives on its own service so the credential never
+        // passes through UsersService (and so `toUser` can keep excluding it).
+      ],
     }).compile();
 
     controller = module.get(UsersController);

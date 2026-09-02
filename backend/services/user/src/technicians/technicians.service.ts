@@ -1,9 +1,11 @@
 import {
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   Optional,
+  forwardRef,
 } from '@nestjs/common';
 import {
   SnsPublisherService,
@@ -21,6 +23,7 @@ import {
 import { TechniciansRepository } from './technicians.repository';
 import { TechniciansCacheService } from './technicians-cache.service';
 import { RolesService } from '../roles/roles.service';
+import { UsersService } from '../users/users.service';
 import { TechnicianAssignmentsRepository, type TechnicianAssignment } from './assignments/technician-assignments.repository';
 import { CommissionRepository } from './commission/commission.repository';
 import { UpdateTechnicianDto, OPERATIONAL_FIELDS } from './dto/update-technician.dto';
@@ -39,6 +42,8 @@ export class TechniciansService {
     private readonly cache: TechniciansCacheService,
     private readonly rolesService: RolesService,
     private readonly geocoding: GeocodingService,
+    @Inject(forwardRef(() => UsersService))
+    private readonly users: UsersService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
@@ -51,7 +56,7 @@ export class TechniciansService {
     const cached = await this.cache.getProfile(id);
     if (cached) {
       this.businessMetrics?.cacheHits.inc({ entity_type: 'technician' });
-      return cached;
+      return this.withPhone(cached);
     }
     this.businessMetrics?.cacheMisses.inc({ entity_type: 'technician' });
 
@@ -59,8 +64,39 @@ export class TechniciansService {
     if (!profile) {
       throw new NotFoundException('Technician profile not found');
     }
+    // Cached as stored — the phone is resolved after every read, cache hit
+    // included, so changing it elsewhere is never five minutes stale here.
     await this.cache.setProfile(profile);
-    return profile;
+    return this.withPhone(profile);
+  }
+
+  /**
+   * Fill in the technician's phone from the user record, which is the only
+   * place one is stored: that number is what telephony rings and what the call
+   * log matches against.
+   *
+   * A technician record may still carry a phone from when this module kept its
+   * own "dispatch phone" field. That copy was never reachable — a technician
+   * could fill it in and still get "no phone number on file" when placing a
+   * call — so a stranded one is adopted onto the user record the first time we
+   * see it, best-effort: the number may already belong to someone else, and a
+   * failed adoption must not cost the caller their profile.
+   */
+  private async withPhone(profile: TechnicianProfile): Promise<TechnicianProfile> {
+    const user = await this.users.findById(profile.userId).catch(() => null);
+    if (user?.phone) return { ...profile, phone: user.phone };
+    if (!profile.phone) return { ...profile, phone: undefined };
+
+    const adopted = await this.users
+      .setPhone(profile.userId, profile.phone)
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Could not adopt stranded technician phone for ${profile.userId}: ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
+      });
+    return { ...profile, phone: adopted?.phone ?? profile.phone };
   }
 
   /**
@@ -134,6 +170,17 @@ export class TechniciansService {
     const changedFields = Object.keys(plain);
     const existing = await this.repository.getProfile(id);
 
+    // One phone per person, and it lives on the user record. A number arriving
+    // through this form is written there; any copy left on the technician item
+    // by the old "dispatch phone" field is removed in the same save, so the two
+    // can never disagree again.
+    const phoneUpdate = plain.phone;
+    delete plain.phone;
+    if (phoneUpdate !== undefined) {
+      await this.users.setPhone(id, phoneUpdate);
+      if (existing?.phone) plain.phone = undefined;
+    }
+
     if (plain.homeAddress) {
       plain.homeAddress = await this.resolveHomeAddress(
         plain.homeAddress,
@@ -169,7 +216,7 @@ export class TechniciansService {
 
     await this.cache.invalidateProfile(id);
     this.publishTechEvent(UserEventType.TECH_UPDATED, id, changedFields);
-    return result;
+    return this.withPhone(result);
   }
 
   async getOnboardingStatus(
@@ -178,8 +225,11 @@ export class TechniciansService {
   ): Promise<OnboardingStatus> {
     await this.assertCanAccessTechnician(caller, id);
 
-    const profile =
+    const stored =
       (await this.cache.getProfile(id)) ?? (await this.repository.getProfile(id));
+    // "Profile complete" asks whether we can reach this technician, so it has
+    // to read the phone from where reaching them reads it.
+    const profile = stored ? await this.withPhone(stored) : null;
 
     const assignmentsApproved = await this.hasApprovedAssignments(id);
     const commissionSet = this.commissionRepository

@@ -11,6 +11,13 @@ export interface TelephonyConfig {
   twimlAppSid: string;
   /** The purchased Twilio number, E.164 — used as callerId for outbound dials. */
   callerId: string;
+  /**
+   * Fallback caller id for legs the SYSTEM places (the masked bridge, the
+   * technician dial-in) when the job's market has no number of its own. Sits
+   * above `callerId` in that chain, so a workspace can keep its legacy main
+   * line while masked calls go out on a dedicated number.
+   */
+  defaultAreaCallerId: string;
   /** Public base URL Twilio can reach (ngrok in dev, ALB in prod). */
   publicBaseUrl: string;
   /** Access-token lifetime in seconds. */
@@ -32,6 +39,7 @@ export function loadTelephonyConfig(): TelephonyConfig {
     apiSecret: process.env.TWILIO_API_SECRET ?? '',
     twimlAppSid: process.env.TWILIO_TWIML_APP_SID ?? '',
     callerId: process.env.TWILIO_CALLER_ID ?? '',
+    defaultAreaCallerId: process.env.TELEPHONY_DEFAULT_AREA_CALLER_ID ?? '',
     publicBaseUrl: process.env.PUBLIC_BASE_URL ?? '',
     tokenTtlSeconds: Number(process.env.TWILIO_TOKEN_TTL_SECONDS ?? 3600),
     validateSignature: process.env.TWILIO_VALIDATE_SIGNATURE !== 'false',

@@ -21,6 +21,7 @@ import type { AssignmentKind } from "../api";
 import { techName } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 interface QueueRow {
   kind: AssignmentKind;
@@ -37,7 +38,7 @@ export function AssignmentsQueueDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  userMap: Map<string, User>;
+  userMap: Map<string, DirectoryUser>;
 }) {
   const { data, isLoading } = usePendingAssignments(open);
   const approve = useApproveAssignment();

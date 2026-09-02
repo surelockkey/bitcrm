@@ -9,6 +9,9 @@ const CONFIG: TelephonyConfig = {
   apiSecret: 'the-api-secret',
   twimlAppSid: 'AP00000000000000000000000000000000',
   callerId: '+12624061115',
+  // No per-market default in tests: the market chain falls straight
+  // through to callerId, which is what the pre-masking behaviour was.
+  defaultAreaCallerId: '',
   publicBaseUrl: 'https://example.ngrok-free.dev',
   tokenTtlSeconds: 3600,
   validateSignature: true,

@@ -6,6 +6,7 @@ import {
   teardownApp,
   cleanupData,
   createTestUserHeader,
+  seedUser,
 } from './setup';
 
 // Route all repositories at the shared test table.
@@ -78,6 +79,8 @@ describe('Technicians API (e2e)', () => {
 
   beforeEach(async () => {
     await cleanupData();
+    // The phone a profile save carries is written to the user record.
+    await Promise.all([tech, otherTech, admin, dispatcher].map(seedUser));
   });
 
   it('rejects unauthenticated requests', async () => {
@@ -94,14 +97,35 @@ describe('Technicians API (e2e)', () => {
           homeAddress: { line1: '1 Main', city: 'Atlanta', state: 'GA', zip: '30301' },
         });
       expect(res.status).toBe(200);
-      expect(res.body.data).toMatchObject({ userId: 'tech-1', phone: '404-555-0123' });
+      // Stored on the user record in E.164 — the one form telephony dials.
+      expect(res.body.data).toMatchObject({ userId: 'tech-1', phone: '+14045550123' });
+    });
+
+    /**
+     * The point of the single field: telephony rings the number on the user
+     * record. A phone saved through the technician profile has to land there,
+     * or a technician fills the form in and still gets "no phone number on
+     * file" when they place a call.
+     */
+    it('writes the phone to the user record, where telephony reads it', async () => {
+      await request(httpServer)
+        .put(`${base}/${tech.id}/profile`)
+        .set(...hdr(tech))
+        .send({ phone: '(404) 555-0123' })
+        .expect(200);
+
+      const res = await request(httpServer)
+        .get(`/api/users/${tech.id}`)
+        .set(...hdr(admin));
+      expect(res.status).toBe(200);
+      expect(res.body.data.phone).toBe('+14045550123');
     });
 
     it('lets a technician read their own profile', async () => {
       await request(httpServer)
         .put(`${base}/${tech.id}/profile`)
         .set(...hdr(tech))
-        .send({ phone: '111' })
+        .send({ phone: '404-555-0199' })
         .expect(200);
 
       const res = await request(httpServer)

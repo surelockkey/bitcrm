@@ -17,6 +17,7 @@ import {
   type CallRecord,
 } from "../lib";
 import { CallAssociations } from "./call-associations";
+import { CallFlowPath } from "./call-flow-path";
 import { CallPartyCell } from "./call-party-cell";
 import { CallStatusBadge } from "./call-status-badge";
 import { RecordingPlayer } from "./recording-player";
@@ -120,6 +121,8 @@ export function CallDetailPage({ callId }: { callId: string }) {
       </section>
 
       <CallAssociations call={call} />
+
+      <CallFlowPath flowName={call.flowName} path={call.flowPath} />
 
       {call.participants && call.participants.length > 0 ? (
         <section className="space-y-3">

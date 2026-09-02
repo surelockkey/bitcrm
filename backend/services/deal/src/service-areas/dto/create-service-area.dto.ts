@@ -34,6 +34,16 @@ export class GeoPointDto {
 }
 
 export class CreateServiceAreaDto {
+  @ApiPropertyOptional({
+    example: '+14045550100',
+    description:
+      'Number clients in this market are dialled from. Must be a workspace ' +
+      'number. Send an empty string or null to clear it.',
+  })
+  @IsOptional()
+  @IsString()
+  callerId?: string | null;
+
   @ApiProperty({ example: 'Atlanta Metro' })
   @IsString()
   name!: string;

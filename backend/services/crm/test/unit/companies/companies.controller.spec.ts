@@ -6,6 +6,17 @@ import { NotFoundException } from '@nestjs/common';
 import { createMockCompany, createMockContact, createMockJwtUser } from '../mocks';
 import { ClientType } from '@bitcrm/types';
 
+/** A viewer holding contacts.view_numbers — the pre-masking status quo. */
+const GRANTED = {
+  roleId: 'role-admin',
+  roleName: 'Admin',
+  isSystemRole: true,
+  permissions: { contacts: { view: true, view_numbers: true } },
+  dataScope: {},
+  dealStageTransitions: [],
+  hasOverrides: false,
+} as any;
+
 describe('CompaniesController', () => {
   let controller: CompaniesController;
   let service: Record<string, jest.Mock>;
@@ -55,7 +66,7 @@ describe('CompaniesController', () => {
       const companies = [createMockCompany()];
       service.list.mockResolvedValue({ items: companies, nextCursor: undefined });
 
-      const result = await controller.list({ limit: 20 } as any);
+      const result = await controller.list({ limit: 20 } as any, GRANTED);
 
       expect(result).toEqual({
         success: true,
@@ -70,7 +81,7 @@ describe('CompaniesController', () => {
       const company = createMockCompany();
       service.findById.mockResolvedValue(company);
 
-      const result = await controller.findById('company-1');
+      const result = await controller.findById('company-1', GRANTED);
 
       expect(result).toEqual({ success: true, data: company });
     });
@@ -132,7 +143,7 @@ describe('CompaniesController', () => {
       const company = createMockCompany({ title: 'New Name' });
       service.update.mockResolvedValue(company);
 
-      const result = await controller.update('company-1', { title: 'New Name' } as any);
+      const result = await controller.update('company-1', { title: 'New Name' } as any, GRANTED);
 
       expect(result).toEqual({ success: true, data: company });
     });
@@ -153,7 +164,7 @@ describe('CompaniesController', () => {
       const contacts = [createMockContact({ companyId: 'company-1' })];
       contactsService.list.mockResolvedValue({ items: contacts, nextCursor: undefined });
 
-      const result = await controller.getCompanyContacts('company-1', { limit: 20 } as any);
+      const result = await controller.getCompanyContacts('company-1', { limit: 20 } as any, GRANTED);
 
       expect(result).toEqual({
         success: true,
@@ -163,6 +174,60 @@ describe('CompaniesController', () => {
       expect(contactsService.list).toHaveBeenCalledWith({
         companyId: 'company-1',
         limit: 20,
+      });
+    });
+  });
+
+  /**
+   * Company main lines ride the same grant as contact numbers, and the nested
+   * contacts route returns contact records — so it has to redact too, or the
+   * masked technician reads the numbers off the company page instead.
+   */
+  describe('contacts.view_numbers', () => {
+    const MASKED = {
+      ...GRANTED,
+      permissions: { contacts: { view: true, view_numbers: false } },
+    } as any;
+
+    it('hides the company main line from a masked viewer', async () => {
+      service.findById.mockResolvedValue(
+        createMockCompany({ phones: ['+14045550100'] }),
+      );
+
+      const result = await controller.findById('company-1', MASKED);
+
+      expect(result.data.phones).toEqual([]);
+      expect(result.data.phoneCount).toBe(1);
+      expect(result.data.phonesMasked).toBe(true);
+    });
+
+    it('hides numbers on the nested contacts route', async () => {
+      contactsService.list.mockResolvedValue({
+        items: [createMockContact({ phones: ['+14045551234'] })],
+        nextCursor: undefined,
+      });
+
+      const result = await controller.getCompanyContacts(
+        'company-1',
+        { limit: 20 } as any,
+        MASKED,
+      );
+
+      expect(result.data[0].phones).toEqual([]);
+      expect(result.data[0].phoneCount).toBe(1);
+    });
+
+    it('drops phones from a masked caller update', async () => {
+      service.update.mockResolvedValue(createMockCompany());
+
+      await controller.update(
+        'company-1',
+        { title: 'New Name', phones: [] } as any,
+        MASKED,
+      );
+
+      expect(service.update).toHaveBeenCalledWith('company-1', {
+        title: 'New Name',
       });
     });
   });

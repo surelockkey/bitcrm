@@ -26,6 +26,7 @@ import {
   type Grid,
 } from "../lib";
 import { JobBlock } from "./job-block";
+import type { DirectoryUser } from "@/features/deals/hooks";
 
 export interface RescheduleTarget {
   deal: Deal;
@@ -42,10 +43,10 @@ export interface RescheduleTarget {
 const HOUR_PX = 56;
 const MIN_BLOCK_PX = 24;
 
-function techName(id: string, users: Map<string, User>): string {
+function techName(id: string, users: Map<string, DirectoryUser>): string {
   const u = users.get(id);
   if (!u) return "Technician";
-  return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
+  return `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || id;
 }
 
 function clientName(deal: Deal, contacts: Map<string, { firstName: string; lastName: string }>): string {
@@ -78,7 +79,7 @@ export function DayGrid({
   deals: Deal[];
   events: CalendarEvent[];
   profiles: Map<string, TechnicianProfile>;
-  users: Map<string, User>;
+  users: Map<string, DirectoryUser>;
   contacts: Map<string, { firstName: string; lastName: string }>;
   readOnly: boolean;
   onReschedule: (t: RescheduleTarget) => void;

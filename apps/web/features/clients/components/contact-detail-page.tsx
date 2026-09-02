@@ -86,6 +86,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 label="Phones"
                 icon={Phone}
                 values={contact.phones}
+                maskedCount={contact.phoneCount}
                 format={(p) => formatPhoneWithExtension(p, extensionOf(contact, p))}
                 primaryFirst
                 action={(phone) => (

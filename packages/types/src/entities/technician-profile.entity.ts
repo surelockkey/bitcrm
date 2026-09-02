@@ -23,12 +23,27 @@ export interface TechnicianProfile {
   userId: string;
 
   // --- Self-filled basic data ---
+  /**
+   * Read-only here: the number is stored on the owning User, which is what
+   * telephony rings and what the call log matches against. The user-service
+   * fills this in on read and routes writes to the user record — a technician
+   * record must never hold a second, unreachable copy.
+   */
   phone?: string;
   homeAddress?: TechnicianHomeAddress;
   profilePhotoUrl?: string;
 
   // --- Operational settings (manager-controlled) ---
   laborCostPerHour?: number;
+  /**
+   * @deprecated Replaced by the `contacts.view_numbers` permission, which
+   * applies to ANY user rather than only technicians — a dispatcher has no
+   * TechnicianProfile to hold a flag on, and forcing one would stamp
+   * `GSI3PK='TECHNICIAN'` and put them on the dispatch board.
+   *
+   * Nothing reads it. Still written for one release so a rollback is safe;
+   * `migrate-call-masking.ts` moves the exceptions onto the permission.
+   */
   callMaskingEnabled: boolean;
   gpsTrackingEnabled: boolean;
   mobileAppInstalled: boolean;

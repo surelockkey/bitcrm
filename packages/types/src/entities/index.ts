@@ -16,6 +16,21 @@ export {
   ResolvedCallGroupMember,
 } from './call-group.entity';
 export { CALL_GROUP_LIMITS } from './call-group.entity';
+export {
+  CallFlow,
+  CallFlowNode,
+  CallFlowNodeType,
+  BusinessHoursWindow,
+  CallFlowAudio,
+  HangupNode,
+  HoursNode,
+  MenuNode,
+  MenuOption,
+  RingNode,
+  SayNode,
+  VoicemailNode,
+} from './call-flow.entity';
+export { CALL_FLOW_LIMITS } from './call-flow.entity';
 export { DealSubStatus } from './deal-sub-status.entity';
 export { CustomFieldDefinition, CustomFieldValue } from './custom-field.entity';
 export { DealProduct } from './deal-product.entity';
