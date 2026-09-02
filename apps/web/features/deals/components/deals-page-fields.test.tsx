@@ -156,7 +156,17 @@ describe("DealsPage sorting", () => {
 });
 
 describe("DealsPage day/hour ranges", () => {
+  // The calendar opens on the CURRENT month, so clicking "18" only lands on
+  // the fixtures' August while the wall clock says August. Pin it, or these
+  // pass until the month rolls over and then fail for a reason that has
+  // nothing to do with the filter under test.
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-15T12:00:00.000Z"));
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
     mocks.deals = [deal];
   });
 
