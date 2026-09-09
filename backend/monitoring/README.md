@@ -105,8 +105,8 @@ instance id and rides the SSM auto-mapping (`/bitcrm/dev/<path>` → `ENV_VAR`):
 | `/bitcrm/dev/prom/username` | `PROM_USERNAME` |
 | `/bitcrm/dev/loki/url` | `LOKI_URL` |
 | `/bitcrm/dev/loki/username` | `LOKI_USERNAME` |
-| `/bitcrm/dev/tempo/otlp-endpoint` | `TEMPO_OTLP_ENDPOINT` |
-| `/bitcrm/dev/tempo/username` | `TEMPO_USERNAME` |
+| `/bitcrm/dev/otlp/endpoint` | `OTLP_ENDPOINT` |
+| `/bitcrm/dev/otlp/username` | `OTLP_USERNAME` |
 
 Two details that are easy to get wrong and fail silently:
 
@@ -116,16 +116,38 @@ Two details that are easy to get wrong and fail silently:
   it every task of a service reports the same `instance`, and remote-write
   rejects the colliding samples as out-of-order.
 
-### Importing dashboards
+### The bitcrm-dev stack
+
+| | |
+| --- | --- |
+| Grafana | https://greencranberry2695.grafana.net |
+| Region | `prod-eu-west-2` (the workload is `us-east-1`; telemetry crosses regions) |
+| Prometheus | `prometheus-prod-65-prod-eu-west-2` · user `3572362` |
+| Loki | `logs-prod-012` · user `1781856` |
+| Traces | `otlp-gateway-prod-eu-west-2` · user `1824069` |
+
+The trace username is the **stack** id, not the Tempo instance id: traces go
+through the shared OTLP gateway, and posting to the Tempo host directly answers
+404. Verified against both.
+
+### Importing dashboards and alerts
 
 ```bash
-GRAFANA_URL=https://<stack>.grafana.net GRAFANA_TOKEN=<service account token> \
-  bash scripts/import-grafana.sh          # --dry-run to preview, --local to smoke-test
+# Alert rules -> Mimir ruler. Uses the same access-policy token as the sidecar.
+PROM_BASE_URL=https://prometheus-prod-65-prod-eu-west-2.grafana.net \
+PROM_USERNAME=3572362 GRAFANA_CLOUD_TOKEN=<token> \
+  bash scripts/import-alerts.sh            # --list to show what is loaded
+
+# Dashboards -> the Grafana instance.
+GRAFANA_URL=https://greencranberry2695.grafana.net GRAFANA_TOKEN=<sa token> \
+  bash scripts/import-grafana.sh           # --dry-run to preview, --local to smoke-test
 ```
 
-A Grafana **service account** token, not a Cloud access-policy token — different
-credentials for different APIs. Idempotent on dashboard uid. Alert rules are
-separate; the script prints the `mimirtool` command for them.
+Two different credentials, and they are not interchangeable. The access-policy
+token authenticates to the Prometheus/Loki/Tempo endpoints; the Grafana
+instance API rejects it with `Invalid API key` and needs a **service account**
+token instead (Grafana UI -> Administration -> Users and access -> Service
+accounts, Editor role). Both scripts are idempotent.
 
 ## Dashboards
 

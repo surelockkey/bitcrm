@@ -133,11 +133,7 @@ done
 echo ""
 echo "pushed=$pushed skipped=$skipped failed=$failed"
 echo ""
-echo "Alert rules are NOT imported here. monitoring/prometheus/alerts.yml is"
-echo "Prometheus rule YAML; load it with mimirtool against Grafana Cloud:"
-echo ""
-echo "  mimirtool rules load monitoring/prometheus/alerts.yml \\"
-echo "    --address=\"\$PROM_BASE_URL\" --id=\"\$PROM_USERNAME\" --key=\"\$GRAFANA_CLOUD_TOKEN\""
+echo "Alert rules go to the Mimir ruler, not here: scripts/import-alerts.sh"
 echo ""
 
 [[ $failed -eq 0 ]]

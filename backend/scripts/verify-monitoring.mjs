@@ -152,7 +152,12 @@ for (const svc of services) {
   }
 }
 
-for (const f of ['scripts/render-alloy-sidecar.sh', 'monitoring/alloy/ecs.alloy', 'scripts/import-grafana.sh']) {
+for (const f of [
+  'scripts/render-alloy-sidecar.sh',
+  'monitoring/alloy/ecs.alloy',
+  'scripts/import-grafana.sh',
+  'scripts/import-alerts.sh',
+]) {
   if (!existsSync(join(BACKEND, f))) fail(`${f} is missing`);
 }
 

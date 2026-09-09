@@ -170,8 +170,8 @@ read_env() {
 
 PROM_REMOTE_WRITE_URL=$(read_env PROM_REMOTE_WRITE_URL)
 PROM_USERNAME=$(read_env PROM_USERNAME)
-TEMPO_OTLP_ENDPOINT=$(read_env TEMPO_OTLP_ENDPOINT)
-TEMPO_USERNAME=$(read_env TEMPO_USERNAME)
+OTLP_ENDPOINT=$(read_env OTLP_ENDPOINT)
+OTLP_USERNAME=$(read_env OTLP_USERNAME)
 
 TELEMETRY_ENV_JSON='[]'
 SIDECAR_JSON='[]'
@@ -182,12 +182,16 @@ if [[ -n "${GRAFANA_CLOUD_TOKEN:-}" ]]; then
   TELEMETRY_ENV_JSON=$(jq -n --arg tok "$GRAFANA_CLOUD_TOKEN" \
     '[{name: "LOKI_PASSWORD", value: $tok}]')
 
-  # Tempo: OTLP/HTTP with basic auth. The OTel SDK reads the header out of
+  # Traces: OTLP/HTTP with basic auth. The OTel SDK reads the header out of
   # OTEL_EXPORTER_OTLP_HEADERS; initTracing() appends /v1/traces to the endpoint.
-  if [[ -n "$TEMPO_OTLP_ENDPOINT" && -n "$TEMPO_USERNAME" ]]; then
-    TEMPO_AUTH=$(printf '%s:%s' "$TEMPO_USERNAME" "$GRAFANA_CLOUD_TOKEN" | base64 | tr -d '\n')
+  #
+  # The username here is the Grafana Cloud *stack* id, NOT the Tempo instance
+  # id — traces go through the shared OTLP gateway, and posting to the Tempo
+  # host directly answers 404. Verified against both endpoints.
+  if [[ -n "$OTLP_ENDPOINT" && -n "$OTLP_USERNAME" ]]; then
+    TEMPO_AUTH=$(printf '%s:%s' "$OTLP_USERNAME" "$GRAFANA_CLOUD_TOKEN" | base64 | tr -d '\n')
     TELEMETRY_ENV_JSON=$(echo "$TELEMETRY_ENV_JSON" | jq \
-      --arg ep "$TEMPO_OTLP_ENDPOINT" \
+      --arg ep "$OTLP_ENDPOINT" \
       --arg auth "Authorization=Basic ${TEMPO_AUTH}" \
       '. + [{name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: $ep},
             {name: "OTEL_EXPORTER_OTLP_HEADERS",  value: $auth}]')
