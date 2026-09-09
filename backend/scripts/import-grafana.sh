@@ -61,12 +61,27 @@ is_local_only() {
 }
 
 echo "Target: $GRAFANA_URL"
+
+DATASOURCES_JSON='[]'
 if [[ "$DRY_RUN" == false ]]; then
   code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "${GRAFANA_AUTH[@]}" "$GRAFANA_URL/api/health")
   if [[ "$code" != "200" ]]; then
     echo "Cannot reach Grafana (HTTP $code). Check GRAFANA_URL and the token's role." >&2
     exit 1
   fi
+
+  # The dashboards carry the local provisioning uids (Prometheus / Loki /
+  # Tempo). Grafana Cloud provisions its own (grafanacloud-<slug>-prom, ...),
+  # so importing them unchanged gives a dashboard whose every panel reads
+  # "Datasource not found". Discover the real uids and rewrite by type.
+  code=$(curl -s -o /tmp/ds.json -w '%{http_code}' -m 20 "${GRAFANA_AUTH[@]}" "$GRAFANA_URL/api/datasources")
+  if [[ "$code" != "200" ]]; then
+    echo "Cannot read datasources (HTTP $code)." >&2
+    echo "The token needs datasources:read — a Viewer service account cannot do this." >&2
+    echo "Give the service account the Editor role; the same token keeps working." >&2
+    exit 1
+  fi
+  DATASOURCES_JSON=$(cat /tmp/ds.json)
 fi
 
 pushed=0; skipped=0; failed=0
@@ -96,8 +111,66 @@ for file in "$DASH_DIR"/*.json; do
 
   # overwrite:true is what makes this idempotent; id must be null so Grafana
   # resolves the dashboard by uid instead of an id from another instance.
-  payload=$(jq -n --slurpfile d "$file" \
-    '{dashboard: ($d[0] | .id = null), overwrite: true, message: "bitcrm monitoring import"}')
+  # Datasource uids are rewritten to whatever this instance actually has.
+  payload=$(DATASOURCES_JSON="$DATASOURCES_JSON" python3 - "$file" <<'REMAP'
+import json, os, sys
+
+dash = json.load(open(sys.argv[1]))
+dash["id"] = None
+
+sources = json.loads(os.environ["DATASOURCES_JSON"])
+# First datasource of each type wins; a stack has one of each.
+by_type = {}
+for d in sources:
+    by_type.setdefault(d["type"], d["uid"])
+
+# The uid each dashboard is authored against -> the datasource type it means.
+AUTHORED = {
+    "Prometheus": "prometheus",
+    "Loki": "loki",
+    "Tempo": "tempo",
+    "CloudWatch": "cloudwatch",
+}
+
+missing = set()
+
+def walk(node):
+    if isinstance(node, dict):
+        ds = node.get("datasource")
+        if isinstance(ds, dict) and ds.get("uid") in AUTHORED:
+            want = AUTHORED[ds["uid"]]
+            if want in by_type:
+                ds["uid"] = by_type[want]
+            else:
+                missing.add(want)
+        for v in node.values():
+            walk(v)
+    elif isinstance(node, list):
+        for v in node:
+            walk(v)
+
+walk(dash)
+
+if missing:
+    # Importing a dashboard whose datasource does not exist produces panels
+    # that can only ever error. Better to say so and skip.
+    print("MISSING:" + ",".join(sorted(missing)), file=sys.stderr)
+    sys.exit(3)
+
+json.dump({"dashboard": dash, "overwrite": True,
+           "message": "bitcrm monitoring import"}, sys.stdout)
+REMAP
+  ) || {
+    rc=$?
+    if [[ $rc -eq 3 ]]; then
+      echo "  skip    $name (no datasource of the required type on this instance)"
+      skipped=$((skipped + 1))
+      continue
+    fi
+    echo "  FAIL    $name (could not build payload)" >&2
+    failed=$((failed + 1))
+    continue
+  }
 
   response=$(curl -s -w '\n%{http_code}' -m 30 -X POST \
     "${GRAFANA_AUTH[@]}" \
