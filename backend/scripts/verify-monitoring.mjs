@@ -161,6 +161,22 @@ for (const f of [
   if (!existsSync(join(BACKEND, f))) fail(`${f} is missing`);
 }
 
+// The renderer keys everything off GRAFANA_CLOUD_TOKEN being in its
+// environment. Setting the GitHub secret is not enough — the workflow has to
+// pass it into the render step, and forgetting that produced a completely
+// successful deploy with no telemetry and no error anywhere.
+const workflow = join(BACKEND, '..', '.github/workflows/deploy-dev.yml');
+if (!existsSync(workflow)) {
+  fail('.github/workflows/deploy-dev.yml is missing');
+} else {
+  const wf = readFileSync(workflow, 'utf8');
+  if (!/GRAFANA_CLOUD_TOKEN:\s*\$\{\{\s*secrets\.GRAFANA_CLOUD_TOKEN\s*\}\}/.test(wf)) {
+    fail(
+      'deploy-dev.yml: the render step does not pass GRAFANA_CLOUD_TOKEN — the sidecar would be silently omitted',
+    );
+  }
+}
+
 // The sidecar scrapes over loopback, so it must not carry a hard-coded host.
 const alloyCfg = readFileSync(join(BACKEND, 'monitoring/alloy/ecs.alloy'), 'utf8');
 if (!alloyCfg.includes('127.0.0.1')) {
