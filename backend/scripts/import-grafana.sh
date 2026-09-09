@@ -82,6 +82,37 @@ if [[ "$DRY_RUN" == false ]]; then
     exit 1
   fi
   DATASOURCES_JSON=$(cat /tmp/ds.json)
+
+  # Picking the first datasource of each type is wrong on Grafana Cloud: a
+  # stack ships several Loki and Prometheus datasources that are Grafana's own
+  # telemetry (alert state history, usage insights, ML metrics), and they sort
+  # ahead of the real ones. Wiring the Logs dashboard to alert-state-history
+  # would look like a successful import and show the wrong data.
+  echo "Datasources resolved:"
+  DS_MAP_JSON=$(DATASOURCES_JSON="$DATASOURCES_JSON" python3 <<'PICK'
+import json, os, sys
+
+sources = json.loads(os.environ["DATASOURCES_JSON"])
+
+# Grafana's own bookkeeping datasources, never the application's.
+META = ("usage", "alert-state-history", "ml-metrics", "cardinality",
+        "knowledgegraph", "profiles", "-k6")
+
+def pick(dtype):
+    same = [d for d in sources if d["type"] == dtype]
+    real = [d for d in same if not any(m in d["uid"] for m in META)]
+    pool = real or same
+    for d in pool:
+        if d.get("isDefault"):
+            return d["uid"]
+    return pool[0]["uid"] if pool else None
+
+chosen = {t: pick(t) for t in ("prometheus", "loki", "tempo", "cloudwatch")}
+for t, uid in chosen.items():
+    print("  %-11s -> %s" % (t, uid or "(none on this instance)"), file=sys.stderr)
+json.dump({k: v for k, v in chosen.items() if v}, sys.stdout)
+PICK
+  )
 fi
 
 pushed=0; skipped=0; failed=0
@@ -112,17 +143,13 @@ for file in "$DASH_DIR"/*.json; do
   # overwrite:true is what makes this idempotent; id must be null so Grafana
   # resolves the dashboard by uid instead of an id from another instance.
   # Datasource uids are rewritten to whatever this instance actually has.
-  payload=$(DATASOURCES_JSON="$DATASOURCES_JSON" python3 - "$file" <<'REMAP'
+  payload=$(DS_MAP_JSON="$DS_MAP_JSON" python3 - "$file" <<'REMAP'
 import json, os, sys
 
 dash = json.load(open(sys.argv[1]))
 dash["id"] = None
 
-sources = json.loads(os.environ["DATASOURCES_JSON"])
-# First datasource of each type wins; a stack has one of each.
-by_type = {}
-for d in sources:
-    by_type.setdefault(d["type"], d["uid"])
+by_type = json.loads(os.environ["DS_MAP_JSON"])
 
 # The uid each dashboard is authored against -> the datasource type it means.
 AUTHORED = {
