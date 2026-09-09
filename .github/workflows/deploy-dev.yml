@@ -184,11 +184,19 @@ jobs:
           # Fallback caller id for server-placed masked legs; per-market numbers
           # live on the service area itself and need no deploy variable.
           TELEPHONY_DEFAULT_AREA_CALLER_ID: ${{ vars.TELEPHONY_DEFAULT_AREA_CALLER_ID }}
+          # Turns telemetry shipping on. Unset, render-taskdef.sh emits exactly
+          # the task definition it always did — which is what happened on the
+          # first deploy of this feature: the secret existed but was never
+          # passed in here, so the sidecar was silently omitted.
+          GRAFANA_CLOUD_TOKEN:    ${{ secrets.GRAFANA_CLOUD_TOKEN }}
         run: |
           set -euo pipefail
           bash backend/scripts/render-taskdef.sh > /tmp/taskdef.json
           # sanity-check (don't echo - contains secrets)
           jq '.family, (.containerDefinitions[0].environment | length)' /tmp/taskdef.json
+          # Name the containers so a missing telemetry sidecar is visible in the
+          # log rather than only in the deployed task definition.
+          echo "containers: $(jq -r '[.containerDefinitions[].name] | join(",")' /tmp/taskdef.json)"
 
       - name: Register task definition
         id: register
