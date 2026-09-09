@@ -1,0 +1,53 @@
+// Metrics sidecar for every BitCRM task on ECS Fargate.
+//
+// prom-client is pull-only, so something has to scrape it. Under awsvpc a
+// sidecar shares the task's network namespace, which means it scrapes over
+// loopback and needs no service discovery at all — the reason this works where
+// a central Prometheus does not: Service Connect uses an HTTP namespace, whose
+// client aliases load-balance across tasks, so a central scraper would hit a
+// random task each time.
+//
+// Injected as $ALLOY_CONFIG by scripts/render-taskdef.sh.
+
+prometheus.scrape "app" {
+  targets = [{
+    // Loopback: same task, same network namespace.
+    __address__ = "127.0.0.1:" + sys.env("APP_PORT"),
+    // Every task of a service would otherwise report the identical
+    // instance="127.0.0.1:<port>", so their samples collide in remote-write and
+    // get rejected as out-of-order. On Fargate the container hostname is the
+    // task id, which makes each task distinct without reading task metadata.
+    instance    = constants.hostname,
+  }]
+
+  metrics_path    = sys.env("APP_METRICS_PATH")
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("PROM_REMOTE_WRITE_URL")
+
+    basic_auth {
+      username = sys.env("PROM_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+
+    // Tasks run on FARGATE_SPOT and can be reclaimed mid-flight. A short queue
+    // with room to retry rides out a reclamation without unbounded buffering
+    // in a container that is itself about to go away.
+    queue_config {
+      capacity          = 2500
+      max_shards        = 4
+      max_samples_per_send = 500
+      batch_send_deadline  = "5s"
+    }
+  }
+
+  external_labels = {
+    env = sys.env("DEPLOY_ENV"),
+  }
+}

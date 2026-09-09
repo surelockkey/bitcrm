@@ -29,10 +29,14 @@ export class IndexerEventHandler {
     const timer = this.metrics?.sqsProcessingDuration?.startTimer?.({
       event_type: `search.${type}.upsert`,
     });
+    // 'upsert' until the fetch says otherwise: a 404 means the entity is
+    // gone and this becomes a removal.
+    let operation: 'upsert' | 'delete' = 'upsert';
     try {
       const entity = await this.fetcher.fetch(type, entityId);
       if (!entity) {
         // Entity gone (404) → treat as delete.
+        operation = 'delete';
         await this.indexer.remove(type, entityId);
       } else {
         await this.indexer.indexEntity(type, entity);
@@ -47,15 +51,32 @@ export class IndexerEventHandler {
         event_type: `search.${type}`,
         status: 'success',
       });
+      this.metrics?.searchIndexOperations.inc({
+        type,
+        operation,
+        status: 'success',
+      });
     } catch (err) {
       timer?.();
       if (err instanceof UnsupportedEntityError) {
         // No single-entity endpoint — leave to the backfill, don't delete.
+        // Counted as skipped, not error: this is expected, and it must not
+        // show up in the index error rate.
+        this.metrics?.searchIndexOperations.inc({
+          type,
+          operation,
+          status: 'skipped',
+        });
         this.logger.debug(`Skipping ${type}#${entityId}: ${err.message}`);
         return;
       }
       this.metrics?.sqsMessagesProcessed?.inc?.({
         event_type: `search.${type}`,
+        status: 'error',
+      });
+      this.metrics?.searchIndexOperations.inc({
+        type,
+        operation,
         status: 'error',
       });
       this.logger.error(
@@ -66,7 +87,21 @@ export class IndexerEventHandler {
   }
 
   async onDelete(type: SearchType, entityId: string): Promise<void> {
-    await this.indexer.remove(type, entityId);
+    try {
+      await this.indexer.remove(type, entityId);
+      this.metrics?.searchIndexOperations.inc({
+        type,
+        operation: 'delete',
+        status: 'success',
+      });
+    } catch (err) {
+      this.metrics?.searchIndexOperations.inc({
+        type,
+        operation: 'delete',
+        status: 'error',
+      });
+      throw err; // let SQS retry → DLQ
+    }
   }
 
   /**

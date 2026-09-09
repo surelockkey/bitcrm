@@ -16,6 +16,8 @@
     "dev:crm": "turbo run dev --filter=crm-service",
     "dev:deal": "turbo run dev --filter=deal-service",
     "dev:inventory": "turbo run dev --filter=inventory-service",
+    "dev:search": "turbo run dev --filter=search-service",
+    "dev:telephony": "turbo run dev --filter=telephony-service",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "bash scripts/test.sh unit",
@@ -29,6 +31,7 @@
     "docker:down": "docker compose down",
     "docker:monitoring": "docker compose --profile monitoring up -d",
     "docker:monitoring:down": "docker compose --profile monitoring down",
+    "check:monitoring": "node scripts/verify-monitoring.mjs",
     "setup:aws": "bash scripts/setup-aws.sh",
     "setup": "npm run docker:up"
   },

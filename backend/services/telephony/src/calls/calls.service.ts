@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
 import { CallEventType } from '@bitcrm/types';
 import {
   CallsRepository,
@@ -87,6 +87,7 @@ export class CallsService {
     @Optional() private readonly dealLinks?: DealLinkService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly numberSettings?: NumberSettingsRepository,
+    @Optional() private readonly businessMetrics?: BusinessMetricsService,
   ) {}
 
   /**
@@ -193,6 +194,9 @@ export class CallsService {
 
     // Cross-service events — only on the interesting transitions.
     if (update.answeredAt && !existing?.answeredAt) {
+      this.businessMetrics?.callsAnswered.inc({
+        direction: merged.direction ?? 'unknown',
+      });
       this.publishSns(CallEventType.CALL_STARTED, {
         callSid: merged.callSid,
         direction: merged.direction,
@@ -203,6 +207,14 @@ export class CallsService {
       });
     }
     if (status && statusRank(status) === 4 && existing?.status !== status) {
+      const direction = merged.direction ?? 'unknown';
+      this.businessMetrics?.callsCompleted.inc({ direction, status });
+      if (merged.durationSeconds !== undefined) {
+        this.businessMetrics?.callDuration.observe(
+          { direction },
+          merged.durationSeconds,
+        );
+      }
       this.publishSns(CallEventType.CALL_COMPLETED, {
         callSid: merged.callSid,
         direction: merged.direction,

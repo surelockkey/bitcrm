@@ -1,0 +1,132 @@
+{
+  "uid": "bitcrm-gateway",
+  "title": "BitCRM - API Gateway",
+  "tags": ["bitcrm", "gateway"],
+  "timezone": "browser",
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Gateway Up",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "nginx_up", "legendFormat": "up" }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "DOWN", "color": "red" },
+                "1": { "text": "UP", "color": "green" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Requests / sec",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "rate(nginx_http_requests_total[5m])", "legendFormat": "req/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 3,
+      "title": "Active Connections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "nginx_connections_active", "legendFormat": "active" }]
+    },
+    {
+      "id": 4,
+      "title": "Dropped Connections / sec",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "rate(nginx_connections_accepted[5m]) - rate(nginx_connections_handled[5m])",
+          "legendFormat": "dropped"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Connection States",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "nginx_connections_active", "legendFormat": "active" },
+        { "expr": "nginx_connections_reading", "legendFormat": "reading" },
+        { "expr": "nginx_connections_writing", "legendFormat": "writing" },
+        { "expr": "nginx_connections_waiting", "legendFormat": "waiting" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Accepted vs Handled",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "rate(nginx_connections_accepted[5m])",
+          "legendFormat": "accepted"
+        },
+        {
+          "expr": "rate(nginx_connections_handled[5m])",
+          "legendFormat": "handled"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Gateway & Service Reachability",
+      "type": "state-timeline",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"blackbox-http\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "down", "color": "red" },
+                "1": { "text": "up", "color": "green" }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import { S3Probe } from './probes/s3.probe';
 import { SnsProbe } from './probes/sns.probe';
 import { SqsProbe } from './probes/sqs.probe';
 import { HttpProbe } from './probes/http.probe';
+import { OpenSearchProbe } from './probes/opensearch.probe';
 import { MetricsService } from '../metrics/metrics.service';
 
 function awsClientConfig(
@@ -75,6 +76,14 @@ function buildProbes(opts: ConnectivityOptions): Probe[] {
       awsClientConfig(opts.sqs.endpoint ?? awsEndpoint, opts.sqs.region ?? region),
     );
     probes.push(new SqsProbe(client, opts.sqs.queues));
+  }
+
+  if (opts.opensearch) {
+    const url =
+      opts.opensearch.url ??
+      process.env.OPENSEARCH_ENDPOINT ??
+      'http://localhost:9200';
+    probes.push(new OpenSearchProbe(url, opts.opensearch.indices ?? []));
   }
 
   if (opts.httpServices) {

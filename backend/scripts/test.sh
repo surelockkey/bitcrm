@@ -149,6 +149,30 @@ if [ "$RUN_UNIT" = true ]; then
     "$BACKEND_DIR/services/inventory" \
     "npx jest --silent --passWithNoTests $COVERAGE_FLAG" \
     "unit"
+
+  run_tests \
+    "search-service" \
+    "$BACKEND_DIR/services/search" \
+    "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
+    "unit"
+
+  run_tests \
+    "telephony-service" \
+    "$BACKEND_DIR/services/telephony" \
+    "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
+    "unit"
+
+  # Config, not code: fails if a service exists that nothing scrapes or probes.
+  print_section "monitoring coverage" "$BACKEND_DIR/monitoring"
+  if node "$BACKEND_DIR/scripts/verify-monitoring.mjs" > /dev/null 2>&1; then
+    echo -e "    ${GREEN}PASS${NC}  all services scraped and probed"
+    PASSED=$((PASSED + 1))
+  else
+    echo -e "    ${RED}FAIL${NC}"
+    node "$BACKEND_DIR/scripts/verify-monitoring.mjs" 2>&1 | sed 's/^/    /'
+    FAILED=$((FAILED + 1))
+    FAILURES+=("monitoring coverage")
+  fi
 fi
 
 # Helper: ensure Docker test containers are running and flush stale data

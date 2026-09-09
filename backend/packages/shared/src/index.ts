@@ -59,6 +59,8 @@ export { HttpExceptionFilter } from './errors/http-exception.filter';
 export { LoggerModule, LoggerModuleConfig } from './logger/logger.module';
 export { CorrelationMiddleware } from './logger/correlation.middleware';
 export { getTraceId, storage as traceStorage } from './logger/trace-storage';
+export { buildLogTransport } from './logger/log-transport';
+export type { LogTransport, LogTransportEnv } from './logger/log-transport';
 export { TRACE_ID_HEADER, TRACE_ID_ATTRIBUTE } from './logger/logger.constants';
 
 // Metrics
@@ -87,6 +89,7 @@ export {
 export { ConnectivityModule } from './connectivity/connectivity.module';
 export { ConnectivityCheckService } from './connectivity/connectivity-check.service';
 export { DependencyMetricsService } from './connectivity/dependency-metrics.service';
+export { OpenSearchProbe } from './connectivity/probes/opensearch.probe';
 export {
   ConnectivityOptions,
   Probe,

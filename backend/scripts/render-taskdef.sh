@@ -31,12 +31,12 @@ set -euo pipefail
 : "${TASK_ROLE_ARN:?TASK_ROLE_ARN is required}"
 
 case "$SERVICE" in
-  user)      PORT=4001; PORT_ENV=USER_SERVICE_PORT ;;
-  crm)       PORT=4002; PORT_ENV=CRM_SERVICE_PORT ;;
-  deal)      PORT=4003; PORT_ENV=DEAL_SERVICE_PORT ;;
-  inventory) PORT=4004; PORT_ENV=INVENTORY_SERVICE_PORT ;;
-  search)    PORT=4005; PORT_ENV=SEARCH_SERVICE_PORT ;;
-  telephony) PORT=4006; PORT_ENV=TELEPHONY_SERVICE_PORT ;;
+  user)      PORT=4001; PORT_ENV=USER_SERVICE_PORT;      PREFIX=api/users ;;
+  crm)       PORT=4002; PORT_ENV=CRM_SERVICE_PORT;       PREFIX=api/crm ;;
+  deal)      PORT=4003; PORT_ENV=DEAL_SERVICE_PORT;      PREFIX=api/deals ;;
+  inventory) PORT=4004; PORT_ENV=INVENTORY_SERVICE_PORT; PREFIX=api/inventory ;;
+  search)    PORT=4005; PORT_ENV=SEARCH_SERVICE_PORT;    PREFIX=api/search ;;
+  telephony) PORT=4006; PORT_ENV=TELEPHONY_SERVICE_PORT; PREFIX=api/telephony ;;
   *) echo "unknown service: $SERVICE" >&2; exit 1 ;;
 esac
 
@@ -148,10 +148,86 @@ EXTRA_ENV_JSON=$(jq -n \
 # 3. Merge SSM + aliases + extra env
 ALL_ENV_JSON=$(jq -s '.[0] + .[1] + .[2]' <(echo "$SSM_ENV_JSON") <(echo "$SSM_ALIASES_JSON") <(echo "$EXTRA_ENV_JSON"))
 
-# 4. Substitute placeholders in template, inject environment array
-sed \
+# 4. Telemetry.
+#
+# Traces and logs push straight from the app; only metrics need a sidecar,
+# because prom-client is pull-only. Endpoints and numeric usernames ride the
+# SSM auto-mapping above (/bitcrm/dev/loki/url -> LOKI_URL, and so on) since
+# none of them is secret. Only the token comes from GitHub.
+#
+# Everything here is keyed off GRAFANA_CLOUD_TOKEN being set. Without it the
+# rendered task definition is byte-for-byte what it was before, so this can ship
+# ahead of the Grafana Cloud config with no effect.
+# SSM is the source of truth, but an already-set shell variable wins — which is
+# what makes this renderable and diffable outside CI.
+read_env() {
+  if [[ -n "${!1:-}" ]]; then
+    echo "${!1}"
+    return
+  fi
+  echo "$ALL_ENV_JSON" | jq -r --arg n "$1" 'map(select(.name == $n)) | last | .value // ""'
+}
+
+PROM_REMOTE_WRITE_URL=$(read_env PROM_REMOTE_WRITE_URL)
+PROM_USERNAME=$(read_env PROM_USERNAME)
+OTLP_ENDPOINT=$(read_env OTLP_ENDPOINT)
+OTLP_USERNAME=$(read_env OTLP_USERNAME)
+
+TELEMETRY_ENV_JSON='[]'
+SIDECAR_JSON='[]'
+BUMP_MEMORY=false
+
+if [[ -n "${GRAFANA_CLOUD_TOKEN:-}" ]]; then
+  # Loki: pino-loki takes the instance id as username, the token as password.
+  TELEMETRY_ENV_JSON=$(jq -n --arg tok "$GRAFANA_CLOUD_TOKEN" \
+    '[{name: "LOKI_PASSWORD", value: $tok}]')
+
+  # Traces: OTLP/HTTP with basic auth. The OTel SDK reads the header out of
+  # OTEL_EXPORTER_OTLP_HEADERS; initTracing() appends /v1/traces to the endpoint.
+  #
+  # The username here is the Grafana Cloud *stack* id, NOT the Tempo instance
+  # id — traces go through the shared OTLP gateway, and posting to the Tempo
+  # host directly answers 404. Verified against both endpoints.
+  if [[ -n "$OTLP_ENDPOINT" && -n "$OTLP_USERNAME" ]]; then
+    TEMPO_AUTH=$(printf '%s:%s' "$OTLP_USERNAME" "$GRAFANA_CLOUD_TOKEN" | base64 | tr -d '\n')
+    TELEMETRY_ENV_JSON=$(echo "$TELEMETRY_ENV_JSON" | jq \
+      --arg ep "$OTLP_ENDPOINT" \
+      --arg auth "Authorization=Basic ${TEMPO_AUTH}" \
+      '. + [{name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: $ep},
+            {name: "OTEL_EXPORTER_OTLP_HEADERS",  value: $auth}]')
+  fi
+
+  if [[ -n "$PROM_REMOTE_WRITE_URL" && -n "$PROM_USERNAME" ]]; then
+    BUMP_MEMORY=true
+    SIDECAR_JSON=$(
+      SERVICE="$SERVICE" \
+      APP_PORT="$PORT" \
+      APP_METRICS_PATH="/${PREFIX}/metrics" \
+      PROM_REMOTE_WRITE_URL="$PROM_REMOTE_WRITE_URL" \
+      PROM_USERNAME="$PROM_USERNAME" \
+      GRAFANA_CLOUD_TOKEN="$GRAFANA_CLOUD_TOKEN" \
+      ALLOY_CONFIG_FILE="${REPO_ROOT}/backend/monitoring/alloy/ecs.alloy" \
+      bash "$(dirname "$0")/render-alloy-sidecar.sh"
+    )
+  fi
+fi
+
+ALL_ENV_JSON=$(jq -s '.[0] + .[1]' <(echo "$ALL_ENV_JSON") <(echo "$TELEMETRY_ENV_JSON"))
+
+# 5. Substitute placeholders in template, inject environment array + sidecar
+RENDERED=$(sed \
   -e "s|\${IMAGE}|${IMAGE}|g" \
   -e "s|\${EXECUTION_ROLE_ARN}|${EXECUTION_ROLE_ARN}|g" \
   -e "s|\${TASK_ROLE_ARN}|${TASK_ROLE_ARN}|g" \
   "$TEMPLATE" | \
-jq --argjson env "$ALL_ENV_JSON" '.containerDefinitions[0].environment = $env'
+jq --argjson env "$ALL_ENV_JSON" --argjson side "$SIDECAR_JSON" \
+  '.containerDefinitions[0].environment = $env | .containerDefinitions += $side')
+
+# Alloy wants ~128MB on top of the app, and the tasks are already at 1GB. 2048
+# is the next valid size at cpu 256 (Fargate 0.25 vCPU allows 0.5/1/2 GB), and
+# it is only spent when the sidecar is actually present.
+if [[ "$BUMP_MEMORY" == true ]]; then
+  RENDERED=$(echo "$RENDERED" | jq '.memory = "2048"')
+fi
+
+echo "$RENDERED"
