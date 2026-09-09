@@ -123,7 +123,14 @@ describe('buildLogTransport', () => {
       expect(t?.targets?.[0].options).not.toHaveProperty('basicAuth');
     });
 
-    it('omits basic auth when only one half of the credential is present', () => {
+    /**
+     * Half a credential is a misconfiguration, not a request to push
+     * anonymously. Shipping anyway earns a 401 that silenceErrors swallows —
+     * which is exactly what the first deployment did: SSM supplied LOKI_URL and
+     * LOKI_USERNAME to every task while LOKI_PASSWORD, which rides with the
+     * token, was absent. Refusing to ship is the honest failure.
+     */
+    it('does not ship to Loki at all when only one half of the credential is present', () => {
       const onlyUser = buildLogTransport('crm-service', {
         isProduction: true,
         lokiUrl: 'https://logs.grafana.net',
@@ -135,8 +142,21 @@ describe('buildLogTransport', () => {
         lokiPassword: 'glc_token',
       });
 
-      expect(onlyUser?.targets?.[0].options).not.toHaveProperty('basicAuth');
-      expect(onlyPass?.targets?.[0].options).not.toHaveProperty('basicAuth');
+      expect(onlyUser).toBeUndefined();
+      expect(onlyPass).toBeUndefined();
+    });
+
+    it('still pretty-prints in development when the credential is half-set', () => {
+      const t = buildLogTransport('crm-service', {
+        isProduction: false,
+        lokiUrl: 'https://logs.grafana.net',
+        lokiUsername: '123456',
+      });
+
+      expect(t).toEqual({
+        target: 'pino-pretty',
+        options: expect.objectContaining({ colorize: true }),
+      });
     });
 
     it('still pretty-prints alongside an authenticated push in development', () => {

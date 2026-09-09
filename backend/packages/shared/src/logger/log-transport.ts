@@ -49,6 +49,18 @@ export function buildLogTransport(
 
   const username = env.lokiUsername?.trim();
   const password = env.lokiPassword?.trim();
+
+  // Exactly one half of a credential is a misconfiguration, not a request to
+  // push anonymously — and pushing anyway earns a 401 that silenceErrors
+  // swallows, so it looks identical to working. Refuse to ship instead.
+  //
+  // This is not hypothetical: SSM supplies LOKI_URL and LOKI_USERNAME to every
+  // task, while LOKI_PASSWORD rides with the deploy token. A deploy that misses
+  // the token leaves precisely this shape.
+  if (Boolean(username) !== Boolean(password)) {
+    return env.isProduction ? undefined : PRETTY;
+  }
+
   const basicAuth =
     username && password ? { basicAuth: { username, password } } : {};
 
