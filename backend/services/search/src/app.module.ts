@@ -12,6 +12,11 @@ import {
 } from '@bitcrm/shared';
 import { SearchType } from '@bitcrm/types';
 import { AppController } from './app.controller';
+import {
+  OPENSEARCH_ENDPOINT,
+  OPENSEARCH_SERVERLESS,
+  SEARCH_INDEX_ALIAS,
+} from './common/constants/opensearch.constants';
 import { OpenSearchModule } from './common/opensearch/opensearch.module';
 import { SearchModule } from './search/search.module';
 import { IndexerModule } from './indexer/indexer.module';
@@ -85,6 +90,12 @@ const CUSTOM_FIELD_EVENTS = [
       failFast: [],
       redis: true,
       sqs: QUEUE_URL ? { queues: [QUEUE_URL] } : undefined,
+      // The read model itself. Unsigned HTTP, so only for the local container
+      // and a plain managed domain — Serverless signs with SigV4 and is left
+      // to the client's own health reporting.
+      opensearch: OPENSEARCH_SERVERLESS
+        ? undefined
+        : { url: OPENSEARCH_ENDPOINT, indices: [SEARCH_INDEX_ALIAS] },
       httpServices: [
         { name: 'crm', url: (process.env.CRM_SERVICE_URL ?? 'http://localhost:4002') + '/api/crm/health' },
         { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },

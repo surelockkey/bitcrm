@@ -114,4 +114,143 @@ describe('DependencyMetricsService', () => {
     );
     expect(okCount?.value).toBe(1);
   });
+
+  /**
+   * A probe that throws (rather than returning per-resource detail) is recorded
+   * with no resources, which writes the aggregate resource="" sample. If a
+   * later run succeeds and reports resources, that aggregate 0 is never
+   * touched again — leaving a permanently-firing DependencyDown for a
+   * dependency that recovered. Seen live: the OpenSearch probe failing once
+   * during boot pinned resource="" at 0 for the life of the process.
+   */
+  describe('stale samples across probe shapes', () => {
+    it('clears the aggregate sample once a probe starts reporting resources', async () => {
+      const metrics = makeMetricsService();
+      const dep = new DependencyMetricsService(metrics);
+
+      // Boot: cluster unreachable, the probe threw — no resource detail.
+      dep.update('search-service', [
+        { name: 'opensearch', kind: 'opensearch', ok: false, durationMs: 5, error: 'ECONNREFUSED' },
+      ]);
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', {
+          name: 'opensearch',
+          resource: '',
+        }),
+      ).toBe(0);
+
+      // Recovered: cluster answers and the index is present.
+      dep.update('search-service', [
+        {
+          name: 'opensearch',
+          kind: 'opensearch',
+          ok: true,
+          durationMs: 5,
+          resources: [{ resource: 'bitcrm-search', present: true }],
+        },
+      ]);
+
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', {
+          name: 'opensearch',
+          resource: 'bitcrm-search',
+        }),
+      ).toBe(1);
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', {
+          name: 'opensearch',
+          resource: '',
+        }),
+      ).toBeUndefined();
+    });
+
+    it('clears per-resource samples once a probe stops reporting them', async () => {
+      const metrics = makeMetricsService();
+      const dep = new DependencyMetricsService(metrics);
+
+      dep.update('search-service', [
+        {
+          name: 'opensearch',
+          kind: 'opensearch',
+          ok: true,
+          durationMs: 5,
+          resources: [{ resource: 'bitcrm-search', present: true }],
+        },
+      ]);
+      dep.update('search-service', [
+        { name: 'opensearch', kind: 'opensearch', ok: false, durationMs: 5, error: 'ECONNREFUSED' },
+      ]);
+
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', {
+          name: 'opensearch',
+          resource: 'bitcrm-search',
+        }),
+      ).toBeUndefined();
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', {
+          name: 'opensearch',
+          resource: '',
+        }),
+      ).toBe(0);
+    });
+
+    it('drops a resource that is no longer configured', async () => {
+      const metrics = makeMetricsService();
+      const dep = new DependencyMetricsService(metrics);
+
+      dep.update('deal-service', [
+        {
+          name: 'sqs',
+          kind: 'sqs',
+          ok: true,
+          durationMs: 5,
+          resources: [
+            { resource: 'q-old', present: true },
+            { resource: 'q-keep', present: true },
+          ],
+        },
+      ]);
+      dep.update('deal-service', [
+        {
+          name: 'sqs',
+          kind: 'sqs',
+          ok: true,
+          durationMs: 5,
+          resources: [{ resource: 'q-keep', present: true }],
+        },
+      ]);
+
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', { name: 'sqs', resource: 'q-old' }),
+      ).toBeUndefined();
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', { name: 'sqs', resource: 'q-keep' }),
+      ).toBe(1);
+    });
+
+    it('leaves another probe\'s samples alone', async () => {
+      const metrics = makeMetricsService();
+      const dep = new DependencyMetricsService(metrics);
+
+      dep.update('search-service', [
+        { name: 'redis', kind: 'redis', ok: true, durationMs: 2 },
+        { name: 'opensearch', kind: 'opensearch', ok: false, durationMs: 5, error: 'boom' },
+      ]);
+      dep.update('search-service', [
+        { name: 'redis', kind: 'redis', ok: true, durationMs: 2 },
+        {
+          name: 'opensearch',
+          kind: 'opensearch',
+          ok: true,
+          durationMs: 5,
+          resources: [{ resource: 'bitcrm-search', present: true }],
+        },
+      ]);
+
+      expect(
+        await readGauge(metrics, 'bitcrm_dependency_up', { name: 'redis', resource: '' }),
+      ).toBe(1);
+    });
+  });
 });

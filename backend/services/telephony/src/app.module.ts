@@ -37,6 +37,14 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
         tables: [CALLS_TABLE, CALL_GROUPS_TABLE, CALL_FLOWS_TABLE],
       },
       redis: true,
+      sns: process.env.CALL_EVENTS_TOPIC_ARN
+        ? { topics: [process.env.CALL_EVENTS_TOPIC_ARN] }
+        : undefined,
+      httpServices: [
+        { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },
+        { name: 'crm', url: (process.env.CRM_SERVICE_URL ?? 'http://localhost:4002') + '/api/crm/health' },
+        { name: 'deal', url: (process.env.DEAL_SERVICE_URL ?? 'http://localhost:4003') + '/api/deals/health' },
+      ],
     }),
     DynamoDbModule,
     RedisModule,

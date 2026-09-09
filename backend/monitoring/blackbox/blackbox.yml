@@ -7,3 +7,22 @@ modules:
       valid_status_codes: [200]
       method: GET
       preferred_ip_protocol: 'ip4'
+
+  # /health/dependencies answers 503 when a downstream is down — that is a
+  # successful probe of a service that is reporting honestly, not a failure to
+  # reach it. The dependency detail comes from bitcrm_dependency_up.
+  http_2xx_or_503:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ['HTTP/1.1', 'HTTP/2.0']
+      valid_status_codes: [200, 503]
+      method: GET
+      preferred_ip_protocol: 'ip4'
+
+  # For backing services with no exporter and no health URL.
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: 'ip4'

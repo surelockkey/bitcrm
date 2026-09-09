@@ -140,6 +140,46 @@ services:
     profiles:
       - monitoring
 
+  opensearch-exporter:
+    image: prometheuscommunity/elasticsearch-exporter:latest
+    container_name: opensearch-exporter
+    command:
+      - '--es.uri=http://opensearch:9200'
+      - '--es.all'
+      - '--es.indices'
+    ports:
+      - "9114:9114"
+    depends_on:
+      - opensearch
+    profiles:
+      - monitoring
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter
+    command:
+      - '--nginx.scrape-uri=http://gateway:8080/stub_status'
+    ports:
+      - "9113:9113"
+    depends_on:
+      - gateway
+    profiles:
+      - monitoring
+
+  # Container logs → Loki. Host-run Node services push directly (LOKI_URL).
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-data:/tmp
+    depends_on:
+      - loki
+    profiles:
+      - monitoring
+
   blackbox-exporter:
     image: prom/blackbox-exporter:latest
     container_name: blackbox-exporter
@@ -154,6 +194,7 @@ services:
 
 volumes:
   localstack-data:
+  promtail-data:
   opensearch-data:
   grafana-data:
   tempo-data:

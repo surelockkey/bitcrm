@@ -6,6 +6,10 @@ rule_files:
   - 'alerts.yml'
 
 scrape_configs:
+  # ── Application services ────────────────────────────────────
+  # Every service under backend/services must appear here. The guard in
+  # scripts/verify-monitoring.mjs discovers them from the filesystem and fails
+  # if one is missing — search and telephony had been unscraped for months.
   - job_name: 'user-service'
     metrics_path: /api/users/metrics
     static_configs:
@@ -26,11 +30,45 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:4004']
 
+  - job_name: 'search-service'
+    metrics_path: /api/search/metrics
+    static_configs:
+      - targets: ['host.docker.internal:4005']
+
+  - job_name: 'telephony-service'
+    metrics_path: /api/telephony/metrics
+    static_configs:
+      - targets: ['host.docker.internal:4006']
+
+  # ── Infrastructure exporters ────────────────────────────────
   - job_name: 'redis-exporter'
     static_configs:
       - targets: ['redis-exporter:9121']
 
-  - job_name: 'blackbox'
+  - job_name: 'opensearch-exporter'
+    static_configs:
+      - targets: ['opensearch-exporter:9114']
+
+  - job_name: 'nginx-exporter'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+
+  # The monitoring stack watching itself — a Prometheus that has stopped
+  # evaluating rules looks exactly like a system with no problems.
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+
+  - job_name: 'tempo'
+    static_configs:
+      - targets: ['tempo:3200']
+
+  # ── Blackbox: service health endpoints ──────────────────────
+  - job_name: 'blackbox-http'
     metrics_path: /probe
     params:
       module: [http_2xx]
@@ -40,7 +78,53 @@ scrape_configs:
           - http://host.docker.internal:4002/api/crm/health
           - http://host.docker.internal:4003/api/deals/health
           - http://host.docker.internal:4004/api/inventory/health
+          - http://host.docker.internal:4005/api/search/health
+          - http://host.docker.internal:4006/api/telephony/health
           - http://host.docker.internal:4000/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Dependency endpoints answer 503 when a downstream is unreachable, which is
+  # the signal — so they need a module that accepts both 200 and 503 and
+  # deliberately do NOT feed ServiceDown.
+  - job_name: 'blackbox-dependencies'
+    metrics_path: /probe
+    params:
+      module: [http_2xx_or_503]
+    static_configs:
+      - targets:
+          - http://host.docker.internal:4001/api/users/health/dependencies
+          - http://host.docker.internal:4002/api/crm/health/dependencies
+          - http://host.docker.internal:4003/api/deals/health/dependencies
+          - http://host.docker.internal:4004/api/inventory/health/dependencies
+          - http://host.docker.internal:4005/api/search/health/dependencies
+          - http://host.docker.internal:4006/api/telephony/health/dependencies
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ── Blackbox: backing services ──────────────────────────────
+  # DynamoDB Local and LocalStack have no exporter; a TCP connect is the
+  # honest answer to "is it there at all".
+  - job_name: 'blackbox-tcp'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+          - host.docker.internal:8000   # dynamodb-local
+          - host.docker.internal:4566   # localstack
+          - host.docker.internal:6379   # redis
+          - host.docker.internal:9200   # opensearch
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target

@@ -28,6 +28,14 @@ export class BusinessMetricsService {
   public readonly stockTransfers: Counter;
   public readonly stockDeductions: Counter;
 
+  public readonly searchQueryDuration: Histogram;
+  public readonly searchQueryErrors: Counter;
+  public readonly searchIndexOperations: Counter;
+
+  public readonly callsAnswered: Counter;
+  public readonly callsCompleted: Counter;
+  public readonly callDuration: Histogram;
+
   constructor(metricsService: MetricsService) {
     const p = BUSINESS_METRIC_PREFIX;
 
@@ -113,6 +121,41 @@ export class BusinessMetricsService {
     this.stockDeductions = metricsService.createCounter(
       `${p}_stock_deductions_total`,
       'Stock deductions from containers',
+    );
+
+    this.searchQueryDuration = metricsService.createHistogram(
+      `${p}_search_query_duration_seconds`,
+      'Global search query duration',
+      ['mode'],
+    );
+    this.searchQueryErrors = metricsService.createCounter(
+      `${p}_search_query_errors_total`,
+      'Global search queries that failed',
+      ['mode'],
+    );
+    this.searchIndexOperations = metricsService.createCounter(
+      `${p}_search_index_operations_total`,
+      'Search index upserts and deletes',
+      ['type', 'operation', 'status'],
+    );
+
+    this.callsAnswered = metricsService.createCounter(
+      `${p}_calls_answered_total`,
+      'Calls that reached the answered state',
+      ['direction'],
+    );
+    this.callsCompleted = metricsService.createCounter(
+      `${p}_calls_completed_total`,
+      'Calls that reached a terminal state',
+      ['direction', 'status'],
+    );
+    // Talk time runs to minutes; the prom-client defaults top out at 10s and
+    // would put every real call in +Inf.
+    this.callDuration = metricsService.createHistogram(
+      `${p}_call_duration_seconds`,
+      'Call talk time in seconds',
+      ['direction'],
+      [5, 15, 30, 60, 120, 300, 600, 1800, 3600],
     );
   }
 }

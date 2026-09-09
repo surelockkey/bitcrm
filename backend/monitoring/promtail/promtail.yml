@@ -1,0 +1,38 @@
+# Ships the container logs of the stack itself into Loki. The Node services run
+# on the host under turbo, not in Docker — they push straight to Loki via the
+# pino-loki transport (LOKI_URL), so between the two every backend log line is
+# queryable in Grafana under the same `service` label.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      # `service` is the label every dashboard filters on, so container logs
+      # use it too — the container name is the service here.
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'service'
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: 'stream'
+      - target_label: 'source'
+        replacement: 'docker'
+    pipeline_stages:
+      # On a first run promtail has no position for a container and replays its
+      # whole log — for a container that has been up for weeks that is months of
+      # backlog, all of it past Loki's reject_old_samples_max_age, which turns
+      # into a wall of 400s and no live logs. Nothing older than a day is worth
+      # shipping here anyway.
+      - drop:
+          older_than: 24h
+          drop_counter_reason: 'older_than_retention'

@@ -1,0 +1,259 @@
+{
+  "uid": "bitcrm-alb",
+  "title": "BitCRM - Load Balancer (prod)",
+  "tags": ["bitcrm", "alb", "aws"],
+  "timezone": "browser",
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "description": "Deployed environments only. There is no nginx gateway in AWS - the ALB replaces it - so the API Gateway dashboard is local-dev only and this is its counterpart. Requires a CloudWatch datasource in Grafana; every panel here reads AWS/ApplicationELB.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Unhealthy Targets",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "UnHealthyHostCount",
+          "statistic": "Maximum",
+          "dimensions": { "TargetGroup": "*", "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "title": "5xx from the ALB itself",
+      "type": "stat",
+      "description": "The ALB could not reach a target at all. Distinct from a target's own 5xx, and the reason a browser sees a CORS error instead of a status.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_ELB_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Request Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "RequestCount",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Target Response Time (p95)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "p95",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 5,
+      "title": "Healthy vs Unhealthy Targets by Service",
+      "type": "timeseries",
+      "description": "Target groups are per service, so a dip here names which service lost capacity.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HealthyHostCount",
+          "statistic": "Average",
+          "dimensions": { "TargetGroup": "*", "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "healthy {{TargetGroup}}",
+          "refId": "A"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "UnHealthyHostCount",
+          "statistic": "Average",
+          "dimensions": { "TargetGroup": "*", "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "unhealthy {{TargetGroup}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Status Codes",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_2XX_Count",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "2xx",
+          "refId": "A"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_4XX_Count",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "4xx",
+          "refId": "B"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "5xx (target)",
+          "refId": "C"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_ELB_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "5xx (ALB)",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Target Response Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "p50",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "p50",
+          "refId": "A"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "p95",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "p95",
+          "refId": "B"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "p99",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 8,
+      "title": "Rejected & Connection Errors",
+      "type": "timeseries",
+      "description": "TargetConnectionErrorCount is the ALB's equivalent of nginx failing to reach an upstream - the failure the local gateway dashboard tracked as dropped connections.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "cloudwatch", "uid": "CloudWatch" },
+      "targets": [
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetConnectionErrorCount",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "target connection errors",
+          "refId": "A"
+        },
+        {
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "RejectedConnectionCount",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "*" },
+          "matchExact": false,
+          "region": "us-east-1",
+          "label": "rejected connections",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

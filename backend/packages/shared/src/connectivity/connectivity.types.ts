@@ -1,4 +1,11 @@
-export type ProbeKind = 'dynamodb' | 'redis' | 's3' | 'sns' | 'sqs' | 'http';
+export type ProbeKind =
+  | 'dynamodb'
+  | 'redis'
+  | 's3'
+  | 'sns'
+  | 'sqs'
+  | 'http'
+  | 'opensearch';
 
 export interface ProbeResourceStatus {
   resource: string;
@@ -40,6 +47,7 @@ export interface ConnectivityOptions {
   s3?: { buckets: string[]; endpoint?: string; region?: string };
   sns?: { topics: string[]; endpoint?: string; region?: string };
   sqs?: { queues: string[]; endpoint?: string; region?: string };
+  opensearch?: { url?: string; indices?: string[] };
   httpServices?: HttpServiceTarget[];
 }
 

@@ -44,8 +44,9 @@ export class SearchService {
       size: query.size,
     });
 
-    // Optional custom metric — tolerated if the shared metrics service lacks it.
-    const timer = (this.metrics as any)?.searchQueryDuration?.startTimer?.({ mode: query.mode });
+    const timer = this.metrics?.searchQueryDuration.startTimer({
+      mode: query.mode,
+    });
     try {
       const res = await this.opensearch.client.search({
         index: SEARCH_INDEX_ALIAS,
@@ -60,6 +61,7 @@ export class SearchService {
       });
     } catch (err) {
       timer?.();
+      this.metrics?.searchQueryErrors.inc({ mode: query.mode });
       this.logger.error(`Search failed: ${(err as Error).message}`);
       throw err;
     }

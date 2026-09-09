@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Push every dashboard in monitoring/grafana/dashboards/ into a Grafana instance.
+#
+# Run by a person with their own credential, so no Grafana token ever has to
+# travel through a chat or a CI secret.
+#
+#   GRAFANA_URL=https://<stack>.grafana.net \
+#   GRAFANA_TOKEN=<service account token> \
+#     bash scripts/import-grafana.sh
+#
+# The token is a *Grafana service account* token (Grafana UI -> Administration ->
+# Users and access -> Service accounts), not a Grafana Cloud access-policy
+# token. The two are different credentials: access-policy tokens authenticate
+# to the Prometheus/Loki/Tempo push endpoints, while the dashboard API lives on
+# the Grafana instance itself. Needs the Editor role.
+#
+# Idempotent: dashboards are matched on their uid, so re-running updates in
+# place rather than creating duplicates.
+#
+# Flags:
+#   --dry-run   list what would be pushed, touch nothing
+#   --local     target the local docker Grafana (http://localhost:3001, admin/admin)
+
+set -euo pipefail
+
+BACKEND_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DASH_DIR="$BACKEND_DIR/monitoring/grafana/dashboards"
+
+DRY_RUN=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=true ;;
+    --local)
+      GRAFANA_URL="http://localhost:3001"
+      GRAFANA_AUTH=(--user "admin:admin")
+      ;;
+    *) echo "unknown flag: $arg" >&2; exit 1 ;;
+  esac
+done
+
+: "${GRAFANA_URL:?GRAFANA_URL is required (e.g. https://yourstack.grafana.net)}"
+
+if [[ -z "${GRAFANA_AUTH+x}" ]]; then
+  : "${GRAFANA_TOKEN:?GRAFANA_TOKEN is required (Grafana service account token)}"
+  GRAFANA_AUTH=(-H "Authorization: Bearer ${GRAFANA_TOKEN}")
+fi
+
+GRAFANA_URL="${GRAFANA_URL%/}"
+
+# Local-only dashboards. Nothing scrapes nginx or a docker-network Redis in a
+# deployed environment, so importing these would publish panels that can only
+# ever read "No data".
+LOCAL_ONLY=("gateway.json")
+
+is_local_only() {
+  local f="$1"
+  for skip in "${LOCAL_ONLY[@]}"; do
+    [[ "$f" == "$skip" ]] && return 0
+  done
+  return 1
+}
+
+echo "Target: $GRAFANA_URL"
+if [[ "$DRY_RUN" == false ]]; then
+  code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "${GRAFANA_AUTH[@]}" "$GRAFANA_URL/api/health")
+  if [[ "$code" != "200" ]]; then
+    echo "Cannot reach Grafana (HTTP $code). Check GRAFANA_URL and the token's role." >&2
+    exit 1
+  fi
+fi
+
+pushed=0; skipped=0; failed=0
+
+for file in "$DASH_DIR"/*.json; do
+  name="$(basename "$file")"
+
+  if is_local_only "$name"; then
+    echo "  skip    $name (local-only)"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  uid=$(jq -r '.uid // empty' "$file")
+  title=$(jq -r '.title // empty' "$file")
+  if [[ -z "$uid" || -z "$title" ]]; then
+    echo "  FAIL    $name (missing uid or title)" >&2
+    failed=$((failed + 1))
+    continue
+  fi
+
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "  would   $name -> $uid ($title)"
+    pushed=$((pushed + 1))
+    continue
+  fi
+
+  # overwrite:true is what makes this idempotent; id must be null so Grafana
+  # resolves the dashboard by uid instead of an id from another instance.
+  payload=$(jq -n --slurpfile d "$file" \
+    '{dashboard: ($d[0] | .id = null), overwrite: true, message: "bitcrm monitoring import"}')
+
+  response=$(curl -s -w '\n%{http_code}' -m 30 -X POST \
+    "${GRAFANA_AUTH[@]}" \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "$GRAFANA_URL/api/dashboards/db")
+
+  code=$(echo "$response" | tail -1)
+  # `sed '$d'` rather than `head -n -1`: BSD head has no negative count, so the
+  # error body was being lost on macOS exactly when it was needed.
+  body=$(echo "$response" | sed '$d')
+
+  msg=$(echo "$body" | jq -r '.message // empty' 2>/dev/null)
+
+  if [[ "$code" == "200" ]]; then
+    echo "  ok      $name -> $uid"
+    pushed=$((pushed + 1))
+  elif [[ "$msg" == *"provisioned dashboard"* ]]; then
+    # The local docker Grafana provisions these from disk, so the API refuses to
+    # overwrite them. The dashboard is present and current - it is just managed
+    # by the file provisioner rather than the API. Not a failure; it also means
+    # --local exercises everything up to the write, which is what makes it a
+    # usable smoke test of the payload.
+    echo "  skip    $name (provisioned from disk, already current)"
+    skipped=$((skipped + 1))
+  else
+    [[ -z "$msg" ]] && msg=$(echo "$body" | head -c 200)
+    echo "  FAIL    $name (HTTP $code): $msg" >&2
+    failed=$((failed + 1))
+  fi
+done
+
+echo ""
+echo "pushed=$pushed skipped=$skipped failed=$failed"
+echo ""
+echo "Alert rules are NOT imported here. monitoring/prometheus/alerts.yml is"
+echo "Prometheus rule YAML; load it with mimirtool against Grafana Cloud:"
+echo ""
+echo "  mimirtool rules load monitoring/prometheus/alerts.yml \\"
+echo "    --address=\"\$PROM_BASE_URL\" --id=\"\$PROM_USERNAME\" --key=\"\$GRAFANA_CLOUD_TOKEN\""
+echo ""
+
+[[ $failed -eq 0 ]]

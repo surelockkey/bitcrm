@@ -9,19 +9,26 @@ groups:
         annotations:
           summary: 'Service {{ $labels.job }} is down'
 
+      # Health routes are excluded: /health and /health/dependencies answer 503
+      # by design when a dependency is degraded, and they are now polled every
+      # 15s by the blackbox jobs. Counting those as service errors would fire
+      # this alert for every dependency blip — on top of DependencyDown, which
+      # is the alert that actually says what is wrong.
       - alert: HighErrorRate
         expr: >
-          sum(rate(http_requests_total{status_code=~"5.."}[5m])) by (service)
-          / sum(rate(http_requests_total[5m])) by (service) > 0.05
+          sum(rate(http_requests_total{status_code=~"5..", route!~".*/health.*"}[5m])) by (service)
+          / sum(rate(http_requests_total{route!~".*/health.*"}[5m])) by (service) > 0.05
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: 'High 5xx error rate on {{ $labels.service }}'
 
+      # Same exclusion: probe traffic is constant and is not user-facing, so it
+      # must not dominate the latency percentiles it is measured against.
       - alert: HighLatencyP99
         expr: >
-          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 2
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{route!~".*/health.*"}[5m])) by (le, service)) > 2
         for: 2m
         labels:
           severity: warning
@@ -36,14 +43,32 @@ groups:
         annotations:
           summary: 'High event loop lag on {{ $labels.service }}'
 
+      # NOT used/total: nodejs_heap_size_total_bytes is the heap V8 has
+      # currently committed, which it keeps just above used — so that ratio sits
+      # at ~0.95 on every healthy process and the alert fired constantly for
+      # every service. prom-client exports no heap-limit metric, and V8's
+      # per-space "available" is headroom inside the committed space rather than
+      # up to the limit, so neither ratio has a real ceiling to measure against.
+      # An absolute threshold below Node's ~2GB default old-space limit is the
+      # signal that actually precedes an OOM.
       - alert: HighHeapUsage
-        expr: >
-          nodejs_heap_size_used_bytes / nodejs_heap_size_total_bytes > 0.9
+        expr: nodejs_heap_size_used_bytes > 1.5e9
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: 'Heap usage above 90% on {{ $labels.service }}'
+          summary: 'Heap on {{ $labels.service }} is above 1.5GB, near the default old-space limit'
+
+      # Leak signature: heap that only ever grows across a long window. Slow
+      # enough not to trip on ordinary load, and deliberately not paired with a
+      # threshold — a leak matters before it reaches one.
+      - alert: HeapGrowingSteadily
+        expr: deriv(nodejs_heap_size_used_bytes[2h]) > 20000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Heap on {{ $labels.service }} has grown steadily for over an hour'
 
       - alert: RedisDown
         expr: redis_up == 0
@@ -53,13 +78,23 @@ groups:
         annotations:
           summary: 'Redis is down'
 
+      # Scoped to the health job on purpose: the dependencies job probes
+      # endpoints that answer 503 by design, and the tcp job has its own alert.
       - alert: HealthCheckFailing
-        expr: probe_success == 0
+        expr: probe_success{job="blackbox-http"} == 0
         for: 30s
         labels:
           severity: critical
         annotations:
           summary: 'Health check failing for {{ $labels.instance }}'
+
+      - alert: BackingServiceUnreachable
+        expr: probe_success{job="blackbox-tcp"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Backing service {{ $labels.instance }} is not accepting connections'
 
       - alert: SqsProcessingErrors
         expr: rate(bitcrm_sqs_messages_processed_total{status="error"}[5m]) > 0.1
@@ -93,3 +128,97 @@ groups:
           severity: warning
         annotations:
           summary: 'Connectivity check on {{ $labels.service }} has not run in >90s'
+
+  # ── Search ────────────────────────────────────────────────────
+  - name: bitcrm-search
+    rules:
+      - alert: OpenSearchClusterRed
+        # The prometheus-community exporter keeps the elasticsearch_ prefix
+        # even against OpenSearch.
+        expr: elasticsearch_cluster_health_status{color="red"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'OpenSearch cluster is red — a primary shard is unassigned'
+
+      # Yellow means replicas are unassigned. On a single-node cluster that is
+      # structural and permanent — there is nowhere to put them — so this is
+      # scoped to multi-node clusters, where it means replicas that *could* be
+      # placed are not. Without the guard it fires forever in local dev.
+      - alert: OpenSearchClusterYellow
+        expr: >
+          elasticsearch_cluster_health_status{color="yellow"} == 1
+          and on (cluster) (elasticsearch_cluster_health_number_of_nodes > 1)
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'OpenSearch cluster has been yellow for 30m'
+
+      - alert: SearchIndexingErrors
+        expr: >
+          sum(rate(bitcrm_search_index_operations_total{status="error"}[5m]))
+          / sum(rate(bitcrm_search_index_operations_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Over 10% of search index operations are failing'
+
+      - alert: SearchQueriesFailing
+        expr: rate(bitcrm_search_query_errors_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Global search queries are failing ({{ $labels.mode }} mode)'
+
+      - alert: SearchQueryLatencyHigh
+        expr: >
+          histogram_quantile(0.95, sum(rate(bitcrm_search_query_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Search P95 query latency above 1s'
+
+  # ── Telephony ─────────────────────────────────────────────────
+  - name: bitcrm-telephony
+    rules:
+      # Everything except `completed` is a call that did not connect. Some of
+      # that is normal (nobody picked up), so the threshold is a rate of
+      # failure rather than any single occurrence.
+      - alert: CallFailureRateHigh
+        expr: >
+          sum(rate(bitcrm_calls_completed_total{status=~"failed|busy|canceled"}[10m]))
+          / sum(rate(bitcrm_calls_completed_total[10m])) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Over 25% of calls are failing, busy, or canceled'
+
+      - alert: NoCallsAnswered
+        expr: >
+          sum(rate(bitcrm_calls_completed_total[15m])) > 0
+          and sum(rate(bitcrm_calls_answered_total[15m])) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Calls are arriving but none are being answered'
+
+  # ── Gateway ───────────────────────────────────────────────────
+  - name: bitcrm-gateway
+    rules:
+      # nginx counts a request it could not hand to an upstream as "handled"
+      # but not "accepted"; a gap between the two is the gateway failing to
+      # reach a service, which the browser sees as a CORS error.
+      - alert: GatewayDroppingConnections
+        expr: rate(nginx_connections_accepted[5m]) - rate(nginx_connections_handled[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'API gateway is dropping connections'

@@ -2,6 +2,7 @@ import { DynamicModule, Global, MiddlewareConsumer, Module, NestModule } from '@
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import { REDACT_PATHS } from './logger.constants';
 import { CorrelationMiddleware } from './correlation.middleware';
+import { buildLogTransport } from './log-transport';
 
 export interface LoggerModuleConfig {
   serviceName: string;
@@ -49,18 +50,13 @@ export class LoggerModule implements NestModule {
               }),
             },
 
-            // Pretty print in dev, JSON in production
-            transport: isProduction
-              ? undefined
-              : {
-                  target: 'pino-pretty',
-                  options: {
-                    colorize: true,
-                    singleLine: false,
-                    translateTime: 'HH:MM:ss',
-                    ignore: 'pid,hostname',
-                  },
-                },
+            // Pretty in dev, JSON in production, plus Loki when LOKI_URL is set
+            transport: buildLogTransport(config.serviceName, {
+              isProduction,
+              lokiUrl: process.env.LOKI_URL,
+              lokiUsername: process.env.LOKI_USERNAME,
+              lokiPassword: process.env.LOKI_PASSWORD,
+            }) as never,
           },
         }),
       ],
