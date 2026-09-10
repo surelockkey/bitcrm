@@ -9,9 +9,67 @@ import {
   callingCode,
   normalizeExtension,
   formatPhoneWithExtension,
+  phoneStatus,
+  capNationalDigits,
+  foreignCallingCode,
 } from "./phone";
 
 describe("phone", () => {
+  describe("phoneStatus — live verdict on national digits while typing", () => {
+    it("is empty for no digits", () => {
+      expect(phoneStatus("", "US")).toBe("empty");
+    });
+
+    it("is incomplete while a US number is still short of 10 digits", () => {
+      expect(phoneStatus("4", "US")).toBe("incomplete");
+      expect(phoneStatus("404555", "US")).toBe("incomplete");
+      expect(phoneStatus("404555123", "US")).toBe("incomplete");
+    });
+
+    it("is valid for a real 10-digit US number", () => {
+      expect(phoneStatus("4045551234", "US")).toBe("valid");
+    });
+
+    it("is invalid for 10 digits that no US number can start with", () => {
+      // US area codes never start with 0 or 1.
+      expect(phoneStatus("1045551234", "US")).toBe("invalid");
+      expect(phoneStatus("0455512345", "US")).toBe("invalid");
+    });
+
+    it("is invalid once there are more digits than any US number has", () => {
+      expect(phoneStatus("40455512345", "US")).toBe("invalid");
+    });
+
+    it("judges by the given country, not always the US", () => {
+      expect(phoneStatus("958601427", "UA")).toBe("valid");
+      expect(phoneStatus("95860", "UA")).toBe("incomplete");
+    });
+  });
+
+  describe("capNationalDigits — don't let typing run past the longest number", () => {
+    it("cuts US input at 10 digits", () => {
+      expect(capNationalDigits("40455512349999", "US")).toBe("4045551234");
+    });
+
+    it("leaves shorter input alone", () => {
+      expect(capNationalDigits("404", "US")).toBe("404");
+      expect(capNationalDigits("", "US")).toBe("");
+    });
+  });
+
+  describe("foreignCallingCode — spot a pasted number from another country", () => {
+    it("names the code of a valid foreign number", () => {
+      expect(foreignCallingCode("+380 95 860 1427")).toBe("380");
+      expect(foreignCallingCode("+44 20 7946 0000")).toBe("44");
+    });
+
+    it("passes a US number or plain digits through", () => {
+      expect(foreignCallingCode("+1 404 555 1234")).toBeUndefined();
+      expect(foreignCallingCode("4045551234")).toBeUndefined();
+      expect(foreignCallingCode("404555")).toBeUndefined();
+    });
+  });
+
   it("normalizes any US input to E.164", () => {
     for (const input of ["4045551234", "(404) 555-1234", "+1 404 555 1234", "14045551234", "404.555.1234"]) {
       expect(normalizePhone(input)).toBe("+14045551234");

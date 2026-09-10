@@ -119,3 +119,98 @@ describe("PhoneInput", () => {
     expect(screen.getByPlaceholderText<HTMLInputElement>("Phone number")).not.toBeDisabled();
   });
 });
+
+describe("PhoneInput — live validation", () => {
+  it("shows a green check the moment the number is complete and real", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.type(input(), "404555123");
+    expect(screen.queryByLabelText("Valid number")).not.toBeInTheDocument();
+    await user.type(input(), "4");
+    expect(screen.getByLabelText("Valid number")).toBeInTheDocument();
+  });
+
+  it("flags 10 digits that no US number starts with, as they're typed", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.type(input(), "1045551234");
+    expect(screen.getByText("Not a valid US number")).toBeInTheDocument();
+    expect(input()).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByLabelText("Valid number")).not.toBeInTheDocument();
+  });
+
+  it("says nothing about a short number until the field is left", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.type(input(), "404555");
+    expect(screen.queryByText(/10 digits/)).not.toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByText(/10 digits/)).toBeInTheDocument();
+  });
+
+  it("drops the incomplete warning as soon as typing resumes", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.type(input(), "404555");
+    await user.tab();
+    expect(screen.getByText(/10 digits/)).toBeInTheDocument();
+    await user.type(input(), "1");
+    expect(screen.queryByText(/10 digits/)).not.toBeInTheDocument();
+  });
+
+  it("keeps quiet when the field is empty or disabled", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(input());
+    await user.tab();
+    expect(screen.queryByText(/10 digits/)).not.toBeInTheDocument();
+
+    render(
+      <PhoneInput value="+1404555" onChange={() => {}} disabled />,
+    );
+    expect(screen.queryByText(/10 digits/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Not a valid US number")).not.toBeInTheDocument();
+  });
+});
+
+describe("PhoneInput — usOnly", () => {
+  function UsHarness({ initial = "" }: { initial?: string }) {
+    const [value, setValue] = useState(initial);
+    return (
+      <>
+        <PhoneInput value={value} onChange={setValue} usOnly />
+        <output data-testid="e164">{value}</output>
+      </>
+    );
+  }
+
+  it("pins the country to the US — code shown, no picker", () => {
+    render(<UsHarness />);
+    expect(screen.queryByRole("button", { name: /Country code/ })).not.toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+  });
+
+  it("rejects a pasted foreign number outright", async () => {
+    const user = userEvent.setup();
+    render(<UsHarness />);
+    await user.click(input());
+    await user.paste("+380 95 860 1427");
+    expect(screen.getByTestId("e164")).toHaveTextContent("");
+    expect(input()).toHaveValue("");
+    expect(screen.getByText("US numbers only")).toBeInTheDocument();
+  });
+
+  it("stops typing at 10 digits", async () => {
+    const user = userEvent.setup();
+    render(<UsHarness />);
+    await user.type(input(), "40455512349999");
+    expect(input()).toHaveValue("(404) 555-1234");
+    expect(screen.getByTestId("e164")).toHaveTextContent("+14045551234");
+  });
+
+  it("shows an existing foreign number honestly — its own code, plus the warning", () => {
+    render(<UsHarness initial="+380958601427" />);
+    expect(screen.getByText("+380")).toBeInTheDocument();
+    expect(screen.getByText("US numbers only")).toBeInTheDocument();
+  });
+});

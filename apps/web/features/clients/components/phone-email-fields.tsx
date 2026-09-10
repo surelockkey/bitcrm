@@ -152,6 +152,8 @@ function PhoneField<T extends FieldValues>({
     <PhoneInput
       value={value}
       placeholder={placeholder}
+      // Clients are reached on US numbers — pinned to +1, validated live.
+      usOnly
       onChange={(v) => form.setValue(name, v as never, { shouldValidate: true, shouldDirty: true })}
     />
   );

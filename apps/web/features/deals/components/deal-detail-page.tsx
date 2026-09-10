@@ -43,7 +43,7 @@ import {
   formatPhoneWithExtension,
 } from "@/features/clients/lib";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
+import { isValidPhone, MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
@@ -297,6 +297,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       : null;
   const dirty = !!dealPatch || !!contactBody;
   const pending = update.isPending || updateContact.isPending;
+  // A half-typed phone must not ride a Save into the client record; the
+  // input itself is already explaining what's wrong, live.
+  const phonesOk =
+    !clientDraft || clientDraft.phones.every((p) => !p.trim() || isValidPhone(p));
 
   const { confirm } = useUnsavedChanges(dirty);
 
@@ -508,7 +512,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       {canEdit || canEditClient ? (
         <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
           <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
-          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending} onClick={save}>
+          <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending || !phonesOk} onClick={save}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save
           </Button>
         </div>
@@ -615,7 +619,7 @@ function ClientEditor({
                   className="flex-1"
                   value={p}
                   onChange={(v) => set({ phones: draft.phones.map((x, j) => (j === i ? v : x)) })}
-                  lockCountry
+                  usOnly
                   disabled={locked}
                 />
                 {/* What to press once this line answers — editable even on the

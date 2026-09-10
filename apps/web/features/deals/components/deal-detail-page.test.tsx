@@ -386,14 +386,14 @@ describe("DealDetailPage (editable, single save)", () => {
 
     await u.click(screen.getByRole("button", { name: /add phone/i }));
     const inputs = screen.getAllByPlaceholderText("Phone number");
-    await u.type(inputs[1], "2928398283");
+    await u.type(inputs[1], "2028398283");
     await u.click(saveButton());
 
     expect(screen.queryByText("Change client")).not.toBeInTheDocument();
     expect(mocks.updateContact).toHaveBeenCalledTimes(1);
     expect(mocks.updateContact.mock.calls[0][0]).toMatchObject({
       id: "c1",
-      body: { phones: ["+14045551234", "+12928398283"] },
+      body: { phones: ["+14045551234", "+12028398283"] },
     });
     expect(mocks.createContact).not.toHaveBeenCalled();
   });
