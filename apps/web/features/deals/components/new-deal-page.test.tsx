@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   updateDealApi: vi.fn(),
   createCompany: vi.fn(),
   companyMap: new Map<string, { id: string; title: string }>(),
+  effectiveArea: null as null | Record<string, unknown>,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -102,8 +103,8 @@ vi.mock("@/features/clients/components/company-picker-dialog", () => ({
     ) : null,
 }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
-vi.mock("@/features/service-areas/components/resolved-area-field", () => ({
-  ResolvedAreaField: () => null,
+vi.mock("@/features/service-areas/components/service-area-field", () => ({
+  ServiceAreaField: () => null,
 }));
 vi.mock("@/features/job-sources/components/job-source-select", () => ({
   JobSourceSelect: ({ value }: { value?: string }) => (
@@ -122,6 +123,8 @@ vi.mock("./schedule-field", () => ({ ScheduleField: () => null }));
 vi.mock("./tech-suggestions", () => ({ TechSuggestions: () => null }));
 vi.mock("@/features/service-areas/hooks", () => ({
   useResolvedServiceArea: () => ({ data: undefined }),
+  useEffectiveServiceArea: () =>
+    mocks.effectiveArea ?? { submitId: undefined, source: null, area: null, isFetching: false },
 }));
 // The address block is a real form field here — a plain input over street is
 // enough to prove the client's address arrives pre-filled and can be replaced.
@@ -246,6 +249,56 @@ describe("NewDealPage — deferred file uploads", () => {
       }),
     );
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/deals/d-new"));
+  });
+});
+
+describe("NewDealPage — service area on create", () => {
+  beforeEach(() => {
+    mocks.searchParams = "contactId=c1";
+    mocks.customFieldDefs = [];
+    mocks.requiredFields = {};
+    mocks.createDeal.mockReset();
+    mocks.push.mockReset();
+    mocks.effectiveArea = null;
+  });
+
+  it("sends the nearest-area fallback id with the job", async () => {
+    mocks.effectiveArea = {
+      submitId: "a-new-haven",
+      source: "nearest",
+      area: { id: "a-new-haven", name: "New Haven" },
+      distanceMiles: 2180.4,
+      isFetching: false,
+    };
+    const u = user();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    await waitFor(() =>
+      expect(mocks.createDeal).toHaveBeenCalledWith(
+        expect.objectContaining({ serviceAreaId: "a-new-haven" }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("sends no serviceAreaId when the address resolves on its own", async () => {
+    mocks.effectiveArea = {
+      submitId: undefined,
+      source: "resolved",
+      area: { id: "a-hartford", name: "Hartford" },
+      isFetching: false,
+    };
+    const u = user();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    await waitFor(() => expect(mocks.createDeal).toHaveBeenCalled());
+    expect(mocks.createDeal.mock.calls[0][0].serviceAreaId).toBeUndefined();
   });
 });
 

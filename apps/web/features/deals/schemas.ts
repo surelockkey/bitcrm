@@ -34,6 +34,8 @@ export const dealJobSchema = z.object({
   jobTypeId: z.string().trim().min(1, "Pick a job type"),
   // Auto-resolved from the address by the backend; kept optional as a label override.
   serviceArea: z.string().trim().optional(),
+  // A hand-picked area (or the nearest-area fallback); empty = auto-resolve.
+  serviceAreaId: z.string().trim().optional(),
   address: addressSchema,
   scheduledDate: z.string().trim().optional().or(z.literal("")),
   scheduledEndDate: z.string().trim().optional().or(z.literal("")),
