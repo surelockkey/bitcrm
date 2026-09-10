@@ -30,16 +30,17 @@ const FILLED: Record<string, (i: JobFormInput) => boolean> = {
 };
 
 /**
- * Labels of the admin-required built-in fields this form submission leaves
- * empty, in registry order. Quiet while the settings are still loading —
- * the server enforces its share anyway.
+ * The admin-required built-in fields this form submission leaves empty, in
+ * registry order — id for marking the field itself, label for the summary.
+ * Quiet while the settings are still loading — the server enforces its share
+ * anyway.
  */
 export function missingRequiredJobFields(
   settings: JobFieldSettings | undefined,
   input: JobFormInput,
-): string[] {
+): { id: string; label: string }[] {
   if (!settings) return [];
   return JOB_REQUIRABLE_FIELDS.filter(
     (f) => settings.requiredFields[f.id] && !FILLED[f.id]?.(input),
-  ).map((f) => f.label);
+  ).map((f) => ({ id: f.id, label: f.label }));
 }

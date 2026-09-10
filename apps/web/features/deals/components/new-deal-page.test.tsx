@@ -159,7 +159,8 @@ describe("NewDealPage — admin-required fields", () => {
     mocks.createDeal.mockReset();
   });
 
-  it("blocks Create job and names the empty required field", async () => {
+  it("blocks Create job, lists every missing field and marks each inline", async () => {
+    mocks.requiredFields = { source: true, description: true };
     const u = user();
     render(<NewDealPage />);
 
@@ -167,7 +168,69 @@ describe("NewDealPage — admin-required fields", () => {
     await u.click(submit());
 
     expect(mocks.createDeal).not.toHaveBeenCalled();
-    expect(screen.getByText(/Fill required field.*Job source/)).toBeInTheDocument();
+    // One always-visible summary in the footer…
+    expect(
+      screen.getByText(/Missing required: Job source, Job description/),
+    ).toBeInTheDocument();
+    // …and an inline "Required" mark on each offending field.
+    expect(screen.getAllByText("Required")).toHaveLength(2);
+  });
+
+  it("counts missing custom fields into the same summary", async () => {
+    mocks.requiredFields = { source: true };
+    mocks.customFieldDefs = [
+      {
+        id: "cf-check",
+        name: "Check Number",
+        type: "text",
+        group: "Tech",
+        options: [],
+        jobTypeIds: [],
+        required: true,
+        requiredToClose: false,
+        searchable: false,
+        priority: 0,
+        active: true,
+        createdBy: "u1",
+        createdAt: "",
+        updatedAt: "",
+      },
+    ];
+    const u = user();
+    render(<NewDealPage />);
+
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Missing required: Job source, Check Number/),
+    ).toBeInTheDocument();
+  });
+
+  it("includes the job type when it was never picked", async () => {
+    mocks.requiredFields = {};
+    const u = user();
+    render(<NewDealPage />);
+
+    await u.click(submit());
+
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Missing required: Job type/)).toBeInTheDocument();
+  });
+
+  it("Create is clickable without a client, and says the client is missing", async () => {
+    mocks.searchParams = "";
+    mocks.requiredFields = {};
+    const u = user();
+    render(<NewDealPage />);
+
+    expect(submit()).toBeEnabled();
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Missing required: Client/)).toBeInTheDocument();
   });
 
   it("marks the required field with an asterisk", () => {
@@ -374,15 +437,16 @@ describe("NewDealPage — auto-create client", () => {
     );
   });
 
-  it("keeps Create job disabled until a client is picked or typed", async () => {
+  it("Create stays clickable without a client — clicking explains instead of a dead button", async () => {
     const u = user();
     render(<NewDealPage />);
 
-    expect(submit()).toBeDisabled();
-
-    await u.type(screen.getByPlaceholderText(/search by name/i), "Nova Client");
-
     expect(submit()).toBeEnabled();
+    await u.click(screen.getByRole("button", { name: /pick job type/i }));
+    await u.click(submit());
+
+    expect(mocks.createDeal).not.toHaveBeenCalled();
+    expect(screen.getByText(/Missing required: Client/)).toBeInTheDocument();
   });
 });
 

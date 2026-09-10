@@ -186,7 +186,17 @@ function DealForm({
   // Custom-field answers live outside the zod form: their applicability and
   // required-ness are data-driven from the catalog, so they're validated inline.
   const [customFields, setCustomFields] = useState<Record<string, CustomFieldValue>>({});
-  const [cfError, setCfError] = useState<string | null>(null);
+  /**
+   * Everything a blocked Create left empty, gathered in ONE pass — the person
+   * fixes the whole list at once instead of discovering it a field at a time.
+   * `builtinIds`/`customIds` mark the fields themselves; `labels` feed the
+   * always-visible summary in the footer.
+   */
+  const [missing, setMissing] = useState<{
+    labels: string[];
+    builtinIds: string[];
+    customIds: string[];
+  } | null>(null);
   // Files picked for file-type custom fields before the job exists (up to 5
   // per field). Held in memory and uploaded to S3 right after create.
   // Technicians chosen on the form, assigned to the job right after it's made.
@@ -272,31 +282,65 @@ function DealForm({
       clientEdits.lastName.trim() !== contact.lastName ||
       (!!clientEdits.phone && clientEdits.phone !== contact.phones[0]));
 
-  const submit = form.handleSubmit((values) => {
-    if (!contact && !clientDraft) return;
-    // Required custom fields block submit just like other required deal fields.
+  /**
+   * Every reason a Create can't go through, in display order: the client,
+   * zod-required form fields, admin-required built-ins, required custom
+   * fields. Null when nothing blocks. The backend double-checks the
+   * admin-required set with a 422 naming the fields.
+   */
+  const collectMissing = (values: DealJobValues) => {
+    const labels: string[] = [];
+    if (!contact && !clientDraft) labels.push("Client");
+    if (!values.jobTypeId) labels.push("Job type");
+    if (!values.address?.street?.trim()) labels.push("Service address");
+
     // A file held for post-create upload counts as answered.
     const effectiveCustomFields: Record<string, CustomFieldValue> = {
       ...customFields,
       ...Object.fromEntries(Object.keys(pendingFiles).map((id) => [id, "pending"])),
     };
-    const missing = missingRequiredCustomFields(customFieldDefs, values.jobTypeId, effectiveCustomFields);
-    if (missing.length) {
-      setCfError(`Fill required field${missing.length > 1 ? "s" : ""}: ${missing.map((f) => f.name).join(", ")}`);
-      return;
-    }
-    // Admin-required built-in fields block submit the same way (the backend
-    // double-checks with a 422 naming the fields).
-    const missingBuiltin = missingRequiredJobFields(fieldSettings, {
+    const builtin = missingRequiredJobFields(fieldSettings, {
       values,
       clientPhone: contact?.phones[0] ?? clientDraft?.phone,
       clientEmail: contact?.emails[0] ?? clientDraft?.email,
+    }).filter((f) => !labels.includes(f.label));
+    const custom = missingRequiredCustomFields(
+      customFieldDefs,
+      values.jobTypeId,
+      effectiveCustomFields,
+    );
+
+    labels.push(...builtin.map((f) => f.label), ...custom.map((f) => f.name));
+    if (!labels.length) return null;
+    return {
+      labels,
+      builtinIds: builtin.map((f) => f.id),
+      customIds: custom.map((f) => f.id),
+    };
+  };
+
+  /** Show what's missing and bring the first marked field into view. */
+  const blockOn = (report: NonNullable<ReturnType<typeof collectMissing>>) => {
+    setMissing(report);
+    requestAnimationFrame(() => {
+      document
+        .querySelector('[data-missing="true"], [data-missing]')
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
-    if (missingBuiltin.length) {
-      setCfError(`Fill required field${missingBuiltin.length > 1 ? "s" : ""}: ${missingBuiltin.join(", ")}`);
+  };
+
+  // Re-judged every render once a Create has been blocked, so each mark
+  // (and the footer list) clears the moment its field is actually filled.
+  const missingNow = missing ? collectMissing(v) : null;
+
+  const submit = form.handleSubmit(
+    (values) => {
+    const report = collectMissing(values);
+    if (report) {
+      blockOn(report);
       return;
     }
-    setCfError(null);
+    setMissing(null);
     // Only send answers for fields that apply to the chosen job type — switching
     // job type mid-form can leave answers for now-inapplicable fields, which the
     // backend would (correctly) reject.
@@ -354,7 +398,15 @@ function DealForm({
       return;
     }
     finish(values, cleanCustomFields, { client: "update", address: "save" });
-  });
+    },
+    // Zod said no (job type / address) — still show the one combined list,
+    // built from the current form values, instead of scattered field errors
+    // being the only clue.
+    () => {
+      const report = collectMissing(form.getValues() as DealJobValues);
+      if (report) blockOn(report);
+    },
+  );
 
   /**
    * Everything the save does once the questions (if any) are answered:
@@ -546,9 +598,10 @@ function DealForm({
               <JobTypeSelect value={v.jobTypeId} onChange={(val) => form.setValue("jobTypeId", val, { shouldValidate: true })} />
               {err.jobTypeId?.message ? <p className="text-xs text-destructive">{err.jobTypeId.message}</p> : null}
             </div>
-            <div className="space-y-2.5">
+            <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("source") || undefined}>
               <Label>Job source{req("source")}</Label>
               <JobSourceSelect value={v.sourceId} onChange={(val) => form.setValue("sourceId", val ?? "")} />
+              {missingNow?.builtinIds.includes("source") ? <p className="text-xs text-destructive">Required</p> : null}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -563,7 +616,11 @@ function DealForm({
           <div className="grid grid-cols-2 gap-3">
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
-          <div className="space-y-2.5"><Label>Job description{req("description")}</Label><Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} /></div>
+          <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("description") || undefined}>
+            <Label>Job description{req("description")}</Label>
+            <Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} />
+            {missingNow?.builtinIds.includes("description") ? <p className="text-xs text-destructive">Required</p> : null}
+          </div>
         </Section>
 
         <Section title="Scheduled">
@@ -605,6 +662,7 @@ function DealForm({
               onlyGroup={group}
               pendingFiles={pendingFiles}
               onPendingFiles={setPendingFilesFor}
+              missingIds={missingNow?.customIds}
             />
           </Section>
         ))}
@@ -625,14 +683,17 @@ function DealForm({
         {/* Work order / Platinum */}
         <Section title="Work order / Platinum">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2.5"><Label>PO number{req("poNumber")}</Label><Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} /></div>
+            <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("poNumber") || undefined}>
+              <Label>PO number{req("poNumber")}</Label>
+              <Input className="h-9" placeholder="C-PO / VPO" {...form.register("poNumber")} />
+              {missingNow?.builtinIds.includes("poNumber") ? <p className="text-xs text-destructive">Required</p> : null}
+            </div>
             <div className="space-y-2.5"><Label>Work order link</Label><Input className="h-9" placeholder="https://…" {...form.register("workOrderId")} /></div>
           </div>
           <p className="text-xs text-muted-foreground">Optional — for platinum-contract jobs.</p>
         </Section>
       </div>
 
-      {cfError ? <p className="text-sm text-destructive">{cfError}</p> : null}
         </div>
       </div>
 
@@ -640,19 +701,30 @@ function DealForm({
           bottom; primary action bottom-center, client hint floated left. */}
       <div className="border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
         <div className="relative flex items-center justify-center gap-2">
-          <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
-            {contact
-              ? `Client: ${contactName(contact)}`
-              : clientDraft
-                ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
-                : "Pick a client or type new details to continue."}
-          </span>
+          {/* A blocked Create replaces the hint with the full list of what's
+              missing — the person should never have to guess which fields
+              the admin made required. */}
+          {missingNow ? (
+            <span className="absolute left-0 max-w-[45%] truncate text-xs font-medium text-destructive" title={`Missing required: ${missingNow.labels.join(", ")}`}>
+              Missing required: {missingNow.labels.join(", ")}
+            </span>
+          ) : (
+            <span className="absolute left-0 max-w-[45%] truncate text-xs text-muted-foreground">
+              {contact
+                ? `Client: ${contactName(contact)}`
+                : clientDraft
+                  ? `New client: ${clientDraft.firstName} ${clientDraft.lastName} will be created with the job.`
+                  : "Pick a client or type new details to continue."}
+            </span>
+          )}
           <Button type="button" variant="ghost" asChild><Link href="/deals">Cancel</Link></Button>
           <Button
             type="submit"
             variant="brand"
             className="gap-1.5"
-            disabled={(!contact && !clientDraft) || createDeal.isPending || createContact.isPending}
+            // Clickable even with no client: the click explains what's
+            // missing instead of a dead button leaving the person guessing.
+            disabled={createDeal.isPending || createContact.isPending}
           >
             {createDeal.isPending || createContact.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Create job
           </Button>

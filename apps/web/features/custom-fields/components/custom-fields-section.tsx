@@ -52,6 +52,8 @@ interface CustomFieldsSectionProps {
    */
   pendingFiles?: Record<string, File[]>;
   onPendingFiles?: (fieldId: string, files: File[]) => void;
+  /** Fields a blocked submit left empty — each gets an inline "Required". */
+  missingIds?: string[];
 }
 
 /**
@@ -68,6 +70,7 @@ export function CustomFieldsSection({
   onlyGroup,
   pendingFiles,
   onPendingFiles,
+  missingIds,
 }: CustomFieldsSectionProps) {
   const { data } = useCustomFields();
 
@@ -96,16 +99,20 @@ export function CustomFieldsSection({
           )}
           <div className="space-y-4">
             {fields.map((field) => (
-              <FieldControl
-                key={field.id}
-                field={field}
-                value={value[field.id]}
-                onChange={(v) => write(field.id, v)}
-                disabled={disabled}
-                dealId={dealId}
-                pendingFiles={pendingFiles?.[field.id]}
-                onPendingFiles={onPendingFiles ? (f) => onPendingFiles(field.id, f) : undefined}
-              />
+              <div key={field.id} data-missing={missingIds?.includes(field.id) || undefined}>
+                <FieldControl
+                  field={field}
+                  value={value[field.id]}
+                  onChange={(v) => write(field.id, v)}
+                  disabled={disabled}
+                  dealId={dealId}
+                  pendingFiles={pendingFiles?.[field.id]}
+                  onPendingFiles={onPendingFiles ? (f) => onPendingFiles(field.id, f) : undefined}
+                />
+                {missingIds?.includes(field.id) ? (
+                  <p className="mt-1 text-xs text-destructive">Required</p>
+                ) : null}
+              </div>
             ))}
           </div>
         </div>
