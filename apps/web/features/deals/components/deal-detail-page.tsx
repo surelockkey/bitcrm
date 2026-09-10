@@ -204,12 +204,12 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
           <DetailsTab deal={deal} canEdit={canEdit} />
         </div>
         {tab === "items" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
           </div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
           </div>
         ) : null}
@@ -370,7 +370,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
   return (
     <>
-    <div className="flex-1 overflow-y-auto p-6">
+    {/* `relative`: the containing block for absolutely-positioned children
+        (Radix's hidden form <select>s) must sit inside the clip chain, or they
+        stretch the document past the viewport — see new-deal-page. */}
+    <div className="relative flex-1 overflow-y-auto p-6">
     <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section

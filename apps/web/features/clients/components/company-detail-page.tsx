@@ -74,7 +74,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="relative flex-1 overflow-y-auto">
         {editing ? (
           <div className="mx-auto max-w-2xl p-6">
             <CompanyForm company={company} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />

@@ -71,7 +71,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="relative flex-1 overflow-y-auto">
         {editing ? (
           <div className="mx-auto max-w-2xl p-6">
             <ContactForm contact={contact} onCancel={() => setEditing(false)} onDone={() => setEditing(false)} />
