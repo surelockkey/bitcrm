@@ -61,6 +61,22 @@ export class ServiceAreasController {
     return { success: true, data };
   }
 
+  @Post('nearest')
+  @RequirePermission('service_areas', 'view')
+  @ApiOperation({
+    summary: 'The active service area closest to a location',
+    description:
+      '**Guard:** `service_areas.view`. Accepts lat/lng or an address; returns ' +
+      'the closest active area with the distance in miles (0 when the point ' +
+      'is inside it), or null when the catalog is empty. This is the answer ' +
+      'for an address outside every area — dispatch still needs a market to ' +
+      'file the job under.',
+  })
+  async nearest(@Body() dto: ResolveServiceAreaDto) {
+    const data = await this.service.nearest(dto);
+    return { success: true, data };
+  }
+
   @Get('internal')
   @Internal()
   @ApiOperation({

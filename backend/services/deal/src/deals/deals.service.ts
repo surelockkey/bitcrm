@@ -136,6 +136,19 @@ export class DealsService {
     return { serviceAreaId: area.id, serviceArea: area.name };
   }
 
+  /** A manually chosen area: must exist; archived ones may not take new jobs. */
+  private async pickServiceArea(
+    id: string,
+  ): Promise<{ serviceAreaId: string; serviceArea: string }> {
+    const area = await this.serviceAreas.findById(id);
+    if (!area.active) {
+      throw new BadRequestException(
+        `Service area "${area.name}" is archived and cannot be used on a new deal`,
+      );
+    }
+    return { serviceAreaId: area.id, serviceArea: area.name };
+  }
+
   /** An answer counts as "not filled" when it is absent, blank, or an empty list. */
   private isEmptyCustomFieldValue(value: unknown): boolean {
     return (
@@ -296,10 +309,14 @@ export class DealsService {
     // Plain object for DynamoDB marshalling, geocoded if the caller sent no coords.
     const address = await this.resolveAddress(dto.address);
 
-    // Auto-resolve the catalog service area from the geocoded location. A match
-    // is authoritative for the display label; an explicit dto.serviceArea is a
+    // A hand-picked area wins outright — dispatch chose it, often because the
+    // address is outside every area and the job still needs a market. Without
+    // one, auto-resolve from the geocoded location; a match is authoritative
+    // for the display label, and an explicit dto.serviceArea label is a
     // fallback used only when the address falls outside every area.
-    const { serviceAreaId, serviceArea } = await this.resolveServiceArea(address, dto.serviceArea);
+    const { serviceAreaId, serviceArea } = dto.serviceAreaId
+      ? await this.pickServiceArea(dto.serviceAreaId)
+      : await this.resolveServiceArea(address, dto.serviceArea);
 
     // 404s on an unknown id; a new deal may not use an archived type.
     const jobType = await this.jobTypes.findById(dto.jobTypeId);
@@ -475,7 +492,15 @@ export class DealsService {
 
     // Convert class instances to plain objects for DynamoDB
     const updates = { ...dto } as any;
-    if (updates.address) {
+    // A hand-picked area wins here exactly like on create — and it suppresses
+    // the address-driven re-resolve below, or the geo answer would overwrite
+    // the choice in the same write.
+    if (updates.serviceAreaId) {
+      const picked = await this.pickServiceArea(updates.serviceAreaId);
+      updates.serviceAreaId = picked.serviceAreaId;
+      updates.serviceArea = picked.serviceArea;
+    }
+    if (updates.address && !dto.serviceAreaId) {
       updates.address = await this.resolveAddress(
         updates.address,
         existing.address,
