@@ -121,9 +121,15 @@ groups:
         annotations:
           summary: '{{ $labels.service }} required resource missing: {{ $labels.kind }} {{ $labels.resource }}'
 
+      # `for` has to outlast Prometheus's 5m staleness window. A replaced task
+      # stops reporting, so its last_check_timestamp freezes and this fires —
+      # for every service, on every deploy, regardless of health. Observed doing
+      # exactly that for user-service/sns and deal-service/redis, both fine.
+      # Past 6m the series is stale and gone, so only a task that is still being
+      # scraped with a frozen timestamp — a genuinely wedged check — trips it.
       - alert: ConnectivityCheckStale
         expr: time() - bitcrm_dependency_last_check_timestamp > 90
-        for: 1m
+        for: 6m
         labels:
           severity: warning
         annotations:
