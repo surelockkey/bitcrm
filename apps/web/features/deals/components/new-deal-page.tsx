@@ -548,7 +548,12 @@ function DealForm({
 
   return (
     <form onSubmit={submit} className="flex flex-1 flex-col overflow-hidden" noValidate>
-      <div className="flex-1 overflow-y-auto">
+      {/* `relative` makes this scroll region the containing block for the
+          hidden native <select>s Radix renders for form submission — they're
+          absolutely positioned, and without a positioned ancestor inside the
+          clip chain they escape every overflow-hidden above, stretch the
+          document, and a wheel over the footer scrolls the whole page away. */}
+      <div className="relative flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-5xl space-y-4 px-6 py-6">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Row 1 — Client Details | Service Location, as on the Workiz form. */}
