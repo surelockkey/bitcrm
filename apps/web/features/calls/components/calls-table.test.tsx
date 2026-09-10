@@ -31,7 +31,26 @@ vi.mock("./call-associations", () => ({
   CallAssociations: () => <div>associations</div>,
 }));
 vi.mock("@/features/job-sources/lib", () => ({
-  useJobSourceName: () => () => "—",
+  useJobSourceName: () => (id?: string) =>
+    id ? (id === "src-google" ? "Google Ads" : id) : "—",
+}));
+
+// Tag chips resolve the catalog through react-query; render the raw ids.
+vi.mock("@/features/job-tags/components/job-tag-chips", () => ({
+  JobTagChips: ({ ids }: { ids?: string[] }) => (
+    <span>tags:{(ids ?? []).join(",")}</span>
+  ),
+}));
+
+// The job cell fetches the linked deal; serve a fixture from the cache mock.
+vi.mock("@/features/deals/hooks", () => ({
+  useDeal: (id: string) => ({
+    data:
+      id === "d1"
+        ? { id: "d1", dealNumber: "1042", tagIds: ["t1", "t2"] }
+        : undefined,
+    isLoading: false,
+  }),
 }));
 
 const fetchRecordingBlob = vi.fn<(sid: string) => Promise<Blob>>();
@@ -140,6 +159,71 @@ describe("CallsTable recording preview", () => {
     const panel = await screen.findByRole("dialog");
     const open = within(panel).getByRole("link", { name: /open full call/i });
     expect(open).toHaveAttribute("href", "/calls/CA1");
+  });
+
+  it("shows the call flow, ad source and answered-by for each call", () => {
+    render(
+      <CallsTable
+        calls={[
+          call({
+            callSid: "CA1",
+            flowName: "Main line",
+            sourceId: "src-google",
+            participants: [
+              {
+                userId: "u1",
+                role: "answered",
+                at: "2026-08-11T10:00:05.000Z",
+                name: "Alice Stone",
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Call flow")).toBeInTheDocument();
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getByText("Answered by")).toBeInTheDocument();
+    expect(screen.getByText("Tags")).toBeInTheDocument();
+    expect(screen.getByText("Job")).toBeInTheDocument();
+
+    expect(screen.getByText("Main line")).toBeInTheDocument();
+    expect(screen.getByText("Google Ads")).toBeInTheDocument();
+    expect(screen.getByText("Alice Stone")).toBeInTheDocument();
+  });
+
+  it("falls back to the frozen user party when participants are missing", () => {
+    render(
+      <CallsTable
+        calls={[
+          call({
+            callSid: "CA1",
+            direction: "inbound",
+            toParty: { kind: "user", id: "u2", name: "Bob Reed" },
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Bob Reed")).toBeInTheDocument();
+  });
+
+  it("shows the linked job's number and tags, linking to the job", () => {
+    render(<CallsTable calls={[call({ callSid: "CA1", dealId: "d1" })]} />);
+
+    const link = screen.getByRole("link", { name: "#1042" });
+    expect(link).toHaveAttribute("href", "/deals/d1");
+    expect(screen.getByText("tags:t1,t2")).toBeInTheDocument();
+  });
+
+  it("opening the job link does not open the side preview", async () => {
+    const user = userEvent.setup();
+    render(<CallsTable calls={[call({ callSid: "CA1", dealId: "d1" })]} />);
+
+    await user.click(screen.getByRole("link", { name: "#1042" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("closes the side preview", async () => {
