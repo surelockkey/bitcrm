@@ -108,7 +108,12 @@ instance id and rides the SSM auto-mapping (`/bitcrm/dev/<path>` → `ENV_VAR`):
 | `/bitcrm/dev/otlp/endpoint` | `OTLP_ENDPOINT` |
 | `/bitcrm/dev/otlp/username` | `OTLP_USERNAME` |
 
-Two details that are easy to get wrong and fail silently:
+Three details that are easy to get wrong and fail silently:
+
+- `LOKI_URL` is the **base host**, not the push URL Grafana Cloud's connection
+  page shows. pino-loki appends `/loki/api/v1/push` itself, so the documented
+  value yields `.../push/loki/api/v1/push` and a 404. The transport normalizes
+  either form now, but SSM holds the base.
 
 - Each signal has its **own** numeric username. Reusing one across all three is
   a 401, and `pino-loki` runs with `silenceErrors` so it looks like success.
@@ -123,7 +128,7 @@ Two details that are easy to get wrong and fail silently:
 | Grafana | https://greencranberry2695.grafana.net |
 | Region | `prod-eu-west-2` (the workload is `us-east-1`; telemetry crosses regions) |
 | Prometheus | `prometheus-prod-65-prod-eu-west-2` · user `3572362` |
-| Loki | `logs-prod-012` · user `1781856` |
+| Loki | `logs-prod-012` · user `1781856` (base host — pino-loki appends the push path) |
 | Traces | `otlp-gateway-prod-eu-west-2` · user `1824069` |
 
 The trace username is the **stack** id, not the Tempo instance id: traces go
