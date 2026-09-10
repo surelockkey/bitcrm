@@ -27,3 +27,9 @@ export const previewServiceArea = (body: unknown): Promise<CoverageShape[]> =>
 export const resolveServiceArea = (
   body: { lat?: number; lng?: number; address?: unknown },
 ): Promise<ServiceArea | null> => http.post<ServiceArea | null>(`${BASE}/resolve`, body);
+
+/** The closest active area to a point — the answer when resolve says null. */
+export const nearestServiceArea = (
+  body: { lat?: number; lng?: number; address?: unknown },
+): Promise<{ area: ServiceArea; distanceMiles: number } | null> =>
+  http.post<{ area: ServiceArea; distanceMiles: number } | null>(`${BASE}/nearest`, body);

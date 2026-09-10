@@ -54,6 +54,7 @@ export const queryKeys = {
     list: () => ["service-areas", "list"] as const,
     detail: (id: string) => ["service-areas", "detail", id] as const,
     resolve: (point?: unknown) => ["service-areas", "resolve", point] as const,
+    nearest: (point?: unknown) => ["service-areas", "nearest", point] as const,
   },
 
   jobTypes: {

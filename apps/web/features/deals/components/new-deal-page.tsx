@@ -46,12 +46,12 @@ import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
-import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
+import { ServiceAreaField } from "@/features/service-areas/components/service-area-field";
+import { useEffectiveServiceArea } from "@/features/service-areas/hooks";
 import { ClientPicker, type ClientDraft } from "./client-picker";
 import { DealAddressFields } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
 import { TechSuggestions } from "./tech-suggestions";
-import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ, nowScheduleDefault } from "@/lib/timezone";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
@@ -248,6 +248,7 @@ function DealForm({
       allDay: false,
       priority: DealPriority.NORMAL,
       sourceId: prefillSourceId ?? "",
+      serviceAreaId: "",
       externalCompanyId: "",
       notes: "",
       tagIds: [],
@@ -255,9 +256,14 @@ function DealForm({
   });
   const err = form.formState.errors;
   const v = useWatch({ control: form.control }) as DealJobValues;
-  // The job's timezone: its resolved service area's, else Connecticut.
-  const scheduledArea = useResolvedServiceArea(v.address?.lat, v.address?.lng);
-  const jobTz = scheduledArea.data?.timezone ?? DEFAULT_TZ;
+  // Manual pick > containing area > nearest fallback — one answer for the
+  // field, the create payload, and the schedule's timezone alike.
+  const effectiveArea = useEffectiveServiceArea(
+    v.address?.lat,
+    v.address?.lng,
+    v.serviceAreaId || undefined,
+  );
+  const jobTz = effectiveArea.area?.timezone ?? DEFAULT_TZ;
 
   /** Details differ from what's on file. */
   const clientChanged =
@@ -422,6 +428,9 @@ function DealForm({
         scheduledTimeSlot: values.allDay ? undefined : values.scheduledTimeSlot || undefined,
         allDay: values.allDay || undefined,
         sourceId: values.sourceId || undefined,
+        // Manual pick or the nearest-area fallback; absent, the backend
+        // resolves from the address — its answer is the authoritative one.
+        serviceAreaId: effectiveArea.submitId,
         externalCompanyId: values.externalCompanyId || undefined,
         notes: values.notes || undefined,
         poNumber: values.poNumber || undefined,
@@ -521,7 +530,12 @@ function DealForm({
             clientAddresses={contact?.addresses}
             error={err.address?.street?.message}
           />
-          <ResolvedAreaField lat={v.address?.lat} lng={v.address?.lng} />
+          <ServiceAreaField
+            lat={v.address?.lat}
+            lng={v.address?.lng}
+            value={v.serviceAreaId || undefined}
+            onChange={(id) => form.setValue("serviceAreaId", id ?? "")}
+          />
         </Section>
 
         {/* Row 2 — Job Details | Scheduled. */}
@@ -559,7 +573,7 @@ function DealForm({
             slot={v.scheduledTimeSlot || ""}
             allDay={Boolean(v.allDay)}
             tz={jobTz}
-            areaName={scheduledArea.data?.name}
+            areaName={effectiveArea.area?.name}
             onChange={(s) => {
               form.setValue("scheduledDate", s.date);
               form.setValue("scheduledEndDate", s.endDate);
