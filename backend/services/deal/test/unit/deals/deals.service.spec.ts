@@ -46,7 +46,7 @@ describe('DealsService', () => {
   let products: ReturnType<typeof createMockDealProductsRepository>;
   let sns: ReturnType<typeof createMockSnsPublisherService>;
   let http: ReturnType<typeof createMockInternalHttpService>;
-  let serviceAreas: { resolvePoint: jest.Mock };
+  let serviceAreas: { resolvePoint: jest.Mock; findById: jest.Mock };
   let jobTypes: { findById: jest.Mock };
   let jobSources: { findById: jest.Mock };
   let externalCompanies: { findById: jest.Mock };
@@ -62,7 +62,10 @@ describe('DealsService', () => {
     products = createMockDealProductsRepository();
     sns = createMockSnsPublisherService();
     http = createMockInternalHttpService();
-    serviceAreas = { resolvePoint: jest.fn().mockResolvedValue(null) };
+    serviceAreas = {
+      resolvePoint: jest.fn().mockResolvedValue(null),
+      findById: jest.fn(),
+    };
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType()) };
     jobSources = { findById: jest.fn().mockResolvedValue(createMockJobSource()) };
     externalCompanies = { findById: jest.fn().mockResolvedValue(createMockExternalCompany()) };
@@ -222,6 +225,22 @@ describe('DealsService', () => {
 
       expect(result.serviceAreaId).toBeUndefined();
       expect(result.serviceArea).toBe('Atlanta Metro');
+    });
+
+    it('honors an explicit serviceAreaId instead of geo-resolving', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+      serviceAreas.findById.mockResolvedValue({ id: 'area-manual', name: 'Hartford', active: true });
+
+      const result = await service.create(
+        { ...dto, serviceAreaId: 'area-manual' } as any,
+        caller,
+      );
+
+      expect(serviceAreas.findById).toHaveBeenCalledWith('area-manual');
+      expect(serviceAreas.resolvePoint).not.toHaveBeenCalled();
+      expect(result.serviceAreaId).toBe('area-manual');
+      expect(result.serviceArea).toBe('Hartford');
     });
 
     it('should use provided priority and tags', async () => {

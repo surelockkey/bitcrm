@@ -51,6 +51,16 @@ export class CreateDealDto {
   @IsString()
   serviceArea?: string;
 
+  @ApiPropertyOptional({
+    example: 'a2f6f4de-3f9f-4b2e-9f6f-6a1f2f3e4d5c',
+    description:
+      'Hand-picked service area. Wins over the auto-resolve from the address — ' +
+      'the way to file a job whose address is outside every area.',
+  })
+  @IsOptional()
+  @IsString()
+  serviceAreaId?: string;
+
   @ApiProperty({ type: AddressDto })
   @ValidateNested()
   @Type(() => AddressDto)

@@ -20,6 +20,7 @@ import { randomUUID } from 'crypto';
 import { ServiceAreasRepository } from './service-areas.repository';
 import { deriveCoverage, type ZipGeocoder } from './service-areas.coverage';
 import { pointInCoverage } from './geo/point-in-area';
+import { distanceToCoverageMiles } from './geo/distance-to-area';
 import { coveragesOverlap } from './geo/overlap';
 import { type CreateServiceAreaDto } from './dto/create-service-area.dto';
 import { type UpdateServiceAreaDto } from './dto/update-service-area.dto';
@@ -206,6 +207,30 @@ export class ServiceAreasService {
     const point = await this.pointFromInput(dto);
     if (!point) return null;
     return this.resolvePoint(point);
+  }
+
+  /**
+   * The active area closest to a point — the answer for an address nobody
+   * serves. Inside an area this degenerates to resolve (distance 0); ties
+   * break by priority, like resolve does.
+   */
+  async nearest(
+    dto: ResolveServiceAreaDto,
+  ): Promise<{ area: ServiceArea; distanceMiles: number } | null> {
+    const point = await this.pointFromInput(dto);
+    if (!point) return null;
+    const areas = await this.repository.listAll();
+    const ranked = areas
+      .filter((a) => a.active)
+      .map((area) => ({ area, distanceMiles: distanceToCoverageMiles(point, area.coverage) }))
+      .filter((r) => Number.isFinite(r.distanceMiles))
+      .sort(
+        (a, b) =>
+          a.distanceMiles - b.distanceMiles || b.area.priority - a.area.priority,
+      );
+    if (!ranked.length) return null;
+    const { area, distanceMiles } = ranked[0];
+    return { area, distanceMiles: Math.round(distanceMiles * 10) / 10 };
   }
 
   private async pointFromInput(dto: ResolveServiceAreaDto): Promise<GeoPoint | null> {

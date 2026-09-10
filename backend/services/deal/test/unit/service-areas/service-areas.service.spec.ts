@@ -173,6 +173,56 @@ describe('ServiceAreasService', () => {
       expect(geocoding.geocode).toHaveBeenCalled();
     });
   });
+
+  describe('nearest', () => {
+    // Hartford and New Haven markets; the point is Las Vegas — served by nobody.
+    const hartford = createMockServiceArea({
+      id: 'hartford',
+      name: 'Hartford',
+      coverage: [{ kind: 'circle', lat: 41.7658, lng: -72.6734, radiusMiles: 15 }],
+    });
+    const newHaven = createMockServiceArea({
+      id: 'new-haven',
+      name: 'New Haven',
+      coverage: [{ kind: 'circle', lat: 41.3083, lng: -72.9279, radiusMiles: 15 }],
+    });
+
+    it('returns the closest active area with the distance in miles', async () => {
+      repo.listAll.mockResolvedValue([hartford, newHaven]);
+      // Las Vegas is (slightly) closer to New Haven? No — Hartford is further
+      // east; New Haven is south-west of it, so New Haven is nearer to Vegas.
+      const result = await service.nearest({ lat: 36.1699, lng: -115.1398 } as any);
+      expect(result?.area.id).toBe('new-haven');
+      expect(result?.distanceMiles).toBeGreaterThan(2000);
+      expect(result?.distanceMiles).toBeLessThan(2600);
+    });
+
+    it('returns the containing area at distance zero when inside one', async () => {
+      repo.listAll.mockResolvedValue([hartford, newHaven]);
+      const result = await service.nearest({ lat: 41.7658, lng: -72.6734 } as any);
+      expect(result?.area.id).toBe('hartford');
+      expect(result?.distanceMiles).toBe(0);
+    });
+
+    it('ignores inactive areas and returns null on an empty catalog', async () => {
+      repo.listAll.mockResolvedValue([
+        createMockServiceArea({ id: 'off', active: false }),
+      ]);
+      expect(await service.nearest({ lat: 36.1699, lng: -115.1398 } as any)).toBeNull();
+      repo.listAll.mockResolvedValue([]);
+      expect(await service.nearest({ lat: 36.1699, lng: -115.1398 } as any)).toBeNull();
+    });
+
+    it('geocodes an address input, like resolve does', async () => {
+      geocoding.geocode.mockResolvedValue({ lat: 36.1699, lng: -115.1398 });
+      repo.listAll.mockResolvedValue([hartford]);
+      const result = await service.nearest({
+        address: { street: '1 Fremont St', city: 'Las Vegas', state: 'NV', zip: '89101' },
+      } as any);
+      expect(geocoding.geocode).toHaveBeenCalled();
+      expect(result?.area.id).toBe('hartford');
+    });
+  });
 });
 
 /**
