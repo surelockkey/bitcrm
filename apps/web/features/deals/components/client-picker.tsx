@@ -204,29 +204,30 @@ export function ClientPicker({
             <Input className="h-9" placeholder="First name" value={effFirst} onChange={(e) => setFirst(e.target.value)} />
             <Input className="h-9" placeholder="Last name" value={effLast} onChange={(e) => setLast(e.target.value)} />
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <div className="flex items-center gap-2">
-              <PhoneInput
-                className="flex-1"
-                value={phone || (queryIsPhone ? trimmed : "")}
-                onChange={setPhone}
-                placeholder="Phone…"
-                lockCountry
-              />
-              {/* What to press once the line answers — an office number often
-                  needs one, and it's easier to catch now than later. */}
-              <Input
-                className="h-9 w-[4.5rem] flex-none px-2 text-center text-sm"
-                placeholder="Ext."
-                aria-label="Extension"
-                inputMode="tel"
-                maxLength={MAX_EXTENSION_LENGTH}
-                value={phoneExt}
-                onChange={(e) => setPhoneExt(normalizeExtension(e.target.value))}
-              />
-            </div>
-            <Input className="h-9" type="email" placeholder="Email" value={newEmail} onChange={(e) => setEmail(e.target.value)} />
+          {/* Phone + extension share a row; email gets its own. The section is
+              half the page, so squeezing all three into one row leaves the
+              phone box too narrow to read what's typed into it. */}
+          <div className="mt-2 flex items-center gap-2">
+            <PhoneInput
+              className="flex-1"
+              value={phone || (queryIsPhone ? trimmed : "")}
+              onChange={setPhone}
+              placeholder="Phone…"
+              lockCountry
+            />
+            {/* What to press once the line answers — an office number often
+                needs one, and it's easier to catch now than later. */}
+            <Input
+              className="h-9 w-[4.5rem] flex-none px-2 text-center text-sm"
+              placeholder="Ext."
+              aria-label="Extension"
+              inputMode="tel"
+              maxLength={MAX_EXTENSION_LENGTH}
+              value={phoneExt}
+              onChange={(e) => setPhoneExt(normalizeExtension(e.target.value))}
+            />
           </div>
+          <Input className="mt-2 h-9" type="email" placeholder="Email" value={newEmail} onChange={(e) => setEmail(e.target.value)} />
           <div className="mt-2">
             <Button
               type="button"
