@@ -1,5 +1,6 @@
 import {
   parsePhoneNumberFromString,
+  validatePhoneNumberLength,
   AsYouType,
   getCountries,
   getCountryCallingCode,
@@ -45,6 +46,59 @@ export function formatPhone(input: string): string {
   return parsed.countryCallingCode === DEFAULT_CALLING_CODE
     ? parsed.formatNational()
     : parsed.formatInternational();
+}
+
+/**
+ * The live verdict on a number as it's typed, from its national digits.
+ *
+ * `incomplete` is not an error while the field is focused — it's every number
+ * on its way to being right — which is why it's distinct from `invalid`: the
+ * digits typed so far already rule the number out (a US area code starting
+ * with 1, an eleventh digit), and waiting won't fix them.
+ */
+export type PhoneStatus = "empty" | "incomplete" | "valid" | "invalid";
+
+/** Judge national digits against one country's numbering plan, live. */
+export function phoneStatus(
+  nationalDigits: string,
+  country: CountryCode = DEFAULT_COUNTRY,
+): PhoneStatus {
+  const digits = nationalDigits.replace(/\D/g, "");
+  if (!digits) return "empty";
+  const length = validatePhoneNumberLength(digits, country);
+  if (length === "TOO_SHORT") return "incomplete";
+  if (length !== undefined) return "invalid"; // TOO_LONG / INVALID_LENGTH / NOT_A_NUMBER
+  const parsed = parsePhoneNumberFromString(digits, country);
+  return parsed?.isValid() ? "valid" : "invalid";
+}
+
+/**
+ * Trim typed digits at the longest number the country has — a US field simply
+ * stops accepting an eleventh digit rather than carrying it into an error.
+ */
+export function capNationalDigits(
+  nationalDigits: string,
+  country: CountryCode = DEFAULT_COUNTRY,
+): string {
+  let digits = nationalDigits.replace(/\D/g, "");
+  while (digits && validatePhoneNumberLength(digits, country) === "TOO_LONG") {
+    digits = digits.slice(0, -1);
+  }
+  return digits;
+}
+
+/**
+ * The calling code of a pasted number that belongs to another country — the
+ * one case a US-only field must refuse rather than mangle. Anything that isn't
+ * a complete, valid foreign `+code` number returns undefined.
+ */
+export function foreignCallingCode(raw: string): string | undefined {
+  if (!raw.trim().startsWith("+")) return undefined;
+  const parsed = parsePhoneNumberFromString(raw.trim());
+  if (!parsed?.isValid()) return undefined;
+  return parsed.countryCallingCode === DEFAULT_CALLING_CODE
+    ? undefined
+    : parsed.countryCallingCode;
 }
 
 /**

@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { ClientType, ContactSource, ContactType, PaymentTerms } from "@bitcrm/types";
+import { isValidPhone } from "@/lib/phone";
 
-// The PhoneInput only lets a well-formed number be entered (auto-formatted,
-// digits-only), so we don't add a phone-format validation on top.
-const phoneRow = z.string().trim().min(1, "Enter a phone or remove the row");
+// The PhoneInput validates live (US-pinned, digits capped), but a half-typed
+// number can still sit in the field when Save is hit — the schema is the
+// backstop that keeps it out of the record.
+const phoneRow = z
+  .string()
+  .trim()
+  .min(1, "Enter a phone or remove the row")
+  .refine(isValidPhone, "Enter the full phone number");
 // The narrow box beside each phone: what to press once the line answers. It
 // runs parallel to `phones` by index and is folded into a `{ phone: ext }` map
 // on submit — the form can't key by number while the number is still typed.

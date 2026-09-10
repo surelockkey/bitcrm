@@ -802,7 +802,7 @@ function ResolvedClient({
         value={edits.phone}
         onChange={(v) => onEdits({ ...edits, phone: v })}
         placeholder="Phone"
-        lockCountry
+        usOnly
       />
       <p className="text-xs text-muted-foreground">
         Edits here are saved with the job — you&apos;ll be asked whether they

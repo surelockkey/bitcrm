@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronsUpDown } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { CheckCircle2, ChevronsUpDown, CircleAlert } from "lucide-react";
 import type { CountryCode } from "libphonenumber-js";
 import {
   Command,
@@ -13,16 +13,25 @@ import {
 import { cn } from "@/lib/utils";
 import {
   callingCode,
+  capNationalDigits,
   countryOf,
   DEFAULT_COUNTRY,
+  foreignCallingCode,
   formatAsYouType,
   nationalDigits,
   nationalInput,
   phoneCountries,
+  phoneStatus,
   toE164,
 } from "@/lib/phone";
 
 const COUNTRIES = phoneCountries();
+
+/** "US" for the US (nobody says "United States number"), full name otherwise. */
+function countryLabel(country: CountryCode): string {
+  if (country === DEFAULT_COUNTRY) return "US";
+  return COUNTRIES.find((c) => c.country === country)?.name ?? country;
+}
 
 /**
  * The single phone input for the whole app — a national-format field,
@@ -32,6 +41,11 @@ const COUNTRIES = phoneCountries();
  * and a foreign `+code` never flips the flag. It auto-formats as you type and
  * only accepts digits, so a malformed number can't be entered; the value still
  * flows out as E.164 (`+14045551234`) for unambiguous storage.
+ *
+ * Validation is live, not saved for the submit: a complete real number earns
+ * a green check as the last digit lands; digits that already rule the number
+ * out go red immediately; a number merely unfinished stays quiet until the
+ * field is left, then asks gently — being mid-typing is not an error.
  */
 export function PhoneInput({
   value,
@@ -43,6 +57,7 @@ export function PhoneInput({
   autoFocus,
   id,
   lockCountry,
+  usOnly,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -54,6 +69,14 @@ export function PhoneInput({
   id?: string;
   /** Show the country code as a fixed display — no picker to change it. */
   lockCountry?: boolean;
+  /**
+   * Client numbers are US numbers: the country is pinned to +1 with no
+   * picker, typing stops at 10 digits, and a pasted foreign number is
+   * refused outright rather than mangled into ten wrong digits. An existing
+   * foreign value still shows under its own code — masking history helps
+   * nobody — but carries the "US numbers only" flag.
+   */
+  usOnly?: boolean;
 }) {
   const [country, setCountry] = useState<CountryCode>(() =>
     value ? countryOf(value) : DEFAULT_COUNTRY,
@@ -61,6 +84,12 @@ export function PhoneInput({
   const [text, setText] = useState<string>(() =>
     value ? formatAsYouType(nationalDigits(value), countryOf(value)) : "",
   );
+  // Whether the field has been left since it was last typed in — the gate on
+  // the "unfinished number" nudge, so it never fires mid-typing.
+  const [restedOn, setRestedOn] = useState(false);
+  // A foreign paste was refused; cleared by the next accepted keystroke.
+  const [refusedPaste, setRefusedPaste] = useState(false);
+  const messageId = useId();
   const lastEmit = useRef<string>(value ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -98,6 +127,16 @@ export function PhoneInput({
 
   const handleChange = (el: HTMLInputElement) => {
     const raw = el.value;
+
+    // A US-only field refuses a foreign number instead of mangling it into
+    // ten wrong digits. The DOM is reset by hand because React only rewrites
+    // the input when state changes — and the whole point is that it doesn't.
+    if (usOnly && foreignCallingCode(raw)) {
+      el.value = text;
+      setRefusedPaste(true);
+      return;
+    }
+
     const caret = el.selectionStart ?? raw.length;
     let digitsBeforeCaret = raw.slice(0, caret).replace(/\D/g, "").length;
 
@@ -112,9 +151,16 @@ export function PhoneInput({
       digitsBeforeCaret -= 1;
     }
     digits = digits.slice(0, 15 - callingCode(country).length); // E.164 max length
+    // …and at the longest number this country actually has (US: 10 digits).
+    digits = capNationalDigits(digits, country);
     caretDigits.current = Math.min(digitsBeforeCaret, digits.length);
-    setText(digits ? formatAsYouType(digits, country) : "");
-    emit(digits ? toE164(country, digits) : "");
+    setRefusedPaste(false);
+    setRestedOn(false);
+    // A cleared US-only field is a US field again, whatever it used to hold.
+    const c = usOnly && !digits ? DEFAULT_COUNTRY : country;
+    if (c !== country) setCountry(c);
+    setText(digits ? formatAsYouType(digits, c) : "");
+    emit(digits ? toE164(c, digits) : "");
   };
 
   const handleCountry = (c: CountryCode) => {
@@ -125,34 +171,96 @@ export function PhoneInput({
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
+  // ---- Live verdict --------------------------------------------------
+  const digits = text.replace(/\D/g, "");
+  const status = phoneStatus(digits, country);
+  // A pre-existing foreign value in a US-only field: shown honestly, flagged.
+  const foreignValue = !!usOnly && !!digits && country !== DEFAULT_COUNTRY;
+
+  let message: string | undefined;
+  let tone: "error" | "nudge" | undefined;
+  if (!disabled) {
+    if (refusedPaste || foreignValue) {
+      message = "US numbers only";
+      tone = "error";
+    } else if (status === "invalid") {
+      message = `Not a valid ${countryLabel(country)} number`;
+      tone = "error";
+    } else if (status === "incomplete" && restedOn) {
+      message =
+        country === DEFAULT_COUNTRY
+          ? "A US number has 10 digits"
+          : "This number looks incomplete";
+      tone = "nudge";
+    }
+  }
+  const valid = !disabled && status === "valid" && !foreignValue && !refusedPaste;
+
   return (
-    <div
-      className={cn(
-        "flex h-9 items-center rounded-md border bg-transparent text-sm shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-        disabled && "cursor-not-allowed opacity-60",
-        className,
-      )}
-    >
-      {lockCountry ? (
-        <StaticCountry value={country} />
-      ) : (
-        <CountrySelect value={country} onChange={handleCountry} disabled={disabled} />
-      )}
-      <div className="h-5 w-px flex-none bg-border" />
-      <input
-        ref={inputRef}
-        id={id}
-        type="tel"
-        inputMode="tel"
-        autoComplete="tel-national"
-        value={text}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        placeholder={placeholder}
-        onChange={(e) => handleChange(e.target)}
-        onBlur={onBlur}
-        className="h-full flex-1 rounded-r-md bg-transparent px-3 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
-      />
+    <div className={cn("min-w-0", className)}>
+      <div
+        className={cn(
+          "flex h-9 items-center rounded-md border bg-transparent text-sm shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+          tone === "error" &&
+            "border-destructive/60 focus-within:border-destructive focus-within:ring-destructive/20",
+          tone === "nudge" &&
+            "border-amber-500/60 focus-within:border-amber-500 focus-within:ring-amber-500/20",
+          disabled && "cursor-not-allowed opacity-60",
+        )}
+      >
+        {lockCountry || usOnly ? (
+          <StaticCountry value={country} />
+        ) : (
+          <CountrySelect value={country} onChange={handleCountry} disabled={disabled} />
+        )}
+        <div className="h-5 w-px flex-none bg-border" />
+        <input
+          ref={inputRef}
+          id={id}
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel-national"
+          value={text}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          placeholder={placeholder}
+          onChange={(e) => handleChange(e.target)}
+          onBlur={() => {
+            setRestedOn(true);
+            onBlur?.();
+          }}
+          aria-invalid={tone === "error" || undefined}
+          aria-describedby={message ? messageId : undefined}
+          className="h-full min-w-0 flex-1 rounded-r-md bg-transparent px-3 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+        />
+        {valid ? (
+          <CheckCircle2
+            role="img"
+            aria-label="Valid number"
+            className="mr-2.5 size-4 flex-none text-emerald-600 dark:text-emerald-400"
+          />
+        ) : null}
+        {tone === "error" ? (
+          <CircleAlert
+            aria-hidden
+            className="mr-2.5 size-4 flex-none text-destructive"
+          />
+        ) : null}
+      </div>
+      {message ? (
+        <p
+          id={messageId}
+          role={tone === "error" ? "alert" : undefined}
+          className={cn(
+            "mt-1 text-xs",
+            tone === "error"
+              ? "text-destructive"
+              : "text-amber-600 dark:text-amber-500",
+          )}
+        >
+          {message}
+        </p>
+      ) : null}
     </div>
   );
 }

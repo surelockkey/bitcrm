@@ -136,6 +136,20 @@ describe("ClientPicker — search from 3 characters", () => {
     expect(screen.getByPlaceholderText("First name")).toHaveValue("Helena");
   });
 
+  it("holds the draft back until a typed phone is a complete US number", () => {
+    const onDraft = vi.fn();
+    render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} onDraft={onDraft} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "Olena Kovalenko" } });
+    fireEvent.change(screen.getByPlaceholderText("Phone…"), { target: { value: "404555" } });
+    expect(onDraft).toHaveBeenLastCalledWith(null);
+
+    fireEvent.change(screen.getByPlaceholderText("Phone…"), { target: { value: "4045551234" } });
+    expect(onDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phone: "+14045551234" }),
+    );
+  });
+
   it("does not shove a phone or an email into the name fields", () => {
     render(<ClientPicker hidden={false} contact={null} onResolved={vi.fn()} />);
 

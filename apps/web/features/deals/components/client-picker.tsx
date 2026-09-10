@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
+import { isValidPhone, MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { useContactByPhone, useCompanyMap, useCreateCompany } from "@/features/clients/hooks";
 import { CompanyPickerDialog } from "@/features/clients/components/company-picker-dialog";
 import { contactName, formatPhone, primaryPhone, searchContacts } from "@/features/clients/lib";
@@ -115,7 +115,11 @@ export function ClientPicker({
       : [];
 
   const draftOpen = !contact && trimmed.length >= MIN_QUERY && matches.length === 0;
-  const draftReady = draftOpen && Boolean(effFirst.trim() && effLast.trim());
+  // A typed phone must be a complete US number before the draft is usable —
+  // the input is already showing the person what's wrong in real time.
+  const phoneOk = !newPhone || isValidPhone(newPhone);
+  const draftReady =
+    draftOpen && phoneOk && Boolean(effFirst.trim() && effLast.trim());
 
   useEffect(() => {
     onDraft?.(
@@ -213,7 +217,7 @@ export function ClientPicker({
               value={phone || (queryIsPhone ? trimmed : "")}
               onChange={setPhone}
               placeholder="Phone…"
-              lockCountry
+              usOnly
             />
             {/* What to press once the line answers — an office number often
                 needs one, and it's easier to catch now than later. */}
