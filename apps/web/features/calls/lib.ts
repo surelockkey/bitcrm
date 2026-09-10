@@ -303,6 +303,21 @@ export function callParty(call: CallRecord, side: "from" | "to"): CallParty {
   return { ...party, number: party.number ?? number, masked };
 }
 
+/**
+ * The teammate who picked the call up, for the log's "Answered by" column.
+ * Participants are the live record; older calls frozen before participants
+ * existed fall back to the resolved user party on the receiving end.
+ */
+export function answeredBy(call: CallRecord): string | undefined {
+  const answered = call.participants?.find((p) => p.role === "answered");
+  if (answered?.name) return answered.name;
+  // Only an inbound call is "answered" by one of ours — the answering side of
+  // an outbound call is the client, who has a column of their own.
+  return call.direction === "inbound" && call.toParty?.kind === "user"
+    ? call.toParty.name
+    : undefined;
+}
+
 /** True when both sides are our own people — an internal call. */
 export function isInternalCall(call: CallRecord): boolean {
   return call.fromParty?.kind === "user" && call.toParty?.kind === "user";
