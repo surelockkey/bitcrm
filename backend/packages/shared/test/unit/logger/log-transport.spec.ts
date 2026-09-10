@@ -1,6 +1,11 @@
 import { buildLogTransport } from '../../../src/logger/log-transport';
 
 describe('buildLogTransport', () => {
+  /** Find a target by name — index shifted once stdout was added, and asserting
+   *  on position made three unrelated specs fail for no real reason. */
+  const targetNamed = (t: any, name: string) =>
+    (t?.targets ?? []).find((x: any) => x.target === name);
+
   it('pretty-prints in development when Loki is not configured', () => {
     const t = buildLogTransport('crm-service', { isProduction: false });
 
@@ -29,15 +34,14 @@ describe('buildLogTransport', () => {
     ]);
   });
 
-  it('ships only to Loki in production', () => {
+  it('ships to stdout and Loki in production', () => {
     const t = buildLogTransport('crm-service', {
       isProduction: true,
       lokiUrl: 'http://loki:3100',
     });
 
-    expect(t?.targets).toHaveLength(1);
-    expect(t?.targets?.[0].target).toBe('pino-loki');
-    expect(t?.targets?.[0].options.host).toBe('http://loki:3100');
+    expect(t?.targets?.map((x: any) => x.target)).toEqual(['pino/file', 'pino-loki']);
+    expect(targetNamed(t, 'pino-loki').options.host).toBe('http://loki:3100');
   });
 
   // The service label is what every Grafana dashboard and the Tempo→Loki
@@ -48,7 +52,7 @@ describe('buildLogTransport', () => {
       lokiUrl: 'http://loki:3100',
     });
 
-    expect(t?.targets?.[0].options.labels).toEqual({
+    expect(targetNamed(t, 'pino-loki').options.labels).toEqual({
       service: 'telephony-service',
     });
   });
@@ -62,7 +66,7 @@ describe('buildLogTransport', () => {
       lokiUrl: 'http://loki:3100',
     });
 
-    expect(t?.targets?.[0].options).toEqual(
+    expect(targetNamed(t, 'pino-loki').options).toEqual(
       expect.objectContaining({ batching: true, silenceErrors: true }),
     );
   });
@@ -93,7 +97,7 @@ describe('buildLogTransport', () => {
     it('sends basic auth when a username and password are given', () => {
       const t = buildLogTransport('crm-service', cloud);
 
-      expect(t?.targets?.[0].options.basicAuth).toEqual({
+      expect(targetNamed(t, 'pino-loki').options.basicAuth).toEqual({
         username: '123456',
         password: 'glc_token',
       });
@@ -102,9 +106,11 @@ describe('buildLogTransport', () => {
     it('keeps the labels and failure-tolerance settings alongside auth', () => {
       const t = buildLogTransport('crm-service', cloud);
 
-      expect(t?.targets?.[0].options).toEqual(
+      expect(targetNamed(t, 'pino-loki').options).toEqual(
         expect.objectContaining({
-          host: cloud.lokiUrl,
+          // The fixture is the full push URL Grafana Cloud documents; the
+          // transport normalizes it to the base host pino-loki expects.
+          host: 'https://logs-prod-012.grafana.net',
           labels: { service: 'crm-service' },
           batching: true,
           silenceErrors: true,
@@ -120,7 +126,7 @@ describe('buildLogTransport', () => {
         lokiUrl: 'http://localhost:3100',
       });
 
-      expect(t?.targets?.[0].options).not.toHaveProperty('basicAuth');
+      expect(targetNamed(t, 'pino-loki').options).not.toHaveProperty('basicAuth');
     });
 
     /**
@@ -166,7 +172,76 @@ describe('buildLogTransport', () => {
         'pino-pretty',
         'pino-loki',
       ]);
-      expect(t?.targets?.[1].options.basicAuth).toBeDefined();
+      expect(targetNamed(t, 'pino-loki').options.basicAuth).toBeDefined();
+    });
+  });
+
+  /**
+   * Both of these were live bugs, and together they lost every application log
+   * line for a day: production wrote only to Loki (so awslogs/CloudWatch went
+   * empty) while the Loki push itself 404'd (so nothing arrived there either).
+   * silenceErrors meant no trace of it anywhere.
+   */
+  describe('production keeps stdout', () => {
+    const cloud = {
+      isProduction: true,
+      lokiUrl: 'https://logs-prod-012.grafana.net',
+      lokiUsername: '123456',
+      lokiPassword: 'glc_token',
+    };
+
+    it('writes to stdout as well as Loki', () => {
+      const t = buildLogTransport('crm-service', cloud);
+
+      const targets = t?.targets?.map((x: any) => x.target);
+      expect(targets).toContain('pino/file');
+      expect(targets).toContain('pino-loki');
+    });
+
+    // awslogs is the log path that already worked; Loki is additive, never a
+    // replacement. A Loki outage must not blind CloudWatch too.
+    it('points the stdout target at fd 1', () => {
+      const t = buildLogTransport('crm-service', cloud);
+      const stdout = t?.targets?.find((x: any) => x.target === 'pino/file');
+
+      expect(stdout?.options).toEqual({ destination: 1 });
+    });
+
+    it('still writes to stdout when Loki is not configured', () => {
+      // No transport at all means pino's own default, which is stdout.
+      expect(buildLogTransport('crm-service', { isProduction: true })).toBeUndefined();
+    });
+  });
+
+  describe('Loki host normalization', () => {
+    // Grafana Cloud's connection page shows the full push URL, and pino-loki
+    // appends /loki/api/v1/push to whatever host it is given — so pasting the
+    // documented value produced .../push/loki/api/v1/push and a silent 404.
+    const auth = { lokiUsername: '1', lokiPassword: 'x', isProduction: true };
+    const hostOf = (url: string) =>
+      (buildLogTransport('svc', { ...auth, lokiUrl: url })?.targets ?? [])
+        .find((t: any) => t.target === 'pino-loki')?.options.host;
+
+    it('strips a full push path down to the base host', () => {
+      expect(hostOf('https://logs-prod-012.grafana.net/loki/api/v1/push')).toBe(
+        'https://logs-prod-012.grafana.net',
+      );
+    });
+
+    it('leaves a base host alone', () => {
+      expect(hostOf('https://logs-prod-012.grafana.net')).toBe(
+        'https://logs-prod-012.grafana.net',
+      );
+    });
+
+    it('strips a trailing slash', () => {
+      expect(hostOf('http://localhost:3100/')).toBe('http://localhost:3100');
+    });
+
+    it('handles the push path with a trailing slash', () => {
+      expect(hostOf('https://logs.grafana.net/loki/api/v1/push/')).toBe(
+        'https://logs.grafana.net',
+      );
     });
   });
 });

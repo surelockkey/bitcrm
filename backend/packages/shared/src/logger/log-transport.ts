@@ -30,6 +30,29 @@ const PRETTY = {
 };
 
 /**
+ * Plain JSON on fd 1. Needed explicitly once `targets` is in play: naming any
+ * target replaces pino's default stdout destination, and in a container that
+ * destination is the whole CloudWatch log path.
+ */
+const STDOUT = {
+  target: 'pino/file',
+  options: { destination: 1 },
+};
+
+/**
+ * pino-loki appends `/loki/api/v1/push` itself, but Grafana Cloud's connection
+ * page shows the full push URL — so pasting the documented value produced
+ * `.../push/loki/api/v1/push`, a 404, and (with silenceErrors) no sign of it.
+ * Accept either form.
+ */
+function normalizeLokiHost(url: string): string {
+  return url
+    .replace(/\/+$/, '')
+    .replace(/\/loki\/api\/v1\/push$/, '')
+    .replace(/\/+$/, '');
+}
+
+/**
  * Grafana has had a Loki datasource — with Tempo→logs correlation wired to it —
  * since the monitoring stack went in, but nothing ever pushed to it. This is
  * the push side.
@@ -67,7 +90,7 @@ export function buildLogTransport(
   const loki = {
     target: 'pino-loki',
     options: {
-      host: lokiUrl,
+      host: normalizeLokiHost(lokiUrl),
       ...basicAuth,
       // `service` is the stream label every dashboard and the Tempo→Loki
       // correlation filters on, so it must be a label, not a log field.
@@ -80,5 +103,8 @@ export function buildLogTransport(
     },
   };
 
-  return { targets: env.isProduction ? [loki] : [PRETTY, loki] };
+  // Loki is additive, never a replacement. In production stdout is what
+  // awslogs collects into CloudWatch — the log path that already worked — and a
+  // Loki outage must not blind it too.
+  return { targets: env.isProduction ? [STDOUT, loki] : [PRETTY, loki] };
 }

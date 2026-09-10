@@ -90,12 +90,17 @@ const CUSTOM_FIELD_EVENTS = [
       failFast: [],
       redis: true,
       sqs: QUEUE_URL ? { queues: [QUEUE_URL] } : undefined,
-      // The read model itself. Unsigned HTTP, so only for the local container
-      // and a plain managed domain — Serverless signs with SigV4 and is left
-      // to the client's own health reporting.
-      opensearch: OPENSEARCH_SERVERLESS
-        ? undefined
-        : { url: OPENSEARCH_ENDPOINT, indices: [SEARCH_INDEX_ALIAS] },
+      // Unsigned HTTP, so only where no signature is required: the local
+      // container, or a self-hosted cluster. Any AWS endpoint — Serverless or a
+      // managed domain — needs SigV4 and answers an unsigned probe with 403,
+      // which reported the read model down while search was serving fine.
+      // Mirrors the test OpenSearchService uses to decide whether to sign.
+      // In AWS the real signal is bitcrm_search_query_errors_total and
+      // bitcrm_search_index_operations_total{status="error"}, both alerted on.
+      opensearch:
+        OPENSEARCH_SERVERLESS || /\.amazonaws\.com/.test(OPENSEARCH_ENDPOINT)
+          ? undefined
+          : { url: OPENSEARCH_ENDPOINT, indices: [SEARCH_INDEX_ALIAS] },
       httpServices: [
         { name: 'crm', url: (process.env.CRM_SERVICE_URL ?? 'http://localhost:4002') + '/api/crm/health' },
         { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },

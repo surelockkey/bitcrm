@@ -1,4 +1,4 @@
-import { SQSClient, GetQueueUrlCommand } from '@aws-sdk/client-sqs';
+import { SQSClient, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import {
   Probe,
   ProbeKind,
@@ -16,10 +16,21 @@ export class SqsProbe implements Probe {
   ) {}
 
   async run(): Promise<ProbeOutcome> {
+    // GetQueueAttributes, not GetQueueUrl, for two reasons. Configuration hands
+    // us queue URLs while GetQueueUrl takes a queue *name*, and no consuming
+    // task role grants sqs:GetQueueUrl — they grant ReceiveMessage,
+    // DeleteMessage and GetQueueAttributes, which is exactly what the consumer
+    // needs. AWS reports that denial as QueueDoesNotExist, so the probe claimed
+    // a missing queue for one the service was consuming from quite happily.
     const resources: ProbeResourceStatus[] = await Promise.all(
       this.queues.map(async (queue) => {
         try {
-          await this.client.send(new GetQueueUrlCommand({ QueueName: queue }));
+          await this.client.send(
+            new GetQueueAttributesCommand({
+              QueueUrl: queue,
+              AttributeNames: ['QueueArn'],
+            }),
+          );
           return { resource: queue, present: true };
         } catch (err) {
           const detail =
