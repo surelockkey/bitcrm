@@ -27,7 +27,11 @@ describe("missingRequiredJobFields", () => {
       settings({ phone: true, source: true, scheduled: true }),
       { values, clientPhone: "", clientEmail: "" },
     );
-    expect(out).toEqual(["Client phone", "Job source", "Scheduled date"]);
+    expect(out).toEqual([
+      { id: "phone", label: "Client phone" },
+      { id: "source", label: "Job source" },
+      { id: "scheduled", label: "Scheduled date" },
+    ]);
   });
 
   it("checks the client's phone and email from the resolved contact or draft", () => {
@@ -36,7 +40,7 @@ describe("missingRequiredJobFields", () => {
       clientPhone: "+14045551234",
       clientEmail: "",
     });
-    expect(out).toEqual(["Client email"]);
+    expect(out).toEqual([{ id: "email", label: "Client email" }]);
   });
 
   it("is quiet when everything required is filled", () => {
