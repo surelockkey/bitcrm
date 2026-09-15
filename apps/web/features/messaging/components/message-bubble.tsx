@@ -92,7 +92,9 @@ function SystemNote({ message, showJob }: { message: FeedMessage; showJob: boole
  * white bubbles on the left with the client's name. Image attachments sit
  * inside as thumbnails; a job message carries the yellow "Edit Job"
  * button. Under the bubble: the delivery state on the left ("Message
- * received") and the stamp with the channel on the right.
+ * received") and the stamp with the channel on the right. A line that did
+ * not arrive reads "Failed · <why>" in red with an alert mark and a Resend
+ * button; once resent it says so instead.
  */
 export function MessageBubble({
   message,
@@ -101,6 +103,8 @@ export function MessageBubble({
   canManage,
   onToggleFlag,
   onForward,
+  onResend,
+  resending = false,
   showJob = true,
 }: {
   message: FeedMessage;
@@ -112,6 +116,10 @@ export function MessageBubble({
   onToggleFlag?: (message: FeedMessage) => void;
   /** Forward the text into a new message; the icon is hidden without it. */
   onForward?: (message: FeedMessage) => void;
+  /** Resend a failed line; the button is hidden without it (no `messages.send`). */
+  onResend?: (message: FeedMessage) => void;
+  /** This line's resend is in flight — the button waits. */
+  resending?: boolean;
   /** Off inside a job's own tab, where every line is about that job. */
   showJob?: boolean;
 }) {
@@ -198,19 +206,35 @@ export function MessageBubble({
         )}
       >
         {outbound ? (
-          <span className="inline-flex items-center gap-1.5">
-            <StatusTicks status={message.status} errorCode={message.errorCode} errorMessage={message.errorMessage} />
-            {statusText(message.status)}
+          <span
+            className={cn("inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5", failed && "text-destructive")}
+            data-status={message.status}
+          >
+            <StatusTicks
+              status={message.status}
+              errorCode={message.errorCode}
+              errorMessage={message.errorMessage}
+              className={cn(failed && "text-destructive")}
+            />
+            <span className={cn("break-words", failed && "font-medium")}>{statusText(message.status, message)}</span>
+            {message.resentAsMessageId ? (
+              <span className="font-normal text-muted-foreground" data-testid="resent-note">
+                · Resent
+              </span>
+            ) : failed && onResend ? (
+              <button
+                type="button"
+                disabled={resending}
+                onClick={() => onResend(message)}
+                className="font-semibold underline underline-offset-2 hover:opacity-80 disabled:cursor-default disabled:opacity-60"
+              >
+                {resending ? "Resending…" : "Resend"}
+              </button>
+            ) : null}
           </span>
         ) : null}
         <Stamp message={message} />
       </div>
-
-      {failed ? (
-        <p className={cn("px-1 text-[11px] text-destructive", BUBBLE_WIDTH, outbound && "text-right")}>
-          {message.errorMessage ?? `Not delivered${message.errorCode ? ` (error ${message.errorCode})` : ""}`}
-        </p>
-      ) : null}
     </div>
   );
 }

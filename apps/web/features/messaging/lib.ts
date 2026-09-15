@@ -186,11 +186,38 @@ export function statusTick(status: MessageStatus): StatusTick {
 export const isFailedStatus = (status: MessageStatus): boolean =>
   statusTick(status) === "error";
 
-/** The words under an outbound bubble — Workiz's "Message received". */
-export function statusText(status: MessageStatus): string {
+/**
+ * A short reason for the Twilio codes a service-business inbox actually
+ * meets. Anything else shows the carrier's own words, or the bare code.
+ */
+export const ERROR_CODE_TEXT: Record<string, string> = {
+  "21408": "Texting this country is not enabled on the account",
+  "21610": "This number opted out of texts (STOP)",
+  "21211": "Invalid phone number",
+  "21614": "Not a mobile number",
+  "30034": "Sender number is not registered for A2P 10DLC",
+  "30003": "Phone unreachable or switched off",
+  "30007": "Filtered by the carrier as spam",
+};
+
+/** Why an outbound message did not arrive: the carrier's words, else a known code's text, else the code. */
+export function errorText(error: { errorCode?: string; errorMessage?: string }): string {
+  if (error.errorMessage) return error.errorMessage;
+  if (error.errorCode) return ERROR_CODE_TEXT[error.errorCode] ?? `Not delivered (code ${error.errorCode})`;
+  return "Not delivered";
+}
+
+/**
+ * The words under an outbound bubble — Workiz's "Message received"; a
+ * failure reads "Failed · <why>" from the message's error fields.
+ */
+export function statusText(
+  status: MessageStatus,
+  error?: { errorCode?: string; errorMessage?: string },
+): string {
   switch (statusTick(status)) {
     case "pending":
-      return "Sending";
+      return "Sending…";
     case "sent":
       return "Message sent";
     case "delivered":
@@ -198,7 +225,7 @@ export function statusText(status: MessageStatus): string {
     case "read":
       return "Message read";
     default:
-      return "Not delivered";
+      return `Failed · ${errorText(error ?? {})}`;
   }
 }
 
@@ -598,4 +625,10 @@ export function describeSendError(status: number | undefined, message: string): 
   if (status === 422) return "This number has opted out of texts (STOP). They need to text START first.";
   if (status === 501) return "Only SMS can be sent right now.";
   return message;
+}
+
+/** The toast when a resend is refused: 409 means the line is not in a failed state (any more). */
+export function describeResendError(status: number | undefined, message: string): string {
+  if (status === 409) return "Only failed messages can be resent";
+  return describeSendError(status, message);
 }

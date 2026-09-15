@@ -96,8 +96,7 @@ describe("MessageFeed", () => {
     });
 
     expect(screen.getByRole("img", { name: /Undelivered · Unreachable/ })).toHaveAttribute("data-tick", "error");
-    expect(screen.getByText("Not delivered")).toBeInTheDocument();
-    expect(screen.getByText("Unreachable destination handset")).toBeInTheDocument();
+    expect(screen.getByText("Failed · Unreachable destination handset")).toBeInTheDocument();
   });
 
   it("renders image attachments as thumbnails inside the bubble and other files as links", () => {

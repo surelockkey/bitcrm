@@ -28,6 +28,8 @@ export function MessageFeed({
   canManage,
   onToggleFlag,
   onForward,
+  onResend,
+  resendingMessageId,
   authorNames,
   partyName,
   emptyState,
@@ -44,6 +46,10 @@ export function MessageFeed({
   canManage: boolean;
   onToggleFlag?: (message: FeedMessage) => void;
   onForward?: (message: FeedMessage) => void;
+  /** Resend a failed line; pass it only to a viewer who may send. */
+  onResend?: (message: FeedMessage) => void;
+  /** The failed line whose resend is in flight — its button waits. */
+  resendingMessageId?: string;
   authorNames?: Map<string, string>;
   /** The other side's name, for incoming bubbles. */
   partyName?: string;
@@ -153,6 +159,8 @@ export function MessageFeed({
               canManage={canManage}
               onToggleFlag={onToggleFlag}
               onForward={onForward}
+              onResend={onResend}
+              resending={m.id === resendingMessageId}
               showJob={showJob}
             />
           ))}

@@ -108,6 +108,10 @@ export interface Message {
   updatedAt: string;
   /** Set by the outbound worker right before it calls the provider (design §4.4). */
   sendingStartedAt?: string;
+  /** On a message created by "Resend": the failed message it copies. */
+  resentFromMessageId?: string;
+  /** On the failed original, once resent: the id of the new outbound message. */
+  resentAsMessageId?: string;
   /** Everything else Workiz carried in `json` / `job_insights`, only when non-empty. */
   workizMeta?: Record<string, unknown>;
   /** `workiz:message:<id>` for imported lines. */

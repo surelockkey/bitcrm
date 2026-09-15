@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Check, CheckCheck, Clock } from "lucide-react";
+import { AlertCircle, Check, CheckCheck, Loader2 } from "lucide-react";
 import type { MessageStatus } from "@bitcrm/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -8,8 +8,8 @@ import { STATUS_LABEL, statusTick } from "../lib";
 
 /**
  * The delivery tick under an outbound bubble — one grey tick for sent, two
- * for delivered, two coloured for read, a clock while queued, and a red
- * mark with the carrier's reason when it did not arrive.
+ * for delivered, two coloured for read, a spinner while queued / sending,
+ * and a red alert mark with the carrier's reason when it did not arrive.
  */
 export function StatusTicks({
   status,
@@ -32,7 +32,7 @@ export function StatusTicks({
 
   const icon =
     tick === "pending" ? (
-      <Clock className="size-3" />
+      <Loader2 className="size-3 animate-spin" />
     ) : tick === "sent" ? (
       <Check className="size-3" />
     ) : tick === "delivered" ? (
