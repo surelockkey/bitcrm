@@ -221,6 +221,14 @@ export class SendService {
    * linked both ways (`resentFromMessageId` / `resentAsMessageId`); the
    * original keeps its `failed` in the feed.
    *
+   * The send rules are checked on the conversation before the line is even
+   * looked up, so a caller outside its scope learns nothing about which
+   * messages exist or how they ended (403, never 404 / 409); the job-level
+   * `assigned_only` rule is then re-checked against the line's own job when
+   * that is not the conversation's latest. A line already resent whose copy
+   * is on its way (or arrived) answers 409 — only a copy that failed too lets
+   * the original go out again (the copy itself can be resent as well).
+   *
    * Idempotency: the composer's `clientMessageId` when it sends one; else
    * `resend:<messageId>:<n>` with n the first slot no `CLIENTMSG#` pointer
    * holds — so two clicks in flight compute the same key and the second
@@ -229,6 +237,8 @@ export class SendService {
   async resend(conversationId: string, messageId: string, dto: ResendMessageDto, caller: SendCaller): Promise<Message> {
     const conversation = await this.conversations.get(conversationId);
     if (!conversation) throw new NotFoundException('Conversation not found');
+    await this.authorise(conversation, {}, caller);
+
     const source = await this.findMessage(conversationId, messageId, dto.createdAt);
     if (!source) throw new NotFoundException('Message not found');
     if (source.direction !== 'outbound' || !RESENDABLE_STATUSES.includes(source.status)) {
@@ -237,7 +247,10 @@ export class SendService {
     if (!isSmsChannel(source.channel) && source.channel !== 'email') {
       throw new ConflictException(`A ${source.channel} message cannot be resent`);
     }
-    await this.authorise(conversation, { dealId: source.dealId }, caller);
+    if (source.dealId && source.dealId !== conversation.lastDealId) {
+      await this.authorise(conversation, { dealId: source.dealId }, caller);
+    }
+    await this.assertNotResent(conversationId, source);
 
     const message =
       source.channel === 'email'
@@ -344,6 +357,21 @@ export class SendService {
       if (!(await this.messages.getClientMessagePointer(candidate))) return candidate;
     }
     throw new ConflictException('This message has been resent too many times');
+  }
+
+  /**
+   * The server-side half of the UI hiding the Resend button on a resent
+   * line: when `resentAsMessageId` points at a copy that is not itself in a
+   * resendable status (queued, on its way, delivered) the original is not
+   * sent a third time. A copy that failed too — or one the recent feed no
+   * longer holds — leaves the original resendable.
+   */
+  private async assertNotResent(conversationId: string, source: Message): Promise<void> {
+    if (!source.resentAsMessageId) return;
+    const copy = await this.findMessage(conversationId, source.resentAsMessageId);
+    if (copy && !RESENDABLE_STATUSES.includes(copy.status)) {
+      throw new ConflictException('Message was already resent');
+    }
   }
 
   /** The original points at its replacement; a failure here costs the link, never the send. */

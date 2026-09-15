@@ -85,6 +85,8 @@ function makeService(opts: {
   taken?: string[];
   email?: { configured: boolean; resolve: jest.Mock };
   deal?: Record<string, unknown> | null;
+  /** Jobs by id, when the conversation's latest and the line's differ. */
+  deals?: Record<string, Record<string, unknown>>;
 } = {}) {
   const conversation = opts.conversation === undefined ? createMockConversation({ lastDealId: 'd1' }) : opts.conversation;
   const pages = opts.feed ?? [[failed()]];
@@ -105,7 +107,7 @@ function makeService(opts: {
   const optOuts = { isOptedOut: jest.fn(async () => opts.optedOut ?? false) };
   const sender = { resolve: jest.fn(async () => opts.sender ?? { from: '+15550002222', source: 'sticky' }) };
   const queue = { enqueue: jest.fn(async () => 'queued') };
-  const deals = { find: jest.fn(async () => opts.deal ?? null) };
+  const deals = { find: jest.fn(async (id: string) => (opts.deals ? opts.deals[id] ?? null : opts.deal ?? null)) };
   const crm = { getContact: jest.fn(async () => null), findByPhone: jest.fn(async () => null) };
   const events = { conversationUpdated: jest.fn(async () => undefined), messageReceived: jest.fn(async () => undefined) };
   const realtime = { messageUpserted: jest.fn(), conversationUpserted: jest.fn(), countersChanged: jest.fn(), teamCountersInvalidated: jest.fn() };
@@ -177,6 +179,86 @@ describe('SendService.resend — what may be resent', () => {
     const team = createMockConversation({ kind: 'team', partyKind: 'user', partyId: 'u2', addresses: { phones: ['+14045551234'], emails: [] } });
     const noTeam = perms({ permissions: { messages: { view: true, send: true, manage: true }, team_chat: { view: true, send: false } } as never });
     await expect(makeService({ conversation: team }).service.resend('c1', 'm-fail', {}, { user, perms: noTeam })).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('checks the scope on the conversation before the line is looked up: outside it, 403 — never a 404 or 409 that says what exists', async () => {
+    const scoped = perms({ dataScope: { messages: 'assigned_only' } as never });
+    const offJob = { id: 'd1', assignedTechIds: ['u9'] };
+
+    const missing = makeService({ deal: offJob, feed: [[createMockMessage({ id: 'other' })]] });
+    await expect(missing.service.resend('c1', 'm-fail', {}, { user, perms: scoped })).rejects.toMatchObject({ status: 403 });
+    expect(missing.messages.listByConversation).not.toHaveBeenCalled();
+    expect(missing.messages.get).not.toHaveBeenCalled();
+
+    const delivered = makeService({ deal: offJob, byKey: failed({ status: 'delivered' }) });
+    await expect(delivered.service.resend('c1', 'm-fail', { createdAt: T0 }, { user, perms: scoped })).rejects.toMatchObject({ status: 403 });
+    expect(delivered.messages.get).not.toHaveBeenCalled();
+
+    const team = createMockConversation({ kind: 'team', partyKind: 'user', partyId: 'u2', addresses: { phones: ['+14045551234'], emails: [] } });
+    const noTeam = perms({ permissions: { messages: { view: true, send: true, manage: true }, team_chat: { view: true, send: false } } as never });
+    const thread = makeService({ conversation: team, feed: [[createMockMessage({ id: 'other' })]] });
+    await expect(thread.service.resend('c1', 'm-fail', {}, { user, perms: noTeam })).rejects.toMatchObject({ status: 403 });
+    expect(thread.messages.listByConversation).not.toHaveBeenCalled();
+  });
+
+  it('assigned_only is re-checked against the line’s own job when it is not the conversation’s latest', async () => {
+    const scoped = perms({ dataScope: { messages: 'assigned_only' } as never });
+    const conversation = createMockConversation({ lastDealId: 'd2' });
+
+    // on the conversation's latest job, not on the line's: refused, both jobs read, nothing written
+    const offLine = makeService({ conversation, deals: { d2: { id: 'd2', assignedTechIds: ['u1'] }, d1: { id: 'd1', assignedTechIds: ['u9'] } } });
+    await expect(offLine.service.resend('c1', 'm-fail', {}, { user, perms: scoped })).rejects.toMatchObject({ status: 403 });
+    expect(offLine.deals.find.mock.calls.map((c) => c[0])).toEqual(['d2', 'd1']);
+    expect(offLine.messages.appendOutbound).not.toHaveBeenCalled();
+
+    // on both: goes out, with the line's job
+    const onBoth = makeService({ conversation, deals: { d2: { id: 'd2', assignedTechIds: ['u1'] }, d1: { id: 'd1', assignedTechIds: ['u1'] } } });
+    await expect(onBoth.service.resend('c1', 'm-fail', {}, { user, perms: scoped })).resolves.toMatchObject({ status: 'queued', dealId: 'd1' });
+
+    // the same job as the conversation's latest: one read
+    const same = makeService({ deal: { id: 'd1', assignedTechIds: ['u1'] } });
+    await same.service.resend('c1', 'm-fail', {}, { user, perms: scoped });
+    expect(same.deals.find).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SendService.resend — already resent', () => {
+  const copyOf = (status: Message['status']) =>
+    createMockMessage({ id: 'm-copy', direction: 'outbound', channel: 'sms', status, resentFromMessageId: 'm-fail', createdAt: T1 });
+
+  it('409s "Message was already resent" when the original points at a copy that is queued, on its way or delivered — nothing written', async () => {
+    for (const status of ['queued', 'sending', 'sent', 'delivered', 'read'] as const) {
+      const { service, messages, sender, optOuts } = makeService({ feed: [[copyOf(status), failed({ resentAsMessageId: 'm-copy' })]] });
+      const err = await service.resend('c1', 'm-fail', {}, caller()).catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getStatus()).toBe(409);
+      expect(err.message).toBe('Message was already resent');
+      expect(optOuts.isOptedOut).not.toHaveBeenCalled();
+      expect(sender.resolve).not.toHaveBeenCalled();
+      expect(messages.appendOutbound).not.toHaveBeenCalled();
+      expect(messages.markResent).not.toHaveBeenCalled();
+    }
+  });
+
+  it('lets the original go out again when its copy failed too, or when the copy is nowhere in the recent feed', async () => {
+    for (const status of ['failed', 'undelivered', 'canceled'] as const) {
+      const { service, messages } = makeService({ feed: [[copyOf(status), failed({ resentAsMessageId: 'm-copy' })]] });
+      await expect(service.resend('c1', 'm-fail', {}, caller())).resolves.toMatchObject({ status: 'queued', resentFromMessageId: 'm-fail' });
+      expect(messages.markResent).toHaveBeenCalledWith(expect.objectContaining({ messageId: 'm-fail' }), expect.any(String), expect.any(String));
+    }
+
+    const gone = makeService({ byKey: failed({ resentAsMessageId: 'm-copy' }), feed: [[]] });
+    await expect(gone.service.resend('c1', 'm-fail', { createdAt: T0 }, caller())).resolves.toMatchObject({ status: 'queued', resentFromMessageId: 'm-fail' });
+    expect(gone.messages.get).toHaveBeenCalledWith({ conversationId: 'c1', createdAt: T0, messageId: 'm-fail' });
+    expect(gone.messages.listByConversation).toHaveBeenCalledWith('c1', { limit: 50, cursor: undefined });
+  });
+
+  it('a failed copy can itself be resent — the chain goes on from the newest failure', async () => {
+    const copy = failed({ id: 'm-copy', resentFromMessageId: 'm-fail', createdAt: T1 });
+    const { service, messages } = makeService({ feed: [[copy, failed({ resentAsMessageId: 'm-copy' })]] });
+    await expect(service.resend('c1', 'm-copy', {}, caller())).resolves.toMatchObject({ status: 'queued', resentFromMessageId: 'm-copy' });
+    expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ clientMessageId: 'resend:m-copy:1' }));
+    expect(messages.markResent).toHaveBeenCalledWith(expect.objectContaining({ messageId: 'm-copy' }), expect.any(String), expect.any(String));
   });
 });
 

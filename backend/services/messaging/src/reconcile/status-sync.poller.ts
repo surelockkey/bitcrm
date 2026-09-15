@@ -17,9 +17,9 @@ export interface StatusSyncPass {
   checked: number;
   /** Lines whose status moved. */
   synced: number;
-  /** Lines removed from the set (terminal now, gone, or too old). */
+  /** Lines removed from the set (terminal now, gone, or too old — a day, whether the lookup answered or threw). */
   dropped: number;
-  /** Lookups that threw (kept in the set, retried after the back-off). */
+  /** Lookups that threw (kept in the set and retried after the back-off, unless the line is a day old). */
   failed: number;
 }
 
@@ -35,7 +35,8 @@ export interface StatusSyncPass {
  * hourly reconciliation covers lines other instances sent.
  *
  * A line the carrier never reports on (stuck at `sent`) is retried with a
- * doubling back-off capped at an hour and forgotten after a day.
+ * doubling back-off capped at an hour and forgotten after a day — as is one
+ * whose lookup keeps throwing, so a bad sid cannot stay in the set for good.
  */
 @Injectable()
 export class StatusSyncPoller implements OnModuleInit, OnModuleDestroy {
@@ -86,7 +87,13 @@ export class StatusSyncPoller implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           pass.failed++;
           this.logger.warn(`Status sync of ${entry.key.messageId} failed: ${error instanceof Error ? error.message : error}`);
-          this.pending.defer(entry.key, t + this.backoff(entry));
+          // The day's ceiling holds here too: a lookup that keeps throwing does not keep the line forever.
+          if (this.expired(entry, t)) {
+            this.pending.forget(entry.key);
+            pass.dropped++;
+          } else {
+            this.pending.defer(entry.key, t + this.backoff(entry));
+          }
           continue;
         }
         if (result.outcome === 'synced') pass.synced++;
@@ -108,6 +115,11 @@ export class StatusSyncPoller implements OnModuleInit, OnModuleDestroy {
   private settled(result: MessageSyncResult, entry: PendingStatusEntry, now: number): boolean {
     if (result.outcome === 'not_found' || result.outcome === 'not_syncable') return true;
     if (result.message && MESSAGE_STATUS_RANK[result.message.status] >= MESSAGE_STATUS_RANK.delivered) return true;
+    return this.expired(entry, now);
+  }
+
+  /** Past the day's ceiling: the carrier will not report anything else, and neither will a retry. */
+  private expired(entry: PendingStatusEntry, now: number): boolean {
     return now - entry.trackedAt > STATUS_SYNC_MAX_AGE_MS;
   }
 

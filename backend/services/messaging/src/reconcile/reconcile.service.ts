@@ -1,7 +1,7 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { type MessageInstance } from 'twilio/lib/rest/api/v2010/account/message';
-import { SnsPublisherService, TwilioRest, tryNormalizePhone } from '@bitcrm/shared';
+import { SnsPublisherService, TWILIO_CONFIG, TwilioRest, tryNormalizePhone, type TwilioConfig } from '@bitcrm/shared';
 import {
   MESSAGE_EVENT_TOPIC,
   MESSAGE_STATUSES,
@@ -14,6 +14,7 @@ import {
   type MessageAttachment,
   type MessageStatus,
   type MessageStatusChangedEvent,
+  type OptOutChangedEvent,
 } from '@bitcrm/types';
 import { parseMessageSk } from '../common/constants/dynamo.constants';
 import { InboundService } from '../inbound/inbound.service';
@@ -25,7 +26,8 @@ import {
   type ProviderSidPointer,
   type StatusUpdate,
 } from '../messages/messages.repository';
-import { describeTwilioError, mapTwilioStatus } from '../outbound/twilio-error.map';
+import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
+import { OPT_OUT_ERROR_CODE, describeTwilioError, mapTwilioStatus } from '../outbound/twilio-error.map';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 export interface ReconcileWindow {
@@ -124,7 +126,9 @@ export interface MessageSyncResult {
  *              `failed 21408`…) and the status callback never made it — a
  *              developer machine Twilio cannot reach, a lost webhook — the
  *              status is written exactly as the callback would have written it
- *              (rank guard, error text, `message.status_changed`, realtime).
+ *              (rank guard, error text, `message.status_changed`, realtime),
+ *              and a 21610 puts the recipient on the STOP list as the
+ *              callback would (`opt_out.changed`).
  *
  * `syncMessage` is the same comparison for one line, fetching its sid from
  * Twilio: the internal `POST /internal/reconcile/message` and the opt-in
@@ -141,6 +145,8 @@ export class ReconcileService {
     private readonly mediaQueue: MediaQueueService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly realtime?: RealtimePublisher,
+    @Optional() private readonly optOuts?: OptOutsRepository,
+    @Optional() @Inject(TWILIO_CONFIG) private readonly twilio?: Pick<TwilioConfig, 'messagingServiceSid'>,
   ) {}
 
   async run(window: ReconcileWindow = {}, now: Date = new Date()): Promise<ReconcileReport> {
@@ -260,6 +266,8 @@ export class ReconcileService {
    * (`StatusCallbackService`), with the error text `describeTwilioError`
    * gives, and tell the same listeners — `message.status_changed` on a
    * terminal status, `conversation.updated`, and the browsers over realtime.
+   * A 21610 records the STOP-list opt-out as the callback does, whether or
+   * not the rank guard let the status through.
    */
   private async applyProviderStatus(
     message: Message,
@@ -285,6 +293,7 @@ export class ReconcileService {
       at,
     };
     const applied = await this.messages.updateStatus(key, update);
+    if (errorCode === OPT_OUT_ERROR_CODE && message.to) await this.recordOptOut(message.to);
     if (!applied) {
       // A callback (or another instance) got there first: the rank guard kept its write.
       this.logger.debug(`Status ${status} from Twilio for ${record.sid} ignored (already at least there)`);
@@ -307,6 +316,33 @@ export class ReconcileService {
     this.announce(key.conversationId);
     this.realtime?.messageUpserted(updated, undefined, at);
     return { outcome: 'synced', message: updated, providerStatus };
+  }
+
+  /**
+   * `ErrorCode 21610` — the recipient has opted out: the STOP list and
+   * `opt_out.changed`, exactly as `StatusCallbackService.recordOptOut`. A
+   * ledger failure is logged, never the sync's failure.
+   */
+  private async recordOptOut(address: string): Promise<void> {
+    if (!this.optOuts) {
+      this.logger.warn(`21610 for ${address} but no opt-out ledger is wired; the STOP list was not updated`);
+      return;
+    }
+    try {
+      await this.optOuts.setStatus({
+        channel: 'sms',
+        address,
+        status: 'opted_out',
+        source: 'error_21610',
+        messagingServiceSid: this.twilio?.messagingServiceSid,
+      });
+      const payload: OptOutChangedEvent = { channel: 'sms', address, status: 'opted_out', source: 'error_21610' };
+      this.snsPublisher
+        ?.publish<OptOutChangedEvent>(MESSAGE_EVENT_TOPIC, MessageEventType.OPT_OUT_CHANGED, payload)
+        .catch((err) => this.logger.warn(`SNS publish opt_out.changed failed: ${err instanceof Error ? err.message : err}`));
+    } catch (error) {
+      this.logger.error(`Could not record opt-out for ${address}: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   /** `message.status_changed`, as the status callback publishes it (EVENTS.md). */

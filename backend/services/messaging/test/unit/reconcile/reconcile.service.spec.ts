@@ -84,6 +84,7 @@ function make(opts: {
   const mediaQueue = { enqueueMediaCopy: jest.fn().mockResolvedValue(true) };
   const sns = { publish: jest.fn().mockResolvedValue(undefined) };
   const realtime = { messageUpserted: jest.fn() };
+  const optOuts = { setStatus: jest.fn(async () => ({})) };
   const service = new ReconcileService(
     twilioRest as unknown as TwilioRest,
     inbound as unknown as InboundService,
@@ -91,8 +92,10 @@ function make(opts: {
     mediaQueue as unknown as MediaQueueService,
     sns as never,
     realtime as never,
+    optOuts as never,
+    { messagingServiceSid: 'MG1' },
   );
-  return { service, client, twilioRest, inbound, messages, mediaQueue, sns, realtime, conversation };
+  return { service, client, twilioRest, inbound, messages, mediaQueue, sns, realtime, optOuts, conversation };
 }
 
 describe('fromTwilioStatus', () => {
@@ -389,6 +392,50 @@ describe('ReconcileService.run — known sid, Twilio further along', () => {
     expect(theirs.messages.updateStatus).toHaveBeenCalledWith(KNOWN_KEY, expect.objectContaining({ status: 'undelivered', errorCode: '30003', errorMessage: 'Unreachable destination handset' }));
   });
 
+  it('a 21610 puts the recipient on the STOP list and publishes opt_out.changed as the callback would — also when the guard refused the status', async () => {
+    const { service, messages, optOuts, sns } = make({ records: [known({ status: 'failed', errorCode: 21610, errorMessage: null })], known: ['SM-out'], stored: stored() });
+    expect(await service.run({}, NOW)).toMatchObject({ synced: 1, skipped: 0, failed: 0 });
+    expect(messages.updateStatus).toHaveBeenCalledWith(
+      KNOWN_KEY,
+      expect.objectContaining({ status: 'failed', errorCode: '21610', errorMessage: 'The recipient has opted out (STOP)' }),
+    );
+    expect(optOuts.setStatus).toHaveBeenCalledWith({ channel: 'sms', address: CLIENT, status: 'opted_out', source: 'error_21610', messagingServiceSid: 'MG1' });
+    expect(sns.publish).toHaveBeenCalledWith('message-events', 'opt_out.changed', { channel: 'sms', address: CLIENT, status: 'opted_out', source: 'error_21610' });
+    expect(sns.publish).toHaveBeenCalledWith('message-events', 'message.status_changed', { messageId: 'm-out', conversationId: 'c1', status: 'failed', errorCode: '21610' });
+
+    // the callback got there first: its write stands, the STOP list is still affirmed (as the callback does on a repeat)
+    const raced = make({ records: [known({ status: 'failed', errorCode: 21610 })], known: ['SM-out'], stored: stored(), updateApplied: false });
+    expect(await raced.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+    expect(raced.optOuts.setStatus).toHaveBeenCalledTimes(1);
+    expect(raced.sns.publish).toHaveBeenCalledWith('message-events', 'opt_out.changed', expect.objectContaining({ address: CLIENT }));
+
+    // any other failure code leaves the ledger alone
+    const other = make({ records: [known({ status: 'failed', errorCode: 21408 })], known: ['SM-out'], stored: stored() });
+    expect(await other.service.run({}, NOW)).toMatchObject({ synced: 1 });
+    expect(other.optOuts.setStatus).not.toHaveBeenCalled();
+    expect(other.sns.publish).not.toHaveBeenCalledWith('message-events', 'opt_out.changed', expect.anything());
+  });
+
+  it('a ledger failure on the 21610 (or no ledger wired at all) costs the STOP-list entry, never the sync', async () => {
+    const { service, optOuts, sns, realtime } = make({ records: [known({ status: 'failed', errorCode: 21610 })], known: ['SM-out'], stored: stored() });
+    optOuts.setStatus.mockRejectedValueOnce(new Error('dynamo down'));
+    expect(await service.run({}, NOW)).toMatchObject({ synced: 1, failed: 0 });
+    expect(sns.publish).not.toHaveBeenCalledWith('message-events', 'opt_out.changed', expect.anything());
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', errorCode: '21610' }), undefined, AT);
+
+    const bare = make({ records: [known({ status: 'failed', errorCode: 21610 })], known: ['SM-out'], stored: stored() });
+    const withoutLedger = new ReconcileService(
+      bare.twilioRest as unknown as TwilioRest,
+      bare.inbound as unknown as InboundService,
+      bare.messages as unknown as MessagesRepository,
+      bare.mediaQueue as unknown as MediaQueueService,
+      bare.sns as never,
+      bare.realtime as never,
+    );
+    expect(await withoutLedger.run({}, NOW)).toMatchObject({ synced: 1, failed: 0 });
+    expect(bare.optOuts.setStatus).not.toHaveBeenCalled();
+  });
+
   it('leaves a line alone when Twilio is not further along: same rank or behind is skipped, nothing written or published', async () => {
     const same = make({ records: [known()], known: ['SM-out'], stored: stored({ status: 'delivered' }) });
     expect(await same.service.run({}, NOW)).toMatchObject({ scanned: 1, skipped: 1, synced: 0 });
@@ -467,6 +514,17 @@ describe('ReconcileService.syncMessage — one line by its sid', () => {
     });
     expect(sns.publish).toHaveBeenCalledWith('message-events', 'message.status_changed', { messageId: 'm-out', conversationId: 'c1', status: 'undelivered', errorCode: '30003' });
     expect(realtime.messageUpserted).toHaveBeenCalledWith(result.message, undefined, AT);
+  });
+
+  it('a 21610 fetched for one line records the opt-out too', async () => {
+    const { service, optOuts, sns } = make({ stored: stored({ status: 'sending' }), fetched: known({ status: 'failed', errorCode: 21610 }) });
+    expect(await service.syncMessage(KNOWN_KEY, NOW)).toMatchObject({
+      outcome: 'synced',
+      providerStatus: 'failed',
+      message: expect.objectContaining({ status: 'failed', errorCode: '21610', errorMessage: 'The recipient has opted out (STOP)' }),
+    });
+    expect(optOuts.setStatus).toHaveBeenCalledWith({ channel: 'sms', address: CLIENT, status: 'opted_out', source: 'error_21610', messagingServiceSid: 'MG1' });
+    expect(sns.publish).toHaveBeenCalledWith('message-events', 'opt_out.changed', { channel: 'sms', address: CLIENT, status: 'opted_out', source: 'error_21610' });
   });
 
   it('answers unchanged when Twilio has nothing newer, and does not ask at all about a line already terminal', async () => {

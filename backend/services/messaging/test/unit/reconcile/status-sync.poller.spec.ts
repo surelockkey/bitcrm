@@ -142,6 +142,23 @@ describe('StatusSyncPoller.tick — the set', () => {
     expect(pending.has(key(5))).toBe(true); // the worker may still be writing the sid
   });
 
+  it('drops a line older than a day even when its lookup keeps throwing; a younger one that threw is kept and backed off', async () => {
+    const { poller, pending, syncMessage } = make({ results: { m1: new Error('Twilio 503'), m2: new Error('Twilio 503') } });
+    pending.track(key(1), T - STATUS_SYNC_MAX_AGE_MS - 1);
+    pending.track(key(2), T - STATUS_SYNC_MAX_AGE_MS); // exactly a day: not past the ceiling yet
+
+    const pass = await poller.tick(new Date(T));
+    expect(pass).toEqual({ checked: 2, synced: 0, dropped: 1, failed: 2 });
+    expect(syncMessage).toHaveBeenCalledTimes(2);
+    expect(pending.has(key(1))).toBe(false);
+    expect(pending.has(key(2))).toBe(true);
+    expect(pending.due(T)).toEqual([]); // deferred by the back-off, not left due
+
+    // next pass: the kept one is past the ceiling now and goes too, still failing
+    expect(await poller.tick(new Date(T + STATUS_SYNC_MAX_BACKOFF_MS))).toEqual({ checked: 1, synced: 0, dropped: 1, failed: 1 });
+    expect(pending.size).toBe(0);
+  });
+
   it('does not overlap two passes', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
