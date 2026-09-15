@@ -8,8 +8,11 @@ import {
   formatDayLabel,
   formatListTime,
   groupByDay,
+  hasShortCodes,
   initialsOf,
+  insertAtCursor,
   looksLikePhoneQuery,
+  newClientMessageId,
   matchesFilter,
   matchesSearch,
   messageSk,
@@ -215,5 +218,28 @@ describe("search", () => {
   it("treats seven or more digits as a number lookup", () => {
     expect(looksLikePhoneQuery("404 555")).toBe(false);
     expect(looksLikePhoneQuery("(404) 555-1234")).toBe(true);
+  });
+});
+
+describe("composer helpers", () => {
+  it("inserts at the caret and replaces a selection", () => {
+    expect(insertAtCursor("Hi , bye", "{{first_name}}", 3)).toEqual({
+      value: "Hi {{first_name}}, bye",
+      caret: 17,
+    });
+    expect(insertAtCursor("Hi NAME", "Jane", 3, 7)).toEqual({ value: "Hi Jane", caret: 7 });
+    expect(insertAtCursor("abc", "x", 99)).toEqual({ value: "abcx", caret: 4 });
+  });
+
+  it("spots short codes that still need filling", () => {
+    expect(hasShortCodes("See you {{job_date}}")).toBe(true);
+    expect(hasShortCodes("See you {{ Manager Note }}")).toBe(true);
+    expect(hasShortCodes("Plain text {not a code}")).toBe(false);
+  });
+
+  it("mints RFC 4122 ids", () => {
+    const a = newClientMessageId();
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(newClientMessageId()).not.toBe(a);
   });
 });

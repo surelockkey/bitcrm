@@ -13,6 +13,7 @@ import { conversationTitle } from "../lib";
 import { ConversationList, type ListState } from "./conversation-list";
 import { ConversationThread } from "./conversation-thread";
 import { PartyCard } from "./party-card";
+import { ThreadComposer } from "./thread-composer";
 
 const isView = (v: string | null): v is InboxView => !!v && (INBOX_VIEWS as readonly string[]).includes(v);
 const isKind = (v: string | null): v is ConversationKind =>
@@ -97,6 +98,9 @@ export function InboxPage() {
             title={title}
             onBack={() => navigate({ c: undefined })}
             onToggleInfo={() => setInfoOpen(true)}
+            footer={({ conversation, optedOut }) => (
+              <ThreadComposer conversation={conversation} optedOut={optedOut} autoFocus />
+            )}
           />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">

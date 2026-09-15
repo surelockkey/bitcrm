@@ -401,6 +401,39 @@ export function formatBytes(n?: number): string {
 /** Twilio's ceiling for one MMS: 10 files, 5 MB together (design §4.6). */
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
+/* ------------------------------------------------------------- composer */
+
+/** The idempotency key of one send — minted here, echoed by the server. */
+export function newClientMessageId(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  // RFC 4122 v4 from getRandomValues, for the odd runtime without randomUUID.
+  const bytes = new Uint8Array(16);
+  c.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Insert text at a selection, returning the new value and where the caret lands. */
+export function insertAtCursor(
+  value: string,
+  insert: string,
+  selectionStart: number,
+  selectionEnd = selectionStart,
+): { value: string; caret: number } {
+  const start = Math.max(0, Math.min(selectionStart, value.length));
+  const end = Math.max(start, Math.min(selectionEnd, value.length));
+  return {
+    value: value.slice(0, start) + insert + value.slice(end),
+    caret: start + insert.length,
+  };
+}
+
+/** `{{first_name}}`-style placeholders that still need the server to fill them. */
+export const hasShortCodes = (text: string): boolean => /\{\{\s*[^{}]+\s*\}\}/.test(text);
+
 /** A short sentence for the toast / banner when a send fails. */
 export function describeSendError(status: number | undefined, message: string): string {
   if (status === 422) return "This number has opted out of texts (STOP). They need to text START first.";
