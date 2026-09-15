@@ -61,6 +61,26 @@ describe('MessagesService.listByConversation', () => {
   });
 });
 
+describe('MessagesService.listInternal', () => {
+  it('pages the feed raw — no scope check, no masking, cursor passed through', async () => {
+    const { svc, conversations, messages } = make();
+    messages.listByConversation.mockResolvedValue({ items: [createMockMessage()], nextCursor: 'OLDER' });
+
+    const page = await svc.listInternal('c1', { limit: 20, cursor: 'K1' });
+    expect(messages.listByConversation).toHaveBeenCalledWith('c1', { limit: 20, cursor: 'K1' });
+    expect(conversations.get).not.toHaveBeenCalled();
+    expect(page.nextCursor).toBe('OLDER');
+    expect(page.items[0].from).toBe('+14045551234');
+    expect((page.items[0] as { fromMasked?: true }).fromMasked).toBeUndefined();
+  });
+
+  it('maps a bad cursor to 400', async () => {
+    const { svc, messages } = make();
+    messages.listByConversation.mockRejectedValue(new InvalidCursorError());
+    await expect(svc.listInternal('c1', { limit: 20, cursor: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
 describe('MessagesService.listByJob', () => {
   it('reads JobIndex for a full-scope caller', async () => {
     const { svc, messages } = make();

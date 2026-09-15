@@ -8,6 +8,7 @@ function make() {
     listByConversation: jest.fn().mockResolvedValue({ items: [createMockMessage()], nextCursor: 'OLDER' }),
     listByJob: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     listFlagged: jest.fn().mockResolvedValue({ items: [createMockMessage({ flagged: true })] }),
+    listInternal: jest.fn().mockResolvedValue({ items: [createMockMessage(), createMockMessage({ id: 'm0' })] }),
   } as unknown as MessagesService;
   return { controller: new MessagesController(messages), messages };
 }
@@ -31,6 +32,17 @@ describe('MessagesController', () => {
       success: true,
       data: [],
       pagination: { nextCursor: undefined, count: 0 },
+    });
+  });
+
+  it('GET /conversations/internal/:id/messages — raw feed for the search indexer, no caller', async () => {
+    const { controller, messages } = make();
+    const res = await controller.internalByConversation('c1', { limit: 20 });
+    expect(messages.listInternal).toHaveBeenCalledWith('c1', { limit: 20 });
+    expect(res).toEqual({
+      success: true,
+      data: [expect.objectContaining({ id: 'm1', from: '+14045551234' }), expect.objectContaining({ id: 'm0' })],
+      pagination: { nextCursor: undefined, count: 2 },
     });
   });
 

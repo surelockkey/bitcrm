@@ -27,6 +27,38 @@ export interface DealClientSearchInput {
   companyName?: string;
 }
 
+/** A job referenced by a conversation: its number for keywords, its roster for `assigned_only`. */
+export interface ConversationDealSearchInput {
+  id: string;
+  dealNumber?: string;
+  assignedTechIds?: string[];
+}
+
+/** The slice of a message the conversation mapper folds into the document body. */
+export interface ConversationMessageSearchInput {
+  id: string;
+  body?: string;
+  subject?: string;
+  dealId?: string;
+  createdAt: string;
+}
+
+/**
+ * What the conversation mapper needs beyond the stored conversation
+ * (messaging design §7.4): the party's live name and addresses (CRM or
+ * user-service), the last N messages of the feed, and the jobs the thread
+ * refers to. Resolved by the indexer / backfill; the conversation itself only
+ * stores `partyKind` + `partyId`, the addresses it was carried on, and ids.
+ */
+export interface ConversationSearchInput {
+  partyName?: string;
+  partyPhones?: string[];
+  partyEmails?: string[];
+  /** Newest first — the feed page the indexer read. */
+  messages?: ConversationMessageSearchInput[];
+  deals?: ConversationDealSearchInput[];
+}
+
 export interface TechnicianSearchInput {
   userId: string;
   firstName: string;

@@ -10,6 +10,8 @@ function makeDeps() {
     indexEntity: jest.fn().mockResolvedValue(undefined),
     remove: jest.fn().mockResolvedValue(undefined),
     findDealIdsBy: jest.fn().mockResolvedValue([]),
+    findConversationIdsByParty: jest.fn().mockResolvedValue([]),
+    findConversationIdsByDeal: jest.fn().mockResolvedValue([]),
   };
   const fetcher = { fetch: jest.fn().mockResolvedValue({ id: 'x' }) };
   const catalogNames = { invalidateCustomFields: jest.fn(), invalidate: jest.fn() };
