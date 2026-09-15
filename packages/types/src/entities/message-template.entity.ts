@@ -20,6 +20,8 @@ export interface MessageTemplate {
   messageFrom?: string;
   isDefault: boolean;
   channel: MessageTemplateChannel;
+  /** Free-text grouping for the picker ("Follow-up", "Pending"); optional. */
+  category?: string;
   /** Archived templates stay resolvable for history but leave the picker. */
   active: boolean;
   createdBy: string;
