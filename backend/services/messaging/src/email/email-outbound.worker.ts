@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { MESSAGE_STATUS_RANK, isTerminalMessageStatus, type Message, type MessageStatus } from '@bitcrm/types';
+import { ConversationsRepository } from '../conversations/conversations.repository';
 import { MessagesRepository, type MessageKey } from '../messages/messages.repository';
 import { OutboundEventsPublisher } from '../outbound/outbound-events';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
@@ -43,6 +44,8 @@ export class EmailOutboundWorker {
     private readonly events: OutboundEventsPublisher,
     @Inject(EMAIL_CONFIG) private readonly config: Pick<EmailConfig, 'awsRegion'>,
     @Optional() private readonly realtime?: RealtimePublisher,
+    /** M18: `ADDR#<email>` is written after a send so a fresh mail from the recipient routes back here. */
+    @Optional() private readonly conversations?: ConversationsRepository,
   ) {}
 
   async process(message: Message, job: MessageKey): Promise<void> {
@@ -128,6 +131,31 @@ export class EmailOutboundWorker {
       void this.events.messageSent({ ...message, from }, result.messageId);
     }
     void this.events.conversationUpdated(message.conversationId);
+    await this.ensureAddressPointer(message);
+  }
+
+  /**
+   * The inbound resolver routes a mail by `ADDR#<sender>` when it carries no
+   * reply token (a fresh mail rather than a reply). Outbound sends only
+   * pointed phones so far; point the email too, once, best effort.
+   */
+  private async ensureAddressPointer(message: Message): Promise<void> {
+    if (!this.conversations || !message.to) return;
+    try {
+      if (await this.conversations.getByAddress(message.to)) return;
+      const conversation = await this.conversations.get(message.conversationId);
+      if (!conversation) return;
+      await this.conversations.putAddressPointer({
+        address: message.to,
+        conversationId: conversation.id,
+        partyKind: conversation.partyKind,
+        partyId: conversation.partyId,
+        source: conversation.partyKind === 'none' ? 'manual' : 'crm',
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.logger.warn(`ADDR#${message.to} not written: ${error instanceof Error ? error.message : error}`);
+    }
   }
 
   private async failedOrRetry(message: Message, job: MessageKey, error: unknown): Promise<void> {

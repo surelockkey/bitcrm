@@ -1,0 +1,41 @@
+From: =?UTF-8?B?0IbQstCw0L0g0J/QtdGC0YDQtdC90LrQvg==?= <ivan@client.example>
+To: office@example.com
+Cc: "Boss, The" <boss@client.example>
+Subject: =?UTF-8?Q?=D0=94=D0=BE=D0=B3=D0=BE=D0=B2=D1=96=D1=80?= =?UTF-8?Q?_=E2=84=96_12?=
+Message-ID: <ivan-1@client.example>
+Date: Tue, 15 Sep 2026 12:00:00 +0300
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed1"
+
+This is a multi-part message in MIME format (preamble).
+--mixed1
+Content-Type: multipart/alternative; boundary="alt1"
+
+--alt1
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+
+=D0=9F=D1=80=D0=B8=D0=B2=D1=96=D1=82, =D1=86=D0=B5 =D0=86=D0=B2=D0=B0=D0=BD.=0D=0A=D0=94=D0=BE=D0=B3=D0=BE=D0=B2=D1=96=D1=80 =D1=83 =D0=B2=D0=BA=D0=BB=D0=B0=D0=B4=D0=B5=D0=BD=D0=BD=D1=96.
+--alt1
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PHA+0J/RgNC40LLRltGCLCDRhtC1IDxiPtCG0LLQsNC9PC9iPi48L3A+PHA+
+0JTQvtCz0L7QstGW0YAg0YMg0LLQutC70LDQtNC10L3QvdGWLjwvcD48aW1nIHNyYz0iY2lkOmxv
+Z29AY2xpZW50Ij48L2JvZHk+PC9odG1sPg==
+--alt1--
+--mixed1
+Content-Type: application/pdf; name="=?UTF-8?B?0LTQvtCz0L7QstGW0YAucGRm?="
+Content-Disposition: attachment; filename*=UTF-8''%D0%B4%D0%BE%D0%B3%D0%BE%D0%B2%D1%96%D1%80%2E%70%64%66
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQgZmFrZQ==
+--mixed1
+Content-Type: image/png; name="logo.png"
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@client>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAAA
+--mixed1--
+epilogue text that must be ignored

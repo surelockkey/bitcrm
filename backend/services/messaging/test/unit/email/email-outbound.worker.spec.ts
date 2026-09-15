@@ -1,7 +1,7 @@
 import { type Message } from '@bitcrm/types';
 import { EMAIL_NOT_CONFIGURED_CODE, EmailOutboundWorker } from '../../../src/email/email-outbound.worker';
 import { type EmailSendResult, type OutboundEmail } from '../../../src/email/email-sender';
-import { createMockMessage, T1 } from '../mocks';
+import { createMockConversation, createMockMessage, T1 } from '../mocks';
 
 const job = { conversationId: 'c1', createdAt: T1, messageId: 'm2' };
 
@@ -31,6 +31,8 @@ function make(opts: {
   send?: EmailSendResult | Error;
   sender?: { from: string; fromHeader: string; replyTo?: string } | null;
   pointerNew?: boolean;
+  /** M18: ADDR# already points somewhere (no pointer written) or not. */
+  addressPointer?: { conversationId: string } | null;
 } = {}) {
   const message = opts.message === undefined ? queued() : opts.message;
   const messages = {
@@ -59,6 +61,11 @@ function make(opts: {
     conversationUpdated: jest.fn(async () => undefined),
   };
   const realtime = { messageUpserted: jest.fn() };
+  const conversations = {
+    getByAddress: jest.fn(async () => (opts.addressPointer === undefined ? null : opts.addressPointer)),
+    get: jest.fn(async () => createMockConversation({ id: 'c1', addresses: { phones: [], emails: ['jane@example.com'] } })),
+    putAddressPointer: jest.fn(async () => undefined),
+  };
   const worker = new EmailOutboundWorker(
     messages as any,
     emailMessages as any,
@@ -67,8 +74,9 @@ function make(opts: {
     events as any,
     { awsRegion: 'us-east-1' },
     realtime as any,
+    conversations as any,
   );
-  return { worker, messages, emailMessages, addresses, sender, events, realtime };
+  return { worker, messages, emailMessages, addresses, sender, events, realtime, conversations };
 }
 
 const sesError = (name: string, status: number, message = name) => Object.assign(new Error(message), { name, $metadata: { httpStatusCode: status } });
@@ -131,6 +139,30 @@ describe('EmailOutboundWorker.process — the happy path', () => {
     const { worker, sender } = make({ sender: { from: 'sales@example.com', fromHeader: '"Sales" <sales@example.com>' } });
     await worker.process(queued({ from: 'office@example.com' }), job);
     expect(sender.send.mock.calls[0][0]).toMatchObject({ from: 'office@example.com', fromHeader: 'office@example.com', replyTo: undefined });
+  });
+
+  it('points ADDR#<recipient> at the conversation after a send, once, so a fresh mail back routes here', async () => {
+    const first = make();
+    await first.worker.process(queued(), job);
+    expect(first.conversations.getByAddress).toHaveBeenCalledWith('jane@example.com');
+    expect(first.conversations.putAddressPointer).toHaveBeenCalledWith({
+      address: 'jane@example.com',
+      conversationId: 'c1',
+      partyKind: 'contact',
+      partyId: 'ct1',
+      source: 'crm',
+      updatedAt: expect.any(String),
+    });
+
+    const pointed = make({ addressPointer: { conversationId: 'c1' } });
+    await pointed.worker.process(queued(), job);
+    expect(pointed.conversations.putAddressPointer).not.toHaveBeenCalled();
+
+    // best effort: a failing pointer write never fails the send
+    const broken = make();
+    broken.conversations.putAddressPointer.mockRejectedValueOnce(new Error('dynamo down'));
+    await expect(broken.worker.process(queued(), job)).resolves.toBeUndefined();
+    expect(broken.messages.updateStatus).toHaveBeenCalledWith(job, expect.objectContaining({ status: 'sent' }));
   });
 
   it('does not re-publish message.sent when the PSID# pointer already existed', async () => {
