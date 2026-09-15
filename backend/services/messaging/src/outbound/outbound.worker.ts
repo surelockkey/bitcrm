@@ -10,6 +10,7 @@ import {
   type MessageStatus,
 } from '@bitcrm/types';
 import { MessagesRepository, type MessageKey } from '../messages/messages.repository';
+import { PendingStatusTracker } from '../messages/pending-status.tracker';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { OutboundAttachmentsService } from './attachments/attachments.service';
 import { OutboundEventsPublisher } from './outbound-events';
@@ -90,6 +91,8 @@ export class OutboundWorker {
     @Optional() private readonly realtime?: RealtimePublisher,
     /** M17: `email` jobs share the FIFO queue (one thread, one order) and are handed over here. */
     @Optional() private readonly email?: EmailOutboundWorker,
+    /** Lines handed to Twilio without a final status yet, for the status-sync poller (`reconcile/`). */
+    @Optional() private readonly pending?: PendingStatusTracker,
   ) {}
 
   /** The SQS handler (`eventType: message.send`). A malformed payload is dropped, not retried. */
@@ -215,6 +218,8 @@ export class OutboundWorker {
       const errorCode = result.errorCode ? String(result.errorCode) : undefined;
       await this.applyStatus(message, job, mapped, result.sid, errorCode, result.errorMessage);
     }
+    // Still short of a terminal status: the poller follows up should the callback never come.
+    if (!mapped || !isTerminalMessageStatus(mapped)) this.pending?.track(job);
 
     if (pointerNew) {
       this.logger.log(`Sent ${message.id} as ${result.sid} (${result.status})`);

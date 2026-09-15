@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { ResendMessageDto } from './dto/resend-message.dto';
 import { SendMessageDto, StartConversationMessageDto } from './dto/send-message.dto';
 import { ResolvedPerms } from './resolved-perms.decorator';
 import { SendService } from './send.service';
@@ -39,6 +40,34 @@ export class SendController {
     @ResolvedPerms() perms: ResolvedPermissions | undefined,
   ) {
     const data = await this.service.sendToConversation(id, dto, { user, perms });
+    return { success: true, data };
+  }
+
+  @Post('conversations/:id/messages/:messageId/resend')
+  @HttpCode(202)
+  @RequirePermission('messages', 'send')
+  @ApiOperation({
+    summary: 'Resend a failed message as a new one',
+    description:
+      '**Guard:** `messages.send`, with the same conversation rules as sending (`team_chat.send` + scope in a ' +
+      'team / group thread; under an `assigned_only` `messages` scope the caller must be on the message’s job). ' +
+      'Allowed only for an outbound SMS or email in `failed` / `undelivered` / `canceled` — anything else is 409. ' +
+      'Builds a NEW message copying channel, body, subject / HTML, attachments, job, template and recipient, the ' +
+      'sender re-resolved through the chain (the original number when the chain yields none), linked both ways ' +
+      '(`resentFromMessageId` on the copy, `resentAsMessageId` on the original), and sends it the normal way: an ' +
+      'opted-out recipient is refused with 422 `RECIPIENT_OPTED_OUT`, the copy is stored `queued`, handed to the ' +
+      'send worker and pushed over SSE. The body is optional: `clientMessageId` (uuid) makes a repeat return the ' +
+      'first copy; without it the key is `resend:<messageId>:<n>` so a double click sends once and a later click ' +
+      'sends again. `createdAt` (the message’s, as listed) skips the feed lookup. Answers 202 with the new message.',
+  })
+  async resend(
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @Body() dto: ResendMessageDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions | undefined,
+  ) {
+    const data = await this.service.resend(id, messageId, dto ?? {}, { user, perms });
     return { success: true, data };
   }
 
