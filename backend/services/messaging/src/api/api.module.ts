@@ -4,6 +4,9 @@ import { InboxCountersModule } from '../counters/inbox-counters.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { AccessModule } from './access/access.module';
+import { DomainEventsService } from './common/domain-events.service';
+import { ConversationManagementController } from './conversations/conversation-management.controller';
+import { ConversationManagementService } from './conversations/conversation-management.service';
 import { ConversationsController } from './conversations/conversations.controller';
 import { ConversationsService } from './conversations/conversations.service';
 import { CountersService } from './counters/counters.service';
@@ -17,8 +20,8 @@ import { MessagesService } from './messages/messages.service';
  */
 @Module({
   imports: [ConversationsModule, MessagesModule, InboxCountersModule, OptOutsModule, AccessModule],
-  controllers: [ConversationsController, MessagesController],
-  providers: [ConversationsService, MessagesService, CountersService],
-  exports: [ConversationsService, MessagesService, CountersService],
+  controllers: [ConversationsController, ConversationManagementController, MessagesController],
+  providers: [ConversationsService, ConversationManagementService, MessagesService, CountersService, DomainEventsService],
+  exports: [ConversationsService, ConversationManagementService, MessagesService, CountersService, DomainEventsService],
 })
 export class ApiModule {}
