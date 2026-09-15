@@ -12,6 +12,7 @@ import {
   MESSAGE_STATUS_RANK,
   type Conversation,
   type Message,
+  type MessageAttachment,
   type MessageStatus,
 } from '@bitcrm/types';
 import {
@@ -489,9 +490,55 @@ export class MessagesRepository {
     }
   }
 
-  // TODO(M10): updateAttachment(key, attachmentId, { status, s3Key, size }) —
-  // list_append-free rewrite of one `attachments[i]` after the media worker
-  // copies MMS media into S3.
+  /**
+   * The media worker's write (§4.6): `GetItem` to find the attachment's
+   * position, then `UpdateItem SET #attachments[i].#status = …, …` guarded by
+   * `#attachments[i].#id = :attachmentId` so a concurrent rewrite of the list
+   * cannot make the index land on a different file. Rewrites only the given
+   * fields of that one element — never the whole list. `false` when the
+   * message or the attachment is not there (or moved).
+   */
+  async updateAttachment(
+    key: MessageKey,
+    attachmentId: string,
+    patch: Partial<Pick<MessageAttachment, 'status' | 's3Key' | 'size' | 'fileName' | 'contentType'>>,
+    at: string = new Date().toISOString(),
+  ): Promise<boolean> {
+    const message = await this.get(key);
+    const index = message?.attachments?.findIndex((a) => a.id === attachmentId) ?? -1;
+    if (index < 0) return false;
+
+    const sets = ['#updatedAt = :at'];
+    const names: Record<string, string> = {
+      '#attachments': 'attachments',
+      '#id': 'id',
+      '#updatedAt': 'updatedAt',
+    };
+    const values: Record<string, unknown> = { ':attachmentId': attachmentId, ':at': at };
+    for (const [field, value] of Object.entries(patch)) {
+      if (value === undefined || value === null || value === '') continue;
+      names[`#${field}`] = field;
+      values[`:${field}`] = value;
+      sets.push(`#attachments[${index}].#${field} = :${field}`);
+    }
+
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: this.key(key),
+          UpdateExpression: `SET ${sets.join(', ')}`,
+          ConditionExpression: `attribute_exists(PK) AND #attachments[${index}].#id = :attachmentId`,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) return false;
+      throw err;
+    }
+  }
 
   // ----------------------------------------------------------------- reads
 
