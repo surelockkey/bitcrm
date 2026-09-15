@@ -208,6 +208,10 @@ module "sns_sqs" {
     # call.started / call.completed / call.recording_ready from telephony-service.
     # No consumers yet — the live calls UI is fed by SSE, not SNS (see EVENTS.md).
     call-events = {}
+    # message.received / message.sent / message.status_changed /
+    # conversation.updated / opt_out.changed from messaging-service. Search
+    # consumes conversation.updated; the inbox UI itself is fed by SSE.
+    message-events = {}
   }
 
   queues = {
@@ -228,7 +232,30 @@ module "sns_sqs" {
     }
     # Global search CQRS index: one queue fanned out from every domain topic.
     search-index = {
-      topic_subscriptions = ["deal-events", "contact-events", "user-events", "inventory-events"]
+      topic_subscriptions = ["deal-events", "contact-events", "user-events", "inventory-events", "message-events"]
+    }
+
+    # ---- messaging-service (SSM /sqs/<key>/url -> <KEY>_QUEUE_URL) ----
+    # Outbound SMS/MMS/email: the API accepts a message (202), the worker
+    # sends it. FIFO keeps one conversation's messages in order
+    # (MessageGroupId = conversationId) and dedupes on messageId. The Twilio
+    # call plus the "did the previous attempt already send it?" lookup can
+    # take well over the 30s default, so the visibility timeout is 90s — a
+    # redelivery mid-send is a duplicate SMS to a customer.
+    messaging-outbound = {
+      topic_subscriptions        = []
+      fifo                       = true
+      visibility_timeout_seconds = 90
+    }
+    # Inbound MMS: copy each media URL Twilio gives us into S3 (messaging/*,
+    # SSE-KMS) off the webhook's critical path. Filled by the service itself.
+    messaging-media = {
+      topic_subscriptions = []
+    }
+    # contact.merged / contact.updated from crm: rewrite CONVOF#/ADDR# rows so
+    # inbound texts keep landing on the right conversation.
+    contact-events-to-messaging = {
+      topic_subscriptions = ["contact-events"]
     }
   }
 }
