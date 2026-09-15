@@ -26,6 +26,16 @@ resource "aws_dynamodb_table" "this" {
     enabled = var.enable_pitr
   }
 
+  # Only rendered when a TTL attribute is named; an absent block is "TTL
+  # disabled" to the provider, which is what every existing table has.
+  dynamic "ttl" {
+    for_each = var.ttl_attribute == null ? [] : [var.ttl_attribute]
+    content {
+      attribute_name = ttl.value
+      enabled        = true
+    }
+  }
+
   tags = merge(var.tags, {
     Name = var.name
   })

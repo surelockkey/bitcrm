@@ -162,6 +162,16 @@ if [ "$RUN_UNIT" = true ]; then
     "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
     "unit"
 
+  # messaging-service ships separately from its infra; skip rather than fail
+  # on a checkout that does not have it yet.
+  if [ -d "$BACKEND_DIR/services/messaging" ]; then
+    run_tests \
+      "messaging-service" \
+      "$BACKEND_DIR/services/messaging" \
+      "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
+      "unit"
+  fi
+
   # Config, not code: fails if a service exists that nothing scrapes or probes.
   print_section "monitoring coverage" "$BACKEND_DIR/monitoring"
   if node "$BACKEND_DIR/scripts/verify-monitoring.mjs" > /dev/null 2>&1; then
@@ -300,6 +310,39 @@ ensure_test_infra() {
     --endpoint-url http://localhost:8001 --region us-east-1 \
     --no-cli-pager 2>/dev/null || true
 
+  # Reset messaging test table (same six GSIs as infra/dev/data_plane.tf)
+  echo -e "  ${DIM}Resetting messaging test database...${NC}"
+  aws dynamodb delete-table --table-name BitCRM_Messaging_Test \
+    --endpoint-url http://localhost:8001 --region us-east-1 \
+    --no-cli-pager 2>/dev/null || true
+  aws dynamodb create-table --table-name BitCRM_Messaging_Test \
+    --key-schema AttributeName=PK,KeyType=HASH AttributeName=SK,KeyType=RANGE \
+    --attribute-definitions \
+      AttributeName=PK,AttributeType=S \
+      AttributeName=SK,AttributeType=S \
+      AttributeName=GSI1PK,AttributeType=S \
+      AttributeName=GSI1SK,AttributeType=S \
+      AttributeName=GSI2PK,AttributeType=S \
+      AttributeName=GSI2SK,AttributeType=S \
+      AttributeName=GSI3PK,AttributeType=S \
+      AttributeName=GSI3SK,AttributeType=S \
+      AttributeName=GSI4PK,AttributeType=S \
+      AttributeName=GSI4SK,AttributeType=S \
+      AttributeName=GSI5PK,AttributeType=S \
+      AttributeName=GSI5SK,AttributeType=S \
+      AttributeName=GSI6PK,AttributeType=S \
+      AttributeName=GSI6SK,AttributeType=S \
+    --global-secondary-indexes \
+      'IndexName=InboxIndex,KeySchema=[{AttributeName=GSI1PK,KeyType=HASH},{AttributeName=GSI1SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=UnreadIndex,KeySchema=[{AttributeName=GSI2PK,KeyType=HASH},{AttributeName=GSI2SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=CategoryIndex,KeySchema=[{AttributeName=GSI3PK,KeyType=HASH},{AttributeName=GSI3SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=JobIndex,KeySchema=[{AttributeName=GSI4PK,KeyType=HASH},{AttributeName=GSI4SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=FlagIndex,KeySchema=[{AttributeName=GSI5PK,KeyType=HASH},{AttributeName=GSI5SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+      'IndexName=AccountCategoryIndex,KeySchema=[{AttributeName=GSI6PK,KeyType=HASH},{AttributeName=GSI6SK,KeyType=RANGE}],Projection={ProjectionType=ALL}' \
+    --billing-mode PAY_PER_REQUEST \
+    --endpoint-url http://localhost:8001 --region us-east-1 \
+    --no-cli-pager 2>/dev/null || true
+
   # Flush Redis test data
   # Tests use a dedicated Redis logical DB (15) so they never touch dev data (DB 0)
   redis-cli -n 15 FLUSHDB 2>/dev/null || true
@@ -336,6 +379,14 @@ if [ "$RUN_INTEGRATION" = true ]; then
     "$BACKEND_DIR/services/deal" \
     "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
     "integration"
+
+  if [ -f "$BACKEND_DIR/services/messaging/test/integration/jest-integration.json" ]; then
+    run_tests \
+      "messaging-service" \
+      "$BACKEND_DIR/services/messaging" \
+      "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
+      "integration"
+  fi
 fi
 
 # ═══════════════════════════════════════
@@ -369,6 +420,14 @@ if [ "$RUN_E2E" = true ]; then
     "$BACKEND_DIR/services/deal" \
     "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
     "e2e"
+
+  if [ -f "$BACKEND_DIR/services/messaging/test/e2e/jest-e2e.json" ]; then
+    run_tests \
+      "messaging-service" \
+      "$BACKEND_DIR/services/messaging" \
+      "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
+      "e2e"
+  fi
 fi
 
 # ═══════════════════════════════════════

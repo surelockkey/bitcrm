@@ -4,6 +4,9 @@ locals {
 
 # ---------- DynamoDB table names ----------
 
+# One parameter per table in local.ddb_tables, e.g.
+# /bitcrm/dev/dynamodb/messaging/table-name — which render-taskdef.sh turns into
+# DYNAMODB_MESSAGING_TABLE_NAME and the alias MESSAGING_TABLE the service reads.
 resource "aws_ssm_parameter" "ddb_table_name" {
   for_each = module.ddb
 

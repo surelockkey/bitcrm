@@ -15,6 +15,14 @@ locals {
       }
     }
   ]...)
+
+  # Only queues fed by SNS need a queue policy; a policy whose ArnEquals
+  # condition has no ARNs is rejected by SQS.
+  sns_fed_queues = { for k, q in var.queues : k => q if length(q.topic_subscriptions) > 0 }
+
+  # AWS requires the .fifo suffix on FIFO queue names, DLQs included.
+  queue_names = { for k, q in var.queues : k => q.fifo ? "${local.name_prefix}-${k}.fifo" : "${local.name_prefix}-${k}" }
+  dlq_names   = { for k, q in var.queues : k => q.fifo ? "${local.name_prefix}-${k}-dlq.fifo" : "${local.name_prefix}-${k}-dlq" }
 }
 
 # ---------- Topics ----------
@@ -34,20 +42,22 @@ resource "aws_sns_topic" "this" {
 resource "aws_sqs_queue" "dlq" {
   for_each = var.queues
 
-  name                       = "${local.name_prefix}-${each.key}-dlq"
+  name                       = local.dlq_names[each.key]
+  fifo_queue                 = each.value.fifo
   message_retention_seconds  = 1209600 # 14 days
   visibility_timeout_seconds = 30
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-${each.key}-dlq"
+    Name = local.dlq_names[each.key]
   })
 }
 
 resource "aws_sqs_queue" "main" {
   for_each = var.queues
 
-  name                       = "${local.name_prefix}-${each.key}"
-  visibility_timeout_seconds = 30
+  name                       = local.queue_names[each.key]
+  fifo_queue                 = each.value.fifo
+  visibility_timeout_seconds = each.value.visibility_timeout_seconds
   message_retention_seconds  = 345600 # 4 days
 
   redrive_policy = jsonencode({
@@ -56,7 +66,7 @@ resource "aws_sqs_queue" "main" {
   })
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-${each.key}"
+    Name = local.queue_names[each.key]
   })
 }
 
@@ -74,7 +84,7 @@ resource "aws_sns_topic_subscription" "main" {
 
 # Allow each topic to send to the queues subscribed to it
 data "aws_iam_policy_document" "queue_from_sns" {
-  for_each = var.queues
+  for_each = local.sns_fed_queues
 
   statement {
     sid    = "AllowSNS"
@@ -97,7 +107,7 @@ data "aws_iam_policy_document" "queue_from_sns" {
 }
 
 resource "aws_sqs_queue_policy" "main" {
-  for_each = var.queues
+  for_each = local.sns_fed_queues
 
   queue_url = aws_sqs_queue.main[each.key].id
   policy    = data.aws_iam_policy_document.queue_from_sns[each.key].json

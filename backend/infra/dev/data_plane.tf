@@ -36,13 +36,34 @@ locals {
     ] }
     # Call groups: PK='GROUP', SK='GROUP#<id>' — one partition holds every
     # group, so listing is a single Query. Tens of items, never thousands.
-    call-groups      = { gsis = [] }
+    call-groups = { gsis = [] }
     # Call flows: what a caller hears before anyone answers. Same shape as
     # call-groups — PK='FLOW', one Query lists them all.
     call-flows       = { gsis = [] }
     deal-products    = { gsis = [] }
     timeline-entries = { gsis = [] }
     addresses        = { gsis = [] } # currently unused by code, kept for parity
+    # Messaging inbox (messaging-service): conversations CONV#<id>/METADATA,
+    # messages CONV#<id>/MSG#<createdAt>#<msgId>, plus lookup rows (CONVOF#,
+    # ADDR#, PSID#, CLIENTMSG#, OPTOUT#, TEMPLATE#). There is deliberately no
+    # global message index — every inbox view is its own partition, split by
+    # year, so no key ever holds the whole 2.3M-message history (the CALL#ALL
+    # lesson). GSI2, GSI4, GSI5 and GSI6 are sparse: only unread / job-linked /
+    # flagged / categorised rows carry those keys.
+    messaging = {
+      gsis = [
+        { name = "InboxIndex", n = 1 },           # INBOX#<open|archived>#<YYYY> / <lastMessageAt>#<conversationId>
+        { name = "UnreadIndex", n = 2 },          # UNREAD#<YYYY> — open unread conversations only
+        { name = "CategoryIndex", n = 3 },        # CAT#<kind>#<YYYY>; also CATALOG#MESSAGE_TEMPLATE for templates
+        { name = "JobIndex", n = 4 },             # JOB#<dealId> / <createdAt>#<messageId> — messages of a job
+        { name = "FlagIndex", n = 5 },            # FLAG#conversation, FLAG#message#<YYYY>
+        { name = "AccountCategoryIndex", n = 6 }, # ACCTCAT#<categoryId>#<YYYY>
+      ]
+      # First TTL use in BitCRM: CLIENTMSG# idempotency rows expire after 7 days.
+      ttl_attribute = "expiresAt"
+      # 2.3M imported messages with no other copy once the Workiz account closes.
+      enable_pitr = true
+    }
   }
 
   data_plane_tags = {
@@ -82,6 +103,11 @@ module "ddb" {
       projection_type = "ALL"
     }
   ]
+
+  # Per-table opt-ins; tables that don't set them keep the module defaults
+  # (no TTL, PITR off), so this adds nothing to their plan.
+  ttl_attribute = try(each.value.ttl_attribute, null)
+  enable_pitr   = try(each.value.enable_pitr, false)
 
   tags = local.data_plane_tags
 }
@@ -182,6 +208,10 @@ module "sns_sqs" {
     # call.started / call.completed / call.recording_ready from telephony-service.
     # No consumers yet — the live calls UI is fed by SSE, not SNS (see EVENTS.md).
     call-events = {}
+    # message.received / message.sent / message.status_changed /
+    # conversation.updated / opt_out.changed from messaging-service. Search
+    # consumes conversation.updated; the inbox UI itself is fed by SSE.
+    message-events = {}
   }
 
   queues = {
@@ -202,7 +232,30 @@ module "sns_sqs" {
     }
     # Global search CQRS index: one queue fanned out from every domain topic.
     search-index = {
-      topic_subscriptions = ["deal-events", "contact-events", "user-events", "inventory-events"]
+      topic_subscriptions = ["deal-events", "contact-events", "user-events", "inventory-events", "message-events"]
+    }
+
+    # ---- messaging-service (SSM /sqs/<key>/url -> <KEY>_QUEUE_URL) ----
+    # Outbound SMS/MMS/email: the API accepts a message (202), the worker
+    # sends it. FIFO keeps one conversation's messages in order
+    # (MessageGroupId = conversationId) and dedupes on messageId. The Twilio
+    # call plus the "did the previous attempt already send it?" lookup can
+    # take well over the 30s default, so the visibility timeout is 90s — a
+    # redelivery mid-send is a duplicate SMS to a customer.
+    messaging-outbound = {
+      topic_subscriptions        = []
+      fifo                       = true
+      visibility_timeout_seconds = 90
+    }
+    # Inbound MMS: copy each media URL Twilio gives us into S3 (messaging/*,
+    # SSE-KMS) off the webhook's critical path. Filled by the service itself.
+    messaging-media = {
+      topic_subscriptions = []
+    }
+    # contact.merged / contact.updated from crm: rewrite CONVOF#/ADDR# rows so
+    # inbound texts keep landing on the right conversation.
+    contact-events-to-messaging = {
+      topic_subscriptions = ["contact-events"]
     }
   }
 }

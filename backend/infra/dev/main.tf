@@ -44,6 +44,10 @@ locals {
     # Twilio calls this one directly (voice webhooks under /api/telephony/voice),
     # so the rule must stay public — auth is the X-Twilio-Signature guard.
     telephony = { port = 4006, priority = 600, path_pattern = "/api/telephony/*" }
+    # Same deal: Twilio posts inbound SMS and delivery statuses to
+    # /api/messaging/webhooks/twilio/*, authenticated by signature, so this
+    # rule is public too.
+    messaging = { port = 4007, priority = 700, path_pattern = "/api/messaging/*" }
   }
 }
 
