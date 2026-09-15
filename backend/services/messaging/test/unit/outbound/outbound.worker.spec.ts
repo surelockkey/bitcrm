@@ -73,6 +73,7 @@ function makeWorker(opts: {
       (m.attachments ?? []).filter((a) => a.status === 'stored' && a.s3Key).map((a) => `https://s3/get/${a.s3Key}`),
     ),
   };
+  const pending = { track: jest.fn() };
   const worker = new OutboundWorker(
     messages as any,
     outbound as any,
@@ -83,8 +84,9 @@ function makeWorker(opts: {
     attachments as any,
     undefined,
     opts.email as any,
+    pending as any,
   );
-  return { worker, messages, outbound, optOuts, events, api, attachments };
+  return { worker, messages, outbound, optOuts, events, api, attachments, pending };
 }
 
 const twilioError = (status: number, code: number, message: string) => Object.assign(new Error(message), { status, code });
@@ -260,6 +262,36 @@ describe('OutboundWorker.process — idempotency', () => {
     await worker.process(job);
     expect(events.messageSent).not.toHaveBeenCalled();
     expect(events.conversationUpdated).toHaveBeenCalled();
+  });
+});
+
+describe('OutboundWorker.process — the pending-status set (status-sync poller)', () => {
+  it('remembers a line Twilio accepted without a terminal status, so the poller can follow up', async () => {
+    const { worker, pending } = makeWorker();
+    await worker.process(job);
+    expect(pending.track).toHaveBeenCalledWith(job);
+
+    const sent = makeWorker({ create: accepted({ status: 'sent' }) });
+    await sent.worker.process(job);
+    expect(sent.pending.track).toHaveBeenCalledWith(job);
+
+    const adopted = makeWorker({
+      message: queued({ status: 'sending', sendingStartedAt: '2026-09-15T10:05:00.500Z' }),
+      claim: false,
+      list: [accepted({ sid: 'SM1st', dateCreated: new Date('2026-09-15T10:05:00.900Z') })],
+    });
+    await adopted.worker.process(job);
+    expect(adopted.pending.track).toHaveBeenCalledWith(job);
+  });
+
+  it('does not remember a line whose create response was already terminal, nor a refused one', async () => {
+    const failed = makeWorker({ create: accepted({ status: 'failed', errorCode: 21408 }) });
+    await failed.worker.process(job);
+    expect(failed.pending.track).not.toHaveBeenCalled();
+
+    const refused = makeWorker({ create: twilioError(400, 21211, "The 'To' number is not a valid phone number.") });
+    await refused.worker.process(job);
+    expect(refused.pending.track).not.toHaveBeenCalled();
   });
 });
 

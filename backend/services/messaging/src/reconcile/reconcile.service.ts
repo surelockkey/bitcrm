@@ -5,17 +5,28 @@ import { SnsPublisherService, TwilioRest, tryNormalizePhone } from '@bitcrm/shar
 import {
   MESSAGE_EVENT_TOPIC,
   MESSAGE_STATUSES,
+  MESSAGE_STATUS_RANK,
   MessageEventType,
+  isSmsChannel,
+  isTerminalMessageStatus,
   type ConversationUpdatedEvent,
   type Message,
   type MessageAttachment,
   type MessageStatus,
+  type MessageStatusChangedEvent,
 } from '@bitcrm/types';
 import { parseMessageSk } from '../common/constants/dynamo.constants';
 import { InboundService } from '../inbound/inbound.service';
 import { mediaFileName, type InboundMedia, type InboundMessageInput } from '../inbound/twilio-inbound.payload';
 import { MediaQueueService } from '../media/media-queue.service';
-import { MessagesRepository, type MessageKey } from '../messages/messages.repository';
+import {
+  MessagesRepository,
+  type MessageKey,
+  type ProviderSidPointer,
+  type StatusUpdate,
+} from '../messages/messages.repository';
+import { describeTwilioError, mapTwilioStatus } from '../outbound/twilio-error.map';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 
 export interface ReconcileWindow {
   /** ISO-8601; default 90 minutes before `until`. */
@@ -31,8 +42,13 @@ export interface ReconcileReport {
   until: string;
   /** Twilio records in the window. */
   scanned: number;
-  /** Already known by `PSID#` — the normal case. */
+  /** Already known by `PSID#` and at least as far along as Twilio says — the normal case. */
   skipped: number;
+  /**
+   * Known by `PSID#` but Twilio's status outranked ours (a status callback
+   * never arrived): the status was written as the callback would have.
+   */
+  synced: number;
   inbound: { inserted: number; duplicates: number };
   outbound: {
     inserted: number;
@@ -66,6 +82,27 @@ export function fromTwilioStatus(status: string | undefined): MessageStatus {
   return (MESSAGE_STATUSES as readonly string[]).includes(status) ? (status as MessageStatus) : 'queued';
 }
 
+/** What `syncMessage` found (and the hourly run counts under `synced` / `skipped`). */
+export type MessageSyncOutcome =
+  /** Twilio's status outranked ours and was written. */
+  | 'synced'
+  /** Nothing newer at Twilio (or a callback got there first). */
+  | 'unchanged'
+  /** No such message. */
+  | 'not_found'
+  /** Not at Twilio yet — a `queued` line the worker has not sent, or one that died before the sid was recorded. */
+  | 'no_provider_sid'
+  /** Not an outbound Twilio SMS of this account (inbound, email, in-app, imported history). */
+  | 'not_syncable';
+
+export interface MessageSyncResult {
+  outcome: MessageSyncOutcome;
+  /** The line as it is after the call (absent on `not_found`). */
+  message?: Message;
+  /** Twilio's raw status when it was fetched. */
+  providerStatus?: string;
+}
+
 /**
  * Reconciliation with Twilio's message log (design M8, §4.9): list the
  * account's messages for a window, both directions, and insert what is
@@ -81,7 +118,17 @@ export function fromTwilioStatus(status: string | undefined): MessageStatus {
  *   outbound → first an "adopt": an outbound line in the recipient's conversation
  *              with the same body and no sid within ±15 min gets the sid and
  *              Twilio's status; otherwise a new line (`origin: system`) with
- *              Twilio's status, in the conversation the recipient resolves to.
+ *              Twilio's status, in the conversation the recipient resolves to;
+ *   known    → an outbound line that already carries the sid is compared with
+ *              Twilio's status: when Twilio is further along (`delivered`,
+ *              `failed 21408`…) and the status callback never made it — a
+ *              developer machine Twilio cannot reach, a lost webhook — the
+ *              status is written exactly as the callback would have written it
+ *              (rank guard, error text, `message.status_changed`, realtime).
+ *
+ * `syncMessage` is the same comparison for one line, fetching its sid from
+ * Twilio: the internal `POST /internal/reconcile/message` and the opt-in
+ * in-process poller (`StatusSyncPoller`) both go through it.
  */
 @Injectable()
 export class ReconcileService {
@@ -93,6 +140,7 @@ export class ReconcileService {
     private readonly messages: MessagesRepository,
     private readonly mediaQueue: MediaQueueService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   async run(window: ReconcileWindow = {}, now: Date = new Date()): Promise<ReconcileReport> {
@@ -107,6 +155,7 @@ export class ReconcileService {
       until: until.toISOString(),
       scanned: 0,
       skipped: 0,
+      synced: 0,
       inbound: { inserted: 0, duplicates: 0 },
       outbound: { inserted: 0, adopted: 0, duplicates: 0 },
       failed: 0,
@@ -129,8 +178,9 @@ export class ReconcileService {
     for (const record of records) {
       if (!record.sid) continue;
       try {
-        if (await this.messages.getProviderSidPointer(record.sid)) {
-          report.skipped++;
+        const pointer = await this.messages.getProviderSidPointer(record.sid);
+        if (pointer) {
+          report[await this.syncKnown(pointer, record, at)]++;
           continue;
         }
         if (record.direction === 'inbound') {
@@ -149,11 +199,127 @@ export class ReconcileService {
     }
 
     this.logger.log(
-      `Reconciled: ${report.scanned} scanned, ${report.skipped} known, ` +
+      `Reconciled: ${report.scanned} scanned, ${report.skipped} known, ${report.synced} status-synced, ` +
         `${report.inbound.inserted} inbound + ${report.outbound.inserted} outbound inserted, ` +
         `${report.outbound.adopted} adopted, ${report.failed} failed`,
     );
     return report;
+  }
+
+  // ------------------------------------------------------------ status sync
+
+  /**
+   * One outbound line against Twilio (`messages(sid).fetch()`): the targeted
+   * form of the known-sid step of `run`, for the internal route and the
+   * in-process poller. A line already at a terminal rank (or `read`) is not
+   * looked up — Twilio has nothing newer to say about it.
+   */
+  async syncMessage(key: MessageKey, now: Date = new Date()): Promise<MessageSyncResult> {
+    const message = await this.messages.get(key);
+    if (!message) return { outcome: 'not_found' };
+    if (!this.isSyncable(message)) return { outcome: 'not_syncable', message };
+    if (!message.providerSid) return { outcome: 'no_provider_sid', message };
+    if (MESSAGE_STATUS_RANK[message.status] >= MESSAGE_STATUS_RANK.delivered) return { outcome: 'unchanged', message };
+
+    const sid = message.providerSid;
+    const record = await this.twilioRest.run((client) => client.messages(sid).fetch());
+    return this.applyProviderStatus(message, key, record, now.toISOString());
+  }
+
+  /**
+   * The known-sid step of `run`: Twilio's record for a line we already have.
+   * Inbound records never change; an outbound one is read only when Twilio's
+   * status could outrank anything a sent line holds (`sent` and up), so the
+   * normal case — everything delivered and known — costs one read per record.
+   */
+  private async syncKnown(pointer: ProviderSidPointer, record: MessageInstance, at: string): Promise<'synced' | 'skipped'> {
+    if (record.direction === 'inbound') return 'skipped';
+    const mapped = mapTwilioStatus(record.status);
+    if (!mapped || MESSAGE_STATUS_RANK[mapped] <= MESSAGE_STATUS_RANK.sending) return 'skipped';
+
+    const message = await this.messages.getBySk(pointer.conversationId, pointer.messageSk);
+    if (!message || !this.isSyncable(message)) return 'skipped';
+    const key: MessageKey = { conversationId: pointer.conversationId, ...parseMessageSk(pointer.messageSk) };
+    const result = await this.applyProviderStatus(message, key, record, at);
+    return result.outcome === 'synced' ? 'synced' : 'skipped';
+  }
+
+  /** An outbound Twilio SMS of this account — what a status callback could have updated. */
+  private isSyncable(message: Message): boolean {
+    return (
+      message.direction === 'outbound' &&
+      isSmsChannel(message.channel) &&
+      (message.provider ?? 'twilio') === 'twilio' &&
+      !message.providerAccount
+    );
+  }
+
+  /**
+   * Twilio's record against the stored line: when the mapped status outranks
+   * ours, write it under the same rank + sid guard the status callback uses
+   * (`StatusCallbackService`), with the error text `describeTwilioError`
+   * gives, and tell the same listeners — `message.status_changed` on a
+   * terminal status, `conversation.updated`, and the browsers over realtime.
+   */
+  private async applyProviderStatus(
+    message: Message,
+    key: MessageKey,
+    record: Pick<MessageInstance, 'sid' | 'status' | 'errorCode' | 'errorMessage' | 'numSegments' | 'dateSent' | 'dateUpdated'>,
+    at: string,
+  ): Promise<MessageSyncResult> {
+    const providerStatus = record.status;
+    const status = mapTwilioStatus(providerStatus);
+    if (!status || MESSAGE_STATUS_RANK[status] <= MESSAGE_STATUS_RANK[message.status]) {
+      return { outcome: 'unchanged', message, providerStatus };
+    }
+
+    const errorCode = record.errorCode ? String(record.errorCode) : undefined;
+    const update: StatusUpdate = {
+      status,
+      providerSid: record.sid,
+      errorCode,
+      errorMessage: errorCode ? describeTwilioError(errorCode, record.errorMessage) : undefined,
+      segments: Number(record.numSegments) || undefined,
+      sentAt: record.dateSent?.toISOString(),
+      deliveredAt: status === 'delivered' ? record.dateUpdated?.toISOString() : undefined,
+      at,
+    };
+    const applied = await this.messages.updateStatus(key, update);
+    if (!applied) {
+      // A callback (or another instance) got there first: the rank guard kept its write.
+      this.logger.debug(`Status ${status} from Twilio for ${record.sid} ignored (already at least there)`);
+      return { outcome: 'unchanged', message, providerStatus };
+    }
+
+    const updated: Message = {
+      ...message,
+      status,
+      providerSid: record.sid,
+      errorCode: errorCode ?? message.errorCode,
+      errorMessage: update.errorMessage ?? message.errorMessage,
+      segments: update.segments ?? message.segments,
+      sentAt: update.sentAt ?? message.sentAt ?? (status === 'sent' ? at : undefined),
+      deliveredAt: update.deliveredAt ?? message.deliveredAt ?? (status === 'delivered' ? at : undefined),
+      updatedAt: at,
+    };
+    this.logger.log(`Synced ${record.sid} (${key.conversationId}/${key.messageId}) ${message.status} → ${status}${errorCode ? ` ${errorCode}` : ''} from Twilio`);
+    if (isTerminalMessageStatus(status)) this.announceStatus(key, status, errorCode);
+    this.announce(key.conversationId);
+    this.realtime?.messageUpserted(updated, undefined, at);
+    return { outcome: 'synced', message: updated, providerStatus };
+  }
+
+  /** `message.status_changed`, as the status callback publishes it (EVENTS.md). */
+  private announceStatus(key: MessageKey, status: MessageStatus, errorCode: string | undefined): void {
+    const payload: MessageStatusChangedEvent = {
+      messageId: key.messageId,
+      conversationId: key.conversationId,
+      status,
+      ...(errorCode ? { errorCode } : {}),
+    };
+    this.snsPublisher
+      ?.publish<MessageStatusChangedEvent>(MESSAGE_EVENT_TOPIC, MessageEventType.MESSAGE_STATUS_CHANGED, payload)
+      .catch((err) => this.logger.warn(`SNS publish message.status_changed failed: ${err instanceof Error ? err.message : err}`));
   }
 
   // --------------------------------------------------------------- inbound

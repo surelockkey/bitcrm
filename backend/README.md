@@ -149,9 +149,20 @@ Set by the renderer, not SSM: `MESSAGING_SERVICE_PORT=4007`, `SERVICE_NAME=messa
    An empty body reconciles the last 90 minutes (overlapping runs are
    harmless — every write is keyed by the Twilio SID). After an outage pass
    `{"since": "<ISO>", "until": "<ISO>", "limit": 10000}` for the gap. The
-   response reports `scanned`, `skipped` (already known), `inbound` /
-   `outbound` inserts, `adopted` (an outbound line whose sid was lost
-   mid-send) and `errors` per sid. Alert on `failed > 0`.
+   response reports `scanned`, `skipped` (already known and up to date),
+   `synced` (known, but Twilio's status outranked ours — a lost status
+   callback; written as the callback would have), `inbound` / `outbound`
+   inserts, `adopted` (an outbound line whose sid was lost mid-send) and
+   `errors` per sid. Alert on `failed > 0`.
+
+   One line at a time: `POST …/internal/reconcile/message` with
+   `{"conversationId", "createdAt", "messageId"}` fetches that message's
+   sid from Twilio and applies the same comparison (answers `synced` /
+   `unchanged` / `no_provider_sid` / `not_syncable`, 404 when unknown).
+   On a machine Twilio cannot call back (no `PUBLIC_BASE_URL`), set
+   `MESSAGING_STATUS_SYNC_INTERVAL_SECONDS` (e.g. `30`) and the service
+   polls Twilio itself for the messages it sent that are older than 60 s
+   and still short of a terminal status; off by default.
 
 Rollback is the usual `aws ecs update-service … --task-definition <previous>`;
 nothing else reads the messaging table. `search` consumes `message-events`

@@ -34,6 +34,10 @@ function twilioMessage(over: Record<string, unknown> = {}) {
   };
 }
 
+/** Where the `PSID#` pointer of a known sid points (the stored line of the status-sync tests). */
+const KNOWN_SK = 'MSG#2026-09-15T10:58:00.000Z#m-out';
+const KNOWN_KEY = { conversationId: 'c1', createdAt: '2026-09-15T10:58:00.000Z', messageId: 'm-out' };
+
 function make(opts: {
   records?: unknown[];
   media?: Array<{ sid: string; contentType: string; uri: string }>;
@@ -42,11 +46,18 @@ function make(opts: {
   recent?: Message[];
   appendDuplicate?: { conversationId: string; messageSk: string };
   updateApplied?: boolean;
+  /** The line a `PSID#` pointer / a key resolves to (`get`, `getBySk`). */
+  stored?: Message | null;
+  /** What `client.messages(sid).fetch()` answers. */
+  fetched?: unknown;
 } = {}) {
   const conversation = createMockConversation({ id: 'c1' });
   const client = {
     messages: Object.assign(
-      jest.fn(() => ({ media: { list: jest.fn().mockResolvedValue(opts.media ?? []) } })),
+      jest.fn(() => ({
+        media: { list: jest.fn().mockResolvedValue(opts.media ?? []) },
+        fetch: jest.fn().mockResolvedValue(opts.fetched),
+      })),
       { list: jest.fn().mockResolvedValue(opts.records ?? []) },
     ),
   };
@@ -56,7 +67,11 @@ function make(opts: {
     locateConversation: jest.fn().mockResolvedValue({ conversation, created: false }),
   };
   const messages = {
-    getProviderSidPointer: jest.fn(async (sid: string) => ((opts.known ?? []).includes(sid) ? { providerSid: sid } : null)),
+    getProviderSidPointer: jest.fn(async (sid: string) =>
+      (opts.known ?? []).includes(sid) ? { providerSid: sid, conversationId: 'c1', messageSk: KNOWN_SK, createdAt: AT } : null,
+    ),
+    get: jest.fn(async () => opts.stored ?? null),
+    getBySk: jest.fn(async () => opts.stored ?? null),
     listByConversation: jest.fn().mockResolvedValue({ items: opts.recent ?? [] }),
     updateStatus: jest.fn().mockResolvedValue(opts.updateApplied ?? true),
     putProviderSidPointer: jest.fn().mockResolvedValue(true),
@@ -68,14 +83,16 @@ function make(opts: {
   };
   const mediaQueue = { enqueueMediaCopy: jest.fn().mockResolvedValue(true) };
   const sns = { publish: jest.fn().mockResolvedValue(undefined) };
+  const realtime = { messageUpserted: jest.fn() };
   const service = new ReconcileService(
     twilioRest as unknown as TwilioRest,
     inbound as unknown as InboundService,
     messages as unknown as MessagesRepository,
     mediaQueue as unknown as MediaQueueService,
     sns as never,
+    realtime as never,
   );
-  return { service, client, twilioRest, inbound, messages, mediaQueue, sns, conversation };
+  return { service, client, twilioRest, inbound, messages, mediaQueue, sns, realtime, conversation };
 }
 
 describe('fromTwilioStatus', () => {
@@ -299,5 +316,190 @@ describe('ReconcileService.run — outbound', () => {
       { conversationId: 'c1', createdAt: '2026-09-15T11:00:00.000Z', messageId: 'm-prev' },
       AT,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Known sid: the status sync (a status callback that never arrived)
+// ---------------------------------------------------------------------------
+const stored = (over: Partial<Message> = {}): Message =>
+  createMockMessage({
+    id: 'm-out',
+    direction: 'outbound',
+    status: 'sent',
+    from: OURS,
+    to: CLIENT,
+    body: 'On my way',
+    providerSid: 'SM-out',
+    origin: 'user',
+    sentByUserId: 'u1',
+    createdAt: '2026-09-15T10:58:00.000Z',
+    updatedAt: '2026-09-15T10:58:02.000Z',
+    ...over,
+  });
+
+const known = (over: Record<string, unknown> = {}) =>
+  twilioMessage({ sid: 'SM-out', direction: 'outbound-api', from: OURS, to: CLIENT, body: 'On my way', status: 'delivered', ...over });
+
+describe('ReconcileService.run — known sid, Twilio further along', () => {
+  it('writes Twilio’s status as the callback would have, publishes status_changed + conversation.updated, pushes realtime', async () => {
+    const { service, messages, inbound, sns, realtime } = make({ records: [known()], known: ['SM-out'], stored: stored() });
+    const report = await service.run({}, NOW);
+
+    expect(report).toMatchObject({ scanned: 1, skipped: 0, synced: 1, failed: 0, outbound: { inserted: 0, adopted: 0, duplicates: 0 } });
+    expect(inbound.locateConversation).not.toHaveBeenCalled();
+    expect(messages.appendOutbound).not.toHaveBeenCalled();
+    expect(messages.putProviderSidPointer).not.toHaveBeenCalled();
+    expect(messages.getBySk).toHaveBeenCalledWith('c1', KNOWN_SK);
+    expect(messages.updateStatus).toHaveBeenCalledWith(KNOWN_KEY, {
+      status: 'delivered',
+      providerSid: 'SM-out',
+      errorCode: undefined,
+      errorMessage: undefined,
+      segments: 1,
+      sentAt: '2026-09-15T11:00:01.000Z',
+      deliveredAt: '2026-09-15T11:00:05.000Z',
+      at: AT,
+    });
+    expect(sns.publish).toHaveBeenCalledWith('message-events', 'message.status_changed', { messageId: 'm-out', conversationId: 'c1', status: 'delivered' });
+    expect(sns.publish).toHaveBeenCalledWith('message-events', 'conversation.updated', { conversationId: 'c1' });
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'm-out', status: 'delivered', providerSid: 'SM-out', sentAt: '2026-09-15T11:00:01.000Z', deliveredAt: '2026-09-15T11:00:05.000Z', updatedAt: AT }),
+      undefined,
+      AT,
+    );
+  });
+
+  it('a failure carries the code and the readable text — 21408 geo permission, from Twilio’s words when it gives any', async () => {
+    const ours = make({ records: [known({ status: 'failed', errorCode: 21408, errorMessage: null })], known: ['SM-out'], stored: stored({ status: 'sending' }) });
+    expect(await ours.service.run({}, NOW)).toMatchObject({ synced: 1, skipped: 0 });
+    expect(ours.messages.updateStatus).toHaveBeenCalledWith(
+      KNOWN_KEY,
+      expect.objectContaining({ status: 'failed', errorCode: '21408', errorMessage: 'Sending to this region is not enabled on the account', deliveredAt: undefined }),
+    );
+    expect(ours.sns.publish).toHaveBeenCalledWith('message-events', 'message.status_changed', { messageId: 'm-out', conversationId: 'c1', status: 'failed', errorCode: '21408' });
+    expect(ours.realtime.messageUpserted).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', errorCode: '21408', errorMessage: 'Sending to this region is not enabled on the account' }), undefined, AT);
+
+    const theirs = make({
+      records: [known({ status: 'undelivered', errorCode: 30003, errorMessage: 'Unreachable destination handset' })],
+      known: ['SM-out'],
+      stored: stored(),
+    });
+    await theirs.service.run({}, NOW);
+    expect(theirs.messages.updateStatus).toHaveBeenCalledWith(KNOWN_KEY, expect.objectContaining({ status: 'undelivered', errorCode: '30003', errorMessage: 'Unreachable destination handset' }));
+  });
+
+  it('leaves a line alone when Twilio is not further along: same rank or behind is skipped, nothing written or published', async () => {
+    const same = make({ records: [known()], known: ['SM-out'], stored: stored({ status: 'delivered' }) });
+    expect(await same.service.run({}, NOW)).toMatchObject({ scanned: 1, skipped: 1, synced: 0 });
+    expect(same.messages.updateStatus).not.toHaveBeenCalled();
+    expect(same.sns.publish).not.toHaveBeenCalled();
+    expect(same.realtime.messageUpserted).not.toHaveBeenCalled();
+
+    const behind = make({ records: [known({ status: 'sent' })], known: ['SM-out'], stored: stored({ status: 'delivered' }) });
+    expect(await behind.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+    expect(behind.messages.updateStatus).not.toHaveBeenCalled();
+
+    // a terminal never yields to another terminal (failed stays failed)
+    const terminal = make({ records: [known({ status: 'delivered' })], known: ['SM-out'], stored: stored({ status: 'failed', errorCode: '30007' }) });
+    expect(await terminal.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+    expect(terminal.messages.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('does not even read the line when Twilio’s status could not outrank a sent one, nor for an inbound record', async () => {
+    const early = make({ records: [known({ status: 'sending' }), known({ sid: 'SM-q', status: 'queued' }), known({ sid: 'SM-a', status: 'accepted' })], known: ['SM-out', 'SM-q', 'SM-a'], stored: stored({ status: 'sending' }) });
+    expect(await early.service.run({}, NOW)).toMatchObject({ scanned: 3, skipped: 3, synced: 0 });
+    expect(early.messages.getBySk).not.toHaveBeenCalled();
+
+    const inbound = make({ records: [twilioMessage({ sid: 'SM-in' })], known: ['SM-in'], stored: stored() });
+    expect(await inbound.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+    expect(inbound.messages.getBySk).not.toHaveBeenCalled();
+    expect(inbound.inbound.ingest).not.toHaveBeenCalled();
+  });
+
+  it('skips a line that is not an outbound Twilio SMS of this account, or that the pointer no longer resolves', async () => {
+    const email = make({ records: [known()], known: ['SM-out'], stored: stored({ channel: 'email', provider: 'ses' }) });
+    expect(await email.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+    expect(email.messages.updateStatus).not.toHaveBeenCalled();
+
+    const imported = make({ records: [known()], known: ['SM-out'], stored: stored({ providerAccount: 'workiz' }) });
+    expect(await imported.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+
+    const gone = make({ records: [known()], known: ['SM-out'], stored: null });
+    expect(await gone.service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0, failed: 0 });
+    expect(gone.messages.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('when the callback won the race (rank guard refused the write) nothing is published and the line counts as skipped', async () => {
+    const { service, sns, realtime } = make({ records: [known()], known: ['SM-out'], stored: stored(), updateApplied: false });
+    expect(await service.run({}, NOW)).toMatchObject({ skipped: 1, synced: 0 });
+    expect(sns.publish).not.toHaveBeenCalled();
+    expect(realtime.messageUpserted).not.toHaveBeenCalled();
+  });
+
+  it('a failing sync counts as failed for that sid and the run goes on', async () => {
+    const { service, messages } = make({ records: [known(), twilioMessage({ sid: 'SM-new' })], known: ['SM-out'], stored: stored() });
+    messages.updateStatus.mockRejectedValueOnce(new Error('dynamo down'));
+    const report = await service.run({}, NOW);
+    expect(report).toMatchObject({ scanned: 2, failed: 1, synced: 0, inbound: { inserted: 1, duplicates: 0 } });
+    expect(report.errors).toEqual([{ sid: 'SM-out', error: 'dynamo down' }]);
+  });
+});
+
+describe('ReconcileService.syncMessage — one line by its sid', () => {
+  it('fetches the sid from Twilio and applies an outranking status, answering the line as it is now', async () => {
+    const { service, client, messages, sns, realtime } = make({
+      stored: stored({ status: 'sending' }),
+      fetched: known({ status: 'undelivered', errorCode: 30003, errorMessage: 'Unreachable destination handset' }),
+    });
+    const result = await service.syncMessage(KNOWN_KEY, NOW);
+
+    expect(messages.get).toHaveBeenCalledWith(KNOWN_KEY);
+    expect(client.messages).toHaveBeenCalledWith('SM-out');
+    expect(messages.updateStatus).toHaveBeenCalledWith(
+      KNOWN_KEY,
+      expect.objectContaining({ status: 'undelivered', providerSid: 'SM-out', errorCode: '30003', errorMessage: 'Unreachable destination handset', at: AT }),
+    );
+    expect(result).toMatchObject({
+      outcome: 'synced',
+      providerStatus: 'undelivered',
+      message: expect.objectContaining({ id: 'm-out', status: 'undelivered', errorCode: '30003', errorMessage: 'Unreachable destination handset', updatedAt: AT }),
+    });
+    expect(sns.publish).toHaveBeenCalledWith('message-events', 'message.status_changed', { messageId: 'm-out', conversationId: 'c1', status: 'undelivered', errorCode: '30003' });
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(result.message, undefined, AT);
+  });
+
+  it('answers unchanged when Twilio has nothing newer, and does not ask at all about a line already terminal', async () => {
+    const same = make({ stored: stored(), fetched: known({ status: 'sent' }) });
+    expect(await same.service.syncMessage(KNOWN_KEY, NOW)).toEqual({ outcome: 'unchanged', message: stored(), providerStatus: 'sent' });
+    expect(same.messages.updateStatus).not.toHaveBeenCalled();
+
+    const done = make({ stored: stored({ status: 'delivered' }) });
+    expect(await done.service.syncMessage(KNOWN_KEY, NOW)).toEqual({ outcome: 'unchanged', message: stored({ status: 'delivered' }) });
+    expect(done.client.messages).not.toHaveBeenCalled();
+    expect(done.twilioRest.run).not.toHaveBeenCalled();
+  });
+
+  it('answers not_found, no_provider_sid and not_syncable without calling Twilio', async () => {
+    const missing = make({ stored: null });
+    expect(await missing.service.syncMessage(KNOWN_KEY, NOW)).toEqual({ outcome: 'not_found' });
+
+    const unsent = make({ stored: stored({ status: 'queued', providerSid: undefined }) });
+    expect(await unsent.service.syncMessage(KNOWN_KEY, NOW)).toMatchObject({ outcome: 'no_provider_sid' });
+
+    const inbound = make({ stored: createMockMessage() });
+    expect(await inbound.service.syncMessage(KNOWN_KEY, NOW)).toMatchObject({ outcome: 'not_syncable' });
+    const email = make({ stored: stored({ channel: 'email', provider: 'ses', providerSid: '<id@ses>' }) });
+    expect(await email.service.syncMessage(KNOWN_KEY, NOW)).toMatchObject({ outcome: 'not_syncable' });
+    const inApp = make({ stored: stored({ channel: 'in_app', provider: undefined, providerSid: undefined }) });
+    expect(await inApp.service.syncMessage(KNOWN_KEY, NOW)).toMatchObject({ outcome: 'not_syncable' });
+
+    for (const { twilioRest } of [missing, unsent, inbound, email, inApp]) expect(twilioRest.run).not.toHaveBeenCalled();
+  });
+
+  it('lets a Twilio failure propagate (the caller decides whether to retry)', async () => {
+    const { service, client } = make({ stored: stored() });
+    client.messages.mockImplementationOnce(() => ({ media: { list: jest.fn() }, fetch: jest.fn().mockRejectedValue(new Error('Twilio 503')) }));
+    await expect(service.syncMessage(KNOWN_KEY, NOW)).rejects.toThrow('Twilio 503');
   });
 });
