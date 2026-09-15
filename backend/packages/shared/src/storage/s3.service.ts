@@ -14,6 +14,15 @@ export interface PresignedUploadOptions {
   kmsKeyId?: string;
 }
 
+/** A server-side write (a worker copying a file in), as opposed to a presigned browser PUT. */
+export interface PutObjectOptions {
+  contentType: string;
+  /** When set, the object is stored with SSE-KMS under this key. */
+  kmsKeyId?: string;
+  /** Free-form `x-amz-meta-*` pairs (provenance: source URL, provider sid…). */
+  metadata?: Record<string, string>;
+}
+
 @Injectable()
 export class S3Service {
   private readonly client: S3Client;
@@ -83,6 +92,33 @@ export class S3Service {
 
     const { url } = await this.getPresignedUpload(key, opts);
     return url;
+  }
+
+  /**
+   * Writes `body` straight from the service — what a queue worker does with a
+   * file it fetched from a provider (inbound MMS media, a raw webhook
+   * capture). Same SSE-KMS rule as the presigned uploads: pass `kmsKeyId` and
+   * the object is encrypted under it, omit it and the bucket default applies.
+   */
+  async putObject(
+    key: string,
+    body: Buffer | Uint8Array | string,
+    opts: PutObjectOptions,
+  ): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: opts.contentType,
+        ContentLength: typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength,
+        ...(opts.metadata && { Metadata: opts.metadata }),
+        ...(opts.kmsKeyId && {
+          ServerSideEncryption: 'aws:kms',
+          SSEKMSKeyId: opts.kmsKeyId,
+        }),
+      }),
+    );
   }
 
   async getPresignedDownloadUrl(key: string, expiresIn = 3600): Promise<string> {

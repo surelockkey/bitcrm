@@ -19,6 +19,7 @@ import { MessagesModule } from './messages/messages.module';
 import { OptOutsModule } from './opt-outs/opt-outs.module';
 import { MessageTemplatesModule } from './templates/message-templates.module';
 import { MessagingSettingsModule } from './settings/messaging-settings.module';
+import { InboundWebhooksModule } from './webhooks/inbound-webhooks.module';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
@@ -83,6 +84,7 @@ const CONTACT_EVENTS_QUEUE_URL = process.env.CONTACT_EVENTS_TO_MESSAGING_QUEUE_U
     OptOutsModule,
     MessageTemplatesModule,
     MessagingSettingsModule,
+    InboundWebhooksModule,
   ],
 })
 export class AppModule implements OnModuleInit {

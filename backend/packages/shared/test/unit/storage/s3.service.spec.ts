@@ -95,6 +95,39 @@ describe('S3Service', () => {
     });
   });
 
+  describe('putObject', () => {
+    it('writes the body with its length, content type, metadata and SSE-KMS', async () => {
+      mockSend.mockResolvedValue({});
+      await service.putObject('messaging/c1/m1/a1', Buffer.from('abc'), {
+        contentType: 'image/jpeg',
+        kmsKeyId: 'alias/docs',
+        metadata: { source: 'twilio' },
+      });
+      const { PutObjectCommand } = require('@aws-sdk/client-s3');
+      expect(PutObjectCommand).toHaveBeenCalledWith({
+        Bucket: 'test-bucket',
+        Key: 'messaging/c1/m1/a1',
+        Body: Buffer.from('abc'),
+        ContentType: 'image/jpeg',
+        ContentLength: 3,
+        Metadata: { source: 'twilio' },
+        ServerSideEncryption: 'aws:kms',
+        SSEKMSKeyId: 'alias/docs',
+      });
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves encryption to the bucket default without a key and measures strings in bytes', async () => {
+      mockSend.mockResolvedValue({});
+      await service.putObject('k', 'é', { contentType: 'application/json' });
+      const { PutObjectCommand } = require('@aws-sdk/client-s3');
+      const input = PutObjectCommand.mock.calls.at(-1)[0];
+      expect(input.ContentLength).toBe(2);
+      expect(input.ServerSideEncryption).toBeUndefined();
+      expect(input.Metadata).toBeUndefined();
+    });
+  });
+
   describe('deleteObject', () => {
     it('sends DeleteObjectCommand', async () => {
       mockSend.mockResolvedValue({});
