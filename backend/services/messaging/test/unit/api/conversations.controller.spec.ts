@@ -14,6 +14,7 @@ function make() {
     getByJob: jest.fn().mockResolvedValue(createMockConversation()),
     textLookup: jest.fn().mockResolvedValue({ conversation: null, optOut: null, canText: false }),
     getInternal: jest.fn().mockResolvedValue(createMockConversation()),
+    listInternal: jest.fn().mockResolvedValue({ items: [createMockConversation()], nextCursor: 'NEXT' }),
   } as unknown as ConversationsService;
   const counters = {
     get: jest.fn().mockResolvedValue({ unreadConversations: 1, flaggedConversations: 0, unreadByKind: {} }),
@@ -65,5 +66,15 @@ describe('ConversationsController', () => {
     const { controller, conversations } = make();
     expect((await controller.getInternal('c1')).data).toMatchObject({ id: 'c1' });
     expect(conversations.getInternal).toHaveBeenCalledWith('c1');
+  });
+
+  it('GET /conversations/internal/all answers the backfill shape { data: { items, nextCursor } }', async () => {
+    const { controller, conversations } = make();
+    const res = await controller.listInternal({ limit: 200, cursor: 'C1' });
+    expect(conversations.listInternal).toHaveBeenCalledWith({ limit: 200, cursor: 'C1' });
+    expect(res).toEqual({
+      success: true,
+      data: { items: [expect.objectContaining({ id: 'c1', addresses: { phones: ['+14045551234'], emails: [] } })], nextCursor: 'NEXT' },
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConversationScopeService } from '../../../src/api/access/conversation-scope.service';
 import { ConversationsService, matchesView } from '../../../src/api/conversations/conversations.service';
-import { decodeCursor, encodeCursor } from '../../../src/common/cursor';
+import { InvalidCursorError, decodeCursor, encodeCursor } from '../../../src/common/cursor';
 import { UnsupportedInboxFilterError } from '../../../src/conversations/conversations.repository';
 import { createMockConversation, createMockOptOut } from '../mocks';
 import {
@@ -233,6 +233,19 @@ describe('ConversationsService lookups', () => {
     await expect(svc.getInternal('c1')).rejects.toBeInstanceOf(NotFoundException);
     repo.get.mockResolvedValue(CLIENT);
     expect(await svc.getInternal('c1')).toBe(CLIENT);
+  });
+
+  it('listInternal walks the whole table raw, cursor passed through, bad cursor → 400', async () => {
+    const { svc, repo } = make();
+    repo.listAll.mockResolvedValue({ items: [CLIENT], nextCursor: 'C2' });
+
+    const page = await svc.listInternal({ limit: 200, cursor: 'C1' });
+    expect(repo.listAll).toHaveBeenCalledWith({ limit: 200, cursor: 'C1' });
+    expect(page).toEqual({ items: [CLIENT], nextCursor: 'C2' });
+    expect(page.items[0].addresses.phones).toEqual(['+14045551234']); // never masked
+
+    repo.listAll.mockRejectedValue(new InvalidCursorError());
+    await expect(svc.listInternal({ limit: 200, cursor: '%%%' })).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

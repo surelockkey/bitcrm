@@ -6,13 +6,15 @@ import { Internal } from '../access/internal.decorator';
 import { ResolvedPerms } from '../access/resolved-permissions.decorator';
 import { CountersService } from '../counters/counters.service';
 import { ConversationsService } from './conversations.service';
+import { InternalExportQueryDto } from './dto/internal-export-query.dto';
 import { ListConversationsQueryDto } from './dto/list-conversations-query.dto';
 import { AddressQueryDto, TextLookupQueryDto } from './dto/lookup-query.dto';
 
 /**
  * The inbox (design §7.1). Static routes (`counters`, `by-party`,
  * `by-address`, `by-job`, `text-lookup`, `internal/*`) are declared before
- * `:id` so they are not swallowed by it (CLAUDE.md §4).
+ * `:id` so they are not swallowed by it, and `internal/all` before
+ * `internal/:id` for the same reason (CLAUDE.md §4).
  */
 @ApiTags('Messaging')
 @ApiBearerAuth()
@@ -124,6 +126,21 @@ export class ConversationsController {
     @ResolvedPerms() perms?: ResolvedPermissions,
   ) {
     return { success: true, data: await this.conversations.textLookup(query, user, perms) };
+  }
+
+  @Get('internal/all')
+  @Internal()
+  @ApiOperation({
+    summary: 'Export every conversation (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). ' +
+      'The search backfill walks this: open threads newest year first, then archived ones ' +
+      '(InboxIndex year partitions, no Scan). Raw and unmasked; ' +
+      '`{ items, nextCursor }` — repeat with `cursor` until `nextCursor` is absent.',
+  })
+  async listInternal(@Query() query: InternalExportQueryDto) {
+    const page = await this.conversations.listInternal(query);
+    return { success: true, data: { items: page.items, nextCursor: page.nextCursor } };
   }
 
   @Get('internal/:id')

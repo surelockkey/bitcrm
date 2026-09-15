@@ -78,6 +78,7 @@ export function mockConversationsRepo() {
     getByAddress: jest.fn().mockResolvedValue(null),
     getReadMarker: jest.fn().mockResolvedValue(null),
     listInbox: jest.fn().mockResolvedValue({ items: [] }),
+    listAll: jest.fn().mockResolvedValue({ items: [] }),
     update: jest.fn(),
     markRead: jest.fn(),
   };

@@ -278,6 +278,103 @@ describe('ConversationsRepository reads', () => {
   });
 });
 
+describe('ConversationsRepository.listAll (search backfill export)', () => {
+  const row = (id: string, at: string, state: 'open' | 'archived' = 'open') =>
+    conversationItem(createMockConversation({ id, lastMessageAt: at, state }));
+  const YEARS = NOW.getUTCFullYear() - 2015 + 1; // partitions walked per state, current year down to INBOX_MIN_YEAR
+
+  it('walks every INBOX#open#<YYYY> partition, then every INBOX#archived#<YYYY> one — Query only, no Scan', async () => {
+    const { repo, sent } = makeRepo([{ Items: [row('c1', T1)] }]);
+    const page = await repo.listAll({ limit: 50, now: NOW });
+
+    expect(page.items.map((c) => c.id)).toEqual(['c1']);
+    expect(page.nextCursor).toBeUndefined();
+    expect(sent).toHaveLength(2 * YEARS);
+    expect(new Set(sent.map((s) => s.name))).toEqual(new Set(['QueryCommand']));
+    for (const s of sent) {
+      expect(s.input.IndexName).toBe('InboxIndex');
+      expect(s.input.ExpressionAttributeNames).toEqual({ '#pk': 'GSI1PK' });
+      expect(s.input.FilterExpression).toBeUndefined();
+    }
+    const pks = sent.map((s) => s.input.ExpressionAttributeValues[':pk']);
+    expect(pks[0]).toBe('INBOX#open#2026');
+    expect(pks[YEARS - 1]).toBe('INBOX#open#2015');
+    expect(pks[YEARS]).toBe('INBOX#archived#2026');
+    expect(pks[2 * YEARS - 1]).toBe('INBOX#archived#2015');
+  });
+
+  it('resumes mid-partition with a { s, y, k } cursor', async () => {
+    const lek = { PK: 'CONV#c2', SK: 'METADATA', GSI1PK: 'INBOX#open#2025', GSI1SK: '2025-01-01T00:00:00.000Z#c2' };
+    const { repo, sent } = makeRepo([
+      { Items: [row('c1', T1)] },
+      { Items: [row('c2', '2025-06-01T00:00:00.000Z')], LastEvaluatedKey: lek },
+    ]);
+    const page = await repo.listAll({ limit: 2, now: NOW });
+
+    expect(page.items.map((c) => c.id)).toEqual(['c1', 'c2']);
+    expect(sent).toHaveLength(2);
+    expect(decodeCursor(page.nextCursor)).toEqual({ s: 'open', y: '2025', k: lek });
+
+    const { repo: repo2, sent: sent2 } = makeRepo([{ Items: [] }]);
+    await repo2.listAll({ limit: 2, cursor: page.nextCursor, now: NOW });
+    expect(sent2[0].input.ExpressionAttributeValues[':pk']).toBe('INBOX#open#2025');
+    expect(sent2[0].input.ExclusiveStartKey).toEqual(lek);
+  });
+
+  it('fills one page across the open → archived boundary and carries the state in the cursor', async () => {
+    // open: c1 in 2026, nothing older; archived: a1, a2 in 2026 (a2 left for the next page).
+    const responses: Array<Record<string, unknown>> = [{ Items: [row('c1', T1)] }];
+    for (let i = 1; i < YEARS; i++) responses.push({ Items: [] });
+    const lek = { PK: 'CONV#a1', SK: 'METADATA', GSI1PK: 'INBOX#archived#2026', GSI1SK: `${T0}#a1` };
+    responses.push({ Items: [row('a1', T0, 'archived')], LastEvaluatedKey: lek });
+    const { repo, sent } = makeRepo(responses);
+
+    const page = await repo.listAll({ limit: 2, now: NOW });
+    expect(page.items.map((c) => c.id)).toEqual(['c1', 'a1']);
+    expect(page.items[1].state).toBe('archived');
+    const archivedQuery = sent[YEARS].input;
+    expect(archivedQuery.ExpressionAttributeValues[':pk']).toBe('INBOX#archived#2026');
+    expect(archivedQuery.Limit).toBe(1);
+    expect(decodeCursor(page.nextCursor)).toEqual({ s: 'archived', y: '2026', k: lek });
+  });
+
+  it('hands back an archived cursor when the open walk fills the page exactly at its last year', async () => {
+    const responses: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < YEARS - 1; i++) responses.push({ Items: [] });
+    responses.push({ Items: [row('c-old', '2015-03-01T00:00:00.000Z')] });
+    const { repo, sent } = makeRepo(responses);
+
+    const page = await repo.listAll({ limit: 1, now: NOW });
+    expect(page.items.map((c) => c.id)).toEqual(['c-old']);
+    expect(sent).toHaveLength(YEARS); // no archived query yet — the page is full
+    expect(decodeCursor(page.nextCursor)).toEqual({ s: 'archived', y: '2026' });
+
+    const { repo: repo2, sent: sent2 } = makeRepo([{ Items: [row('a1', T0, 'archived')] }]);
+    const next = await repo2.listAll({ limit: 1, cursor: page.nextCursor, now: NOW });
+    expect(next.items.map((c) => c.id)).toEqual(['a1']);
+    expect(sent2[0].input.ExpressionAttributeValues[':pk']).toBe('INBOX#archived#2026');
+  });
+
+  it('ends without a cursor once the archived partitions are exhausted', async () => {
+    const { repo } = makeRepo([]);
+    const page = await repo.listAll({ limit: 10, cursor: encodeCursor({ s: 'archived', y: '2016' }), now: NOW });
+    expect(page).toEqual({ items: [] });
+  });
+
+  it('rejects cursors of the wrong shape', async () => {
+    const { repo } = makeRepo();
+    for (const bad of [
+      encodeCursor({ y: '2025' }), // no state
+      encodeCursor({ s: 'unread', y: '2025' }), // not an inbox state
+      encodeCursor({ s: 'open' }), // no year
+      encodeCursor({ s: 'open', y: '2025', k: 'nope' }), // key is not an object
+      '%%%',
+    ]) {
+      await expect(repo.listAll({ limit: 10, cursor: bad, now: NOW })).rejects.toMatchObject({ name: 'InvalidCursorError' });
+    }
+  });
+});
+
 describe('ConversationsRepository.listInbox', () => {
   const row = (id: string, at: string) => conversationItem(createMockConversation({ id, lastMessageAt: at }));
 
