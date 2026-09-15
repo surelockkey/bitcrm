@@ -22,6 +22,7 @@ import { MessagingSettingsModule } from './settings/messaging-settings.module';
 import { InboundWebhooksModule } from './webhooks/inbound-webhooks.module';
 import { MediaModule } from './media/media.module';
 import { ReconcileModule } from './reconcile/reconcile.module';
+import { OutboundModule } from './outbound/outbound.module';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
@@ -89,6 +90,7 @@ const CONTACT_EVENTS_QUEUE_URL = process.env.CONTACT_EVENTS_TO_MESSAGING_QUEUE_U
     InboundWebhooksModule,
     MediaModule,
     ReconcileModule,
+    OutboundModule,
   ],
 })
 export class AppModule implements OnModuleInit {
