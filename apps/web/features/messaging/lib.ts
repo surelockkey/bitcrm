@@ -255,6 +255,12 @@ export function partyHref(c: Pick<Conversation, "partyKind" | "partyId">): strin
   }
 }
 
+/** The round avatar's letter, as Workiz draws it: the title's first character, verbatim ("J", "(", "8", "a"). */
+export function avatarInitial(title: string): string {
+  const first = [...title.trim()][0];
+  return first ?? "#";
+}
+
 export function initialsOf(title: string): string {
   // A bare number gets a glyph, not the first two digits of an area code.
   if (!/\p{L}/u.test(title)) return "#";
