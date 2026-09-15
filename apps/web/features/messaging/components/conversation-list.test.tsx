@@ -34,13 +34,16 @@ const conv = (id: string, extra: Partial<InboxConversation> = {}): InboxConversa
 });
 
 const requestedViews: string[] = [];
+const requestedKinds: string[] = [];
 
 beforeEach(() => {
   requestedViews.length = 0;
+  requestedKinds.length = 0;
   server.use(
     http.get("*/messaging/conversations", ({ request }) => {
       const url = new URL(request.url);
       requestedViews.push(url.searchParams.get("view") ?? "");
+      requestedKinds.push(url.searchParams.get("kind") ?? "");
       const data =
         url.searchParams.get("view") === "unread"
           ? [conv("b", { workizName: "Bob Builder", unread: true, unreadCount: 2 })]
@@ -73,10 +76,22 @@ beforeEach(() => {
   );
 });
 
-function Harness({ onSelect = () => {} }: { onSelect?: (id: string) => void }) {
+function Harness({
+  onSelect = () => {},
+  onNewConversation,
+}: {
+  onSelect?: (id: string) => void;
+  onNewConversation?: () => void;
+}) {
   const [state, setState] = useState<ListState>({ view: "all", search: "" });
   return (
-    <ConversationList state={state} onStateChange={setState} selectedId="a" onSelect={onSelect} />
+    <ConversationList
+      state={state}
+      onStateChange={setState}
+      selectedId="a"
+      onSelect={onSelect}
+      onNewConversation={onNewConversation}
+    />
   );
 }
 
@@ -99,22 +114,49 @@ describe("ConversationList", () => {
     expect(screen.getByText("(404) 555-1234")).toBeInTheDocument();
     expect(screen.getByLabelText("2 unread")).toHaveTextContent("2");
     expect(screen.getByText("Bob Builder").closest("button")).toHaveAttribute("data-unread", "true");
-    // Counters feed the tab badges.
-    const unreadTab = screen.getByRole("tab", { name: /Unread/ });
-    expect(unreadTab).toHaveTextContent("4");
-    expect(screen.getByRole("tab", { name: /Flagged/ })).toHaveTextContent("1");
+    // Counters feed the category strip and the view toggles.
+    expect(screen.getByRole("tab", { name: /^All/ })).toHaveTextContent("4");
+    expect(screen.getByRole("tab", { name: /^Clients/ })).toHaveTextContent("3");
+    expect(screen.getByRole("tab", { name: /^Unknown/ })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: /^Unread/ })).toHaveTextContent("4");
+    expect(screen.getByRole("button", { name: /^Flagged/ })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
   });
 
-  it("switches tabs by asking the server for that view", async () => {
+  it("switches the Unread view by asking the server for it", async () => {
     renderList();
     await screen.findByText("Alice Adams");
 
-    await userEvent.click(screen.getByRole("tab", { name: /Unread/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Unread/ }));
 
     await waitFor(() => expect(requestedViews).toContain("unread"));
     await waitFor(() => expect(screen.queryByText("Alice Adams")).toBeNull());
     expect(screen.getByText("Bob Builder")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Unread/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("narrows by category on the server, and Archived is its own view", async () => {
+    renderList();
+    await screen.findByText("Alice Adams");
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Clients/ }));
+    await waitFor(() => expect(requestedKinds).toContain("client"));
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Archived/ }));
+    await waitFor(() => expect(requestedViews).toContain("archived"));
+    expect(screen.getByRole("tab", { name: /^Archived/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("offers a New conversation button to senders", async () => {
+    const onNew = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <Harness onNewConversation={onNew} />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "New conversation" }));
+    expect(onNew).toHaveBeenCalledTimes(1);
   });
 
   it("filters what is loaded as you type, by name or preview", async () => {

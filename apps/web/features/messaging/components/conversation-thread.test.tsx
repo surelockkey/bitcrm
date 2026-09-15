@@ -138,7 +138,7 @@ describe("ConversationThread", () => {
 
   it("exposes manage actions on the header", async () => {
     renderThread();
-    expect(await screen.findByRole("button", { name: "Flag conversation" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Star conversation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Assign/ })).toBeInTheDocument();
   });

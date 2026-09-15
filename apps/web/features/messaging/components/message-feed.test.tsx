@@ -119,4 +119,25 @@ describe("MessageFeed", () => {
     renderFeed({ messages: [] });
     expect(screen.getByText("No messages yet")).toBeInTheDocument();
   });
+
+  it("renders voicemails and system notices as centred notes with the recording", () => {
+    renderFeed({
+      messages: [
+        msg("vm", today(9), {
+          origin: "system",
+          subject: "New Voicemail",
+          body: "Hi, calling about the lock",
+          callSid: "CA1",
+          recordingUrl: "https://x/rec.mp3",
+        }),
+      ],
+    });
+
+    const note = screen.getByText("New Voicemail").closest("[data-direction]")!;
+    expect(note).toHaveAttribute("data-direction", "system");
+    expect(note.querySelector("audio")).toHaveAttribute("src", "https://x/rec.mp3");
+    expect(screen.getByText("Hi, calling about the lock")).toBeInTheDocument();
+    // Not a bubble: no delivery tick, no flag button.
+    expect(screen.queryByRole("button", { name: /flag/i })).toBeNull();
+  });
 });

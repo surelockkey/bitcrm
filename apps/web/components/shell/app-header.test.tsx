@@ -18,6 +18,16 @@ vi.mock("@/stores/ui-store", () => ({
   ) => selector({ setCommandOpen: vi.fn() }),
 }));
 
+// The inbox button reads permissions and the unread counters; neither has a
+// provider here, so both are handed in.
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({ can: () => true, isTechnician: false, isLoading: false }),
+}));
+const countersMock = vi.fn(() => ({ data: undefined as { unreadConversations: number } | undefined }));
+vi.mock("@/features/messaging/hooks", () => ({
+  useInboxCounters: () => countersMock(),
+}));
+
 function renderHeader() {
   return render(
     <TooltipProvider>
@@ -45,5 +55,22 @@ describe("AppHeader", () => {
     expect(search.parentElement).toBe(
       screen.getByTestId("nav-user").parentElement,
     );
+  });
+
+  it("links to the inbox with the unread count as a badge", () => {
+    countersMock.mockReturnValue({ data: { unreadConversations: 12 } });
+    renderHeader();
+
+    const link = screen.getByRole("link", { name: "Messages, 12 unread" });
+    expect(link).toHaveAttribute("href", "/messages");
+    expect(screen.getByTestId("inbox-header-badge")).toHaveTextContent("12");
+  });
+
+  it("keeps the inbox button plain when nothing is unread", () => {
+    countersMock.mockReturnValue({ data: { unreadConversations: 0 } });
+    renderHeader();
+
+    expect(screen.getByRole("link", { name: "Messages" })).toBeInTheDocument();
+    expect(screen.queryByTestId("inbox-header-badge")).toBeNull();
   });
 });

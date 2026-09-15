@@ -1,14 +1,15 @@
 "use client";
 
-import { Briefcase, Flag, Mail, MessageSquare, UserRound } from "lucide-react";
+import { Briefcase, ImageIcon, Mail, MessageSquare, Star, UserRound } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import type { InboxConversation } from "../api";
 import { formatListTime, initialsOf, KIND_LABEL } from "../lib";
 
 /**
- * One line of the inbox: who, what they last said, when, and the marks
- * that matter at a glance — unread count, flag, channel, a job chip.
+ * One line of the inbox, as in Workiz: avatar, name or number, the last
+ * message's snippet, a relative time, an unread dot with the count, the
+ * star, the channel, and a job mark when the last line was about one.
  */
 export function ConversationRow({
   conversation: c,
@@ -29,10 +30,13 @@ export function ConversationRow({
       aria-current={active ? "true" : undefined}
       data-unread={unread || undefined}
       className={cn(
-        "flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/60",
+        "relative flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/60",
         active && "bg-accent",
       )}
     >
+      {unread ? (
+        <span aria-hidden className="absolute left-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-brand" />
+      ) : null}
       <Avatar className="mt-0.5">
         <AvatarFallback className={cn("text-xs font-semibold", c.kind === "team" && "bg-brand/10 text-brand")}>
           {c.kind === "team" || c.kind === "group" ? <UserRound className="size-4" /> : initialsOf(title)}
@@ -52,6 +56,8 @@ export function ConversationRow({
             <Mail className="size-3 shrink-0 text-muted-foreground" aria-label="Email" />
           ) : c.lastChannel === "in_app" ? (
             <MessageSquare className="size-3 shrink-0 text-muted-foreground" aria-label="In-app" />
+          ) : c.lastChannel === "mms" ? (
+            <ImageIcon className="size-3 shrink-0 text-muted-foreground" aria-label="MMS" />
           ) : null}
           <span
             className={cn(
@@ -62,7 +68,7 @@ export function ConversationRow({
             {c.lastDirection === "outbound" ? "You: " : ""}
             {c.lastMessagePreview || (c.lastMessageAt ? "Attachment" : "No messages yet")}
           </span>
-          {c.flagged ? <Flag className="size-3 shrink-0 fill-current text-amber-500" aria-label="Flagged" /> : null}
+          {c.flagged ? <Star className="size-3 shrink-0 fill-current text-amber-500" aria-label="Starred" /> : null}
           {c.lastDealId ? <Briefcase className="size-3 shrink-0 text-muted-foreground" aria-label="Linked to a job" /> : null}
           {unread ? (
             <span

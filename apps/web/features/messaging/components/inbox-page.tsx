@@ -12,6 +12,7 @@ import { useConversation, useMessagingAccess, usePartyNames } from "../hooks";
 import { conversationTitle } from "../lib";
 import { ConversationList, type ListState } from "./conversation-list";
 import { ConversationThread } from "./conversation-thread";
+import { NewConversationDialog } from "./new-conversation-dialog";
 import { PartyCard } from "./party-card";
 import { ThreadComposer } from "./thread-composer";
 
@@ -37,6 +38,7 @@ export function InboxPage() {
   const kind = isKind(kindParam) ? kindParam : undefined;
   const [search, setSearch] = useState("");
   const [infoOpen, setInfoOpen] = useState(false);
+  const [composingNew, setComposingNew] = useState(false);
 
   const navigate = useCallback(
     (next: { c?: string; view?: InboxView; kind?: ConversationKind }) => {
@@ -83,6 +85,7 @@ export function InboxPage() {
           onStateChange={onListState}
           selectedId={selectedId}
           onSelect={(id) => navigate({ c: id })}
+          onNewConversation={() => setComposingNew(true)}
           className="w-full"
         />
       </aside>
@@ -118,6 +121,12 @@ export function InboxPage() {
       <aside className="hidden w-80 shrink-0 border-l xl:flex xl:flex-col">
         {selected ? <PartyCard conversation={selected} title={title} /> : null}
       </aside>
+
+      <NewConversationDialog
+        open={composingNew}
+        onOpenChange={setComposingNew}
+        onCreated={(id) => navigate({ c: id, view: "all", kind: undefined })}
+      />
 
       {/* Below xl the party card opens as a sheet from the header's Details button. */}
       <Sheet open={infoOpen && !!selected} onOpenChange={setInfoOpen}>

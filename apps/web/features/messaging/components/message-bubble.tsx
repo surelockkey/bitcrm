@@ -1,13 +1,70 @@
 "use client";
 
 import Link from "next/link";
-import { Bot, Briefcase, Copy, Flag, Mail, MessageSquare } from "lucide-react";
+import {
+  Bot,
+  Briefcase,
+  Copy,
+  Flag,
+  ImageIcon,
+  Mail,
+  MessageSquare,
+  StickyNote,
+  Voicemail,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { FeedMessage } from "../api";
 import { formatMessageTime, isFailedStatus } from "../lib";
 import { MessageAttachments } from "./message-attachments";
 import { StatusTicks } from "./status-ticks";
+
+/** Lines that are events rather than conversation: voicemails, portal notices, system sends. */
+export const isSystemNote = (m: FeedMessage): boolean =>
+  m.origin === "system" || !!m.callSid || !!m.recordingUrl || m.channel === "note";
+
+function ChannelIcon({ message }: { message: FeedMessage }) {
+  if (message.channel === "email") return <Mail className="size-3" aria-label="Email" />;
+  if (message.channel === "in_app") return <MessageSquare className="size-3" aria-label="In-app" />;
+  if (message.channel === "note") return <StickyNote className="size-3" aria-label="Note" />;
+  if (message.channel === "mms" || message.attachments?.length) {
+    return <ImageIcon className="size-3" aria-label="MMS" />;
+  }
+  return null;
+}
+
+/**
+ * A voicemail, a client-portal event, a system notice — centred in the
+ * thread as a note, the way Workiz shows them, with the recording playable
+ * in place and the transcript underneath.
+ */
+function SystemNote({ message }: { message: FeedMessage }) {
+  return (
+    <div className="flex w-full justify-center" data-direction="system" data-message-id={message.id}>
+      <div className="max-w-[min(90%,36rem)] rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground">
+        <div className="flex items-center justify-center gap-1.5 font-medium text-foreground">
+          {message.recordingUrl || message.callSid ? <Voicemail className="size-3.5" /> : <Bot className="size-3.5" />}
+          {message.subject ?? (message.recordingUrl ? "Voicemail" : "System message")}
+          <span className="font-normal text-muted-foreground">· {formatMessageTime(message.createdAt)}</span>
+        </div>
+        {message.recordingUrl ? (
+          <audio controls preload="none" src={message.recordingUrl} className="mx-auto mt-1.5 h-8 w-full max-w-xs" />
+        ) : null}
+        {message.body ? <p className="mt-1 whitespace-pre-wrap break-words text-left">{message.body}</p> : null}
+        {message.attachments?.length ? (
+          <div className="mt-1.5">
+            <MessageAttachments attachments={message.attachments} />
+          </div>
+        ) : null}
+        {message.dealId ? (
+          <Link href={`/deals/${message.dealId}`} className="mt-1 inline-flex items-center gap-1 text-brand hover:underline">
+            <Briefcase className="size-3" /> Open job
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export function MessageBubble({
   message,
@@ -24,6 +81,8 @@ export function MessageBubble({
   /** Off inside a job's own tab, where every line is about that job. */
   showJob?: boolean;
 }) {
+  if (isSystemNote(message)) return <SystemNote message={message} />;
+
   const outbound = message.direction === "outbound";
   const failed = isFailedStatus(message.status);
   const body = message.body ?? (message.attachments?.length ? "" : "(empty)");
@@ -39,9 +98,7 @@ export function MessageBubble({
   const byline = outbound
     ? message.origin === "automation"
       ? "Automation"
-      : message.origin === "system"
-        ? "System"
-        : authorName ?? message.sentByName
+      : authorName ?? message.sentByName
     : undefined;
 
   return (
@@ -108,11 +165,7 @@ export function MessageBubble({
           outbound && "justify-end",
         )}
       >
-        {message.channel === "email" ? (
-          <Mail className="size-3" aria-label="Email" />
-        ) : message.channel === "in_app" ? (
-          <MessageSquare className="size-3" aria-label="In-app" />
-        ) : null}
+        <ChannelIcon message={message} />
         {message.flagged ? <Flag className="size-3 fill-current text-amber-500" aria-label="Flagged" /> : null}
         <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
         {byline ? (
