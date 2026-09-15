@@ -4,6 +4,7 @@ import {
   type Message,
   type OptOutChannel,
   type OptOutStatus,
+  type TeamChatCounters,
 } from '@bitcrm/types';
 
 /** Redis pub/sub channel every messaging instance publishes to and reads from. */
@@ -39,6 +40,14 @@ export interface MessageUpsertedEvent {
   message: Message;
   /** The conversation after the change; when absent the stream looks it up for scoping. */
   conversation?: Conversation;
+  /**
+   * Team / group delivery (design §6): the member ids the line is for — the
+   * group roster or the employee, minus the author. The web badges from it;
+   * scoping still happens per viewer on delivery.
+   */
+  recipients?: string[];
+  /** User ids @-mentioned in the line (`Message.mentions`, repeated here for the badge). */
+  mentions?: string[];
 }
 
 export interface CountersChangedEvent {
@@ -57,11 +66,35 @@ export interface OptOutChangedEvent {
   conversationId?: string;
 }
 
+/**
+ * Team chat (design §6): something changed for these members' badges — a
+ * new in-app line, a read marker, a membership change. Published on the bus
+ * only; each SSE connection whose viewer is listed recounts its own badge
+ * (throttled) and writes a `team_counters.changed` frame. Never reaches the
+ * browser as is.
+ */
+export interface TeamCountersInvalidatedEvent {
+  type: 'team_counters.invalidated';
+  at: string;
+  conversationId: string;
+  memberIds: string[];
+}
+
+/** One member's team-chat badge, as `GET /team/counters` answers it — written to that member's stream only. */
+export interface TeamCountersChangedEvent {
+  type: 'team_counters.changed';
+  at: string;
+  userId: string;
+  counters: TeamChatCounters;
+}
+
 export type MessagingRealtimeEvent =
   | ConversationUpsertedEvent
   | MessageUpsertedEvent
   | CountersChangedEvent
-  | OptOutChangedEvent;
+  | OptOutChangedEvent
+  | TeamCountersInvalidatedEvent
+  | TeamCountersChangedEvent;
 
 export type MessagingRealtimeEventType = MessagingRealtimeEvent['type'];
 
@@ -70,6 +103,8 @@ export const REALTIME_EVENT_TYPES: readonly MessagingRealtimeEventType[] = [
   'message.upserted',
   'counters.changed',
   'opt_out.changed',
+  'team_counters.invalidated',
+  'team_counters.changed',
 ];
 
 /** Cheap shape check on what came off the wire — a malformed frame is dropped, not thrown. */

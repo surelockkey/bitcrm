@@ -109,10 +109,11 @@ describe('SendService.sendSystem', () => {
 describe('SendService.conversationForContact (public for the automations)', () => {
   it('reuses the contact thread or opens it from CRM', async () => {
     const existing = createMockConversation({ id: 'c-existing' });
-    expect((await makeService({ contactConversation: existing }).service.conversationForContact('ct1')).id).toBe('c-existing');
+    expect((await makeService({ contactConversation: existing }).service.conversationForContact('ct1')).conversation.id).toBe('c-existing');
 
     const { service, conversations } = makeService();
-    const opened = await service.conversationForContact('ct1');
+    const { conversation: opened, created } = await service.conversationForContact('ct1');
+    expect(created).toBe(true);
     expect(opened).toMatchObject({ kind: 'client', partyKind: 'contact', partyId: 'ct1', addresses: { phones: ['+14045551234'], emails: ['a@x.co'] } });
     expect(conversations.findOrCreate).toHaveBeenCalledWith(expect.objectContaining({ pointer: { kind: 'contact', id: 'ct1' } }));
   });

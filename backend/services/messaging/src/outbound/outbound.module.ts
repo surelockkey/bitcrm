@@ -1,7 +1,9 @@
 import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { SqsConsumerService } from '@bitcrm/shared';
+import { AccessModule } from '../api/access/access.module';
 import { TwilioModule } from '../common/twilio/twilio.module';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { InboxCountersModule } from '../counters/inbox-counters.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -48,6 +50,10 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
     MessagingSettingsModule,
     MessageTemplatesModule,
     RealtimeModule,
+    // M16: an SMS in an employee's thread goes to their personal phone (user-service);
+    // an employee's in-app line moves the office's badge, read back for the stream.
+    AccessModule,
+    InboxCountersModule,
   ],
   controllers: [SendController, OutboundAttachmentsController, StatusController],
   providers: [

@@ -87,6 +87,12 @@ export interface AppendOutboundInput {
   createdBy: string;
   conversation: Conversation;
   at?: string;
+  /**
+   * Also bump the team-wide `unread` (+ counters), as an inbound does: an
+   * in-app line the employee writes on their own team thread is news for
+   * the office, even though it was composed in BitCRM (design §6).
+   */
+  markUnread?: boolean;
 }
 
 export interface AppendResult {
@@ -270,16 +276,21 @@ export class MessagesRepository {
    * Outbound (§3.5, §4.4): TransactWriteItems [
    *   Put CLIENTMSG#<clientMessageId>  attribute_not_exists(PK), expiresAt = now + 7 d
    *   Put CONV#…/MSG#…                 attribute_not_exists(PK)   (status queued)
-   *   Update CONV#…/METADATA           last*, lastBusinessNumber; guard updatedAt ]
+   *   Update CONV#…/METADATA           last*, lastBusinessNumber; guard updatedAt
+   *   (markUnread) …                   + unread=true, ADD unreadCount 1, and the
+   *   Update INBOX#COUNTERS            counters move — the inbound shape (§6) ]
    * A repeated submit returns `duplicate: true` plus the pointer to the first one.
    */
   async appendOutbound(input: AppendOutboundInput): Promise<AppendResult> {
     const { message } = input;
     const at = input.at ?? new Date().toISOString();
+    const markUnread = input.markUnread === true;
     let current = input.conversation;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const next = rollForward(current, message, at, { markUnread: false });
+      const next = rollForward(current, message, at, { markUnread });
+      const delta = markUnread ? countersDelta(current, next) : undefined;
+      const counters = delta ? countersAddUpdate(this.tableName, delta) : undefined;
       const TransactItems = [
         {
           Put: {
@@ -295,7 +306,12 @@ export class MessagesRepository {
             ConditionExpression: 'attribute_not_exists(PK)',
           },
         },
-        { Update: this.guardedConversationUpdate(current, next, LAST_MESSAGE_FIELDS) },
+        {
+          Update: markUnread
+            ? this.guardedConversationUpdate(current, next, [...LAST_MESSAGE_FIELDS, 'unread'], { addUnreadCount: 1 })
+            : this.guardedConversationUpdate(current, next, LAST_MESSAGE_FIELDS),
+        },
+        ...(counters ? [{ Update: counters }] : []),
       ];
 
       try {

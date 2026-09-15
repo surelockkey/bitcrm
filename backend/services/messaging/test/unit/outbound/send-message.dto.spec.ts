@@ -43,6 +43,13 @@ describe('SendMessageDto', () => {
     expect(await errorsOf(SendMessageDto, { ...valid, attachments: [{ ...ok, id: 'x' }] })).toEqual(['attachments']);
     expect(await errorsOf(SendMessageDto, { ...valid, attachments: Array(11).fill(ok) })).toEqual(['attachments']);
   });
+
+  it('accepts in_app with mentions (strings, at most 50)', async () => {
+    expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: ['u1', 'u2'] })).toEqual([]);
+    expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: 'u1' })).toEqual(['mentions']);
+    expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: [''] })).toEqual(['mentions']);
+    expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: Array(51).fill('u') })).toEqual(['mentions']);
+  });
 });
 
 describe('StartConversationMessageDto', () => {

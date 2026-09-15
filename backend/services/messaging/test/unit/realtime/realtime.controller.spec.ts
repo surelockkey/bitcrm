@@ -7,6 +7,7 @@ import { type MessagingRealtimeEvent } from '../../../src/realtime/realtime-even
 import { RealtimeFilterService } from '../../../src/realtime/realtime-filter.service';
 import { RealtimeController } from '../../../src/realtime/realtime.controller';
 import { RealtimeSubscriber } from '../../../src/realtime/realtime.subscriber';
+import { TeamCountersService } from '../../../src/team/team-counters.service';
 import { createMockConversation, T1 } from '../mocks';
 import { ADMIN, TECH, adminPerms, createMockDeal, mockConversationsRepo, mockCountersRepo, mockDealRead, techPerms } from '../api/api-mocks';
 import { flushMicrotasks, mockSseResponse } from './realtime-mocks';
@@ -159,5 +160,48 @@ describe('RealtimeController.getCounters (polling fallback)', () => {
       success: true,
       data: { unreadConversations: 3, flaggedConversations: 1, unreadByKind: { client: 3 } },
     });
+  });
+});
+
+describe('RealtimeController.stream — team-chat badge (§6)', () => {
+  const GROUP = createMockConversation({ id: 'g1', kind: 'group', partyKind: 'group', partyId: 'g1', memberIds: ['tech-1'], addresses: { phones: [], emails: [] }, lastMessageAt: T1, lastMessageId: 'm9', lastDirection: 'outbound' });
+
+  function makeTeam(resolved: unknown) {
+    const subject = new Subject<MessagingRealtimeEvent>();
+    const subscriber = { stream: () => subject.asObservable() } as unknown as RealtimeSubscriber;
+    const repo = mockConversationsRepo();
+    const deals = mockDealRead();
+    const scope = new ConversationScopeService(repo as never, deals as never);
+    const counters = new CountersService(mockCountersRepo() as never, scope);
+    const filter = new RealtimeFilterService(scope, repo as never, counters, new TeamCountersService(repo as never));
+    const permissions = { resolve: jest.fn().mockResolvedValue(resolved) } as unknown as PermissionLookupService;
+    return { controller: new RealtimeController(subscriber, filter, permissions, counters), subject, repo };
+  }
+
+  it('an invalidation naming the viewer is answered with one recounted team_counters.changed frame per burst; others get nothing', async () => {
+    jest.useFakeTimers();
+    const { controller, subject, repo } = makeTeam(techPerms());
+    repo.listMemberOf.mockResolvedValue([{ conversationId: 'g1', userId: 'tech-1', role: 'member', joinedAt: '2026-09-01T00:00:00.000Z' }]);
+    repo.get.mockResolvedValue(GROUP);
+    const { res, frames } = mockSseResponse();
+    await controller.stream(res as never, TECH);
+
+    const invalidated: MessagingRealtimeEvent = { type: 'team_counters.invalidated', at: T1, conversationId: 'g1', memberIds: ['tech-1', 'tech-2'] };
+    subject.next(invalidated);
+    subject.next(invalidated);
+    await flushMicrotasks(20);
+    expect(frames()).toEqual([{ type: 'team_counters.changed', at: expect.any(String), userId: 'tech-1', counters: { unreadConversations: 1, unreadByKind: { group: 1 } } }]);
+
+    jest.advanceTimersByTime(5_000);
+    await flushMicrotasks(20);
+    expect(frames()).toHaveLength(2);
+
+    const other = makeTeam(techPerms());
+    const bystander = mockSseResponse();
+    await other.controller.stream(bystander.res as never, { ...TECH, id: 'tech-9' });
+    other.subject.next(invalidated);
+    await flushMicrotasks(20);
+    expect(bystander.frames()).toEqual([]);
+    jest.useRealTimers();
   });
 });

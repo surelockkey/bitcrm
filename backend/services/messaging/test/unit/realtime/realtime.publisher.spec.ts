@@ -29,6 +29,22 @@ describe('RealtimePublisher', () => {
     expect(sent[3]).toEqual({ type: 'opt_out.changed', at: T1, channel: 'sms', address: '+14045551234', status: 'opted_out', conversationId: 'c1' });
   });
 
+  it('teamCountersInvalidated names the members and is skipped when nobody is listed (§6)', () => {
+    const { redis, client } = mockRedis();
+    const publisher = new RealtimePublisher(redis);
+    publisher.teamCountersInvalidated('g1', [], T1);
+    expect(client.publish).not.toHaveBeenCalled();
+    publisher.teamCountersInvalidated('g1', ['u2', 'u3'], T1);
+    expect(JSON.parse(client.publish.mock.calls[0][1])).toEqual({ type: 'team_counters.invalidated', at: T1, conversationId: 'g1', memberIds: ['u2', 'u3'] });
+  });
+
+  it('a team / group delivery adds recipients and mentions to message.upserted (§6)', () => {
+    const { redis, client } = mockRedis();
+    const m = createMockMessage({ channel: 'in_app', mentions: ['u3'] });
+    new RealtimePublisher(redis).messageUpserted(m, undefined, T1, { recipients: ['u2', 'u3'], mentions: ['u3'] });
+    expect(JSON.parse(client.publish.mock.calls[0][1])).toEqual({ type: 'message.upserted', at: T1, message: m, recipients: ['u2', 'u3'], mentions: ['u3'] });
+  });
+
   it('stamps "now" when no time is given', () => {
     const { redis, client } = mockRedis();
     new RealtimePublisher(redis).conversationUpserted(createMockConversation());

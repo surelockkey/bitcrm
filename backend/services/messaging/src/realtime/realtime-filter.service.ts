@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { hasPermission } from '@bitcrm/shared';
 import { type Conversation, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { ConversationScopeService, type MessagingScope } from '../api/access/conversation-scope.service';
 import { looksLikePhone, maskConversation, maskMessage } from '../api/access/masking';
 import { CountersService } from '../api/counters/counters.service';
 import { ConversationsRepository } from '../conversations/conversations.repository';
+import { TeamCountersService } from '../team/team-counters.service';
 import { type MessagingRealtimeEvent } from './realtime-events';
 
 /** Everything the stream knows about the person on the other end, refreshed per event. */
@@ -32,6 +33,7 @@ export class RealtimeFilterService {
     private readonly scope: ConversationScopeService,
     private readonly conversations: ConversationsRepository,
     private readonly counters: CountersService,
+    @Optional() private readonly teamCounters?: TeamCountersService,
   ) {}
 
   viewerFor(user: JwtUser, perms: ResolvedPermissions | null): RealtimeViewer {
@@ -74,6 +76,22 @@ export class RealtimeFilterService {
         if (!viewer.mayViewMessages) return null;
         if (viewer.seesNumbers || !looksLikePhone(event.address)) return event;
         return { ...event, address: undefined };
+      }
+      case 'team_counters.invalidated': {
+        // Only the listed members, and only as their own recount (§6) — the
+        // bus event itself never goes to the browser.
+        if (!viewer.mayViewTeamChat || !this.teamCounters) return null;
+        if (!event.memberIds.includes(viewer.user.id)) return null;
+        return {
+          type: 'team_counters.changed',
+          at: event.at,
+          userId: viewer.user.id,
+          counters: await this.teamCounters.forUser(viewer.user.id),
+        };
+      }
+      case 'team_counters.changed': {
+        // Already someone's recount: it is theirs alone.
+        return viewer.mayViewTeamChat && event.userId === viewer.user.id ? event : null;
       }
       default:
         return null;

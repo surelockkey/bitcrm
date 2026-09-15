@@ -86,6 +86,8 @@ export interface Message {
   automationRuleId?: string;
   notificationId?: string;
   templateId?: string;
+  /** User ids @-mentioned in a team / group in-app line (design §6) — the web badges from it. */
+  mentions?: string[];
   dealId?: string;
   /** Workiz `json.job_id` — kept even when the job was never generated. */
   workizJobId?: string;

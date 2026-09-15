@@ -23,11 +23,14 @@ export class SendController {
   @ApiOperation({
     summary: 'Send a message in a conversation',
     description:
-      '**Guard:** `messages.send` (a `team`/`group` conversation additionally needs `team_chat.send`; ' +
-      'an `assigned_only` data scope limits sending to conversations of jobs the caller is on). ' +
-      'Refuses opted-out recipients with 422 `RECIPIENT_OPTED_OUT`. Answers 202 with the message in ' +
-      'status `queued`; a repeated `clientMessageId` returns the first message instead of sending again. ' +
-      'Only `channel: sms` is deliverable today (email / in-app answer 501).',
+      '**Guard:** `messages.send` (a `team`/`group` conversation additionally needs `team_chat.send` and ' +
+      'the `team_chat` data scope — a technician writes only in their own thread and groups; for client ' +
+      'threads an `assigned_only` `messages` scope limits sending to conversations of jobs the caller is on). ' +
+      'Refuses opted-out recipients with 422 `RECIPIENT_OPTED_OUT`. `channel: sms` answers 202 with the ' +
+      'message `queued` (in an employee’s thread it goes to their personal phone from user-service — 422 ' +
+      '`EMPLOYEE_HAS_NO_PHONE` when they have none — from the company’s default number); `channel: in_app` ' +
+      '(team / group only, else 501) is stored `sent` and delivered over SSE to the members, with optional ' +
+      '`mentions`. A repeated `clientMessageId` returns the first message instead of sending again. Email answers 501.',
   })
   async send(
     @Param('id') id: string,

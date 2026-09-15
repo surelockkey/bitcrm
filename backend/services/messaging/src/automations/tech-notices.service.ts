@@ -81,7 +81,7 @@ export class TechNoticesService {
     if (!template) throw new UnprocessableEntityException(`No "${rule}" text is configured in messaging settings`);
     if (!deal.contactId) throw new UnprocessableEntityException('The job has no client contact to text');
 
-    const conversation = await this.send.conversationForContact(deal.contactId);
+    const { conversation } = await this.send.conversationForContact(deal.contactId);
     const rendered = await this.renderer.render(
       { body: template, format: 'text' },
       { conversationId: conversation.id, contactId: deal.contactId, dealId, userId: caller.user.id, values },

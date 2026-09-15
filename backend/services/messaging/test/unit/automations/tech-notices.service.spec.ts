@@ -23,7 +23,7 @@ function makeService(opts: {
   const conversation = createMockConversation({ id: 'c-client', partyId: 'ct1' });
   const renderer = { render: jest.fn(async (input: { body: string }, refs: { values?: Record<string, string> }) => ({ body: `${input.body} [${JSON.stringify(refs.values)}]`, missing: [] })) };
   const send = {
-    conversationForContact: jest.fn(async () => conversation),
+    conversationForContact: jest.fn(async () => ({ conversation, created: false })),
     sendSystem: jest.fn(async (input: { body: string }) => {
       if (opts.optedOut) throw new RecipientOptedOutException('+14045551234');
       return { duplicate: false, message: createMockMessage({ id: 'm-notice', conversationId: 'c-client', direction: 'outbound', status: 'queued', body: input.body }) };

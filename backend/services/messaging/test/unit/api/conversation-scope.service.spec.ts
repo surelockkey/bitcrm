@@ -84,6 +84,16 @@ describe('ConversationScopeService.canAccess', () => {
     expect(await scope.canAccess(c, ASSIGNED)).toBe(false);
   });
 
+  it('a group is theirs when they are on its member list (§6)', async () => {
+    const { scope, deals } = make();
+    const group = createMockConversation({ kind: 'group', partyKind: 'group', partyId: 'g1', memberIds: ['tech-1', 'tech-2'] });
+    expect(await scope.canAccess(group, ASSIGNED)).toBe(true);
+    expect(await scope.canAccess({ ...group, memberIds: ['tech-2'] }, ASSIGNED)).toBe(false);
+    expect(await scope.canAccess({ ...group, memberIds: undefined }, ASSIGNED)).toBe(false);
+    expect(deals.find).not.toHaveBeenCalled();
+    expect(deals.listByTech).not.toHaveBeenCalled();
+  });
+
   it('unknown-number and placeholder threads are out of scope', async () => {
     const { scope } = make();
     expect(await scope.canAccess(createMockConversation({ kind: 'unknown', partyKind: 'none', partyId: undefined }), ASSIGNED)).toBe(false);
@@ -144,5 +154,14 @@ describe('ConversationScopeService.assignedConversations', () => {
     const mine = createMockConversation({ id: 'c-me', kind: 'team', partyKind: 'user', partyId: 'tech-1' });
     repo.getByParty.mockImplementation(async (kind: string) => (kind === 'user' ? mine : null));
     expect(await scope.assignedConversations('tech-1')).toEqual([mine]);
+  });
+
+  it('includes the groups the technician is a member of, read through CONVOF#group#', async () => {
+    const { scope, repo } = make();
+    repo.listMemberOf.mockResolvedValue([{ conversationId: 'g1', userId: 'tech-1', role: 'member', joinedAt: '2026-09-01T00:00:00.000Z' }]);
+    const group = createMockConversation({ id: 'g1', kind: 'group', partyKind: 'group', partyId: 'g1', memberIds: ['tech-1'], lastMessageAt: '2026-09-14T00:00:00.000Z' });
+    repo.getByParty.mockImplementation(async (kind: string, id: string) => (kind === 'group' && id === 'g1' ? group : null));
+    expect((await scope.assignedConversations('tech-1')).map((c) => c.id)).toEqual(['g1']);
+    expect(repo.getByParty).toHaveBeenCalledWith('group', 'g1');
   });
 });

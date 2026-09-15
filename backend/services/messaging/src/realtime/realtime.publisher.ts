@@ -7,7 +7,10 @@ import {
   type OptOutChannel,
   type OptOutStatus,
 } from '@bitcrm/types';
-import { REALTIME_CHANNEL, type MessagingRealtimeEvent } from './realtime-events';
+import { REALTIME_CHANNEL, type MessageUpsertedEvent, type MessagingRealtimeEvent } from './realtime-events';
+
+/** What a team / group in-app delivery adds to `message.upserted` (design §6). */
+export type TeamDelivery = Pick<MessageUpsertedEvent, 'recipients' | 'mentions'>;
 
 /**
  * The one thing other modules call to push a live update to the browsers
@@ -21,10 +24,16 @@ import { REALTIME_CHANNEL, type MessagingRealtimeEvent } from './realtime-events
  *
  *   publisher.conversationUpserted(conversation)        after any conversation write
  *   publisher.messageUpserted(message, conversation?)    after an append or a status change;
- *                                                        pass the conversation when you have it
+ *                                                        pass the conversation when you have it;
+ *                                                        a team / group in-app line also passes
+ *                                                        `{ recipients, mentions }` (§6)
  *   publisher.countersChanged(counters)                  after a write that moved INBOX#COUNTERS
  *                                                        (read the item back and pass it)
  *   publisher.optOutChanged({ channel, address, status, conversationId? })
+ *   publisher.teamCountersInvalidated(conversationId, memberIds)
+ *                                                        after anything that moves these members'
+ *                                                        team-chat badge (§6); each listed viewer's
+ *                                                        stream recounts and writes team_counters.changed
  *
  * or `publish(event)` with a fully-formed `MessagingRealtimeEvent`. Publish
  * the UNMASKED entity — scope filtering and number masking happen per
@@ -54,8 +63,13 @@ export class RealtimePublisher {
     this.publish({ type: 'conversation.upserted', at, conversation });
   }
 
-  messageUpserted(message: Message, conversation?: Conversation, at: string = new Date().toISOString()): void {
-    this.publish({ type: 'message.upserted', at, message, conversation });
+  messageUpserted(
+    message: Message,
+    conversation?: Conversation,
+    at: string = new Date().toISOString(),
+    delivery?: TeamDelivery,
+  ): void {
+    this.publish({ type: 'message.upserted', at, message, conversation, ...(delivery ?? {}) });
   }
 
   countersChanged(counters: InboxCounters, at: string = new Date().toISOString()): void {
@@ -67,5 +81,11 @@ export class RealtimePublisher {
     at: string = new Date().toISOString(),
   ): void {
     this.publish({ type: 'opt_out.changed', at, ...input });
+  }
+
+  /** Nothing to say when nobody is listed (an employee's own line on their own thread). */
+  teamCountersInvalidated(conversationId: string, memberIds: string[], at: string = new Date().toISOString()): void {
+    if (!memberIds.length) return;
+    this.publish({ type: 'team_counters.invalidated', at, conversationId, memberIds });
   }
 }

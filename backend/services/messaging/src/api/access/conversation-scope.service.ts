@@ -60,15 +60,16 @@ export class ConversationScopeService {
 
   /**
    * May the caller read this conversation? Under `assigned_only`, yes when
-   * they are the party, when the last job on the thread has them on its
-   * roster, or when any of their current jobs is with the same party. Every
-   * deal lookup that fails counts as "no".
+   * they are the party, a member of the group (§6), when the last job on the
+   * thread has them on its roster, or when any of their current jobs is with
+   * the same party. Every deal lookup that fails counts as "no".
    */
   async canAccess(c: Conversation, scope: MessagingScope): Promise<boolean> {
     if (scope.scope === 'all') return true;
     const { userId } = scope;
 
     if (c.partyKind === 'user' && c.partyId === userId) return true;
+    if (c.kind === 'group') return (c.memberIds ?? []).includes(userId);
 
     if (c.lastDealId) {
       const deal = await this.deals.find(c.lastDealId);
@@ -103,10 +104,11 @@ export class ConversationScopeService {
 
   /**
    * The inbox of an `assigned_only` caller, newest activity first: the
-   * threads of every party on their jobs plus their own team thread.
-   * Read through the `CONVOF#` pointers (A8) — there is no per-technician
-   * index and a tech has tens of jobs, not thousands. A deal service that
-   * cannot answer yields only the caller's own thread.
+   * threads of every party on their jobs, their own team thread and the
+   * groups they are a member of (§6, through `MEMBEROF#`). Read through the
+   * `CONVOF#` pointers (A8) — there is no per-technician index and a tech
+   * has tens of jobs, not thousands. A deal service that cannot answer
+   * yields only the caller's own threads.
    */
   async assignedConversations(userId: string): Promise<Conversation[]> {
     const deals = (await this.deals.listByTech(userId)) ?? [];
@@ -117,6 +119,9 @@ export class ConversationScopeService {
       if (deal.companyId) parties.set(`company:${deal.companyId}`, { kind: 'company', id: deal.companyId });
     }
     parties.set(`user:${userId}`, { kind: 'user', id: userId });
+    for (const m of await this.conversations.listMemberOf(userId)) {
+      parties.set(`group:${m.conversationId}`, { kind: 'group', id: m.conversationId });
+    }
 
     const found = new Map<string, Conversation>();
     const list = [...parties.values()];

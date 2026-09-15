@@ -3,8 +3,10 @@ import { SnsPublisherService } from '@bitcrm/shared';
 import {
   MESSAGE_EVENT_TOPIC,
   MessageEventType,
+  type Conversation,
   type ConversationUpdatedEvent,
   type Message,
+  type MessageReceivedEvent,
   type MessageSentEvent,
   type MessageStatus,
   type MessageStatusChangedEvent,
@@ -39,6 +41,27 @@ export class OutboundEventsPublisher {
       providerSid,
     };
     return this.publish(MessageEventType.MESSAGE_SENT, payload);
+  }
+
+  /**
+   * A team / group in-app line landed for its members (design §6) — the
+   * `message.received` a notifier (push, digest) subscribes to, with the
+   * thread's party (`user` / `group`) so it knows whom to wake.
+   */
+  messageReceived(m: Message, conversation: Pick<Conversation, 'partyKind' | 'partyId'>): Promise<void> {
+    const payload: MessageReceivedEvent = {
+      messageId: m.id,
+      conversationId: m.conversationId,
+      channel: m.channel,
+      from: m.from,
+      to: m.to,
+      partyKind: conversation.partyKind,
+      partyId: conversation.partyId,
+      dealId: m.dealId,
+      providerSid: m.providerSid,
+      createdAt: m.createdAt,
+    };
+    return this.publish(MessageEventType.MESSAGE_RECEIVED, payload);
   }
 
   statusChanged(key: { messageId: string; conversationId: string }, status: MessageStatus, errorCode?: string): Promise<void> {
