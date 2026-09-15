@@ -13,6 +13,12 @@ import {
 } from '@bitcrm/shared';
 import { MESSAGE_EVENT_TOPIC } from '@bitcrm/types';
 import { MESSAGING_TABLE } from './common/constants/dynamo.constants';
+import { InboxCountersModule } from './counters/inbox-counters.module';
+import { ConversationsModule } from './conversations/conversations.module';
+import { MessagesModule } from './messages/messages.module';
+import { OptOutsModule } from './opt-outs/opt-outs.module';
+import { MessageTemplatesModule } from './templates/message-templates.module';
+import { MessagingSettingsModule } from './settings/messaging-settings.module';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
@@ -67,9 +73,16 @@ const CONTACT_EVENTS_QUEUE_URL = process.env.CONTACT_EVENTS_TO_MESSAGING_QUEUE_U
           }
         : undefined,
     }),
-    // Domain modules register here. Collection routes (`/conversations/counters`,
+    // Domain modules — repositories only for now (M5); controllers land with
+    // the inbox API. Collection routes (`/conversations/counters`,
     // `/conversations/by-party`, `/conversations/internal/*`) must be declared
     // before any `GET /conversations/:id` — see CLAUDE.md §4 on route shadowing.
+    InboxCountersModule,
+    ConversationsModule,
+    MessagesModule,
+    OptOutsModule,
+    MessageTemplatesModule,
+    MessagingSettingsModule,
   ],
 })
 export class AppModule implements OnModuleInit {
