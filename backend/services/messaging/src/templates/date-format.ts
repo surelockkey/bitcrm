@@ -13,17 +13,19 @@ const TIME_ONLY = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 /** Intl (ICU 72+) puts U+202F before AM/PM; SMS clients render it as a box. */
 const plainSpaces = (s: string) => s.replace(/[  ]/g, ' ');
 
-/** A valid IANA zone, else `fallback` (Intl throws RangeError on an unknown one). */
-export function resolveTimezone(candidate?: string, fallback: string = DEFAULT_TIMEZONE): string {
-  if (candidate) {
-    try {
-      new Intl.DateTimeFormat('en-US', { timeZone: candidate });
-      return candidate;
-    } catch {
-      // fall through
-    }
+/** Intl throws RangeError on an unknown zone — that is the whole check. */
+export function isValidTimezone(candidate: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate });
+    return true;
+  } catch {
+    return false;
   }
-  return fallback;
+}
+
+/** A valid IANA zone, else `fallback`. */
+export function resolveTimezone(candidate?: string, fallback: string = DEFAULT_TIMEZONE): string {
+  return candidate && isValidTimezone(candidate) ? candidate : fallback;
 }
 
 export function formatDate(value: string | undefined, timezone: string): string | undefined {
