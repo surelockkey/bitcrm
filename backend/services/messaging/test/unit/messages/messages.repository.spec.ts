@@ -341,6 +341,23 @@ describe('MessagesRepository.setFlagged', () => {
   });
 });
 
+describe('MessagesRepository.markResent', () => {
+  it('points the failed line at its replacement without touching status or rank; the line must exist', async () => {
+    const { repo, sent } = makeRepo();
+    await repo.markResent({ conversationId: 'c1', createdAt: T1, messageId: 'm1' }, 'm-new', AT);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].name).toBe('UpdateCommand');
+    expect(sent[0].input).toMatchObject({
+      Key: { PK: 'CONV#c1', SK: `MSG#${T1}#m1` },
+      UpdateExpression: 'SET #resentAsMessageId = :resentAsMessageId, #updatedAt = :at',
+      ConditionExpression: 'attribute_exists(PK)',
+      ExpressionAttributeNames: { '#resentAsMessageId': 'resentAsMessageId', '#updatedAt': 'updatedAt' },
+      ExpressionAttributeValues: { ':resentAsMessageId': 'm-new', ':at': AT },
+    });
+    expect(sent[0].input.UpdateExpression).not.toMatch(/status/);
+  });
+});
+
 describe('MessagesRepository pointers', () => {
   it('putProviderSidPointer is first-writer-wins', async () => {
     const { repo, sent } = makeRepo([{}, conditionalCheckFailed()]);

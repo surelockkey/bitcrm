@@ -1,5 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { ResendMessageDto } from '../../../src/outbound/dto/resend-message.dto';
 import { SendMessageDto, StartConversationMessageDto } from '../../../src/outbound/dto/send-message.dto';
 
 const CM = '6f1f4d7e-0f5c-4b8e-9a6d-2c3b4a5d6e7f';
@@ -56,6 +57,16 @@ describe('SendMessageDto', () => {
     expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: 'u1' })).toEqual(['mentions']);
     expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: [''] })).toEqual(['mentions']);
     expect(await errorsOf(SendMessageDto, { ...valid, channel: 'in_app', mentions: Array(51).fill('u') })).toEqual(['mentions']);
+  });
+});
+
+describe('ResendMessageDto', () => {
+  it('accepts an empty body; clientMessageId must be a uuid and createdAt a strict ISO timestamp when given', async () => {
+    expect(await errorsOf(ResendMessageDto, {})).toEqual([]);
+    expect(await errorsOf(ResendMessageDto, { clientMessageId: CM, createdAt: '2026-09-15T10:00:00.000Z' })).toEqual([]);
+    expect(await errorsOf(ResendMessageDto, { clientMessageId: 'resend:m1:1' })).toEqual(['clientMessageId']);
+    expect(await errorsOf(ResendMessageDto, { createdAt: 'yesterday' })).toEqual(['createdAt']);
+    expect(await errorsOf(ResendMessageDto, { createdAt: 20260915 })).toEqual(['createdAt']);
   });
 });
 

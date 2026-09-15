@@ -475,6 +475,25 @@ export class MessagesRepository {
   }
 
   /**
+   * `POST /conversations/:id/messages/:messageId/resend`: the failed line
+   * remembers which new line replaced it — `SET resentAsMessageId`, the
+   * newest resend winning when there were several. Status and rank are
+   * untouched: the original stays `failed` in the feed.
+   */
+  async markResent(key: MessageKey, resentAsMessageId: string, at: string = new Date().toISOString()): Promise<void> {
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: this.key(key),
+        UpdateExpression: 'SET #resentAsMessageId = :resentAsMessageId, #updatedAt = :at',
+        ConditionExpression: 'attribute_exists(PK)',
+        ExpressionAttributeNames: { '#resentAsMessageId': 'resentAsMessageId', '#updatedAt': 'updatedAt' },
+        ExpressionAttributeValues: { ':resentAsMessageId': resentAsMessageId, ':at': at },
+      }),
+    );
+  }
+
+  /**
    * `Put PSID#<sid>` with `attribute_not_exists(PK)` once the provider has
    * accepted an outbound message (M9). `false` when the sid is already
    * pointed somewhere — the caller decides whether that is the same message.

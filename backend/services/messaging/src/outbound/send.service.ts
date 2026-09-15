@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -16,12 +17,14 @@ import { getDataScopeFilter, hasPermission, normalizePhone, tryNormalizePhone } 
 import {
   DataScope,
   EMAIL_BODY_MAX_LENGTH,
+  isSmsChannel,
   type Conversation,
   type ConversationKind,
   type JwtUser,
   type Message,
   type MessageAttachment,
   type MessageOrigin,
+  type MessageStatus,
   type OptOutChannel,
   type ResolvedPermissions,
 } from '@bitcrm/types';
@@ -35,6 +38,7 @@ import { emailBodies } from '../email/email-body';
 import { MessagesRepository, type AppendResult, type MessageKey } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { TeamAccessService, isTeamKind } from '../team/team-access.service';
+import { type ResendMessageDto } from './dto/resend-message.dto';
 import { MAX_ATTACHMENT_BYTES, type SendAttachmentDto, type SendMessageDto, type StartConversationMessageDto } from './dto/send-message.dto';
 import { CrmContactsClient } from './internal/crm-contacts.client';
 import { DealContextClient } from './internal/deal-context.client';
@@ -110,6 +114,15 @@ export class RecipientOptedOutException extends HttpException {
 
 /** How many recent lines are inspected for the email an outbound one replies to. */
 const THREAD_SCAN_LIMIT = 25;
+
+/** Statuses a resend is offered for: the provider gave up on the line, nothing more will come. */
+export const RESENDABLE_STATUSES: readonly MessageStatus[] = ['failed', 'undelivered', 'canceled'];
+
+/** Without its `createdAt`, the message to resend is looked for in this many feed pages (newest first). */
+const RESEND_LOOKUP_PAGES = 4;
+const RESEND_LOOKUP_PAGE_SIZE = 50;
+/** `resend:<id>:<n>` keys probed for a free one before giving up. */
+const RESEND_KEY_PROBE_LIMIT = 100;
 
 /** An SMS in an employee's thread has nowhere to go: no personal phone on their user record (design §6). */
 export class EmployeeHasNoPhoneException extends HttpException {
@@ -193,6 +206,173 @@ export class SendService {
     if (input.contactId) return this.conversationForContact(input.contactId, input.phone);
     if (input.phone) return this.conversationForPhone(normalizePhone(input.phone));
     throw new BadRequestException('contactId or phone is required');
+  }
+
+  // --------------------------------------------------------------- resend
+
+  /**
+   * `POST /conversations/:id/messages/:messageId/resend` — a failed line
+   * (`failed` / `undelivered` / `canceled`, outbound, SMS or email; anything
+   * else is 409) goes out again as a NEW message: same channel, text,
+   * subject / HTML, attachments, job, template and recipient, the sender
+   * re-resolved through the chain (the original number when the chain
+   * yields none), then the normal accept path — opt-out check, `queued`
+   * under the `CLIENTMSG#` guard, the FIFO queue, realtime. The two are
+   * linked both ways (`resentFromMessageId` / `resentAsMessageId`); the
+   * original keeps its `failed` in the feed.
+   *
+   * Idempotency: the composer's `clientMessageId` when it sends one; else
+   * `resend:<messageId>:<n>` with n the first slot no `CLIENTMSG#` pointer
+   * holds — so two clicks in flight compute the same key and the second
+   * lands on the guard (§4.9), while a deliberate later resend gets n + 1.
+   */
+  async resend(conversationId: string, messageId: string, dto: ResendMessageDto, caller: SendCaller): Promise<Message> {
+    const conversation = await this.conversations.get(conversationId);
+    if (!conversation) throw new NotFoundException('Conversation not found');
+    const source = await this.findMessage(conversationId, messageId, dto.createdAt);
+    if (!source) throw new NotFoundException('Message not found');
+    if (source.direction !== 'outbound' || !RESENDABLE_STATUSES.includes(source.status)) {
+      throw new ConflictException(`Only a failed outbound message can be resent; this one is ${source.direction} ${source.status}`);
+    }
+    if (!isSmsChannel(source.channel) && source.channel !== 'email') {
+      throw new ConflictException(`A ${source.channel} message cannot be resent`);
+    }
+    await this.authorise(conversation, { dealId: source.dealId }, caller);
+
+    const message =
+      source.channel === 'email'
+        ? await this.prepareEmailResend(conversation, source, caller)
+        : await this.prepareSmsResend(conversation, source, caller);
+    const clientMessageId = dto.clientMessageId ?? (await this.resendKey(source.id));
+    const accepted = await this.accept(conversation, message, { clientMessageId, createdBy: caller.user.id });
+    if (!accepted.duplicate) await this.linkResend(source, accepted.message);
+    return accepted.message;
+  }
+
+  /** The SMS copy: STOP list, the sender chain seeded with the original number, everything else as it was. */
+  private async prepareSmsResend(conversation: Conversation, source: Message, caller: SendCaller): Promise<Message> {
+    const to = source.to;
+    if (!to) throw new ConflictException('The message has no recipient to resend to');
+    if (!source.body && !source.attachments?.length) throw new ConflictException('The message has neither text nor attachments to resend');
+    if (await this.optOuts.isOptedOut('sms', to)) throw new RecipientOptedOutException(to);
+
+    const dealId = source.dealId ?? conversation.lastDealId;
+    // Same rule as a fresh send: an employee is texted from the workspace number, never the job's line.
+    const resolved = await this.sender.resolve({
+      requested: source.from,
+      conversation,
+      dealId: conversation.partyKind === 'user' ? undefined : dealId,
+    });
+    const from = resolved.from ?? source.from;
+    const senderSource = resolved.from ? resolved.source : source.senderSource;
+
+    const now = new Date().toISOString();
+    return {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: source.channel,
+      direction: 'outbound',
+      body: source.body,
+      from,
+      to,
+      businessNumber: from,
+      senderSource,
+      contactAddress: source.contactAddress,
+      status: 'queued',
+      provider: 'twilio',
+      origin: 'user',
+      sentByUserId: caller.user.id,
+      dealId: source.dealId,
+      templateId: source.templateId,
+      attachments: this.copyAttachments(source),
+      resentFromMessageId: source.id,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  /** The email copy: the unsubscribe ledger, the sender address as resolved now, threading headers kept. */
+  private async prepareEmailResend(conversation: Conversation, source: Message, caller: SendCaller): Promise<Message> {
+    if (!this.email?.configured) {
+      throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
+    }
+    const to = source.to;
+    if (!to) throw new ConflictException('The message has no recipient to resend to');
+    if (!source.subject) throw new ConflictException('The message has no subject to resend with');
+    if (await this.optOuts.isOptedOut('email', to)) throw new RecipientOptedOutException(to, 'email');
+
+    const from = (await this.email.resolve(conversation.id))?.from ?? source.from;
+    if (!from) throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
+
+    const now = new Date().toISOString();
+    return {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'email',
+      direction: 'outbound',
+      subject: source.subject,
+      body: source.body,
+      bodyHtml: source.bodyHtml,
+      from,
+      to,
+      contactAddress: to,
+      inReplyTo: source.inReplyTo,
+      references: source.references,
+      status: 'queued',
+      provider: 'ses',
+      origin: 'user',
+      sentByUserId: caller.user.id,
+      dealId: source.dealId,
+      templateId: source.templateId,
+      attachments: this.copyAttachments(source),
+      resentFromMessageId: source.id,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  /** The stored uploads of the original, as they are — the worker presigns the same S3 objects again. */
+  private copyAttachments(source: Message): MessageAttachment[] | undefined {
+    const stored = (source.attachments ?? []).filter((a) => a.status === 'stored' && a.s3Key);
+    return stored.length ? stored.map((a) => ({ ...a })) : undefined;
+  }
+
+  /** `resend:<messageId>:<n>` — the first n no `CLIENTMSG#` pointer holds (n = previous resends + 1). */
+  private async resendKey(sourceId: string): Promise<string> {
+    for (let n = 1; n <= RESEND_KEY_PROBE_LIMIT; n++) {
+      const candidate = `resend:${sourceId}:${n}`;
+      if (!(await this.messages.getClientMessagePointer(candidate))) return candidate;
+    }
+    throw new ConflictException('This message has been resent too many times');
+  }
+
+  /** The original points at its replacement; a failure here costs the link, never the send. */
+  private async linkResend(source: Message, created: Message): Promise<void> {
+    const key: MessageKey = { conversationId: source.conversationId, createdAt: source.createdAt, messageId: source.id };
+    try {
+      await this.messages.markResent(key, created.id, created.createdAt);
+      this.realtime?.messageUpserted({ ...source, resentAsMessageId: created.id, updatedAt: created.createdAt }, undefined, created.createdAt);
+    } catch (error) {
+      this.logger.warn(`Could not mark ${source.id} as resent as ${created.id}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  /**
+   * The line named by the URL. With its `createdAt` (part of the sort key)
+   * a single read; without, the recent feed is walked for the id — a
+   * failed line someone wants to resend is almost always near the top.
+   */
+  private async findMessage(conversationId: string, messageId: string, createdAt?: string): Promise<Message | null> {
+    if (createdAt) return this.messages.get({ conversationId, createdAt, messageId });
+    let cursor: string | undefined;
+    for (let page = 0; page < RESEND_LOOKUP_PAGES; page++) {
+      const result = await this.messages.listByConversation(conversationId, { limit: RESEND_LOOKUP_PAGE_SIZE, cursor });
+      const hit = result.items.find((m) => m.id === messageId);
+      if (hit) return hit;
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    return null;
   }
 
   // ------------------------------------------------------------- the path
@@ -557,7 +737,7 @@ export class SendService {
    * is limited to conversations of jobs the caller is on — verified against
    * the job's roster, and refused when the roster cannot be read.
    */
-  private async authorise(conversation: Conversation, dto: SendMessageDto, caller: SendCaller): Promise<void> {
+  private async authorise(conversation: Conversation, dto: Pick<SendMessageDto, 'dealId'>, caller: SendCaller): Promise<void> {
     const { user, perms } = caller;
     if (isTeamKind(conversation.kind)) {
       if (!hasPermission(perms, 'team_chat', 'send')) {
