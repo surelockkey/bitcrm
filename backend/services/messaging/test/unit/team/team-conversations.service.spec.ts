@@ -25,7 +25,7 @@ function make() {
   const users = { find: jest.fn().mockResolvedValue({ id: 'tech-1', name: 'Ann Tech', phone: '+14045550001' }) };
   const events = { conversationUpdated: jest.fn() };
   const inboxCounters = { get: jest.fn().mockResolvedValue({ unreadConversations: 0, flaggedConversations: 0, unreadByKind: {} }) };
-  const realtime = { conversationUpserted: jest.fn(), countersChanged: jest.fn() };
+  const realtime = { conversationUpserted: jest.fn(), countersChanged: jest.fn(), teamCountersInvalidated: jest.fn() };
   const access = new TeamAccessService();
   const readState = new TeamCountersService(repo as never);
   const service = new TeamConversationsService(repo as never, access, readState, users as never, events as never, inboxCounters as never, realtime as never);
@@ -169,6 +169,7 @@ describe('TeamConversationsService.markRead', () => {
     expect(repo.putReadMarker).not.toHaveBeenCalled();
     expect(out).toMatchObject({ unread: false, viewerUnread: false, viewerUnreadCount: 0, readMarker: { userId: 'admin-1', lastReadMessageSk: `MSG#${T1}#m9` } });
     expect(realtime.conversationUpserted).toHaveBeenCalled();
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('c-me', ['admin-1'], expect.any(String));
     expect(events.conversationUpdated).toHaveBeenCalledWith('c-me');
     await Promise.resolve();
     await Promise.resolve();
@@ -184,6 +185,7 @@ describe('TeamConversationsService.markRead', () => {
     expect(repo.putReadMarker).toHaveBeenCalledWith('c-me', 'tech-1', expect.objectContaining({ lastReadMessageSk: undefined }));
     expect(out).toMatchObject({ unread: true, viewerUnread: false, readMarker: { userId: 'tech-1' } });
     expect(realtime.conversationUpserted).not.toHaveBeenCalled();
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('c-me', ['tech-1'], expect.any(String));
 
     repo.get.mockResolvedValue(GROUP);
     await service.markRead('g1', `MSG#${T1}#m9`, ADMIN, OFFICE);

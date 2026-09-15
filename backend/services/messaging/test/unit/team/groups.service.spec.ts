@@ -19,7 +19,7 @@ function make() {
   const repo = mockConversationsRepo();
   const users = { find: jest.fn(async (id: string) => (id.startsWith('ghost') ? null : { id, name: id })) };
   const events = { conversationUpdated: jest.fn() };
-  const realtime = { conversationUpserted: jest.fn(), countersChanged: jest.fn() };
+  const realtime = { conversationUpserted: jest.fn(), countersChanged: jest.fn(), teamCountersInvalidated: jest.fn() };
   const access = new TeamAccessService();
   const readState = new TeamCountersService(repo as never);
   const team = new TeamConversationsService(repo as never, access, readState, users as never, events as never, undefined, realtime as never);
@@ -112,6 +112,7 @@ describe('GroupsService.update', () => {
     expect(opts.actorId).toBe('admin-1');
     expect(out).toMatchObject({ name: 'Day shift', memberIds: ['admin-1', 'tech-1', 'tech-3'] });
     expect(realtime.conversationUpserted).toHaveBeenCalled();
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('g1', ['tech-3', 'tech-2'], expect.any(String));
   });
 
   it('refuses a blank name, an id in both lists, unknown users, and emptying the group', async () => {

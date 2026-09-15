@@ -140,6 +140,8 @@ export class GroupsService {
         if (next !== current) {
           this.logger.log(`Group ${id} updated by ${user.id}: +${add.length} -${remove.length}${name ? ' renamed' : ''}`);
           this.realtime?.conversationUpserted(next, at);
+          // Whoever joined or left sees a different list and badge (§6).
+          this.realtime?.teamCountersInvalidated(id, [...add.map((m) => m.userId), ...remove], at);
           this.events.conversationUpdated(id);
         }
         return this.detail(next, user.id);

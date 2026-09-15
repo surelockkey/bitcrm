@@ -62,8 +62,9 @@ function makeService(opts: {
   };
   const deals = { find: jest.fn(async () => opts.deal ?? null) };
   const crm = { getContact: jest.fn(async () => null), findByPhone: jest.fn(async () => null) };
-  const events = { conversationUpdated: jest.fn(async () => undefined) };
-  const realtime = { messageUpserted: jest.fn(), conversationUpserted: jest.fn(), countersChanged: jest.fn() };
+  const events = { conversationUpdated: jest.fn(async () => undefined), messageReceived: jest.fn(async () => undefined) };
+  const realtime = { messageUpserted: jest.fn(), conversationUpserted: jest.fn(), countersChanged: jest.fn(), teamCountersInvalidated: jest.fn() };
+  const inboxCounters = { get: jest.fn(async () => ({ unreadConversations: 5, flaggedConversations: 0, unreadByKind: { team: 2 } })) };
   const teammate = opts.teammate === undefined ? { id: 'u2', name: 'Ann Tech', phone: '+14045550002' } : opts.teammate;
   const users = teammate === 'none' ? undefined : { find: jest.fn(async (id: string) => (teammate ? { ...teammate, id } : null)) };
   const service = new SendService(
@@ -78,8 +79,9 @@ function makeService(opts: {
     opts.renderer as any,
     realtime as any,
     users as any,
+    inboxCounters as any,
   );
-  return { service, conversations, messages, optOuts, sender, queue, deals, crm, events, realtime, users };
+  return { service, conversations, messages, optOuts, sender, queue, deals, crm, events, realtime, users, inboxCounters };
 }
 
 const dto = (overrides: Partial<SendMessageDto> = {}): SendMessageDto => ({
@@ -432,5 +434,45 @@ describe('SendService — SMS to an employee', () => {
     const m = await service.sendToConversation('c-u2', dto({ dealId: CM }), { user, perms: perms() });
     expect(m.to).toBe('+14045550002');
     expect(sender.resolve).toHaveBeenCalledWith(expect.objectContaining({ dealId: undefined }));
+  });
+});
+
+describe('SendService — team notifications (§6)', () => {
+  it('a group line invalidates every recipient’s badge and tells the notifier (message.received with the group as party)', async () => {
+    const { service, realtime, events, inboxCounters } = makeService({ conversation: GROUP });
+    const m = await service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('g1', ['u2', 'u3'], m.createdAt);
+    expect(events.messageReceived).toHaveBeenCalledWith(m, expect.objectContaining({ partyKind: 'group', partyId: 'g1' }));
+    await Promise.resolve();
+    expect(inboxCounters.get).not.toHaveBeenCalled(); // the office's inbox badge did not move
+    expect(realtime.countersChanged).not.toHaveBeenCalled();
+  });
+
+  it('the employee’s own line marks the office unread: inbox counters are read back and pushed, the employee is not invalidated', async () => {
+    const mine = { ...TEAM, partyId: 'u1' };
+    const { service, messages, realtime, inboxCounters, events } = makeService({ conversation: mine });
+    messages.appendOutbound.mockImplementationOnce(async (input: any) => ({ duplicate: false, conversation: { ...input.conversation, unread: true, unreadCount: 1 } }));
+    const m = await service.sendToConversation('c-u2', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('c-u2', [], m.createdAt);
+    expect(events.messageReceived).toHaveBeenCalledWith(m, expect.objectContaining({ partyKind: 'user', partyId: 'u1' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(inboxCounters.get).toHaveBeenCalled();
+    expect(realtime.countersChanged).toHaveBeenCalledWith({ unreadConversations: 5, flaggedConversations: 0, unreadByKind: { team: 2 } });
+  });
+
+  it('the office’s line to an employee invalidates the employee only and never touches the inbox counters', async () => {
+    const { service, realtime, inboxCounters } = makeService({ conversation: TEAM });
+    const m = await service.sendToConversation('c-u2', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('c-u2', ['u2'], m.createdAt);
+    await Promise.resolve();
+    expect(inboxCounters.get).not.toHaveBeenCalled();
+  });
+
+  it('a duplicate submit notifies nobody twice', async () => {
+    const { service, realtime, events } = makeService({ conversation: GROUP, append: { duplicate: true, existing: { conversationId: 'g1', messageSk: `MSG#${T1}#first` } } });
+    await service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(realtime.teamCountersInvalidated).not.toHaveBeenCalled();
+    expect(events.messageReceived).not.toHaveBeenCalled();
   });
 });

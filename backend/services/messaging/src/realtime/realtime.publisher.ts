@@ -30,6 +30,10 @@ export type TeamDelivery = Pick<MessageUpsertedEvent, 'recipients' | 'mentions'>
  *   publisher.countersChanged(counters)                  after a write that moved INBOX#COUNTERS
  *                                                        (read the item back and pass it)
  *   publisher.optOutChanged({ channel, address, status, conversationId? })
+ *   publisher.teamCountersInvalidated(conversationId, memberIds)
+ *                                                        after anything that moves these members'
+ *                                                        team-chat badge (§6); each listed viewer's
+ *                                                        stream recounts and writes team_counters.changed
  *
  * or `publish(event)` with a fully-formed `MessagingRealtimeEvent`. Publish
  * the UNMASKED entity — scope filtering and number masking happen per
@@ -77,5 +81,11 @@ export class RealtimePublisher {
     at: string = new Date().toISOString(),
   ): void {
     this.publish({ type: 'opt_out.changed', at, ...input });
+  }
+
+  /** Nothing to say when nobody is listed (an employee's own line on their own thread). */
+  teamCountersInvalidated(conversationId: string, memberIds: string[], at: string = new Date().toISOString()): void {
+    if (!memberIds.length) return;
+    this.publish({ type: 'team_counters.invalidated', at, conversationId, memberIds });
   }
 }

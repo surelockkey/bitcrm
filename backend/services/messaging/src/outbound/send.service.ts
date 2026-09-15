@@ -24,7 +24,9 @@ import {
 } from '@bitcrm/types';
 import { UserLookupService } from '../api/access/user-lookup.service';
 import { messageSk } from '../common/constants/dynamo.constants';
+import { countersDelta } from '../conversations/conversation-keys';
 import { ConversationsRepository, StaleConversationError } from '../conversations/conversations.repository';
+import { InboxCountersRepository } from '../counters/inbox-counters.repository';
 import { MessagesRepository, type AppendResult, type MessageKey } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { TeamAccessService, isTeamKind } from '../team/team-access.service';
@@ -118,6 +120,7 @@ export class SendService {
     @Optional() @Inject(MESSAGE_TEMPLATE_RENDERER) private readonly templates?: MessageTemplateRenderer,
     @Optional() private readonly realtime?: RealtimePublisher,
     @Optional() private readonly users?: UserLookupService,
+    @Optional() private readonly inboxCounters?: InboxCountersRepository,
   ) {}
 
   /** `POST /conversations/:id/messages`. */
@@ -285,8 +288,25 @@ export class SendService {
     const recipients = teamRecipients(result.conversation, caller.user.id);
     this.logger.log(`In-app ${message.id} stored in ${conversation.id} (${conversation.kind}) for ${recipients.length} member(s)`);
     this.realtime?.messageUpserted(message, result.conversation, now, { recipients, mentions });
+    // Badges (§6): every recipient's own team-chat badge is recounted on
+    // their stream; when the employee's line marked the office's thread
+    // unread, the company-wide counters are read back and pushed too.
+    this.realtime?.teamCountersInvalidated(conversation.id, recipients, now);
+    if (fromParty && countersDelta(conversation, result.conversation)) this.pushInboxCounters();
+    // The `message.received` a notifier subscribes to (EVENTS.md): the
+    // thread's party says whom to wake — the employee, or the group.
+    void this.events.messageReceived(message, result.conversation);
     void this.events.conversationUpdated(conversation.id);
     return message;
+  }
+
+  /** The inbox badge after a write that moved `INBOX#COUNTERS`; never awaited on the request path. */
+  private pushInboxCounters(): void {
+    if (!this.inboxCounters || !this.realtime) return;
+    void this.inboxCounters
+      .get()
+      .then((counters) => this.realtime?.countersChanged(counters))
+      .catch((err) => this.logger.warn(`counters push failed: ${err instanceof Error ? err.message : err}`));
   }
 
   /** A repeated submit (double click, network retry): the first one won — hand it back (design §4.9). */

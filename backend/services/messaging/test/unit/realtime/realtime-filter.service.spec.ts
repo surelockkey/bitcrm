@@ -2,16 +2,19 @@ import { ConversationScopeService } from '../../../src/api/access/conversation-s
 import { CountersService } from '../../../src/api/counters/counters.service';
 import { type MessagingRealtimeEvent } from '../../../src/realtime/realtime-events';
 import { RealtimeFilterService, throttleTrailing } from '../../../src/realtime/realtime-filter.service';
+import { REALTIME_EVENT_TYPES, isRealtimeEvent } from '../../../src/realtime/realtime-events';
+import { TeamCountersService } from '../../../src/team/team-counters.service';
 import { createMockConversation, createMockMessage, T1 } from '../mocks';
 import { ADMIN, TECH, adminPerms, createMockDeal, mockConversationsRepo, mockCountersRepo, mockDealRead, techPerms } from '../api/api-mocks';
 
-function make() {
+function make(opts: { team?: boolean } = { team: true }) {
   const repo = mockConversationsRepo();
   const deals = mockDealRead();
   const countersRepo = mockCountersRepo();
   const scope = new ConversationScopeService(repo as never, deals as never);
   const counters = new CountersService(countersRepo as never, scope);
-  const filter = new RealtimeFilterService(scope, repo as never, counters);
+  const teamCounters = opts.team === false ? undefined : new TeamCountersService(repo as never);
+  const filter = new RealtimeFilterService(scope, repo as never, counters, teamCounters);
   return { filter, repo, deals, countersRepo };
 }
 
@@ -194,5 +197,45 @@ describe('throttleTrailing', () => {
     expect(fn).toHaveBeenCalledTimes(2);
     t.cancel();
     jest.useRealTimers();
+  });
+});
+
+describe('RealtimeFilterService.forViewer — team chat (§6)', () => {
+  const GROUP = createMockConversation({ id: 'g1', kind: 'group', partyKind: 'group', partyId: 'g1', memberIds: ['tech-1', 'admin-1'], addresses: { phones: [], emails: [] }, lastMessageAt: T1, lastMessageId: 'm9', lastDirection: 'outbound' });
+  const invalidated: MessagingRealtimeEvent = { type: 'team_counters.invalidated', at: T1, conversationId: 'g1', memberIds: ['tech-1'] };
+
+  it('the new event types are accepted off the wire', () => {
+    expect(REALTIME_EVENT_TYPES).toEqual(expect.arrayContaining(['team_counters.invalidated', 'team_counters.changed']));
+    expect(isRealtimeEvent(invalidated)).toBe(true);
+  });
+
+  it('a group line reaches its members (memberIds) with recipients and mentions intact, and not a non-member technician', async () => {
+    const { filter } = make();
+    const message = createMockMessage({ conversationId: 'g1', channel: 'in_app', from: undefined, to: undefined, mentions: ['tech-1'] });
+    const event: MessagingRealtimeEvent = { type: 'message.upserted', at: T1, message, conversation: GROUP, recipients: ['tech-1', 'admin-1'], mentions: ['tech-1'] };
+    const out = (await filter.forViewer(event, filter.viewerFor(TECH, techPerms({ permissions: { team_chat: { view: true } } })))) as any;
+    expect(out).toMatchObject({ recipients: ['tech-1', 'admin-1'], mentions: ['tech-1'] });
+    expect(out.message.mentions).toEqual(['tech-1']);
+    expect(await filter.forViewer({ ...event, conversation: { ...GROUP, memberIds: ['admin-1'] } }, filter.viewerFor(TECH, techPerms()))).toBeNull();
+  });
+
+  it('team_counters.invalidated becomes the listed member’s own recount, and nothing for anyone else', async () => {
+    const { filter, repo } = make();
+    repo.listMemberOf.mockResolvedValue([{ conversationId: 'g1', userId: 'tech-1', role: 'member', joinedAt: '2026-09-01T00:00:00.000Z' }]);
+    repo.get.mockResolvedValue(GROUP);
+    const out = await filter.forViewer(invalidated, filter.viewerFor(TECH, techPerms()));
+    expect(out).toEqual({ type: 'team_counters.changed', at: T1, userId: 'tech-1', counters: { unreadConversations: 1, unreadByKind: { group: 1 } } });
+
+    expect(await filter.forViewer(invalidated, filter.viewerFor(ADMIN, adminPerms()))).toBeNull(); // not listed
+    expect(await filter.forViewer(invalidated, filter.viewerFor(TECH, techPerms({ permissions: { messages: { view: true } } })))).toBeNull(); // no team_chat.view
+    const bare = make({ team: false }); // no recount service wired → nothing to say
+    expect(await bare.filter.forViewer(invalidated, bare.filter.viewerFor(TECH, techPerms()))).toBeNull();
+  });
+
+  it('a team_counters.changed already on the bus goes only to its own user', async () => {
+    const { filter } = make();
+    const changed: MessagingRealtimeEvent = { type: 'team_counters.changed', at: T1, userId: 'tech-1', counters: { unreadConversations: 2, unreadByKind: { team: 1, group: 1 } } };
+    expect(await filter.forViewer(changed, filter.viewerFor(TECH, techPerms()))).toBe(changed);
+    expect(await filter.forViewer(changed, filter.viewerFor(ADMIN, adminPerms()))).toBeNull();
   });
 });

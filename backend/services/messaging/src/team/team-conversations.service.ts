@@ -194,6 +194,8 @@ export class TeamConversationsService {
     } else {
       marker = await this.conversations.putReadMarker(id, user.id, { lastReadMessageSk, at });
     }
+    // The caller's badge changed — their other tabs recount (§6).
+    this.realtime?.teamCountersInvalidated(id, [user.id], at);
     const state: TeamReadState = { viewerUnread: false, viewerUnreadCount: 0, readMarker: marker };
     return { ...conversation, ...state };
   }

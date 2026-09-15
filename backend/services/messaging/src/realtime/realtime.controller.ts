@@ -36,12 +36,14 @@ export class RealtimeController {
     description:
       '**Guard:** `messages.view` or `team_chat.view` (checked here — the permission guard ' +
       'cannot express "either"). Bearer token as on every route (open it with a fetch stream, ' +
-      'EventSource cannot send headers). Emits `conversation.upserted`, `message.upserted`, ' +
-      '`counters.changed` and `opt_out.changed` as `data:` frames, each filtered by the ' +
+      'EventSource cannot send headers). Emits `conversation.upserted`, `message.upserted` (a team / ' +
+      'group in-app line carries `recipients` and `mentions`), `counters.changed`, `opt_out.changed` and ' +
+      "`team_counters.changed` (the caller's own team-chat badge, recounted whenever a thread they are " +
+      'in changes) as `data:` frames, each filtered by the ' +
       "caller's data scope and masked per `contacts.view_numbers` at send time; permissions are " +
       're-resolved per event (60 s memo) so a revoked viewer goes quiet within a minute. ' +
       'Heartbeat comment every 25 s. Fallback when the stream is unavailable: poll ' +
-      '`GET /counters` every 30 s and the open feed every 10 s.',
+      '`GET /counters` and `GET /team/counters` every 30 s and the open feed every 10 s.',
   })
   async stream(@Res() res: Response, @CurrentUser() user: JwtUser): Promise<void> {
     const perms = await this.permissions.resolve(user);
@@ -75,6 +77,16 @@ export class RealtimeController {
       if (filtered) write(filtered);
     }, SCOPED_COUNTERS_MIN_INTERVAL_MS);
 
+    // The viewer's own team-chat badge (§6): a burst of in-app lines in a
+    // busy group costs this connection one recount per interval.
+    const teamCounters = throttleTrailing(async () => {
+      const filtered = await this.filter.forViewer(
+        { type: 'team_counters.invalidated', at: new Date().toISOString(), conversationId: '', memberIds: [user.id] },
+        viewer,
+      );
+      if (filtered) write(filtered);
+    }, SCOPED_COUNTERS_MIN_INTERVAL_MS);
+
     const subscription = this.subscriber.stream().subscribe((event) => {
       void (async () => {
         // Re-resolved per event, memoised for 60 s: a stream outlives a
@@ -85,6 +97,10 @@ export class RealtimeController {
 
         if (event.type === 'counters.changed' && viewer.scope.scope !== 'all') {
           if (viewer.mayViewMessages) scopedCounters.call();
+          return;
+        }
+        if (event.type === 'team_counters.invalidated') {
+          if (viewer.mayViewTeamChat && event.memberIds.includes(user.id)) teamCounters.call();
           return;
         }
         const filtered = await this.filter.forViewer(event, viewer);
@@ -101,6 +117,7 @@ export class RealtimeController {
       open = false;
       clearInterval(heartbeat);
       scopedCounters.cancel();
+      teamCounters.cancel();
       subscription.unsubscribe();
       res.end();
     });

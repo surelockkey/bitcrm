@@ -94,7 +94,7 @@ outbound worker (M7, M9) are the publishers.
 
 | eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
 |---|---|---|---|
-| `message.received` | `MessageReceivedEvent` `{messageId, conversationId, channel, from, to, partyKind, partyId?, dealId?, providerSid?, createdAt}` | an inbound message was stored (webhook transaction committed) | — (automations, reporting — future) |
+| `message.received` | `MessageReceivedEvent` `{messageId, conversationId, channel, from, to, partyKind, partyId?, dealId?, providerSid?, createdAt}` | an inbound message was stored (webhook transaction committed); also a team / group `in_app` line for its members (`partyKind` `user` / `group`, M16) | — (automations, reporting, a push notifier for team chat — future) |
 | `message.sent` | `MessageSentEvent` `{messageId, conversationId, channel, to, businessNumber?, sentByUserId?, automationRuleId?, dealId?, providerSid}` | the provider accepted an outbound message | — |
 | `message.status_changed` | `MessageStatusChangedEvent` `{messageId, conversationId, status, errorCode?}` | an outbound message reached a terminal status (delivered / undelivered / failed / canceled) | — |
 | `conversation.updated` | `ConversationUpdatedEvent` `{conversationId}` | any change to a conversation (new message, archive, flag, read, party change) | **search** (`conversation` document, M15) |
@@ -105,7 +105,11 @@ Messages are **not** copied into the deal timeline (`TIMELINE#`); the job's
 
 Live-UI updates (new message, counters, opt-out banner) go over SSE
 (`GET /api/messaging/stream`, M12) fed by Redis pub/sub (`messaging:events`),
-same pattern as telephony.
+same pattern as telephony. Team chat (M16) adds `team_counters.invalidated`
+on the bus (`{conversationId, memberIds}` — never written to a browser) and
+`team_counters.changed` on the stream (one member's own badge, recounted from
+their `READ#` markers); a team / group `message.upserted` carries `recipients`
+and `mentions`.
 
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
 - **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → rewrites `CONVOF#` / `ADDR#` pointers and merges conversations (handler lands with M7; the consumer is wired in `AppModule` with no handlers registered yet). Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), `messaging-email-events` / `messaging-email-inbound` (M17–M18). Handlers must be idempotent — the consumer does not deduplicate.
