@@ -25,6 +25,7 @@ import { ReconcileModule } from './reconcile/reconcile.module';
 import { OutboundModule } from './outbound/outbound.module';
 import { ApiModule } from './api/api.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { TeamModule } from './team/team.module';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
@@ -95,6 +96,7 @@ const CONTACT_EVENTS_QUEUE_URL = process.env.CONTACT_EVENTS_TO_MESSAGING_QUEUE_U
     OutboundModule,
     ApiModule,
     RealtimeModule,
+    TeamModule,
   ],
 })
 export class AppModule implements OnModuleInit {

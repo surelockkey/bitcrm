@@ -44,6 +44,12 @@ export interface SendCaller {
 export const uploadKey = (userId: string, attachmentId: string) =>
   `messaging/uploads/${userId}/${attachmentId}`;
 
+/** A party's conversation and whether this call opened it. */
+export interface FoundConversation {
+  conversation: Conversation;
+  created: boolean;
+}
+
 const TEAM_KINDS: ReadonlyArray<ConversationKind> = ['team', 'group'];
 
 /**
@@ -93,9 +99,21 @@ export class SendService {
 
   /** `POST /messages` — find or create the party's conversation first. */
   async sendToParty(dto: StartConversationMessageDto, caller: SendCaller): Promise<Message> {
-    const conversation = await this.conversationFor(dto);
+    const { conversation } = await this.conversationForParty(dto);
     const toAddress = dto.toAddress ?? dto.phone;
     return this.send(conversation, { ...dto, toAddress }, caller);
+  }
+
+  /**
+   * The client-side half of `POST /conversations` (design §7.1) — the same
+   * find-or-create `POST /messages` runs before sending: a contact gets (or
+   * already has) its `client` thread; a bare number is routed through
+   * `ADDR#`, then CRM, and opens an `unknown` thread when nobody owns it.
+   */
+  async conversationForParty(input: { contactId?: string; phone?: string }): Promise<FoundConversation> {
+    if (input.contactId) return this.conversationForContact(input.contactId, input.phone);
+    if (input.phone) return this.conversationForPhone(normalizePhone(input.phone));
+    throw new BadRequestException('contactId or phone is required');
   }
 
   // ------------------------------------------------------------- the path
@@ -252,15 +270,9 @@ export class SendService {
 
   // ---------------------------------------------- POST /messages: the party
 
-  private async conversationFor(dto: StartConversationMessageDto): Promise<Conversation> {
-    if (dto.contactId) return this.conversationForContact(dto.contactId, dto.phone);
-    if (dto.phone) return this.conversationForPhone(normalizePhone(dto.phone));
-    throw new BadRequestException('contactId or phone is required');
-  }
-
-  private async conversationForContact(contactId: string, phone: string | undefined): Promise<Conversation> {
+  private async conversationForContact(contactId: string, phone: string | undefined): Promise<FoundConversation> {
     const existing = await this.conversations.getByParty('contact', contactId);
-    if (existing) return existing;
+    if (existing) return { conversation: existing, created: false };
 
     const contact = await this.crm.getContact(contactId);
     if (!contact) throw new NotFoundException('Contact not found');
@@ -279,17 +291,17 @@ export class SendService {
     });
   }
 
-  private async conversationForPhone(phone: string): Promise<Conversation> {
+  private async conversationForPhone(phone: string): Promise<FoundConversation> {
     const pointer = await this.conversations.getByAddress(phone);
     if (pointer) {
       const routed = await this.conversations.get(pointer.conversationId);
-      if (routed) return routed;
+      if (routed) return { conversation: routed, created: false };
     }
 
     const owner = await this.crm.findByPhone(phone);
     if (owner) {
       const existing = await this.conversations.getByParty(owner.kind, owner.id);
-      if (existing) return existing;
+      if (existing) return { conversation: existing, created: false };
       const contact = owner.kind === 'contact' ? await this.crm.getContact(owner.id) : null;
       const phones = new Set([phone, ...(contact?.phones ?? []).map(tryNormalizePhone).filter((p): p is string => !!p)]);
       return this.createConversation({
@@ -323,7 +335,7 @@ export class SendService {
     phones: string[];
     emails: string[];
     addressSource: 'crm' | 'manual';
-  }): Promise<Conversation> {
+  }): Promise<FoundConversation> {
     const now = new Date().toISOString();
     const conversation: Conversation = {
       id: randomUUID(),
@@ -338,11 +350,10 @@ export class SendService {
       createdAt: now,
       updatedAt: now,
     };
-    const { conversation: stored } = await this.conversations.findOrCreate({
+    return this.conversations.findOrCreate({
       conversation,
       pointer: input.pointer,
       addresses: input.phones.map((address) => ({ address, source: input.addressSource })),
     });
-    return stored;
   }
 }

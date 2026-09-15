@@ -12,6 +12,7 @@ import {
   type Conversation,
   type ConversationAddressPointer,
   type ConversationKind,
+  type ConversationMember,
   type ConversationPointer,
   type ConversationPointerKind,
   type ConversationReadMarker,
@@ -20,6 +21,8 @@ import {
 } from '@bitcrm/types';
 import {
   FLAG_CONVERSATION_GSI5PK,
+  MEMBER_SK_PREFIX,
+  MESSAGE_SK_PREFIX,
   MESSAGING_GSI1_NAME,
   MESSAGING_GSI2_NAME,
   MESSAGING_GSI3_NAME,
@@ -27,12 +30,16 @@ import {
   MESSAGING_GSI6_NAME,
   MESSAGING_TABLE,
   METADATA_SK,
+  READ_SK_PREFIX,
   accountCategoryGsi6Pk,
   addressPk,
   categoryGsi3Pk,
   conversationPk,
   convOfPk,
   inboxGsi1Pk,
+  memberOfGsi3Pk,
+  memberOfGsi3Sk,
+  memberSk,
   readMarkerSk,
   unreadGsi2Pk,
 } from '../common/constants/dynamo.constants';
@@ -83,6 +90,17 @@ export interface ConversationPatch {
   lastBusinessNumber?: string | null;
   chatbotActive?: boolean | null;
   placeholder?: boolean | null;
+  /** Group name (§6); `null` clears it. */
+  name?: string | null;
+  /** Group membership copy on the header; the `MEMBER#` rows are written by `updateMembers`. */
+  memberIds?: string[];
+}
+
+/** One `updateMembers` call: rows to add, user ids to remove, an optional rename. */
+export interface MembershipChange {
+  add?: ConversationMember[];
+  remove?: string[];
+  name?: string;
 }
 
 export interface InboxQuery {
@@ -165,23 +183,39 @@ export function applyPatch(
   if (patch.lastBusinessNumber !== undefined) clear('lastBusinessNumber', patch.lastBusinessNumber);
   if (patch.chatbotActive !== undefined) clear('chatbotActive', patch.chatbotActive);
   if (patch.placeholder !== undefined) clear('placeholder', patch.placeholder);
+  if (patch.name !== undefined && patch.name !== current.name) clear('name', patch.name);
+  if (patch.memberIds !== undefined && !sameIds(current.memberIds, patch.memberIds)) {
+    clear('memberIds', patch.memberIds);
+  }
 
   return { next, fields: [...fields] };
 }
 
+const sameIds = (a: string[] | undefined, b: string[]) =>
+  (a ?? []).length === b.length && (a ?? []).every((id, i) => id === b[i]);
+
+/** `countMessagesAfter` never reads past this many rows; the UI shows "99+". */
+export const UNREAD_COUNT_CAP = 99;
+
 /**
- * Conversations in the messaging table (design §3.2–3.5):
+ * Conversations in the messaging table (design §3.2–3.5, §6):
  *
  *   CONV#<id>                / METADATA        the conversation; GSI1/2/3/5/6 keys
- *                                              derived by `conversationIndexKeys`
+ *                                              derived by `conversationIndexKeys`;
+ *                                              a `group` also carries `name`, `memberIds`
  *   CONV#<id>                / READ#<userId>   per-user read marker
- *   CONVOF#<kind>#<partyId>  / METADATA        party → conversation (find-or-create guard)
+ *   CONV#<id>                / MEMBER#<userId> group membership; GSI3 MEMBEROF#<userId>
+ *                                              / <joinedAt>#<conversationId>
+ *   CONVOF#<kind>#<partyId>  / METADATA        party → conversation (find-or-create guard);
+ *                                              a group points at itself (CONVOF#group#<id>)
  *   ADDR#<e164|email>        / METADATA        address → conversation (inbound routing)
  *
  * Every write that changes `unread`/`flagged` also moves `INBOX#COUNTERS`
  * in the same transaction, guarded by the conversation's `updatedAt` so the
  * delta always accounts for a real transition. Listings are Query-only on
- * the year-bucketed indexes — no Scan, no FilterExpression (§3.4).
+ * the year-bucketed indexes — no Scan, no FilterExpression (§3.4); the one
+ * filter, in `countMessagesAfter`, only skips the handful of `READ#` rows
+ * at the tail of a conversation partition.
  */
 @Injectable()
 export class ConversationsRepository {
@@ -368,6 +402,184 @@ export class ConversationsRepository {
         Key: { PK: addressPk(address), SK: METADATA_SK },
       }),
     );
+  }
+
+  // ------------------------------------------------------- groups (§6)
+
+  /**
+   * A new `group` conversation in one TransactWriteItems: the self-pointer
+   * `CONVOF#group#<id>` (so `by-party/group/:id` resolves like any party),
+   * the header with `memberIds`, and one `MEMBER#` row per member. Every
+   * Put is guarded by `attribute_not_exists(PK)`; a duplicate id fails whole.
+   */
+  async createGroup(conversation: Conversation, members: ConversationMember[]): Promise<Conversation> {
+    const c: Conversation = { ...conversation, memberIds: members.map((m) => m.userId) };
+    const pointer: ConversationPointer = {
+      pointerKind: 'group',
+      pointerId: c.id,
+      conversationId: c.id,
+      createdAt: c.createdAt,
+    };
+    await this.dynamoDb.client.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: this.tableName,
+              Item: { PK: convOfPk('group', c.id), SK: METADATA_SK, ...pointer },
+              ConditionExpression: 'attribute_not_exists(PK)',
+            },
+          },
+          {
+            Put: {
+              TableName: this.tableName,
+              Item: conversationItem(c),
+              ConditionExpression: 'attribute_not_exists(PK)',
+            },
+          },
+          ...members.map((m) => ({ Put: { TableName: this.tableName, Item: this.memberItem(m) } })),
+        ],
+      }),
+    );
+    this.logger.log(`Created group ${c.id} with ${members.length} member(s)`);
+    return c;
+  }
+
+  /**
+   * Rename and/or change membership: the header (`memberIds`, `name`) is
+   * updated under the `updatedAt` guard and the `MEMBER#` rows are put /
+   * deleted in the same transaction, so the copy on the header can never
+   * disagree with the rows. Returns the conversation as written.
+   */
+  async updateMembers(
+    current: Conversation,
+    change: MembershipChange,
+    opts: { actorId?: string; at?: string } = {},
+  ): Promise<Conversation> {
+    const at = opts.at ?? new Date().toISOString();
+    const have = current.memberIds ?? [];
+    // Only real changes: an id already on the roster is not re-put (it would
+    // reset `joinedAt`), one that is not there is not deleted.
+    const add = (change.add ?? []).filter((m) => !have.includes(m.userId));
+    const remove = (change.remove ?? []).filter((id) => have.includes(id));
+    const memberIds = [...have.filter((id) => !remove.includes(id)), ...add.map((m) => m.userId)];
+    const patch: ConversationPatch = { memberIds };
+    if (change.name !== undefined) patch.name = change.name;
+    const { next, fields } = applyPatch(current, patch, opts.actorId, at);
+    if (!fields.length) return current;
+
+    try {
+      await this.dynamoDb.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            { Update: this.guardedUpdate(current, next, fields) },
+            ...add.map((m) => ({ Put: { TableName: this.tableName, Item: this.memberItem(m) } })),
+            ...remove.map((userId) => ({
+              Delete: { TableName: this.tableName, Key: { PK: conversationPk(current.id), SK: memberSk(userId) } },
+            })),
+          ],
+        }),
+      );
+    } catch (err) {
+      if (conditionFailedAt(err, 0)) throw new StaleConversationError(current.id);
+      throw err;
+    }
+    return next;
+  }
+
+  /** `GetItem CONV#<id>/MEMBER#<userId>`. */
+  async getMember(conversationId: string, userId: string): Promise<ConversationMember | null> {
+    const res = await this.dynamoDb.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { PK: conversationPk(conversationId), SK: memberSk(userId) },
+      }),
+    );
+    return res.Item ? stripKeys<ConversationMember>(res.Item) : null;
+  }
+
+  /** `Query PK = CONV#<id> AND begins_with(SK, 'MEMBER#')` — the roster, in user-id order. */
+  async listMembers(conversationId: string): Promise<ConversationMember[]> {
+    const items = await this.queryPartition(conversationId, MEMBER_SK_PREFIX);
+    return items.map((item) => stripKeys<ConversationMember>(item));
+  }
+
+  /** `Query CategoryIndex GSI3PK = MEMBEROF#<userId>` — every group the user is in. */
+  async listMemberOf(userId: string): Promise<ConversationMember[]> {
+    const members: ConversationMember[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const page = await this.queryIndex(MESSAGING_GSI3_NAME, 'GSI3PK', memberOfGsi3Pk(userId), startKey, 100);
+      members.push(...page.items.map((item) => stripKeys<ConversationMember>(item)));
+      startKey = page.lastEvaluatedKey;
+    } while (startKey);
+    return members;
+  }
+
+  // --------------------------------------------------- read markers (§6)
+
+  /**
+   * `Put CONV#<id>/READ#<userId>` alone — a member's own "read up to here",
+   * which must not touch the team-wide `unread` flag (that flag is the
+   * office's, cleared by `markRead`).
+   */
+  async putReadMarker(
+    conversationId: string,
+    userId: string,
+    opts: { lastReadMessageSk?: string; at?: string } = {},
+  ): Promise<ConversationReadMarker> {
+    const marker: ConversationReadMarker = {
+      conversationId,
+      userId,
+      lastReadAt: opts.at ?? new Date().toISOString(),
+      lastReadMessageSk: opts.lastReadMessageSk,
+    };
+    await this.dynamoDb.client.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: {
+          PK: conversationPk(conversationId),
+          SK: readMarkerSk(userId),
+          ...compact(marker as unknown as Record<string, unknown>),
+        },
+      }),
+    );
+    return marker;
+  }
+
+  /** `Query PK = CONV#<id> AND begins_with(SK, 'READ#')` — who has read the thread, and up to where. */
+  async listReadMarkers(conversationId: string): Promise<ConversationReadMarker[]> {
+    const items = await this.queryPartition(conversationId, READ_SK_PREFIX);
+    return items.map((item) => stripKeys<ConversationReadMarker>(item));
+  }
+
+  /**
+   * How many messages sit after a read marker — the per-member unread
+   * count of a team / group thread, capped at `UNREAD_COUNT_CAP`. With a
+   * marker: `SK > :after` (key condition) plus `begins_with(SK, 'MSG#')`
+   * to drop the `READ#` rows that sort after every message; without one:
+   * `begins_with(SK, 'MSG#')` alone. `Select: COUNT`, so no item is returned.
+   */
+  async countMessagesAfter(
+    conversationId: string,
+    afterSk: string | undefined,
+    cap: number = UNREAD_COUNT_CAP,
+  ): Promise<number> {
+    const res = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: afterSk ? 'PK = :pk AND SK > :after' : 'PK = :pk AND begins_with(SK, :prefix)',
+        ...(afterSk ? { FilterExpression: 'begins_with(SK, :prefix)' } : {}),
+        ExpressionAttributeValues: {
+          ':pk': conversationPk(conversationId),
+          ':prefix': MESSAGE_SK_PREFIX,
+          ...(afterSk ? { ':after': afterSk } : {}),
+        },
+        Select: 'COUNT',
+        Limit: cap,
+      }),
+    );
+    return Math.min(res.Count ?? 0, cap);
   }
 
   // ----------------------------------------------------------------- reads
@@ -557,5 +769,35 @@ export class ConversationsRepository {
       SK: METADATA_SK,
       ...compact(pointer as unknown as Record<string, unknown>),
     };
+  }
+
+  /** `CONV#<id>` / `MEMBER#<userId>` + the MEMBEROF# adjacency on GSI3. */
+  private memberItem(m: ConversationMember): Record<string, unknown> {
+    return {
+      PK: conversationPk(m.conversationId),
+      SK: memberSk(m.userId),
+      ...compact(m as unknown as Record<string, unknown>),
+      GSI3PK: memberOfGsi3Pk(m.userId),
+      GSI3SK: memberOfGsi3Sk(m.joinedAt, m.conversationId),
+    };
+  }
+
+  /** Every row of one conversation partition under a sort-key prefix (`MEMBER#`, `READ#`). */
+  private async queryPartition(conversationId: string, prefix: string): Promise<Record<string, unknown>[]> {
+    const items: Record<string, unknown>[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+          ExpressionAttributeValues: { ':pk': conversationPk(conversationId), ':prefix': prefix },
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      items.push(...(res.Items ?? []));
+      startKey = res.LastEvaluatedKey;
+    } while (startKey);
+    return items;
   }
 }

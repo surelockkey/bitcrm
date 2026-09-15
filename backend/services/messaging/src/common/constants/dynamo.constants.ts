@@ -75,9 +75,17 @@ export function parseMessageSk(sk: string): { createdAt: string; messageId: stri
 
 /** `READ#<userId>` under the conversation — per-user read marker. */
 export const readMarkerSk = (userId: string) => `READ#${userId}`;
+export const READ_SK_PREFIX = 'READ#';
 /** `MEMBER#<userId>` under the conversation — group membership (§6). */
 export const memberSk = (userId: string) => `MEMBER#${userId}`;
 export const MEMBER_SK_PREFIX = 'MEMBER#';
+/**
+ * `MEMBER#` rows also carry `GSI3PK = MEMBEROF#<userId>` / `GSI3SK = <joinedAt>#<conversationId>`
+ * — the "which groups am I in" adjacency on the CategoryIndex, the same
+ * constant-partition trick the template catalog uses (CLAUDE.md §5).
+ */
+export const memberOfGsi3Pk = (userId: string) => `MEMBEROF#${userId}`;
+export const memberOfGsi3Sk = (joinedAt: string, conversationId: string) => `${joinedAt}#${conversationId}`;
 
 /**
  * `CONVOF#<kind>#<id>` / METADATA — party → conversation. Written with

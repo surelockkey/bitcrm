@@ -262,4 +262,16 @@ describe('SendService.sendToParty', () => {
     expect(u.addresses).toEqual([{ address: '+14045551234', source: 'manual' }]);
     expect(m.to).toBe('+14045551234');
   });
+
+  it('conversationForParty (POST /conversations) says whether it opened the thread', async () => {
+    const found = makeService();
+    found.conversations.getByParty.mockResolvedValueOnce(createMockConversation({ id: 'c9' }) as never);
+    expect(await found.service.conversationForParty({ contactId: CM })).toEqual({ conversation: expect.objectContaining({ id: 'c9' }), created: false });
+
+    const opened = makeService();
+    opened.crm.getContact.mockResolvedValueOnce({ id: CM, phones: ['+14045551234'], emails: [] } as never);
+    expect((await opened.service.conversationForParty({ contactId: CM })).created).toBe(true);
+
+    await expect(makeService().service.conversationForParty({})).rejects.toMatchObject({ status: 400 });
+  });
 });

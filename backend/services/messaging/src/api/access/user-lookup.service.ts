@@ -10,6 +10,8 @@ export interface UserSummary {
   email?: string;
   roleId?: string;
   status?: string;
+  /** Their personal phone, E.164 — where an SMS in their team thread goes (design §6). */
+  phone?: string;
 }
 
 const CACHE_TTL_MS = 60_000;
@@ -59,7 +61,15 @@ export class UserLookupService {
     }
 
     const body = (await res.json()) as {
-      data?: { id: string; firstName?: string; lastName?: string; email?: string; roleId?: string; status?: string };
+      data?: {
+        id: string;
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        roleId?: string;
+        status?: string;
+        phone?: string;
+      };
     };
     const u = body.data;
     if (!u) return null;
@@ -69,6 +79,7 @@ export class UserLookupService {
       email: u.email,
       roleId: u.roleId,
       status: u.status,
+      phone: u.phone || undefined,
     };
     this.cache.set(userId, { user, expiresAt: Date.now() + CACHE_TTL_MS });
     return user;

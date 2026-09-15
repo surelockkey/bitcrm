@@ -56,6 +56,16 @@ export interface Conversation {
   /** Job referenced by the most recent message. */
   lastDealId?: string;
   assignedUserId?: string;
+  /** Display name of a `group` conversation (Workiz `group_name`). */
+  name?: string;
+  /**
+   * User ids of the members of a `group` conversation — a copy of the
+   * `MEMBER#` rows kept on the header so scope checks and the SSE filter
+   * need no second read (design §6).
+   */
+  memberIds?: string[];
+  /** Who opened a `group` conversation (its first owner). */
+  createdBy?: string;
   chatbotActive?: boolean;
   leadProvider?: ConversationLeadProvider;
   /** Inbound arrived while CRM was unreachable; a background pass re-resolves the party. */
@@ -114,5 +124,14 @@ export interface ConversationMember {
   muted?: boolean;
 }
 
-/** Alias used by the team-chat API surface (§6): a member seen from the client. */
-export type ConversationParticipant = ConversationMember;
+/**
+ * A member as the team-chat API shows it (§6): the `MEMBER#` row merged
+ * with the same user's `READ#` marker, so the client can render "seen by".
+ */
+export interface ConversationParticipant extends ConversationMember {
+  lastReadAt?: string;
+  lastReadMessageSk?: string;
+}
+
+/** Largest membership one group may have — one TransactWriteItems minus the header row. */
+export const CONVERSATION_GROUP_MAX_MEMBERS = 99;

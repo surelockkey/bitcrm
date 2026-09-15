@@ -80,6 +80,25 @@ export function mockConversationsRepo() {
     listInbox: jest.fn().mockResolvedValue({ items: [] }),
     update: jest.fn(),
     markRead: jest.fn(),
+    // Team / group (§6)
+    findOrCreate: jest.fn(async (input: { conversation: unknown }) => ({ conversation: input.conversation, created: true })),
+    createGroup: jest.fn(async (conversation: unknown, members: Array<{ userId: string }>) => ({
+      ...(conversation as object),
+      memberIds: members.map((m) => m.userId),
+    })),
+    updateMembers: jest.fn(),
+    getMember: jest.fn().mockResolvedValue(null),
+    listMembers: jest.fn().mockResolvedValue([]),
+    listMemberOf: jest.fn().mockResolvedValue([]),
+    putReadMarker: jest.fn(async (conversationId: string, userId: string, opts: { lastReadMessageSk?: string; at?: string } = {}) => ({
+      conversationId,
+      userId,
+      lastReadAt: opts.at ?? '2026-09-15T12:00:00.000Z',
+      lastReadMessageSk: opts.lastReadMessageSk,
+    })),
+    listReadMarkers: jest.fn().mockResolvedValue([]),
+    countMessagesAfter: jest.fn().mockResolvedValue(0),
+    putAddressPointer: jest.fn().mockResolvedValue(undefined),
   };
 }
 
