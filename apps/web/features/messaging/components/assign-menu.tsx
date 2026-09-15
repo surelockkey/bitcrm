@@ -1,14 +1,12 @@
 "use client";
 
-import { Check, Loader2, UserPlus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, UserPlus } from "lucide-react";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useUserMap } from "@/features/deals/hooks";
@@ -16,10 +14,11 @@ import type { InboxConversation } from "../api";
 import { useUpdateConversation } from "../hooks";
 
 /**
- * Hand a thread to a teammate. Only shown to people who may list users —
- * the directory is what the picker is made of.
+ * "Assign to ▸" inside the thread's "⋮" menu: hand a thread to a teammate.
+ * Only shown to people who may list users — the directory is what the
+ * picker is made of.
  */
-export function AssignMenu({ conversation }: { conversation: InboxConversation }) {
+export function AssignSubmenu({ conversation }: { conversation: InboxConversation }) {
   const { can, me } = usePermissions();
   const { users, map } = useUserMap();
   const update = useUpdateConversation();
@@ -45,15 +44,14 @@ export function AssignMenu({ conversation }: { conversation: InboxConversation }
   );
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5" disabled={update.isPending}>
-          {update.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <UserPlus className="size-3.5" />}
-          <span className="max-w-32 truncate">{currentName ?? "Assign"}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={update.isPending}>
+        <UserPlus className="size-4" /> Assign to
+        {currentName ? (
+          <span className="ml-auto max-w-28 truncate pl-2 text-xs text-muted-foreground">{currentName}</span>
+        ) : null}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-56">
         {me ? (
           <DropdownMenuItem onSelect={() => assign(me.id)}>
             <span className="flex-1">Me</span>
@@ -75,7 +73,7 @@ export function AssignMenu({ conversation }: { conversation: InboxConversation }
               </DropdownMenuItem>
             ))}
         </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

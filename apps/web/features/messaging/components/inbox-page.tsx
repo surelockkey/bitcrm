@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { MessagesSquare } from "lucide-react";
 import type { ConversationKind } from "@bitcrm/types";
 import { CONVERSATION_KINDS } from "@bitcrm/types";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -118,14 +117,10 @@ export function InboxPage() {
             )}
           />
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-            <div className="grid size-12 place-items-center rounded-xl bg-muted text-muted-foreground">
-              <MessagesSquare className="size-6" />
-            </div>
-            <p className="text-sm font-medium">Pick a conversation</p>
-            <p className="max-w-xs text-sm text-muted-foreground">
-              Texts with clients, unknown numbers and the team, all in one place.
-            </p>
+          <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 p-8 text-center">
+            <NoConversationSelected />
+            <p className="mt-4 text-[15px] font-semibold">No conversation selected</p>
+            <p className="mt-1 text-[15px] text-muted-foreground">Please select a conversation to begin</p>
           </div>
         )}
       </section>
@@ -146,5 +141,32 @@ export function InboxPage() {
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+/** Workiz's "nothing open" picture: two speech bubbles with dots on a pale disc. */
+function NoConversationSelected() {
+  return (
+    <svg width="152" height="152" viewBox="0 0 152 152" aria-hidden className="text-foreground/70">
+      <circle cx="76" cy="76" r="60" className="fill-muted" />
+      <path
+        d="M30 28 h68 a8 8 0 0 1 8 8 v40 a8 8 0 0 1 -8 8 h-40 l-16 14 v-14 h-12 a8 8 0 0 1 -8 -8 v-40 a8 8 0 0 1 8 -8 z"
+        className="fill-background stroke-current"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="50" cy="56" r="4" className="fill-emerald-500" />
+      <circle cx="64" cy="56" r="4" className="fill-emerald-500" />
+      <circle cx="78" cy="56" r="4" className="fill-emerald-500" />
+      <path
+        d="M90 70 h40 a6 6 0 0 1 6 6 v24 a6 6 0 0 1 -6 6 h-6 v10 l-12 -10 h-22 a6 6 0 0 1 -6 -6 v-24 a6 6 0 0 1 6 -6 z"
+        className="fill-background stroke-current"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="101" cy="88" r="3.5" className="fill-amber-400" />
+      <circle cx="112" cy="88" r="3.5" className="fill-amber-400" />
+      <circle cx="123" cy="88" r="3.5" className="fill-amber-400" />
+    </svg>
   );
 }

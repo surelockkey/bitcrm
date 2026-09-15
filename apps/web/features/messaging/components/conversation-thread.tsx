@@ -40,6 +40,7 @@ export function ConversationThread({
   title,
   onBack,
   onToggleInfo,
+  onForward,
   footer,
   embedded = false,
   className,
@@ -48,6 +49,8 @@ export function ConversationThread({
   title: string;
   onBack?: () => void;
   onToggleInfo?: () => void;
+  /** Forward a line into a new message (the bubble's first hover icon). */
+  onForward?: (message: FeedMessage) => void;
   /** Rendered under the feed — the composer. */
   footer?: (ctx: { conversation: InboxConversation; optedOut: boolean }) => ReactNode;
   /** Inside a contact / company / job card: no header of its own. */
@@ -130,7 +133,10 @@ export function ConversationThread({
         onLoadOlder={() => feed.fetchNextPage()}
         canManage={canManage}
         onToggleFlag={toggleFlag}
+        onForward={onForward}
         authorNames={authorNames}
+        partyName={title || undefined}
+        recap={!embedded}
       />
 
       {optedOut ? (

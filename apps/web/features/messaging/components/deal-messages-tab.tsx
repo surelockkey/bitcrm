@@ -108,6 +108,7 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
         canManage={canManage}
         onToggleFlag={toggleFlag}
         authorNames={authorNames}
+        partyName={contact ? clientName : undefined}
         showJob={false}
         emptyState={
           <div className="flex flex-col items-center gap-1.5 text-center">

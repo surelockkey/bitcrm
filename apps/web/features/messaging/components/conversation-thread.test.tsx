@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -136,10 +137,27 @@ describe("ConversationThread", () => {
     expect(screen.getByTestId("footer")).toHaveTextContent("blocked");
   });
 
-  it("exposes manage actions on the header", async () => {
+  it("has the Workiz header: name with the type under it, person and phone icons, and ⋮ for the rest", async () => {
     renderThread();
-    expect(await screen.findByRole("button", { name: "Star conversation" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "More actions" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Assign/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Jane Doe" })).toBeInTheDocument();
+    expect(screen.getByText("Client")).toBeInTheDocument();
+    // Without a side sheet to open (embedded use), the person icon goes to the record itself.
+    expect(screen.getByRole("link", { name: "Contact card" })).toHaveAttribute("href", "/contacts/ct1");
+    expect(screen.getByRole("button", { name: "Call (404) 555-1234" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(await screen.findByRole("menuitem", { name: /Assign to/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Star" })).toBeInTheDocument();
+    // Opening the thread marked it read, so the item now offers the reverse.
+    expect(screen.getByRole("menuitem", { name: "Mark as unread" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Archive" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Open record/ })).toHaveAttribute("href", "/contacts/ct1");
+  });
+
+  it("names the client on incoming bubbles and shows the recap chip", async () => {
+    renderThread();
+    const incoming = (await screen.findByText("Running late, sorry")).closest("[data-direction]") as HTMLElement;
+    expect(incoming).toHaveTextContent("Jane Doe");
+    expect(screen.getByRole("button", { name: "Recap conversation" })).toBeInTheDocument();
   });
 });

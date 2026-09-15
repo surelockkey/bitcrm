@@ -186,6 +186,36 @@ export function statusTick(status: MessageStatus): StatusTick {
 export const isFailedStatus = (status: MessageStatus): boolean =>
   statusTick(status) === "error";
 
+/** The words under an outbound bubble — Workiz's "Message received". */
+export function statusText(status: MessageStatus): string {
+  switch (statusTick(status)) {
+    case "pending":
+      return "Sending";
+    case "sent":
+      return "Message sent";
+    case "delivered":
+      return "Message received";
+    case "read":
+      return "Message read";
+    default:
+      return "Not delivered";
+  }
+}
+
+/** The channel word after the stamp: Workiz says "Text" for SMS and MMS alike. */
+export function channelLabel(channel: string): string {
+  switch (channel) {
+    case "email":
+      return "Email";
+    case "in_app":
+      return "App";
+    case "note":
+      return "Note";
+    default:
+      return "Text";
+  }
+}
+
 /* ------------------------------------------------------------ identity */
 
 /** Sort key of a message (`MSG#<createdAt>#<id>`) — what the read marker stores. */
@@ -298,6 +328,23 @@ export function formatMessageTime(iso: string): string {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+/** The day chip in the thread, spelled as Workiz spells it: "Tuesday,September 15 2026". */
+export function formatDayChip(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+  const month = d.toLocaleDateString("en-US", { month: "long" });
+  return `${weekday},${month} ${d.getDate()} ${d.getFullYear()}`;
+}
+
+/** The stamp under a bubble: "Sep 15 2026 12:10 PM". */
+export function formatMessageStamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  return `${month} ${d.getDate()} ${d.getFullYear()} ${formatMessageTime(iso)}`;
+}
+
 /** List-row timestamp: time today, weekday this week, else a short date. */
 export function formatListTime(iso: string | undefined, now = new Date()): string {
   if (!iso) return "";
@@ -338,8 +385,8 @@ export interface DayGroup {
   messages: FeedMessage[];
 }
 
-/** Oldest day first, oldest message first — the thread reads downwards. */
-export function groupByDay(newestFirst: FeedMessage[], now = new Date()): DayGroup[] {
+/** Oldest day first, oldest message first — the thread reads downwards; labelled like Workiz's day chips. */
+export function groupByDay(newestFirst: FeedMessage[]): DayGroup[] {
   const groups: DayGroup[] = [];
   const byKey = new Map<string, DayGroup>();
   for (let i = newestFirst.length - 1; i >= 0; i--) {
@@ -348,7 +395,7 @@ export function groupByDay(newestFirst: FeedMessage[], now = new Date()): DayGro
     const key = Number.isNaN(d.getTime()) ? "unknown" : dayKey(d);
     let group = byKey.get(key);
     if (!group) {
-      group = { key, label: formatDayLabel(m.createdAt, now), messages: [] };
+      group = { key, label: formatDayChip(m.createdAt), messages: [] };
       byKey.set(key, group);
       groups.push(group);
     }

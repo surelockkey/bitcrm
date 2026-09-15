@@ -5,8 +5,10 @@ import {
   conversationTitle,
   EMPTY_PARTY_NAMES,
   flattenFeed,
+  formatDayChip,
   formatDayLabel,
   formatListTime,
+  formatMessageStamp,
   groupByDay,
   hasShortCodes,
   initialsOf,
@@ -140,16 +142,20 @@ describe("feed reducers", () => {
     expect(flattenFeed(pages).map((m) => m.id)).toEqual(["m3", "m2", "m1"]);
   });
 
-  it("groups by day, oldest first, reading downwards", () => {
-    const now = new Date(2026, 8, 15, 12);
+  it("groups by day, oldest first, reading downwards, labelled like Workiz's day chips", () => {
     const feed = [
       msg("m3", new Date(2026, 8, 15, 10).toISOString()),
       msg("m2", new Date(2026, 8, 14, 10).toISOString()),
       msg("m1", new Date(2026, 8, 14, 9).toISOString()),
     ];
-    const groups = groupByDay(feed, now);
-    expect(groups.map((g) => g.label)).toEqual(["Yesterday", "Today"]);
+    const groups = groupByDay(feed);
+    expect(groups.map((g) => g.label)).toEqual(["Monday,September 14 2026", "Tuesday,September 15 2026"]);
     expect(groups[0].messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("stamps a message the Workiz way", () => {
+    expect(formatMessageStamp(new Date(2026, 8, 15, 12, 10).toISOString())).toBe("Sep 15 2026 12:10 PM");
+    expect(formatDayChip(new Date(2026, 8, 15).toISOString())).toBe("Tuesday,September 15 2026");
   });
 
   it("inserts a new message at the top of page one and replaces a known one in place", () => {

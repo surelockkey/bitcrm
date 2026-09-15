@@ -18,13 +18,16 @@ export function attachmentUrl(a: MessageAttachment): string | undefined {
 export function MessageAttachments({
   attachments,
   align = "start",
+  thumbnails = false,
 }: {
   attachments: MessageAttachment[];
   align?: "start" | "end";
+  /** Inside a bubble, Workiz shows images as small square thumbnails that open the full picture. */
+  thumbnails?: boolean;
 }) {
   if (!attachments.length) return null;
   return (
-    <div className={cn("flex flex-wrap gap-1.5", align === "end" && "justify-end")}>
+    <div className={cn("flex flex-wrap gap-2", align === "end" && "justify-end")}>
       {attachments.map((a) => {
         const url = attachmentUrl(a);
         if (isImageAttachment(a) && url) {
@@ -34,7 +37,7 @@ export function MessageAttachments({
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="block overflow-hidden rounded-lg border bg-background"
+              className="block overflow-hidden rounded-md border bg-background"
               title={a.fileName}
             >
               {/* External / presigned URLs — next/image cannot optimise them. */}
@@ -43,7 +46,7 @@ export function MessageAttachments({
                 src={url}
                 alt={a.fileName}
                 loading="lazy"
-                className="max-h-64 max-w-[16rem] object-cover"
+                className={thumbnails ? "size-24 object-cover" : "max-h-64 max-w-[16rem] object-cover"}
               />
             </a>
           );
