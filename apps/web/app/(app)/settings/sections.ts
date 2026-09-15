@@ -12,6 +12,8 @@ import {
   Phone,
   Users,
   Workflow,
+  MessagesSquare,
+  FileText,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -107,5 +109,19 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Buy, list, and release the numbers you call and receive on.",
     icon: Phone,
     resource: "settings",
+  },
+  {
+    label: "Messaging",
+    href: "/settings/messaging",
+    description: "Default sender, prefix and signature, tech texts, quiet hours, STOP/HELP replies.",
+    icon: MessagesSquare,
+    resource: "settings",
+  },
+  {
+    label: "Message Templates",
+    href: "/settings/message-templates",
+    description: "Canned texts with short codes the composer offers.",
+    icon: FileText,
+    resource: "message_templates",
   },
 ];

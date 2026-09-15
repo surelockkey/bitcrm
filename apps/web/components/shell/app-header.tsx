@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUiStore } from "@/stores/ui-store";
 import { SoftphoneControls } from "@/features/telephony/components/softphone-controls";
+import { InboxHeaderButton } from "@/features/messaging/components/inbox-header-button";
 import { NavUser } from "./nav-user";
 
 export function AppHeader() {
@@ -27,6 +28,7 @@ export function AppHeader() {
             ⌘K
           </kbd>
         </button>
+        <InboxHeaderButton />
         <SoftphoneControls />
         <NavUser />
       </div>

@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { initials } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { TextButton } from "@/features/messaging/components/text-button";
 import { useProfile, useUserMap } from "../hooks";
 import { techName, techUser } from "../lib";
 import { TechnicianStatusBadge } from "./technician-status-badge";
@@ -75,6 +76,9 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
           </h1>
           {u?.email ? <div className="truncate text-xs text-muted-foreground">{u.email}</div> : null}
         </div>
+        {me?.id !== technicianId ? (
+          <TextButton partyKind="user" partyId={technicianId} name={techName(technicianId, userMap ?? new Map(), me)} />
+        ) : null}
         <TechnicianStatusBadge status={profile.status} />
       </div>
 
