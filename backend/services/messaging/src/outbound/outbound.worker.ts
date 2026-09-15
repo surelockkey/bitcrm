@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { TWILIO_CONFIG, TwilioRest, type TwilioConfig } from '@bitcrm/shared';
+import { EmailOutboundWorker } from '../email/email-outbound.worker';
 import { RealtimePublisher } from '../realtime/realtime.publisher';
 import {
   MESSAGE_STATUS_RANK,
@@ -87,6 +88,8 @@ export class OutboundWorker {
     @Inject(TWILIO_CONFIG) private readonly twilio: Pick<TwilioConfig, 'messagingServiceSid' | 'publicBaseUrl'>,
     private readonly attachments: OutboundAttachmentsService,
     @Optional() private readonly realtime?: RealtimePublisher,
+    /** M17: `email` jobs share the FIFO queue (one thread, one order) and are handed over here. */
+    @Optional() private readonly email?: EmailOutboundWorker,
   ) {}
 
   /** The SQS handler (`eventType: message.send`). A malformed payload is dropped, not retried. */
@@ -102,6 +105,14 @@ export class OutboundWorker {
     const message = await this.messages.get(job);
     if (!message) {
       this.logger.warn(`Outbound job for missing message ${job.messageId}; dropping`);
+      return;
+    }
+    if (message.channel === 'email') {
+      if (!this.email) {
+        this.logger.warn(`No email worker is wired; ${message.id} stays queued`);
+        return;
+      }
+      await this.email.process(message, job);
       return;
     }
     if (message.direction !== 'outbound' || !isSmsChannel(message.channel) || !message.to) {

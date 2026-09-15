@@ -29,6 +29,13 @@ describe('SendMessageDto', () => {
     expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', body: 'hi' })).toEqual(['subject']);
   });
 
+  it('caps the body per channel: 1 600 for SMS, 100 000 for email (HTML)', async () => {
+    expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 's', body: 'x'.repeat(50_000) })).toEqual([]);
+    expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 's', body: 'x'.repeat(100_001) })).toEqual(['body']);
+    expect(await errorsOf(SendMessageDto, { ...valid, body: 'x'.repeat(1600) })).toEqual([]);
+    expect(await errorsOf(SendMessageDto, { clientMessageId: CM, channel: 'email', subject: 's', body: '' })).toEqual(['body']);
+  });
+
   it('validates fromNumber as E.164 and the optional ids as uuids', async () => {
     expect(await errorsOf(SendMessageDto, { ...valid, fromNumber: '4045550100' })).toEqual(['fromNumber']);
     expect(await errorsOf(SendMessageDto, { ...valid, fromNumber: '+14045550100', dealId: CM, templateId: CM })).toEqual([]);

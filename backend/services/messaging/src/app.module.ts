@@ -23,6 +23,7 @@ import { InboundWebhooksModule } from './webhooks/inbound-webhooks.module';
 import { MediaModule } from './media/media.module';
 import { ReconcileModule } from './reconcile/reconcile.module';
 import { OutboundModule } from './outbound/outbound.module';
+import { EmailModule } from './email/email.module';
 import { ApiModule } from './api/api.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ContactEventsModule } from './contact-events/contact-events.module';
@@ -96,6 +97,7 @@ const CONTACT_EVENTS_QUEUE_URL = process.env.CONTACT_EVENTS_TO_MESSAGING_QUEUE_U
     MediaModule,
     ReconcileModule,
     OutboundModule,
+    EmailModule,
     ApiModule,
     RealtimeModule,
     ContactEventsModule,

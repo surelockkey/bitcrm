@@ -15,12 +15,14 @@ import { randomUUID } from 'node:crypto';
 import { getDataScopeFilter, hasPermission, normalizePhone, tryNormalizePhone } from '@bitcrm/shared';
 import {
   DataScope,
+  EMAIL_BODY_MAX_LENGTH,
   type Conversation,
   type ConversationKind,
   type JwtUser,
   type Message,
   type MessageAttachment,
   type MessageOrigin,
+  type OptOutChannel,
   type ResolvedPermissions,
 } from '@bitcrm/types';
 import { UserLookupService } from '../api/access/user-lookup.service';
@@ -28,6 +30,8 @@ import { messageSk } from '../common/constants/dynamo.constants';
 import { countersDelta } from '../conversations/conversation-keys';
 import { ConversationsRepository, StaleConversationError } from '../conversations/conversations.repository';
 import { InboxCountersRepository } from '../counters/inbox-counters.repository';
+import { EmailAddressResolver } from '../email/email-address.resolver';
+import { emailBodies } from '../email/email-body';
 import { MessagesRepository, type AppendResult, type MessageKey } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { TeamAccessService, isTeamKind } from '../team/team-access.service';
@@ -94,13 +98,18 @@ export interface FoundConversation {
  * still carries the code the UI switches on.
  */
 export class RecipientOptedOutException extends HttpException {
-  constructor(address: string) {
+  constructor(address: string, channel: OptOutChannel = 'sms') {
     super(
-      `RECIPIENT_OPTED_OUT: ${address} has opted out of SMS; ask them to text START, or call`,
+      channel === 'email'
+        ? `RECIPIENT_OPTED_OUT: ${address} has unsubscribed from email (bounce, complaint or manual); call or text instead`
+        : `RECIPIENT_OPTED_OUT: ${address} has opted out of SMS; ask them to text START, or call`,
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }
 }
+
+/** How many recent lines are inspected for the email an outbound one replies to. */
+const THREAD_SCAN_LIMIT = 25;
 
 /** An SMS in an employee's thread has nowhere to go: no personal phone on their user record (design §6). */
 export class EmployeeHasNoPhoneException extends HttpException {
@@ -133,7 +142,10 @@ export function teamRecipients(conversation: Conversation, senderId: string): st
  *   in_app  team / group threads only: stored `sent` and pushed over SSE to
  *           the members — no provider. An employee's own line marks the
  *           office's `unread`, as their SMS would.
- *   email   M17, answers 501.
+ *   email   (design §5) recipient from the thread's addresses, the
+ *           `OPTOUT#email#` ledger, HTML + text bodies, RFC 5322 threading;
+ *           the worker hands the job to `EmailOutboundWorker` (SES). Answers
+ *           501 until `MESSAGING_EMAIL_FROM` is configured.
  */
 @Injectable()
 export class SendService {
@@ -154,6 +166,7 @@ export class SendService {
     @Optional() private readonly realtime?: RealtimePublisher,
     @Optional() private readonly users?: UserLookupService,
     @Optional() private readonly inboxCounters?: InboxCountersRepository,
+    @Optional() private readonly email?: EmailAddressResolver,
   ) {}
 
   /** `POST /conversations/:id/messages`. */
@@ -188,11 +201,24 @@ export class SendService {
     await this.authorise(conversation, dto, caller);
 
     if (dto.channel === 'in_app') return this.sendInApp(conversation, dto, caller);
-    if (dto.channel !== 'sms') {
-      // TODO(M17 email): route once the channel exists.
-      throw new NotImplementedException(`Sending over ${dto.channel} is not available yet`);
-    }
 
+    let message: Message;
+    switch (dto.channel) {
+      case 'sms':
+        message = await this.prepareSms(conversation, dto, caller);
+        break;
+      case 'email':
+        message = await this.prepareEmail(conversation, dto, caller);
+        break;
+      default:
+        throw new NotImplementedException(`Sending over ${dto.channel} is not available yet`);
+    }
+    const accepted = await this.accept(conversation, message, { clientMessageId: dto.clientMessageId, createdBy: caller.user.id });
+    return accepted.message;
+  }
+
+  /** SMS/MMS: recipient (a client phone or the employee's personal phone), STOP list, sender chain, plain-text body. */
+  private async prepareSms(conversation: Conversation, dto: SendMessageDto, caller: SendCaller): Promise<Message> {
     const target = await this.smsTarget(conversation, dto);
     conversation = target.conversation;
     const to = target.to;
@@ -211,7 +237,7 @@ export class SendService {
     });
 
     const now = new Date().toISOString();
-    const message: Message = {
+    return {
       id: randomUUID(),
       conversationId: conversation.id,
       channel: 'sms',
@@ -231,9 +257,63 @@ export class SendService {
       createdAt: now,
       updatedAt: now,
     };
+  }
 
-    const accepted = await this.accept(conversation, message, { clientMessageId: dto.clientMessageId, createdBy: caller.user.id });
-    return accepted.message;
+  /**
+   * Email (design §5): recipient is one of the conversation's addresses, the
+   * `OPTOUT#email#` ledger is checked, the body is rendered as HTML (a text
+   * body is wrapped, a template renders in its html format) with a plain-text
+   * alternative, and the line carries `In-Reply-To` / `References` of the
+   * latest email in the thread so the client's mailbox threads it too. The
+   * sender address is resolved now (what the user sees in the feed); the
+   * worker adds the reply-to token and calls SES.
+   */
+  private async prepareEmail(conversation: Conversation, dto: SendMessageDto, caller: SendCaller): Promise<Message> {
+    if (!this.email?.configured) {
+      throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
+    }
+    const to = this.emailRecipient(conversation, dto.toAddress);
+    if (await this.optOuts.isOptedOut('email', to)) throw new RecipientOptedOutException(to, 'email');
+
+    const rendered = await this.render(conversation, dto);
+    const attachments = this.attachments(dto.attachments, caller.user.id);
+    const subject = rendered.subject?.trim();
+    if (!subject) throw new BadRequestException('subject is required for email');
+    const raw = rendered.body.trim();
+    if (!raw && !attachments?.length) throw new BadRequestException('body must not be blank');
+    const bodies = raw ? emailBodies(raw) : undefined;
+    if (bodies && bodies.html.length > EMAIL_BODY_MAX_LENGTH) {
+      throw new BadRequestException(`Email body must be at most ${EMAIL_BODY_MAX_LENGTH} characters of HTML`);
+    }
+
+    const sender = await this.email.resolve(conversation.id);
+    if (!sender) throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
+    const thread = await this.emailThread(conversation.id);
+
+    const now = new Date().toISOString();
+    return {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'email',
+      direction: 'outbound',
+      subject,
+      body: bodies?.text || undefined,
+      bodyHtml: bodies?.html,
+      from: sender.from,
+      to,
+      contactAddress: to,
+      inReplyTo: thread?.inReplyTo,
+      references: thread?.references,
+      status: 'queued',
+      provider: 'ses',
+      origin: 'user',
+      sentByUserId: caller.user.id,
+      dealId: dto.dealId,
+      templateId: dto.templateId,
+      attachments,
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
   /**
@@ -303,7 +383,7 @@ export class SendService {
     const key: MessageKey = { conversationId: conversation.id, createdAt: now, messageId: message.id };
     try {
       const outcome = await this.queue.enqueue(key);
-      this.logger.log(`Accepted ${message.id} for ${to} via ${message.senderSource} (${outcome})`);
+      this.logger.log(`Accepted ${message.channel} ${message.id} for ${to} via ${message.senderSource ?? message.from} (${outcome})`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.error(`Could not enqueue ${message.id}: ${reason}`);
@@ -516,8 +596,47 @@ export class SendService {
     return phones[0];
   }
 
+  /** One of the conversation's emails (lowercase), the first by default. */
+  private emailRecipient(conversation: Conversation, toAddress: string | undefined): string {
+    const emails = conversation.addresses?.emails ?? [];
+    if (toAddress) {
+      const normalised = toAddress.trim().toLowerCase();
+      if (!emails.includes(normalised)) {
+        throw new BadRequestException('toAddress is not one of the conversation email addresses');
+      }
+      return normalised;
+    }
+    if (!emails.length) throw new BadRequestException('The conversation has no email address to write to');
+    return emails[0];
+  }
+
+  /**
+   * RFC 5322 threading for a reply: the latest email in the thread that
+   * carries a `Message-ID` becomes `In-Reply-To`, and `References` grows by
+   * it (capped, like mail clients do). Nothing when the thread has no email yet.
+   */
+  private async emailThread(conversationId: string): Promise<{ inReplyTo: string; references: string[] } | undefined> {
+    const page = await this.messages.listByConversation(conversationId, { limit: THREAD_SCAN_LIMIT });
+    const last = page.items.find((m) => m.channel === 'email' && m.emailMessageId);
+    if (!last?.emailMessageId) return undefined;
+    const references = [...(last.references ?? []), last.emailMessageId].filter((id, i, all) => all.indexOf(id) === i);
+    return { inReplyTo: last.emailMessageId, references: references.slice(-20) };
+  }
+
   private async renderBody(conversation: Conversation, dto: SendMessageDto): Promise<string> {
+    const { body } = await this.render(conversation, dto);
+    if (!body) throw new BadRequestException('body must not be blank');
+    return body;
+  }
+
+  /**
+   * The composer's text, or the template rendered server-side when one is
+   * named (SMS as text, email as HTML). The composer's subject wins over the
+   * template's — it already rendered it through `POST /templates/:id/render`.
+   */
+  private async render(conversation: Conversation, dto: SendMessageDto): Promise<{ body: string; subject?: string }> {
     let body = dto.body?.trim() ?? '';
+    let subject = dto.subject?.trim() || undefined;
     if (dto.templateId && this.templates) {
       const rendered = await this.templates.render({
         templateId: dto.templateId,
@@ -529,9 +648,9 @@ export class SendService {
         body,
       });
       if (rendered?.body) body = rendered.body.trim();
+      if (!subject && rendered?.subject?.trim()) subject = rendered.subject.trim();
     }
-    if (!body) throw new BadRequestException('body must not be blank');
-    return body;
+    return { body, subject };
   }
 
   private attachments(dtos: SendAttachmentDto[] | undefined, userId: string): MessageAttachment[] | undefined {

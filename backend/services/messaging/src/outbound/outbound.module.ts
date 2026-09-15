@@ -4,6 +4,7 @@ import { AccessModule } from '../api/access/access.module';
 import { TwilioModule } from '../common/twilio/twilio.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { InboxCountersModule } from '../counters/inbox-counters.module';
+import { EmailModule } from '../email/email.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -54,6 +55,8 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
     // an employee's in-app line moves the office's badge, read back for the stream.
     AccessModule,
     InboxCountersModule,
+    // M17: the email sender-address rules for the accept path and the worker the FIFO consumer hands `email` jobs to.
+    EmailModule,
   ],
   controllers: [SendController, OutboundAttachmentsController, StatusController],
   providers: [

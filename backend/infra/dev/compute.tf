@@ -456,6 +456,34 @@ data "aws_iam_policy_document" "task_messaging" {
       module.sns_sqs.queue_arns["deal-events-to-messaging"],
     ]
   }
+
+  # Email (email.tf, M17/M18) — only when var.messaging_email_domain is set.
+  # Sending is scoped to the workspace's identity and configuration set; the
+  # inbound mail SES writes under messaging/inbound-email/ is already readable
+  # through S3MessagingObjects (messaging/*), and the two email queues are
+  # SNS-fed, so the task only consumes them.
+  dynamic "statement" {
+    for_each = local.email_enabled ? [1] : []
+    content {
+      sid       = "SESSendEmail"
+      effect    = "Allow"
+      actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+      resources = [local.email_identity_arn, local.email_config_set_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.email_enabled ? [1] : []
+    content {
+      sid     = "ConsumeEmailQueues"
+      effect  = "Allow"
+      actions = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+      resources = [
+        local.email_queue_arns["messaging-email-events"],
+        local.email_queue_arns["messaging-inbound-email"],
+      ]
+    }
+  }
 }
 
 locals {

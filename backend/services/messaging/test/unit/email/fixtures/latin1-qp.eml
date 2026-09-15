@@ -1,0 +1,9 @@
+From: =?ISO-8859-1?Q?Ren=E9?= <rene@example.fr>
+To: office@example.com, Second Person <second@example.com>
+Subject: =?ISO-8859-1?Q?Caf=E9?= =?ISO-8859-1?Q?_ouvert?=
+Date: not a date
+Content-Type: text/plain; charset=iso-8859-1
+Content-Transfer-Encoding: quoted-printable
+
+Caf=E9 ouvert =E0 9h, avec une ligne tr=E8s longue qui doit =EAtre coup=
+=E9e proprement.

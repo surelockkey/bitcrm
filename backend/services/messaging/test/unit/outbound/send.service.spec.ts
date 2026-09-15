@@ -36,6 +36,10 @@ function makeService(opts: {
   renderer?: { render: jest.Mock };
   /** `null` = no such user; `'none'` = no directory wired at all. */
   teammate?: { id: string; name: string; phone?: string } | null | 'none';
+  /** M17: the email sender-address resolver; absent → email answers 501. */
+  email?: { configured: boolean; resolve: jest.Mock };
+  /** What the feed holds (for `In-Reply-To` on an email). */
+  feed?: ReturnType<typeof createMockMessage>[];
 } = {}) {
   const conversation = opts.conversation === undefined ? createMockConversation() : opts.conversation;
   const conversations = {
@@ -51,6 +55,7 @@ function makeService(opts: {
     appendOutbound: jest.fn(async (input: { conversation: unknown }) => ({ duplicate: false, conversation: input.conversation, ...(opts.append ?? {}) })),
     getBySk: jest.fn(async () => createMockMessage({ id: 'first', direction: 'outbound', status: 'sent' })),
     updateStatus: jest.fn(async () => true),
+    listByConversation: jest.fn(async () => ({ items: opts.feed ?? [] })),
   };
   const optOuts = { isOptedOut: jest.fn(async () => opts.optedOut ?? false) };
   const sender = { resolve: jest.fn(async () => opts.sender ?? { from: '+15550001111', source: 'sticky' }) };
@@ -80,9 +85,15 @@ function makeService(opts: {
     realtime as any,
     users as any,
     inboxCounters as any,
+    opts.email as any,
   );
   return { service, conversations, messages, optOuts, sender, queue, deals, crm, events, realtime, users, inboxCounters };
 }
+
+const emailReady = () => ({
+  configured: true,
+  resolve: jest.fn(async () => ({ from: 'office@example.com', fromHeader: '"Sure Lock" <office@example.com>', replyTo: 'c-c1@reply.example.com' })),
+});
 
 const dto = (overrides: Partial<SendMessageDto> = {}): SendMessageDto => ({
   clientMessageId: CM,
@@ -166,10 +177,13 @@ describe('SendService.sendToConversation', () => {
     await expect(service.sendToConversation('c1', dto(), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('answers 501 for email and in-app until those channels exist', async () => {
+  it('answers 501 for in-app until that channel exists, and for email until a sender is configured', async () => {
     const { service } = makeService();
     await expect(service.sendToConversation('c1', dto({ channel: 'email', subject: 's' }), { user, perms: perms() })).rejects.toMatchObject({ status: 501 });
     await expect(service.sendToConversation('c1', dto({ channel: 'in_app' }), { user, perms: perms() })).rejects.toMatchObject({ status: 501 });
+
+    const unconfigured = makeService({ email: { configured: false, resolve: jest.fn(async () => null) } });
+    await expect(unconfigured.service.sendToConversation('c1', dto({ channel: 'email', subject: 's' }), { user, perms: perms() })).rejects.toMatchObject({ status: 501 });
   });
 
   it('needs team_chat.send for team and group conversations', async () => {
@@ -222,6 +236,96 @@ describe('SendService.sendToConversation', () => {
 
     renderer.render.mockResolvedValueOnce(null);
     expect((await service.sendToConversation('c1', dto({ templateId: CM }), { user, perms: perms() })).body).toBe('On my way');
+  });
+});
+
+describe('SendService.sendToConversation — email (M17)', () => {
+  const withEmail = createMockConversation({ addresses: { phones: ['+14045551234'], emails: ['jane@example.com', 'j.doe@work.co'] } });
+  const emailDto = (overrides: Partial<SendMessageDto> = {}) => dto({ channel: 'email', subject: '  Your key  ', body: 'Hi Jane,\n\nyour key is ready & waiting', ...overrides });
+
+  it('stores a queued email with both body renderings, the resolved sender and the recipient email, then enqueues it', async () => {
+    const email = emailReady();
+    const { service, messages, queue, sender, optOuts, events } = makeService({ conversation: withEmail, email });
+    const m = await service.sendToConversation('c1', emailDto({ dealId: CM }), { user, perms: perms() });
+
+    expect(m).toMatchObject({
+      conversationId: 'c1',
+      channel: 'email',
+      direction: 'outbound',
+      subject: 'Your key',
+      body: 'Hi Jane,\n\nyour key is ready & waiting',
+      bodyHtml: '<p>Hi Jane,</p>\n<p>your key is ready &amp; waiting</p>',
+      from: 'office@example.com',
+      to: 'jane@example.com',
+      contactAddress: 'jane@example.com',
+      status: 'queued',
+      provider: 'ses',
+      origin: 'user',
+      sentByUserId: 'u1',
+      dealId: CM,
+    });
+    expect(m.businessNumber).toBeUndefined();
+    expect(m.inReplyTo).toBeUndefined();
+    expect(optOuts.isOptedOut).toHaveBeenCalledWith('email', 'jane@example.com');
+    expect(email.resolve).toHaveBeenCalledWith('c1');
+    expect(sender.resolve).not.toHaveBeenCalled(); // the SMS sender chain is not consulted
+    expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ message: m, clientMessageId: CM, createdBy: 'u1' }));
+    expect(queue.enqueue).toHaveBeenCalledWith({ conversationId: 'c1', createdAt: m.createdAt, messageId: m.id });
+    expect(events.conversationUpdated).toHaveBeenCalledWith('c1');
+  });
+
+  it('keeps an HTML body as-is with a text alternative, and threads onto the latest email in the feed', async () => {
+    const earlier = createMockMessage({ id: 'e0', channel: 'email', direction: 'inbound', emailMessageId: '<root@mail.example.com>', references: undefined, createdAt: '2026-09-15T09:00:00.000Z' });
+    const latest = createMockMessage({ id: 'e1', channel: 'email', direction: 'inbound', emailMessageId: '<reply@mail.example.com>', references: ['<root@mail.example.com>'], createdAt: '2026-09-15T10:00:00.000Z' });
+    const sms = createMockMessage({ id: 's1', createdAt: '2026-09-15T10:30:00.000Z' });
+    const { service, messages } = makeService({ conversation: withEmail, email: emailReady(), feed: [sms, latest, earlier] });
+    const m = await service.sendToConversation('c1', emailDto({ body: '<p>Hi <b>Jane</b></p>' }), { user, perms: perms() });
+    expect(m.bodyHtml).toBe('<p>Hi <b>Jane</b></p>');
+    expect(m.body).toBe('Hi Jane');
+    expect(m.inReplyTo).toBe('<reply@mail.example.com>');
+    expect(m.references).toEqual(['<root@mail.example.com>', '<reply@mail.example.com>']);
+    expect(messages.listByConversation).toHaveBeenCalledWith('c1', { limit: 25 });
+  });
+
+  it('honours toAddress only when it is one of the conversation emails, case-insensitively', async () => {
+    const { service } = makeService({ conversation: withEmail, email: emailReady() });
+    expect((await service.sendToConversation('c1', emailDto({ toAddress: 'J.Doe@Work.co' }), { user, perms: perms() })).to).toBe('j.doe@work.co');
+    await expect(service.sendToConversation('c1', emailDto({ toAddress: 'other@x.co' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    const noEmail = makeService({ conversation: createMockConversation(), email: emailReady() });
+    await expect(noEmail.service.sendToConversation('c1', emailDto(), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('refuses an address on the email STOP list with 422 RECIPIENT_OPTED_OUT', async () => {
+    const { service, messages } = makeService({ conversation: withEmail, email: emailReady(), optedOut: true });
+    const err = await service.sendToConversation('c1', emailDto(), { user, perms: perms() }).catch((e) => e);
+    expect(err).toBeInstanceOf(RecipientOptedOutException);
+    expect(err.getStatus()).toBe(422);
+    expect(err.message).toMatch(/^RECIPIENT_OPTED_OUT: jane@example.com has unsubscribed from email/);
+    expect(messages.appendOutbound).not.toHaveBeenCalled();
+  });
+
+  it('needs a subject, and a body unless there are attachments', async () => {
+    const { service } = makeService({ conversation: withEmail, email: emailReady() });
+    await expect(service.sendToConversation('c1', emailDto({ subject: '  ' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    await expect(service.sendToConversation('c1', emailDto({ body: '  ' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    const a = { id: CM, fileName: 'scan.pdf', contentType: 'application/pdf' as const, size: 1024 };
+    const m = await service.sendToConversation('c1', emailDto({ body: '', attachments: [a] }), { user, perms: perms() });
+    expect(m.body).toBeUndefined();
+    expect(m.bodyHtml).toBeUndefined();
+    expect(m.attachments).toEqual([expect.objectContaining({ id: CM, status: 'stored', s3Key: uploadKey('u1', CM) })]);
+  });
+
+  it('renders an email template as HTML and takes its subject when the composer sent none', async () => {
+    const renderer = { render: jest.fn(async () => ({ body: '<p>Dear Jane Doe</p>', subject: 'Job K4T9ZW' })) };
+    const { service } = makeService({ conversation: withEmail, email: emailReady(), renderer });
+    const m = await service.sendToConversation('c1', emailDto({ templateId: CM, subject: undefined, body: 'draft' }), { user, perms: perms() });
+    expect(renderer.render).toHaveBeenCalledWith(expect.objectContaining({ templateId: CM, channel: 'email', body: 'draft' }));
+    expect(m.subject).toBe('Job K4T9ZW');
+    expect(m.bodyHtml).toBe('<p>Dear Jane Doe</p>');
+    expect(m.body).toBe('Dear Jane Doe');
+
+    const own = await service.sendToConversation('c1', emailDto({ templateId: CM, subject: 'Mine' }), { user, perms: perms() });
+    expect(own.subject).toBe('Mine');
   });
 });
 
