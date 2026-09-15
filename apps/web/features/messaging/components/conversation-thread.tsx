@@ -13,6 +13,7 @@ import {
   useMarkRead,
   useMessagingAccess,
   useResendMessage,
+  useResendingMessageIds,
   useSetMessageFlag,
   useTextLookup,
 } from "../hooks";
@@ -64,6 +65,7 @@ export function ConversationThread({
   const markRead = useMarkRead();
   const setFlag = useSetMessageFlag();
   const resend = useResendMessage();
+  const resending = useResendingMessageIds();
 
   const messages = useMemo(() => flattenFeed(feed.data?.pages), [feed.data]);
   const authorIds = useMemo(
@@ -138,8 +140,9 @@ export function ConversationThread({
         canManage={canManage}
         onToggleFlag={toggleFlag}
         onForward={onForward}
-        onResend={canSend ? resendLine : undefined}
-        resendingMessageId={resend.isPending ? resend.variables?.message.id : undefined}
+        // Resend is a send: blocked exactly when the composer is.
+        onResend={canSend && !optedOut ? resendLine : undefined}
+        resendingMessageIds={resending}
         authorNames={authorNames}
         partyName={title || undefined}
         recap={!embedded}

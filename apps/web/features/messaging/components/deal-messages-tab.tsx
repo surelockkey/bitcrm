@@ -13,6 +13,7 @@ import {
   useMessagesByJob,
   useMessagingAccess,
   useResendMessage,
+  useResendingMessageIds,
   useSendToParty,
   useSetMessageFlag,
   useTextLookup,
@@ -39,6 +40,7 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
   const send = useSendToParty();
   const setFlag = useSetMessageFlag();
   const resend = useResendMessage();
+  const resending = useResendingMessageIds();
 
   const messages = useMemo(() => flattenFeed(feed.data?.pages), [feed.data]);
   const authorIds = useMemo(
@@ -111,8 +113,9 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
         onLoadOlder={() => feed.fetchNextPage()}
         canManage={canManage}
         onToggleFlag={toggleFlag}
-        onResend={canSend ? resendLine : undefined}
-        resendingMessageId={resend.isPending ? resend.variables?.message.id : undefined}
+        // Resend is a send: blocked exactly when the composer is.
+        onResend={canSend && !optedOut ? resendLine : undefined}
+        resendingMessageIds={resending}
         authorNames={authorNames}
         partyName={contact ? clientName : undefined}
         showJob={false}

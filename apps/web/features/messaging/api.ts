@@ -342,6 +342,11 @@ export const sendToParty = (body: StartConversationBody): Promise<FeedMessage> =
 export interface ResendMessageBody {
   /** Idempotency key of the new send (uuid), as on a first send. */
   clientMessageId?: string;
+  /**
+   * The original's `createdAt` — the server opens its row directly with it;
+   * without it, a line deeper than the thread's first 200 answers 404.
+   */
+  createdAt?: string;
 }
 
 /**

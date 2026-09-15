@@ -180,7 +180,7 @@ describe("MessageFeed", () => {
           messages={[msg("orig", today(11), { direction: "outbound", origin: "user", status: "failed" })]}
           canManage={false}
           onResend={vi.fn()}
-          resendingMessageId="orig"
+          resendingMessageIds={new Set(["orig"])}
         />
       </TooltipProvider>,
     );
