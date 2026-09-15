@@ -127,7 +127,31 @@ Set by the renderer, not SSM: `MESSAGING_SERVICE_PORT=4007`, `SERVICE_NAME=messa
 4. **Twilio console** — on the Messaging Service, point *Incoming Messages*
    at `https://<domain>/api/messaging/webhooks/twilio/inbound` and the
    *Fallback URL* at `…/webhooks/twilio/fallback`. Status callbacks are set
-   per message by the service.
+   per message by the service. Numbers outside the Messaging Service need
+   their own `SmsUrl` pointed at the same inbound URL. Also on the Messaging
+   Service: **Enforce HTTP Basic Auth for media access** on (the media
+   worker downloads MMS with `AccountSid:AuthToken`) and **Advanced Opt-Out**
+   on with the STOP/START/HELP texts (the webhook records `OptOutType` into
+   `OPTOUT#`; it never auto-replies). `MESSAGING_DELETE_TWILIO_MEDIA=true`
+   on the task removes each media from Twilio once its copy is in S3 —
+   off by default, the owner's call.
+5. **Hourly reconciliation** — the backend has no in-process scheduler
+   (`@nestjs/schedule` is not used), so schedule the internal trigger from
+   outside, e.g. EventBridge Scheduler → a Lambda/`curl`, or a cron on any
+   host that holds the secret:
+
+   ```bash
+   curl -sS -X POST "https://<domain>/api/messaging/internal/reconcile" \
+     -H "x-internal-secret: $INTERNAL_SERVICE_SECRET" \
+     -H "content-type: application/json" -d '{}'
+   ```
+
+   An empty body reconciles the last 90 minutes (overlapping runs are
+   harmless — every write is keyed by the Twilio SID). After an outage pass
+   `{"since": "<ISO>", "until": "<ISO>", "limit": 10000}` for the gap. The
+   response reports `scanned`, `skipped` (already known), `inbound` /
+   `outbound` inserts, `adopted` (an outbound line whose sid was lost
+   mid-send) and `errors` per sid. Alert on `failed > 0`.
 
 Rollback is the usual `aws ecs update-service … --task-definition <previous>`;
 nothing else reads the messaging table, and `search` merely ignores
