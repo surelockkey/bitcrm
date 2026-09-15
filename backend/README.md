@@ -156,3 +156,73 @@ Set by the renderer, not SSM: `MESSAGING_SERVICE_PORT=4007`, `SERVICE_NAME=messa
 Rollback is the usual `aws ecs update-service … --task-definition <previous>`;
 nothing else reads the messaging table, and `search` merely ignores
 `message-events` it has no handler for.
+
+### Email over SES (M17/M18 — `infra/dev/email.tf`, not yet applied)
+
+Email history and new mail sit in the same conversation thread as SMS
+(design §5, variant A). Everything in `email.tf` is gated on
+`var.messaging_email_domain`: with the default `""` the plan is empty and
+the task role gains nothing, so the file is inert until the owner picks the
+domain (O12). No code path requires it either — without `MESSAGING_EMAIL_FROM`
+`channel: email` answers 501, without a queue URL that consumer is not built.
+
+| Resource | Name | Notes |
+|---|---|---|
+| SES domain identity + Easy DKIM | `<domain>` | `aws_sesv2_email_identity`; verifies once the three DKIM CNAMEs resolve |
+| SES MAIL FROM | `mail.<domain>` | SPF alignment for DMARC; falls back to SES's own on MX failure |
+| SES configuration set | `bitcrm-dev-messaging` | event destination → SNS `bitcrm-dev-messaging-email-events` (Send, Reject, Bounce, Complaint, Delivery, Open, Click, RenderingFailure, DeliveryDelay) |
+| SNS + SQS | `bitcrm-dev-messaging-email-events` + `-dlq` | SES events → message status; permanent bounce / complaint → `OPTOUT#email#` |
+| SES receipt rule set + rule | `bitcrm-dev-messaging` / `…-inbound` | recipients `<reply>.<domain>`; S3 action into the app bucket under `messaging/inbound-email/`, notifying SNS `bitcrm-dev-messaging-inbound-email`. **Activating it makes it the account's one active rule set in the region** |
+| SNS + SQS | `bitcrm-dev-messaging-inbound-email` + `-dlq` | visibility 120 s (fetch + parse + attachment copies) |
+| S3 bucket policy | on the app bucket | lets `ses.amazonaws.com` `PutObject` under the prefix (source-account + rule-set conditions). The bucket's only policy resource — extend it there |
+| IAM (task role) | `SESSendEmail`, `ConsumeEmailQueues` | `ses:SendEmail`/`SendRawEmail` on the identity + configuration set; receive/delete on the two queues. Reading the raw mail is covered by the existing `messaging/*` grant |
+
+SSM → task env (all auto-mapped by `render-taskdef.sh`, no script change):
+
+| SSM parameter | Env var |
+|---|---|
+| `/bitcrm/dev/messaging/email-from` | `MESSAGING_EMAIL_FROM` (`office@<domain>`, `var.messaging_email_from_local_part`) |
+| `/bitcrm/dev/messaging/email-domain` | `MESSAGING_EMAIL_DOMAIN` |
+| `/bitcrm/dev/messaging/email-reply-domain` | `MESSAGING_EMAIL_REPLY_DOMAIN` (`<var.messaging_reply_subdomain>.<domain>`, default `reply.`) |
+| `/bitcrm/dev/ses/configuration-set` | `SES_CONFIGURATION_SET` |
+| `/bitcrm/dev/sqs/messaging-email-events/url` | `MESSAGING_EMAIL_EVENTS_QUEUE_URL` |
+| `/bitcrm/dev/sqs/messaging-inbound-email/url` | `MESSAGING_INBOUND_EMAIL_QUEUE_URL` |
+
+Rollout, once the owner has decided the domain (O12):
+
+1. `cd infra/dev && terraform plan -var messaging_email_domain=<domain> -out tfplan`
+   (add `-var messaging_reply_subdomain=…` / `-var messaging_email_from_local_part=…`
+   to change the defaults `reply` / `office`). Expect only the resources
+   above plus the SSM parameters and two in-place updates of the messaging
+   task role policy. Put the variables in a `*.auto.tfvars` so later plans
+   keep them. Then `terraform apply tfplan`.
+2. **DNS** — publish what `terraform output messaging_email_dns_records`
+   prints, at the domain's registrar / zone (the identity stays *pending*
+   until the DKIM CNAMEs resolve; SES checks for up to 72 h):
+   - three `CNAME` `<token>._domainkey.<domain>` → `<token>.dkim.amazonses.com` (DKIM),
+   - `MX mail.<domain>` → `10 feedback-smtp.us-east-1.amazonses.com` and
+     `TXT mail.<domain>` → `v=spf1 include:amazonses.com ~all` (MAIL FROM / SPF),
+   - `MX <reply>.<domain>` → `10 inbound-smtp.us-east-1.amazonaws.com` (replies into the inbox),
+   - `TXT _dmarc.<domain>` → `v=DMARC1; p=none; rua=mailto:office@<domain>` (tighten to `quarantine` later).
+   If the domain is a subdomain of `tech-slk.com` the records can go into the
+   Route 53 zone `data.tf` already reads; that is a follow-up, not automated here.
+3. **SES sandbox** — a new account can only mail verified addresses:
+   request production access in the SES console (region us-east-1) before
+   the first client mail. Also confirm the account's *one* active receipt
+   rule set is the one applied here.
+4. **Deploy** the messaging service; the task picks the six variables up
+   from SSM. Verify: send an email from a conversation (`POST
+   /conversations/:id/messages` with `channel: "email"`), watch the status
+   walk `queued → sent → delivered`, reply from the client mailbox and see
+   the line appear in the same thread. Bounces and complaints show up as
+   `undelivered` / an opt-out banner.
+5. **Settings** — `PUT /api/messaging/settings` with `companyName` (the
+   display name) and, optionally, `companyEmail` on the verified domain (the
+   `From`; an address elsewhere is ignored because SES would refuse it).
+
+What is *not* in this rollout: the CRM has no `contacts/internal/by-emails`
+route yet, so a first mail from an address the inbox has never seen opens an
+`unknown` conversation (replies to our mails and mails from addresses we
+have written to thread correctly through the reply token / `ADDR#`); the
+messaging service probes the route and starts resolving contacts the moment
+crm adds it.
