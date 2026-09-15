@@ -1,6 +1,13 @@
-import { type ResolvedPermissions } from '@bitcrm/types';
-import { RecipientOptedOutException, SendService, uploadKey } from '../../../src/outbound/send.service';
+import { type Conversation, type ResolvedPermissions } from '@bitcrm/types';
+import {
+  EmployeeHasNoPhoneException,
+  RecipientOptedOutException,
+  SendService,
+  teamRecipients,
+  uploadKey,
+} from '../../../src/outbound/send.service';
 import { type SendMessageDto, type StartConversationMessageDto } from '../../../src/outbound/dto/send-message.dto';
+import { StaleConversationError } from '../../../src/conversations/conversations.repository';
 import { createMockConversation, createMockMessage, T1 } from '../mocks';
 
 const CM = '6f1f4d7e-0f5c-4b8e-9a6d-2c3b4a5d6e7f';
@@ -12,7 +19,7 @@ function perms(overrides: Partial<ResolvedPermissions> = {}): ResolvedPermission
     roleName: 'Dispatcher',
     isSystemRole: false,
     permissions: { messages: { view: true, send: true, manage: true }, team_chat: { view: true, send: true, manage_groups: false } } as never,
-    dataScope: { messages: 'all' } as never,
+    dataScope: { messages: 'all', team_chat: 'all' } as never,
     dealStageTransitions: [],
     hasOverrides: false,
     ...overrides,
@@ -27,6 +34,8 @@ function makeService(opts: {
   enqueue?: 'queued' | Error;
   deal?: Record<string, unknown> | null;
   renderer?: { render: jest.Mock };
+  /** `null` = no such user; `'none'` = no directory wired at all. */
+  teammate?: { id: string; name: string; phone?: string } | null | 'none';
 } = {}) {
   const conversation = opts.conversation === undefined ? createMockConversation() : opts.conversation;
   const conversations = {
@@ -34,6 +43,9 @@ function makeService(opts: {
     getByParty: jest.fn(async () => null),
     getByAddress: jest.fn(async () => null),
     findOrCreate: jest.fn(async (input: { conversation: unknown }) => ({ conversation: input.conversation, created: true })),
+    update: jest.fn(async (c: Conversation, patch: Partial<Conversation>) => ({ ...c, ...patch, updatedAt: T1 })),
+    putAddressPointer: jest.fn(async () => undefined),
+    putReadMarker: jest.fn(async () => undefined),
   };
   const messages = {
     appendOutbound: jest.fn(async (input: { conversation: unknown }) => ({ duplicate: false, conversation: input.conversation, ...(opts.append ?? {}) })),
@@ -51,6 +63,9 @@ function makeService(opts: {
   const deals = { find: jest.fn(async () => opts.deal ?? null) };
   const crm = { getContact: jest.fn(async () => null), findByPhone: jest.fn(async () => null) };
   const events = { conversationUpdated: jest.fn(async () => undefined) };
+  const realtime = { messageUpserted: jest.fn(), conversationUpserted: jest.fn(), countersChanged: jest.fn() };
+  const teammate = opts.teammate === undefined ? { id: 'u2', name: 'Ann Tech', phone: '+14045550002' } : opts.teammate;
+  const users = teammate === 'none' ? undefined : { find: jest.fn(async (id: string) => (teammate ? { ...teammate, id } : null)) };
   const service = new SendService(
     conversations as any,
     messages as any,
@@ -61,8 +76,10 @@ function makeService(opts: {
     crm as any,
     events as any,
     opts.renderer as any,
+    realtime as any,
+    users as any,
   );
-  return { service, conversations, messages, optOuts, sender, queue, deals, crm, events };
+  return { service, conversations, messages, optOuts, sender, queue, deals, crm, events, realtime, users };
 }
 
 const dto = (overrides: Partial<SendMessageDto> = {}): SendMessageDto => ({
@@ -263,6 +280,18 @@ describe('SendService.sendToParty', () => {
     expect(m.to).toBe('+14045551234');
   });
 
+  it('a technician under the assigned_only team scope writes only in their own thread and groups', async () => {
+    const tech = perms({ dataScope: { messages: 'assigned_only', team_chat: 'assigned_only' } as never });
+    const mine = createMockConversation({ kind: 'team', partyKind: 'user', partyId: 'u1', addresses: { phones: [], emails: [] } });
+    const other = createMockConversation({ kind: 'team', partyKind: 'user', partyId: 'u2', addresses: { phones: [], emails: [] } });
+    const group = createMockConversation({ id: 'g1', kind: 'group', partyKind: 'group', partyId: 'g1', memberIds: ['u1', 'u9'], addresses: { phones: [], emails: [] } });
+
+    await expect(makeService({ conversation: mine }).service.sendToConversation('c1', dto({ channel: 'in_app' }), { user, perms: tech })).resolves.toMatchObject({ channel: 'in_app' });
+    await expect(makeService({ conversation: group }).service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: tech })).resolves.toMatchObject({ channel: 'in_app' });
+    await expect(makeService({ conversation: other }).service.sendToConversation('c1', dto({ channel: 'in_app' }), { user, perms: tech })).rejects.toMatchObject({ status: 403 });
+    await expect(makeService({ conversation: { ...group, memberIds: ['u9'] } }).service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: tech })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('conversationForParty (POST /conversations) says whether it opened the thread', async () => {
     const found = makeService();
     found.conversations.getByParty.mockResolvedValueOnce(createMockConversation({ id: 'c9' }) as never);
@@ -273,5 +302,135 @@ describe('SendService.sendToParty', () => {
     expect((await opened.service.conversationForParty({ contactId: CM })).created).toBe(true);
 
     await expect(makeService().service.conversationForParty({})).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M16: in-app delivery and SMS to employees (design §6)
+// ---------------------------------------------------------------------------
+const TEAM = createMockConversation({
+  id: 'c-u2', kind: 'team', partyKind: 'user', partyId: 'u2',
+  addresses: { phones: ['+14045550002'], emails: [] }, lastBusinessNumber: '+15550001111',
+});
+const GROUP = createMockConversation({
+  id: 'g1', kind: 'group', partyKind: 'group', partyId: 'g1', name: 'Night shift', memberIds: ['u1', 'u2', 'u3'],
+  addresses: { phones: [], emails: [] },
+});
+
+describe('SendService — channel in_app', () => {
+  it('the office writes in an employee thread: stored sent/outbound/user, pushed to the employee, no provider, no opt-out check', async () => {
+    const { service, messages, queue, optOuts, sender, conversations, realtime, events } = makeService({ conversation: TEAM });
+    const m = await service.sendToConversation('c-u2', dto({ channel: 'in_app', body: ' Come to the shop ', dealId: CM }), { user, perms: perms() });
+
+    expect(m).toMatchObject({
+      conversationId: 'c-u2', channel: 'in_app', direction: 'outbound', body: 'Come to the shop', status: 'sent',
+      origin: 'user', sentByUserId: 'u1', sentByName: 'Ann Tech', dealId: CM,
+    });
+    expect(m.from).toBeUndefined();
+    expect(m.to).toBeUndefined();
+    expect(m.provider).toBeUndefined();
+    expect(m.sentAt).toBe(m.createdAt);
+    expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ message: m, clientMessageId: CM, createdBy: 'u1', markUnread: false }));
+    expect(queue.enqueue).not.toHaveBeenCalled();
+    expect(optOuts.isOptedOut).not.toHaveBeenCalled();
+    expect(sender.resolve).not.toHaveBeenCalled();
+    expect(conversations.putReadMarker).toHaveBeenCalledWith('c-u2', 'u1', { lastReadMessageSk: `MSG#${m.createdAt}#${m.id}`, at: m.createdAt });
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(m, expect.objectContaining({ id: 'c-u2' }), m.createdAt, { recipients: ['u2'], mentions: undefined });
+    expect(events.conversationUpdated).toHaveBeenCalledWith('c-u2');
+  });
+
+  it('the employee writes on their own thread: inbound / employee, the office is marked unread, nobody to push to', async () => {
+    const mine = { ...TEAM, partyId: 'u1' };
+    const { service, messages, realtime } = makeService({ conversation: mine });
+    const m = await service.sendToConversation('c-u2', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(m).toMatchObject({ direction: 'inbound', origin: 'employee', status: 'sent' });
+    expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ markUnread: true }));
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(m, expect.anything(), m.createdAt, { recipients: [], mentions: undefined });
+  });
+
+  it('a group line goes to every other member, with the mentions deduplicated and carried on the message', async () => {
+    const { service, realtime } = makeService({ conversation: GROUP });
+    const m = await service.sendToConversation('g1', dto({ channel: 'in_app', mentions: ['u3', 'u3'] }), { user, perms: perms() });
+    expect(m).toMatchObject({ direction: 'outbound', origin: 'user', mentions: ['u3'] });
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(m, expect.objectContaining({ id: 'g1' }), m.createdAt, { recipients: ['u2', 'u3'], mentions: ['u3'] });
+    expect(teamRecipients(GROUP, 'u2')).toEqual(['u1', 'u3']);
+    expect(teamRecipients(createMockConversation(), 'u1')).toEqual([]);
+  });
+
+  it('returns the first message on a repeated clientMessageId, and survives a directory or marker hiccup', async () => {
+    const dup = makeService({ conversation: GROUP, append: { duplicate: true, existing: { conversationId: 'g1', messageSk: `MSG#${T1}#first` } } });
+    expect((await dup.service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: perms() })).id).toBe('first');
+    expect(dup.conversations.putReadMarker).not.toHaveBeenCalled();
+
+    const flaky = makeService({ conversation: GROUP });
+    flaky.users!.find.mockRejectedValue(new Error('503'));
+    flaky.conversations.putReadMarker.mockRejectedValue(new Error('dynamo'));
+    const m = await flaky.service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(m.sentByName).toBeUndefined();
+    expect(flaky.realtime.messageUpserted).toHaveBeenCalled();
+
+    const bare = makeService({ conversation: GROUP, teammate: 'none' });
+    expect((await bare.service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: perms() })).sentByName).toBeUndefined();
+  });
+
+  it('still answers 501 for in-app in a client thread and for email anywhere', async () => {
+    const { service } = makeService();
+    await expect(service.sendToConversation('c1', dto({ channel: 'in_app' }), { user, perms: perms() })).rejects.toMatchObject({ status: 501 });
+    await expect(makeService({ conversation: TEAM }).service.sendToConversation('c-u2', dto({ channel: 'email', subject: 's' }), { user, perms: perms() })).rejects.toMatchObject({ status: 501 });
+  });
+
+  it('a blank body is refused before anything is written', async () => {
+    const { service, messages } = makeService({ conversation: GROUP });
+    await expect(service.sendToConversation('g1', dto({ channel: 'in_app', body: '   ' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    expect(messages.appendOutbound).not.toHaveBeenCalled();
+  });
+});
+
+describe('SendService — SMS to an employee', () => {
+  it('texts the personal phone user-service has now, from the default/sticky number (no job), origin user', async () => {
+    const stale = { ...TEAM, addresses: { phones: ['+14045559999'], emails: [] }, lastDealId: CM };
+    const { service, users, sender, conversations, optOuts } = makeService({ conversation: stale, teammate: { id: 'u2', name: 'Ann', phone: '(404) 555-0002' } });
+    const m = await service.sendToConversation('c-u2', dto({ dealId: CM }), { user, perms: perms() });
+
+    expect(users!.find).toHaveBeenCalledWith('u2');
+    expect(m).toMatchObject({ channel: 'sms', to: '+14045550002', from: '+15550001111', origin: 'user', status: 'queued', dealId: CM });
+    expect(optOuts.isOptedOut).toHaveBeenCalledWith('sms', '+14045550002');
+    expect(sender.resolve).toHaveBeenCalledWith({ requested: undefined, conversation: expect.objectContaining({ id: 'c-u2' }), dealId: undefined });
+    // The number is adopted onto the thread and pointed at it, so the reply routes straight back.
+    expect(conversations.putAddressPointer).toHaveBeenCalledWith(expect.objectContaining({ address: '+14045550002', conversationId: 'c-u2', partyKind: 'user', partyId: 'u2', source: 'crm' }));
+    expect(conversations.update).toHaveBeenCalledWith(stale, { addresses: { phones: ['+14045550002', '+14045559999'], emails: [] } }, expect.anything());
+  });
+
+  it('does not rewrite the thread when the phone is already on it; tolerates a concurrent write', async () => {
+    const same = makeService({ conversation: TEAM });
+    await same.service.sendToConversation('c-u2', dto(), { user, perms: perms() });
+    expect(same.conversations.update).not.toHaveBeenCalled();
+    expect(same.conversations.putAddressPointer).not.toHaveBeenCalled();
+
+    const raced = makeService({ conversation: { ...TEAM, addresses: { phones: [], emails: [] } } });
+    raced.conversations.update.mockRejectedValueOnce(new StaleConversationError('c-u2'));
+    await expect(raced.service.sendToConversation('c-u2', dto(), { user, perms: perms() })).resolves.toMatchObject({ to: '+14045550002' });
+    expect(raced.conversations.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses with 422 EMPLOYEE_HAS_NO_PHONE, 404 for a vanished user, 400 for a foreign toAddress, and honours opt-out', async () => {
+    const noPhone = makeService({ conversation: TEAM, teammate: { id: 'u2', name: 'Ann' } });
+    const err = await noPhone.service.sendToConversation('c-u2', dto(), { user, perms: perms() }).catch((e) => e);
+    expect(err).toBeInstanceOf(EmployeeHasNoPhoneException);
+    expect(err.getStatus()).toBe(422);
+    expect(err.message).toMatch(/^EMPLOYEE_HAS_NO_PHONE/);
+    expect(noPhone.messages.appendOutbound).not.toHaveBeenCalled();
+
+    await expect(makeService({ conversation: TEAM, teammate: null }).service.sendToConversation('c-u2', dto(), { user, perms: perms() })).rejects.toMatchObject({ status: 404 });
+    await expect(makeService({ conversation: TEAM }).service.sendToConversation('c-u2', dto({ toAddress: '+14045559999' }), { user, perms: perms() })).rejects.toMatchObject({ status: 400 });
+    await expect(makeService({ conversation: TEAM }).service.sendToConversation('c-u2', dto({ toAddress: '(404) 555-0002' }), { user, perms: perms() })).resolves.toMatchObject({ to: '+14045550002' });
+    await expect(makeService({ conversation: TEAM, optedOut: true }).service.sendToConversation('c-u2', dto(), { user, perms: perms() })).rejects.toBeInstanceOf(RecipientOptedOutException);
+  });
+
+  it('falls back to the thread’s own number when no directory is wired', async () => {
+    const { service, sender } = makeService({ conversation: TEAM, teammate: 'none' });
+    const m = await service.sendToConversation('c-u2', dto({ dealId: CM }), { user, perms: perms() });
+    expect(m.to).toBe('+14045550002');
+    expect(sender.resolve).toHaveBeenCalledWith(expect.objectContaining({ dealId: undefined }));
   });
 });

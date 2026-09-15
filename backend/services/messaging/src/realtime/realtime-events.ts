@@ -39,6 +39,14 @@ export interface MessageUpsertedEvent {
   message: Message;
   /** The conversation after the change; when absent the stream looks it up for scoping. */
   conversation?: Conversation;
+  /**
+   * Team / group delivery (design §6): the member ids the line is for — the
+   * group roster or the employee, minus the author. The web badges from it;
+   * scoping still happens per viewer on delivery.
+   */
+  recipients?: string[];
+  /** User ids @-mentioned in the line (`Message.mentions`, repeated here for the badge). */
+  mentions?: string[];
 }
 
 export interface CountersChangedEvent {

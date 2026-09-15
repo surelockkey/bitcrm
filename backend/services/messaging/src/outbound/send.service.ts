@@ -22,9 +22,12 @@ import {
   type MessageAttachment,
   type ResolvedPermissions,
 } from '@bitcrm/types';
-import { ConversationsRepository } from '../conversations/conversations.repository';
-import { MessagesRepository, type MessageKey } from '../messages/messages.repository';
+import { UserLookupService } from '../api/access/user-lookup.service';
+import { messageSk } from '../common/constants/dynamo.constants';
+import { ConversationsRepository, StaleConversationError } from '../conversations/conversations.repository';
+import { MessagesRepository, type AppendResult, type MessageKey } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
+import { TeamAccessService, isTeamKind } from '../team/team-access.service';
 import { MAX_ATTACHMENT_BYTES, type SendAttachmentDto, type SendMessageDto, type StartConversationMessageDto } from './dto/send-message.dto';
 import { CrmContactsClient } from './internal/crm-contacts.client';
 import { DealContextClient } from './internal/deal-context.client';
@@ -50,8 +53,6 @@ export interface FoundConversation {
   created: boolean;
 }
 
-const TEAM_KINDS: ReadonlyArray<ConversationKind> = ['team', 'group'];
-
 /**
  * Raised for a recipient on the STOP list (design §4.4: 422
  * `RECIPIENT_OPTED_OUT`). Its own class so the filter's generic message
@@ -66,16 +67,44 @@ export class RecipientOptedOutException extends HttpException {
   }
 }
 
+/** An SMS in an employee's thread has nowhere to go: no personal phone on their user record (design §6). */
+export class EmployeeHasNoPhoneException extends HttpException {
+  constructor(userId: string) {
+    super(
+      `EMPLOYEE_HAS_NO_PHONE: user ${userId} has no personal phone on their profile; add one or message them in-app`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+/** Who a team / group in-app line is for: the roster minus the author, or the employee (design §6). */
+export function teamRecipients(conversation: Conversation, senderId: string): string[] {
+  if (conversation.kind === 'group') return (conversation.memberIds ?? []).filter((id) => id !== senderId);
+  if (conversation.kind === 'team' && conversation.partyId && conversation.partyId !== senderId) {
+    return [conversation.partyId];
+  }
+  return [];
+}
+
 /**
- * The accept half of outbound SMS (design §4.4 steps 1–3): authorise,
- * refuse opted-out recipients, pick the sender, store the message as
- * `queued` under the `CLIENTMSG#` idempotency guard, and hand it to the
- * FIFO queue. The worker (`OutboundWorker`) does the Twilio call. Email and
- * in-app sending are later milestones (M16, M17) and answer 501 here.
+ * The accept half of outbound messages (design §4.4 steps 1–3, §6):
+ * authorise, then by channel —
+ *
+ *   sms     refuse opted-out recipients, pick the sender, store the message
+ *           as `queued` under the `CLIENTMSG#` idempotency guard and hand it
+ *           to the FIFO queue; the worker (`OutboundWorker`) does the Twilio
+ *           call. In an employee's thread the recipient is their personal
+ *           phone (user-service) and the sender the company's default number.
+ *   in_app  team / group threads only: stored `sent` and pushed over SSE to
+ *           the members — no provider. An employee's own line marks the
+ *           office's `unread`, as their SMS would.
+ *   email   M17, answers 501.
  */
 @Injectable()
 export class SendService {
   private readonly logger = new Logger(SendService.name);
+  /** Pure rules, no dependencies — the team-chat scope the send path enforces. */
+  private readonly teamAccess = new TeamAccessService();
 
   constructor(
     private readonly conversations: ConversationsRepository,
@@ -88,6 +117,7 @@ export class SendService {
     private readonly events: OutboundEventsPublisher,
     @Optional() @Inject(MESSAGE_TEMPLATE_RENDERER) private readonly templates?: MessageTemplateRenderer,
     @Optional() private readonly realtime?: RealtimePublisher,
+    @Optional() private readonly users?: UserLookupService,
   ) {}
 
   /** `POST /conversations/:id/messages`. */
@@ -121,18 +151,28 @@ export class SendService {
   private async send(conversation: Conversation, dto: SendMessageDto, caller: SendCaller): Promise<Message> {
     await this.authorise(conversation, dto, caller);
 
+    if (dto.channel === 'in_app') return this.sendInApp(conversation, dto, caller);
     if (dto.channel !== 'sms') {
-      // TODO(M16 in_app, M17 email): route by channel once those exist.
+      // TODO(M17 email): route once the channel exists.
       throw new NotImplementedException(`Sending over ${dto.channel} is not available yet`);
     }
 
-    const to = this.recipient(conversation, dto.toAddress);
+    const target = await this.smsTarget(conversation, dto);
+    conversation = target.conversation;
+    const to = target.to;
     if (await this.optOuts.isOptedOut('sms', to)) throw new RecipientOptedOutException(to);
 
     const body = await this.renderBody(conversation, dto);
     const attachments = this.attachments(dto.attachments, caller.user.id);
     const dealId = dto.dealId ?? conversation.lastDealId;
-    const sender = await this.sender.resolve({ requested: dto.fromNumber, conversation, dealId });
+    // An employee is texted from the company's default / sticky number, never
+    // a job's area or source number (design §6: "the same sender as for clients"
+    // means the workspace number, not the job's tracking line).
+    const sender = await this.sender.resolve({
+      requested: dto.fromNumber,
+      conversation,
+      dealId: target.employee ? undefined : dealId,
+    });
 
     const now = new Date().toISOString();
     const message: Message = {
@@ -163,17 +203,7 @@ export class SendService {
       conversation,
       at: now,
     });
-    if (result.duplicate) {
-      // A repeated submit (double click, network retry): the first one won —
-      // hand it back rather than sending twice (design §4.9).
-      const first = result.existing
-        ? await this.messages.getBySk(result.existing.conversationId, result.existing.messageSk)
-        : null;
-      if (!first) {
-        throw new HttpException('clientMessageId was already used', HttpStatus.CONFLICT);
-      }
-      return first;
-    }
+    if (result.duplicate) return this.firstSubmit(result);
 
     const key: MessageKey = { conversationId: conversation.id, createdAt: now, messageId: message.id };
     try {
@@ -197,15 +227,155 @@ export class SendService {
   }
 
   /**
-   * `messages.send` is checked by the guard; team threads additionally need
-   * `team_chat.send` (design §7.1), and an `assigned_only` data scope limits
-   * a technician to conversations of jobs they are on — verified against
+   * `channel: in_app` (design §6): no provider — the line is stored `sent`
+   * and the members learn about it over SSE. An employee writing on their
+   * own thread is the party speaking (`inbound`, `origin: employee`, the
+   * office's `unread` bumps, as their SMS would); anyone else, and every
+   * group line, is `outbound` from a user. The author's own `READ#` marker
+   * is advanced so the line never counts as unread for them.
+   */
+  private async sendInApp(conversation: Conversation, dto: SendMessageDto, caller: SendCaller): Promise<Message> {
+    if (!isTeamKind(conversation.kind)) {
+      throw new NotImplementedException('In-app messages can only be sent in team and group conversations');
+    }
+    const body = await this.renderBody(conversation, dto);
+    const attachments = this.attachments(dto.attachments, caller.user.id);
+    const fromParty = conversation.kind === 'team' && conversation.partyId === caller.user.id;
+    const mentions = dto.mentions?.length ? [...new Set(dto.mentions)] : undefined;
+
+    const now = new Date().toISOString();
+    const message: Message = {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'in_app',
+      direction: fromParty ? 'inbound' : 'outbound',
+      body,
+      status: 'sent',
+      origin: fromParty ? 'employee' : 'user',
+      sentByUserId: caller.user.id,
+      sentByName: await this.senderName(caller.user.id),
+      dealId: dto.dealId,
+      templateId: dto.templateId,
+      mentions,
+      attachments,
+      createdAt: now,
+      sentAt: now,
+      updatedAt: now,
+    };
+
+    const result = await this.messages.appendOutbound({
+      message,
+      clientMessageId: dto.clientMessageId,
+      createdBy: caller.user.id,
+      conversation,
+      at: now,
+      markUnread: fromParty,
+    });
+    if (result.duplicate) return this.firstSubmit(result);
+
+    try {
+      await this.conversations.putReadMarker(conversation.id, caller.user.id, {
+        lastReadMessageSk: messageSk(now, message.id),
+        at: now,
+      });
+    } catch (error) {
+      this.logger.warn(`Read marker for ${caller.user.id} on ${conversation.id} not written: ${error instanceof Error ? error.message : error}`);
+    }
+
+    const recipients = teamRecipients(result.conversation, caller.user.id);
+    this.logger.log(`In-app ${message.id} stored in ${conversation.id} (${conversation.kind}) for ${recipients.length} member(s)`);
+    this.realtime?.messageUpserted(message, result.conversation, now, { recipients, mentions });
+    void this.events.conversationUpdated(conversation.id);
+    return message;
+  }
+
+  /** A repeated submit (double click, network retry): the first one won — hand it back (design §4.9). */
+  private async firstSubmit(result: AppendResult): Promise<Message> {
+    const first = result.existing
+      ? await this.messages.getBySk(result.existing.conversationId, result.existing.messageSk)
+      : null;
+    if (!first) throw new HttpException('clientMessageId was already used', HttpStatus.CONFLICT);
+    return first;
+  }
+
+  /**
+   * Where an SMS goes. A client thread: one of the conversation's numbers
+   * (`toAddress`, else the first). An employee's thread (design §6): their
+   * personal phone as user-service has it now — 404 when the user is gone,
+   * 422 `EMPLOYEE_HAS_NO_PHONE` when they have none — recorded on the
+   * thread and pointed at it (`ADDR#`) so their reply routes straight back.
+   * Without a directory wired (unit tests) the thread's own number is used.
+   */
+  private async smsTarget(
+    conversation: Conversation,
+    dto: SendMessageDto,
+  ): Promise<{ to: string; conversation: Conversation; employee: boolean }> {
+    if (conversation.partyKind !== 'user' || !conversation.partyId || !this.users) {
+      return { to: this.recipient(conversation, dto.toAddress), conversation, employee: conversation.partyKind === 'user' };
+    }
+    const teammate = await this.users.find(conversation.partyId);
+    if (!teammate) throw new NotFoundException(`User ${conversation.partyId} not found`);
+    const phone = teammate.phone ? tryNormalizePhone(teammate.phone) : undefined;
+    if (!phone) throw new EmployeeHasNoPhoneException(conversation.partyId);
+    if (dto.toAddress && tryNormalizePhone(dto.toAddress) !== phone) {
+      throw new BadRequestException("toAddress must be the employee's personal phone");
+    }
+    return { to: phone, conversation: await this.adoptPhone(conversation, phone), employee: true };
+  }
+
+  /** The employee's current number onto the thread + `ADDR#` — tolerant of a concurrent write. */
+  private async adoptPhone(conversation: Conversation, phone: string): Promise<Conversation> {
+    const now = new Date().toISOString();
+    if (conversation.addresses.phones.includes(phone)) return conversation;
+    await this.conversations.putAddressPointer({
+      address: phone,
+      conversationId: conversation.id,
+      partyKind: 'user',
+      partyId: conversation.partyId,
+      source: 'crm',
+      updatedAt: now,
+    });
+    try {
+      return await this.conversations.update(
+        conversation,
+        { addresses: { ...conversation.addresses, phones: [phone, ...conversation.addresses.phones] } },
+        { at: now },
+      );
+    } catch (error) {
+      if (!(error instanceof StaleConversationError)) throw error;
+      return (await this.conversations.get(conversation.id)) ?? conversation;
+    }
+  }
+
+  /** The author's display name for the feed; a directory hiccup costs the name, never the send. */
+  private async senderName(userId: string): Promise<string | undefined> {
+    if (!this.users) return undefined;
+    try {
+      return (await this.users.find(userId))?.name;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * `messages.send` is checked by the guard. A team / group thread
+   * additionally needs `team_chat.send` and the `team_chat` data scope
+   * (design §7.1, §7.5): a technician writes only in their own thread and
+   * their groups. A client thread under an `assigned_only` `messages` scope
+   * is limited to conversations of jobs the caller is on — verified against
    * the job's roster, and refused when the roster cannot be read.
    */
   private async authorise(conversation: Conversation, dto: SendMessageDto, caller: SendCaller): Promise<void> {
     const { user, perms } = caller;
-    if (TEAM_KINDS.includes(conversation.kind) && !hasPermission(perms, 'team_chat', 'send')) {
-      throw new ForbiddenException('Missing permission: team_chat.send');
+    if (isTeamKind(conversation.kind)) {
+      if (!hasPermission(perms, 'team_chat', 'send')) {
+        throw new ForbiddenException('Missing permission: team_chat.send');
+      }
+      if (!perms) return;
+      if (!this.teamAccess.canAccess(conversation, this.teamAccess.scopeFor(user, perms))) {
+        throw new ForbiddenException('You can only write in your own team thread and your groups');
+      }
+      return;
     }
     if (!perms) return;
 

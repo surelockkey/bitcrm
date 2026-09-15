@@ -30,6 +30,9 @@ export const E164_PATTERN = /^\+[1-9]\d{6,14}$/;
 /** Twilio's ceiling for one MMS: 10 files, 5 MB together (design §4.6). */
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
+/** Most user ids one in-app line may mention (design §6). */
+export const MENTIONS_LIMIT = 50;
+
 /**
  * One file the composer already PUT to S3 through
  * `POST /attachments/presign`. `id` is the id that call returned; the object
@@ -114,6 +117,17 @@ export class SendMessageDto {
   @ValidateNested({ each: true })
   @Type(() => SendAttachmentDto)
   attachments?: SendAttachmentDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'User ids @-mentioned in the body — `in_app` lines in team / group threads only; carried on the message and the realtime event.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MENTIONS_LIMIT)
+  @IsString({ each: true })
+  @Length(1, 200, { each: true })
+  mentions?: string[];
 }
 
 /**

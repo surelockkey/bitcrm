@@ -7,7 +7,10 @@ import {
   type OptOutChannel,
   type OptOutStatus,
 } from '@bitcrm/types';
-import { REALTIME_CHANNEL, type MessagingRealtimeEvent } from './realtime-events';
+import { REALTIME_CHANNEL, type MessageUpsertedEvent, type MessagingRealtimeEvent } from './realtime-events';
+
+/** What a team / group in-app delivery adds to `message.upserted` (design §6). */
+export type TeamDelivery = Pick<MessageUpsertedEvent, 'recipients' | 'mentions'>;
 
 /**
  * The one thing other modules call to push a live update to the browsers
@@ -21,7 +24,9 @@ import { REALTIME_CHANNEL, type MessagingRealtimeEvent } from './realtime-events
  *
  *   publisher.conversationUpserted(conversation)        after any conversation write
  *   publisher.messageUpserted(message, conversation?)    after an append or a status change;
- *                                                        pass the conversation when you have it
+ *                                                        pass the conversation when you have it;
+ *                                                        a team / group in-app line also passes
+ *                                                        `{ recipients, mentions }` (§6)
  *   publisher.countersChanged(counters)                  after a write that moved INBOX#COUNTERS
  *                                                        (read the item back and pass it)
  *   publisher.optOutChanged({ channel, address, status, conversationId? })
@@ -54,8 +59,13 @@ export class RealtimePublisher {
     this.publish({ type: 'conversation.upserted', at, conversation });
   }
 
-  messageUpserted(message: Message, conversation?: Conversation, at: string = new Date().toISOString()): void {
-    this.publish({ type: 'message.upserted', at, message, conversation });
+  messageUpserted(
+    message: Message,
+    conversation?: Conversation,
+    at: string = new Date().toISOString(),
+    delivery?: TeamDelivery,
+  ): void {
+    this.publish({ type: 'message.upserted', at, message, conversation, ...(delivery ?? {}) });
   }
 
   countersChanged(counters: InboxCounters, at: string = new Date().toISOString()): void {
