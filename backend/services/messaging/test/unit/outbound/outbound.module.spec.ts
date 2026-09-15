@@ -7,6 +7,7 @@ import { OutboundWorker } from '../../../src/outbound/outbound.worker';
 import { SendService } from '../../../src/outbound/send.service';
 import { SenderResolver } from '../../../src/outbound/sender.resolver';
 import { StatusCallbackService } from '../../../src/outbound/status-callback.service';
+import { OutboundAttachmentsService } from '../../../src/outbound/attachments/attachments.service';
 import { OUTBOUND_CONFIG } from '../../../src/outbound/outbound.config';
 
 /** Stands in for the platform modules AppModule provides globally. */
@@ -42,6 +43,7 @@ describe('OutboundModule wiring', () => {
     expect(moduleRef.get(SenderResolver)).toBeInstanceOf(SenderResolver);
     expect(moduleRef.get(OutboundWorker)).toBeInstanceOf(OutboundWorker);
     expect(moduleRef.get(StatusCallbackService)).toBeInstanceOf(StatusCallbackService);
+    expect(moduleRef.get(OutboundAttachmentsService)).toBeInstanceOf(OutboundAttachmentsService);
     expect(moduleRef.get(TwilioRest)).toBeInstanceOf(TwilioRest);
     expect(moduleRef.get(TWILIO_CONFIG)).toMatchObject({ validateSignature: expect.any(Boolean) });
     expect(moduleRef.get(OUTBOUND_CONFIG)).toMatchObject({ awsRegion: expect.any(String), mediaUrlTtlSeconds: 3600 });

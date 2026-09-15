@@ -9,10 +9,10 @@ import {
 } from '@bitcrm/types';
 import { MessagesRepository, type MessageKey } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
+import { OutboundAttachmentsService } from './attachments/attachments.service';
 import { OutboundEventsPublisher } from './outbound-events';
 import { type OutboundJob } from './outbound-queue.producer';
 import { OutboundRepository } from './outbound.repository';
-import { OUTBOUND_CONFIG, type OutboundConfig } from './outbound.config';
 import {
   OPT_OUT_ERROR_CODE,
   classifyTwilioError,
@@ -84,7 +84,7 @@ export class OutboundWorker {
     private readonly events: OutboundEventsPublisher,
     private readonly rest: TwilioRest,
     @Inject(TWILIO_CONFIG) private readonly twilio: Pick<TwilioConfig, 'messagingServiceSid' | 'publicBaseUrl'>,
-    @Inject(OUTBOUND_CONFIG) private readonly config: Pick<OutboundConfig, 'mediaUrlTtlSeconds'>,
+    private readonly attachments: OutboundAttachmentsService,
   ) {}
 
   /** The SQS handler (`eventType: message.send`). A malformed payload is dropped, not retried. */
@@ -153,9 +153,9 @@ export class OutboundWorker {
     };
   }
 
-  /** TODO(M10b): presigned GET URLs for `attachments[].s3Key`, `mediaUrlTtlSeconds` long. */
-  protected async mediaUrls(_message: Message): Promise<string[]> {
-    return [];
+  /** Presigned GET URLs for the stored attachments (design §4.6), ≤ 10 by the DTO. */
+  private mediaUrls(message: Message): Promise<string[]> {
+    return this.attachments.mediaUrlsFor(message);
   }
 
   /** `…/webhooks/twilio/status?c&t&m` — the key rides in the query, which the signature covers (§4.5). */

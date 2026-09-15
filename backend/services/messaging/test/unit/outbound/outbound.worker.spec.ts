@@ -66,6 +66,11 @@ function makeWorker(opts: {
     }),
   };
   const rest = { client: { messages: api } };
+  const attachments = {
+    mediaUrlsFor: jest.fn(async (m: Message) =>
+      (m.attachments ?? []).filter((a) => a.status === 'stored' && a.s3Key).map((a) => `https://s3/get/${a.s3Key}`),
+    ),
+  };
   const worker = new OutboundWorker(
     messages as any,
     outbound as any,
@@ -73,9 +78,9 @@ function makeWorker(opts: {
     events as any,
     rest as any,
     { messagingServiceSid: opts.messagingServiceSid ?? 'MG1', publicBaseUrl: opts.publicBaseUrl ?? 'https://crm.example.com' },
-    { mediaUrlTtlSeconds: 3600 },
+    attachments as any,
   );
-  return { worker, messages, outbound, optOuts, events, api };
+  return { worker, messages, outbound, optOuts, events, api, attachments };
 }
 
 const twilioError = (status: number, code: number, message: string) => Object.assign(new Error(message), { status, code });
@@ -117,6 +122,30 @@ describe('OutboundWorker.process — the happy path', () => {
     const { worker, api } = makeWorker({ publicBaseUrl: '', messagingServiceSid: '' });
     await worker.process(job);
     expect(api.create).toHaveBeenCalledWith({ from: '+15550001111', to: '+14045551234', body: 'On my way' });
+  });
+
+  it('hands Twilio presigned GET URLs for the stored attachments as mediaUrl', async () => {
+    const withMedia = queued({
+      attachments: [
+        { id: 'a1', fileName: '1.jpg', contentType: 'image/jpeg', size: 10, status: 'stored', s3Key: 'messaging/uploads/u1/a1' },
+        { id: 'a2', fileName: '2.jpg', contentType: 'image/jpeg', size: 10, status: 'pending' },
+      ],
+    });
+    const { worker, api, attachments } = makeWorker({ message: withMedia });
+    await worker.process(job);
+    expect(attachments.mediaUrlsFor).toHaveBeenCalledWith(withMedia);
+    expect(api.create.mock.calls[0][0]).toMatchObject({ mediaUrl: ['https://s3/get/messaging/uploads/u1/a1'] });
+
+    const { api: plain } = makeWorker();
+    await makeWorker().worker.process(job);
+    expect(plain.create.mock.calls[0]?.[0] ?? {}).not.toHaveProperty('mediaUrl');
+  });
+
+  it('retries (rethrows) when the media URLs cannot be presigned, before calling Twilio', async () => {
+    const { worker, api, attachments } = makeWorker({ message: queued({ attachments: [{ id: 'a1', fileName: '1.jpg', contentType: 'image/jpeg', status: 'stored', s3Key: 'k' }] }) });
+    attachments.mediaUrlsFor.mockRejectedValueOnce(new Error('S3 unreachable'));
+    await expect(worker.process(job)).rejects.toThrow('S3 unreachable');
+    expect(api.create).not.toHaveBeenCalled();
   });
 
   it('lets the pool pick the sender when the message has no from', async () => {

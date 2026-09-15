@@ -6,6 +6,8 @@ import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
 import { StatusController } from '../webhooks/status.controller';
+import { OutboundAttachmentsController } from './attachments/attachments.controller';
+import { OutboundAttachmentsService } from './attachments/attachments.service';
 import { CrmContactsClient } from './internal/crm-contacts.client';
 import { DealContextClient } from './internal/deal-context.client';
 import { TelephonyNumbersClient } from './internal/telephony-numbers.client';
@@ -23,8 +25,9 @@ import { StatusCallbackService } from './status-callback.service';
 export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
 
 /**
- * Outbound SMS/MMS (design §4.4–4.5, M9): the send API, sender selection,
- * the FIFO queue on both ends and Twilio's status callback.
+ * Outbound SMS/MMS (design §4.4–4.6, M9 + M10b): the send API, sender
+ * selection, the FIFO queue on both ends, Twilio's status callback and the
+ * presigned S3 flow for MMS attachments.
  *
  * The consumer follows the AppModule pattern (handlers registered in
  * `onModuleInit`, polling only under `ENABLE_SQS_CONSUMER=true`) but lives
@@ -34,7 +37,7 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
  */
 @Module({
   imports: [TwilioModule, ConversationsModule, MessagesModule, OptOutsModule, MessagingSettingsModule],
-  controllers: [SendController, StatusController],
+  controllers: [SendController, OutboundAttachmentsController, StatusController],
   providers: [
     { provide: OUTBOUND_CONFIG, useFactory: loadOutboundConfig },
     {
@@ -58,6 +61,7 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
     OutboundQueueProducer,
     OutboundEventsPublisher,
     OutboundRepository,
+    OutboundAttachmentsService,
     OutboundWorker,
     StatusCallbackService,
     SendService,
