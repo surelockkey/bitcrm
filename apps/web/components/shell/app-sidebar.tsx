@@ -25,6 +25,7 @@ import {
   type NavItem,
 } from "@/lib/nav/nav-config";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { InboxNavBadge } from "@/features/messaging/components/inbox-nav-badge";
 import { Plus } from "lucide-react";
 import { Button } from "../ui/button";
 
@@ -46,6 +47,8 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
           <span>{item.label}</span>
         </Link>
       </SidebarMenuButton>
+      {/* Unread threads, the way Workiz badges its Inbox — only on that item. */}
+      {item.href === "/messages" ? <InboxNavBadge /> : null}
     </SidebarMenuItem>
   );
 }
@@ -96,7 +99,7 @@ export function AppSidebar() {
         {isTechnician ? (
           <SidebarGroup>
             <SidebarMenu>
-              {TECHNICIAN_NAV.map((item) => (
+              {visibleNavItems(TECHNICIAN_NAV, (r) => can(r)).map((item) => (
                 <NavLink key={item.href} item={item} pathname={pathname} />
               ))}
             </SidebarMenu>

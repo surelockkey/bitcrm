@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   Map,
   MessagesSquare,
-  MessageSquare,
   Package,
   Phone,
   Settings,
@@ -89,8 +88,8 @@ export const MAIN_NAV: NavGroup[] = [
     label: "Communications",
     items: [
       { label: "Calls", href: "/calls", icon: Phone, resource: "calls" },
-      { label: "SMS", href: "/sms", icon: MessageSquare, status: "coming-soon" },
-      { label: "Messages", href: "/messages", icon: MessagesSquare, status: "coming-soon" },
+      // The client inbox (SMS today; email and in-app land on the same page).
+      { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
     ],
   },
   {
@@ -115,6 +114,7 @@ export const MAIN_NAV: NavGroup[] = [
 /** Simplified nav for the Technician role (assigned-only scope). */
 export const TECHNICIAN_NAV: NavItem[] = [
   { label: "My Jobs", href: "/deals", icon: Briefcase },
+  { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
   { label: "My Container", href: "/inventory/containers", icon: Truck },
   { label: "My Profile", href: "/profile", icon: UserRound },
 ];

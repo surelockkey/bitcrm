@@ -62,6 +62,7 @@ const nextConfig: NextConfig = {
         inventory: 4004,
         search: 4005,
         telephony: 4006,
+        messaging: 4007,
       };
       return Object.entries(services).map(([name, port]) => ({
         source: `/api/${name}/:path*`,

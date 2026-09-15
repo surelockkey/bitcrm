@@ -52,7 +52,7 @@ export function CommandMenu() {
   }, [setOpen]);
 
   const navItems: NavItem[] = isTechnician
-    ? TECHNICIAN_NAV
+    ? visibleNavItems(TECHNICIAN_NAV, (r) => can(r))
     : [
         OVERVIEW_ITEM,
         ...MAIN_NAV.flatMap((g) => visibleNavItems(g.items, (r) => can(r))),
