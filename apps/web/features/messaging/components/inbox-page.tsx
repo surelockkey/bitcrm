@@ -9,9 +9,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { cn } from "@/lib/utils";
 import { INBOX_VIEWS, type InboxView } from "../api";
 import { useConversation, useMessagingAccess, usePartyNames } from "../hooks";
-import { conversationTitle } from "../lib";
-import { ConversationList, type ListState } from "./conversation-list";
+import { conversationTitle, type ListState } from "../lib";
+import { ConversationList } from "./conversation-list";
 import { ConversationThread } from "./conversation-thread";
+import { InboxCategories, useCategoriesCollapsed } from "./inbox-categories";
 import { NewConversationDialog } from "./new-conversation-dialog";
 import { PartyCard } from "./party-card";
 import { ThreadComposer } from "./thread-composer";
@@ -21,10 +22,11 @@ const isKind = (v: string | null): v is ConversationKind =>
   !!v && (CONVERSATION_KINDS as readonly string[]).includes(v);
 
 /**
- * `/messages` — the Workiz Inbox in three panes: the list, the thread, and
- * the party's card. The open thread and the tab live in the URL
- * (`?c=&view=&kind=`) so a link from a job or a contact opens the right
- * conversation, and the back button behaves.
+ * `/messages` — the Workiz Inbox in three columns: the categories, the
+ * conversation list, and the open thread. The party's card opens as a side
+ * sheet from the thread header's person icon. The open thread and the
+ * category live in the URL (`?c=&view=&kind=`) so a link from a job or a
+ * contact opens the right conversation, and the back button behaves.
  */
 export function InboxPage() {
   const router = useRouter();
@@ -39,6 +41,7 @@ export function InboxPage() {
   const [search, setSearch] = useState("");
   const [infoOpen, setInfoOpen] = useState(false);
   const [composingNew, setComposingNew] = useState(false);
+  const [collapsed, toggleCollapsed] = useCategoriesCollapsed();
 
   const navigate = useCallback(
     (next: { c?: string; view?: InboxView; kind?: ConversationKind }) => {
@@ -73,12 +76,20 @@ export function InboxPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1" data-testid="inbox">
+      {/* Column 1 — categories. Off-screen on phones, where the list and the thread take turns. */}
+      <InboxCategories
+        state={listState}
+        onStateChange={onListState}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
+        className="max-md:hidden"
+      />
+
+      {/* Column 2 — the conversations. */}
       <aside
-        className={cn(
-          "w-full shrink-0 border-r md:flex md:w-80 lg:w-96",
-          selectedId ? "hidden" : "flex",
-        )}
+        className={cn("w-full shrink-0 border-r md:flex md:w-80", selectedId ? "hidden" : "flex")}
+        aria-label="Conversations"
       >
         <ConversationList
           state={listState}
@@ -90,6 +101,7 @@ export function InboxPage() {
         />
       </aside>
 
+      {/* Column 3 — the thread. */}
       <section
         className={cn("min-w-0 flex-1 flex-col md:flex", selectedId ? "flex" : "hidden")}
         aria-label="Conversation"
@@ -118,17 +130,13 @@ export function InboxPage() {
         )}
       </section>
 
-      <aside className="hidden w-80 shrink-0 border-l xl:flex xl:flex-col">
-        {selected ? <PartyCard conversation={selected} title={title} /> : null}
-      </aside>
-
       <NewConversationDialog
         open={composingNew}
         onOpenChange={setComposingNew}
         onCreated={(id) => navigate({ c: id, view: "all", kind: undefined })}
       />
 
-      {/* Below xl the party card opens as a sheet from the header's Details button. */}
+      {/* The party's card — Workiz's client page — opens from the header's person icon. */}
       <Sheet open={infoOpen && !!selected} onOpenChange={setInfoOpen}>
         <SheetContent side="right" className="w-full p-0 sm:max-w-sm">
           <SheetHeader className="sr-only">

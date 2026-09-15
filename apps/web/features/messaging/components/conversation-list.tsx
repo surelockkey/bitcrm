@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { Inbox, Loader2, Plus, Search, X } from "lucide-react";
-import type { ConversationKind } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,48 +17,27 @@ import {
   usePartyNames,
 } from "../hooks";
 import {
+  categoryOf,
+  conversationInCategory,
   conversationTitle,
   flattenConversations,
+  INBOX_CATEGORIES,
   looksLikePhoneQuery,
   matchesSearch,
   VIEW_LABEL,
+  type ListState,
 } from "../lib";
 import { ConversationRow } from "./conversation-row";
 
-export interface ListState {
-  view: InboxView;
-  kind?: ConversationKind;
-  search: string;
-}
+export type { ListState };
 
-/** The Workiz category strip: All · Clients · Team · Unknown · Archived. */
-type Category = "all" | "client" | "team" | "unknown" | "archived";
-const CATEGORIES: { value: Category; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "client", label: "Clients" },
-  { value: "team", label: "Team" },
-  { value: "unknown", label: "Unknown" },
-  { value: "archived", label: "Archived" },
-];
 /** Secondary views laid over a category (Workiz starred / unread filters). */
 const VIEW_TOGGLES: InboxView[] = ["unread", "flagged", "mine"];
 
-const categoryOf = (s: ListState): Category => {
-  if (s.view === "archived") return "archived";
-  // Group threads sit under Team; anything else without a chip reads as All.
-  if (s.kind === "group") return "team";
-  if (s.kind === "client" || s.kind === "team" || s.kind === "unknown") return s.kind;
-  return "all";
-};
-
-/** Team chats count group threads too — one chip for both. */
-const kindMatches = (c: InboxConversation, kind: ConversationKind) =>
-  kind === "team" ? c.kind === "team" || c.kind === "group" : c.kind === kind;
-
 /**
- * The left pane, laid out like Workiz: search and "New" on top, the
- * category strip with unread counters, the Unread / Flagged / Mine
- * toggles, then the conversations, loading more as you scroll.
+ * The middle column: search and "New" on top, the Unread / Flagged / Mine
+ * toggles, then the conversations, loading more as you scroll. The
+ * category itself is picked in the column to the left.
  *
  * The server indexes the category only under the plain view; with a
  * toggle on, the category narrows what is loaded client-side. Search is
@@ -96,27 +74,22 @@ export function ConversationList({
   const phoneQuery = looksLikePhoneQuery(debounced) ? normalizePhone(debounced) : null;
   const byAddress = useConversationByAddress(phoneQuery ?? undefined);
 
+  const category = categoryOf(state);
   const rows = useMemo(() => {
     const q = debounced.trim();
     let list: InboxConversation[] = loaded;
     // A toggle view cannot be combined with a category server-side.
     if (state.view !== "all" && state.view !== "archived" && state.kind) {
-      const kind = state.kind;
-      list = list.filter((c) => kindMatches(c, kind));
+      list = list.filter((c) => conversationInCategory(c, category));
     }
     if (q) list = list.filter((c) => matchesSearch(c, conversationTitle(c, names), q));
     if (byAddress.data && !list.some((c) => c.id === byAddress.data?.id)) {
       list = [byAddress.data, ...list];
     }
     return list;
-  }, [loaded, debounced, names, byAddress.data, state.view, state.kind]);
+  }, [loaded, debounced, names, byAddress.data, state.view, state.kind, category]);
 
   const set = (patch: Partial<ListState>) => onStateChange({ ...state, ...patch });
-  const pickCategory = (cat: Category) => {
-    if (cat === "archived") return set({ view: "archived", kind: undefined });
-    const view = state.view === "archived" ? "all" : state.view;
-    set({ view, kind: cat === "all" ? undefined : cat });
-  };
   const toggleView = (view: InboxView) => set({ view: state.view === view ? "all" : view });
 
   // Infinite scroll: a sentinel at the end of the list asks for the next
@@ -132,23 +105,6 @@ export function ConversationList({
     io.observe(el);
     return () => io.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-
-  const category = categoryOf(state);
-  const unreadByKind = counters?.unreadByKind ?? {};
-  const categoryCount = (cat: Category): number | undefined => {
-    switch (cat) {
-      case "all":
-        return counters?.unreadConversations;
-      case "client":
-        return unreadByKind.client;
-      case "team":
-        return (unreadByKind.team ?? 0) + (unreadByKind.group ?? 0) || undefined;
-      case "unknown":
-        return unreadByKind.unknown;
-      default:
-        return undefined;
-    }
-  };
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
@@ -185,38 +141,6 @@ export function ConversationList({
               <Plus className="size-4" />
             </Button>
           ) : null}
-        </div>
-
-        <div role="tablist" aria-label="Categories" className="flex gap-0.5 overflow-x-auto">
-          {CATEGORIES.map((cat) => {
-            const active = category === cat.value;
-            const count = categoryCount(cat.value);
-            return (
-              <button
-                key={cat.value}
-                role="tab"
-                type="button"
-                aria-selected={active}
-                onClick={() => pickCategory(cat.value)}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                  active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {cat.label}
-                {count ? (
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 text-[10px] font-semibold tabular-nums",
-                      active ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {count > 99 ? "99+" : count}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
         </div>
 
         <div className="flex gap-1" aria-label="Views">
@@ -260,7 +184,7 @@ export function ConversationList({
             <p className="text-sm font-medium">
               {debounced
                 ? "No matching conversations"
-                : `Nothing in ${CATEGORIES.find((c) => c.value === category)?.label ?? "here"}${
+                : `Nothing in ${INBOX_CATEGORIES.find((c) => c.value === category)?.label ?? "here"}${
                     state.view !== "all" && state.view !== "archived" ? ` · ${VIEW_LABEL[state.view]}` : ""
                   }`}
             </p>

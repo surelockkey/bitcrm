@@ -1,6 +1,7 @@
 import type {
   Conversation,
   ConversationKind,
+  InboxCounters,
   MessageAttachment,
   MessageStatus,
   PaginatedResponse,
@@ -37,6 +38,111 @@ export const KIND_LABEL: Record<ConversationKind, string> = {
   group: "Group",
   external: "External",
 };
+
+/** The grey tag after a name in the Workiz list and thread header: "(Client)", "(Tech)", "(Unknown)". */
+export const KIND_TAG: Record<ConversationKind, string> = {
+  client: "Client",
+  unknown: "Unknown",
+  team: "Tech",
+  group: "Group",
+  external: "External",
+};
+
+/* ----------------------------------------------------------- categories */
+
+/** What the list is showing: the category (view + kind) and the search text. */
+export interface ListState {
+  view: InboxView;
+  kind?: ConversationKind;
+  search: string;
+}
+
+/** The Workiz Inbox categories, in the order the left column lists them. */
+export type InboxCategory = "all" | "requests" | "clients" | "team" | "archived";
+
+export const INBOX_CATEGORIES: { value: InboxCategory; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "requests", label: "Requests" },
+  { value: "clients", label: "Clients" },
+  { value: "team", label: "Team" },
+  { value: "archived", label: "Archived" },
+];
+
+/**
+ * Which category a list state sits in. Workiz's Requests are enquiries from
+ * people not yet in CRM; the nearest thing here is the `unknown` kind (a
+ * number or email that resolved to nobody). Group threads sit under Team.
+ */
+export function categoryOf(s: { view: InboxView; kind?: ConversationKind }): InboxCategory {
+  if (s.view === "archived") return "archived";
+  switch (s.kind) {
+    case "unknown":
+      return "requests";
+    case "client":
+      return "clients";
+    case "team":
+    case "group":
+      return "team";
+    default:
+      return "all";
+  }
+}
+
+/** The list state a category selects; an Unread / Flagged / Mine filter survives the switch. */
+export function categoryState(
+  cat: InboxCategory,
+  current: { view: InboxView },
+): { view: InboxView; kind?: ConversationKind } {
+  if (cat === "archived") return { view: "archived", kind: undefined };
+  const view: InboxView = current.view === "archived" ? "all" : current.view;
+  switch (cat) {
+    case "requests":
+      return { view, kind: "unknown" };
+    case "clients":
+      return { view, kind: "client" };
+    case "team":
+      return { view, kind: "team" };
+    default:
+      return { view, kind: undefined };
+  }
+}
+
+/** Whether a loaded row belongs to a category (client-side narrowing under a filter view). */
+export function conversationInCategory(c: InboxConversation, cat: InboxCategory): boolean {
+  switch (cat) {
+    case "archived":
+      return c.state === "archived";
+    case "requests":
+      return c.kind === "unknown";
+    case "clients":
+      return c.kind === "client";
+    case "team":
+      return c.kind === "team" || c.kind === "group";
+    default:
+      return true;
+  }
+}
+
+/**
+ * The number by a category's label. The API keeps unread counters only (no
+ * totals), so this is the unread-conversation count; Archived has none.
+ */
+export function categoryUnread(cat: InboxCategory, counters: InboxCounters | undefined): number | undefined {
+  if (!counters) return undefined;
+  const byKind = counters.unreadByKind ?? {};
+  switch (cat) {
+    case "all":
+      return counters.unreadConversations;
+    case "requests":
+      return byKind.unknown ?? 0;
+    case "clients":
+      return byKind.client ?? 0;
+    case "team":
+      return (byKind.team ?? 0) + (byKind.group ?? 0);
+    default:
+      return undefined;
+  }
+}
 
 export const STATUS_LABEL: Record<MessageStatus, string> = {
   received: "Received",

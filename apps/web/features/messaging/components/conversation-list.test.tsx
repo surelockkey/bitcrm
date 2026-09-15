@@ -79,11 +79,13 @@ beforeEach(() => {
 function Harness({
   onSelect = () => {},
   onNewConversation,
+  initial = { view: "all", search: "" },
 }: {
   onSelect?: (id: string) => void;
   onNewConversation?: () => void;
+  initial?: ListState;
 }) {
-  const [state, setState] = useState<ListState>({ view: "all", search: "" });
+  const [state, setState] = useState<ListState>(initial);
   return (
     <ConversationList
       state={state}
@@ -95,17 +97,17 @@ function Harness({
   );
 }
 
-function renderList(onSelect?: (id: string) => void) {
+function renderList(onSelect?: (id: string) => void, initial?: ListState) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <Harness onSelect={onSelect} />
+      <Harness onSelect={onSelect} initial={initial} />
     </QueryClientProvider>,
   );
 }
 
 describe("ConversationList", () => {
-  it("lists threads with names, numbers, unread badges and tab counts", async () => {
+  it("lists threads with names, numbers, unread badges and view counts", async () => {
     renderList();
 
     expect(await screen.findByText("Alice Adams")).toBeInTheDocument();
@@ -114,10 +116,7 @@ describe("ConversationList", () => {
     expect(screen.getByText("(404) 555-1234")).toBeInTheDocument();
     expect(screen.getByLabelText("2 unread")).toHaveTextContent("2");
     expect(screen.getByText("Bob Builder").closest("button")).toHaveAttribute("data-unread", "true");
-    // Counters feed the category strip and the view toggles.
-    expect(screen.getByRole("tab", { name: /^All/ })).toHaveTextContent("4");
-    expect(screen.getByRole("tab", { name: /^Clients/ })).toHaveTextContent("3");
-    expect(screen.getByRole("tab", { name: /^Unknown/ })).toHaveTextContent("1");
+    // Counters feed the view toggles.
     expect(screen.getByRole("button", { name: /^Unread/ })).toHaveTextContent("4");
     expect(screen.getByRole("button", { name: /^Flagged/ })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
@@ -135,16 +134,20 @@ describe("ConversationList", () => {
     expect(screen.getByRole("button", { name: /^Unread/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("narrows by category on the server, and Archived is its own view", async () => {
-    renderList();
-    await screen.findByText("Alice Adams");
-
-    await userEvent.click(screen.getByRole("tab", { name: /^Clients/ }));
+  it("asks the server for the category picked in the left column; Archived is its own view", async () => {
+    renderList(undefined, { view: "all", kind: "client", search: "" });
     await waitFor(() => expect(requestedKinds).toContain("client"));
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Archived/ }));
+    renderList(undefined, { view: "archived", search: "" });
     await waitFor(() => expect(requestedViews).toContain("archived"));
-    expect(screen.getByRole("tab", { name: /^Archived/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("narrows a filter view by category on the client, since the server cannot combine them", async () => {
+    renderList(undefined, { view: "unread", kind: "unknown", search: "" });
+    await waitFor(() => expect(requestedViews).toContain("unread"));
+    // The unread page holds only Bob (a client); Requests = unknown shows nothing.
+    await waitFor(() => expect(screen.getByText(/Nothing in Requests/)).toBeInTheDocument());
+    expect(screen.queryByText("Bob Builder")).toBeNull();
   });
 
   it("offers a New conversation button to senders", async () => {
