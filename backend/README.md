@@ -154,5 +154,7 @@ Set by the renderer, not SSM: `MESSAGING_SERVICE_PORT=4007`, `SERVICE_NAME=messa
    mid-send) and `errors` per sid. Alert on `failed > 0`.
 
 Rollback is the usual `aws ecs update-service … --task-definition <previous>`;
-nothing else reads the messaging table, and `search` merely ignores
-`message-events` it has no handler for.
+nothing else reads the messaging table. `search` consumes `message-events`
+into its `conversation` documents (M15) and reads the messaging internal
+routes for the backfill — see `services/search/DEPLOY.md`; a rolled-back
+messaging leaves those documents stale, not broken.
