@@ -5,7 +5,7 @@
 # taskdef.json templates so the sidecar is defined exactly once.
 #
 # Required env:
-#   SERVICE                - user | crm | deal | inventory | search | telephony
+#   SERVICE                - user | crm | deal | inventory | search | telephony | messaging
 #   APP_PORT               - the app container's port
 #   APP_METRICS_PATH       - e.g. /api/users/metrics
 #   PROM_REMOTE_WRITE_URL  - Grafana Cloud Prometheus push endpoint

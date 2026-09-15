@@ -40,6 +40,11 @@ scrape_configs:
     static_configs:
       - targets: ['host.docker.internal:4006']
 
+  - job_name: 'messaging-service'
+    metrics_path: /api/messaging/metrics
+    static_configs:
+      - targets: ['host.docker.internal:4007']
+
   # ── Infrastructure exporters ────────────────────────────────
   - job_name: 'redis-exporter'
     static_configs:
@@ -80,6 +85,7 @@ scrape_configs:
           - http://host.docker.internal:4004/api/inventory/health
           - http://host.docker.internal:4005/api/search/health
           - http://host.docker.internal:4006/api/telephony/health
+          - http://host.docker.internal:4007/api/messaging/health
           - http://host.docker.internal:4000/health
     relabel_configs:
       - source_labels: [__address__]
@@ -104,6 +110,7 @@ scrape_configs:
           - http://host.docker.internal:4004/api/inventory/health/dependencies
           - http://host.docker.internal:4005/api/search/health/dependencies
           - http://host.docker.internal:4006/api/telephony/health/dependencies
+          - http://host.docker.internal:4007/api/messaging/health/dependencies
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
