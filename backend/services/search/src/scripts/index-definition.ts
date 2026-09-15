@@ -43,6 +43,17 @@ export const INDEX_BODY = {
       contactId: { type: 'keyword' },
       companyId: { type: 'keyword' },
 
+      // conversation docs (messaging design §7.4) — facets + reindex fan-out:
+      // partyKind/partyId when the party is edited, dealIds when a job's roster changes
+      conversationKind: { type: 'keyword' },
+      conversationState: { type: 'keyword' },
+      partyKind: { type: 'keyword' },
+      partyId: { type: 'keyword' },
+      assignedUserId: { type: 'keyword' },
+      flagged: { type: 'boolean' },
+      lastMessageAt: { type: 'date' },
+      dealIds: { type: 'keyword' },
+
       // searchable text — ngram indexed, standard searched
       title: {
         type: 'text',

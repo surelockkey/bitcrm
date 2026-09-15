@@ -94,9 +94,9 @@ outbound worker (M7, M9) are the publishers.
 
 | eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
 |---|---|---|---|
-| `message.received` | `MessageReceivedEvent` `{messageId, conversationId, channel, from, to, partyKind, partyId?, dealId?, providerSid?, createdAt}` | an inbound message was stored (webhook transaction committed) | — (automations, reporting — future) |
-| `message.sent` | `MessageSentEvent` `{messageId, conversationId, channel, to, businessNumber?, sentByUserId?, automationRuleId?, dealId?, providerSid}` | the provider accepted an outbound message | — |
-| `message.status_changed` | `MessageStatusChangedEvent` `{messageId, conversationId, status, errorCode?}` | an outbound message reached a terminal status (delivered / undelivered / failed / canceled) | — |
+| `message.received` | `MessageReceivedEvent` `{messageId, conversationId, channel, from, to, partyKind, partyId?, dealId?, providerSid?, createdAt}` | an inbound message was stored (webhook transaction committed) | **search** (rebuilds the `conversation` document); automations, reporting — future |
+| `message.sent` | `MessageSentEvent` `{messageId, conversationId, channel, to, businessNumber?, sentByUserId?, automationRuleId?, dealId?, providerSid}` | the provider accepted an outbound message | **search** (`conversation` document) |
+| `message.status_changed` | `MessageStatusChangedEvent` `{messageId, conversationId, status, errorCode?}` | an outbound message reached a terminal status (delivered / undelivered / failed / canceled) | **search** (`conversation` document) |
 | `conversation.updated` | `ConversationUpdatedEvent` `{conversationId}` | any change to a conversation (new message, archive, flag, read, party change) | **search** (`conversation` document, M15) |
 | `opt_out.changed` | `OptOutChangedEvent` `{channel, address, status, source}` | STOP/START keyword, Twilio 21610, SES bounce/complaint, manual edit | — |
 
@@ -111,7 +111,7 @@ same pattern as telephony.
 - **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → rewrites `CONVOF#` / `ADDR#` pointers and merges conversations (handler lands with M7; the consumer is wired in `AppModule` with no handlers registered yet). Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), `messaging-email-events` / `messaging-email-inbound` (M17–M18). Handlers must be idempotent — the consumer does not deduplicate.
 - **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
-- **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
+- **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`, `message-events`) via the single `search-index` queue → `IndexerEventHandler` (routes in `services/search/src/indexer/event-routes.ts`). Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh. The `conversation` document (M15) is rebuilt from `conversation.updated` and every `message.*` event that names a conversation: the indexer reads `GET /api/messaging/conversations/internal/:id` plus `…/internal/:id/messages?limit=` (last N bodies → `body`), the party from crm / user-service (name → `title`, numbers and emails → `keywords`) and the referenced deals (number → `keywords`, roster → `ownerIds` for `assigned_only`). A contact / company / user edit and a deal roster change also rebuild the conversations that reference them.
 
 ## Topic: `inventory-events` (published by inventory-service)
 `product.created` / `product.updated` (archive/reactivate emit `product.updated`),

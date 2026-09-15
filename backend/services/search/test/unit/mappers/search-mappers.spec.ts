@@ -1,7 +1,9 @@
 import {
+  CONVERSATION_BODY_CHARS_PER_MESSAGE,
   mapDeal,
   mapContact,
   mapCompany,
+  mapConversation,
   mapUser,
   mapTechnician,
   mapProduct,
@@ -13,6 +15,7 @@ import {
   Deal,
   Contact,
   Company,
+  Conversation,
   User,
   Product,
   Warehouse,
@@ -317,6 +320,150 @@ describe('search-mappers', () => {
       expect(doc.department).toBe('field');
       expect(doc.keywords).toEqual(expect.arrayContaining(['HVAC', 'Plumbing', 'Queens']));
       expect(doc.title).toBe('Bob Lee');
+    });
+  });
+
+  describe('mapConversation', () => {
+    const conversation: Conversation = {
+      id: 'cv1',
+      kind: 'client',
+      partyKind: 'contact',
+      partyId: 'c1',
+      addresses: { phones: ['+17283478370'], emails: ['john@acme.com'] },
+      state: 'open',
+      unread: true,
+      unreadCount: 2,
+      flagged: true,
+      lastMessageAt: '2026-09-15T10:05:00.000Z',
+      lastMessageId: 'm2',
+      lastMessagePreview: 'On my way, be there in 10',
+      lastChannel: 'sms',
+      lastDirection: 'outbound',
+      lastDealId: 'd1',
+      assignedUserId: 'disp1',
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-15T10:05:00.000Z',
+    };
+
+    it('produces a stable docId, the messages resource and the inbox deep link', () => {
+      const doc = mapConversation(conversation);
+      expect(doc.docId).toBe('conversation#cv1');
+      expect(doc.entityId).toBe('cv1');
+      expect(doc.type).toBe('conversation');
+      expect(doc.permissionResource).toBe('messages');
+      expect(doc.url).toBe('/messages/cv1');
+      expect(doc.status).toBe('active');
+    });
+
+    it('carries the inbox facets: kind, state, party, assignee, flag, last activity', () => {
+      const doc = mapConversation(conversation);
+      expect(doc).toMatchObject({
+        conversationKind: 'client',
+        conversationState: 'open',
+        partyKind: 'contact',
+        partyId: 'c1',
+        assignedUserId: 'disp1',
+        flagged: true,
+        lastMessageAt: '2026-09-15T10:05:00.000Z',
+        updatedAt: '2026-09-15T10:05:00.000Z',
+      });
+      expect(doc.badges).toEqual(['client', 'flagged', 'sms']);
+    });
+
+    it('titles the thread by the live party name and previews the last message', () => {
+      const doc = mapConversation(conversation, { partyName: 'John Smith' });
+      expect(doc.title).toBe('John Smith');
+      expect(doc.subtitle).toBe('On my way, be there in 10');
+      expect(doc.keywords).toContain('John Smith');
+    });
+
+    it('indexes the thread addresses and the party addresses with digit variants, like a contact', () => {
+      const doc = mapConversation(conversation, {
+        partyName: 'John Smith',
+        partyPhones: ['(212) 555-0100'],
+        partyEmails: ['j.smith@home.com'],
+      });
+      expect(doc.keywords).toEqual(
+        expect.arrayContaining([
+          '+17283478370',
+          '17283478370',
+          '7283478370',
+          '8370',
+          'john@acme.com',
+          '(212) 555-0100',
+          '2125550100',
+          'j.smith@home.com',
+        ]),
+      );
+    });
+
+    it('collects owners for assigned_only: the jobs rosters, the assignee, and the party when it is a user', () => {
+      const doc = mapConversation(conversation, {
+        deals: [
+          { id: 'd1', dealNumber: 'K4T9ZW', assignedTechIds: ['tech1', 'tech2'] },
+          { id: 'd2', dealNumber: 'B7Q2LM', assignedTechIds: ['tech2'] },
+        ],
+      });
+      expect(doc.ownerIds).toEqual(['disp1', 'tech1', 'tech2']);
+      expect(doc.dealIds).toEqual(['d1', 'd2']);
+      // Job numbers find the thread (Workiz-style search by job).
+      expect(doc.keywords).toEqual(expect.arrayContaining(['K4T9ZW', 'B7Q2LM']));
+
+      const team = mapConversation(
+        { ...conversation, kind: 'team', partyKind: 'user', partyId: 'tech9', assignedUserId: undefined },
+        { partyName: 'Bob Lee' },
+      );
+      expect(team.ownerIds).toEqual(['tech9']);
+      expect(team.title).toBe('Bob Lee');
+    });
+
+    it('folds the last messages into the body, bounded per message, and picks up their jobs', () => {
+      const long = 'x'.repeat(CONVERSATION_BODY_CHARS_PER_MESSAGE + 50);
+      const doc = mapConversation(conversation, {
+        messages: [
+          { id: 'm3', body: 'Gate code is 4210', createdAt: '2026-09-15T10:05:00.000Z', dealId: 'd7' },
+          { id: 'm2', body: '   ', subject: 'Invoice #88', createdAt: '2026-09-15T10:04:00.000Z' },
+          { id: 'm1', body: long, createdAt: '2026-09-15T10:03:00.000Z' },
+          { id: 'm0', createdAt: '2026-09-15T10:02:00.000Z' },
+        ],
+      });
+      const lines = doc.body!.split('\n');
+      expect(lines).toHaveLength(3);
+      expect(lines[0]).toBe('Gate code is 4210');
+      expect(lines[1]).toBe('Invoice #88');
+      expect(lines[2]).toHaveLength(CONVERSATION_BODY_CHARS_PER_MESSAGE);
+      expect(doc.dealIds).toEqual(['d1', 'd7']);
+    });
+
+    it('has no body when the feed is empty', () => {
+      expect(mapConversation(conversation).body).toBeUndefined();
+      expect(mapConversation(conversation, { messages: [] }).body).toBeUndefined();
+    });
+
+    it('falls back to the Workiz name, then the address, then a kind label for the title', () => {
+      const unknown: Conversation = {
+        ...conversation,
+        kind: 'unknown',
+        partyKind: 'none',
+        partyId: undefined,
+        assignedUserId: undefined,
+        addresses: { phones: ['+14045551234'], emails: [] },
+      };
+      expect(mapConversation({ ...unknown, workizName: 'Yelp lead' }).title).toBe('Yelp lead');
+      expect(mapConversation(unknown).title).toBe('+14045551234');
+      expect(
+        mapConversation({ ...unknown, addresses: { phones: [], emails: ['who@example.com'] } }).title,
+      ).toBe('who@example.com');
+      expect(mapConversation({ ...unknown, addresses: { phones: [], emails: [] } }).title).toBe('Unknown');
+      expect(mapConversation(unknown).ownerIds).toEqual([]);
+      expect(mapConversation(unknown).partyId).toBeUndefined();
+    });
+
+    it('keeps an archived thread findable and shows the state as a badge', () => {
+      const doc = mapConversation({ ...conversation, state: 'archived', flagged: false });
+      expect(doc.status).toBe('active');
+      expect(doc.conversationState).toBe('archived');
+      expect(doc.badges).toEqual(['client', 'archived', 'sms']);
     });
   });
 

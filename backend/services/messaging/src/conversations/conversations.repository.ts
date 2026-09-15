@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import {
+  CONVERSATION_STATES,
   type Conversation,
   type ConversationAddressPointer,
   type ConversationKind,
@@ -113,6 +114,9 @@ export interface FindOrCreateInput {
   /** `ADDR#` rows to point at the new conversation (E.164 / lowercase email). */
   addresses?: Array<{ address: string; source: ConversationAddressPointer['source'] }>;
 }
+
+const isConversationState = (value: unknown): value is ConversationState =>
+  typeof value === 'string' && (CONVERSATION_STATES as readonly string[]).includes(value);
 
 /** Which GSI a listing reads and how its partition key is built. */
 type IndexTarget =
@@ -466,6 +470,52 @@ export class ConversationsRepository {
       items: walked.items.map(toConversation),
       nextCursor: walked.nextCursor ? encodeCursor(walked.nextCursor) : undefined,
     };
+  }
+
+  /**
+   * Every conversation, for the search backfill (design §7.1
+   * `GET /conversations/internal/all`, §7.4): the open partitions
+   * `INBOX#open#<YYYY>` newest year first, then the archived ones
+   * `INBOX#archived#<YYYY>` — the same InboxIndex walk the inbox does, and
+   * still no Scan (§3.4). One page may straddle the open → archived boundary.
+   * The cursor is base64url JSON `{ s, y, k? }`: the state being read, the
+   * year, and the resume key when DynamoDB stopped mid-partition.
+   */
+  async listAll(opts: ListOptions): Promise<ConversationPage> {
+    const raw = decodeCursor<{ s?: unknown; y?: unknown; k?: unknown }>(opts.cursor);
+    if (raw && (!isConversationState(raw.s) || typeof raw.y !== 'string')) throw new InvalidCursorError();
+    if (raw && raw.k !== undefined && (typeof raw.k !== 'object' || raw.k === null)) throw new InvalidCursorError();
+
+    const startYear = yearNow(opts.now);
+    let state: ConversationState = raw ? (raw.s as ConversationState) : 'open';
+    let cursor: YearWalkCursor | undefined = raw
+      ? { y: raw.y as string, k: raw.k as Record<string, unknown> | undefined }
+      : undefined;
+    const items: Record<string, unknown>[] = [];
+
+    for (;;) {
+      const pk = (year: string) => inboxGsi1Pk(state, year);
+      const walked = await walkYears<Record<string, unknown>>({
+        startYear,
+        limit: opts.limit - items.length,
+        cursor,
+        query: (year, startKey, n) => this.queryIndex(MESSAGING_GSI1_NAME, 'GSI1PK', pk(year), startKey, n),
+      });
+      items.push(...walked.items);
+      if (walked.nextCursor) {
+        return {
+          items: items.map(toConversation),
+          nextCursor: encodeCursor({ s: state, ...walked.nextCursor }),
+        };
+      }
+      // This state's partitions are exhausted.
+      if (state === 'archived') return { items: items.map(toConversation) };
+      state = 'archived';
+      cursor = undefined;
+      if (items.length >= opts.limit) {
+        return { items: items.map(toConversation), nextCursor: encodeCursor({ s: state, y: startYear }) };
+      }
+    }
   }
 
   // -------------------------------------------------------------- internals

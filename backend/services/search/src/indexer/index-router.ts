@@ -3,6 +3,7 @@ import {
   mapDeal,
   mapContact,
   mapCompany,
+  mapConversation,
   mapUser,
   mapTechnician,
   mapProduct,
@@ -11,6 +12,7 @@ import {
   mapTransfer,
 } from './mappers/search-mappers';
 import {
+  ConversationSearchInput,
   CustomFieldSearchDef,
   DealClientSearchInput,
   TechnicianSearchInput,
@@ -22,7 +24,8 @@ import {
  * a single stored entity, so they are indexed directly via their mappers.
  *
  * `jobTypeName` / `tagNames` / `customFieldDefs` / `client` are pre-resolved by
- * the caller because mappers stay pure/sync — only deals need them.
+ * the caller because mappers stay pure/sync — only deals need them;
+ * `conversation` (party name, last messages, jobs) likewise only for conversations.
  */
 export function routeToDocument(
   type: SearchType,
@@ -32,10 +35,13 @@ export function routeToDocument(
   customFieldDefs: CustomFieldSearchDef[] = [],
   client?: DealClientSearchInput,
   externalCompanyName?: string,
+  conversation?: ConversationSearchInput,
 ): SearchDocument | null {
   switch (type) {
     case 'deal':
       return mapDeal(entity, jobTypeName, tagNames, customFieldDefs, client, externalCompanyName);
+    case 'conversation':
+      return mapConversation(entity, conversation);
     case 'contact':
       return mapContact(entity);
     case 'company':

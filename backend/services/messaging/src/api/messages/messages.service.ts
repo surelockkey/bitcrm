@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { type JwtUser, type Message, type ResolvedPermissions } from '@bitcrm/types';
 import { MessagesRepository } from '../../messages/messages.repository';
 import { ConversationScopeService } from '../access/conversation-scope.service';
 import { maskMessages, type MaybeMaskedMessage } from '../access/masking';
@@ -41,6 +41,16 @@ export class MessagesService {
     await this.conversations.load(conversationId, viewer.scope);
     const page = await withHttpErrors(() => this.messages.listByConversation(conversationId, paging));
     return { items: maskMessages(page.items, viewer.seesNumbers), nextCursor: page.nextCursor };
+  }
+
+  /**
+   * `GET /conversations/internal/:id/messages` — the feed for the search
+   * indexer: no scope, no masking (the doc is filtered and masked at query
+   * time in search). A missing conversation simply has an empty feed; the
+   * indexer reads the conversation itself first and 404s there.
+   */
+  async listInternal(conversationId: string, paging: Paging): Promise<{ items: Message[]; nextCursor?: string }> {
+    return withHttpErrors(() => this.messages.listByConversation(conversationId, paging));
   }
 
   /** A7 — `GET /messages/by-job/:dealId`; under `assigned_only` the caller must be on the job. */

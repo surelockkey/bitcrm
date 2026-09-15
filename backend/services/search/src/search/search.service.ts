@@ -1,12 +1,13 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { JwtUser, SearchResponse } from '@bitcrm/types';
-import { BusinessMetricsService } from '@bitcrm/shared';
+import { BusinessMetricsService, hasPermission } from '@bitcrm/shared';
 import { OpenSearchService } from '../common/opensearch/opensearch.service';
 import { SEARCH_INDEX_ALIAS } from '../common/constants/opensearch.constants';
 import { PermissionsResolver } from './permissions-resolver.service';
 import { buildAuthorizationClause } from './authz/search-authz.builder';
 import { buildSearchBody } from './search-query.builder';
 import { parseSearchResponse } from './search-response.parser';
+import { maskSearchResponse } from './hit-masking';
 import { NormalizedSearchQuery } from './dto/search-query.dto';
 
 @Injectable()
@@ -53,12 +54,15 @@ export class SearchService {
         body,
       });
       timer?.();
-      return parseSearchResponse((res as any).body, {
+      const parsed = parseSearchResponse((res as any).body, {
         query: query.q,
         mode: query.mode,
         page: query.page,
         size: query.size,
       });
+      // A number-only conversation is titled by its number; withhold that
+      // from viewers without `contacts.view_numbers` (messaging design §7.5).
+      return maskSearchResponse(parsed, hasPermission(resolved, 'contacts', 'view_numbers'));
     } catch (err) {
       timer?.();
       this.metrics?.searchQueryErrors.inc({ mode: query.mode });

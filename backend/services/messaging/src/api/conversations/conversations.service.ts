@@ -182,6 +182,15 @@ export class ConversationsService {
     return conversation;
   }
 
+  /**
+   * `GET /conversations/internal/all` — every thread, open then archived,
+   * raw and unmasked, for the search backfill (§7.4). The cursor is the
+   * repository's; a malformed one is a 400.
+   */
+  async listInternal(paging: { limit: number; cursor?: string }): Promise<{ items: Conversation[]; nextCursor?: string }> {
+    return withHttpErrors(() => this.conversations.listAll(paging));
+  }
+
   /** The conversation, 404 when missing, 403 when outside the caller's scope. */
   async load(id: string, scope: MessagingScope): Promise<Conversation> {
     const conversation = await this.conversations.get(id);

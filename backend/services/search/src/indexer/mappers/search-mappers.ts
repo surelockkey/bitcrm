@@ -2,6 +2,7 @@ import {
   Deal,
   Contact,
   Company,
+  Conversation,
   User,
   Product,
   Warehouse,
@@ -12,6 +13,7 @@ import {
   CustomFieldValue,
 } from '@bitcrm/types';
 import {
+  ConversationSearchInput,
   CustomFieldSearchDef,
   DealClientSearchInput,
   TechnicianSearchInput,
@@ -281,6 +283,111 @@ export function mapContainer(container: Container): SearchDocument {
     url: `/inventory/containers/${container.id}`,
     badges: compactUnique([container.status, container.department]),
     updatedAt: container.updatedAt,
+  };
+}
+
+/**
+ * Longest slice of one message body folded into the conversation document.
+ * The design (§7.4) keeps message text out of the edge-ngram fields; `body`
+ * is standard-analysed and bounded — N messages × this many characters —
+ * so a thread of 140k lines costs the index the same as a short one.
+ */
+export const CONVERSATION_BODY_CHARS_PER_MESSAGE = 280;
+
+/** What a thread with nobody behind it is called when no address is known either. */
+const CONVERSATION_FALLBACK_TITLES: Record<Conversation['kind'], string> = {
+  client: 'Client',
+  unknown: 'Unknown',
+  team: 'Teammate',
+  group: 'Group',
+  external: 'External company',
+};
+
+/**
+ * The party's display name: live CRM / user name first, then the name Workiz
+ * carried for unknown and external threads, then the address itself (a
+ * number-only thread is shown by its number — the search service masks that
+ * title for viewers without `contacts.view_numbers`), then a kind label.
+ */
+function conversationTitle(c: Conversation, input: ConversationSearchInput): string {
+  return (
+    input.partyName?.trim() ||
+    c.workizName?.trim() ||
+    c.addresses?.phones?.[0] ||
+    c.addresses?.emails?.[0] ||
+    CONVERSATION_FALLBACK_TITLES[c.kind] ||
+    'Conversation'
+  );
+}
+
+/**
+ * The inbox thread (messaging design §7.4). `title` is the party's name,
+ * `keywords` the numbers and emails the thread was carried on plus the
+ * party's own (digit variants like a contact) and the numbers of its jobs,
+ * `subtitle` the last message preview and `body` the last N message bodies
+ * (bounded — see CONVERSATION_BODY_CHARS_PER_MESSAGE). Owners for
+ * `assigned_only` are the technicians on the thread's jobs, the party when
+ * it is a user (their own team thread) and the assignee — the same people
+ * messaging's ConversationScopeService lets in. Archived threads stay
+ * findable: archiving is an inbox tab, not the end of the record.
+ */
+export function mapConversation(
+  c: Conversation,
+  input: ConversationSearchInput = {},
+): SearchDocument {
+  const messages = input.messages ?? [];
+  const deals = input.deals ?? [];
+  const dealIds = compactUnique([
+    c.lastDealId,
+    ...messages.map((m) => m.dealId),
+    ...deals.map((d) => d.id),
+  ]);
+  const body =
+    messages
+      .map((m) => (m.body?.trim() || m.subject?.trim() || '').slice(0, CONVERSATION_BODY_CHARS_PER_MESSAGE))
+      .filter(Boolean)
+      .join('\n') || undefined;
+
+  return {
+    docId: `conversation#${c.id}`,
+    entityId: c.id,
+    type: 'conversation',
+    permissionResource: 'messages',
+    ownerIds: compactUnique([
+      c.partyKind === 'user' ? c.partyId : undefined,
+      c.assignedUserId,
+      ...deals.flatMap((d) => d.assignedTechIds ?? []),
+    ]),
+    status: 'active',
+    conversationKind: c.kind,
+    conversationState: c.state,
+    partyKind: c.partyKind,
+    partyId: c.partyId,
+    assignedUserId: c.assignedUserId,
+    flagged: Boolean(c.flagged),
+    lastMessageAt: c.lastMessageAt,
+    dealIds,
+    title: conversationTitle(c, input),
+    subtitle: c.lastMessagePreview || undefined,
+    keywords: compactUnique([
+      input.partyName,
+      c.workizName,
+      ...withPhoneVariants(c.addresses?.phones),
+      ...withPhoneVariants(input.partyPhones),
+      ...(c.addresses?.emails ?? []),
+      ...(input.partyEmails ?? []),
+      ...deals.map((d) => d.dealNumber),
+      c.kind,
+    ]),
+    body,
+    url: `/messages/${c.id}`,
+    badges: compactUnique([
+      c.kind,
+      c.state === 'archived' ? 'archived' : undefined,
+      c.flagged ? 'flagged' : undefined,
+      c.lastChannel,
+    ]),
+    updatedAt: c.updatedAt,
   };
 }
 

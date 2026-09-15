@@ -283,14 +283,16 @@ every instance sees every webhook.
 
 ### Search (CQRS read model)
 
-`EVENT_ROUTES` in `services/search/src/app.module.ts` maps each event type to
-`{ SearchType, upsert|delete, idField }`. An upsert re-fetches the authoritative
-entity over the internal HTTP API and reindexes it; a delete removes the doc.
-The **backfill** (`npm run backfill -w backend/services/search`, reading the
-services' internal list endpoints) is the authoritative populator — events only
-keep the index fresh. Index name is versioned (`bitcrm-search-v2`) behind the
-alias `bitcrm-search`; changing the mapping means a new version plus
-`npm run create-index` and a reindex.
+`EVENT_ROUTES` in `services/search/src/indexer/event-routes.ts` maps each event
+type to `{ SearchType, upsert|delete, idField }`. An upsert re-fetches the
+authoritative entity over the internal HTTP API and reindexes it; a delete
+removes the doc. The **backfill** (`npm run backfill -w backend/services/search`,
+reading the services' internal list endpoints) is the authoritative populator —
+events only keep the index fresh. Index name is versioned (`bitcrm-search-v3`)
+behind the alias `bitcrm-search`; changing the mapping means a new version plus
+`npm run create-index` and a reindex. The `conversation` document (messaging
+inbox threads, `message-events`) is assembled from three internal reads —
+the thread, its last N messages, and its party / jobs — see `EVENTS.md`.
 
 ---
 

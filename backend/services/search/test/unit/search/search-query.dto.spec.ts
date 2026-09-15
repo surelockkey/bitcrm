@@ -25,6 +25,11 @@ describe('normalizeSearchQuery', () => {
     expect(n.types).toEqual(['deal', 'contact']);
   });
 
+  it('accepts conversation as a type filter alongside the others', () => {
+    const n = normalizeSearchQuery({ q: 'x', type: 'conversation,contact,deal' });
+    expect(n.types).toEqual(['conversation', 'contact', 'deal']);
+  });
+
   it('leaves types undefined when none valid', () => {
     const n = normalizeSearchQuery({ q: 'x', type: 'bogus,nope' });
     expect(n.types).toBeUndefined();
