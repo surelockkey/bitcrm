@@ -36,13 +36,34 @@ locals {
     ] }
     # Call groups: PK='GROUP', SK='GROUP#<id>' — one partition holds every
     # group, so listing is a single Query. Tens of items, never thousands.
-    call-groups      = { gsis = [] }
+    call-groups = { gsis = [] }
     # Call flows: what a caller hears before anyone answers. Same shape as
     # call-groups — PK='FLOW', one Query lists them all.
     call-flows       = { gsis = [] }
     deal-products    = { gsis = [] }
     timeline-entries = { gsis = [] }
     addresses        = { gsis = [] } # currently unused by code, kept for parity
+    # Messaging inbox (messaging-service): conversations CONV#<id>/METADATA,
+    # messages CONV#<id>/MSG#<createdAt>#<msgId>, plus lookup rows (CONVOF#,
+    # ADDR#, PSID#, CLIENTMSG#, OPTOUT#, TEMPLATE#). There is deliberately no
+    # global message index — every inbox view is its own partition, split by
+    # year, so no key ever holds the whole 2.3M-message history (the CALL#ALL
+    # lesson). GSI2, GSI4, GSI5 and GSI6 are sparse: only unread / job-linked /
+    # flagged / categorised rows carry those keys.
+    messaging = {
+      gsis = [
+        { name = "InboxIndex", n = 1 },           # INBOX#<open|archived>#<YYYY> / <lastMessageAt>#<conversationId>
+        { name = "UnreadIndex", n = 2 },          # UNREAD#<YYYY> — open unread conversations only
+        { name = "CategoryIndex", n = 3 },        # CAT#<kind>#<YYYY>; also CATALOG#MESSAGE_TEMPLATE for templates
+        { name = "JobIndex", n = 4 },             # JOB#<dealId> / <createdAt>#<messageId> — messages of a job
+        { name = "FlagIndex", n = 5 },            # FLAG#conversation, FLAG#message#<YYYY>
+        { name = "AccountCategoryIndex", n = 6 }, # ACCTCAT#<categoryId>#<YYYY>
+      ]
+      # First TTL use in BitCRM: CLIENTMSG# idempotency rows expire after 7 days.
+      ttl_attribute = "expiresAt"
+      # 2.3M imported messages with no other copy once the Workiz account closes.
+      enable_pitr = true
+    }
   }
 
   data_plane_tags = {
@@ -82,6 +103,11 @@ module "ddb" {
       projection_type = "ALL"
     }
   ]
+
+  # Per-table opt-ins; tables that don't set them keep the module defaults
+  # (no TTL, PITR off), so this adds nothing to their plan.
+  ttl_attribute = try(each.value.ttl_attribute, null)
+  enable_pitr   = try(each.value.enable_pitr, false)
 
   tags = local.data_plane_tags
 }

@@ -40,6 +40,12 @@ variable "enable_pitr" {
   default     = false
 }
 
+variable "ttl_attribute" {
+  description = "Name of the Number attribute (epoch seconds) DynamoDB expires items on. null (the default) leaves TTL off, so tables that predate this argument are untouched."
+  type        = string
+  default     = null
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
