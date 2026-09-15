@@ -22,5 +22,7 @@ run_for inventory
 run_for search
 # telephony provisions DynamoDB rather than SNS/SQS; its topic is optional.
 run_for telephony setup:dynamodb
+# messaging: one table with six GSIs + TTL; topic/queues are optional (M7/M9).
+run_for messaging setup:dynamodb
 
 echo -e "\n${BOLD}All services provisioned.${NC}"

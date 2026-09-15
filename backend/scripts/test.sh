@@ -162,6 +162,12 @@ if [ "$RUN_UNIT" = true ]; then
     "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
     "unit"
 
+  run_tests \
+    "messaging-service" \
+    "$BACKEND_DIR/services/messaging" \
+    "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
+    "unit"
+
   # Config, not code: fails if a service exists that nothing scrapes or probes.
   print_section "monitoring coverage" "$BACKEND_DIR/monitoring"
   if node "$BACKEND_DIR/scripts/verify-monitoring.mjs" > /dev/null 2>&1; then
@@ -336,6 +342,13 @@ if [ "$RUN_INTEGRATION" = true ]; then
     "$BACKEND_DIR/services/deal" \
     "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
     "integration"
+
+  # messaging creates its own BitCRM_Messaging_Test table (test/integration/setup.ts).
+  run_tests \
+    "messaging-service" \
+    "$BACKEND_DIR/services/messaging" \
+    "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
+    "integration"
 fi
 
 # ═══════════════════════════════════════
@@ -367,6 +380,12 @@ if [ "$RUN_E2E" = true ]; then
   run_tests \
     "deal-service" \
     "$BACKEND_DIR/services/deal" \
+    "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
+    "e2e"
+
+  run_tests \
+    "messaging-service" \
+    "$BACKEND_DIR/services/messaging" \
     "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
     "e2e"
 fi

@@ -2,7 +2,7 @@
 # Render an ECS task definition for the given service.
 #
 # Required env vars (typically provided by the GH Actions workflow):
-#   SERVICE              - user | crm | deal | inventory | search | telephony
+#   SERVICE              - user | crm | deal | inventory | search | telephony | messaging
 #   IMAGE                - full ECR image URI with tag
 #   EXECUTION_ROLE_ARN   - ECS task execution role ARN
 #   TASK_ROLE_ARN        - per-service task role ARN
@@ -25,7 +25,7 @@
 
 set -euo pipefail
 
-: "${SERVICE:?SERVICE is required (user|crm|deal|inventory|search|telephony)}"
+: "${SERVICE:?SERVICE is required (user|crm|deal|inventory|search|telephony|messaging)}"
 : "${IMAGE:?IMAGE is required}"
 : "${EXECUTION_ROLE_ARN:?EXECUTION_ROLE_ARN is required}"
 : "${TASK_ROLE_ARN:?TASK_ROLE_ARN is required}"
@@ -37,6 +37,7 @@ case "$SERVICE" in
   inventory) PORT=4004; PORT_ENV=INVENTORY_SERVICE_PORT; PREFIX=api/inventory ;;
   search)    PORT=4005; PORT_ENV=SEARCH_SERVICE_PORT;    PREFIX=api/search ;;
   telephony) PORT=4006; PORT_ENV=TELEPHONY_SERVICE_PORT; PREFIX=api/telephony ;;
+  messaging) PORT=4007; PORT_ENV=MESSAGING_SERVICE_PORT; PREFIX=api/messaging ;;
   *) echo "unknown service: $SERVICE" >&2; exit 1 ;;
 esac
 
@@ -116,7 +117,8 @@ EXTRA_ENV_JSON=$(jq -n \
     {name: "CRM_SERVICE_URL",       value: "http://crm:4002"},
     {name: "DEAL_SERVICE_URL",      value: "http://deal:4003"},
     {name: "INVENTORY_SERVICE_URL", value: "http://inventory:4004"},
-    {name: "TELEPHONY_SERVICE_URL", value: "http://telephony:4006"}
+    {name: "TELEPHONY_SERVICE_URL", value: "http://telephony:4006"},
+    {name: "MESSAGING_SERVICE_URL", value: "http://messaging:4007"}
   ]
   + (if $api_gateway_url != "" then [{name: "API_GATEWAY_URL",        value: $api_gateway_url}] else [] end)
   + (if $jwt_key         != "" then [{name: "JWT_SIGNING_KEY",        value: $jwt_key}]         else [] end)
