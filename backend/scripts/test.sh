@@ -162,15 +162,11 @@ if [ "$RUN_UNIT" = true ]; then
     "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
     "unit"
 
-  # messaging-service ships separately from its infra; skip rather than fail
-  # on a checkout that does not have it yet.
-  if [ -d "$BACKEND_DIR/services/messaging" ]; then
-    run_tests \
-      "messaging-service" \
-      "$BACKEND_DIR/services/messaging" \
-      "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
-      "unit"
-  fi
+  run_tests \
+    "messaging-service" \
+    "$BACKEND_DIR/services/messaging" \
+    "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
+    "unit"
 
   # Config, not code: fails if a service exists that nothing scrapes or probes.
   print_section "monitoring coverage" "$BACKEND_DIR/monitoring"
@@ -380,13 +376,12 @@ if [ "$RUN_INTEGRATION" = true ]; then
     "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
     "integration"
 
-  if [ -f "$BACKEND_DIR/services/messaging/test/integration/jest-integration.json" ]; then
-    run_tests \
-      "messaging-service" \
-      "$BACKEND_DIR/services/messaging" \
-      "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
-      "integration"
-  fi
+  # messaging creates its own BitCRM_Messaging_Test table (test/integration/setup.ts).
+  run_tests \
+    "messaging-service" \
+    "$BACKEND_DIR/services/messaging" \
+    "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/integration/jest-integration.json --silent --runInBand" \
+    "integration"
 fi
 
 # ═══════════════════════════════════════
@@ -421,13 +416,11 @@ if [ "$RUN_E2E" = true ]; then
     "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
     "e2e"
 
-  if [ -f "$BACKEND_DIR/services/messaging/test/e2e/jest-e2e.json" ]; then
-    run_tests \
-      "messaging-service" \
-      "$BACKEND_DIR/services/messaging" \
-      "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
-      "e2e"
-  fi
+  run_tests \
+    "messaging-service" \
+    "$BACKEND_DIR/services/messaging" \
+    "NODE_OPTIONS='--experimental-vm-modules' npx jest --config test/e2e/jest-e2e.json --silent --runInBand --forceExit" \
+    "e2e"
 fi
 
 # ═══════════════════════════════════════

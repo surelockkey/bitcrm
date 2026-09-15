@@ -1,6 +1,6 @@
 # BitCRM Backend
 
-Locksmith business-management platform. Six NestJS 11 microservices behind an
+Locksmith business-management platform. Seven NestJS 11 microservices behind an
 nginx gateway, DynamoDB single-table storage, SNS/SQS events, an OpenSearch
 read model, Cognito auth. This file is the map; `EVENTS.md` is the event
 contract and `monitoring/README.md` the observability detail.
@@ -11,9 +11,9 @@ contract and `monitoring/README.md` the observability detail.
 
 ```
 backend/
-  services/{user,crm,deal,inventory,search,telephony}/   one NestJS app each
+  services/{user,crm,deal,inventory,search,telephony,messaging}/   one NestJS app each
   packages/shared/            @bitcrm/shared — every cross-cutting concern
-  gateway/nginx.conf          :4000 → the six services
+  gateway/nginx.conf          :4000 → the seven services
   infra/                      Terraform (bootstrap, dev, modules/*)
   monitoring/                 prometheus, grafana, tempo, loki, promtail, blackbox
   scripts/                    test.sh, setup-aws.sh, verify-monitoring.mjs, render-taskdef.sh
@@ -43,6 +43,7 @@ documented surface; keep it in sync when you add a variable.
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
+| messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
 
 ---
 
@@ -52,8 +53,8 @@ documented surface; keep it in sync when you add a variable.
 npm install                # from the REPO ROOT (workspaces)
 npm run docker:up          # dynamodb :8000, redis :6379, opensearch :9200, localstack :4566, gateway :4000
 npm run setup:aws          # per-service DynamoDB tables + SNS topics/SQS queues in LocalStack
-npm run dev                # all six services via turbo
-npm run dev:deal           # or one (dev:user, dev:crm, dev:inventory, dev:search, dev:telephony)
+npm run dev                # all seven services via turbo
+npm run dev:deal           # or one (dev:user, dev:crm, dev:inventory, dev:search, dev:telephony, dev:messaging)
 
 npm run docker:monitoring  # + prometheus/grafana/tempo/loki/exporters (Grafana :3001, admin/admin)
 npm run check:monitoring   # fails if a service exists that nothing scrapes or probes
@@ -198,6 +199,7 @@ display names per table.
 | `BitCRM_Inventory` | `INVENTORY_TABLE` | CategoryIndex | TypeIndex | OwnerIndex | TransferEntityIndex |
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
+| `BitCRM_Messaging` (conversations, messages, pointers, opt-outs, templates, settings, counters) | `MESSAGING_TABLE` | InboxIndex | UnreadIndex | CategoryIndex | JobIndex (+ GSI5 FlagIndex, GSI6 AccountCategoryIndex; TTL on `expiresAt`) |
 
 Item shapes are prefix-encoded, e.g.
 
@@ -212,6 +214,12 @@ JOB_TAG#<id>       / METADATA        GSI1 CATALOG#JOB_TAG, GSI1SK <priority>#<na
 TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
 CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
+                                     constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
+                                     GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
+CONV#<id>          / MSG#<createdAt>#<msgId>   the feed, paged in the partition; GSI4 JOB#<dealId> when job-linked
+CONVOF#<kind>#<id> / ADDR#<e164|email> / PSID#<sid> / CLIENTMSG#<uuid>   pointers: find-or-create, inbound routing,
+                                     webhook dedup, double-submit guard (the last one carries the TTL)
 ```
 
 Rules:
@@ -246,9 +254,11 @@ payload interfaces plus `UserEventType` constants, with `event-contract.spec.ts`
 locking the string values. Publishers and consumers both import them.
 
 Topics: `user-events`, `deal-events`, `contact-events`, `inventory-events`,
-`call-events`. Consumers: deal-service (`payment.received`, `contact.merged`,
-`tech.approved`, `tech.updated`) and search-service (every topic, one
-`search-index` queue). DLQ `maxReceiveCount = 5`.
+`call-events`, `message-events`. Consumers: deal-service (`payment.received`,
+`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
+(`contact.merged`, `contact.updated` — handlers land with the inbound webhook)
+and search-service (every topic, one `search-index` queue). DLQ
+`maxReceiveCount = 5`.
 
 **`EVENTS.md` is the catalog and is expected to stay accurate — update it in the
 same change that adds or renames an event.**

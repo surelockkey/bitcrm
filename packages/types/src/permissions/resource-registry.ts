@@ -45,6 +45,16 @@ export const RESOURCE_REGISTRY = {
   // Telephony call history + live supervision. `view` gates the calls list,
   // call detail and recording playback; `join` gates live listen/join.
   calls: ['view', 'join'],
+  // Client inbox: SMS, email and in-app threads with contacts, companies and
+  // unknown numbers. `view` is data-scoped (all | department | assigned_only →
+  // conversations of jobs the user is assigned to); `send` covers texting and
+  // emailing; `manage` archives, flags, recategorises and marks unread. Party
+  // phone numbers are masked by the ABSENCE of `contacts.view_numbers`, same
+  // as the call log.
+  messages: ['view', 'send', 'manage'],
+  // Staff chat: technician threads (in-app + SMS to their phone) and groups.
+  team_chat: ['view', 'send', 'manage_groups'],
+  message_templates: ['view', 'create', 'edit', 'delete'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

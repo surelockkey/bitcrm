@@ -85,7 +85,30 @@ Live-UI updates deliberately do **not** go through SNS: the calls page streams
 them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub
 (`telephony:call-events`) so every service instance sees every webhook.
 
+## Topic: `message-events` (published by messaging-service)
+
+Contracts in `@bitcrm/types` (`events/message-events.ts`). Emitted
+fire-and-forget by messaging-service, gated on `MESSAGE_EVENTS_TOPIC_ARN`.
+Not yet emitted by code: the repositories exist (M5) and the webhook /
+outbound worker (M7, M9) are the publishers.
+
+| eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
+|---|---|---|---|
+| `message.received` | `MessageReceivedEvent` `{messageId, conversationId, channel, from, to, partyKind, partyId?, dealId?, providerSid?, createdAt}` | an inbound message was stored (webhook transaction committed) | — (automations, reporting — future) |
+| `message.sent` | `MessageSentEvent` `{messageId, conversationId, channel, to, businessNumber?, sentByUserId?, automationRuleId?, dealId?, providerSid}` | the provider accepted an outbound message | — |
+| `message.status_changed` | `MessageStatusChangedEvent` `{messageId, conversationId, status, errorCode?}` | an outbound message reached a terminal status (delivered / undelivered / failed / canceled) | — |
+| `conversation.updated` | `ConversationUpdatedEvent` `{conversationId}` | any change to a conversation (new message, archive, flag, read, party change) | **search** (`conversation` document, M15) |
+| `opt_out.changed` | `OptOutChangedEvent` `{channel, address, status, source}` | STOP/START keyword, Twilio 21610, SES bounce/complaint, manual edit | — |
+
+Messages are **not** copied into the deal timeline (`TIMELINE#`); the job's
+"Messages" tab reads `GET /api/messaging/messages/by-job/:dealId` instead.
+
+Live-UI updates (new message, counters, opt-out banner) go over SSE
+(`GET /api/messaging/stream`, M12) fed by Redis pub/sub (`messaging:events`),
+same pattern as telephony.
+
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
+- **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → rewrites `CONVOF#` / `ADDR#` pointers and merges conversations (handler lands with M7; the consumer is wired in `AppModule` with no handlers registered yet). Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), `messaging-email-events` / `messaging-email-inbound` (M17–M18). Handlers must be idempotent — the consumer does not deduplicate.
 - **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
