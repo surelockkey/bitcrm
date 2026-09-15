@@ -5,7 +5,7 @@ Prometheus + Grafana + Tempo + Loki, all behind the `monitoring` compose profile
 ```bash
 npm run docker:up            # app infra
 npm run docker:monitoring    # + prometheus, grafana, tempo, loki, exporters, promtail
-npm run dev                  # the six services (on the host, not in docker)
+npm run dev                  # the services (on the host, not in docker)
 npm run check:monitoring     # fails if a service exists that nothing scrapes
 ```
 
@@ -27,6 +27,7 @@ at `/<prefix>/health`, traced into Tempo, and shipped into Loki:
 | inventory  | 4004 | `/api/inventory/metrics`  |
 | search     | 4005 | `/api/search/metrics`     |
 | telephony  | 4006 | `/api/telephony/metrics`  |
+| messaging  | 4007 | `/api/messaging/metrics`  |
 
 Plus `redis-exporter`, `opensearch-exporter`, `nginx-exporter` (the gateway),
 blackbox HTTP probes of every health endpoint, blackbox TCP probes of
