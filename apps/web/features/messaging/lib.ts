@@ -481,6 +481,14 @@ export function patchMessageInPages(
   }));
 }
 
+/** Drop a line — a placeholder whose request was refused. */
+export function removeMessageFromPages(
+  pages: PaginatedResponse<FeedMessage>[],
+  id: string,
+): PaginatedResponse<FeedMessage>[] {
+  return pages.map((p) => ({ ...p, data: p.data.filter((m) => m.id !== id) }));
+}
+
 /* ------------------------------------------------------------ the list */
 
 /** Whether a conversation belongs on the tab a list query is showing. */

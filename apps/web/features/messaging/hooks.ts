@@ -32,8 +32,10 @@ import type {
 } from "./api";
 import { applyConversation, applyMessage } from "./cache";
 import {
+  describeResendError,
   describeSendError,
   patchMessageInPages,
+  removeMessageFromPages,
   replacePendingMessage,
   upsertMessageInPages,
   type PartyNames,
@@ -354,6 +356,83 @@ export function useSendMessage() {
           : prev,
       );
       toast.error(reason);
+    },
+  });
+}
+
+export interface ResendArgs {
+  conversationId: string;
+  /** The failed line — its text, channel and attachments seed the new one. */
+  message: FeedMessage;
+  /** Idempotency key of the new send, minted by the caller as the composer does. */
+  clientMessageId: string;
+}
+
+/**
+ * Resend a failed line. The server makes a NEW outbound message (carrying
+ * `resentFromMessageId`) and stamps the original with `resentAsMessageId`.
+ * The new line appears at once as `queued`, keyed by `clientMessageId`,
+ * and is swapped for the server's message on the 202 — dropping any copy
+ * the stream delivered first, so the real id is drawn once; later
+ * `message.upserted` frames then patch that id in place. A refusal
+ * removes the placeholder and leaves the original as it was.
+ */
+export function useResendMessage() {
+  const qc = useQueryClient();
+  const { me } = usePermissions();
+  return useMutation({
+    mutationFn: ({ conversationId, message, clientMessageId }: ResendArgs) =>
+      api.resendMessage(conversationId, message.id, { clientMessageId }),
+    onMutate: async ({ conversationId, message, clientMessageId }) => {
+      const key = queryKeys.messaging.messages(conversationId);
+      await qc.cancelQueries({ queryKey: key });
+      const now = new Date().toISOString();
+      const pending: FeedMessage = {
+        id: clientMessageId,
+        conversationId,
+        channel: message.channel,
+        direction: "outbound",
+        body: message.body,
+        subject: message.subject,
+        to: message.to,
+        toMasked: message.toMasked,
+        status: "queued",
+        origin: "user",
+        sentByUserId: me?.id,
+        dealId: message.dealId,
+        templateId: message.templateId,
+        attachments: message.attachments,
+        resentFromMessageId: message.id,
+        createdAt: now,
+        updatedAt: now,
+      };
+      qc.setQueryData<FeedData>(key, (prev) => {
+        const base = prev ?? { pages: [], pageParams: [undefined] };
+        return { ...base, pages: upsertMessageInPages(base.pages, pending) };
+      });
+    },
+    onSuccess: (created, { conversationId, message, clientMessageId }) => {
+      qc.setQueryData<FeedData>(queryKeys.messaging.messages(conversationId), (prev) =>
+        prev
+          ? {
+              ...prev,
+              pages: patchMessageInPages(
+                replacePendingMessage(prev.pages, clientMessageId, created),
+                message.id,
+                { resentAsMessageId: created.id },
+              ),
+            }
+          : prev,
+      );
+      if (created.dealId) applyMessage(qc, created);
+      void qc.invalidateQueries({ queryKey: queryKeys.messaging.conversationLists() });
+    },
+    onError: (e, { conversationId, clientMessageId }) => {
+      const status = e instanceof ApiError ? e.status : undefined;
+      qc.setQueryData<FeedData>(queryKeys.messaging.messages(conversationId), (prev) =>
+        prev ? { ...prev, pages: removeMessageFromPages(prev.pages, clientMessageId) } : prev,
+      );
+      toast.error(describeResendError(status, getApiErrorMessage(e)));
     },
   });
 }

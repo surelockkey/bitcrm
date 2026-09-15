@@ -12,11 +12,12 @@ import {
   useConversationByJob,
   useMessagesByJob,
   useMessagingAccess,
+  useResendMessage,
   useSendToParty,
   useSetMessageFlag,
   useTextLookup,
 } from "../hooks";
-import { flattenFeed } from "../lib";
+import { flattenFeed, newClientMessageId } from "../lib";
 import { Composer } from "./composer";
 import { MessageFeed } from "./message-feed";
 import { TextButton } from "./text-button";
@@ -37,6 +38,7 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
   const { map: techMap } = useUserMap(deal.assignedTechIds);
   const send = useSendToParty();
   const setFlag = useSetMessageFlag();
+  const resend = useResendMessage();
 
   const messages = useMemo(() => flattenFeed(feed.data?.pages), [feed.data]);
   const authorIds = useMemo(
@@ -62,6 +64,8 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
   const clientName = contact ? contactName(contact) : "client";
   const toggleFlag = (m: FeedMessage) =>
     setFlag.mutate({ conversationId: m.conversationId, messageId: m.id, createdAt: m.createdAt, flagged: !m.flagged });
+  const resendLine = (m: FeedMessage) =>
+    resend.mutate({ conversationId: m.conversationId, message: m, clientMessageId: newClientMessageId() });
   const sendFirst = (body: SendMessageBody) =>
     send.mutateAsync({ ...body, dealId: deal.id, contactId: deal.contactId });
 
@@ -107,6 +111,8 @@ export function DealMessagesTab({ deal }: { deal: Deal }) {
         onLoadOlder={() => feed.fetchNextPage()}
         canManage={canManage}
         onToggleFlag={toggleFlag}
+        onResend={canSend ? resendLine : undefined}
+        resendingMessageId={resend.isPending ? resend.variables?.message.id : undefined}
         authorNames={authorNames}
         partyName={contact ? clientName : undefined}
         showJob={false}
