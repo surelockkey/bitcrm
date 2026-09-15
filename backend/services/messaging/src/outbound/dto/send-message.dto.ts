@@ -12,10 +12,13 @@ import {
   Matches,
   Max,
   Min,
+  ValidateBy,
   ValidateIf,
   ValidateNested,
+  type ValidationArguments,
 } from 'class-validator';
 import {
+  EMAIL_BODY_MAX_LENGTH,
   MESSAGE_ATTACHMENT_LIMIT,
   MESSAGE_ATTACHMENT_TYPES,
   SENDABLE_MESSAGE_CHANNELS,
@@ -23,6 +26,19 @@ import {
   type MessageAttachmentType,
   type SendableMessageChannel,
 } from '@bitcrm/types';
+
+/** The body ceiling depends on the channel: 1 600 for SMS, 100 000 (HTML) for email. */
+const bodyMaxFor = (o: unknown) => ((o as SendMessageDto | undefined)?.channel === 'email' ? EMAIL_BODY_MAX_LENGTH : SMS_BODY_MAX_LENGTH);
+
+const BodyFitsChannel = () =>
+  ValidateBy({
+    name: 'bodyFitsChannel',
+    validator: {
+      validate: (value: unknown, args?: ValidationArguments) =>
+        typeof value === 'string' && value.length >= 1 && value.length <= bodyMaxFor(args?.object),
+      defaultMessage: (args?: ValidationArguments) => `body must be between 1 and ${bodyMaxFor(args?.object)} characters`,
+    },
+  });
 
 /** E.164, as the design's DTO (§7.2) and the phone index both expect. */
 export const E164_PATTERN = /^\+[1-9]\d{6,14}$/;
@@ -70,10 +86,12 @@ export class SendMessageDto {
   @IsIn(SENDABLE_MESSAGE_CHANNELS)
   channel!: SendableMessageChannel;
 
-  @ApiProperty({ description: `Plain text, at most ${SMS_BODY_MAX_LENGTH} characters for SMS.` })
+  @ApiProperty({
+    description: `Plain text, at most ${SMS_BODY_MAX_LENGTH} characters for SMS; HTML or text, at most ${EMAIL_BODY_MAX_LENGTH} characters for email.`,
+  })
   @ValidateIf((o: SendMessageDto) => o.channel !== 'email' || !o.attachments?.length)
   @IsString()
-  @Length(1, SMS_BODY_MAX_LENGTH)
+  @BodyFitsChannel()
   body!: string;
 
   @ApiPropertyOptional({ description: 'Email only.' })

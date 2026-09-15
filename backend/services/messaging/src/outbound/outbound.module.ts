@@ -2,6 +2,7 @@ import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from 
 import { SqsConsumerService } from '@bitcrm/shared';
 import { TwilioModule } from '../common/twilio/twilio.module';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { EmailModule } from '../email/email.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -48,6 +49,8 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
     MessagingSettingsModule,
     MessageTemplatesModule,
     RealtimeModule,
+    // M17: the email sender-address rules for the accept path and the worker the FIFO consumer hands `email` jobs to.
+    EmailModule,
   ],
   controllers: [SendController, OutboundAttachmentsController, StatusController],
   providers: [

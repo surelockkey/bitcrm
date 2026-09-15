@@ -39,6 +39,8 @@ function makeWorker(opts: {
   pointerNew?: boolean;
   publicBaseUrl?: string;
   messagingServiceSid?: string;
+  /** M17: the email worker `email` jobs are handed to. */
+  email?: { process: jest.Mock };
 } = {}) {
   const message = opts.message === undefined ? queued() : opts.message;
   const messages = {
@@ -79,6 +81,8 @@ function makeWorker(opts: {
     rest as any,
     { messagingServiceSid: opts.messagingServiceSid ?? 'MG1', publicBaseUrl: opts.publicBaseUrl ?? 'https://crm.example.com' },
     attachments as any,
+    undefined,
+    opts.email as any,
   );
   return { worker, messages, outbound, optOuts, events, api, attachments };
 }
@@ -256,6 +260,33 @@ describe('OutboundWorker.process — idempotency', () => {
     await worker.process(job);
     expect(events.messageSent).not.toHaveBeenCalled();
     expect(events.conversationUpdated).toHaveBeenCalled();
+  });
+});
+
+describe('OutboundWorker.process — email hand-off (M17)', () => {
+  const email = () => queued({ channel: 'email', to: 'jane@example.com', from: 'office@example.com', businessNumber: undefined, provider: 'ses' });
+
+  it('hands an email job to the email worker without touching Twilio or the SMS claim', async () => {
+    const emailWorker = { process: jest.fn(async () => undefined) };
+    const message = email();
+    const { worker, api, messages } = makeWorker({ message, email: emailWorker });
+    await worker.process(job);
+    expect(emailWorker.process).toHaveBeenCalledWith(message, job);
+    expect(messages.markSending).not.toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('leaves an email job alone (queued, retried later) when no email worker is wired', async () => {
+    const { worker, api, messages } = makeWorker({ message: email() });
+    await worker.process(job);
+    expect(messages.markSending).not.toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('lets an email worker failure propagate so SQS redelivers', async () => {
+    const emailWorker = { process: jest.fn(async () => { throw new Error('SES throttled'); }) };
+    const { worker } = makeWorker({ message: email(), email: emailWorker });
+    await expect(worker.process(job)).rejects.toThrow('SES throttled');
   });
 });
 
