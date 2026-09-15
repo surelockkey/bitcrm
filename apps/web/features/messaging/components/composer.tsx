@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { FileText, ImageIcon, Loader2, Paperclip, Send, X } from "lucide-react";
+import { ChevronUp, FileText, ImageIcon, Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   MESSAGE_ATTACHMENT_LIMIT,
@@ -10,15 +10,16 @@ import {
   type MessageTemplate,
 } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatPhone } from "@/lib/phone";
@@ -34,11 +35,14 @@ import {
   newClientMessageId,
 } from "../lib";
 import { countSegments } from "../segments";
+import { QuickReplies } from "./quick-replies";
 import { ShortCodeMenu } from "./short-code-menu";
-import { TemplatePicker } from "./template-picker";
 
 const ACCEPT = MESSAGE_ATTACHMENT_TYPES.join(",");
 const ACCEPTED = new Set<string>(MESSAGE_ATTACHMENT_TYPES);
+
+type Channel = "sms" | "email";
+const SEND_LABEL: Record<Channel, string> = { sms: "Send Text", email: "Send Email" };
 
 export interface ComposerProps {
   /** The thread being written in, when it exists — sticky sender, render context. */
@@ -51,16 +55,26 @@ export interface ComposerProps {
   disabled?: boolean;
   autoFocus?: boolean;
   placeholder?: string;
+  /** Text the box opens with — a forwarded message. */
+  initialText?: string;
+  /** The template chips above the box (Workiz quick replies). */
+  quickReplies?: boolean;
   /** The send itself; the composer clears on resolve and keeps the draft on reject. */
   onSend: (body: SendMessageBody) => Promise<unknown>;
   className?: string;
 }
 
+const boxIcon =
+  "grid size-8 place-items-center rounded-md text-foreground/70 transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent";
+
 /**
- * The Workiz composer: SMS / Email toggle, templates with short codes,
- * attachments (button or paste), the GSM-7 / UCS-2 segment counter, the
- * sender number, and the STOP notice. Enter sends, Shift+Enter breaks a
- * line. Only SMS is deliverable today, so Email is shown but not enabled.
+ * The Workiz composer: the quick-reply chips, then a box saying "Type your
+ * message here…" with the AI sparkle, short codes and the paperclip inside
+ * it, and the yellow "Send Text" button to its right — with a chevron to
+ * switch to Email (where the thread has an address) or pick the sending
+ * number. Templates, short codes, attachments (button or paste) and the
+ * GSM-7 / UCS-2 segment counter all stay. Enter sends, Shift+Enter breaks
+ * a line.
  */
 export function Composer({
   conversation,
@@ -69,14 +83,16 @@ export function Composer({
   optedOut = false,
   disabled = false,
   autoFocus = false,
-  placeholder = "Write a text message…",
+  placeholder = "Type your message here...",
+  initialText = "",
+  quickReplies = true,
   onSend,
   className,
 }: ComposerProps) {
   const { canSend } = useMessagingAccess();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [subject, setSubject] = useState("");
-  const [channel, setChannel] = useState<"sms" | "email">("sms");
+  const [channel, setChannel] = useState<Channel>("sms");
   const [templateId, setTemplateId] = useState<string | undefined>(undefined);
   const [attachments, setAttachments] = useState<SendAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -96,8 +112,12 @@ export function Composer({
   const stickyKnown = !!sticky && !!numbers?.some((n) => n.phoneNumber === sticky);
   const from = fromNumber ?? (stickyKnown ? sticky : "auto");
 
+  // Email is offered only where the thread has an address to send to.
+  const emailPossible = !!conversation?.addresses?.emails?.length;
+  const hasOptions = emailPossible || (numbers?.length ?? 0) > 0;
+
   const segments = countSegments(text);
-  const tooLong = text.length > SMS_BODY_MAX_LENGTH;
+  const tooLong = channel === "sms" && text.length > SMS_BODY_MAX_LENGTH;
   const blocked = disabled || !canSend || optedOut;
   const busy = sending || uploading > 0 || render.isPending || preview.isPending;
   const canSubmit = !blocked && !busy && !tooLong && text.trim().length > 0;
@@ -201,7 +221,7 @@ export function Composer({
         channel,
         body,
         subject: channel === "email" && subject.trim() ? subject.trim() : undefined,
-        fromNumber: from !== "auto" ? from : undefined,
+        fromNumber: channel === "sms" && from !== "auto" ? from : undefined,
         dealId,
         templateId,
         attachments: attachments.length ? attachments : undefined,
@@ -234,173 +254,188 @@ export function Composer({
   }
 
   return (
-    <div className={cn("border-t bg-background", className)} data-testid="composer">
-      {/* Channel toggle + sender, Workiz-style, above the box. */}
-      <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
-        <div role="radiogroup" aria-label="Channel" className="inline-flex rounded-md border p-0.5 text-xs">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={channel === "sms"}
-            onClick={() => setChannel("sms")}
-            className={cn("rounded px-2 py-0.5 font-medium", channel === "sms" ? "bg-muted text-foreground" : "text-muted-foreground")}
-          >
-            SMS
-          </button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={channel === "email"}
-                  disabled
-                  className="cursor-not-allowed rounded px-2 py-0.5 font-medium text-muted-foreground opacity-60"
-                >
-                  Email
-                </button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Email sending arrives with the email milestone.</TooltipContent>
-          </Tooltip>
-        </div>
-        {numbers && numbers.length > 0 ? (
-          <Select value={from} onValueChange={setFromNumber} disabled={blocked}>
-            <SelectTrigger className="h-7 w-auto min-w-40 text-xs" aria-label="Send from">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">From: best match</SelectItem>
-              {numbers.map((n) => (
-                <SelectItem key={n.sid} value={n.phoneNumber}>
-                  {formatPhone(n.phoneNumber)}
-                  {n.friendlyName && n.friendlyName !== n.phoneNumber ? ` · ${n.friendlyName}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-      </div>
-
-      {channel === "email" ? (
-        <div className="px-3 pt-2">
-          <Input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject"
-            className="h-8"
-            aria-label="Subject"
-            disabled={blocked}
-          />
-        </div>
+    <div className={cn("shrink-0", className)} data-testid="composer">
+      {quickReplies ? (
+        <QuickReplies channel={channel} onPick={pickTemplate} disabled={blocked} pending={render.isPending} />
       ) : null}
 
-      <div className="px-3 pt-2">
-        <Textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          placeholder={optedOut ? "This number opted out — sending is blocked." : placeholder}
-          disabled={blocked}
-          autoFocus={autoFocus}
-          rows={2}
-          aria-label="Message"
-          aria-invalid={tooLong || undefined}
-          className="max-h-48 min-h-14 resize-none text-sm"
-        />
-      </div>
+      <div className="flex items-end gap-3 border-t bg-muted/40 px-4 py-3">
+        {/* The box: the text, and the tools that belong to it, inside one border. */}
+        <div
+          className={cn(
+            "relative flex min-w-0 flex-1 flex-col rounded-lg border bg-background transition-colors focus-within:border-brand",
+            blocked && "opacity-70",
+          )}
+        >
+          {channel === "email" ? (
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+              className="rounded-b-none border-0 border-b shadow-none focus-visible:ring-0"
+              aria-label="Subject"
+              disabled={blocked}
+            />
+          ) : null}
 
-      {attachments.length > 0 || uploading > 0 ? (
-        <div className="flex flex-wrap gap-1.5 px-3 pt-2">
-          {attachments.map((a) => (
-            <span
-              key={a.id}
-              className="inline-flex max-w-56 items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
-            >
-              {a.contentType.startsWith("image/") ? (
-                <ImageIcon className="size-3.5 shrink-0" />
-              ) : (
-                <FileText className="size-3.5 shrink-0" />
-              )}
-              <span className="truncate">{a.fileName}</span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">{formatBytes(a.size)}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${a.fileName}`}
-                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground"
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            placeholder={optedOut ? "This number opted out — sending is blocked." : placeholder}
+            disabled={blocked}
+            autoFocus={autoFocus}
+            rows={2}
+            aria-label="Message"
+            aria-invalid={tooLong || undefined}
+            className="max-h-48 min-h-16 w-full resize-none bg-transparent px-4 pb-1 pt-3 text-[15px] leading-relaxed outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          />
+
+          {attachments.length > 0 || uploading > 0 ? (
+            <div className="flex flex-wrap gap-1.5 px-3 pb-1">
+              {attachments.map((a) => (
+                <span
+                  key={a.id}
+                  className="inline-flex max-w-56 items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+                >
+                  {a.contentType.startsWith("image/") ? (
+                    <ImageIcon className="size-3.5 shrink-0" />
+                  ) : (
+                    <FileText className="size-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{a.fileName}</span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{formatBytes(a.size)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${a.fileName}`}
+                    onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                    className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+              {uploading > 0 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> Uploading…
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-2 px-2 pb-1.5">
+            {text.length > 0 && channel === "sms" ? (
+              <span
+                className={cn("ml-2 text-[11px] tabular-nums text-muted-foreground", tooLong && "font-medium text-destructive")}
+                aria-live="polite"
+                data-testid="segment-counter"
               >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-          {uploading > 0 ? (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> Uploading…
-            </span>
+                {tooLong
+                  ? `${text.length} / ${SMS_BODY_MAX_LENGTH} — too long`
+                  : `${segments.encoding} · ${segments.units}/${segments.perSegment * Math.max(segments.segments, 1)} · ${segments.segments || 1} segment${segments.segments > 1 ? "s" : ""}`}
+              </span>
+            ) : null}
+            <span className="flex-1" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <button type="button" disabled aria-label="AI suggestions" className={cn(boxIcon, "text-brand")}>
+                    <Sparkles className="size-4" />
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>AI replies arrive with a later milestone</TooltipContent>
+            </Tooltip>
+            <ShortCodeMenu onInsert={insert} disabled={blocked} compact />
+            <input
+              ref={fileRef}
+              type="file"
+              accept={ACCEPT}
+              multiple
+              hidden
+              aria-label="Attach files"
+              onChange={(e) => {
+                void addFiles(e.target.files ?? []);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              className={boxIcon}
+              disabled={blocked || attachments.length >= MESSAGE_ATTACHMENT_LIMIT}
+              onClick={() => fileRef.current?.click()}
+              aria-label="Attach a file"
+            >
+              <Paperclip className="size-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* "Send Text", with the chevron for Text / Email and the sending number. */}
+        <div className="flex h-10 shrink-0 items-stretch overflow-hidden rounded-lg">
+          <Button
+            type="button"
+            variant="brand"
+            className={cn("h-10 rounded-none px-4 font-semibold", hasOptions && "border-r border-brand-foreground/25")}
+            disabled={!canSubmit}
+            onClick={() => void submit()}
+          >
+            {sending ? <Loader2 className="size-4 animate-spin" /> : null}
+            {SEND_LABEL[channel]}
+          </Button>
+          {hasOptions ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="brand"
+                  className="h-10 w-9 rounded-none px-0"
+                  aria-label="Send options"
+                  disabled={blocked}
+                >
+                  <ChevronUp className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" className="w-56">
+                {emailPossible ? (
+                  <>
+                    <DropdownMenuLabel>Send as</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={channel} onValueChange={(v) => setChannel(v as Channel)}>
+                      <DropdownMenuRadioItem value="sms">Text</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="email">Email</DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </>
+                ) : null}
+                {numbers && numbers.length > 0 ? (
+                  <>
+                    {emailPossible ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuLabel>Send from</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup value={from} onValueChange={setFromNumber}>
+                      <DropdownMenuRadioItem value="auto">Best match</DropdownMenuRadioItem>
+                      {numbers.map((n) => (
+                        <DropdownMenuRadioItem key={n.sid} value={n.phoneNumber}>
+                          {formatPhone(n.phoneNumber)}
+                          {n.friendlyName && n.friendlyName !== n.phoneNumber ? (
+                            <span className="ml-auto pl-2 text-xs text-muted-foreground">{n.friendlyName}</span>
+                          ) : null}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </div>
+      </div>
+
+      {optedOut ? (
+        <div className="bg-muted/40 px-4 pb-2 text-[11px] text-muted-foreground">
+          The recipient opted out; they can text START to opt back in.
+        </div>
       ) : null}
-
-      <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
-        <TemplatePicker channel={channel} onPick={pickTemplate} disabled={blocked} pending={render.isPending} />
-        <ShortCodeMenu onInsert={insert} disabled={blocked} />
-        <input
-          ref={fileRef}
-          type="file"
-          accept={ACCEPT}
-          multiple
-          hidden
-          aria-label="Attach files"
-          onChange={(e) => {
-            void addFiles(e.target.files ?? []);
-            e.target.value = "";
-          }}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-muted-foreground"
-          disabled={blocked || attachments.length >= MESSAGE_ATTACHMENT_LIMIT}
-          onClick={() => fileRef.current?.click()}
-          aria-label="Attach a file"
-        >
-          <Paperclip className="size-3.5" /> Attach
-        </Button>
-
-        <span className="flex-1" />
-
-        <span
-          className={cn("text-[11px] tabular-nums text-muted-foreground", tooLong && "font-medium text-destructive")}
-          aria-live="polite"
-          data-testid="segment-counter"
-        >
-          {tooLong
-            ? `${text.length} / ${SMS_BODY_MAX_LENGTH} — too long`
-            : `${segments.encoding} · ${segments.units}/${segments.perSegment * Math.max(segments.segments, 1)} · ${segments.segments || 1} segment${segments.segments > 1 ? "s" : ""}`}
-        </span>
-        <Button
-          type="button"
-          variant="brand"
-          size="sm"
-          className="gap-1.5"
-          disabled={!canSubmit}
-          onClick={() => void submit()}
-          aria-label="Send"
-        >
-          {sending ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-          Send
-        </Button>
-      </div>
-
-      <div className="px-3 pb-2 text-[11px] text-muted-foreground">
-        {optedOut
-          ? "The recipient opted out; they can text START to opt back in."
-          : "Enter to send · Shift+Enter for a new line · Clients can reply STOP to opt out."}
-      </div>
     </div>
   );
 }

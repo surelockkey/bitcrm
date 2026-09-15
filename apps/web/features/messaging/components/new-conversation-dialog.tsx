@@ -36,11 +36,14 @@ export function NewConversationDialog({
   open,
   onOpenChange,
   onCreated,
+  initialBody,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The conversation the first message landed in. */
   onCreated: (conversationId: string) => void;
+  /** Text the composer opens with — a message being forwarded. */
+  initialBody?: string;
 }) {
   const { can } = usePermissions();
   const [query, setQuery] = useState("");
@@ -110,8 +113,8 @@ export function NewConversationDialog({
             contactId={target.kind === "contact" ? target.contact.id : undefined}
             onSend={sendFirst}
             autoFocus
-            placeholder="Write the first message…"
-            className="border-t-0"
+            initialText={initialBody}
+            placeholder="Type your message here..."
           />
         ) : (
           <div className="p-3">

@@ -40,6 +40,8 @@ export function InboxPage() {
   const [search, setSearch] = useState("");
   const [infoOpen, setInfoOpen] = useState(false);
   const [composingNew, setComposingNew] = useState(false);
+  /** A message being forwarded: the New message dialog opens with its text. */
+  const [forwardBody, setForwardBody] = useState<string | undefined>(undefined);
   const [collapsed, toggleCollapsed] = useCategoriesCollapsed();
 
   const navigate = useCallback(
@@ -112,6 +114,10 @@ export function InboxPage() {
             title={title}
             onBack={() => navigate({ c: undefined })}
             onToggleInfo={() => setInfoOpen(true)}
+            onForward={(m) => {
+              setForwardBody(m.body ?? "");
+              setComposingNew(true);
+            }}
             footer={({ conversation, optedOut }) => (
               <ThreadComposer conversation={conversation} optedOut={optedOut} autoFocus />
             )}
@@ -127,8 +133,12 @@ export function InboxPage() {
 
       <NewConversationDialog
         open={composingNew}
-        onOpenChange={setComposingNew}
+        onOpenChange={(open) => {
+          setComposingNew(open);
+          if (!open) setForwardBody(undefined);
+        }}
         onCreated={(id) => navigate({ c: id, view: "all", kind: undefined })}
+        initialBody={forwardBody}
       />
 
       {/* The party's card — Workiz's client page — opens from the header's person icon. */}

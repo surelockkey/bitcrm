@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type { MessageTemplate } from "@bitcrm/types";
-import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -15,9 +14,10 @@ import {
 import { useTemplates } from "../hooks";
 
 /**
- * "Templates" in the composer: a searchable list of the canned messages
- * usable on this channel, grouped by their category. Picking one hands
- * the template up; the composer renders it against the thread.
+ * Workiz's "More replies" pill at the right end of the quick-replies row:
+ * a searchable list of every canned message usable on this channel,
+ * grouped by category. Picking one hands the template up; the composer
+ * renders it against the thread.
  */
 export function TemplatePicker({
   channel,
@@ -40,20 +40,18 @@ export function TemplatePicker({
   }
 
   return (
-    <span className="relative inline-flex">
-      <Button
+    <span className="relative inline-flex shrink-0">
+      <button
         type="button"
-        variant="ghost"
-        size="sm"
-        className="gap-1.5 text-muted-foreground"
         disabled={disabled || pending}
         aria-expanded={open}
-        aria-label="Insert a template"
+        aria-label="More replies"
         onClick={() => setOpen((o) => !o)}
+        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/60 bg-background px-4 text-[13px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
       >
-        {pending ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
-        Templates
-      </Button>
+        {pending ? <Loader2 className="size-3.5 animate-spin" /> : null}
+        More replies
+      </button>
 
       {open ? (
         <>
@@ -63,7 +61,10 @@ export function TemplatePicker({
             className="fixed inset-0 z-10 cursor-default"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute bottom-full left-0 z-20 mb-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-popover shadow-md">
+          <div
+            className="absolute bottom-full right-0 z-20 mb-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-popover shadow-md"
+            data-testid="template-picker"
+          >
             <Command loop>
               <CommandInput autoFocus placeholder="Search templates…" className="h-9" />
               <CommandList className="max-h-64">
