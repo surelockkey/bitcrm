@@ -453,6 +453,7 @@ data "aws_iam_policy_document" "task_messaging" {
       module.sns_sqs.queue_arns["messaging-outbound"],
       module.sns_sqs.queue_arns["messaging-media"],
       module.sns_sqs.queue_arns["contact-events-to-messaging"],
+      module.sns_sqs.queue_arns["deal-events-to-messaging"],
     ]
   }
 }

@@ -257,5 +257,10 @@ module "sns_sqs" {
     contact-events-to-messaging = {
       topic_subscriptions = ["contact-events"]
     }
+    # deal.tech_assigned / deal.updated from deal: the "New job" SMS to the
+    # assigned technician (and again on a reschedule) — messaging automations.
+    deal-events-to-messaging = {
+      topic_subscriptions = ["deal-events"]
+    }
   }
 }
