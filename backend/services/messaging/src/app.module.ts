@@ -25,6 +25,7 @@ import { ReconcileModule } from './reconcile/reconcile.module';
 import { OutboundModule } from './outbound/outbound.module';
 import { ApiModule } from './api/api.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { ContactEventsModule } from './contact-events/contact-events.module';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
@@ -95,6 +96,7 @@ const CONTACT_EVENTS_QUEUE_URL = process.env.CONTACT_EVENTS_TO_MESSAGING_QUEUE_U
     OutboundModule,
     ApiModule,
     RealtimeModule,
+    ContactEventsModule,
   ],
 })
 export class AppModule implements OnModuleInit {
@@ -103,9 +105,8 @@ export class AppModule implements OnModuleInit {
   onModuleInit() {
     if (!this.sqsConsumer) return;
 
-    // TODO(M7): register `contact.merged` / `contact.updated` handlers that
-    // rewrite CONVOF# / ADDR# pointers and merge conversations (EVENTS.md).
-    // Nothing is registered yet, so a polled message is logged and dropped.
+    // `contact.merged` / `contact.updated` handlers are registered by
+    // `ContactEventsModule.onModuleInit` (runs before this one).
 
     // Only start polling if explicitly enabled (e.g. ENABLE_SQS_CONSUMER=true)
     // Prevents noisy errors when LocalStack isn't running in local dev
