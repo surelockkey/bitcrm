@@ -1,9 +1,10 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { Loader2, MessageSquareDashed } from "lucide-react";
+import { Loader2, MessageSquareDashed, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { FeedMessage } from "../api";
 import { groupByDay } from "../lib";
@@ -12,10 +13,11 @@ import { MessageBubble } from "./message-bubble";
 const NEAR_BOTTOM_PX = 120;
 
 /**
- * The thread, newest at the bottom with a separator per day (Workiz
- * `day_title`). Sticks to the bottom while the reader is there — a new
- * line scrolls into view — and holds its place when older history is
- * loaded above.
+ * The thread, newest at the bottom, on Workiz's faintly tinted ground: the
+ * "✦ Recap conversation" chip top-left, a centred day chip per day
+ * ("Tuesday,September 15 2026"), then the bubbles. Sticks to the bottom
+ * while the reader is there — a new line scrolls into view — and holds its
+ * place when older history is loaded above.
  */
 export function MessageFeed({
   messages,
@@ -25,9 +27,12 @@ export function MessageFeed({
   onLoadOlder,
   canManage,
   onToggleFlag,
+  onForward,
   authorNames,
+  partyName,
   emptyState,
   showJob = true,
+  recap = false,
   className,
 }: {
   /** Newest first, as the API delivers them. */
@@ -38,9 +43,14 @@ export function MessageFeed({
   onLoadOlder?: () => void;
   canManage: boolean;
   onToggleFlag?: (message: FeedMessage) => void;
+  onForward?: (message: FeedMessage) => void;
   authorNames?: Map<string, string>;
+  /** The other side's name, for incoming bubbles. */
+  partyName?: string;
   emptyState?: ReactNode;
   showJob?: boolean;
+  /** The Workiz recap chip at the top of the thread (inbox only). */
+  recap?: boolean;
   className?: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -75,7 +85,7 @@ export function MessageFeed({
 
   if (isLoading) {
     return (
-      <div className={cn("flex-1 space-y-3 overflow-hidden p-4", className)}>
+      <div className={cn("flex-1 space-y-3 overflow-hidden bg-muted/30 p-4", className)}>
         <Skeleton className="ml-auto h-10 w-2/5" />
         <Skeleton className="h-12 w-1/2" />
         <Skeleton className="ml-auto h-8 w-1/3" />
@@ -85,7 +95,7 @@ export function MessageFeed({
 
   if (messages.length === 0) {
     return (
-      <div className={cn("flex flex-1 items-center justify-center p-6", className)}>
+      <div className={cn("flex flex-1 items-center justify-center bg-muted/30 p-6", className)}>
         {emptyState ?? (
           <div className="flex flex-col items-center gap-1.5 text-center">
             <MessageSquareDashed className="size-6 text-muted-foreground" />
@@ -100,12 +110,17 @@ export function MessageFeed({
   const groups = groupByDay(messages);
 
   return (
-    <div ref={scroller} className={cn("flex-1 overflow-y-auto px-4 py-3", className)} data-testid="message-feed">
+    <div
+      ref={scroller}
+      className={cn("flex-1 overflow-y-auto bg-muted/30 px-5 pb-10 pt-6", className)}
+      data-testid="message-feed"
+    >
       {hasOlder ? (
-        <div className="mb-3 flex justify-center">
+        <div className="mb-4 flex justify-center">
           <Button
             variant="outline"
             size="sm"
+            className="rounded-full"
             disabled={isFetchingOlder}
             onClick={() => {
               if (scroller.current) prevHeight.current = scroller.current.scrollHeight;
@@ -117,10 +132,15 @@ export function MessageFeed({
         </div>
       ) : null}
 
-      {groups.map((group) => (
-        <section key={group.key} className="mb-3 space-y-2">
-          <div className="sticky top-0 z-[1] flex justify-center py-1">
-            <span className="rounded-full border bg-background/90 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground backdrop-blur">
+      {groups.map((group, i) => (
+        <section key={group.key} className="mb-5 space-y-5">
+          <div className="relative flex justify-center">
+            {recap && i === 0 ? (
+              <div className="absolute left-0 top-0">
+                <RecapChip />
+              </div>
+            ) : null}
+            <span className="rounded-full border bg-background px-3.5 py-1 text-xs font-medium text-foreground/80 shadow-xs">
               {group.label}
             </span>
           </div>
@@ -129,13 +149,36 @@ export function MessageFeed({
               key={m.id}
               message={m}
               authorName={m.sentByUserId ? authorNames?.get(m.sentByUserId) : undefined}
+              partyName={partyName}
               canManage={canManage}
               onToggleFlag={onToggleFlag}
+              onForward={onForward}
               showJob={showJob}
             />
           ))}
         </section>
       ))}
     </div>
+  );
+}
+
+/** "✦ Recap conversation" — Workiz's AI summary chip; a placeholder until BitCRM has an assistant. */
+function RecapChip() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className="inline-flex">
+          <button
+            type="button"
+            disabled
+            aria-label="Recap conversation"
+            className="inline-flex cursor-default items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-xs font-semibold text-brand shadow-xs"
+          >
+            <Sparkles className="size-3.5" /> Recap conversation
+          </button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>AI recaps arrive with a later milestone</TooltipContent>
+    </Tooltip>
   );
 }

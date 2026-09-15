@@ -1,6 +1,7 @@
 import type {
   Conversation,
   ConversationKind,
+  InboxCounters,
   MessageAttachment,
   MessageStatus,
   PaginatedResponse,
@@ -37,6 +38,111 @@ export const KIND_LABEL: Record<ConversationKind, string> = {
   group: "Group",
   external: "External",
 };
+
+/** The grey tag after a name in the Workiz list and thread header: "(Client)", "(Tech)", "(Unknown)". */
+export const KIND_TAG: Record<ConversationKind, string> = {
+  client: "Client",
+  unknown: "Unknown",
+  team: "Tech",
+  group: "Group",
+  external: "External",
+};
+
+/* ----------------------------------------------------------- categories */
+
+/** What the list is showing: the category (view + kind) and the search text. */
+export interface ListState {
+  view: InboxView;
+  kind?: ConversationKind;
+  search: string;
+}
+
+/** The Workiz Inbox categories, in the order the left column lists them. */
+export type InboxCategory = "all" | "requests" | "clients" | "team" | "archived";
+
+export const INBOX_CATEGORIES: { value: InboxCategory; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "requests", label: "Requests" },
+  { value: "clients", label: "Clients" },
+  { value: "team", label: "Team" },
+  { value: "archived", label: "Archived" },
+];
+
+/**
+ * Which category a list state sits in. Workiz's Requests are enquiries from
+ * people not yet in CRM; the nearest thing here is the `unknown` kind (a
+ * number or email that resolved to nobody). Group threads sit under Team.
+ */
+export function categoryOf(s: { view: InboxView; kind?: ConversationKind }): InboxCategory {
+  if (s.view === "archived") return "archived";
+  switch (s.kind) {
+    case "unknown":
+      return "requests";
+    case "client":
+      return "clients";
+    case "team":
+    case "group":
+      return "team";
+    default:
+      return "all";
+  }
+}
+
+/** The list state a category selects; an Unread / Flagged / Mine filter survives the switch. */
+export function categoryState(
+  cat: InboxCategory,
+  current: { view: InboxView },
+): { view: InboxView; kind?: ConversationKind } {
+  if (cat === "archived") return { view: "archived", kind: undefined };
+  const view: InboxView = current.view === "archived" ? "all" : current.view;
+  switch (cat) {
+    case "requests":
+      return { view, kind: "unknown" };
+    case "clients":
+      return { view, kind: "client" };
+    case "team":
+      return { view, kind: "team" };
+    default:
+      return { view, kind: undefined };
+  }
+}
+
+/** Whether a loaded row belongs to a category (client-side narrowing under a filter view). */
+export function conversationInCategory(c: InboxConversation, cat: InboxCategory): boolean {
+  switch (cat) {
+    case "archived":
+      return c.state === "archived";
+    case "requests":
+      return c.kind === "unknown";
+    case "clients":
+      return c.kind === "client";
+    case "team":
+      return c.kind === "team" || c.kind === "group";
+    default:
+      return true;
+  }
+}
+
+/**
+ * The number by a category's label. The API keeps unread counters only (no
+ * totals), so this is the unread-conversation count; Archived has none.
+ */
+export function categoryUnread(cat: InboxCategory, counters: InboxCounters | undefined): number | undefined {
+  if (!counters) return undefined;
+  const byKind = counters.unreadByKind ?? {};
+  switch (cat) {
+    case "all":
+      return counters.unreadConversations;
+    case "requests":
+      return byKind.unknown ?? 0;
+    case "clients":
+      return byKind.client ?? 0;
+    case "team":
+      return (byKind.team ?? 0) + (byKind.group ?? 0);
+    default:
+      return undefined;
+  }
+}
 
 export const STATUS_LABEL: Record<MessageStatus, string> = {
   received: "Received",
@@ -79,6 +185,36 @@ export function statusTick(status: MessageStatus): StatusTick {
 
 export const isFailedStatus = (status: MessageStatus): boolean =>
   statusTick(status) === "error";
+
+/** The words under an outbound bubble — Workiz's "Message received". */
+export function statusText(status: MessageStatus): string {
+  switch (statusTick(status)) {
+    case "pending":
+      return "Sending";
+    case "sent":
+      return "Message sent";
+    case "delivered":
+      return "Message received";
+    case "read":
+      return "Message read";
+    default:
+      return "Not delivered";
+  }
+}
+
+/** The channel word after the stamp: Workiz says "Text" for SMS and MMS alike. */
+export function channelLabel(channel: string): string {
+  switch (channel) {
+    case "email":
+      return "Email";
+    case "in_app":
+      return "App";
+    case "note":
+      return "Note";
+    default:
+      return "Text";
+  }
+}
 
 /* ------------------------------------------------------------ identity */
 
@@ -149,6 +285,12 @@ export function partyHref(c: Pick<Conversation, "partyKind" | "partyId">): strin
   }
 }
 
+/** The round avatar's letter, as Workiz draws it: the title's first character, verbatim ("J", "(", "8", "a"). */
+export function avatarInitial(title: string): string {
+  const first = [...title.trim()][0];
+  return first ?? "#";
+}
+
 export function initialsOf(title: string): string {
   // A bare number gets a glyph, not the first two digits of an area code.
   if (!/\p{L}/u.test(title)) return "#";
@@ -184,6 +326,23 @@ export function formatMessageTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+/** The day chip in the thread, spelled as Workiz spells it: "Tuesday,September 15 2026". */
+export function formatDayChip(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
+  const month = d.toLocaleDateString("en-US", { month: "long" });
+  return `${weekday},${month} ${d.getDate()} ${d.getFullYear()}`;
+}
+
+/** The stamp under a bubble: "Sep 15 2026 12:10 PM". */
+export function formatMessageStamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  return `${month} ${d.getDate()} ${d.getFullYear()} ${formatMessageTime(iso)}`;
 }
 
 /** List-row timestamp: time today, weekday this week, else a short date. */
@@ -226,8 +385,8 @@ export interface DayGroup {
   messages: FeedMessage[];
 }
 
-/** Oldest day first, oldest message first — the thread reads downwards. */
-export function groupByDay(newestFirst: FeedMessage[], now = new Date()): DayGroup[] {
+/** Oldest day first, oldest message first — the thread reads downwards; labelled like Workiz's day chips. */
+export function groupByDay(newestFirst: FeedMessage[]): DayGroup[] {
   const groups: DayGroup[] = [];
   const byKey = new Map<string, DayGroup>();
   for (let i = newestFirst.length - 1; i >= 0; i--) {
@@ -236,7 +395,7 @@ export function groupByDay(newestFirst: FeedMessage[], now = new Date()): DayGro
     const key = Number.isNaN(d.getTime()) ? "unknown" : dayKey(d);
     let group = byKey.get(key);
     if (!group) {
-      group = { key, label: formatDayLabel(m.createdAt, now), messages: [] };
+      group = { key, label: formatDayChip(m.createdAt), messages: [] };
       byKey.set(key, group);
       groups.push(group);
     }

@@ -28,8 +28,9 @@ export function AppHeader() {
             ⌘K
           </kbd>
         </button>
-        <InboxHeaderButton />
+        {/* Workiz order in the icon cluster: phone, then the Messages bubble. */}
         <SoftphoneControls />
+        <InboxHeaderButton />
         <NavUser />
       </div>
     </header>

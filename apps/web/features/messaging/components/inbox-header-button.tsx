@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { MessagesSquare } from "lucide-react";
+import { MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useInboxCounters } from "../hooks";
 
+/** Workiz caps the top-bar badge at two digits. */
+export const formatBadgeCount = (n: number): string => (n > 99 ? "99+" : String(n));
+
 /**
- * The inbox in the top bar on every page, with the unread count — the
- * Workiz badge next to the bell. Hidden from people who cannot read messages.
+ * The Workiz top-bar Messages icon: a chat bubble in the right icon cluster
+ * of every page, to the right of the phone, with a red badge carrying the
+ * unread-conversation count. Opens the Inbox. Hidden from people who cannot
+ * read messages.
  */
 export function InboxHeaderButton() {
   const { can } = usePermissions();
@@ -21,15 +26,22 @@ export function InboxHeaderButton() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button asChild variant="ghost" size="icon-lg" className="relative text-muted-foreground" aria-label={label}>
+        <Button
+          asChild
+          variant="ghost"
+          size="icon"
+          className="relative h-9 w-9 text-muted-foreground"
+          aria-label={label}
+          data-testid="inbox-header-button"
+        >
           <Link href="/messages">
-            <MessagesSquare className="size-4" />
+            <MessageSquareText className="size-4" />
             {unread > 0 ? (
               <span
                 data-testid="inbox-header-badge"
-                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold text-brand-foreground tabular-nums"
+                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white tabular-nums ring-2 ring-background"
               >
-                {unread > 99 ? "99+" : unread}
+                {formatBadgeCount(unread)}
               </span>
             ) : null}
           </Link>

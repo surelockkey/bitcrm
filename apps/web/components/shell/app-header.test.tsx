@@ -66,6 +66,22 @@ describe("AppHeader", () => {
     expect(screen.getByTestId("inbox-header-badge")).toHaveTextContent("12");
   });
 
+  it("puts the Messages bubble right of the phone, as Workiz does", () => {
+    countersMock.mockReturnValue({ data: { unreadConversations: 3 } });
+    renderHeader();
+
+    const phone = screen.getByTestId("softphone");
+    const inbox = screen.getByTestId("inbox-header-button");
+    expect(phone.parentElement).toBe(inbox.parentElement);
+    expect(phone.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("caps the badge at 99+", () => {
+    countersMock.mockReturnValue({ data: { unreadConversations: 250 } });
+    renderHeader();
+    expect(screen.getByTestId("inbox-header-badge")).toHaveTextContent("99+");
+  });
+
   it("keeps the inbox button plain when nothing is unread", () => {
     countersMock.mockReturnValue({ data: { unreadConversations: 0 } });
     renderHeader();

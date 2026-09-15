@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { server } from "@/test/msw/server";
 import type { InboxConversation } from "../api";
 import { ConversationList, type ListState } from "./conversation-list";
@@ -35,10 +36,12 @@ const conv = (id: string, extra: Partial<InboxConversation> = {}): InboxConversa
 
 const requestedViews: string[] = [];
 const requestedKinds: string[] = [];
+const patches: { id: string; body: unknown }[] = [];
 
 beforeEach(() => {
   requestedViews.length = 0;
   requestedKinds.length = 0;
+  patches.length = 0;
   server.use(
     http.get("*/messaging/conversations", ({ request }) => {
       const url = new URL(request.url);
@@ -47,11 +50,14 @@ beforeEach(() => {
       const data =
         url.searchParams.get("view") === "unread"
           ? [conv("b", { workizName: "Bob Builder", unread: true, unreadCount: 2 })]
-          : [
-              conv("a", { workizName: "Alice Adams" }),
-              conv("b", { workizName: "Bob Builder", unread: true, unreadCount: 2, flagged: true }),
-              conv("u", { kind: "unknown", addresses: { phones: ["+14045551234"], emails: [] } }),
-            ];
+          : url.searchParams.get("kind") === "group"
+            ? [conv("g", { kind: "group", partyKind: "group", partyId: "grp", workizName: "Night crew" })]
+            : [
+                conv("a", { workizName: "Alice Adams" }),
+                conv("b", { workizName: "Bob Builder", unread: true, unreadCount: 2, flagged: true }),
+                conv("u", { kind: "unknown", addresses: { phones: ["+14045551234"], emails: [] } }),
+                conv("t", { kind: "team", partyKind: "user", partyId: "u1", workizName: "(2) TX - Cannon Burt" }),
+              ];
       return HttpResponse.json({
         success: true,
         data,
@@ -70,6 +76,11 @@ beforeEach(() => {
         data: conv("far", { kind: "unknown", addresses: { phones: ["+17705550000"], emails: [] } }),
       }),
     ),
+    http.patch("*/messaging/conversations/:id", async ({ params, request }) => {
+      const body = await request.json();
+      patches.push({ id: String(params.id), body });
+      return HttpResponse.json({ success: true, data: conv(String(params.id), body as Partial<InboxConversation>) });
+    }),
     http.get("*/crm/companies", () =>
       HttpResponse.json({ success: true, data: [], pagination: { count: 0 } }),
     ),
@@ -79,11 +90,13 @@ beforeEach(() => {
 function Harness({
   onSelect = () => {},
   onNewConversation,
+  initial = { view: "all", search: "" },
 }: {
   onSelect?: (id: string) => void;
   onNewConversation?: () => void;
+  initial?: ListState;
 }) {
-  const [state, setState] = useState<ListState>({ view: "all", search: "" });
+  const [state, setState] = useState<ListState>(initial);
   return (
     <ConversationList
       state={state}
@@ -95,74 +108,99 @@ function Harness({
   );
 }
 
-function renderList(onSelect?: (id: string) => void) {
+function renderList(props: { onSelect?: (id: string) => void; onNewConversation?: () => void; initial?: ListState } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <Harness onSelect={onSelect} />
+      <TooltipProvider>
+        <Harness {...props} />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
 }
 
+const row = (name: string) => screen.getByText(name).closest("[data-conversation-row]") as HTMLElement;
+
 describe("ConversationList", () => {
-  it("lists threads with names, numbers, unread badges and tab counts", async () => {
+  it("lists threads Workiz-style: initial avatar, bold name with a type tag, snippet, time, unread dot", async () => {
     renderList();
 
     expect(await screen.findByText("Alice Adams")).toBeInTheDocument();
     expect(screen.getByText("Bob Builder")).toBeInTheDocument();
-    // An unknown number is shown as its number.
+    // An unknown number is shown as its number, tagged (Unknown); a technician is (Tech).
     expect(screen.getByText("(404) 555-1234")).toBeInTheDocument();
-    expect(screen.getByLabelText("2 unread")).toHaveTextContent("2");
-    expect(screen.getByText("Bob Builder").closest("button")).toHaveAttribute("data-unread", "true");
-    // Counters feed the category strip and the view toggles.
-    expect(screen.getByRole("tab", { name: /^All/ })).toHaveTextContent("4");
-    expect(screen.getByRole("tab", { name: /^Clients/ })).toHaveTextContent("3");
-    expect(screen.getByRole("tab", { name: /^Unknown/ })).toHaveTextContent("1");
-    expect(screen.getByRole("button", { name: /^Unread/ })).toHaveTextContent("4");
-    expect(screen.getByRole("button", { name: /^Flagged/ })).toHaveTextContent("1");
+    expect(within(row("(404) 555-1234")).getByText("(Unknown)")).toBeInTheDocument();
+    expect(within(row("Alice Adams")).getByText("(Client)")).toBeInTheDocument();
+    expect(within(row("(2) TX - Cannon Burt")).getByText("(Tech)")).toBeInTheDocument();
+    // The avatar carries the first character, verbatim.
+    expect(within(row("(2) TX - Cannon Burt")).getByText("(", { selector: "[data-slot=avatar-fallback]" })).toBeInTheDocument();
+    expect(within(row("Alice Adams")).getByText("preview a")).toBeInTheDocument();
+
+    expect(screen.getByLabelText("2 unread")).toBeInTheDocument();
+    expect(row("Bob Builder")).toHaveAttribute("data-unread", "true");
+    // The open thread is marked; here the harness has "a" selected.
+    expect(row("Alice Adams")).toHaveAttribute("aria-current", "true");
+    expect(row("Bob Builder")).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
   });
 
-  it("switches the Unread view by asking the server for it", async () => {
+  it("filters with the funnel — Unread asks the server, with the counts in the menu", async () => {
     renderList();
     await screen.findByText("Alice Adams");
 
-    await userEvent.click(screen.getByRole("button", { name: /^Unread/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const unread = await screen.findByRole("menuitemradio", { name: /^Unread/ });
+    expect(unread).toHaveTextContent("4");
+    expect(screen.getByRole("menuitemradio", { name: /^Flagged/ })).toHaveTextContent("1");
+    await userEvent.click(unread);
 
     await waitFor(() => expect(requestedViews).toContain("unread"));
     await waitFor(() => expect(screen.queryByText("Alice Adams")).toBeNull());
     expect(screen.getByText("Bob Builder")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Unread/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Filter: Unread" })).toBeInTheDocument();
   });
 
-  it("narrows by category on the server, and Archived is its own view", async () => {
-    renderList();
-    await screen.findByText("Alice Adams");
-
-    await userEvent.click(screen.getByRole("tab", { name: /^Clients/ }));
+  it("asks the server for the category picked in the left column; Archived is its own view", async () => {
+    renderList({ initial: { view: "all", kind: "client", search: "" } });
     await waitFor(() => expect(requestedKinds).toContain("client"));
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Archived/ }));
+    renderList({ initial: { view: "archived", search: "" } });
     await waitFor(() => expect(requestedViews).toContain("archived"));
-    expect(screen.getByRole("tab", { name: /^Archived/ })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("offers a New conversation button to senders", async () => {
+  it("narrows a filter view by category on the client, since the server cannot combine them", async () => {
+    renderList({ initial: { view: "unread", kind: "unknown", search: "" } });
+    await waitFor(() => expect(requestedViews).toContain("unread"));
+    // The unread page holds only Bob (a client); Requests = unknown shows nothing.
+    await waitFor(() => expect(screen.getByText("No conversations yet")).toBeInTheDocument());
+    expect(screen.getByText(/Nothing in Requests · Unread/)).toBeInTheDocument();
+    expect(screen.queryByText("Bob Builder")).toBeNull();
+  });
+
+  it("offers the New message icon to senders", async () => {
     const onNew = vi.fn();
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <Harness onNewConversation={onNew} />
-      </QueryClientProvider>,
-    );
-    await userEvent.click(await screen.findByRole("button", { name: "New conversation" }));
+    renderList({ onNewConversation: onNew });
+    await userEvent.click(await screen.findByRole("button", { name: "New message" }));
     expect(onNew).toHaveBeenCalledTimes(1);
   });
 
-  it("filters what is loaded as you type, by name or preview", async () => {
-    renderList();
+  it("lists team groups behind the group icon and opens one", async () => {
+    const onSelect = vi.fn();
+    renderList({ onSelect });
     await screen.findByText("Alice Adams");
 
+    await userEvent.click(screen.getByRole("button", { name: "Groups" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Night crew/ }));
+    await waitFor(() => expect(requestedKinds).toContain("group"));
+    expect(onSelect).toHaveBeenCalledWith("g");
+  });
+
+  it("unfolds the search icon into a field that filters what is loaded, by name or preview", async () => {
+    renderList();
+    await screen.findByText("Alice Adams");
+    expect(screen.queryByLabelText("Search conversations")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
     await userEvent.type(screen.getByLabelText("Search conversations"), "bob");
     await waitFor(() => expect(screen.queryByText("Alice Adams")).toBeNull());
     expect(screen.getByText("Bob Builder")).toBeInTheDocument();
@@ -171,20 +209,40 @@ describe("ConversationList", () => {
     await userEvent.type(screen.getByLabelText("Search conversations"), "preview a");
     await waitFor(() => expect(screen.queryByText("Bob Builder")).toBeNull());
     expect(screen.getByText("Alice Adams")).toBeInTheDocument();
+
+    // Closing the field clears the search and brings the toolbar back.
+    await userEvent.click(screen.getByRole("button", { name: "Close search" }));
+    expect(await screen.findByText("Bob Builder")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
   });
 
   it("looks a typed phone number up on the server and surfaces its thread", async () => {
     renderList();
     await screen.findByText("Alice Adams");
 
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
     await userEvent.type(screen.getByLabelText("Search conversations"), "770 555 0000");
     expect(await screen.findByText("(770) 555-0000")).toBeInTheDocument();
   });
 
   it("reports the picked thread", async () => {
     const onSelect = vi.fn();
-    renderList(onSelect);
+    renderList({ onSelect });
     await userEvent.click(await screen.findByText("Bob Builder"));
     expect(onSelect).toHaveBeenCalledWith("b");
+  });
+
+  it("has a ⋮ menu per row with read / star / archive, which does not open the thread", async () => {
+    const onSelect = vi.fn();
+    renderList({ onSelect });
+    await screen.findByText("Bob Builder");
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions for Bob Builder" }));
+    expect(await screen.findByRole("menuitem", { name: "Mark as read" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Unstar" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+
+    await waitFor(() => expect(patches).toEqual([{ id: "b", body: { state: "archived" } }]));
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
