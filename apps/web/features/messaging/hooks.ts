@@ -4,9 +4,12 @@ import { useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
+  useMutationState,
   useQuery,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
+  type QueryKey,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Contact, InboxCounters, PaginatedResponse } from "@bitcrm/types";
@@ -32,8 +35,10 @@ import type {
 } from "./api";
 import { applyConversation, applyMessage } from "./cache";
 import {
+  describeResendError,
   describeSendError,
   patchMessageInPages,
+  removeMessageFromPages,
   replacePendingMessage,
   upsertMessageInPages,
   type PartyNames,
@@ -356,6 +361,120 @@ export function useSendMessage() {
       toast.error(reason);
     },
   });
+}
+
+export interface ResendArgs {
+  conversationId: string;
+  /** The failed line — its text, channel and attachments seed the new one. */
+  message: FeedMessage;
+  /** Idempotency key of the new send, minted by the caller as the composer does. */
+  clientMessageId: string;
+}
+
+type FeedPages = PaginatedResponse<FeedMessage>[];
+
+/** Rewrite one feed's pages; a feed never opened is left alone — it loads fresh on open. */
+function patchFeed(qc: QueryClient, key: QueryKey, fn: (pages: FeedPages) => FeedPages): void {
+  qc.setQueryData<FeedData>(key, (prev) => (prev ? { ...prev, pages: fn(prev.pages) } : prev));
+}
+
+/** Where a line is drawn: its thread's feed and, when it carries a job, the job tab's. */
+function feedKeysOf(conversationId: string, dealId?: string) {
+  return {
+    thread: queryKeys.messaging.messages(conversationId),
+    job: dealId ? queryKeys.messaging.messagesByJob(dealId) : undefined,
+  };
+}
+
+/** Every resend is keyed alike, so any feed can ask which lines are in flight. */
+const RESEND_MUTATION_KEY = ["messaging", "resend"] as const;
+
+/**
+ * Resend a failed line. The server makes a NEW outbound message (carrying
+ * `resentFromMessageId`) and stamps the original with `resentAsMessageId`;
+ * the original's `createdAt` goes along so its row is opened directly.
+ * The new line appears at once as `queued`, keyed by `clientMessageId`,
+ * and is swapped for the server's message on the 202 — dropping any copy
+ * the stream delivered first, so the real id is drawn once; later
+ * `message.upserted` frames then patch that id in place. A line that
+ * carries a job gets the same treatment in the job tab's feed, so neither
+ * view offers to resend it twice. A refusal removes the placeholder and
+ * leaves the original as it was.
+ */
+export function useResendMessage() {
+  const qc = useQueryClient();
+  const { me } = usePermissions();
+  return useMutation({
+    mutationKey: RESEND_MUTATION_KEY,
+    mutationFn: ({ conversationId, message, clientMessageId }: ResendArgs) =>
+      api.resendMessage(conversationId, message.id, { clientMessageId, createdAt: message.createdAt }),
+    onMutate: async ({ conversationId, message, clientMessageId }) => {
+      const { thread, job } = feedKeysOf(conversationId, message.dealId);
+      await qc.cancelQueries({ queryKey: thread });
+      if (job) await qc.cancelQueries({ queryKey: job });
+      const now = new Date().toISOString();
+      const pending: FeedMessage = {
+        id: clientMessageId,
+        conversationId,
+        channel: message.channel,
+        direction: "outbound",
+        body: message.body,
+        subject: message.subject,
+        to: message.to,
+        toMasked: message.toMasked,
+        status: "queued",
+        origin: "user",
+        sentByUserId: me?.id,
+        dealId: message.dealId,
+        templateId: message.templateId,
+        attachments: message.attachments,
+        resentFromMessageId: message.id,
+        createdAt: now,
+        updatedAt: now,
+      };
+      qc.setQueryData<FeedData>(thread, (prev) => {
+        const base = prev ?? { pages: [], pageParams: [undefined] };
+        return { ...base, pages: upsertMessageInPages(base.pages, pending) };
+      });
+      if (job) patchFeed(qc, job, (pages) => upsertMessageInPages(pages, pending));
+    },
+    onSuccess: (created, { conversationId, message, clientMessageId }) => {
+      const { thread, job } = feedKeysOf(conversationId, message.dealId);
+      const settle = (pages: FeedPages) =>
+        patchMessageInPages(replacePendingMessage(pages, clientMessageId, created), message.id, {
+          resentAsMessageId: created.id,
+        });
+      patchFeed(qc, thread, settle);
+      if (job) {
+        patchFeed(qc, job, settle);
+        void qc.invalidateQueries({ queryKey: job });
+      }
+      // The list row (preview, ordering) follows on the stream; nudge it in case.
+      void qc.invalidateQueries({ queryKey: queryKeys.messaging.conversationLists() });
+    },
+    onError: (e, { conversationId, message, clientMessageId }) => {
+      const status = e instanceof ApiError ? e.status : undefined;
+      const { thread, job } = feedKeysOf(conversationId, message.dealId);
+      const drop = (pages: FeedPages) => removeMessageFromPages(pages, clientMessageId);
+      patchFeed(qc, thread, drop);
+      if (job) patchFeed(qc, job, drop);
+      toast.error(describeResendError(status, getApiErrorMessage(e)));
+    },
+  });
+}
+
+/**
+ * The failed lines whose resend has not answered yet, from every mounted
+ * feed: the same line waits in the inbox thread and in the job tab alike,
+ * and one resend settling does not free another line's button.
+ */
+export function useResendingMessageIds(): ReadonlySet<string> {
+  const ids = useMutationState({
+    filters: { mutationKey: RESEND_MUTATION_KEY, status: "pending" },
+    select: (m) => (m.state.variables as ResendArgs).message.id,
+  });
+  // `useMutationState` hands back the same array until its contents change.
+  return useMemo(() => new Set(ids), [ids]);
 }
 
 /** First message to a party with no thread yet (contact or bare number). */

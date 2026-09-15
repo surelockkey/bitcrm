@@ -96,8 +96,116 @@ describe("MessageFeed", () => {
     });
 
     expect(screen.getByRole("img", { name: /Undelivered · Unreachable/ })).toHaveAttribute("data-tick", "error");
-    expect(screen.getByText("Not delivered")).toBeInTheDocument();
-    expect(screen.getByText("Unreachable destination handset")).toBeInTheDocument();
+    expect(screen.getByText("Failed · Unreachable destination handset")).toBeInTheDocument();
+  });
+
+  it("spells out a known code, else the code itself, else plain 'Not delivered'", () => {
+    const failed = (id: string, extra: Partial<FeedMessage>) =>
+      msg(id, today(11), { direction: "outbound", origin: "user", status: "failed", ...extra });
+    renderFeed({
+      messages: [
+        failed("geo", { errorCode: "21408" }),
+        failed("stop", { errorCode: "21610" }),
+        failed("dlc", { errorCode: "30034" }),
+        failed("odd", { errorCode: "12345" }),
+        failed("bare", {}),
+      ],
+    });
+
+    expect(bubbleOf("body geo")).toHaveTextContent("Failed · Texting this country is not enabled on the account");
+    expect(bubbleOf("body stop")).toHaveTextContent("Failed · This number opted out of texts (STOP)");
+    expect(bubbleOf("body dlc")).toHaveTextContent("Failed · Sender number is not registered for A2P 10DLC");
+    expect(bubbleOf("body odd")).toHaveTextContent("Failed · Not delivered (code 12345)");
+    expect(bubbleOf("body bare")).toHaveTextContent("Failed · Not delivered");
+    // The alert mark replaces the ticks on every failed line.
+    expect(screen.getAllByRole("img")).toHaveLength(5);
+    for (const icon of screen.getAllByRole("img")) expect(icon).toHaveAttribute("data-tick", "error");
+  });
+
+  it("offers Resend only on a failed outbound line, and only when the viewer may send", async () => {
+    const onResend = vi.fn();
+    const { rerender } = renderFeed({
+      messages: [
+        msg("bad", today(11), { direction: "outbound", origin: "user", status: "failed", errorCode: "30007" }),
+        msg("ok", today(10), { direction: "outbound", origin: "user", status: "delivered" }),
+        msg("in", today(9)),
+      ],
+      onResend,
+    });
+
+    const buttons = screen.getAllByRole("button", { name: "Resend" });
+    expect(buttons).toHaveLength(1);
+    expect(bubbleOf("body bad")).toContainElement(buttons[0]);
+    expect(within(bubbleOf("body ok")).queryByRole("button", { name: "Resend" })).toBeNull();
+    expect(within(bubbleOf("body in")).queryByRole("button", { name: "Resend" })).toBeNull();
+
+    await userEvent.click(buttons[0]);
+    expect(onResend).toHaveBeenCalledWith(expect.objectContaining({ id: "bad" }));
+
+    // Without `messages.send` the thread passes no handler: the reason stays, the button goes.
+    rerender(
+      <TooltipProvider>
+        <MessageFeed
+          messages={[msg("bad", today(11), { direction: "outbound", origin: "user", status: "failed", errorCode: "30007" })]}
+          canManage={false}
+        />
+      </TooltipProvider>,
+    );
+    expect(screen.getByText("Failed · Filtered by the carrier as spam")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+  });
+
+  it("says 'Resent' instead of offering Resend once the line was resent, and waits while one is in flight", () => {
+    const { rerender } = renderFeed({
+      messages: [
+        msg("orig", today(11), {
+          direction: "outbound",
+          origin: "user",
+          status: "failed",
+          errorCode: "21408",
+          resentAsMessageId: "copy",
+        }),
+        msg("copy", today(12), { direction: "outbound", origin: "user", status: "queued", resentFromMessageId: "orig" }),
+      ],
+      onResend: vi.fn(),
+    });
+
+    expect(bubbleOf("body orig")).toHaveTextContent("· Resent");
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+    expect(bubbleOf("body copy")).toHaveTextContent("Sending…");
+
+    rerender(
+      <TooltipProvider>
+        <MessageFeed
+          messages={[msg("orig", today(11), { direction: "outbound", origin: "user", status: "failed" })]}
+          canManage={false}
+          onResend={vi.fn()}
+          resendingMessageIds={new Set(["orig"])}
+        />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Resending…" })).toBeDisabled();
+  });
+
+  it("shows a spinner with 'Sending…', then one tick for sent and two for delivered", () => {
+    renderFeed({
+      messages: [
+        msg("q", today(12), { direction: "outbound", origin: "user", status: "queued" }),
+        msg("s", today(11), { direction: "outbound", origin: "user", status: "sending" }),
+        msg("t", today(10), { direction: "outbound", origin: "user", status: "sent" }),
+        msg("d", today(9), { direction: "outbound", origin: "user", status: "delivered" }),
+      ],
+    });
+
+    expect(within(bubbleOf("body q")).getByRole("img", { name: "Queued" })).toHaveAttribute("data-tick", "pending");
+    expect(bubbleOf("body q")).toHaveTextContent("Sending…");
+    const sending = within(bubbleOf("body s")).getByRole("img", { name: "Sending" });
+    expect(sending).toHaveAttribute("data-tick", "pending");
+    expect(sending.querySelector("svg")).toHaveClass("animate-spin");
+    expect(within(bubbleOf("body t")).getByRole("img", { name: "Sent" })).toHaveAttribute("data-tick", "sent");
+    expect(bubbleOf("body t")).toHaveTextContent("Message sent");
+    expect(within(bubbleOf("body d")).getByRole("img", { name: "Delivered" })).toHaveAttribute("data-tick", "delivered");
+    expect(bubbleOf("body d")).toHaveTextContent("Message received");
   });
 
   it("renders image attachments as thumbnails inside the bubble and other files as links", () => {

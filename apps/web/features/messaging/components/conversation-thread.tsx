@@ -12,10 +12,12 @@ import {
   useConversationMessages,
   useMarkRead,
   useMessagingAccess,
+  useResendMessage,
+  useResendingMessageIds,
   useSetMessageFlag,
   useTextLookup,
 } from "../hooks";
-import { flattenFeed, messageSk } from "../lib";
+import { flattenFeed, messageSk, newClientMessageId } from "../lib";
 import { MessageFeed } from "./message-feed";
 import { ThreadHeader } from "./thread-header";
 
@@ -57,11 +59,13 @@ export function ConversationThread({
   embedded?: boolean;
   className?: string;
 }) {
-  const { canManage } = useMessagingAccess();
+  const { canManage, canSend } = useMessagingAccess();
   const detail = useConversation(conversationId);
   const feed = useConversationMessages(conversationId);
   const markRead = useMarkRead();
   const setFlag = useSetMessageFlag();
+  const resend = useResendMessage();
+  const resending = useResendingMessageIds();
 
   const messages = useMemo(() => flattenFeed(feed.data?.pages), [feed.data]);
   const authorIds = useMemo(
@@ -96,6 +100,8 @@ export function ConversationThread({
 
   const toggleFlag = (m: FeedMessage) =>
     setFlag.mutate({ conversationId, messageId: m.id, createdAt: m.createdAt, flagged: !m.flagged });
+  const resendLine = (m: FeedMessage) =>
+    resend.mutate({ conversationId, message: m, clientMessageId: newClientMessageId() });
 
   if (detail.isError) {
     return (
@@ -134,6 +140,9 @@ export function ConversationThread({
         canManage={canManage}
         onToggleFlag={toggleFlag}
         onForward={onForward}
+        // Resend is a send: blocked exactly when the composer is.
+        onResend={canSend && !optedOut ? resendLine : undefined}
+        resendingMessageIds={resending}
         authorNames={authorNames}
         partyName={title || undefined}
         recap={!embedded}

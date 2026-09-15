@@ -3,7 +3,9 @@ import type { PaginatedResponse } from "@bitcrm/types";
 import type { FeedMessage, InboxConversation } from "./api";
 import {
   conversationTitle,
+  describeResendError,
   EMPTY_PARTY_NAMES,
+  errorText,
   flattenFeed,
   formatDayChip,
   formatDayLabel,
@@ -19,6 +21,7 @@ import {
   matchesSearch,
   messageSk,
   replacePendingMessage,
+  statusText,
   statusTick,
   upsertConversationInPages,
   upsertMessageInPages,
@@ -68,6 +71,56 @@ describe("statusTick", () => {
     expect(statusTick("read")).toBe("read");
     expect(statusTick("failed")).toBe("error");
     expect(statusTick("undelivered")).toBe("error");
+    expect(statusTick("canceled")).toBe("error");
+  });
+});
+
+describe("errorText", () => {
+  it("prefers the carrier's own words", () => {
+    expect(
+      errorText({ errorCode: "21408", errorMessage: "Permission to send an SMS has not been enabled for the region" }),
+    ).toBe("Permission to send an SMS has not been enabled for the region");
+  });
+
+  it("has a short line for the codes an inbox actually meets", () => {
+    expect(errorText({ errorCode: "21408" })).toBe("Texting this country is not enabled on the account");
+    expect(errorText({ errorCode: "21610" })).toBe("This number opted out of texts (STOP)");
+    expect(errorText({ errorCode: "21211" })).toBe("Invalid phone number");
+    expect(errorText({ errorCode: "21614" })).toBe("Not a mobile number");
+    expect(errorText({ errorCode: "30034" })).toBe("Sender number is not registered for A2P 10DLC");
+    expect(errorText({ errorCode: "30003" })).toBe("Phone unreachable or switched off");
+    expect(errorText({ errorCode: "30007" })).toBe("Filtered by the carrier as spam");
+  });
+
+  it("falls back to the code, then to a plain 'Not delivered'", () => {
+    expect(errorText({ errorCode: "99999" })).toBe("Not delivered (code 99999)");
+    expect(errorText({})).toBe("Not delivered");
+  });
+});
+
+describe("statusText", () => {
+  it("spells the lifecycle the Workiz way", () => {
+    expect(statusText("queued")).toBe("Sending…");
+    expect(statusText("sending")).toBe("Sending…");
+    expect(statusText("sent")).toBe("Message sent");
+    expect(statusText("delivered")).toBe("Message received");
+    expect(statusText("read")).toBe("Message read");
+  });
+
+  it("reads 'Failed · <why>' for every terminal failure", () => {
+    expect(statusText("failed", { errorCode: "30007" })).toBe("Failed · Filtered by the carrier as spam");
+    expect(statusText("undelivered", { errorCode: "30003", errorMessage: "Unreachable destination handset" })).toBe(
+      "Failed · Unreachable destination handset",
+    );
+    expect(statusText("canceled")).toBe("Failed · Not delivered");
+  });
+});
+
+describe("describeResendError", () => {
+  it("names the 409 and defers to the send wording otherwise", () => {
+    expect(describeResendError(409, "Conflict")).toBe("Only failed messages can be resent");
+    expect(describeResendError(422, "x")).toMatch(/opted out/);
+    expect(describeResendError(500, "Boom")).toBe("Boom");
   });
 });
 

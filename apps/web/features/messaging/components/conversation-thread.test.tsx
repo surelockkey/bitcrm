@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -8,9 +8,11 @@ import { server } from "@/test/msw/server";
 import type { FeedMessage, InboxConversation } from "../api";
 import { ConversationThread } from "./conversation-thread";
 
+const perms = vi.hoisted(() => ({ canSend: true }));
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({
-    can: () => true,
+    can: (resource: string, action?: string) =>
+      resource === "messages" && action === "send" ? perms.canSend : true,
     me: { id: "me" },
     isLoading: false,
     isTechnician: false,
@@ -58,15 +60,50 @@ const messages: FeedMessage[] = [
     createdAt: "2026-09-15T09:00:00.000Z",
     updatedAt: "2026-09-15T09:00:00.000Z",
   },
+  {
+    id: "m0",
+    conversationId: "c1",
+    channel: "sms",
+    direction: "outbound",
+    body: "Are you home?",
+    status: "failed",
+    errorCode: "21408",
+    errorMessage: "Permission to send an SMS has not been enabled for the region",
+    origin: "user",
+    createdAt: "2026-09-15T08:00:00.000Z",
+    updatedAt: "2026-09-15T08:00:00.000Z",
+  },
 ];
 
 const readCalls: unknown[] = [];
+const resendCalls: unknown[] = [];
 let optedOut = false;
 
 beforeEach(() => {
   readCalls.length = 0;
+  resendCalls.length = 0;
   optedOut = false;
+  perms.canSend = true;
   server.use(
+    http.post("*/messaging/conversations/c1/messages/m0/resend", async ({ request }) => {
+      resendCalls.push(await request.json());
+      return HttpResponse.json(
+        {
+          success: true,
+          data: {
+            ...messages[2],
+            id: "m3",
+            status: "queued",
+            errorCode: undefined,
+            errorMessage: undefined,
+            resentFromMessageId: "m0",
+            createdAt: "2026-09-15T10:30:00.000Z",
+            updatedAt: "2026-09-15T10:30:00.000Z",
+          },
+        },
+        { status: 202 },
+      );
+    }),
     http.get("*/messaging/conversations/text-lookup", () =>
       HttpResponse.json({
         success: true,
@@ -81,7 +118,7 @@ beforeEach(() => {
       }),
     ),
     http.get("*/messaging/conversations/c1/messages", () =>
-      HttpResponse.json({ success: true, data: messages, pagination: { count: 2 } }),
+      HttpResponse.json({ success: true, data: messages, pagination: { count: messages.length } }),
     ),
     http.get("*/messaging/conversations/c1", () =>
       HttpResponse.json({ success: true, data: conversation }),
@@ -129,12 +166,17 @@ describe("ConversationThread", () => {
     expect(readCalls).toHaveLength(1);
   });
 
-  it("shows the opt-out banner and tells the footer sending is blocked", async () => {
+  it("shows the opt-out banner, tells the footer sending is blocked, and withholds Resend the same way", async () => {
     optedOut = true;
     renderThread();
 
     expect(await screen.findByText("This number opted out of texts")).toBeInTheDocument();
     expect(screen.getByTestId("footer")).toHaveTextContent("blocked");
+
+    // A resend is a send: the failed line keeps its reason, the button goes.
+    const bubble = (await screen.findByText("Are you home?")).closest("[data-direction]") as HTMLElement;
+    expect(bubble).toHaveTextContent("Failed · Permission to send an SMS");
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
   });
 
   it("has the Workiz header: name with the type under it, person and phone icons, and ⋮ for the rest", async () => {
@@ -159,5 +201,99 @@ describe("ConversationThread", () => {
     const incoming = (await screen.findByText("Running late, sorry")).closest("[data-direction]") as HTMLElement;
     expect(incoming).toHaveTextContent("Jane Doe");
     expect(screen.getByRole("button", { name: "Recap conversation" })).toBeInTheDocument();
+  });
+
+  it("draws the failed line in the Workiz way and resends it through the resend route", async () => {
+    renderThread();
+
+    const bubble = (await screen.findByText("Are you home?")).closest("[data-direction]") as HTMLElement;
+    expect(bubble).toHaveTextContent("Failed · Permission to send an SMS has not been enabled for the region");
+    expect(bubble.querySelector("[data-tick]")).toHaveAttribute("data-tick", "error");
+
+    await userEvent.click(screen.getByRole("button", { name: "Resend" }));
+
+    await waitFor(() => expect(resendCalls).toHaveLength(1));
+    // A fresh idempotency key, and the original's `createdAt` so the server opens its row directly.
+    expect(resendCalls[0]).toEqual({
+      clientMessageId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      createdAt: "2026-09-15T08:00:00.000Z",
+    });
+
+    // The new line lands in the feed once, the original says it was resent.
+    await waitFor(() => expect(screen.getAllByText("Are you home?")).toHaveLength(2));
+    expect(screen.getByTestId("message-feed").querySelector('[data-message-id="m3"]')).toBeInTheDocument();
+    expect(bubble).toHaveTextContent("· Resent");
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+  });
+
+  it("keeps every line whose resend is out on 'Resending…' until its own answer lands", async () => {
+    const second: FeedMessage = {
+      ...messages[2],
+      id: "m00",
+      body: "Still there?",
+      createdAt: "2026-09-15T07:00:00.000Z",
+      updatedAt: "2026-09-15T07:00:00.000Z",
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    server.use(
+      http.get("*/messaging/conversations/c1/messages", () =>
+        HttpResponse.json({ success: true, data: [...messages, second], pagination: { count: 4 } }),
+      ),
+      http.post("*/messaging/conversations/c1/messages/:id/resend", async ({ params, request }) => {
+        resendCalls.push(await request.json());
+        await gate;
+        const id = params.id as string;
+        return HttpResponse.json(
+          {
+            success: true,
+            data: {
+              ...(id === "m0" ? messages[2] : second),
+              id: `${id}-again`,
+              status: "queued",
+              errorCode: undefined,
+              errorMessage: undefined,
+              resentFromMessageId: id,
+              createdAt: "2026-09-15T10:30:00.000Z",
+              updatedAt: "2026-09-15T10:30:00.000Z",
+            },
+          },
+          { status: 202 },
+        );
+      }),
+    );
+    renderThread();
+
+    const first = (await screen.findByText("Are you home?")).closest("[data-direction]") as HTMLElement;
+    const other = screen.getByText("Still there?").closest("[data-direction]") as HTMLElement;
+
+    await userEvent.click(within(first).getByRole("button", { name: "Resend" }));
+    expect(await within(first).findByRole("button", { name: "Resending…" })).toBeDisabled();
+
+    // Clicking the second line must not free the first one's button.
+    await userEvent.click(within(other).getByRole("button", { name: "Resend" }));
+    expect(await within(other).findByRole("button", { name: "Resending…" })).toBeDisabled();
+    expect(within(first).getByRole("button", { name: "Resending…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
+
+    release();
+    await waitFor(() => expect(first).toHaveTextContent("· Resent"));
+    await waitFor(() => expect(other).toHaveTextContent("· Resent"));
+    expect(screen.queryByRole("button", { name: /Resend/ })).toBeNull();
+    expect(resendCalls).toEqual([
+      { clientMessageId: expect.any(String), createdAt: "2026-09-15T08:00:00.000Z" },
+      { clientMessageId: expect.any(String), createdAt: "2026-09-15T07:00:00.000Z" },
+    ]);
+  });
+
+  it("keeps the reason but hides Resend from a viewer without messages.send", async () => {
+    perms.canSend = false;
+    renderThread();
+
+    const bubble = (await screen.findByText("Are you home?")).closest("[data-direction]") as HTMLElement;
+    expect(bubble).toHaveTextContent("Failed · Permission to send an SMS");
+    expect(screen.queryByRole("button", { name: "Resend" })).toBeNull();
   });
 });

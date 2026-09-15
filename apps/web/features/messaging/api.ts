@@ -339,6 +339,31 @@ export const sendMessage = (conversationId: string, body: SendMessageBody): Prom
 export const sendToParty = (body: StartConversationBody): Promise<FeedMessage> =>
   http.post<FeedMessage>(`${BASE}/messages`, body);
 
+export interface ResendMessageBody {
+  /** Idempotency key of the new send (uuid), as on a first send. */
+  clientMessageId?: string;
+  /**
+   * The original's `createdAt` — the server opens its row directly with it;
+   * without it, a line deeper than the thread's first 200 answers 404.
+   */
+  createdAt?: string;
+}
+
+/**
+ * Resend a failed line: 202 with the NEW outbound message (it carries
+ * `resentFromMessageId`; the original gets `resentAsMessageId`), 409 when
+ * the original is not in a terminal failure status.
+ */
+export const resendMessage = (
+  conversationId: string,
+  messageId: string,
+  body: ResendMessageBody = {},
+): Promise<FeedMessage> =>
+  http.post<FeedMessage>(
+    `${BASE}/conversations/${conversationId}/messages/${messageId}/resend`,
+    body,
+  );
+
 export const presignAttachment = (file: {
   fileName: string;
   contentType: string;
