@@ -25,6 +25,9 @@
 #
 # All non-secret runtime config is read from SSM Parameter Store under /bitcrm/dev/.
 # SSM path -> env var: /bitcrm/dev/x/y-z  ==>  X_Y_Z
+# Queue URLs additionally get the service-friendly alias SQS_<X>_URL -> <X>_QUEUE_URL,
+# e.g. /bitcrm/dev/sqs/deal-events-to-messaging/url ==> DEAL_EVENTS_TO_MESSAGING_QUEUE_URL
+# (messaging consumes contact-events-to-messaging and deal-events-to-messaging that way).
 #
 # Output: rendered task definition JSON to stdout.
 

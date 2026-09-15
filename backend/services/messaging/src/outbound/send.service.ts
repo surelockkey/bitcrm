@@ -20,6 +20,7 @@ import {
   type JwtUser,
   type Message,
   type MessageAttachment,
+  type MessageOrigin,
   type ResolvedPermissions,
 } from '@bitcrm/types';
 import { ConversationsRepository } from '../conversations/conversations.repository';
@@ -38,6 +39,38 @@ import { MESSAGE_TEMPLATE_RENDERER, type MessageTemplateRenderer } from './templ
 export interface SendCaller {
   user: JwtUser;
   perms?: ResolvedPermissions;
+}
+
+/**
+ * An outbound SMS the service sends on its own behalf (design §10 M21:
+ * automations, technician-triggered notices) — no HTTP caller, no DTO, no
+ * permission check; the opt-out rule, the sender chain and the
+ * `CLIENTMSG#` idempotency guard still apply.
+ */
+export interface SystemSendInput {
+  conversation: Conversation;
+  /** Already rendered; blank is refused. */
+  body: string;
+  /** E.164 among the conversation phones; the first one when absent. */
+  to?: string;
+  dealId?: string;
+  origin: Extract<MessageOrigin, 'automation' | 'system'>;
+  automationRuleId?: string;
+  /** The user on whose behalf it goes (a technician's "on my way"), if any. */
+  sentByUserId?: string;
+  templateId?: string;
+  /** Deterministic for automations (`automation:<rule>:<deal>:<tech>:<date>`) so a replay sends once. */
+  clientMessageId: string;
+  /** `createdBy` on the idempotency pointer — the user, or a `system:*` actor. */
+  actorId: string;
+  /** Sender override (rung 1 of the chain); otherwise the conversation's sticky number and on down. */
+  fromNumber?: string;
+}
+
+export interface SystemSendResult {
+  message: Message;
+  /** The idempotency key was already used: `message` is the first one, nothing was sent again. */
+  duplicate: boolean;
 }
 
 /** Prefix of every composer upload; the key never leaves the caller's own folder. */
@@ -138,29 +171,88 @@ export class SendService {
       updatedAt: now,
     };
 
+    const accepted = await this.accept(conversation, message, { clientMessageId: dto.clientMessageId, createdBy: caller.user.id });
+    return accepted.message;
+  }
+
+  /**
+   * The service's own sends (automations, "on my way" / "late"): the same
+   * path as a composer send from the opt-out check on, minus authorisation
+   * and templating — the caller has rendered the text and checked its own
+   * rules. Throws `RecipientOptedOutException` like the HTTP path; a repeat
+   * of `clientMessageId` answers `duplicate: true` with the first message.
+   */
+  async sendSystem(input: SystemSendInput): Promise<SystemSendResult> {
+    const { conversation } = input;
+    const to = this.recipient(conversation, input.to);
+    if (await this.optOuts.isOptedOut('sms', to)) throw new RecipientOptedOutException(to);
+
+    const body = input.body.trim();
+    if (!body) throw new BadRequestException('body must not be blank');
+
+    const dealId = input.dealId ?? conversation.lastDealId;
+    const sender = await this.sender.resolve({ requested: input.fromNumber, conversation, dealId });
+
+    const now = new Date().toISOString();
+    const message: Message = {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'sms',
+      direction: 'outbound',
+      body,
+      from: sender.from,
+      to,
+      businessNumber: sender.from,
+      senderSource: sender.source,
+      status: 'queued',
+      provider: 'twilio',
+      origin: input.origin,
+      sentByUserId: input.sentByUserId,
+      automationRuleId: input.automationRuleId,
+      dealId: input.dealId,
+      templateId: input.templateId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.accept(conversation, message, { clientMessageId: input.clientMessageId, createdBy: input.actorId });
+  }
+
+  /**
+   * Design §4.4 steps 2–3 for a built message: store it `queued` under the
+   * `CLIENTMSG#` guard, hand it to the FIFO queue, fan out realtime and the
+   * `conversation.updated` event. On a duplicate key the first message is
+   * returned instead (§4.9) — nothing is sent twice.
+   */
+  private async accept(
+    conversation: Conversation,
+    message: Message,
+    opts: { clientMessageId: string; createdBy: string },
+  ): Promise<SystemSendResult> {
+    const now = message.createdAt;
+    const to = message.to;
     const result = await this.messages.appendOutbound({
       message,
-      clientMessageId: dto.clientMessageId,
-      createdBy: caller.user.id,
+      clientMessageId: opts.clientMessageId,
+      createdBy: opts.createdBy,
       conversation,
       at: now,
     });
     if (result.duplicate) {
-      // A repeated submit (double click, network retry): the first one won —
-      // hand it back rather than sending twice (design §4.9).
+      // A repeated submit (double click, network retry, SQS redelivery): the
+      // first one won — hand it back rather than sending twice (design §4.9).
       const first = result.existing
         ? await this.messages.getBySk(result.existing.conversationId, result.existing.messageSk)
         : null;
       if (!first) {
         throw new HttpException('clientMessageId was already used', HttpStatus.CONFLICT);
       }
-      return first;
+      return { message: first, duplicate: true };
     }
 
     const key: MessageKey = { conversationId: conversation.id, createdAt: now, messageId: message.id };
     try {
       const outcome = await this.queue.enqueue(key);
-      this.logger.log(`Accepted ${message.id} for ${to} via ${sender.source} (${outcome})`);
+      this.logger.log(`Accepted ${message.id} for ${to} via ${message.senderSource} (${outcome})`);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.error(`Could not enqueue ${message.id}: ${reason}`);
@@ -175,7 +267,7 @@ export class SendService {
 
     this.realtime?.messageUpserted(message, result.conversation, now);
     void this.events.conversationUpdated(conversation.id);
-    return message;
+    return { message, duplicate: false };
   }
 
   /**
@@ -258,7 +350,8 @@ export class SendService {
     throw new BadRequestException('contactId or phone is required');
   }
 
-  private async conversationForContact(contactId: string, phone: string | undefined): Promise<Conversation> {
+  /** The contact's thread, opened from CRM when there is none yet — also what the automations text a client through. */
+  async conversationForContact(contactId: string, phone?: string): Promise<Conversation> {
     const existing = await this.conversations.getByParty('contact', contactId);
     if (existing) return existing;
 

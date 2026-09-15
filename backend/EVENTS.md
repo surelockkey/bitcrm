@@ -33,8 +33,9 @@ lives on the definition, so the search indexer invalidates its cached defs and
 rebuilds all deal docs on any of these.
 
 A deal carries **many** technicians (`assignedTechIds`), so `deal.tech_assigned` /
-`deal.tech_unassigned` (`{dealId, techId, …}`) fire **once per technician** added or
-removed by a roster change. Assignment itself is stored as adjacency rows
+`deal.tech_unassigned` (`{dealId, techId, assignedBy | unassignedBy}`) fire **once per technician** added or
+removed by a roster change. Consumed by **messaging** (`deal.tech_assigned` + `deal.updated`, queue
+`deal-events-to-messaging`) for the "New job" SMS to technicians. Assignment itself is stored as adjacency rows
 (`PK=DEAL#<id>, SK=ASSIGN#<techId>`) indexed on the tech GSI, which is what
 `findByTech` — and therefore the `assigned_only` data scope — reads.
 
@@ -108,7 +109,7 @@ Live-UI updates (new message, counters, opt-out banner) go over SSE
 same pattern as telephony.
 
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
-- **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → rewrites `CONVOF#` / `ADDR#` pointers and merges conversations (handler lands with M7; the consumer is wired in `AppModule` with no handlers registered yet). Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), `messaging-email-events` / `messaging-email-inbound` (M17–M18). Handlers must be idempotent — the consumer does not deduplicate.
+- **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → `ContactEventsHandler` (`src/contact-events/`): a merge hands the duplicate's thread to the survivor (`CONVOF#`, `partyId`, `ADDR#` rows; when both had a thread the survivor absorbs the addresses and the duplicate's thread is archived — messages are not moved between partitions), an update re-reads the contact from CRM and reconciles `ADDR#` rows + `conversation.addresses`. Also ← `deal.tech_assigned`, `deal.updated` (queue `deal-events-to-messaging`) → `NewJobSmsService` (`src/automations/`): the settings `smsFormat` "New job" SMS to the assigned technician's personal phone, once per (job, technician, scheduledDate) via an `AUTOSENT#` marker — `deal.updated` carries no changed fields, so the job is re-read and only a changed `scheduledDate` re-sends. Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), `messaging-email-events` / `messaging-email-inbound` (M17–M18). Handlers must be idempotent — the consumer does not deduplicate.
 - **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`, `message-events`) via the single `search-index` queue → `IndexerEventHandler` (routes in `services/search/src/indexer/event-routes.ts`). Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh. The `conversation` document (M15) is rebuilt from `conversation.updated` and every `message.*` event that names a conversation: the indexer reads `GET /api/messaging/conversations/internal/:id` plus `…/internal/:id/messages?limit=` (last N bodies → `body`), the party from crm / user-service (name → `title`, numbers and emails → `keywords`) and the referenced deals (number → `keywords`, roster → `ownerIds` for `assigned_only`). A contact / company / user edit and a deal roster change also rebuild the conversations that reference them.
