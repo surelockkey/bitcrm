@@ -22,13 +22,24 @@ function make() {
   const deals = mockDealRead();
   const users = { find: jest.fn().mockResolvedValue({ id: 'u9', name: 'Tamir Levi' }) };
   const events = { conversationUpdated: jest.fn() };
+  const counters = { get: jest.fn().mockResolvedValue({ unreadConversations: 1, flaggedConversations: 0, unreadByKind: { client: 1 } }) };
+  const realtime = { conversationUpserted: jest.fn(), countersChanged: jest.fn() };
   const scope = new ConversationScopeService(repo as never, deals as never);
   const reads = new ConversationsService(repo as never, mockOptOutsRepo() as never, scope, deals as never);
-  const svc = new ConversationManagementService(repo as never, messages as never, reads, scope, users as never, events as never);
+  const svc = new ConversationManagementService(
+    repo as never,
+    messages as never,
+    reads,
+    scope,
+    users as never,
+    events as never,
+    counters as never,
+    realtime as never,
+  );
   // Default: the repository applies the patch and stamps a new updatedAt.
   repo.update.mockImplementation(async (current, patch) => ({ ...current, ...patch, updatedAt: '2026-09-15T12:00:00.000Z' }));
   repo.markRead.mockImplementation(async (current) => ({ ...current, unread: false, unreadCount: 0, updatedAt: '2026-09-15T12:00:00.000Z' }));
-  return { svc, repo, messages, deals, users, events };
+  return { svc, repo, messages, deals, users, events, counters, realtime };
 }
 
 const OPEN = createMockConversation({ id: 'c1', unread: true, unreadCount: 2 });
@@ -96,6 +107,41 @@ describe('ConversationManagementService.update', () => {
     deals.listByTech.mockResolvedValue([createMockDeal({ contactId: 'ct1' })]);
     const res = await svc.markRead('c1', undefined, TECH, techPerms());
     expect(res.phonesMasked).toBe(true);
+  });
+});
+
+describe('ConversationManagementService realtime pushes', () => {
+  it('pushes the row after a write, plus the counters read back when a badge moved', async () => {
+    const { svc, repo, counters, realtime } = make();
+    repo.get.mockResolvedValue(OPEN); // unread → markRead moves the unread badge
+    await svc.markRead('c1', undefined, ADMIN, adminPerms());
+    await new Promise((r) => setImmediate(r));
+    expect(realtime.conversationUpserted).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1', unread: false }));
+    expect(counters.get).toHaveBeenCalledTimes(1);
+    expect(realtime.countersChanged).toHaveBeenCalledWith({ unreadConversations: 1, flaggedConversations: 0, unreadByKind: { client: 1 } });
+  });
+
+  it('pushes only the row when no badge moved, and nothing on a no-op', async () => {
+    const { svc, repo, counters, realtime } = make();
+    repo.get.mockResolvedValue(OPEN);
+    await svc.assign('c1', 'u9', ADMIN, adminPerms()); // assignee: no counter delta
+    await new Promise((r) => setImmediate(r));
+    expect(realtime.conversationUpserted).toHaveBeenCalledTimes(1);
+    expect(counters.get).not.toHaveBeenCalled();
+    expect(realtime.countersChanged).not.toHaveBeenCalled();
+
+    realtime.conversationUpserted.mockClear();
+    repo.update.mockImplementation(async (current) => current);
+    await svc.update('c1', { flagged: false }, ADMIN, adminPerms());
+    expect(realtime.conversationUpserted).not.toHaveBeenCalled();
+  });
+
+  it('a failed counters read is logged, not thrown', async () => {
+    const { svc, repo, counters } = make();
+    repo.get.mockResolvedValue(OPEN);
+    counters.get.mockRejectedValue(new Error('dynamo down'));
+    await expect(svc.markRead('c1', undefined, ADMIN, adminPerms())).resolves.toBeDefined();
+    await new Promise((r) => setImmediate(r));
   });
 });
 

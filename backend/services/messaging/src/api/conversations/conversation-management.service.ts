@@ -1,11 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { type Conversation, type JwtUser, type Message, type ResolvedPermissions } from '@bitcrm/types';
+import { countersDelta } from '../../conversations/conversation-keys';
 import {
   ConversationsRepository,
   StaleConversationError,
   type ConversationPatch,
 } from '../../conversations/conversations.repository';
+import { InboxCountersRepository } from '../../counters/inbox-counters.repository';
 import { MessagesRepository } from '../../messages/messages.repository';
+import { RealtimePublisher } from '../../realtime/realtime.publisher';
 import { ConversationScopeService, type Viewer } from '../access/conversation-scope.service';
 import { maskConversation, maskMessage, type MaybeMaskedConversation, type MaybeMaskedMessage } from '../access/masking';
 import { UserLookupService } from '../access/user-lookup.service';
@@ -23,7 +26,9 @@ const MAX_ATTEMPTS = 3;
  * Every write goes through the repository's optimistic `updatedAt` guard
  * (retried from a fresh read when another writer got in first) and lands
  * the counters move in the same transaction; afterwards
- * `conversation.updated` is published for the search index.
+ * `conversation.updated` is published for the search index and
+ * `conversation.upserted` (+ `counters.changed` when a badge moved) for the
+ * browsers.
  */
 @Injectable()
 export class ConversationManagementService {
@@ -36,6 +41,8 @@ export class ConversationManagementService {
     private readonly scope: ConversationScopeService,
     private readonly users: UserLookupService,
     private readonly events: DomainEventsService,
+    @Optional() private readonly counters?: InboxCountersRepository,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   /** `PATCH /conversations/:id` */
@@ -57,10 +64,11 @@ export class ConversationManagementService {
    */
   async markRead(id: string, lastReadMessageSk: string | undefined, user: JwtUser, perms?: ResolvedPermissions): Promise<MaybeMaskedConversation> {
     const viewer = this.scope.viewerFor(user, perms);
-    const { next } = await this.retrying(id, viewer, (current) =>
-      this.conversations.markRead(current, user.id, { lastReadMessageSk }),
+    const { current, next } = await this.retrying(id, viewer, (c) =>
+      this.conversations.markRead(c, user.id, { lastReadMessageSk }),
     );
     this.events.conversationUpdated(id);
+    this.push(current, next);
     return maskConversation(next, viewer.seesNumbers);
   }
 
@@ -126,9 +134,27 @@ export class ConversationManagementService {
       this.conversations.update(c, patch, { actorId: user.id }),
     );
     // The repository hands `current` back untouched when the patch changed
-    // nothing — no write, nothing to reindex.
-    if (next !== current) this.events.conversationUpdated(id);
+    // nothing — no write, nothing to reindex or push.
+    if (next !== current) {
+      this.events.conversationUpdated(id);
+      this.push(current, next);
+    }
     return maskConversation(next, viewer.seesNumbers);
+  }
+
+  /**
+   * Live update for the browsers: the row as written, and — when the
+   * change moved a badge — the counters read back after the transaction.
+   * Never awaited on the request path; a failure is logged.
+   */
+  private push(current: Conversation, next: Conversation): void {
+    if (!this.realtime) return;
+    this.realtime.conversationUpserted(next);
+    if (!countersDelta(current, next) || !this.counters) return;
+    void this.counters
+      .get()
+      .then((counters) => this.realtime?.countersChanged(counters))
+      .catch((err) => this.logger.warn(`counters push failed: ${err instanceof Error ? err.message : err}`));
   }
 
   /**
