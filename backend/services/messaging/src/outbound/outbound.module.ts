@@ -1,37 +1,90 @@
-import { Module } from '@nestjs/common';
+import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { SqsConsumerService } from '@bitcrm/shared';
 import { TwilioModule } from '../common/twilio/twilio.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
+import { StatusController } from '../webhooks/status.controller';
 import { CrmContactsClient } from './internal/crm-contacts.client';
 import { DealContextClient } from './internal/deal-context.client';
 import { TelephonyNumbersClient } from './internal/telephony-numbers.client';
-import { OUTBOUND_CONFIG, loadOutboundConfig } from './outbound.config';
+import { OUTBOUND_CONFIG, loadOutboundConfig, type OutboundConfig } from './outbound.config';
 import { OutboundEventsPublisher } from './outbound-events';
-import { OutboundQueueProducer } from './outbound-queue.producer';
+import { OUTBOUND_JOB_EVENT, OutboundQueueProducer } from './outbound-queue.producer';
+import { OutboundRepository } from './outbound.repository';
+import { OutboundWorker } from './outbound.worker';
 import { SendController } from './send.controller';
 import { SendService } from './send.service';
 import { SenderResolver } from './sender.resolver';
+import { StatusCallbackService } from './status-callback.service';
+
+/** The consumer of `messaging-outbound.fifo` — a second `SqsConsumerService`, one queue each. */
+export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
 
 /**
- * Outbound SMS/MMS (design §4.4, M9): the send API, sender selection and
- * the FIFO queue producer. The worker, the Twilio status callback and the
- * attachment presign land in the same module as the next steps.
+ * Outbound SMS/MMS (design §4.4–4.5, M9): the send API, sender selection,
+ * the FIFO queue on both ends and Twilio's status callback.
+ *
+ * The consumer follows the AppModule pattern (handlers registered in
+ * `onModuleInit`, polling only under `ENABLE_SQS_CONSUMER=true`) but lives
+ * here because the outbound queue is this module's own work queue, not an
+ * event subscription. Without `MESSAGING_OUTBOUND_QUEUE_URL` the producer
+ * hands jobs to the worker in-process, so local dev still sends.
  */
 @Module({
   imports: [TwilioModule, ConversationsModule, MessagesModule, OptOutsModule, MessagingSettingsModule],
-  controllers: [SendController],
+  controllers: [SendController, StatusController],
   providers: [
     { provide: OUTBOUND_CONFIG, useFactory: loadOutboundConfig },
+    {
+      provide: OUTBOUND_SQS_CONSUMER,
+      useFactory: (config: OutboundConfig) =>
+        config.queueUrl
+          ? new SqsConsumerService({
+              region: config.awsRegion,
+              endpoint: config.awsEndpoint,
+              queueUrl: config.queueUrl,
+              waitTimeSeconds: 20,
+              maxMessages: 10,
+            })
+          : null,
+      inject: [OUTBOUND_CONFIG],
+    },
     TelephonyNumbersClient,
     DealContextClient,
     CrmContactsClient,
     SenderResolver,
     OutboundQueueProducer,
     OutboundEventsPublisher,
+    OutboundRepository,
+    OutboundWorker,
+    StatusCallbackService,
     SendService,
   ],
-  exports: [SendService, SenderResolver, OutboundQueueProducer, OUTBOUND_CONFIG],
+  exports: [SendService, SenderResolver, OutboundQueueProducer, OutboundWorker, OUTBOUND_CONFIG],
 })
-export class OutboundModule {}
+export class OutboundModule implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(OutboundModule.name);
+
+  constructor(
+    private readonly worker: OutboundWorker,
+    private readonly producer: OutboundQueueProducer,
+    @Inject(OUTBOUND_CONFIG) private readonly config: OutboundConfig,
+    @Optional() @Inject(OUTBOUND_SQS_CONSUMER) private readonly consumer?: SqsConsumerService | null,
+  ) {}
+
+  onModuleInit() {
+    if (this.consumer) {
+      this.consumer.registerHandler(OUTBOUND_JOB_EVENT, (payload) => this.worker.handle(payload));
+      if (this.config.consumerEnabled) this.consumer.start();
+      return;
+    }
+    this.producer.setInlineHandler((job) => this.worker.process(job));
+    this.logger.warn('MESSAGING_OUTBOUND_QUEUE_URL is not set: outbound messages are sent in-process');
+  }
+
+  onModuleDestroy() {
+    this.consumer?.stop();
+  }
+}
