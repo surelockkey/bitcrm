@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { TWILIO_CONFIG, TwilioRest, type TwilioConfig } from '@bitcrm/shared';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import {
   MESSAGE_STATUS_RANK,
   isSmsChannel,
@@ -85,6 +86,7 @@ export class OutboundWorker {
     private readonly rest: TwilioRest,
     @Inject(TWILIO_CONFIG) private readonly twilio: Pick<TwilioConfig, 'messagingServiceSid' | 'publicBaseUrl'>,
     private readonly attachments: OutboundAttachmentsService,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   /** The SQS handler (`eventType: message.send`). A malformed payload is dropped, not retried. */
@@ -237,6 +239,14 @@ export class OutboundWorker {
     });
     if (errorCode === OPT_OUT_ERROR_CODE && message.to) await this.recordOptOut(message.to);
     if (applied && isTerminalMessageStatus(status)) void this.events.statusChanged(job, status, errorCode);
+    if (applied) {
+      const at = new Date().toISOString();
+      this.realtime?.messageUpserted(
+        { ...message, status, providerSid: providerSid ?? message.providerSid, errorCode, updatedAt: at },
+        undefined,
+        at,
+      );
+    }
   }
 
   /** 21610: Twilio knows the recipient said STOP; so must we (design §4.7). */

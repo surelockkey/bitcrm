@@ -5,7 +5,11 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { MessageTemplatesModule } from '../templates/message-templates.module';
 import { StatusController } from '../webhooks/status.controller';
+import { MESSAGE_TEMPLATE_RENDERER } from './template-renderer';
+import { TemplateRendererAdapter } from './template-renderer.adapter';
 import { OutboundAttachmentsController } from './attachments/attachments.controller';
 import { OutboundAttachmentsService } from './attachments/attachments.service';
 import { CrmContactsClient } from './internal/crm-contacts.client';
@@ -36,10 +40,20 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
  * hands jobs to the worker in-process, so local dev still sends.
  */
 @Module({
-  imports: [TwilioModule, ConversationsModule, MessagesModule, OptOutsModule, MessagingSettingsModule],
+  imports: [
+    TwilioModule,
+    ConversationsModule,
+    MessagesModule,
+    OptOutsModule,
+    MessagingSettingsModule,
+    MessageTemplatesModule,
+    RealtimeModule,
+  ],
   controllers: [SendController, OutboundAttachmentsController, StatusController],
   providers: [
     { provide: OUTBOUND_CONFIG, useFactory: loadOutboundConfig },
+    // M11 ↔ M9: `templateId` on a send is rendered server-side through the templates module.
+    { provide: MESSAGE_TEMPLATE_RENDERER, useClass: TemplateRendererAdapter },
     {
       provide: OUTBOUND_SQS_CONSUMER,
       useFactory: (config: OutboundConfig) =>

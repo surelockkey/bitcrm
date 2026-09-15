@@ -21,6 +21,7 @@ import { ConversationsRepository } from '../conversations/conversations.reposito
 import { MessagesRepository } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
 import { MediaQueueService } from '../media/media-queue.service';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { PartyResolver, type ResolvedParty } from './party-resolver';
 import { mediaFileName, type InboundMessageInput } from './twilio-inbound.payload';
 
@@ -79,6 +80,7 @@ export class InboundService {
     private readonly mediaQueue: MediaQueueService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   async ingest(input: InboundMessageInput, opts: IngestOptions): Promise<IngestResult> {
@@ -115,6 +117,9 @@ export class InboundService {
 
     const optOut = await this.recordOptOut(input, at);
     const mediaQueued = await this.queueMedia(message, input);
+
+    // Step 8 (design §4.3): the browsers learn about it now, unmasked; the SSE side filters per viewer.
+    this.realtime?.messageUpserted(message, appended.conversation, at);
 
     this.publish<MessageReceivedEvent>(MessageEventType.MESSAGE_RECEIVED, {
       messageId: message.id,

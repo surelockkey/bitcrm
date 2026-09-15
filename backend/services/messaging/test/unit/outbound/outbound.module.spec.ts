@@ -1,6 +1,14 @@
 import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { DynamoDbService, S3Service, SqsConsumerService, TWILIO_CONFIG, TwilioRest } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  PermissionCacheReader,
+  RedisService,
+  S3Service,
+  SqsConsumerService,
+  TWILIO_CONFIG,
+  TwilioRest,
+} from '@bitcrm/shared';
 import { OUTBOUND_SQS_CONSUMER, OutboundModule } from '../../../src/outbound/outbound.module';
 import { OUTBOUND_JOB_EVENT, OutboundQueueProducer } from '../../../src/outbound/outbound-queue.producer';
 import { OutboundWorker } from '../../../src/outbound/outbound.worker';
@@ -10,14 +18,20 @@ import { StatusCallbackService } from '../../../src/outbound/status-callback.ser
 import { OutboundAttachmentsService } from '../../../src/outbound/attachments/attachments.service';
 import { OUTBOUND_CONFIG } from '../../../src/outbound/outbound.config';
 
-/** Stands in for the platform modules AppModule provides globally. */
+/**
+ * Stands in for the platform modules AppModule provides globally
+ * (DynamoDB, S3, Redis for the realtime publisher, the permission cache
+ * reader the realtime scope filter reads).
+ */
 @Global()
 @Module({
   providers: [
     { provide: DynamoDbService, useValue: { client: { send: jest.fn() } } },
     { provide: S3Service, useValue: {} },
+    { provide: RedisService, useValue: { client: { publish: jest.fn().mockResolvedValue(1), duplicate: jest.fn() } } },
+    { provide: PermissionCacheReader, useValue: { get: jest.fn().mockResolvedValue(null) } },
   ],
-  exports: [DynamoDbService, S3Service],
+  exports: [DynamoDbService, S3Service, RedisService, PermissionCacheReader],
 })
 class FakePlatformModule {}
 

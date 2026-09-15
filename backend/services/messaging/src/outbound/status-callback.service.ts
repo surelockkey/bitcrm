@@ -1,5 +1,6 @@
-import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { TWILIO_CONFIG, type TwilioConfig } from '@bitcrm/shared';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { isTerminalMessageStatus } from '@bitcrm/types';
 import { parseMessageSk } from '../common/constants/dynamo.constants';
 import { MessagesRepository, type MessageKey } from '../messages/messages.repository';
@@ -47,6 +48,7 @@ export class StatusCallbackService {
     private readonly optOuts: OptOutsRepository,
     private readonly events: OutboundEventsPublisher,
     @Inject(TWILIO_CONFIG) private readonly twilio: Pick<TwilioConfig, 'accountSid' | 'messagingServiceSid'>,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   async handle(query: StatusCallbackQuery, body: TwilioStatusBody): Promise<StatusCallbackOutcome> {
@@ -84,6 +86,11 @@ export class StatusCallbackService {
     }
     if (isTerminalMessageStatus(status)) void this.events.statusChanged(key, status, errorCode);
     void this.events.conversationUpdated(key.conversationId);
+    if (this.realtime) {
+      // Read back rather than guess: the rank guard may have kept an earlier error text.
+      const updated = await this.messages.get(key).catch(() => null);
+      if (updated) this.realtime.messageUpserted(updated);
+    }
     return 'applied';
   }
 

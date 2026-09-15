@@ -30,6 +30,7 @@ import { CrmContactsClient } from './internal/crm-contacts.client';
 import { DealContextClient } from './internal/deal-context.client';
 import { OutboundEventsPublisher } from './outbound-events';
 import { OutboundQueueProducer } from './outbound-queue.producer';
+import { RealtimePublisher } from '../realtime/realtime.publisher';
 import { SenderResolver } from './sender.resolver';
 import { MESSAGE_TEMPLATE_RENDERER, type MessageTemplateRenderer } from './template-renderer';
 
@@ -80,6 +81,7 @@ export class SendService {
     private readonly crm: CrmContactsClient,
     private readonly events: OutboundEventsPublisher,
     @Optional() @Inject(MESSAGE_TEMPLATE_RENDERER) private readonly templates?: MessageTemplateRenderer,
+    @Optional() private readonly realtime?: RealtimePublisher,
   ) {}
 
   /** `POST /conversations/:id/messages`. */
@@ -171,6 +173,7 @@ export class SendService {
       throw new BadGatewayException('The message was stored but could not be queued for sending');
     }
 
+    this.realtime?.messageUpserted(message, result.conversation, now);
     void this.events.conversationUpdated(conversation.id);
     return message;
   }
