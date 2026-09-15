@@ -82,4 +82,18 @@ describe('Telephony app (e2e)', () => {
     );
     expect(numbers.status).toBe(401);
   });
+
+  it('gates the internal owned-numbers route on the service secret, not a bearer token', async () => {
+    // @Internal() = @Public() + InternalGuard: no Cognito, but a missing or
+    // wrong x-internal-secret is a 403 — and Twilio is never reached.
+    const noHeader = await request(app.getHttpServer()).get(
+      '/api/telephony/numbers/internal/owned',
+    );
+    expect(noHeader.status).toBe(403);
+
+    const wrongHeader = await request(app.getHttpServer())
+      .get('/api/telephony/numbers/internal/owned')
+      .set('x-internal-secret', 'not-the-secret');
+    expect(wrongHeader.status).toBe(403);
+  });
 });

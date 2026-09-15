@@ -23,7 +23,11 @@ import { CallFlowsService } from '../call-flows/call-flows.service';
 import { ServiceAreaNumbersService } from '../common/service-area-numbers.service';
 import { LinesHealthService } from './lines-health.service';
 import { TelephonySettingsService } from '../telephony/telephony-settings.service';
-import { NumberSettingsRepository } from './number-settings.repository';
+import {
+  NumberSettingsRepository,
+  type NumberSettings,
+} from './number-settings.repository';
+import { Internal } from '../common/decorators/internal.decorator';
 
 class BuyNumberDto {
   phoneNumber!: string;
@@ -90,6 +94,43 @@ export class NumbersController {
       await this.settings.setTechnicianLine(null);
     }
     return { success: true, data: { technicianLine: await this.settings.technicianLine() } };
+  }
+
+  @Get('internal/owned')
+  @Internal()
+  @ApiOperation({
+    summary: 'Owned numbers with messaging capabilities (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). '
+      + 'Every number the account owns (no page cap) with its SMS/MMS/voice '
+      + 'capabilities, the Messaging Service it is pooled in (`messagingServiceSid`, '
+      + 'absent when unknown) and the job source it is tracked as (`sourceId`, '
+      + 'absent when unassigned). What the messaging service reads to pick a '
+      + 'sender and to attribute inbound texts.',
+  })
+  async internalOwned() {
+    const [owned, membership, settings] = await Promise.all([
+      this.numbers.listOwnedDetailed(),
+      this.numbers.messagingServiceMembership(),
+      // Attribution is decoration here; the calls table being unreachable
+      // must not hide the numbers from the messaging side.
+      this.numberSettings.list().catch(() => [] as NumberSettings[]),
+    ]);
+    const sourceByNumber = new Map<string, string>();
+    for (const s of settings) {
+      if (s.sourceId) sourceByNumber.set(s.phoneNumber, s.sourceId);
+    }
+    return {
+      success: true,
+      data: owned.map((n) => ({
+        phoneNumber: n.phoneNumber,
+        sid: n.sid,
+        friendlyName: n.friendlyName,
+        capabilities: n.capabilities,
+        messagingServiceSid: membership.get(n.phoneNumber),
+        sourceId: sourceByNumber.get(n.phoneNumber),
+      })),
+    };
   }
 
   @Get('health/lines')

@@ -52,7 +52,7 @@ import { UserDirectoryService } from '../common/user-directory.service';
 import { PermissionLookupService } from '../common/permission-lookup.service';
 import { BridgeService } from '../common/bridge.service';
 import { PresenceService } from '../presence/presence.service';
-import { TwilioRest } from '../common/twilio-client';
+import { TwilioRest } from '@bitcrm/shared';
 import { maskCall, maskCalls } from './call-masking';
 import {
   TELEPHONY_CONFIG,

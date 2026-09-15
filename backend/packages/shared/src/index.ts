@@ -112,3 +112,24 @@ export {
   normalizeExtension,
   normalizePhoneExtensions,
 } from './phone/phone-extension';
+
+// ---------- Twilio (shared by telephony and messaging) ----------
+export {
+  TWILIO_CONFIG,
+  TWILIO_ENV_VARS,
+  loadTwilioConfig,
+} from './twilio/twilio.config';
+export type { TwilioConfig } from './twilio/twilio.config';
+export { TwilioRest, toTwilioHttpException } from './twilio/twilio-rest';
+export type {
+  TwilioCredentials,
+  TwilioClientFactory,
+} from './twilio/twilio-rest';
+export {
+  TwilioSignatureGuard,
+  isValidTwilioRequest,
+} from './twilio/twilio-signature.guard';
+export type {
+  TwilioSignatureOptions,
+  TwilioSignedRequest,
+} from './twilio/twilio-signature.guard';
