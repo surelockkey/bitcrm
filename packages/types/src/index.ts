@@ -236,6 +236,8 @@ export type {
 } from './entities/messaging-settings.entity';
 export { EMPTY_INBOX_COUNTERS } from './entities/inbox-counters.entity';
 export type { InboxCounters } from './entities/inbox-counters.entity';
+export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
+export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
 
 // Event contract (message-events topic)
 export { MESSAGE_EVENT_TOPIC, MessageEventType } from './events/message-events';
