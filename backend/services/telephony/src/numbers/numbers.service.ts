@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { type Twilio } from 'twilio';
-import { TwilioRest } from '../common/twilio-client';
+import { TwilioRest } from '@bitcrm/shared';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
@@ -33,7 +33,7 @@ export interface SearchParams {
 
 @Injectable()
 export class NumbersService {
-  /** Shared lazy client + error-translating runner (src/common/twilio-client). */
+  /** Shared lazy client + error-translating runner (`TwilioRest` from @bitcrm/shared). */
   private readonly rest: TwilioRest;
   /** Monthly local-number price per country (rarely changes → cached). */
   private priceCache = new Map<

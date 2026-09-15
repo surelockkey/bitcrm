@@ -11,7 +11,7 @@ import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
 } from '../telephony/telephony.config';
-import { TwilioRest } from '../common/twilio-client';
+import { TwilioRest } from '@bitcrm/shared';
 import { PresenceService } from '../presence/presence.service';
 import {
   CallsService,
