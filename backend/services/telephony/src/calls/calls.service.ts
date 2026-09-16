@@ -1,14 +1,41 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { CallEventType } from '@bitcrm/types';
+import { CALL_TAG_LIMITS, CallEventType } from '@bitcrm/types';
 import {
   CallsRepository,
+  CallTagsConflictError,
   type CallRecord,
   type CallStatus,
 } from './calls.repository';
 import { CallEventsBus } from './call-events.bus';
 import { DealLinkService } from '../common/deal-link.service';
 import { NumberSettingsRepository } from '../numbers/number-settings.repository';
+import { CallTagsService } from '../call-tags/call-tags.service';
+
+/** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
+export interface CallTagsChange {
+  add?: string[];
+  remove?: string[];
+}
+
+/** Distinct, non-empty strings, in first-seen order. */
+function uniqueIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v === 'string' && v.trim() && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** How many times a tag write is retried when somebody else got there first. */
+const TAG_WRITE_ATTEMPTS = 3;
 
 /** Raw form params Twilio POSTs to the status callback (subset we use). */
 export interface TwilioStatusParams {
@@ -88,6 +115,7 @@ export class CallsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly numberSettings?: NumberSettingsRepository,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly callTags?: CallTagsService,
   ) {}
 
   /**
@@ -325,6 +353,88 @@ export class CallsService {
       this.bus?.publish({ type: 'call.upserted', call: after });
     }
     return after;
+  }
+
+  /**
+   * Put call tags on a call, or take them off — the Workiz "Tags" column.
+   *
+   * Ids being added are checked against the catalog (unknown → 404, archived
+   * → 400: an archived tag has left the pickers and must not creep back in
+   * through the API); ids being removed are not, so a tag that has since been
+   * archived can still come off. The write is a compare-and-set on the stored
+   * list, retried on a race. Returns the record as persisted, or null for an
+   * unknown call.
+   */
+  async updateTags(
+    callSid: string,
+    change: CallTagsChange,
+    actor: { id: string },
+  ): Promise<CallRecord | null> {
+    const add = uniqueIds(change?.add);
+    const remove = uniqueIds(change?.remove);
+    if (!add.length && !remove.length) {
+      throw new BadRequestException('Nothing to change — pass add and/or remove');
+    }
+
+    if (add.length && this.callTags) {
+      const catalog = await this.callTags.byId();
+      for (const id of add) {
+        const tag = catalog.get(id);
+        if (!tag) throw new NotFoundException(`Call tag ${id} not found`);
+        if (!tag.active) {
+          throw new BadRequestException(
+            `"${tag.name}" is archived — restore it in Settings before tagging calls with it`,
+          );
+        }
+      }
+    }
+
+    for (let attempt = 1; ; attempt++) {
+      const before = await this.repo.getBySid(callSid);
+      if (!before) return null;
+
+      const current = before.tagIds ?? [];
+      const next = [
+        ...current.filter((id) => !remove.includes(id)),
+        ...add.filter((id) => !current.includes(id)),
+      ];
+      if (next.length > CALL_TAG_LIMITS.maxPerCall) {
+        throw new BadRequestException(
+          `A call can carry at most ${CALL_TAG_LIMITS.maxPerCall} tags`,
+        );
+      }
+      // Already in the requested state — nothing to write, nothing to announce.
+      if (next.length === current.length && next.every((id, i) => id === current[i])) {
+        return before;
+      }
+
+      try {
+        await this.repo.setTags(callSid, next, before.tagIds);
+      } catch (error) {
+        if (error instanceof CallTagsConflictError && attempt < TAG_WRITE_ATTEMPTS) {
+          continue;
+        }
+        throw error;
+      }
+
+      const after = (await this.repo.getBySid(callSid)) ?? {
+        ...before,
+        tagIds: next.length ? next : undefined,
+      };
+      if (!after.internalLegOf) {
+        this.bus?.publish({ type: 'call.upserted', call: after });
+      }
+      this.publishSns(CallEventType.CALL_UPDATED, {
+        callSid,
+        tagIds: next,
+        actorId: actor.id,
+        updatedAt: after.updatedAt,
+      });
+      this.logger.log(
+        `Call ${callSid}: tags ${next.length ? next.join(', ') : '(none)'} by ${actor.id}`,
+      );
+      return after;
+    }
   }
 
   getBySid(callSid: string) {

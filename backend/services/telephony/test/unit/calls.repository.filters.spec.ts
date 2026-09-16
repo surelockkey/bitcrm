@@ -112,6 +112,18 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     expect(input.ExpressionAttributeNames['#to']).toBe('to');
   });
 
+  it('filters by call tag with a contains() on the list attribute', async () => {
+    const { repo, sent } = makeRepo([{ Items: [] }]);
+    await repo.list({ tagId: 'tag-spam' }, undefined, 25);
+
+    const input = sent[0].input;
+    // Still the AllCallsIndex walk — the tag narrows it, it does not index it.
+    expect(input.IndexName).toBe('AllCallsIndex');
+    expect(input.FilterExpression).toContain('contains(#tagIds, :tagId)');
+    expect(input.ExpressionAttributeNames['#tagIds']).toBe('tagIds');
+    expect(input.ExpressionAttributeValues[':tagId']).toBe('tag-spam');
+  });
+
   it('ignores an empty number list rather than matching everything', async () => {
     const { repo, sent } = makeRepo([{ Items: [] }]);
     await repo.list({ numbers: [] }, undefined, 25);

@@ -145,6 +145,7 @@ export type {
   CallStartedEvent,
   CallCompletedEvent,
   CallRecordingReadyEvent,
+  CallUpdatedEvent,
 } from './events/call-events';
 
 // Messaging (client inbox + team chat) — enums

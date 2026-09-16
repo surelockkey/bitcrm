@@ -10,6 +10,7 @@ import {
   Logger,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -115,6 +116,14 @@ class SetPartyDto {
   /** null clears the side. */
   kind!: 'user' | 'contact' | 'company' | null;
   id!: string;
+}
+
+/** The body of PATCH /calls/:sid/tags — a delta, so two tabs never fight. */
+class UpdateCallTagsDto {
+  /** Call-tag catalog ids to put on the call. */
+  add?: string[];
+  /** Call-tag catalog ids to take off it. */
+  remove?: string[];
 }
 
 @ApiTags('Telephony')
@@ -267,9 +276,11 @@ export class CallsController {
       '**Guard:** `calls.view` permission required. Newest first; cursor ' +
       'pagination; filters: direction, status, agentId, number (substring), ' +
       'numbers (comma-separated, matches any — a client\'s phone list), ' +
-      'dateFrom/dateTo (ISO instants or prefixes). Parties are named on the ' +
-      'way out: system users from user-service, outside callers from CRM ' +
-      'contacts.',
+      'dateFrom/dateTo (ISO instants or prefixes), origin, tagId (one ' +
+      'call-tag id; a filter inside the date-ordered walk, so pair it with ' +
+      'dateFrom/dateTo — a rare tag over the whole log is expensive). ' +
+      'Parties are named on the way out: system users from user-service, ' +
+      'outside callers from CRM contacts. Each row carries its `tagIds`.',
   })
   async list(
     @Query('cursor') cursor?: string,
@@ -284,6 +295,7 @@ export class CallsController {
     // but direct callers (tests) pass positionally.
     @Query('numbers') numbers?: string,
     @Query('origin') origin?: string,
+    @Query('tagId') tagId?: string,
     @CurrentUser() user?: JwtUser,
   ) {
     // Query DTOs aren't transformed in this codebase — coerce in-service.
@@ -302,6 +314,7 @@ export class CallsController {
         dateFrom,
         dateTo,
         origin,
+        tagId: tagId || undefined,
       },
       cursor,
       parsedLimit,
@@ -651,6 +664,38 @@ export class CallsController {
     const updated = await this.callsService.linkDeal(
       sid,
       dto.dealId ?? null,
+      { id: user.id },
+    );
+    if (!updated) throw new NotFoundException('Call not found');
+    const [enriched] = await this.withNames([updated]);
+    return {
+      success: true,
+      data: maskCall(enriched, await this.maySeeNumbers(user)),
+    };
+  }
+
+  @Patch(':sid/tags')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'Tag a call, or take tags off it',
+    description:
+      '**Guard:** `calls.view` permission required — the same grant that ' +
+      'links a call to a job. Body `{ add?: string[], remove?: string[] }` ' +
+      'of call-tag ids (see /call-tags). A delta rather than the whole list, ' +
+      'so two people tagging one call never overwrite each other; the write ' +
+      'is a compare-and-set on the stored list. 404 for an unknown call or ' +
+      'an unknown tag being added; 400 for an archived tag being added, an ' +
+      'empty change, or more than 25 tags. Returns the call as persisted, ' +
+      'named and masked like the list.',
+  })
+  async updateTags(
+    @Param('sid') sid: string,
+    @Body() dto: UpdateCallTagsDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const updated = await this.callsService.updateTags(
+      sid,
+      { add: dto?.add, remove: dto?.remove },
       { id: user.id },
     );
     if (!updated) throw new NotFoundException('Call not found');

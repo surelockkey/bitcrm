@@ -89,6 +89,14 @@ export interface CallRecord {
   dealLinkedBy?: string;
   dealLinkedAt?: string;
   /**
+   * Call-tag catalog ids (CALLTAG# rows) a person put on this call — the
+   * Workiz "call tags": SPAM CALLER, Tech Call, WRONG NUMBER… Like `dealId`,
+   * NOT in the `upsert` whitelist on purpose: a lifecycle webhook must never
+   * be able to replace a list a dispatcher curated. Written only by
+   * `setTags`; absent (not `[]`) when the call carries none.
+   */
+  tagIds?: string[];
+  /**
    * Job-source catalog id the call is attributed to — resolved from the
    * tracked number it came through (see NumberSettingsRepository) and stamped
    * once, so re-assigning a number later never rewrites past calls.
@@ -150,6 +158,22 @@ export interface ListCallsFilter {
    * directly?" — which is `origin=softphone` on outbound calls.
    */
   origin?: string;
+  /**
+   * Only calls carrying this call tag. A FilterExpression inside the
+   * date-ordered partition walk — see `buildListQuery` for what that costs.
+   */
+  tagId?: string;
+}
+
+/**
+ * The stored tag list changed between the read and the conditional write —
+ * two people tagging the same call at once. The caller re-reads and retries.
+ */
+export class CallTagsConflictError extends Error {
+  constructor(callSid: string) {
+    super(`Tags on ${callSid} changed concurrently`);
+    this.name = 'CallTagsConflictError';
+  }
 }
 
 export interface ListCallsResult {
@@ -390,6 +414,64 @@ export class CallsRepository {
             }),
       }),
     );
+  }
+
+  /**
+   * Replace the call's tag list — but only if it is still what the caller
+   * read (`expected`; `undefined` = the record had no tags). Two dispatchers
+   * clearing a spam queue can race on one call, and a plain overwrite would
+   * silently drop one of their tags. An empty `tagIds` removes the attribute
+   * rather than storing `[]`, so "no tags" has one shape for the filter and
+   * the importer alike. `attribute_exists(PK)` keeps this from minting a
+   * phantom record for an unknown sid.
+   */
+  async setTags(
+    callSid: string,
+    tagIds: string[],
+    expected: string[] | undefined,
+  ): Promise<void> {
+    const names: Record<string, string> = {
+      '#tagIds': 'tagIds',
+      '#updatedAt': 'updatedAt',
+    };
+    const values: Record<string, unknown> = {
+      ':now': new Date().toISOString(),
+    };
+    let update: string;
+    if (tagIds.length) {
+      update = 'SET #tagIds = :tagIds, #updatedAt = :now';
+      values[':tagIds'] = tagIds;
+    } else {
+      update = 'REMOVE #tagIds SET #updatedAt = :now';
+    }
+    let condition = 'attribute_exists(PK)';
+    if (expected === undefined) {
+      condition += ' AND attribute_not_exists(#tagIds)';
+    } else {
+      condition += ' AND #tagIds = :expected';
+      values[':expected'] = expected;
+    }
+
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: callPk(callSid), SK: 'METADATA' },
+          UpdateExpression: update,
+          ConditionExpression: condition,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }),
+      );
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.name === 'ConditionalCheckFailedException'
+      ) {
+        throw new CallTagsConflictError(callSid);
+      }
+      throw error;
+    }
   }
 
   async getBySid(callSid: string): Promise<CallRecord | null> {
@@ -640,6 +722,20 @@ export class CallsRepository {
       clauses.push('#origin = :origin');
       names['#origin'] = 'origin';
       values[':origin'] = filter.origin;
+    }
+    if (filter.tagId) {
+      // Tags are a list attribute, so membership is `contains`, and this is a
+      // FilterExpression inside the CALL#ALL partition walk: DynamoDB reads
+      // every row in date order and drops the untagged ones AFTER charging
+      // for them (QUERY_PAGE_SIZE rows per internal page). The cost of one
+      // API page is therefore how far back `limit` matches reach, not the
+      // page size — a rare tag with no date range can walk months of log
+      // for 25 rows. The UI pairs this with dateFrom/dateTo; if tag lookups
+      // become routine, the upgrade is a sparse GSI keyed CALLTAG#<id>
+      // maintained by setTags, not a cheaper filter.
+      clauses.push('contains(#tagIds, :tagId)');
+      names['#tagIds'] = 'tagIds';
+      values[':tagId'] = filter.tagId;
     }
     if (filter.number) {
       clauses.push('(contains(#from, :number) OR contains(#to, :number))');

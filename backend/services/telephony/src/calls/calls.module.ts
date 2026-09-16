@@ -14,15 +14,18 @@ import { PresenceModule } from '../presence/presence.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
 import { VoiceModule } from '../voice/voice.module';
+import { CallTagsModule } from '../call-tags/call-tags.module';
 
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
   // NumbersModule: per-number source assignments for call attribution.
+  // CallTagsModule: the catalog PATCH /calls/:sid/tags validates against.
   imports: [
     TelephonyModule,
     PresenceModule,
     NumbersModule,
+    CallTagsModule,
     forwardRef(() => VoiceModule),
   ],
   controllers: [CallsController],
