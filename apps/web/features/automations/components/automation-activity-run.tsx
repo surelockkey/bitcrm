@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { AutomationRun, AutomationRunAction, AutomationRunOutcome } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { OUTCOME_LABEL, formatFiredAt, outcomeTone } from "../lib";
+import { OUTCOME_LABEL, formatFiredAt, outcomeTone, runSummary } from "../lib";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "border-transparent bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
@@ -80,6 +80,13 @@ export interface RunEntityView {
 const shortId = (id: string) => (id.length > 10 ? id.slice(0, 8) : id);
 
 /**
+ * The log's ids reach us as text the engine copied out of an event, so they
+ * are escaped before they become a path: an id carrying a `/` would
+ * otherwise send the reader to a different page entirely.
+ */
+const dealHref = (id: string) => `/deals/${encodeURIComponent(id)}`;
+
+/**
  * `deal:<id>` / `call:<sid>` / `message:<id>` — the key the engine files a
  * firing under (§4.6). A job becomes a link to that job; a call and a message
  * are said in words, because their ids mean nothing to the person reading.
@@ -94,10 +101,10 @@ export function runEntityView(run: AutomationRun): RunEntityView {
     // `deal:unknown` is what the engine writes when the event named no job —
     // a real state of the log, not a bug, so it gets words rather than a dead link.
     if (!id || id === "unknown") return { text: "A job the event did not name" };
-    return { text: `Job ${shortId(id)}`, href: `/deals/${id}`, label: `Open job ${id}` };
+    return { text: `Job ${shortId(id)}`, href: dealHref(id), label: `Open job ${id}` };
   }
   if (kind === "call" && id) {
-    return { text: "A phone call", href: `/calls/${id}`, label: `Open the call ${id}` };
+    return { text: "A phone call", href: `/calls/${encodeURIComponent(id)}`, label: `Open the call ${id}` };
   }
   // The thread of an incoming message is not the thread the rule answered in
   // (a rule may text a technician instead), so the link sits on the action.
@@ -108,8 +115,8 @@ export function runEntityView(run: AutomationRun): RunEntityView {
 /** The entity of a firing, plus the job it happened on when that is a second thing. */
 export function RunEntity({ run }: { run: AutomationRun }) {
   const entity = runEntityView(run);
-  const dealHref = `/deals/${run.dealId}`;
-  const alsoDeal = !!run.dealId && entity.href !== dealHref;
+  const href = run.dealId ? dealHref(run.dealId) : undefined;
+  const alsoDeal = !!href && entity.href !== href;
 
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
@@ -124,7 +131,7 @@ export function RunEntity({ run }: { run: AutomationRun }) {
         <>
           <span aria-hidden>·</span>
           <Link
-            href={dealHref}
+            href={href as string}
             aria-label={`Open job ${run.dealId}`}
             className="text-primary hover:underline"
           >
@@ -133,6 +140,22 @@ export function RunEntity({ run }: { run: AutomationRun }) {
         </>
       ) : null}
     </span>
+  );
+}
+
+/**
+ * The line under the heading: what the firing was about, and — only when
+ * something was actually attempted — the tally of it. The summary of a
+ * firing with no actions *is* its reason, and `RunActions` prints that
+ * reason in full right below, so the line stops at the entity instead of
+ * saying the same sentence twice.
+ */
+export function RunLine({ run }: { run: AutomationRun }) {
+  return (
+    <p className="mt-0.5 text-xs text-muted-foreground">
+      <RunEntity run={run} />
+      {run.actions?.length ? ` · ${runSummary(run)}` : null}
+    </p>
   );
 }
 
@@ -159,9 +182,12 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
 
       {body ? (
         <>
+          {/* `break-words` like every other place a message body is shown: a
+              tracking link with no space in it would otherwise push the row
+              wider than the dialog. */}
           <p
             className={cn(
-              "mt-1 whitespace-pre-wrap text-muted-foreground",
+              "mt-1 whitespace-pre-wrap break-words text-muted-foreground",
               long && !open && "line-clamp-2",
             )}
           >
@@ -170,6 +196,7 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
           {long ? (
             <button
               type="button"
+              aria-expanded={open}
               className="mt-1 text-primary hover:underline"
               onClick={() => setOpen((v) => !v)}
             >
@@ -179,11 +206,14 @@ function RunActionRow({ action }: { action: AutomationRunAction }) {
         </>
       ) : null}
 
-      {action.error ? <p className="mt-1 text-muted-foreground">{action.error}</p> : null}
+      {action.error ? <p className="mt-1 break-words text-muted-foreground">{action.error}</p> : null}
 
       {action.conversationId ? (
         <p className="mt-1">
-          <Link href={`/messages?c=${action.conversationId}`} className="text-primary hover:underline">
+          <Link
+            href={`/messages?c=${encodeURIComponent(action.conversationId)}`}
+            className="text-primary hover:underline"
+          >
             Open the thread
           </Link>
         </p>

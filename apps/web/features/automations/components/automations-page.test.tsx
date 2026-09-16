@@ -214,6 +214,8 @@ describe("AutomationsPage", () => {
     );
     expect(within(runs).getByText(/1 sent/)).toBeInTheDocument();
     expect(within(runs).getByText(/to tech Ann/)).toBeInTheDocument();
+    // The outcome of the firing itself, and of the one action it took.
+    expect(within(runs).getAllByText("Sent")).toHaveLength(2);
   });
 });
 

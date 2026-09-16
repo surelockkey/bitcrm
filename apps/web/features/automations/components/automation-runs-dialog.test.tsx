@@ -139,12 +139,92 @@ describe("AutomationRunsDialog", () => {
     expect(body).toHaveClass("line-clamp-2");
   });
 
+  it("says whether the whole message is showing", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const toggle = await screen.findByRole("button", { name: "Show the whole message" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("wraps a message with no space in it instead of stretching the row", async () => {
+    const link = `https://track.example.com/${"a".repeat(200)}`;
+    server.use(
+      http.get("*/messaging/automations/:id/runs", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              ...runs[0],
+              id: "run-9",
+              actions: [{ type: "send_sms", to: "the client", outcome: "sent", body: link }],
+            },
+          ],
+        }),
+      ),
+    );
+    renderDialog();
+
+    expect(await screen.findByText(link)).toHaveClass("break-words");
+  });
+
+  it("escapes what it puts in a link, so an odd id cannot rewrite the url", async () => {
+    server.use(
+      http.get("*/messaging/automations/:id/runs", () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              ...runs[0],
+              id: "run-8",
+              entity: "deal:d/1",
+              dealId: undefined,
+              actions: [
+                {
+                  type: "send_sms",
+                  to: "the client",
+                  outcome: "sent",
+                  body: "hi",
+                  conversationId: "c&v=1",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    renderDialog();
+
+    expect(await screen.findByRole("link", { name: "Open job d/1" })).toHaveAttribute(
+      "href",
+      "/deals/d%2F1",
+    );
+    expect(screen.getByRole("link", { name: "Open the thread" })).toHaveAttribute(
+      "href",
+      "/messages?c=c%26v%3D1",
+    );
+  });
+
   it("gives the reason for a firing that did nothing", async () => {
     renderDialog();
 
     expect(
       await screen.findByText(/Nothing was sent — the job has no technician/),
     ).toBeInTheDocument();
+  });
+
+  it("gives that reason once, not once as a summary and once again in full", async () => {
+    renderDialog();
+
+    const row = within(await screen.findByTestId("firing-run-2"));
+    expect(row.getAllByText(/the job has no technician/)).toHaveLength(1);
+    // The firing is still said to be about a job.
+    expect(row.getByRole("link", { name: "Open job d-2" })).toBeInTheDocument();
   });
 
   it("says a call is a call and links to it, instead of printing the sid", async () => {

@@ -12,8 +12,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAutomationRuns } from "../hooks";
-import { formatFiredAt, runSummary } from "../lib";
-import { RunActions, RunEntity, RunOutcomeBadge } from "./automation-activity-run";
+import { formatFiredAt } from "../lib";
+import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
 
 /**
  * The rule's last firings: when, for which job, what each action did — and,
@@ -65,9 +65,7 @@ export function AutomationRunsDialog({
                   <span className="font-medium">{formatFiredAt(run.firedAt)}</span>
                   <RunOutcomeBadge outcome={run.outcome} />
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  <RunEntity run={run} /> · {runSummary(run)}
-                </p>
+                <RunLine run={run} />
                 <RunActions run={run} />
               </li>
             ))}

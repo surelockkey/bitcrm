@@ -94,6 +94,24 @@ describe("AutomationActivityPage", () => {
     expect(screen.getByText("3 firings")).toBeInTheDocument();
   });
 
+  it("gives a firing that sent nothing its reason once, not twice", async () => {
+    feed = () => ({
+      items: [
+        run({
+          id: "r-5",
+          ruleId: "rule-1",
+          outcome: "skipped",
+          actions: [],
+          reason: "the job has no technician",
+        }),
+      ],
+    });
+    renderPage();
+
+    const row = within(await screen.findByTestId("activity-r-5"));
+    expect(row.getAllByText(/the job has no technician/)).toHaveLength(1);
+  });
+
   it("owns up to a firing whose rule has since been deleted", async () => {
     renderPage();
 

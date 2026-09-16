@@ -17,8 +17,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAutomations, useAutomationsAccess, useAutomationRunsFeed } from "../hooks";
-import { OUTCOME_LABEL, formatFiredAt, runSummary } from "../lib";
-import { RunActions, RunEntity, RunOutcomeBadge } from "./automation-activity-run";
+import { OUTCOME_LABEL, formatFiredAt } from "../lib";
+import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
 
 const ALL = "all";
 const PAGE = 50;
@@ -337,9 +337,7 @@ function ActivityRow({
           <RunOutcomeBadge outcome={run.outcome} />
         </span>
       </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        <RunEntity run={run} /> · {runSummary(run)}
-      </p>
+      <RunLine run={run} />
       <RunActions run={run} />
     </li>
   );
