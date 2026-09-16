@@ -81,6 +81,65 @@ describe('ItemCategoriesService', () => {
 
       expect(result).toEqual({ category: raced, created: false });
     });
+
+    /**
+     * The re-read above is only reachable if the two writers actually collide.
+     * `create` guards with `attribute_not_exists(PK)` on `ITEM_CATEGORY#<id>`,
+     * so a random id could never make the condition fire —
+     * `UncategorizedCategorySeed` runs on every service instance, and the first
+     * multi-task deploy after the import would seed N-1 duplicate
+     * "Uncategorized" rows that nobody can then rename (409 on both).
+     */
+    it('derives the id from the name, so two instances aim at one row', async () => {
+      const twinRepo = createMockCatalogRepository();
+      const twin = new ItemCategoriesService(twinRepo as any, publisher as any);
+
+      const mine = await service.ensureUncategorized();
+      const theirs = await twin.ensureUncategorized();
+
+      expect(mine.category.id).toBe(theirs.category.id);
+      expect(repo.create.mock.calls[0][0].id).toBe(twinRepo.create.mock.calls[0][0].id);
+      // Still a well-formed UUID (v5) — nothing downstream sees a new id shape.
+      expect(mine.category.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    });
+
+    it('matches the id on the name alone — padding and casing do not fork it', async () => {
+      const a = await service.ensureCategory('Locks');
+      const b = await service.ensureCategory('  locks  ');
+
+      expect(a.category.id).toBe(b.category.id);
+    });
+
+    it('gives different names different ids', async () => {
+      const a = await service.ensureCategory('Locks');
+      const b = await service.ensureCategory('Keys');
+
+      expect(a.category.id).not.toBe(b.category.id);
+    });
+
+    it('falls back to a direct read when the index has not caught up', async () => {
+      // findByName is a GSI query (eventually consistent), so the winner's row
+      // can still be invisible there right after the race is lost.
+      const winner = createMockItemCategory({ id: 'cat-u', name: 'Uncategorized' });
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      repo.create.mockRejectedValue(err);
+      repo.get.mockResolvedValue(winner);
+
+      const result = await service.ensureUncategorized();
+
+      expect(result).toEqual({ category: winner, created: false });
+      expect(repo.get).toHaveBeenCalledWith(expect.any(String));
+    });
+
+    it('still rethrows when the row really is not there', async () => {
+      repo.create.mockRejectedValue(new Error('boom'));
+      repo.get.mockResolvedValue(null);
+
+      await expect(service.ensureUncategorized()).rejects.toThrow('boom');
+    });
   });
 
   describe('list', () => {

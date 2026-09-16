@@ -93,4 +93,36 @@ describe('ItemCategoriesRepository', () => {
     dynamoDb.client.send.mockResolvedValue({ Items: [] });
     await expect(repository.findByName('Nope')).resolves.toBeNull();
   });
+
+  /**
+   * The write key and the lookup key have to agree. `findByName` trims before
+   * lowercasing; if `item()` did not, a padded name would be stored under a
+   * GSI1SK the lookup can never hit — so `ensureCategory('  Locks  ')` would
+   * miss its own row and mint a fresh duplicate on every call.
+   */
+  it('writes the same list key that findByName looks up, padding and all', async () => {
+    dynamoDb.client.send.mockResolvedValue({});
+
+    await repository.create({ ...createMockItemCategory({ id: 'cat-p' }), name: '  Locks  ' });
+    await repository.findByName('  Locks  ');
+
+    const written = dynamoDb.client.send.mock.calls[0][0].input.Item;
+    const lookedUp =
+      dynamoDb.client.send.mock.calls[1][0].input.ExpressionAttributeValues[':sk'];
+    expect(written.GSI1SK).toBe('locks');
+    expect(written.GSI1SK).toBe(lookedUp);
+    // The display name itself is kept verbatim — products reference it byte
+    // for byte (WORKIZ_IMPORT §1).
+    expect(written.name).toBe('  Locks  ');
+  });
+
+  it('create() guards the row with attribute_not_exists(PK)', async () => {
+    dynamoDb.client.send.mockResolvedValue({});
+
+    await repository.create(createMockItemCategory({ id: 'cat-x' }));
+
+    expect(dynamoDb.client.send.mock.calls[0][0].input.ConditionExpression).toBe(
+      'attribute_not_exists(PK)',
+    );
+  });
 });

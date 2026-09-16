@@ -44,7 +44,11 @@ export class ItemCategoriesRepository {
       PK: `${ITEM_CATEGORY_PK_PREFIX}${category.id}`,
       SK: ITEM_CATEGORY_SK,
       GSI1PK: ITEM_CATEGORY_GSI1PK,
-      GSI1SK: category.name.toLowerCase(),
+      // Trimmed as well as lowercased — `findByName` looks the row up by
+      // `name.trim().toLowerCase()`, so an untrimmed key here would write a
+      // row that lookup can never see (and `ensureCategory` would then mint a
+      // fresh duplicate on every call).
+      GSI1SK: category.name.trim().toLowerCase(),
     };
   }
 
