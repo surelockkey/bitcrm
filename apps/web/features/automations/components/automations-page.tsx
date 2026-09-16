@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, Plus, RefreshCw, Search, Workflow } from "lucide-react";
+import Link from "next/link";
+import { History, Loader2, Plus, RefreshCw, Search, Workflow } from "lucide-react";
 import type { AutomationLabelMap, AutomationRule } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -168,6 +169,12 @@ export function AutomationsPage() {
               Re-check imported rules
             </Button>
           ) : null}
+          <Button variant="outline" size="lg" asChild>
+            <Link href="/automations/activity">
+              <History className="size-4" />
+              Activity
+            </Link>
+          </Button>
           {canEdit ? (
             <Button variant="brand" size="lg" onClick={() => openCreate()}>
               <Plus className="size-4" />
