@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -6,7 +6,7 @@ import { AutomationsService } from './automations.service';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
 
 /**
- * `/api/messaging/automations` — rules as data (design §7.1, §10 M21),
+ * `/api/messaging/automations` — the Automation Center (design §7.1, §10 M21),
  * `settings.view` / `settings.edit` like the messaging settings. The
  * technician-triggered sends (`POST …/on-my-way`, `POST …/late`) live in
  * `TechNoticesController`; being POST-only they never shadow `GET /:id`.
@@ -31,6 +31,29 @@ export class AutomationsController {
     return { success: true, data };
   }
 
+  @Post('migrate')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Write the translation of every imported Workiz rule to its row',
+    description:
+      '**Guard:** `settings.edit`. The translation is applied at read time anyway; this writes it so the specs ' +
+      'can be edited and stop being recomputed. Idempotent, and it never touches a rule somebody edited by hand. ' +
+      'Answers the coverage table (busiest Workiz rule first): what each rule became and, when it cannot run, why. ' +
+      '`?dryRun=true` reports without writing.',
+  })
+  async migrate(@CurrentUser() user: JwtUser, @Query('dryRun') dryRun?: string) {
+    const rows = await this.service.migrate(user, { dryRun: dryRun === 'true' });
+    return {
+      success: true,
+      data: {
+        rules: rows.length,
+        runnable: rows.filter((r) => r.runnable).length,
+        written: rows.filter((r) => r.written).length,
+        coverage: rows,
+      },
+    };
+  }
+
   @Get(':id')
   @RequirePermission('settings', 'view')
   @ApiOperation({ summary: 'One automation rule', description: '**Guard:** `settings.view`.' })
@@ -44,8 +67,10 @@ export class AutomationsController {
   @ApiOperation({
     summary: 'Enable, disable or rename an automation rule',
     description:
-      '**Guard:** `settings.edit`. Only built-in rules can be enabled — an imported Workiz rule answers 422 ' +
-      '`RULE_NOT_RUNNABLE` until the rule engine exists; disabling and renaming work for every rule.',
+      '**Guard:** `settings.edit`. A rule can be switched on once it has a runnable spec (built-in, translated ' +
+      'from Workiz, or written here); one that has none answers 422 `RULE_NOT_RUNNABLE` with the reason. ' +
+      'Disabling and renaming work for every rule; saving a `spec` makes the rule yours and stops it being ' +
+      're-translated.',
   })
   async update(@Param('id') id: string, @Body() dto: UpdateAutomationDto, @CurrentUser() user: JwtUser) {
     const data = await this.service.update(id, dto, user);

@@ -215,6 +215,23 @@ const CONDITION_FIELD_TEXT: Record<AutomationConditionField, string> = {
 /** Display names for the ids a spec holds, keyed by id. */
 export type AutomationLabelMap = Record<string, string | undefined>;
 
+/**
+ * The names a spec carries about itself: every condition may bring
+ * `labels` beside its `values` (what the Workiz rule called them, or what
+ * the editor picked), so a sentence reads "Canceled check" rather than a
+ * uuid even with no catalog loaded. A caller's own map wins over these.
+ */
+export function automationSpecLabels(spec: AutomationSpec): AutomationLabelMap {
+  const out: AutomationLabelMap = {};
+  for (const condition of spec.conditions ?? []) {
+    (condition.values ?? []).forEach((value, i) => {
+      const label = condition.labels?.[i] ?? (condition.values?.length === 1 ? condition.labels?.[0] : undefined);
+      if (label && !out[value]) out[value] = label;
+    });
+  }
+  return out;
+}
+
 const labelOf = (
   value: string,
   index: number,
@@ -247,6 +264,7 @@ export function automationDelayText(minutes: number | undefined): string {
 export function automationTriggerSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   const t = spec.trigger;
   const statusCondition = spec.conditions.find((c) => c.field === 'status' || c.field === 'subStatus');
+  const negated = statusCondition?.op === 'not_in' || statusCondition?.op === 'ne';
   switch (t.kind) {
     case 'deal.created':
       return 'When a job is created';
@@ -260,9 +278,10 @@ export function automationTriggerSentence(spec: AutomationSpec, labels?: Automat
     case 'deal.scheduled_changed':
       return 'When a job is rescheduled';
     case 'deal.updated':
-      return statusCondition
-        ? `When a job has a status of ${listOf(statusCondition.values, statusCondition, labels)}`
-        : 'When a job changes';
+      if (!statusCondition) return 'When a job changes';
+      return negated
+        ? `When a job does not have a status of ${listOf(statusCondition.values, statusCondition, labels)}`
+        : `When a job has a status of ${listOf(statusCondition.values, statusCondition, labels)}`;
     case 'call.completed': {
       const outcome =
         t.callOutcome === 'missed'
@@ -296,10 +315,12 @@ export function automationTriggerSentence(spec: AutomationSpec, labels?: Automat
 
 /** The ", and …" half — the conditions the trigger does not already say. */
 export function automationConditionsSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
+  // `isLead` is always true here (BitCRM has no separate lead entity), so it
+  // is never worth a clause; the status is already in the trigger's half.
   const saidByTrigger =
     spec.trigger.kind === 'deal.updated' || spec.trigger.kind === 'deal.status_changed'
-      ? new Set(['status', 'subStatus'])
-      : new Set<string>();
+      ? new Set(['status', 'subStatus', 'isLead'])
+      : new Set(['isLead']);
   const parts = spec.conditions
     .filter((c) => !saidByTrigger.has(c.field))
     .map((c) => {
@@ -348,12 +369,13 @@ export function automationActionSentence(action: AutomationAction, labels?: Auto
  * day") and every action of a rule shares the rule's timing here.
  */
 export function automationSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
+  const named: AutomationLabelMap = { ...automationSpecLabels(spec), ...(labels ?? {}) };
   const actions = spec.actions.length
-    ? spec.actions.map((a) => automationActionSentence(a, labels)).join(', and ')
+    ? spec.actions.map((a) => automationActionSentence(a, named)).join(', and ')
     : 'do nothing';
   const delay = automationDelayText(spec.timing?.delayMinutes);
   const tail = delay === 'immediately' ? 'immediately' : delay;
-  return `${automationTriggerSentence(spec, labels)}${automationConditionsSentence(spec, labels)}, ${actions} ${tail}`.replace(
+  return `${automationTriggerSentence(spec, named)}${automationConditionsSentence(spec, named)}, ${actions} ${tail}`.replace(
     /\s+/g,
     ' ',
   );

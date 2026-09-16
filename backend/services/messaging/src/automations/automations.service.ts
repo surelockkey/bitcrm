@@ -3,27 +3,43 @@ import { type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types
 import { AutomationsRepository } from './automations.repository';
 import { BUILTIN_RULES, isBuiltinRuleId } from './builtin-rules';
 import { type UpdateAutomationDto } from './dto/update-automation.dto';
+import { TRANSLATOR_VERSION, translateWorkizRule } from './translator/workiz-translator';
 
 /**
- * Raised when a rule the service has no engine for is switched on: the 80
- * imported Workiz rules are data until the rule engine lands (design §10,
- * the L half of M21). Its own class so the filter's message carries the
- * code the settings page switches on.
+ * Raised when a rule the engine has no spec for is switched on: an imported
+ * Workiz rule whose trigger, conditions or actions have no BitCRM
+ * equivalent stays data. The translator's own reason is part of the
+ * message, so the settings page can say why.
  */
 export class RuleNotRunnableException extends HttpException {
-  constructor(ruleId: string) {
+  constructor(ruleId: string, reason?: string) {
     super(
-      `RULE_NOT_RUNNABLE: automation rule ${ruleId} is imported data; only built-in rules can be enabled yet`,
+      `RULE_NOT_RUNNABLE: automation rule ${ruleId} cannot run${reason ? `: ${reason}` : ''}`,
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }
 }
 
+/** What `migrate()` did, per rule — the coverage table. */
+export interface AutomationMigrationRow {
+  id: string;
+  name: string;
+  runnable: boolean;
+  reason?: string;
+  trigger?: string;
+  actions: string[];
+  workizEnabled?: boolean;
+  workizTriggered?: number;
+  written: boolean;
+}
+
 /**
- * Rules as data (M21): the stored rows plus the built-in defaults for any
- * built-in rule nobody has edited yet — so `GET /automations` always shows
- * the three the service runs, seed-free, next to whatever the history
- * loader imported.
+ * Rules as data and as specs (M21): the stored rows, the built-in defaults
+ * for any built-in rule nobody has edited yet, and — for every imported
+ * Workiz rule without a hand-written spec — the translation, computed at
+ * read time. Nothing is written until somebody edits a rule or calls
+ * `POST /automations/migrate`, so improving the translator needs no data
+ * migration: the next read is simply better.
  */
 @Injectable()
 export class AutomationsService {
@@ -62,31 +78,103 @@ export class AutomationsService {
   }
 
   /**
-   * `PATCH /automations/:id` — enable / disable / rename. Whole-document
-   * write over what is stored (or over the built-in default on first edit).
-   * Enabling an imported rule is refused: nothing would run it.
+   * `PATCH /automations/:id` — enable / disable / rename / edit the spec.
+   * Whole-document write over what is stored (or over the built-in default
+   * on first edit). Enabling a rule the engine cannot run is refused with
+   * the translator's own reason; a spec a person edited is theirs from then
+   * on (`specSource: 'user'`) and is never re-translated.
    */
   async update(id: string, dto: UpdateAutomationDto, caller: { id: string }): Promise<AutomationRule> {
     const current = await this.get(id);
-    if (dto.enabled === true && !current.builtin) throw new RuleNotRunnableException(id);
+    const next: AutomationRule = { ...current };
+
+    if (dto.spec !== undefined) {
+      next.spec = dto.spec as AutomationRule['spec'];
+      next.specSource = 'user';
+      next.specVersion = TRANSLATOR_VERSION;
+      next.runnable = true;
+      delete next.notRunnableReason;
+    }
+    if (dto.enabled === true && !next.builtin && !(next.spec && next.runnable !== false)) {
+      throw new RuleNotRunnableException(id, next.notRunnableReason);
+    }
 
     const at = new Date().toISOString();
-    const next: AutomationRule = {
-      ...current,
+    const saved = await this.repository.put({
+      ...next,
       ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
       updatedAt: at,
       updatedBy: caller.id,
       createdBy: current.createdBy ?? caller.id,
-    };
-    const saved = await this.repository.put(next);
+    });
     this.logger.log(`Automation rule ${id} updated by ${caller.id}: ${Object.keys(dto).join(', ')}`);
     return saved;
   }
 
-  /** A stored built-in row keeps the code-level description/trigger; the row wins on state and name. */
+  /**
+   * `POST /automations/migrate` — writes the translation of every imported
+   * rule to its row, so specs stop being recomputed on every read and can
+   * be edited. Idempotent, and it never touches a rule somebody edited by
+   * hand or one already on the current translator version. Returns the
+   * coverage table, busiest Workiz rule first.
+   */
+  async migrate(caller: { id: string }, opts: { dryRun?: boolean } = {}): Promise<AutomationMigrationRow[]> {
+    const rows: AutomationMigrationRow[] = [];
+    for (const stored of await this.repository.list()) {
+      if (isBuiltinRuleId(stored.id) || stored.specSource === 'user') continue;
+      const translated = this.overlay(stored);
+      const upToDate = stored.specSource === 'workiz-translator' && stored.specVersion === TRANSLATOR_VERSION;
+      const written = !upToDate && !opts.dryRun;
+      if (written) {
+        await this.repository.put({ ...translated, updatedAt: new Date().toISOString(), updatedBy: caller.id });
+      }
+      rows.push({
+        id: translated.id,
+        name: translated.name,
+        runnable: translated.runnable === true,
+        reason: translated.notRunnableReason,
+        trigger: translated.spec?.trigger.kind,
+        actions: (translated.spec?.actions ?? []).map((a) => `${a.type}${a.to ? `:${a.to}` : ''}`),
+        workizEnabled: stored.workizEnabled,
+        workizTriggered: stored.workizTriggered,
+        written,
+      });
+    }
+    this.logger.log(
+      `Automation migration by ${caller.id}: ${rows.filter((r) => r.runnable).length}/${rows.length} runnable` +
+        `${opts.dryRun ? ' (dry run)' : ''}`,
+    );
+    return rows.sort(
+      (a, b) => (b.workizTriggered ?? 0) - (a.workizTriggered ?? 0) || a.name.localeCompare(b.name),
+    );
+  }
+
+  /**
+   * A stored built-in row keeps the code-level description/trigger; the row
+   * wins on state and name. An imported row without a hand-written spec is
+   * translated on the way out.
+   */
   private overlay(stored: AutomationRule): AutomationRule {
-    if (!isBuiltinRuleId(stored.id)) return stored;
-    return { ...BUILTIN_RULES[stored.id], ...stored, builtin: true };
+    if (isBuiltinRuleId(stored.id)) return { ...BUILTIN_RULES[stored.id], ...stored, builtin: true };
+    return this.withSpec(stored);
+  }
+
+  /** The translation, unless the row already carries a current or hand-written one. */
+  private withSpec(rule: AutomationRule): AutomationRule {
+    if (rule.specSource === 'user') return rule;
+    if (rule.specSource === 'workiz-translator' && rule.specVersion === TRANSLATOR_VERSION) return rule;
+    if (!rule.events && !rule.conditions && !rule.spec) return rule;
+
+    const { spec, runnable, notRunnableReason, notes } = translateWorkizRule(rule);
+    return {
+      ...rule,
+      ...(spec ? { spec } : {}),
+      specSource: 'workiz-translator',
+      specVersion: TRANSLATOR_VERSION,
+      runnable,
+      ...(notRunnableReason ? { notRunnableReason } : {}),
+      ...(notes.length ? { specNotes: notes } : {}),
+    };
   }
 }

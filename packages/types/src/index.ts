@@ -248,6 +248,7 @@ export {
   automationConditionsSentence,
   automationDelayText,
   automationSentence,
+  automationSpecLabels,
   automationTriggerSentence,
 } from './entities/automation-spec';
 export type {
