@@ -63,7 +63,14 @@ export async function currentPosition(): Promise<Fix | undefined> {
     });
     const reading = Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
-    }).then((position) => toFix(position.coords));
+    })
+      .then((position) => toFix(position.coords))
+      // The catch has to be on the reading itself, not on the race. Once the
+      // timeout wins, the race's `await` is over and the try/catch below is
+      // past — a rejection arriving afterwards (permission revoked mid-flight,
+      // a driver that never answers) would have no handler at all, and React
+      // Native reports that as an unhandled rejection.
+      .catch(() => undefined);
 
     return await Promise.race([reading, timeout]);
   } catch {

@@ -153,6 +153,7 @@ describe('JobDetailScreen', () => {
       {
         queue: 'outbox',
         id: 'r1',
+        userId: 'tech-1',
         kind: 'note',
         dealId: 'd1',
         payload: '{}',
@@ -173,6 +174,7 @@ describe('JobDetailScreen', () => {
       {
         queue: 'outbox',
         id: 'r1',
+        userId: 'tech-1',
         kind: 'note',
         dealId: 'some-other-job',
         payload: '{}',

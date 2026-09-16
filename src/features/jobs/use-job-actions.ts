@@ -36,47 +36,73 @@ export interface JobActions {
  */
 export function useJobActions(dealId: string): JobActions {
   const qc = useQueryClient();
-  const { enqueueAction } = useQueue();
+  const { enqueueAction, patchActionPayload } = useQueue();
   const { data: me } = useMe();
   const actorId = me?.id;
 
+  const patchCache = useCallback(
+    (patch: Partial<Deal>) => {
+      if (Object.keys(patch).length === 0) return;
+      qc.setQueryData<Deal>(queryKeys.deals.detail(dealId), (prev) =>
+        prev ? { ...prev, ...patch } : prev,
+      );
+      // The day list shows the same stamps, so it is patched too — otherwise
+      // going back one screen would show the job as if nothing had happened.
+      qc.setQueriesData<Deal[]>({ queryKey: queryKeys.deals.lists() }, (list) =>
+        applyPatchToList(list, dealId, patch),
+      );
+    },
+    [dealId, qc],
+  );
+
   const run = useCallback(
     async (kind: OutboxKind, payload: unknown) => {
-      const patch = optimisticPatch(kind, payload, new Date().toISOString(), actorId);
-
-      if (Object.keys(patch).length > 0) {
-        qc.setQueryData<Deal>(queryKeys.deals.detail(dealId), (prev) =>
-          prev ? { ...prev, ...patch } : prev,
-        );
-        // The day list shows the same stamps, so it is patched too — otherwise
-        // going back one screen would show the job as if nothing had happened.
-        qc.setQueriesData<Deal[]>({ queryKey: queryKeys.deals.lists() }, (list) =>
-          applyPatchToList(list, dealId, patch),
-        );
-      }
-
-      await enqueueAction({ kind, dealId, payload });
+      patchCache(optimisticPatch(kind, payload, new Date().toISOString(), actorId));
+      const id = await enqueueAction({ kind, dealId, payload });
       hapticSuccess();
+      return id;
     },
-    [actorId, dealId, enqueueAction, qc],
+    [actorId, dealId, enqueueAction, patchCache],
   );
 
   return useMemo<JobActions>(
     () => ({
-      confirm: () => run('confirm', {}),
+      confirm: () => run('confirm', {}).then(() => undefined),
       onMyWay: (etaMinutes) =>
-        run('on_my_way', etaMinutes ? { etaMinutes } : {}),
-      runningLate: (minutes) => run('late', { minutes }),
+        run('on_my_way', etaMinutes ? { etaMinutes } : {}).then(() => undefined),
+      runningLate: (minutes) => run('late', { minutes }).then(() => undefined),
+      /**
+       * Queued first, located second.
+       *
+       * The fix can take up to eight seconds (`GEOLOCATION_TIMEOUT_MS`), and
+       * "Arrived" is the app's hero action, tapped at a doorstep on one bar.
+       * Waiting for the fix before writing the row meant eight seconds of no
+       * feedback — and an app killed inside that window lost the arrival
+       * outright. So the row goes down immediately with an empty body, which
+       * `MarkArrivedDto` accepts, and the coordinates are folded in afterwards
+       * if they arrive before the row does (§2.9).
+       */
       arrive: async () => {
-        // The fix is best-effort and time-boxed: an arrival with no coordinates
-        // still counts, and waiting on a GPS lock that is not coming does not.
+        const id = await run('arrived', {});
         const fix = await currentPosition();
-        await run('arrived', fix ?? {});
+        if (!fix) return;
+        await patchActionPayload(id, fix);
+        patchCache({
+          arrivedLocation: {
+            lat: fix.lat,
+            lng: fix.lng,
+            ...(typeof fix.accuracy === 'number' ? { accuracy: fix.accuracy } : {}),
+          },
+        });
       },
-      start: () => run('status', { superStatus: JobSuperStatus.IN_PROGRESS }),
-      finish: () => run('status', { superStatus: JobSuperStatus.DONE }),
-      addNote: (note) => run('note', { note }),
+      start: () =>
+        run('status', { superStatus: JobSuperStatus.IN_PROGRESS }).then(
+          () => undefined,
+        ),
+      finish: () =>
+        run('status', { superStatus: JobSuperStatus.DONE }).then(() => undefined),
+      addNote: (note) => run('note', { note }).then(() => undefined),
     }),
-    [run],
+    [patchActionPayload, patchCache, run],
   );
 }
