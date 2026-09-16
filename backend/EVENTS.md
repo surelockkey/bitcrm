@@ -21,7 +21,41 @@ Publishers and consumers import these so the wire format can't drift; the
 
 ## Topic: `deal-events` (published by deal-service)
 `deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
-`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
+`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`,
+`deal.sent_to_tech`.
+
+### `deal.sent_to_tech` — Workiz "Send to tech" (typed: `DealSentToTechEvent` in `@bitcrm/types`)
+
+| Field | Meaning |
+|---|---|
+| `dealId`, `dealNumber?` | the job |
+| `techIds` | the technicians to notify — a subset of the roster at click time (omitted `techIds` on the request = everyone assigned) |
+| `channels` | `('sms' \| 'email' \| 'in_app')[]` — what the dispatcher ticked |
+| `sentAt` | ISO-8601, equals the deal's `sentToTechAt` after the click; **the idempotency key** per (deal, technician, channel) |
+| `sentBy` | the dispatcher |
+
+Published by `POST /api/deals/:id/send-to-tech` (`deals.edit`) **after** the deal is stamped
+(`sentToTechAt` / `sentToTechVia` / `sentToTechBy` = Workiz `last_sent` / `sent`, plus `sentAt` /
+`sentVia` / `sentBy` on each `ASSIGN#<techId>` row) and the `sent_to_tech` timeline entry is written —
+the click is the "sent" moment, as in Workiz; delivery is asynchronous. One event per click, however
+many technicians / channels; pressing again is a resend with a new `sentAt`.
+
+Consumed by **messaging** (queue `deal-events-to-messaging`, `SendToTechService`): renders the settings
+`smsFormat` "New job" text for the job + technician and delivers it per channel — `sms` to the
+technician's personal phone in their team thread, `in_app` as a line in that thread, `email` to their
+user email (skipped with `email_not_configured` until `MESSAGING_EMAIL_FROM` is set). Idempotent per
+(deal, technician, channel, `sentAt`) through the `CLIENTMSG#` key
+`send-to-tech:<dealId>:<techId>:<channel>:<sentAt>` plus an `AUTOSENT#` marker (`ruleId`
+`send-to-tech:<channel>`). Not held by quiet hours (a dispatcher's explicit action). Each
+(technician, channel) outcome is reported back with `PUT /api/deals/internal/:id/sent-to-tech`
+`{techId, channel, status: sent|skipped|failed, sentAt, reason?, messageId?, conversationId?, at?}`
+→ `deliveries.<channel>` on the `ASSIGN#` row (a report about an older `sentAt` than the row's is
+ignored). Chosen over letting messaging write the deals table: repositories stay per-service.
+
+**Seen** (Workiz `seen` / "Viewed job in app"): `POST /api/deals/:id/seen` (`deals.view`) is called by
+the technician's app on open; only an assigned technician counts — first open stamps `seenAt` on their
+`ASSIGN#` row, `seenByTechAt` on the deal (sticky; a re-send does not clear it) and a `seen_by_tech`
+timeline entry; later opens and non-roster callers answer `seen: false` / unchanged. No event.
 
 `deal.updated` (`{dealId, updatedBy?}`) fires on any field edit (update, client
 reassignment, payment status) so the search index stays fresh; `deal.deleted`

@@ -205,6 +205,13 @@ export function createMockDealsRepository() {
     removeAssignment: jest.fn(),
     listAssignmentTechIds: jest.fn().mockResolvedValue([]),
     restampAssignmentDates: jest.fn(),
+    // Send-to-tech / seen stamps on the ASSIGN# rows.
+    getAssignment: jest.fn().mockResolvedValue(null),
+    listAssignments: jest.fn().mockResolvedValue([]),
+    markAssignmentsSent: jest.fn().mockResolvedValue(undefined),
+    // Echoes the given time — "this open was the first" — unless a test says otherwise.
+    markAssignmentSeen: jest.fn().mockImplementation(async (_d: string, _t: string, at: string) => at),
+    recordAssignmentDelivery: jest.fn().mockResolvedValue(undefined),
   };
 }
 

@@ -40,7 +40,8 @@ export { Company } from './entities/company.entity';
 export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
-export { Deal } from './entities/deal.entity';
+export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
+export type { SendToTechChannel } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export {
   CallGroup,
@@ -137,6 +138,10 @@ export type {
   DocumentEvent,
   SensitiveAccessedEvent,
 } from './events/user-events';
+
+// Event contract (deal-events topic — the typed slice)
+export { DEAL_EVENT_TOPIC, DealEventType } from './events/deal-events';
+export type { DealSentToTechEvent } from './events/deal-events';
 
 // Event contract (call-events topic)
 export { CALL_EVENT_TOPIC, CallEventType } from './events/call-events';

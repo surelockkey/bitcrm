@@ -30,9 +30,13 @@ import {
   type CustomFieldDefinition,
   type CustomFieldValue,
   type CustomFieldType,
+  type DealSentToTechEvent,
+  DealEventType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
+import { type SendToTechDto } from './dto/send-to-tech.dto';
+import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
@@ -966,6 +970,129 @@ export class DealsService {
 
     await this.cache.invalidate(id);
     return this.findById(id);
+  }
+
+  // ------------------------------------------------- send to tech / seen
+
+  /**
+   * Workiz "Send to tech": hand the job to its technicians over the picked
+   * channels. The deal is stamped at the click (`sentToTechAt` = Workiz
+   * `last_sent`, `sentToTechVia`, `sentToTechBy`; `sentAt` / `sentVia` on
+   * each `ASSIGN#` row), a `sent_to_tech` timeline entry is written and one
+   * `deal.sent_to_tech` event goes out — messaging-service renders the
+   * settings `smsFormat` text and delivers it per channel, then reports
+   * back through `recordSentToTechDelivery`. Re-pressing is a resend: a new
+   * `sentAt`, so the consumer's idempotency key changes.
+   */
+  async sendToTech(id: string, dto: SendToTechDto, caller: JwtUser): Promise<Deal> {
+    const deal = await this.findById(id);
+    if (deal.status !== DealStatus.ACTIVE) {
+      throw new BadRequestException('A deleted job cannot be sent to a technician');
+    }
+    if (!deal.assignedTechIds.length) {
+      throw new BadRequestException('Assign a technician before sending the job');
+    }
+
+    const roster = new Set(deal.assignedTechIds);
+    const techIds = dto.techIds?.length ? [...new Set(dto.techIds)] : [...deal.assignedTechIds];
+    const strangers = techIds.filter((t) => !roster.has(t));
+    if (strangers.length) {
+      throw new BadRequestException(
+        `Technician${strangers.length > 1 ? 's' : ''} ${strangers.join(', ')} ${strangers.length > 1 ? 'are' : 'is'} not assigned to this job`,
+      );
+    }
+
+    const channels = [...new Set(dto.channels)];
+    const sentAt = new Date().toISOString();
+
+    await this.repository.update(id, {
+      sentToTechAt: sentAt,
+      sentToTechVia: channels,
+      sentToTechBy: caller.id,
+    });
+    await this.repository.markAssignmentsSent(id, techIds, { sentAt, sentVia: channels, sentBy: caller.id });
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.SENT_TO_TECH, caller, { techIds, channels, sentAt });
+
+    const payload: DealSentToTechEvent = {
+      dealId: id,
+      dealNumber: deal.dealNumber,
+      techIds,
+      channels,
+      sentAt,
+      sentBy: caller.id,
+    };
+    this.publishEvent(DealEventType.SENT_TO_TECH, { ...payload });
+
+    return this.findById(id);
+  }
+
+  /**
+   * Workiz `seen` / "Viewed job in app": the technician's app calls this
+   * when it opens the job. Only an assigned technician counts — anyone else
+   * (a dispatcher previewing) is answered `seen: false` and nothing is
+   * written, so the client can call it blindly. First open stamps the
+   * `ASSIGN#` row, the deal's `seenByTechAt` (once, for the whole job) and
+   * a `seen_by_tech` timeline entry; later opens are no-ops.
+   */
+  async markSeenByTech(
+    id: string,
+    caller: JwtUser,
+  ): Promise<{ seen: boolean; seenAt?: string; first: boolean }> {
+    const deal = await this.findById(id);
+    if (!deal.assignedTechIds.includes(caller.id)) return { seen: false, first: false };
+
+    const now = new Date().toISOString();
+    const stored = await this.repository.markAssignmentSeen(id, caller.id, now);
+    const first = stored === now;
+    if (!first) return { seen: true, seenAt: stored, first: false };
+
+    if (!deal.seenByTechAt) {
+      await this.repository.update(id, { seenByTechAt: now });
+    }
+    await this.cache.invalidate(id);
+    await this.addTimelineEntry(id, TimelineEventType.SEEN_BY_TECH, caller, { techId: caller.id, seenAt: now });
+    return { seen: true, seenAt: now, first: true };
+  }
+
+  /**
+   * Messaging-service's report for one (technician, channel) of a send —
+   * stored on the `ASSIGN#` row so the job page can say "SMS delivered,
+   * email skipped: no address". A report for an older click than the row's
+   * current `sentAt` is ignored (a slow consumer must not describe the
+   * previous send as the latest). Skips and failures are logged; the
+   * dispatcher's click already stamped the job, Workiz-style.
+   */
+  async recordSentToTechDelivery(id: string, dto: RecordSentToTechDto): Promise<{ recorded: boolean }> {
+    const assignment = await this.repository.getAssignment(id, dto.techId);
+    if (!assignment) {
+      this.logger.warn(`sent-to-tech delivery for ${id}/${dto.techId} ignored: technician not on the job`);
+      return { recorded: false };
+    }
+    if (assignment.sentAt && assignment.sentAt > dto.sentAt) {
+      this.logger.log(`sent-to-tech delivery for ${id}/${dto.techId} (${dto.channel}) ignored: a newer send exists`);
+      return { recorded: false };
+    }
+
+    await this.repository.recordAssignmentDelivery(id, dto.techId, dto.channel, {
+      status: dto.status,
+      sentAt: dto.sentAt,
+      at: dto.at ?? new Date().toISOString(),
+      ...(dto.reason && { reason: dto.reason }),
+      ...(dto.messageId && { messageId: dto.messageId }),
+      ...(dto.conversationId && { conversationId: dto.conversationId }),
+    });
+    if (dto.status !== 'sent') {
+      this.logger.warn(`sent-to-tech ${dto.channel} for ${id}/${dto.techId} ${dto.status}: ${dto.reason ?? 'no reason given'}`);
+    }
+    return { recorded: true };
+  }
+
+  /** The per-technician sent / seen stamps of a deal (`ASSIGN#` rows). */
+  async getAssignments(id: string) {
+    await this.findById(id);
+    return this.repository.listAssignments(id);
   }
 
   /** Every active deal a technician has, drained across pages. */

@@ -17,4 +17,8 @@ export enum TimelineEventType {
   ATTACHMENT_ADDED = 'attachment_added',
   ATTACHMENT_RENAMED = 'attachment_renamed',
   ATTACHMENT_REMOVED = 'attachment_removed',
+  /** Workiz "Sent to tech by SMS / In App / Email": a dispatcher handed the job to the roster. */
+  SENT_TO_TECH = 'sent_to_tech',
+  /** Workiz "Viewed job in app": an assigned technician opened the job. */
+  SEEN_BY_TECH = 'seen_by_tech',
 }
