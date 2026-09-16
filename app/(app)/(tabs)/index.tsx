@@ -1,15 +1,6 @@
-import { EmptyState } from '../../../src/ui/EmptyState';
-import { Screen, ScreenHeader } from '../../../src/ui/Screen';
+import { router } from 'expo-router';
+import { JobsScreen } from '../../../src/features/jobs/jobs-screen';
 
-/** Placeholder until the day list lands on top of the data layer. */
 export default function JobsTab() {
-  return (
-    <Screen testID="jobs-screen">
-      <ScreenHeader title="My jobs" />
-      <EmptyState
-        title="Not wired up yet"
-        body="The day list arrives with the data layer."
-      />
-    </Screen>
-  );
+  return <JobsScreen onOpenJob={(id) => router.push(`/jobs/${id}`)} />;
 }
