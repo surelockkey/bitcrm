@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import type { AutomationRule, AutomationSpec } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
-import { AutomationFormDialog } from "./automation-form-dialog";
+import { AutomationFormDialog, type AutomationDraft } from "./automation-form-dialog";
 
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => true, me: { id: "me" }, isLoading: false, isTechnician: false }),
@@ -37,16 +37,26 @@ interface PatchBody {
   name?: string;
   spec?: AutomationSpec;
 }
+interface CreateBody extends PatchBody {
+  enabled?: boolean;
+  category?: string;
+}
 const patched: Array<{ id: string; body: PatchBody }> = [];
+const created: CreateBody[] = [];
 const tested: Array<unknown> = [];
 
 beforeEach(() => {
   patched.length = 0;
+  created.length = 0;
   tested.length = 0;
   server.use(
     http.patch("*/messaging/automations/:id", async ({ params, request }) => {
       patched.push({ id: String(params.id), body: (await request.json()) as PatchBody });
       return HttpResponse.json({ success: true, data: rule });
+    }),
+    http.post("*/messaging/automations", async ({ request }) => {
+      created.push((await request.json()) as CreateBody);
+      return HttpResponse.json({ success: true, data: { ...rule, id: "new-1" } });
     }),
     http.post("*/messaging/automations/:id/test", async ({ request }) => {
       tested.push(await request.json());
@@ -82,6 +92,16 @@ function renderDialog(over: Partial<AutomationRule> = {}) {
   return render(
     <QueryClientProvider client={client}>
       <AutomationFormDialog rule={{ ...rule, ...over }} open onOpenChange={() => {}} />
+    </QueryClientProvider>,
+  );
+}
+
+/** The other half of the contract: no rule, a recipe's draft or nothing. */
+function renderCreate(draft?: AutomationDraft, onOpenChange: (open: boolean) => void = () => {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <AutomationFormDialog draft={draft} open onOpenChange={onOpenChange} />
     </QueryClientProvider>,
   );
 }
@@ -170,4 +190,71 @@ describe("AutomationFormDialog", () => {
     expect(result).toHaveTextContent("Would send");
     expect(tested).toEqual([{ dealId: "d1" }]);
   });
+});
+
+/** The seam the recipe library plugs into: no rule, a draft to start from. */
+describe("AutomationFormDialog, creating", () => {
+  const draft: AutomationDraft = {
+    name: "Missed call / text the client",
+    category: "phone",
+    spec: {
+      version: 1,
+      // `callDirection` and the working-hours window have no field in the
+      // editor: a recipe that carries them must not be widened by a save.
+      trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
+      conditions: [],
+      actions: [{ type: "send_sms", to: "client", body: "Sorry we missed you" }],
+      timing: { quietHours: "hold", workingHours: { from: "08:00", to: "18:00" } },
+    },
+  };
+
+  it("opens on the recipe's own name, trigger and message", async () => {
+    renderCreate(draft);
+
+    expect(await screen.findByDisplayValue("Missed call / text the client")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create automation" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Trigger")).toHaveTextContent("Call ends");
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Sorry we missed you");
+    // Nothing exists to dry-run yet.
+    expect(screen.queryByRole("button", { name: "Test against a job" })).not.toBeInTheDocument();
+  });
+
+  it("posts the recipe as a new rule — off, in its section, narrowings intact", async () => {
+    const user = userEvent.setup();
+    const closed: boolean[] = [];
+    renderCreate(draft, (open) => closed.push(open));
+
+    await screen.findByDisplayValue("Missed call / text the client");
+    await user.click(screen.getByRole("button", { name: "Create automation" }));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({
+      name: "Missed call / text the client",
+      enabled: false,
+      category: "phone",
+    });
+    expect(created[0].spec?.trigger).toEqual({
+      kind: "call.completed",
+      callOutcome: "missed",
+      callDirection: "inbound",
+    });
+    expect(created[0].spec?.timing).toEqual({
+      quietHours: "hold",
+      workingHours: { from: "08:00", to: "18:00" },
+    });
+    expect(patched).toEqual([]);
+    expect(closed).toEqual([false]);
+  });
+
+  it("starts empty when no recipe supplied one, and refuses a rule with nothing to send", async () => {
+    const user = userEvent.setup();
+    renderCreate();
+
+    expect(await screen.findByLabelText("Name")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Create automation" }));
+
+    expect(await screen.findByText("Name is required")).toBeInTheDocument();
+    expect(created).toEqual([]);
+  });
+
 });
