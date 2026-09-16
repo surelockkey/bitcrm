@@ -273,6 +273,27 @@ describe("CallTagCombobox — the tags on one call", () => {
     );
 
     openPicker();
+    // Also true of the panel itself, which is portaled: React bubbles a
+    // portal's events through the tree it was rendered in.
+    fireEvent.click(screen.getByPlaceholderText("Search tags…"));
     expect(rowClick).not.toHaveBeenCalled();
+  });
+
+  it("floats the panel out of the cell, where a table's overflow box cannot clip it", () => {
+    // The call log's table wrapper is `overflow-x-auto`, which makes the
+    // vertical axis `auto` too — a panel rendered inside the cell is cut off
+    // on the lower rows, and a ~330px panel is taller than a row by far.
+    const { container } = render(
+      <CallTagCombobox value={[]} onChange={vi.fn()} stopPropagation />,
+    );
+    openPicker();
+
+    const search = screen.getByPlaceholderText("Search tags…");
+    expect(container.contains(search)).toBe(false);
+
+    const panel = document.body.querySelector<HTMLElement>(
+      "div[style*='position: fixed']",
+    );
+    expect(panel?.contains(search)).toBe(true);
   });
 });

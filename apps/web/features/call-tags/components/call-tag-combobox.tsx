@@ -1,6 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import { ArrowUpDown, Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { CallTag } from "@bitcrm/types";
 import {
@@ -36,6 +44,87 @@ const SORT_OPTIONS = [
   { key: "oldest", label: "Oldest first" },
 ] as const;
 type SortKey = (typeof SORT_OPTIONS)[number]["key"];
+
+/** The panel's own size (w-80, header + search + max-h-64 list). */
+const PANEL_WIDTH = 320;
+const PANEL_HEIGHT = 340;
+/** Breathing room against the trigger and the viewport edges. */
+const GAP = 4;
+const EDGE = 8;
+
+/**
+ * The picker panel, floated out of the page flow and pinned to its trigger.
+ *
+ * In the call log this lives in a table cell, and the table wrapper is
+ * `overflow-x-auto` — which per the CSS overflow spec computes the vertical
+ * axis to `auto` as well, so a panel positioned inside the cell is clipped by
+ * the table box. It bites hardest on the last rows on screen, which is exactly
+ * where a dispatcher triages the oldest calls. Rendering into the body keeps
+ * the panel whole, and measuring the trigger lets it flip above when there is
+ * no room below.
+ *
+ * Clicks still reach the caller's handlers: a React portal bubbles events
+ * through the tree it was rendered in, not the DOM it was placed in, so the
+ * row-click guard above keeps working.
+ */
+function FloatingPanel({
+  anchor,
+  onClose,
+  children,
+}: {
+  anchor: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const [placement, setPlacement] = useState<CSSProperties>({});
+
+  useLayoutEffect(() => {
+    const place = () => {
+      const rect = anchor.current?.getBoundingClientRect();
+      if (!rect) return;
+      const below = window.innerHeight - rect.bottom;
+      const flip = below < PANEL_HEIGHT && rect.top > below;
+      setPlacement({
+        left: Math.max(
+          EDGE,
+          Math.min(rect.left, window.innerWidth - PANEL_WIDTH - EDGE),
+        ),
+        ...(flip
+          ? { bottom: window.innerHeight - rect.top + GAP }
+          : { top: rect.bottom + GAP }),
+      });
+    };
+    place();
+    // Pinned to the viewport, so anything that moves the trigger moves it too
+    // — including a scroll inside the table itself (hence capture).
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [anchor]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <>
+      <button
+        type="button"
+        aria-label="Close"
+        className="fixed inset-0 z-40 cursor-default"
+        onClick={onClose}
+      />
+      <div
+        style={{ position: "fixed", ...placement }}
+        className="z-50 w-80 overflow-hidden rounded-lg border bg-popover shadow-md"
+      >
+        {children}
+      </div>
+    </>,
+    document.body,
+  );
+}
 
 function sortTags(tags: CallTag[], sort: SortKey): CallTag[] {
   const byName = (a: CallTag, b: CallTag) => a.name.localeCompare(b.name);
@@ -85,6 +174,7 @@ export function CallTagCombobox({
   const { can } = usePermissions();
   const archive = useArchiveCallTag();
   const map = callTagMap(data);
+  const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
@@ -155,6 +245,7 @@ export function CallTagCombobox({
         <div className="relative">
           <button
             type="button"
+            ref={trigger}
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
             className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -163,14 +254,8 @@ export function CallTagCombobox({
           </button>
 
           {open ? (
-            <>
-              <button
-                type="button"
-                aria-label="Close"
-                className="fixed inset-0 z-10 cursor-default"
-                onClick={() => setOpen(false)}
-              />
-              <div className="absolute left-0 top-full z-20 mt-1 w-80 overflow-hidden rounded-lg border bg-popover shadow-md">
+            <FloatingPanel anchor={trigger} onClose={() => setOpen(false)}>
+              <>
                 <div className="flex items-center justify-between px-3 pb-1 pt-2.5">
                   <span className="text-sm font-semibold">
                     Available tags ({active.length})
@@ -312,8 +397,8 @@ export function CallTagCombobox({
                     </CommandGroup>
                   </CommandList>
                 </Command>
-              </div>
-            </>
+              </>
+            </FloatingPanel>
           ) : null}
 
           {creating ? (
