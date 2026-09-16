@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DynamoDbService, PermissionCacheReader, RedisService, S3Service, SqsConsumerService } from '@bitcrm/shared';
@@ -124,6 +126,18 @@ describe('AutomationsModule wiring', () => {
 
     expect(consumer.getHandlers().has(CALL_COMPLETED_EVENT)).toBe(true);
     await moduleRef.close();
+  });
+
+  it('the deployed messaging task carries the flag the poller needs', () => {
+    // Without it every delayed, held and relative firing is armed in a
+    // SCHEDULE# row that nothing ever reads: the rule logs `scheduled` and
+    // its ONCE# claim blocks any retry until it TTLs out.
+    const script = readFileSync(join(__dirname, '../../../../../scripts/render-taskdef.sh'), 'utf8');
+    const line = script
+      .split('\n')
+      .find((l) => l.includes('ENABLE_AUTOMATION_SCHEDULER') && l.includes('value:'));
+    expect(line).toBeDefined();
+    expect(line).toContain('$service == "messaging"');
   });
 
   it('polls the scheduler only under ENABLE_AUTOMATION_SCHEDULER', async () => {
