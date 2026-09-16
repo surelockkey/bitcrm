@@ -199,6 +199,23 @@ describe("AutomationActivityPage", () => {
     );
   });
 
+  it("lists a run once when two pages overlap", async () => {
+    const user = userEvent.setup();
+    // What a refetch between pages does: the row at the seam arrives twice.
+    feed = (url) =>
+      url.searchParams.get("cursor")
+        ? { items: [page1[2], run({ id: "r-9", ruleId: "rule-2" })] }
+        : { items: page1, nextCursor: "page-2" };
+    renderPage();
+
+    await screen.findByTestId("activity-r-1");
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByTestId("activity-r-9")).toBeInTheDocument();
+    expect(screen.getAllByTestId("activity-r-3")).toHaveLength(1);
+    expect(screen.getByText("4 firings")).toBeInTheDocument();
+  });
+
   it("an empty page with a cursor is not an empty feed", async () => {
     const user = userEvent.setup();
     feed = (url) =>

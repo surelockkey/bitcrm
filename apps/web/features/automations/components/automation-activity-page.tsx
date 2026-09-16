@@ -75,7 +75,17 @@ export function AutomationActivityPage() {
     canView,
   );
 
-  const runs = useMemo(() => feed.data?.pages.flatMap((p) => p.items) ?? [], [feed.data]);
+  const runs = useMemo(() => {
+    // Refetching an infinite query re-reads every page: a firing logged in
+    // between shifts a row from one page onto the next, and the same run then
+    // arrives twice (duplicate React keys, and a reader counting it twice).
+    const seen = new Set<string>();
+    return (feed.data?.pages.flatMap((p) => p.items) ?? []).filter((run) => {
+      if (seen.has(run.id)) return false;
+      seen.add(run.id);
+      return true;
+    });
+  }, [feed.data]);
   const byId = useMemo(
     () => new Map((rules ?? []).map((rule: AutomationRule) => [rule.id, rule])),
     [rules],
@@ -92,16 +102,14 @@ export function AutomationActivityPage() {
    * rules, the ids the feed brought back, and whatever is selected.
    */
   const ruleOptions = useMemo(() => {
+    const unnamed = (id: string) =>
+      namesKnown ? `Deleted rule ${shortId(id)}` : `Rule ${shortId(id)}`;
     const options = new Map<string, string>();
     for (const rule of rules ?? []) options.set(rule.id, rule.name);
-    for (const run of runs) {
-      if (!options.has(run.ruleId)) options.set(run.ruleId, `Deleted rule ${shortId(run.ruleId)}`);
-    }
-    if (ruleId !== ALL && !options.has(ruleId)) {
-      options.set(ruleId, byId.get(ruleId)?.name ?? `Deleted rule ${shortId(ruleId)}`);
-    }
+    for (const run of runs) if (!options.has(run.ruleId)) options.set(run.ruleId, unnamed(run.ruleId));
+    if (ruleId !== ALL && !options.has(ruleId)) options.set(ruleId, unnamed(ruleId));
     return [...options.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [rules, runs, ruleId, byId]);
+  }, [rules, runs, ruleId, namesKnown]);
 
   const narrowed = ruleId !== ALL || outcome !== ALL || sinceKey !== ALL;
   const clearFilters = () => {
