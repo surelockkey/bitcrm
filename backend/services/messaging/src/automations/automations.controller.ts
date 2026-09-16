@@ -3,8 +3,10 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { AutomationsService } from './automations.service';
+import { withHttpErrors } from '../api/common/http-errors';
 import { CreateAutomationDto } from './dto/create-automation.dto';
 import { DuplicateAutomationDto } from './dto/duplicate-automation.dto';
+import { ListAutomationRunsQueryDto } from './dto/list-automation-runs-query.dto';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
 import { TestAutomationDto } from './dto/test-automation.dto';
 import { AutomationRunsRepository } from './engine/automation-runs.repository';
@@ -78,6 +80,26 @@ export class AutomationsController {
         coverage: rows,
       },
     };
+  }
+
+  @Get('runs')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: 'Every rule\'s firings — the account-wide activity feed',
+    description:
+      '**Guard:** `settings.view`. Newest first: what fired, for which job, what each action did and — for a ' +
+      'firing that did nothing — why. `limit` (default 50, max 200) with an opaque `cursor`, narrowed by ' +
+      '`ruleId`, `outcome` and `since`. Kept for 30 days.\n\n' +
+      '**The feed starts at this deploy.** It reads a month index that is written when a firing is logged, so ' +
+      'runs logged before the release are not in it; `?ruleId=` reads that rule\'s own partition instead and ' +
+      'still sees all of them, and every rule\'s own log (`GET /automations/:id/runs`) is complete as before. ' +
+      'Nothing is backfilled: the missing rows expire on their own within 30 days.\n\n' +
+      'A page narrowed by `outcome` may come back shorter than `limit` with a cursor — follow the cursor ' +
+      'rather than reading a short page as the end.',
+  })
+  async listRunsFeed(@Query() query: ListAutomationRunsQueryDto) {
+    const data = await withHttpErrors(() => this.runs.listFeed(query));
+    return { success: true, data };
   }
 
   @Get(':id')

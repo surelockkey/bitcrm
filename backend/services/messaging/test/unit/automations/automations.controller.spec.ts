@@ -5,6 +5,12 @@ import { PERMISSION_KEY } from '@bitcrm/shared';
 import { AutomationsController } from '../../../src/automations/automations.controller';
 import { CreateAutomationDto } from '../../../src/automations/dto/create-automation.dto';
 import { DuplicateAutomationDto } from '../../../src/automations/dto/duplicate-automation.dto';
+import {
+  AUTOMATION_RUNS_PAGE_DEFAULT,
+  AUTOMATION_RUNS_PAGE_MAX,
+  ListAutomationRunsQueryDto,
+} from '../../../src/automations/dto/list-automation-runs-query.dto';
+import { InvalidCursorError } from '../../../src/common/cursor';
 import { UpdateAutomationDto } from '../../../src/automations/dto/update-automation.dto';
 import { ADMIN } from '../api/api-mocks';
 
@@ -21,7 +27,10 @@ function makeController() {
       { id: 'w2', name: 'Invoice due', runnable: false, reason: 'invoices are not an automation entity', actions: [], written: false },
     ]),
   };
-  const runs = { listByRule: jest.fn(async () => [{ id: 'run-1', ruleId: 'late', outcome: 'sent', actions: [] }]) };
+  const runs = {
+    listByRule: jest.fn(async () => [{ id: 'run-1', ruleId: 'late', outcome: 'sent', actions: [] }]),
+    listFeed: jest.fn(async () => ({ items: [{ id: 'run-1', ruleId: 'late', outcome: 'sent', actions: [] }], nextCursor: 'c2' })),
+  };
   const engine = {
     testRun: jest.fn(async () => ({ id: 'run-2', ruleId: 'late', outcome: 'dry_run', actions: [] })),
     invalidate: jest.fn(),
@@ -60,6 +69,7 @@ describe('AutomationsController', () => {
     expect(perm('update')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('migrate')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('listRuns')).toEqual({ resource: 'settings', action: 'view' });
+    expect(perm('listRunsFeed')).toEqual({ resource: 'settings', action: 'view' });
     expect(perm('test')).toEqual({ resource: 'settings', action: 'edit' });
   });
 
@@ -73,6 +83,36 @@ describe('AutomationsController', () => {
     expect(runs.listByRule).toHaveBeenLastCalledWith('late', 50);
     await controller.listRuns('late', 'lots');
     expect(runs.listByRule).toHaveBeenLastCalledWith('late', 20);
+  });
+
+  it('declares GET runs before GET :id, or the feed would be read as a rule called "runs"', () => {
+    const methods = Object.getOwnPropertyNames(AutomationsController.prototype);
+    expect(methods.indexOf('listRunsFeed')).toBeLessThan(methods.indexOf('get'));
+  });
+
+  it('serves the account-wide feed and turns a bad cursor into a 400', async () => {
+    const { controller, runs } = makeController();
+    const query = Object.assign(new ListAutomationRunsQueryDto(), { ruleId: 'late', outcome: 'failed' });
+    expect(await controller.listRunsFeed(query)).toEqual({
+      success: true,
+      data: { items: expect.any(Array), nextCursor: 'c2' },
+    });
+    expect(runs.listFeed).toHaveBeenCalledWith(query);
+    expect(query.limit).toBe(50);
+
+    runs.listFeed.mockRejectedValueOnce(new InvalidCursorError());
+    await expect(controller.listRunsFeed(new ListAutomationRunsQueryDto())).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('validates the feed query: limit, outcome, since and the cursor', async () => {
+    const ok = (q: object) => validate(plainToInstance(ListAutomationRunsQueryDto, q));
+    expect(await ok({})).toHaveLength(0);
+    expect(await ok({ limit: '200', outcome: 'skipped', since: '2026-09-01T00:00:00.000Z', ruleId: 'w1', cursor: 'abc' })).toHaveLength(0);
+    // The default and the ceiling of the page size (50 / 200).
+    expect(plainToInstance(ListAutomationRunsQueryDto, {}).limit).toBe(AUTOMATION_RUNS_PAGE_DEFAULT);
+    for (const bad of [{ limit: '0' }, { limit: String(AUTOMATION_RUNS_PAGE_MAX + 1) }, { outcome: 'exploded' }, { since: 'yesterday' }]) {
+      expect(await ok(bad)).not.toHaveLength(0);
+    }
   });
 
   it('runs a rule against a job without sending', async () => {

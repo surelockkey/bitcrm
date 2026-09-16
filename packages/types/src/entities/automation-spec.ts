@@ -382,7 +382,16 @@ export function automationSentence(spec: AutomationSpec, labels?: AutomationLabe
 }
 
 /** One firing of a rule (`AUTORUN#` items, TTL). */
-export type AutomationRunOutcome = 'sent' | 'partial' | 'skipped' | 'failed' | 'scheduled' | 'dry_run' | 'duplicate';
+export const AUTOMATION_RUN_OUTCOMES = [
+  'sent',
+  'partial',
+  'skipped',
+  'failed',
+  'scheduled',
+  'dry_run',
+  'duplicate',
+] as const;
+export type AutomationRunOutcome = (typeof AUTOMATION_RUN_OUTCOMES)[number];
 
 export interface AutomationRunAction {
   type: AutomationActionType;
