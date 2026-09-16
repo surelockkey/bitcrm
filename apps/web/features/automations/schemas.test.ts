@@ -61,6 +61,45 @@ describe("automation form schema", () => {
     expect(edited.actions[1]).toEqual(narrow.actions[1]);
   });
 
+  it("keeps an \"any of\" group the editor cannot show — saving must not widen the rule", () => {
+    // `NY Bronx Review request text to client`, as the translator reads it:
+    // three sources in one group, plus a tag the editor does show.
+    const grouped: AutomationSpec = {
+      version: 1,
+      trigger: { kind: "deal.status_changed", to: ["done"] },
+      conditions: [
+        { field: "status", op: "in", values: ["done"], labels: ["Done"] },
+        {
+          any: [
+            { field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] },
+            { field: "source", op: "in", values: ["src-yelp"], labels: ["Yelp"] },
+            { field: "source", op: "in", values: ["src-fb"], labels: ["Facebook"] },
+          ],
+        },
+        { field: "tag", op: "in", values: ["tag-1"], labels: ["VIP"] },
+      ],
+      actions: [{ type: "send_sms", to: "client", body: "How did we do?" }],
+    };
+
+    // The group has no row in the form…
+    const values = parse(specToForm("Bronx review", grouped));
+    expect(values.conditions.map((c) => c.field)).toEqual(["status", "tag"]);
+
+    // …and comes back in the same slot, untouched, on save.
+    expect(toSpec(values, grouped)).toEqual(grouped);
+
+    // Editing a visible condition leaves the group exactly where it was.
+    const edited = toSpec(
+      { ...values, conditions: values.conditions.map((c) => (c.field === "tag" ? { ...c, values: ["tag-2"] } : c)) },
+      grouped,
+    );
+    expect(edited.conditions?.[1]).toEqual(grouped.conditions![1]);
+    expect(edited.conditions?.[2]).toMatchObject({ field: "tag", values: ["tag-2"] });
+
+    // And removing every visible condition still cannot drop the group.
+    expect(toSpec({ ...values, conditions: [] }, grouped).conditions).toEqual([grouped.conditions![1]]);
+  });
+
   it("keeps a status trigger's `from` and `onCreate: false`", () => {
     const narrow: AutomationSpec = {
       version: 1,
