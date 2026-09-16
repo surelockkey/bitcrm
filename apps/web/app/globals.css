@@ -146,6 +146,28 @@
 }
 
 /*
+ * The notch and the home indicator.
+ *
+ * `viewport-fit: cover` (app/layout.tsx) hands the page the WHOLE screen on a
+ * phone — including the strip behind the iOS status bar, the rounded corners
+ * and the home indicator — and these insets are the other half of that deal:
+ * without them the app header renders under the status bar, the bottom of
+ * every scroll area under the home indicator, and, in landscape, content
+ * disappears into the notch cutout.
+ *
+ * Applied to the app shell rather than to `body`, because the shell is sized
+ * `h-svh`: with `box-sizing: border-box` the padding comes out of that height
+ * instead of pushing the shell past the bottom of the screen. Every inset is
+ * 0px on hardware that has none, so desktop and Android are untouched.
+ */
+.app-safe-area {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+/*
  * Radix (Select / DropdownMenu / Dialog) locks body scroll via react-remove-scroll,
  * which injects `body[data-scroll-locked] { margin-right: <scrollbar>px !important }`
  * to compensate for the removed scrollbar. Because `scrollbar-gutter: stable` above

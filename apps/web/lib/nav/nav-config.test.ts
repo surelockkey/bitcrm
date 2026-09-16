@@ -1,8 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { MAIN_NAV, visibleNavItems } from "./nav-config";
+import { MAIN_NAV, TECHNICIAN_HOME, TECHNICIAN_NAV, visibleNavItems } from "./nav-config";
 import type { Resource } from "@bitcrm/types";
 
 const work = MAIN_NAV.find((g) => g.label === "Work")!;
+
+describe("TECHNICIAN_NAV", () => {
+  it("leads with the phone-first day list, which is also the technician's home", () => {
+    expect(TECHNICIAN_NAV[0]).toMatchObject({ label: "My Jobs", href: "/my-jobs" });
+    expect(TECHNICIAN_HOME).toBe("/my-jobs");
+  });
+
+  it("offers the van as My Stock, gated on containers.view", () => {
+    const stock = TECHNICIAN_NAV.find((i) => i.label === "My Stock")!;
+    expect(stock).toMatchObject({ href: "/my-stock", resource: "containers" });
+    expect(visibleNavItems(TECHNICIAN_NAV, () => false).map((i) => i.label)).toEqual([
+      "My Jobs",
+      "My Profile",
+    ]);
+  });
+});
 
 describe("MAIN_NAV structure", () => {
   it("has a single Inventory entry in Work instead of an Inventory group", () => {

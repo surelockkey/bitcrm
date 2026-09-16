@@ -25,12 +25,16 @@ export const DEALS_POLL_MS = 30_000;
 
 export function useDeals(
   params: { superStatus?: JobSuperStatus; techId?: string } = {},
-  options: { poll?: boolean } = {},
+  options: { poll?: boolean; enabled?: boolean } = {},
 ) {
   return useQuery({
     queryKey: queryKeys.deals.list(params),
     queryFn: () => api.fetchAllDeals(params),
     refetchInterval: options.poll ? DEALS_POLL_MS : false,
+    // Opt-in only — every existing caller omits it and still fetches on mount.
+    // "My jobs" waits for the signed-in technician's id, so it never asks for
+    // the whole board on its way to asking for one technician's.
+    enabled: options.enabled ?? true,
   });
 }
 

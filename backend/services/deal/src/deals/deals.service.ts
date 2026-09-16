@@ -18,6 +18,7 @@ import {
   JobSuperStatus,
   TERMINAL_SUPER_STATUSES,
   CLOSED_SUPER_STATUSES,
+  DataScope,
   DealStatus,
   DealPriority,
   TimelineEventType,
@@ -966,6 +967,173 @@ export class DealsService {
 
     await this.cache.invalidate(id);
     return this.findById(id);
+  }
+
+  /* ----------------------------------------------------- technician flow */
+
+  /**
+   * Who may act *as the technician on the job*.
+   *
+   * The roster is the rule: "I've got it", "I'm here" are first-person
+   * statements, and a dispatcher making them on somebody's behalf is the
+   * normal office case (a technician with no signal, a phone call) — so
+   * dispatch is allowed too, and the timeline records who actually tapped.
+   * A technician whose deals scope is `assigned_only` and who is NOT on the
+   * roster is refused: that is somebody else's job.
+   */
+  private assertTechActionAllowed(
+    deal: Deal,
+    caller: JwtUser,
+    dealScope?: string,
+  ): void {
+    if (deal.assignedTechIds.includes(caller.id)) return;
+    if (dealScope === DataScope.ASSIGNED_ONLY) {
+      throw new ForbiddenException('Only a technician assigned to this job can do that');
+    }
+  }
+
+  /** A job nobody can work any more takes no technician actions. */
+  private assertJobOpen(deal: Deal): void {
+    if (TERMINAL_SUPER_STATUSES.has(deal.superStatus)) {
+      throw new BadRequestException('This job is closed');
+    }
+  }
+
+  /**
+   * "Confirm receipt" — Workiz's *Confirmed job receipt* (≈15k in the export).
+   * The technician acknowledges the assignment from their phone; dispatch then
+   * knows the job has been seen rather than hoping.
+   *
+   * The stamp is per-technician and lives on that technician's own `ASSIGN#`
+   * row. The deal metadata mirrors the FIRST confirmation so a list view — the
+   * dispatch board, "My jobs" — can show it without reading a row per job.
+   *
+   * Idempotent: a second tap keeps the first timestamp and writes no second
+   * timeline entry. "A second tap" is per technician — each technician on a
+   * two-tech job confirms their own row and so gets their own entry — while a
+   * caller who is NOT on the roster (dispatch acting for somebody) has no row
+   * of their own and rides the deal-level mirror instead: once the job carries
+   * a confirmation, their repeat taps do nothing at all.
+   */
+  async confirmReceipt(id: string, caller: JwtUser, dealScope?: string): Promise<Deal> {
+    const deal = await this.findById(id);
+    this.assertTechActionAllowed(deal, caller, dealScope);
+    this.assertJobOpen(deal);
+
+    const existing = await this.repository.getAssignment(id, caller.id);
+    if (existing?.techConfirmedAt) return deal;
+
+    const onRoster = deal.assignedTechIds.includes(caller.id);
+    // Off the roster there is no `ASSIGN#` row to remember the tap, so the
+    // deal-level mirror is the only stamp there is: without this, every retry
+    // of a dispatcher's Confirm wrote another feed entry and another event.
+    if (!onRoster && deal.techConfirmedAt) return deal;
+
+    const at = new Date().toISOString();
+    // Only an assigned technician has a row to stamp; dispatch confirming on
+    // somebody's behalf records the deal-level mirror and the timeline entry.
+    // That write is conditional (`if_not_exists`) and answers with whatever was
+    // already there, so two taps that both race past the read above still leave
+    // one entry: the loser stops here.
+    if (onRoster) {
+      const alreadyConfirmedAt = await this.repository.confirmAssignment(id, caller.id, at);
+      if (alreadyConfirmedAt) return deal;
+    }
+
+    const result = deal.techConfirmedAt
+      ? deal
+      : await this.repository.update(id, { techConfirmedAt: at, techConfirmedBy: caller.id });
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.TECH_CONFIRMED, caller, {
+      techId: caller.id,
+      confirmedAt: at,
+    });
+    this.publishEvent('deal.tech_confirmed', { dealId: id, techId: caller.id, confirmedAt: at });
+
+    return result;
+  }
+
+  /**
+   * The catalog's own "arrived" sub-status, when it has one. The old CRM has no
+   * fixed arrival sub-status — every workspace names it itself — so this looks
+   * for one under In Progress rather than inventing a row. Nothing found means
+   * the job keeps whatever sub-status it had.
+   */
+  private static readonly ARRIVED_SUBSTATUS = /^(arrived|on[\s-]?site)\b/i;
+
+  private async arrivalSubStatusId(deal: Deal): Promise<string | undefined> {
+    // A sub-status belongs to exactly one super-status, so it can only be
+    // applied while the job actually sits in In Progress.
+    if (deal.superStatus !== JobSuperStatus.IN_PROGRESS) return undefined;
+    const all = await this.jobStatuses.list();
+    const match = all.find(
+      (s) =>
+        s.active &&
+        s.group === JobSuperStatus.IN_PROGRESS &&
+        DealsService.ARRIVED_SUBSTATUS.test(s.name.trim()),
+    );
+    return match?.id;
+  }
+
+  /**
+   * "Arrived" — Workiz's *Arrived at location* (30 427 in the export). Stamps
+   * when the technician reached the door, who, and the GPS fix their phone
+   * offered (absent when the permission was declined), and moves the job onto
+   * the catalog's arrival sub-status if the workspace has one.
+   *
+   * Idempotent like confirm: the first arrival is the arrival.
+   */
+  async markArrived(
+    id: string,
+    dto: { lat?: number; lng?: number; accuracy?: number; subStatusId?: string },
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<Deal> {
+    const deal = await this.findById(id);
+    this.assertTechActionAllowed(deal, caller, dealScope);
+    this.assertJobOpen(deal);
+    if (deal.arrivedAt) return deal;
+
+    // An explicitly chosen sub-status is validated exactly as moveStatus does.
+    let subStatusId = dto.subStatusId;
+    if (subStatusId) {
+      const sub = await this.jobStatuses.findById(subStatusId);
+      if (sub.group !== deal.superStatus) {
+        throw new BadRequestException(
+          `Sub-status "${sub.name}" does not belong to super-status ${deal.superStatus}`,
+        );
+      }
+    } else {
+      subStatusId = await this.arrivalSubStatusId(deal);
+    }
+
+    const at = new Date().toISOString();
+    const updates: DealUpdate = { arrivedAt: at, arrivedBy: caller.id };
+    if (dto.lat !== undefined && dto.lng !== undefined) {
+      updates.arrivedLocation = {
+        lat: dto.lat,
+        lng: dto.lng,
+        ...(dto.accuracy !== undefined ? { accuracy: dto.accuracy } : {}),
+      };
+    }
+    if (subStatusId && subStatusId !== deal.subStatusId) {
+      updates.subStatusId = subStatusId;
+      updates.statusChangedAt = at;
+    }
+
+    const result = await this.repository.update(id, updates);
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.TECH_ARRIVED, caller, {
+      techId: caller.id,
+      arrivedAt: at,
+      ...(updates.arrivedLocation ? { location: updates.arrivedLocation } : {}),
+      ...(updates.subStatusId ? { subStatusId: updates.subStatusId } : {}),
+    });
+    this.publishEvent('deal.tech_arrived', { dealId: id, techId: caller.id, arrivedAt: at });
+
+    return result;
   }
 
   /** Every active deal a technician has, drained across pages. */

@@ -79,6 +79,8 @@ describe("labelForPath", () => {
     ["/admin/roles", "Roles"],
     ["/work-orders", "Work Orders"],
     ["/settings", "Settings"],
+    ["/my-jobs", "My Jobs"],
+    ["/my-stock", "My Stock"],
   ])("labels the nav route %s as %s", (path, label) => {
     expect(labelForPath(path)).toBe(label);
   });
@@ -95,6 +97,7 @@ describe("labelForPath", () => {
   it.each([
     ["/deals/new", "New Job"],
     ["/deals/abc-123", "Job"],
+    ["/my-jobs/abc-123", "Job"],
     ["/contacts/c1", "Contact"],
     ["/companies/co1", "Company"],
     ["/technicians/t9", "Technician"],

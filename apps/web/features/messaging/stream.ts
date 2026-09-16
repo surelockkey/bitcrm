@@ -6,6 +6,7 @@ const EVENT_TYPES = new Set<MessagingRealtimeEvent["type"]>([
   "message.upserted",
   "counters.changed",
   "opt_out.changed",
+  "team_counters.changed",
 ]);
 
 /** Cheap shape check on a `data:` frame — a malformed one is dropped, not thrown. */

@@ -30,6 +30,18 @@ export interface PaginatedResult {
   nextCursor?: string;
 }
 
+/**
+ * One `ASSIGN#<techId>` adjacency row, as the technician flow reads it.
+ * `techConfirmedAt` is per-technician: on a two-tech job each one confirms
+ * their own receipt.
+ */
+export interface DealAssignmentRow {
+  dealId: string;
+  techId: string;
+  assignedAt?: string;
+  techConfirmedAt?: string;
+}
+
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
   jobTypeId?: string;
@@ -332,10 +344,84 @@ export class DealsRepository {
     return (result.Items || []).map((i) => i.techId as string);
   }
 
-  /** Re-stamp every assignment row's sort key when a deal's date changes. */
+  /**
+   * One technician's assignment row as the technician flow reads it: when they
+   * were put on the job, and when (if ever) they acknowledged it.
+   */
+  async getAssignment(dealId: string, techId: string): Promise<DealAssignmentRow | null> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+      }),
+    );
+    if (!result.Item) return null;
+    return {
+      dealId: result.Item.dealId as string,
+      techId: result.Item.techId as string,
+      assignedAt: result.Item.assignedAt as string | undefined,
+      techConfirmedAt: result.Item.techConfirmedAt as string | undefined,
+    };
+  }
+
+  /**
+   * Stamp "this technician has seen the job" on their own assignment row —
+   * per-technician by nature, so it belongs here and not on the shared deal
+   * metadata (which carries the first confirmation as a convenience mirror).
+   *
+   * `if_not_exists` keeps the FIRST tap: a second one is a no-op rather than a
+   * later timestamp, and the guard makes it safe to call twice. The row must
+   * already exist (the technician must be assigned), so an unassigned caller
+   * fails the condition instead of creating a phantom assignment.
+   *
+   * Answers with the stamp the row carried BEFORE this write (`ALL_OLD`), so a
+   * repeat tap — or the loser of two simultaneous ones — can be told the
+   * confirmation was already there and skip the timeline entry and the event
+   * it would otherwise write a second time. `undefined` means this call is the
+   * one that confirmed the job.
+   */
+  async confirmAssignment(dealId: string, techId: string, at: string): Promise<string | undefined> {
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+        UpdateExpression: 'SET techConfirmedAt = if_not_exists(techConfirmedAt, :at)',
+        ExpressionAttributeValues: { ':at': at },
+        ConditionExpression: 'attribute_exists(PK)',
+        ReturnValues: 'ALL_OLD',
+      }),
+    );
+    return result?.Attributes?.techConfirmedAt as string | undefined;
+  }
+
+  /**
+   * Re-stamp every assignment row's sort key when a deal's date changes.
+   *
+   * A targeted SET rather than a re-Put: the row also carries what the
+   * technician has done with the job (`techConfirmedAt`), and moving the job to
+   * next Tuesday must not un-see it.
+   */
   async restampAssignmentDates(dealId: string, scheduledDate: string | undefined, by: string): Promise<void> {
     const techIds = await this.listAssignmentTechIds(dealId);
-    await Promise.all(techIds.map((techId) => this.addAssignment(dealId, techId, scheduledDate, by)));
+    await Promise.all(
+      techIds.map((techId) =>
+        this.dynamoDb.client.send(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+            UpdateExpression:
+              'SET GSI2SK = :sk, scheduledDate = :date, restampedBy = :by, restampedAt = :now',
+            ExpressionAttributeValues: {
+              ':sk': `${scheduledDate || new Date().toISOString()}#DEAL#${dealId}`,
+              ':date': scheduledDate ?? null,
+              ':by': by,
+              ':now': new Date().toISOString(),
+            },
+            ConditionExpression: 'attribute_exists(PK)',
+          }),
+        ),
+      ),
+    );
   }
 
   private async batchGetDeals(ids: string[]): Promise<Deal[]> {
@@ -511,6 +597,13 @@ export class DealsRepository {
       status: item.status as Deal['status'],
       createdBy: item.createdBy as string,
       statusChangedAt: item.statusChangedAt as string | undefined,
+      // Technician flow. Absent on every row written before these fields
+      // existed, which reads exactly as "not confirmed / not arrived yet".
+      techConfirmedAt: item.techConfirmedAt as string | undefined,
+      techConfirmedBy: item.techConfirmedBy as string | undefined,
+      arrivedAt: item.arrivedAt as string | undefined,
+      arrivedBy: item.arrivedBy as string | undefined,
+      arrivedLocation: item.arrivedLocation as Deal['arrivedLocation'],
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };

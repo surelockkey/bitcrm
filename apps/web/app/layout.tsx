@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -17,6 +17,29 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "BitCRM",
   description: "BitCRM — field-service operations platform",
+  // Installed to a phone's home screen, this is the name under the icon.
+  applicationName: "BitCRM",
+  appleWebApp: { capable: true, title: "BitCRM", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
+};
+
+/**
+ * Phone chrome. `themeColor` paints the status bar / address bar to match the
+ * app in each scheme, and `viewportFit: "cover"` lets the layout reach under
+ * the notch — the `.app-safe-area` insets in `globals.css`, worn by the app
+ * shell, are what keep content out of it.
+ *
+ * `maximumScale` is deliberately absent: capping zoom on a page a technician
+ * reads outdoors, one-handed, in the sun, is an accessibility failure.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
 };
 
 export default function RootLayout({
