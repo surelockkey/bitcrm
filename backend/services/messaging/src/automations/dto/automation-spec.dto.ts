@@ -304,12 +304,17 @@ export class AutomationSpecDto {
   @Type(() => AutomationTriggerDto)
   trigger!: AutomationTriggerDto;
 
+  // Optional, as `AutomationSpec.conditions` is: a rule that narrows nothing
+  // ("when a job is created, text the client") is a normal rule, and a
+  // library recipe built against the published type would otherwise be
+  // refused by the API for a field it was never told to send.
   @ApiPropertyOptional({ type: [AutomationConditionNodeDto] })
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })
   @Type(() => AutomationConditionNodeDto)
-  conditions!: AutomationConditionNodeDto[];
+  conditions?: AutomationConditionNodeDto[];
 
   @ApiPropertyOptional({ type: [AutomationActionDto] })
   @IsArray()

@@ -87,8 +87,14 @@ export class AutomationsRepository {
    * free, and fanning out a Query + BatchWrite over a partition that can
    * hold thousands of rows (the busiest Workiz rule fired 17 476 times) to
    * delete what is about to expire anyway would be a lot of writes for
-   * nothing. Nothing reads them once the rule is gone: both the per-rule
-   * log and the account feed list runs of rules that still exist.
+   * nothing.
+   *
+   * They stay visible, though: `GET /automations/runs` reads the month
+   * partitions on GSI3, not the rules, so a deleted rule's firings keep
+   * appearing in the account feed until their TTL. That is the honest
+   * history — the rule did fire — but it means the feed carries `ruleId`s
+   * that `GET /automations` no longer lists, and whatever renders it must
+   * survive a run whose rule it cannot name.
    */
   async delete(id: string): Promise<void> {
     await this.dynamoDb.client.send(

@@ -177,6 +177,12 @@ describe('AutomationsController', () => {
       await validate(plainToInstance(CreateAutomationDto, { name: 'Rule', spec, enabled: true, category: 'phone', description: 'x' })),
     ).toHaveLength(0);
 
+    // A rule that narrows nothing is a rule: `AutomationSpec.conditions` is
+    // optional, so a library recipe that sends no `conditions` is taken.
+    const { conditions: _dropped, ...unconditional } = spec;
+    expect(await validate(plainToInstance(CreateAutomationDto, { name: 'Rule', spec: unconditional }))).toHaveLength(0);
+    expect(await validate(plainToInstance(UpdateAutomationDto, { spec: unconditional }))).toHaveLength(0);
+
     for (const bad of [
       { spec }, // no name
       { name: '', spec },
