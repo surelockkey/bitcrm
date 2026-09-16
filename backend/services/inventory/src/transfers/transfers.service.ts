@@ -88,10 +88,35 @@ export class TransfersService {
     return transfer;
   }
 
+  /**
+   * Drop the items the price book does not track (`manageStock: false` — 6 643
+   * imported product-type items). They have no stock counter, so deducting
+   * would fail with "Insufficient stock" and restoring would invent stock that
+   * was never counted. Products written by BitCRM carry no `manageStock`
+   * attribute and are always managed.
+   */
+  private async onlyStockManaged<T extends { productId: string; productName: string }>(
+    items: T[],
+    action: string,
+  ): Promise<T[]> {
+    const { managed, unmanaged } =
+      await this.productsService.partitionStockManaged(items);
+    if (unmanaged.length > 0) {
+      this.logger.log(
+        `Skipped ${action} for ${unmanaged.length} non-stock-managed item(s): ` +
+          unmanaged.map((i) => i.productName).join(', '),
+      );
+    }
+    return managed;
+  }
+
   async deductStock(dto: DeductStockDto) {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
+    const items = await this.onlyStockManaged(dto.items, 'stock deduction');
+    if (items.length === 0) return;
+
     const containerId = await this.resolveContainerId(dto.containerId);
-    await this.stockService.deduct(`CONTAINER#${containerId}`, dto.items);
+    await this.stockService.deduct(`CONTAINER#${containerId}`, items);
     this.businessMetrics?.stockDeductions.inc();
 
     await this.repository.create({
@@ -101,7 +126,7 @@ export class TransfersService {
       fromId: containerId,
       toType: null,
       toId: null,
-      items: dto.items,
+      items,
       performedBy: dto.performedBy,
       performedByName: dto.performedByName,
       notes: `Deal: ${dto.dealId}`,
@@ -111,8 +136,12 @@ export class TransfersService {
 
   async restoreStock(dto: RestoreStockDto) {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
+    // Symmetrical with deductStock: what was never deducted is never restored.
+    const items = await this.onlyStockManaged(dto.items, 'stock restore');
+    if (items.length === 0) return;
+
     const containerId = await this.resolveContainerId(dto.containerId);
-    await this.stockService.receive(`CONTAINER#${containerId}`, dto.items);
+    await this.stockService.receive(`CONTAINER#${containerId}`, items);
     this.businessMetrics?.stockTransfers.inc({ type: 'restore' });
 
     await this.repository.create({
@@ -122,7 +151,7 @@ export class TransfersService {
       fromId: null,
       toType: LocationType.CONTAINER,
       toId: containerId,
-      items: dto.items,
+      items,
       performedBy: dto.performedBy,
       performedByName: dto.performedByName,
       notes: `Deal: ${dto.dealId}`,

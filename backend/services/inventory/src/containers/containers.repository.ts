@@ -18,6 +18,11 @@ export interface PaginatedResult {
   nextCursor?: string;
 }
 
+/** Key attributes that must never leak onto an entity or be taken from one. */
+const KEY_ATTRIBUTES = new Set([
+  'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+]);
+
 @Injectable()
 export class ContainersRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -27,6 +32,10 @@ export class ContainersRepository {
       new PutCommand({
         TableName: INVENTORY_TABLE,
         Item: {
+          // Spread first, then override: extra attributes the Workiz import
+          // carries (`externalId`, `isPrimary`, `userLimited`, `accessUserIds`)
+          // are kept, but the keys are always this repository's.
+          ...container,
           PK: `CONTAINER#${container.id}`,
           SK: 'METADATA',
           // Sparse GSI: only assigned containers appear in the by-technician index.
@@ -36,7 +45,6 @@ export class ContainersRepository {
                 GSI3SK: `CONTAINER#${container.id}`,
               }
             : {}),
-          ...container,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
       }),
@@ -168,9 +176,21 @@ export class ContainersRepository {
     return this.toContainer(result.Attributes!);
   }
 
+  /**
+   * Stored row → entity, keeping the attributes the Workiz import adds
+   * (`externalId`, `isPrimary`, `userLimited`, `accessUserIds` — 59 of the 86
+   * locations have a technician and 7 carry secondary users). The typed fields
+   * are written after the spread so they always win, and the DynamoDB key
+   * attributes never leak out.
+   */
   private toContainer(item: Record<string, unknown>): Container {
     const technicianName = item.technicianName as string | undefined;
+    const extras: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+      if (!KEY_ATTRIBUTES.has(key)) extras[key] = value;
+    }
     return {
+      ...extras,
       id: item.id as string,
       // Rows written before containers had their own name fall back to the
       // technician-derived label they were always displayed with.

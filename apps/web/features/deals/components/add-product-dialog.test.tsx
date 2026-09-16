@@ -155,6 +155,101 @@ describe("AddProductDialog (edit mode)", () => {
   });
 });
 
+describe("AddProductDialog (imported line)", () => {
+  // A Workiz line at $5 against a $45 catalog price: far outside ±15%.
+  const importedLine: DealProduct = {
+    ...editingLine,
+    priceClient: 5,
+    fulfillment: "imported",
+    sourceTechId: undefined,
+  };
+
+  it("does not flag the price and keeps Save enabled", () => {
+    render(dialog(importedLine));
+
+    expect(screen.getByDisplayValue("5")).toBeInTheDocument();
+    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
+    expect(screen.queryByText(/allowed .* ±15%/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+
+  it("exempts a service line the importer marked through priceSource", () => {
+    render(
+      dialog({ ...editingLine, priceClient: 5, fulfillment: "service", priceSource: "imported" }),
+    );
+
+    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+
+  it("saves the edit — the line stops being imported", async () => {
+    const u = user();
+    render(dialog(importedLine));
+
+    fireEvent.change(screen.getByDisplayValue("2"), { target: { value: "3" } });
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(mocks.replace).toHaveBeenCalledTimes(1);
+    expect(mocks.replace.mock.calls[0][0].body).toMatchObject({
+      quantity: 3,
+      priceClient: 5,
+      fulfillment: "sourced",
+    });
+  });
+
+  it("re-applies the band as soon as the price itself is edited", () => {
+    render(dialog(importedLine));
+
+    // The exemption covers the price Workiz recorded, not a new one typed on
+    // top of it — otherwise any imported line is a permanent hole in the rule.
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
+
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    expect(screen.queryByText(/the ±15% band doesn.t apply/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+
+  it("accepts an edited price that lands inside the band", async () => {
+    const u = user();
+    render(dialog(importedLine));
+
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "45" } });
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(mocks.replace.mock.calls[0][0].body).toMatchObject({ priceClient: 45 });
+  });
+
+  it("restores the exemption when the imported price is typed back", () => {
+    render(dialog(importedLine));
+
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
+    fireEvent.change(screen.getByDisplayValue("999"), { target: { value: "5" } });
+
+    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+
+  it("re-applies the band once the item is swapped for another", async () => {
+    const u = user();
+    render(dialog(importedLine));
+
+    await u.click(screen.getByRole("button", { name: /change item/i }));
+    await u.click(screen.getByText("Schlage Lever"));
+
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue("60"), { target: { value: "5" } });
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+
+  it("still blocks an out-of-band price on a normal line", () => {
+    render(dialog({ ...editingLine, priceClient: 5 }));
+
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+});
+
 describe("AddProductDialog (add mode regression)", () => {
   it("still adds through the add mutation", async () => {
     const u = user();

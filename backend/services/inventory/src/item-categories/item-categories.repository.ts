@@ -14,6 +14,11 @@ import {
   ITEM_CATEGORY_GSI1PK,
 } from './item-categories.constants';
 
+/** Key attributes that must never leak into an entity or be re-put verbatim. */
+const KEY_ATTRIBUTES = new Set([
+  'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+]);
+
 /**
  * Item-category catalog rows in the single BitCRM_Inventory table:
  *   PK = ITEM_CATEGORY#<id>, SK = METADATA
@@ -21,6 +26,11 @@ import {
  *
  * Reuses the existing GSI1 (CategoryIndex) exactly as the deal-service catalogs
  * reuse their GSI1 — no new index, no schema migration.
+ *
+ * Rows written by the Workiz import carry extra attributes (`externalId`,
+ * `parentId`, `description`, `workizFileId`…). `toEntity` keeps them on the
+ * entity (spread, then the typed fields override), so the full-`Put` update
+ * path writes them back instead of erasing them on the first rename.
  */
 @Injectable()
 export class ItemCategoriesRepository {
@@ -30,11 +40,15 @@ export class ItemCategoriesRepository {
 
   private item(category: ProductCategory): Record<string, unknown> {
     return {
+      ...category,
       PK: `${ITEM_CATEGORY_PK_PREFIX}${category.id}`,
       SK: ITEM_CATEGORY_SK,
       GSI1PK: ITEM_CATEGORY_GSI1PK,
-      GSI1SK: category.name.toLowerCase(),
-      ...category,
+      // Trimmed as well as lowercased — `findByName` looks the row up by
+      // `name.trim().toLowerCase()`, so an untrimmed key here would write a
+      // row that lookup can never see (and `ensureCategory` would then mint a
+      // fresh duplicate on every call).
+      GSI1SK: category.name.trim().toLowerCase(),
     };
   }
 
@@ -80,6 +94,27 @@ export class ItemCategoriesRepository {
   }
 
   /**
+   * Exact (case-insensitive) name lookup on the list index — the sort key is
+   * the lowercased name, so this is a key-condition Query, not a filter.
+   */
+  async findByName(name: string): Promise<ProductCategory | null> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: INVENTORY_TABLE,
+        IndexName: GSI1_NAME,
+        KeyConditionExpression: 'GSI1PK = :pk AND GSI1SK = :sk',
+        ExpressionAttributeValues: {
+          ':pk': ITEM_CATEGORY_GSI1PK,
+          ':sk': name.trim().toLowerCase(),
+        },
+        Limit: 1,
+      }),
+    );
+    const item = (result.Items || [])[0];
+    return item ? this.toEntity(item) : null;
+  }
+
+  /**
    * Whether any product still uses this category NAME (products store the
    * category as a name string). A Query on the CategoryIndex key condition is
    * exact — unlike a Scan+Limit, it can't miss references.
@@ -108,7 +143,12 @@ export class ItemCategoriesRepository {
   }
 
   private toEntity(item: Record<string, unknown>): ProductCategory {
+    const extras: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+      if (!KEY_ATTRIBUTES.has(key)) extras[key] = value;
+    }
     return {
+      ...extras,
       id: item.id as string,
       name: item.name as string,
       active: Boolean(item.active),

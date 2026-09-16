@@ -167,7 +167,12 @@ export function ProductEditorPage({ productId }: { productId: string }) {
                   submitting={update.isPending}
                   submitLabel="Save changes"
                   onCancel={() => router.push("/inventory/items")}
-                  onSubmit={(values) => update.mutate({ id: product.id, body: values })}
+                  // Send only what changed: an imported item can carry a value
+                  // the create rules reject (a name over 120 chars, a negative
+                  // price) and the API validates only the fields in the body.
+                  onSubmit={(_values, changed) =>
+                    update.mutate({ id: product.id, body: changed })
+                  }
                 />
 
                 <aside className="space-y-4">

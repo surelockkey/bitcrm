@@ -11,7 +11,7 @@ import {
 } from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { type Product } from '@bitcrm/types';
+import { type Product, ProductType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
   GSI1_NAME,
@@ -22,6 +22,13 @@ export interface PaginatedResult {
   items: Product[];
   nextCursor?: string;
 }
+
+/** Key attributes that must never leak onto an entity. */
+const KEY_ATTRIBUTES = new Set([
+  'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+]);
+
+const KNOWN_TYPES = new Set<string>(Object.values(ProductType));
 
 @Injectable()
 export class ProductsRepository {
@@ -272,15 +279,47 @@ export class ProductsRepository {
     return this.toProduct(result.Attributes!);
   }
 
+  /**
+   * Stored row → entity. Attributes the Workiz import adds (`externalId`,
+   * `taxable`, `manageStock`, `customAttributes`…) are carried through: the
+   * typed fields are spelled out after the spread, so they always win and the
+   * DynamoDB key attributes never leak out.
+   *
+   * A `type` BitCRM does not know (Workiz `other` / `hours`, 10 items) reads
+   * back as `service` — both are non-stockable, so this is the safe side of
+   * the `assertStockable` guard — with the original word in `workizType`.
+   * Nothing is written here; the mapping is read-only.
+   */
   private toProduct(item: Record<string, unknown>): Product {
+    const extras: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+      if (!KEY_ATTRIBUTES.has(key)) extras[key] = value;
+    }
+
+    const storedType = item.type as string | undefined;
+    const known = !!storedType && KNOWN_TYPES.has(storedType);
+    const workizType =
+      (item.workizType as string | undefined) ??
+      (storedType && !known ? storedType : undefined);
+    // A row with no `type` at all stays untyped so ProductsTypeBackfill still
+    // finds it on boot and heals it to `product`.
+    const type =
+      storedType === undefined
+        ? (undefined as unknown as Product['type'])
+        : known
+          ? (storedType as Product['type'])
+          : ProductType.SERVICE;
+
     return {
+      ...extras,
       id: item.id as string,
       sku: item.sku as string,
       barcode: item.barcode as string | undefined,
       name: item.name as string,
       description: item.description as string | undefined,
       category: item.category as string,
-      type: item.type as Product['type'],
+      type,
+      ...(workizType !== undefined && { workizType }),
       costCompany: item.costCompany as number,
       costTech: item.costTech as number,
       priceClient: item.priceClient as number,

@@ -118,3 +118,33 @@ describe("DealProductsTab (editable items)", () => {
     expect(lastDialog().editing).toBeUndefined();
   });
 });
+
+describe("DealProductsTab (imported lines)", () => {
+  it("badges a line the importer wrote and keeps it editable", async () => {
+    const u = userEvent.setup();
+    mocks.products = [line({ fulfillment: "imported", sourceTechId: undefined })];
+    render(<DealProductsTab deal={deal} canEdit />);
+
+    expect(screen.getByText("Imported")).toBeInTheDocument();
+
+    await u.click(screen.getByRole("button", { name: /edit kwikset deadbolt/i }));
+    expect(lastDialog().editing).toMatchObject({ fulfillment: "imported" });
+  });
+
+  it("offers no 'Mark ordered' action on an imported line", () => {
+    mocks.products = [line({ fulfillment: "imported", sourceTechId: undefined })];
+    render(<DealProductsTab deal={deal} canEdit />);
+
+    expect(screen.queryByRole("button", { name: /mark ordered/i })).toBeNull();
+  });
+
+  it("totals imported lines like any other", () => {
+    mocks.products = [
+      line({ fulfillment: "imported", quantity: 2, priceClient: 5 }),
+      line({ productId: "p2", name: "Labor", quantity: 1, priceClient: 90 }),
+    ];
+    render(<DealProductsTab deal={deal} canEdit />);
+
+    expect(screen.getByText("Total $100.00")).toBeInTheDocument();
+  });
+});

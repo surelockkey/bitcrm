@@ -97,6 +97,58 @@ describe('DealProductsRepository', () => {
       expect(result!.orderedAt).toBe('2026-07-27T00:00:00.000Z');
     });
 
+    it("reads an imported Workiz line back with both of its markers", async () => {
+      // 47 976 product lines carry fulfillment='imported'; the service lines
+      // stay fulfillment='service' and are marked through priceSource.
+      dynamoDb.client.send.mockResolvedValue({
+        Item: {
+          PK: 'DEAL#deal-1',
+          SK: 'PRODUCT#product-1',
+          productId: 'product-1',
+          name: 'Deadbolt',
+          sku: 'WZ-10707',
+          quantity: 0.5,
+          costCompany: 15,
+          costForTech: 20,
+          priceClient: 5,
+          fulfillment: 'imported',
+          priceSource: 'imported',
+          addedBy: 'workiz-import',
+          addedAt: '2021-03-04T00:00:00.000Z',
+        },
+      });
+
+      const result = await repository.findProduct('deal-1', 'product-1');
+
+      expect(result!.fulfillment).toBe('imported');
+      expect(result!.priceSource).toBe('imported');
+      // Workiz has 762 fractional line quantities — read back verbatim.
+      expect(result!.quantity).toBe(0.5);
+    });
+
+    it('leaves priceSource undefined on every line BitCRM wrote itself', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: {
+          PK: 'DEAL#deal-1',
+          SK: 'PRODUCT#product-1',
+          productId: 'product-1',
+          name: 'Deadbolt',
+          sku: 'KW-001',
+          quantity: 1,
+          costCompany: 15,
+          costForTech: 20,
+          priceClient: 45,
+          fulfillment: 'sourced',
+          addedBy: 'tech-1',
+          addedAt: '2026-07-01T00:00:00.000Z',
+        },
+      });
+
+      const result = await repository.findProduct('deal-1', 'product-1');
+
+      expect(result!.priceSource).toBeUndefined();
+    });
+
     it("defaults a missing fulfillment to 'sourced' (legacy rows)", async () => {
       dynamoDb.client.send.mockResolvedValue({
         Item: {
