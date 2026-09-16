@@ -313,7 +313,11 @@ export function AutomationsPage() {
       </Tabs>
 
       {editing ? (
+        // Keyed by the rule: the editor reads the rule into form state once,
+        // when it mounts, so a swap straight from one rule to another would
+        // otherwise show the first one's values under the second one's name.
         <AutomationFormDialog
+          key={editing.id}
           rule={editing}
           open
           labels={labels}
