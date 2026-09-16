@@ -203,3 +203,34 @@ export function techActionState(deal: Pick<Deal, "superStatus" | "techConfirmedA
     canFinish: deal.superStatus === JobSuperStatus.IN_PROGRESS || deal.superStatus === JobSuperStatus.PENDING,
   };
 }
+
+/* ----------------------------------------------------------------- stock */
+
+/** The fields "My stock" searches on — name, SKU, category. */
+export interface SearchableStockRow {
+  name: string;
+  sku?: string;
+  category?: string;
+}
+
+/**
+ * Filter the van's stock by what the technician typed. Every word has to
+ * match something — a part is found by name, by the number on the box (SKU),
+ * or by the shelf it lives on (category), and "3/4 valve" finds the 3/4"
+ * valve even though the two words come from different fields.
+ */
+export function filterStockRows<T extends SearchableStockRow>(rows: T[], query: string): T[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return rows;
+  return rows.filter((r) => {
+    const haystack = [r.name, r.sku, r.category].filter(Boolean).join(" ").toLowerCase();
+    return terms.every((t) => haystack.includes(t));
+  });
+}
+
+/** Low stock first (that is what needs a restock), then by name. */
+export function sortStockRows<T extends SearchableStockRow & { isLow: boolean }>(rows: T[]): T[] {
+  return [...rows].sort(
+    (a, b) => Number(b.isLow) - Number(a.isLow) || a.name.localeCompare(b.name),
+  );
+}
