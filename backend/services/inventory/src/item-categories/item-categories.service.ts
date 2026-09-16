@@ -6,7 +6,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { SnsPublisherService } from '@bitcrm/shared';
-import { type ProductCategory } from '@bitcrm/types';
+import { type ProductCategory, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesRepository } from './item-categories.repository';
@@ -52,6 +52,49 @@ export class ItemCategoriesService {
       name: category.name,
     });
     return category;
+  }
+
+  /**
+   * Make sure a catalog row with this name exists (case-insensitive), creating
+   * it when missing. Used for the `Uncategorized` sentinel that imported and
+   * uncategorized items reference by name — the picker must list it and the
+   * archive-on-delete rule must resolve it. Idempotent: an existing row (active
+   * or archived) is returned untouched; a concurrent create is re-read.
+   */
+  async ensureCategory(
+    name: string,
+    createdBy = 'system',
+  ): Promise<{ category: ProductCategory; created: boolean }> {
+    const existing = await this.repository.findByName(name);
+    if (existing) return { category: existing, created: false };
+
+    const now = new Date().toISOString();
+    const category: ProductCategory = {
+      id: randomUUID(),
+      name,
+      active: true,
+      createdBy,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await this.repository.create(category);
+    } catch (err) {
+      // Lost a race with another writer — the row is there now, use it.
+      const raced = await this.repository.findByName(name);
+      if (raced) return { category: raced, created: false };
+      throw err;
+    }
+    publishInventoryEvent(this.snsPublisher, this.logger, 'item-category.created', {
+      categoryId: category.id,
+      name: category.name,
+    });
+    return { category, created: true };
+  }
+
+  /** The `Uncategorized` sentinel row, seeded on first demand. */
+  ensureUncategorized(): Promise<{ category: ProductCategory; created: boolean }> {
+    return this.ensureCategory(UNCATEGORIZED_CATEGORY);
   }
 
   async list(): Promise<ProductCategory[]> {

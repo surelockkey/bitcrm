@@ -154,6 +154,17 @@ export function createMockCatalogRepository() {
   return {
     create: jest.fn(), put: jest.fn(), get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]), remove: jest.fn(),
+    findByName: jest.fn().mockResolvedValue(null),
     isReferencedByProduct: jest.fn().mockResolvedValue(false),
+  };
+}
+
+export function createMockItemCategoriesService() {
+  return {
+    ensureCategory: jest.fn().mockResolvedValue({ category: createMockItemCategory(), created: false }),
+    ensureUncategorized: jest.fn().mockResolvedValue({
+      category: createMockItemCategory({ id: 'cat-uncat', name: 'Uncategorized' }),
+      created: false,
+    }),
   };
 }

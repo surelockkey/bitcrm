@@ -95,7 +95,7 @@ export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
-export { ProductCategory } from './entities/product-category.entity';
+export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';

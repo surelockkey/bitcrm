@@ -10,12 +10,19 @@ import { type Brand } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
 import { BRAND_PK_PREFIX, BRAND_SK, BRAND_GSI1PK } from './brands.constants';
 
+/** Key attributes that must never leak into an entity or be re-put verbatim. */
+const KEY_ATTRIBUTES = new Set([
+  'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+]);
+
 /**
  * Brand catalog rows in the single BitCRM_Inventory table:
  *   PK = BRAND#<id>, SK = METADATA
  *   GSI1PK = CATALOG#BRAND, GSI1SK = <name lowercased>  (list index)
  *
- * Same shape as ItemCategoriesRepository.
+ * Same shape as ItemCategoriesRepository — including keeping the extra
+ * attributes the Workiz import writes (`externalId`, `description`) across the
+ * full-`Put` update path.
  */
 @Injectable()
 export class BrandsRepository {
@@ -25,11 +32,11 @@ export class BrandsRepository {
 
   private item(brand: Brand): Record<string, unknown> {
     return {
+      ...brand,
       PK: `${BRAND_PK_PREFIX}${brand.id}`,
       SK: BRAND_SK,
       GSI1PK: BRAND_GSI1PK,
       GSI1SK: brand.name.toLowerCase(),
-      ...brand,
     };
   }
 
@@ -85,7 +92,12 @@ export class BrandsRepository {
   }
 
   private toEntity(item: Record<string, unknown>): Brand {
+    const extras: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+      if (!KEY_ATTRIBUTES.has(key)) extras[key] = value;
+    }
     return {
+      ...extras,
       id: item.id as string,
       name: item.name as string,
       active: Boolean(item.active),

@@ -1,17 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
-import { ProductsService } from 'src/products/products.service';
+import { ProductsService, normalizeCategory } from 'src/products/products.service';
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
+import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
 import { S3Service, SnsPublisherService } from '@bitcrm/shared';
-import { InventoryStatus, ProductType } from '@bitcrm/types';
+import { InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import {
   createMockProduct,
   createMockCreateProductDto,
   createMockProductsRepository,
   createMockProductsCacheService,
   createMockS3Service,
+  createMockItemCategoriesService,
 } from '../mocks';
 
 describe('ProductsService', () => {
@@ -20,12 +22,14 @@ describe('ProductsService', () => {
   let cache: ReturnType<typeof createMockProductsCacheService>;
   let s3: ReturnType<typeof createMockS3Service>;
   let publisher: { publish: jest.Mock };
+  let categories: ReturnType<typeof createMockItemCategoriesService>;
 
   beforeEach(async () => {
     repository = createMockProductsRepository();
     cache = createMockProductsCacheService();
     s3 = createMockS3Service();
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
+    categories = createMockItemCategoriesService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -34,6 +38,7 @@ describe('ProductsService', () => {
         { provide: ProductsCacheService, useValue: cache },
         { provide: S3Service, useValue: s3 },
         { provide: SnsPublisherService, useValue: publisher },
+        { provide: ItemCategoriesService, useValue: categories },
       ],
     }).compile();
 
@@ -64,6 +69,58 @@ describe('ProductsService', () => {
       expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'product.created', {
         productId: result.id,
       });
+    });
+
+    it('does not touch the category catalog for an ordinary category', async () => {
+      repository.create.mockResolvedValue(undefined);
+      await service.create(createMockCreateProductDto({ category: 'Locks' }));
+      expect(categories.ensureUncategorized).not.toHaveBeenCalled();
+    });
+
+    describe('the "Uncategorized" sentinel', () => {
+      it('normalizes the spelling and seeds the catalog row on demand', async () => {
+        repository.create.mockResolvedValue(undefined);
+
+        const result = await service.create(
+          createMockCreateProductDto({ category: '  uncategorized ' }),
+        );
+
+        expect(result.category).toBe(UNCATEGORIZED_CATEGORY);
+        expect(repository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ category: 'Uncategorized' }),
+        );
+        expect(categories.ensureUncategorized).toHaveBeenCalledTimes(1);
+      });
+
+      it('still creates the product when seeding the category fails', async () => {
+        repository.create.mockResolvedValue(undefined);
+        categories.ensureUncategorized.mockRejectedValue(new Error('dynamo down'));
+
+        const result = await service.create(
+          createMockCreateProductDto({ category: 'Uncategorized' }),
+        );
+
+        expect(result.category).toBe('Uncategorized');
+        expect(repository.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('works without an ItemCategoriesService (optional collaborator)', async () => {
+        const bare = new ProductsService(repository as any, cache as any, s3 as any);
+        repository.create.mockResolvedValue(undefined);
+
+        const result = await bare.create(createMockCreateProductDto({ category: 'UNCATEGORIZED' }));
+
+        expect(result.category).toBe('Uncategorized');
+      });
+    });
+  });
+
+  describe('normalizeCategory', () => {
+    it('canonicalizes only the sentinel and keeps every other name verbatim', () => {
+      expect(normalizeCategory('uncategorized')).toBe('Uncategorized');
+      expect(normalizeCategory(' Uncategorized ')).toBe('Uncategorized');
+      expect(normalizeCategory('Door Hardware')).toBe('Door Hardware');
+      expect(normalizeCategory('Locks > Residential ')).toBe('Locks > Residential ');
     });
   });
 
@@ -199,6 +256,16 @@ describe('ProductsService', () => {
       expect(result).toEqual(updated);
       expect(repository.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' });
       expect(cache.invalidate).toHaveBeenCalledWith('prod-1');
+    });
+
+    it('accepts moving a product to "Uncategorized" and seeds the catalog row', async () => {
+      cache.get.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
+
+      await service.update('prod-1', { category: 'uncategorized' } as any);
+
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { category: 'Uncategorized' });
+      expect(categories.ensureUncategorized).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -336,6 +403,24 @@ describe('ProductsService', () => {
 
       expect(result.created).toBe(1);
       expect(repository.create).not.toHaveBeenCalled();
+      expect(categories.ensureUncategorized).not.toHaveBeenCalled();
+    });
+
+    it('normalizes an "uncategorized" CSV row to the sentinel and seeds its catalog row', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,uncategorized,product,10,15,0,false,0',
+      );
+      repository.findBySku.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.importFromCsv(csv);
+
+      expect(result.created).toBe(1);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'Uncategorized', priceClient: 0 }),
+      );
+      expect(categories.ensureUncategorized).toHaveBeenCalledTimes(1);
     });
   });
 

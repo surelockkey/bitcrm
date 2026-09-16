@@ -7,14 +7,32 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { parse } from 'csv-parse/sync';
-import { type Product, ProductType, InventoryStatus } from '@bitcrm/types';
+import {
+  type Product,
+  ProductType,
+  InventoryStatus,
+  UNCATEGORIZED_CATEGORY,
+} from '@bitcrm/types';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
 import { S3Service, SnsPublisherService } from '@bitcrm/shared';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
+import { ItemCategoriesService } from '../item-categories/item-categories.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+
+/**
+ * Canonical spelling for the no-category sentinel: `uncategorized` in any case
+ * is stored as `Uncategorized`, so all such items share one CategoryIndex
+ * partition and one catalog row. Every other category name is kept verbatim —
+ * it must equal the catalog row's name byte for byte.
+ */
+export function normalizeCategory(category: string): string {
+  return category.trim().toLowerCase() === UNCATEGORIZED_CATEGORY.toLowerCase()
+    ? UNCATEGORIZED_CATEGORY
+    : category;
+}
 
 export interface CsvImportResult {
   created: number;
@@ -31,13 +49,35 @@ export class ProductsService {
     private readonly cache: ProductsCacheService,
     private readonly s3: S3Service,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly itemCategories?: ItemCategoriesService,
   ) {}
+
+  /**
+   * `category` stays required in the API, but the `Uncategorized` sentinel is
+   * always accepted: its catalog row is seeded on demand so the picker lists
+   * it. A seed failure never fails the product write — the product still
+   * carries the name, and the boot-time seed heals the catalog later.
+   */
+  private async prepareCategory(category: string): Promise<string> {
+    const normalized = normalizeCategory(category);
+    if (normalized === UNCATEGORIZED_CATEGORY && this.itemCategories) {
+      try {
+        await this.itemCategories.ensureUncategorized();
+      } catch (err) {
+        this.logger.warn(
+          `Could not seed the "${UNCATEGORIZED_CATEGORY}" category: ${(err as Error).message}`,
+        );
+      }
+    }
+    return normalized;
+  }
 
   async create(dto: CreateProductDto): Promise<Product> {
     const now = new Date().toISOString();
     const product: Product = {
       id: randomUUID(),
       ...dto,
+      category: await this.prepareCategory(dto.category),
       status: InventoryStatus.ACTIVE,
       createdAt: now,
       updatedAt: now,
@@ -115,7 +155,11 @@ export class ProductsService {
 
   async update(id: string, dto: UpdateProductDto): Promise<Product> {
     await this.findById(id); // Ensure exists
-    const product = await this.repository.update(id, dto);
+    const attrs: Partial<Product> = { ...dto };
+    if (typeof dto.category === 'string') {
+      attrs.category = await this.prepareCategory(dto.category);
+    }
+    const product = await this.repository.update(id, attrs);
     await this.cache.invalidate(id);
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
       productId: id,
@@ -206,12 +250,15 @@ export class ProductsService {
         }
 
         const existing = await this.repository.findBySku(row.sku);
+        const category = dryRun
+          ? normalizeCategory(row.category)
+          : await this.prepareCategory(row.category);
 
         if (existing) {
           if (!dryRun) {
             await this.repository.update(existing.id, {
               name: row.name,
-              category: row.category,
+              category,
               type: row.type as ProductType,
               costCompany: parseFloat(row.costCompany),
               costTech: parseFloat(row.costTech),
@@ -232,7 +279,7 @@ export class ProductsService {
               id: randomUUID(),
               sku: row.sku,
               name: row.name,
-              category: row.category,
+              category,
               type: row.type as ProductType,
               costCompany: parseFloat(row.costCompany),
               costTech: parseFloat(row.costTech),

@@ -41,6 +41,48 @@ describe('ItemCategoriesService', () => {
     });
   });
 
+  describe('ensureCategory / ensureUncategorized', () => {
+    it('creates the row when no category carries the name', async () => {
+      repo.findByName.mockResolvedValue(null);
+
+      const result = await service.ensureUncategorized();
+
+      expect(result.created).toBe(true);
+      expect(result.category).toMatchObject({ name: 'Uncategorized', active: true, createdBy: 'system' });
+      expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'Uncategorized' }));
+      expect(repo.findByName).toHaveBeenCalledWith('Uncategorized');
+      expect(publisher.publish).toHaveBeenCalledWith(
+        'inventory-events',
+        'item-category.created',
+        expect.objectContaining({ name: 'Uncategorized' }),
+      );
+    });
+
+    it('returns the existing row untouched (case-insensitive, even when archived)', async () => {
+      const existing = createMockItemCategory({ id: 'cat-u', name: 'Uncategorized', active: false });
+      repo.findByName.mockResolvedValue(existing);
+
+      const result = await service.ensureCategory('uncategorized');
+
+      expect(result).toEqual({ category: existing, created: false });
+      expect(repo.create).not.toHaveBeenCalled();
+      expect(repo.put).not.toHaveBeenCalled();
+      expect(publisher.publish).not.toHaveBeenCalled();
+    });
+
+    it('re-reads instead of failing when a concurrent writer created the row first', async () => {
+      const raced = createMockItemCategory({ id: 'cat-u', name: 'Uncategorized' });
+      repo.findByName.mockResolvedValueOnce(null).mockResolvedValueOnce(raced);
+      const err = new Error('The conditional request failed');
+      err.name = 'ConditionalCheckFailedException';
+      repo.create.mockRejectedValue(err);
+
+      const result = await service.ensureUncategorized();
+
+      expect(result).toEqual({ category: raced, created: false });
+    });
+  });
+
   describe('list', () => {
     it('sorts alphabetically by name', async () => {
       repo.listAll.mockResolvedValue([
