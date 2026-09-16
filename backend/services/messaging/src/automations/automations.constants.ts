@@ -14,6 +14,9 @@
  */
 export const AUTOMATION_CATALOG_GSI3PK = 'CATALOG#AUTOMATION';
 
+/** How long a rule's name may be — what the DTOs enforce and what "(copy 2)" has to fit inside. */
+export const AUTOMATION_NAME_MAX_LENGTH = 120;
+
 /** `<name lower>#<id>` — alphabetical, unique per rule. */
 export const automationCatalogSk = (name: string, ruleId: string) =>
   `${name.trim().toLowerCase()}#${ruleId}`;

@@ -4,6 +4,7 @@ import { plainToInstance } from 'class-transformer';
 import { PERMISSION_KEY } from '@bitcrm/shared';
 import { AutomationsController } from '../../../src/automations/automations.controller';
 import { CreateAutomationDto } from '../../../src/automations/dto/create-automation.dto';
+import { DuplicateAutomationDto } from '../../../src/automations/dto/duplicate-automation.dto';
 import { UpdateAutomationDto } from '../../../src/automations/dto/update-automation.dto';
 import { ADMIN } from '../api/api-mocks';
 
@@ -13,6 +14,7 @@ function makeController() {
     get: jest.fn(async (id: string) => ({ id })),
     create: jest.fn(async (dto: { name: string }, caller: { id: string }) => ({ id: 'r-new', ...dto, createdBy: caller.id })),
     remove: jest.fn(async (id: string) => ({ id })),
+    duplicate: jest.fn(async (id: string, name: string | undefined) => ({ id: 'r-copy', name: name ?? `${id} (copy)` })),
     update: jest.fn(async (id: string, dto: unknown, caller: { id: string }) => ({ id, ...(dto as object), updatedBy: caller.id })),
     migrate: jest.fn(async () => [
       { id: 'w1', name: 'Canceled job & techs', runnable: true, trigger: 'deal.status_changed', actions: ['send_sms:assigned_techs'], written: true },
@@ -54,6 +56,7 @@ describe('AutomationsController', () => {
     expect(perm('get')).toEqual({ resource: 'settings', action: 'view' });
     expect(perm('create')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('remove')).toEqual({ resource: 'settings', action: 'edit' });
+    expect(perm('duplicate')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('update')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('migrate')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('listRuns')).toEqual({ resource: 'settings', action: 'view' });
@@ -107,6 +110,19 @@ describe('AutomationsController', () => {
     expect(await controller.remove('w1', ADMIN)).toEqual({ success: true, data: { id: 'w1' } });
     expect(service.remove).toHaveBeenCalledWith('w1', ADMIN);
     expect(engine.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('duplicates a rule, with or without a name for the copy', async () => {
+    const { controller, service } = makeController();
+    expect(await controller.duplicate('w1', {}, ADMIN)).toEqual({ success: true, data: { id: 'r-copy', name: 'w1 (copy)' } });
+    expect(service.duplicate).toHaveBeenCalledWith('w1', undefined, ADMIN);
+
+    await controller.duplicate('w1', { name: 'Bronx cancellations' }, ADMIN);
+    expect(service.duplicate).toHaveBeenLastCalledWith('w1', 'Bronx cancellations', ADMIN);
+
+    expect(await validate(plainToInstance(DuplicateAutomationDto, {}))).toHaveLength(0);
+    expect(await validate(plainToInstance(DuplicateAutomationDto, { name: 'x' }))).toHaveLength(0);
+    expect(await validate(plainToInstance(DuplicateAutomationDto, { name: '' }))).not.toHaveLength(0);
   });
 
   it('validates the create body: a name and a whole spec are required', async () => {

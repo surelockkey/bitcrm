@@ -4,6 +4,7 @@ import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { AutomationsService } from './automations.service';
 import { CreateAutomationDto } from './dto/create-automation.dto';
+import { DuplicateAutomationDto } from './dto/duplicate-automation.dto';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
 import { TestAutomationDto } from './dto/test-automation.dto';
 import { AutomationRunsRepository } from './engine/automation-runs.repository';
@@ -98,6 +99,22 @@ export class AutomationsController {
   async listRuns(@Param('id') id: string, @Query('limit') limit?: string) {
     const parsed = Number.parseInt(limit ?? '', 10);
     const data = await this.runs.listByRule(id, Math.min(Number.isFinite(parsed) && parsed > 0 ? parsed : 20, 50));
+    return { success: true, data };
+  }
+
+  @Post(':id/duplicate')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Copy an automation rule',
+    description:
+      '**Guard:** `settings.edit`. "Start from this one": the copy keeps the name (with "(copy)", or "(copy 2)" ' +
+      'when that is taken), the spec as the original evaluates to today, the category, the description and the ' +
+      'notify medium. It is always created switched off, with no firing history, owned here — the Workiz ' +
+      'provenance and the counters stay with the original, and the copy is never re-translated.',
+  })
+  async duplicate(@Param('id') id: string, @Body() dto: DuplicateAutomationDto, @CurrentUser() user: JwtUser) {
+    const data = await this.service.duplicate(id, dto.name, user);
+    this.engine.invalidate();
     return { success: true, data };
   }
 

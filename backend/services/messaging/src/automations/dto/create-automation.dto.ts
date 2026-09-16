@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsDefined, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
+import { AUTOMATION_NAME_MAX_LENGTH } from '../automations.constants';
 import { AutomationSpecDto } from './automation-spec.dto';
 
 /**
@@ -11,7 +12,7 @@ import { AutomationSpecDto } from './automation-spec.dto';
 export class CreateAutomationDto {
   @ApiProperty({ example: 'Job canceled — notify the techs' })
   @IsString()
-  @Length(1, 120)
+  @Length(1, AUTOMATION_NAME_MAX_LENGTH)
   name!: string;
 
   @ApiProperty({

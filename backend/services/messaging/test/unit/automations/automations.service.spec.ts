@@ -260,6 +260,83 @@ describe('AutomationsService', () => {
     await expect(service.update(off.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
   });
 
+  // --- duplicate
+
+  it('copies what describes the rule and none of what describes its life', async () => {
+    const { service } = makeService([
+      translatable({
+        category: 'job',
+        description: 'Texts the techs when the client cancels',
+        notifyMedium: 'sms',
+        externalId: 'workiz:automation:619585cd235c17000843d4e1',
+        workizTriggered: 5411,
+        workizEnabled: true,
+        firedCount: 12,
+        lastFiredAt: T0,
+        enabled: true,
+      }),
+    ]);
+    const copy = await service.duplicate('w3', undefined, caller);
+
+    expect(copy).toMatchObject({
+      name: 'Canceled job & techs (copy)',
+      enabled: false,
+      category: 'job',
+      description: 'Texts the techs when the client cancels',
+      notifyMedium: 'sms',
+      source: 'bitcrm',
+      specSource: 'user',
+      runnable: true,
+      createdBy: 'u1',
+      updatedBy: 'u1',
+    });
+    expect(copy.id).not.toBe('w3');
+    // The spec is the one the original evaluates to today, frozen as ours.
+    expect(copy.spec).toEqual((await service.get('w3')).spec);
+    for (const gone of ['externalId', 'workizTriggered', 'workizEnabled', 'firedCount', 'lastFiredAt']) {
+      expect(copy).not.toHaveProperty(gone);
+    }
+    // The original is untouched.
+    expect(await service.get('w3')).toMatchObject({ enabled: true, firedCount: 12, source: 'workiz' });
+  });
+
+  it('numbers the copies, takes a name when given, and never collides with an existing one', async () => {
+    const { service } = makeService([translatable()]);
+    expect((await service.duplicate('w3', undefined, caller)).name).toBe('Canceled job & techs (copy)');
+    expect((await service.duplicate('w3', undefined, caller)).name).toBe('Canceled job & techs (copy 2)');
+    expect((await service.duplicate('w3', undefined, caller)).name).toBe('Canceled job & techs (copy 3)');
+    // A copy of a copy starts its own run.
+    const copyOfCopy = await service.duplicate(
+      (await service.list()).find((r) => r.name === 'Canceled job & techs (copy)')!.id,
+      undefined,
+      caller,
+    );
+    expect(copyOfCopy.name).toBe('Canceled job & techs (copy) (copy)');
+
+    const named = await service.duplicate('w3', '  Bronx cancellations  ', caller);
+    expect(named.name).toBe('Bronx cancellations');
+  });
+
+  it('keeps a copy inside the 120 characters a name may have', async () => {
+    const { service } = makeService([translatable({ name: 'C'.repeat(120) })]);
+    const copy = await service.duplicate('w3', undefined, caller);
+    expect(copy.name).toHaveLength(120);
+    expect(copy.name.endsWith(' (copy)')).toBe(true);
+  });
+
+  it('a copy of a rule the engine cannot run keeps the original reason and cannot be switched on', async () => {
+    const { service } = makeService([workizRule({ id: 'w4', name: 'Invoice due', entities: ['invoice'], events: [] })]);
+    const copy = await service.duplicate('w4', undefined, caller);
+    expect(copy).toMatchObject({ name: 'Invoice due (copy)', enabled: false, runnable: false });
+    expect(copy.notRunnableReason).toMatch(/invoice/i);
+    await expect(service.update(copy.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
+  });
+
+  it('404s duplicating a rule that is not there', async () => {
+    const { service } = makeService();
+    await expect(service.duplicate('nope', undefined, caller)).rejects.toMatchObject({ status: 404 });
+  });
+
   // --- delete
 
   it('deletes a rule of ours and an imported Workiz one, and 404s an unknown id', async () => {
