@@ -262,11 +262,13 @@ export {
   AUTOMATION_RUN_OUTCOMES,
   AUTOMATION_TRIGGER_KINDS,
   automationActionSentence,
+  automationConditionLeaves,
   automationConditionsSentence,
   automationDelayText,
   automationSentence,
   automationSpecLabels,
   automationTriggerSentence,
+  isAutomationConditionGroup,
 } from './entities/automation-spec';
 export type {
   AutomationAction,
@@ -274,6 +276,8 @@ export type {
   AutomationCallOutcome,
   AutomationCondition,
   AutomationConditionField,
+  AutomationConditionGroup,
+  AutomationConditionNode,
   AutomationConditionOp,
   AutomationLabelMap,
   AutomationQuietHoursMode,

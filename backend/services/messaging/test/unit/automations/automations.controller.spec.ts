@@ -195,6 +195,34 @@ describe('AutomationsController', () => {
     expect(await validate(plainToInstance(UpdateAutomationDto, { name: '' }))).not.toHaveLength(0);
   });
 
+  it('takes an OR group in the conditions, and still refuses a node that is neither', async () => {
+    const spec = {
+      version: 1,
+      trigger: { kind: 'deal.status_changed', to: ['done'] },
+      conditions: [
+        { field: 'status', op: 'in', values: ['done'] },
+        {
+          any: [
+            { field: 'source', op: 'in', values: ['src-1'], labels: ['Yelp'] },
+            { field: 'source', op: 'in', values: ['src-2'], labels: ['GMB'] },
+          ],
+        },
+      ],
+      actions: [{ type: 'send_sms', to: 'client', body: 'Hi' }],
+    };
+    expect(await validate(plainToInstance(UpdateAutomationDto, { spec }))).toHaveLength(0);
+    expect(await validate(plainToInstance(CreateAutomationDto, { name: 'Bronx review', spec }))).toHaveLength(0);
+
+    for (const conditions of [
+      [{ any: [] }], // an empty group holds for nothing: a mistake, not a rule
+      [{ any: [{ field: 'moonPhase', op: 'in' }] }], // an alternative is still a real condition
+      [{ any: [{ any: [{ field: 'source', op: 'in', values: ['x'] }] }] }], // groups do not nest
+      [{ values: ['x'] }], // neither a condition nor a group
+    ]) {
+      expect(await validate(plainToInstance(UpdateAutomationDto, { spec: { ...spec, conditions } }))).not.toHaveLength(0);
+    }
+  });
+
   it('validates an edited spec down to its trigger, conditions and actions', async () => {
     const spec = {
       version: 1,

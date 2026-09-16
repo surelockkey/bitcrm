@@ -1,6 +1,7 @@
 import { automationSentence, type AutomationRule } from '@bitcrm/types';
 import { TRANSLATOR_VERSION, translateWorkizRule } from '../../../../src/automations/translator/workiz-translator';
 import { bitcrmId } from '../../../../src/automations/translator/workiz-ids';
+import { matchesConditions } from '../../../../src/automations/engine/evaluator';
 
 const T0 = '2026-09-15T10:00:00.000Z';
 
@@ -136,6 +137,125 @@ describe('translateWorkizRule', () => {
     expect(result.spec?.actions.map((a) => a.type)).toEqual(['send_sms', 'send_email']);
     expect(result.spec?.actions[1]).toMatchObject({ subject: 'Car key copy appointment' });
     expect(result.runnable).toBe(true);
+  });
+
+  // --- OR groups. 25 of the 80 imported rules put their list of sources in a
+  // `{any: […]}` group; the translator used to skip a condition with no
+  // `fact`, so those rules fired for EVERY source rather than the three they
+  // were written for (WORKIZ_AUTOMATIONS_PARITY §3.1 A1).
+
+  /** The group exactly as `NY Bronx Review request text to client` carries it. */
+  const bronxSources = {
+    any: [
+      {
+        fact: 'adgroup_id',
+        entity: 'job',
+        operator: 'equal',
+        value: '166930',
+        friendly_strings: { fact: 'source', value: 'SURE NY BRONX GMB' },
+        subject: 'adgroup_id',
+      },
+      {
+        fact: 'adgroup_id',
+        entity: 'job',
+        operator: 'equal',
+        value: '167702',
+        friendly_strings: { fact: 'source', value: 'SURE NY BRONX YELP' },
+      },
+      {
+        fact: 'adgroup_id',
+        entity: 'job',
+        operator: 'equal',
+        value: '167703',
+        friendly_strings: { fact: 'source', value: 'SURE NY BRONX FACEBOOK' },
+      },
+    ],
+  };
+
+  it('keeps an "any of" group of sources, collapsed to the one condition Workiz meant', () => {
+    const result = translateWorkizRule(
+      workizRule({
+        name: 'NY Bronx Review request text to client',
+        conditions: conditions(
+          { fact: 'status', operator: 'equal', value: 'Done', friendly_strings: { value: 'Done', fact: 'status' }, mainConditionId: true },
+          bronxSources,
+        ),
+        events: [notification()],
+      }),
+    );
+
+    expect(result.runnable).toBe(true);
+    // Three `adgroup_id equal` alternatives are the one `source in [...]` Workiz meant.
+    expect(result.spec?.conditions).toContainEqual({
+      field: 'source',
+      op: 'in',
+      values: [bitcrmId('adgroup', '166930'), bitcrmId('adgroup', '167702'), bitcrmId('adgroup', '167703')],
+      labels: ['SURE NY BRONX GMB', 'SURE NY BRONX YELP', 'SURE NY BRONX FACEBOOK'],
+    });
+    expect(automationSentence(result.spec!)).toBe(
+      'When a job has a status of Done and its source is SURE NY BRONX GMB, SURE NY BRONX YELP or ' +
+        'SURE NY BRONX FACEBOOK, send the client a text message immediately',
+    );
+
+    // The narrowing is real: the rule matches those three sources and no other.
+    const matches = (sourceId: string) =>
+      matchesConditions(result.spec?.conditions, { deal: { id: 'd1', superStatus: 'done', sourceId } }).matched;
+    expect(matches(bitcrmId('adgroup', '167702'))).toBe(true);
+    expect(matches(bitcrmId('adgroup', '999999'))).toBe(false);
+  });
+
+  it('keeps a mixed group as a group rather than flattening it into an AND', () => {
+    const result = translateWorkizRule(
+      workizRule({
+        conditions: conditions({
+          any: [
+            { fact: 'adgroup_id', operator: 'equal', value: '166930', friendly_strings: { fact: 'source', value: 'GMB' } },
+            { fact: 'job_type', operator: 'equal', value: '13765', friendly_strings: { fact: 'job type', value: 'Car Key Copy' } },
+          ],
+        }),
+        events: [notification()],
+      }),
+    );
+
+    expect(result.spec?.conditions).toContainEqual({
+      any: [
+        { field: 'source', op: 'in', values: [bitcrmId('adgroup', '166930')], labels: ['GMB'] },
+        { field: 'jobType', op: 'in', values: [bitcrmId('jobtype', '13765')], labels: ['Car Key Copy'] },
+      ],
+    });
+    // Either alternative is enough, and neither on its own is required.
+    const matches = (deal: Record<string, string>) =>
+      matchesConditions(result.spec?.conditions, { deal: { id: 'd1', ...deal } }).matched;
+    expect(matches({ sourceId: bitcrmId('adgroup', '166930') })).toBe(true);
+    expect(matches({ jobTypeId: bitcrmId('jobtype', '13765') })).toBe(true);
+    expect(matches({ sourceId: 'other', jobTypeId: 'other' })).toBe(false);
+  });
+
+  it('a group it cannot read stops the rule instead of vanishing from it', () => {
+    const result = translateWorkizRule(
+      workizRule({
+        conditions: conditions({
+          any: [
+            { fact: 'adgroup_id', operator: 'equal', value: '166930', friendly_strings: { fact: 'source', value: 'GMB' } },
+            { fact: 'job_amount_due', operator: 'equal', value: 0, friendly_strings: { fact: 'amount due', value: '0' } },
+          ],
+        }),
+        events: [notification()],
+      }),
+    );
+    expect(result.runnable).toBe(false);
+    expect(result.notRunnableReason).toMatch(/any of/i);
+    expect(result.notRunnableReason).toMatch(/amount due/i);
+
+    const onCall = translateWorkizRule(
+      workizRule({
+        entities: ['incoming_call'],
+        conditions: conditions({ any: [{ fact: 'flow_id', operator: 'equal', value: '1' }] }),
+        events: [notification()],
+      }),
+    );
+    expect(onCall.runnable).toBe(false);
+    expect(onCall.notRunnableReason).toMatch(/any of/i);
   });
 
   it('carries a Workiz delay onto the rule', () => {

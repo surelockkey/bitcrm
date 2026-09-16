@@ -1,6 +1,7 @@
 import {
   type AutomationAction,
   type AutomationCondition,
+  type AutomationConditionNode,
   type AutomationRule,
   type AutomationSpec,
   type AutomationTrigger,
@@ -95,6 +96,8 @@ interface WorkizCondition {
   value?: unknown;
   friendly_strings?: { fact?: string; value?: string };
   mainConditionId?: boolean;
+  /** An OR group: Workiz nests one inside `conditions.all` instead of a fact. */
+  any?: WorkizCondition[];
 }
 
 interface WorkizTimeInterval {
@@ -163,7 +166,7 @@ export function translateWorkizRule(rule: AutomationRule): TranslationResult {
 // --- conditions -------------------------------------------------------------
 
 interface ReadConditions {
-  conditions: AutomationCondition[];
+  conditions: AutomationConditionNode[];
   /** The condition that names the trigger, when the rule has one. */
   statusTo?: { values: string[]; labels: string[] };
   subStatusTo?: { values: string[]; labels: string[] };
@@ -178,6 +181,12 @@ function readJobConditions(all: WorkizCondition[], notes: string[]): ReadConditi
   const dropped: string[] = [];
 
   for (const c of all) {
+    if (Array.isArray(c.any)) {
+      const group = readGroup(c.any);
+      if ('reason' in group) return group;
+      out.conditions.push(group.node);
+      continue;
+    }
     const fact = asString(c.fact);
     if (!fact) continue;
     if (PLUMBING.has(fact)) {
@@ -277,6 +286,11 @@ function readCallConditions(all: WorkizCondition[], notes: string[]): ReadCondit
   const dropped: string[] = [];
 
   for (const c of all) {
+    if (Array.isArray(c.any)) {
+      // No exported phone rule has one; if one appears it narrows the rule,
+      // and a narrowing this cannot read must stop the rule, not vanish.
+      return { reason: 'an "any of" condition group on a phone rule, which BitCRM cannot narrow a call on yet' };
+    }
     const fact = asString(c.fact);
     if (!fact) continue;
     if (PLUMBING.has(fact) || CALL_PLUMBING.has(fact)) {
@@ -315,6 +329,68 @@ function readCallConditions(all: WorkizCondition[], notes: string[]): ReadCondit
 
   if (dropped.length) notes.push(`Call conditions not carried over: ${[...new Set(dropped)].join(', ')}.`);
   return out;
+}
+
+/**
+ * Facts an alternative inside a group may be — the three catalog
+ * narrowings, which is every fact the 79 imported group conditions use.
+ * An alternative is only ever a narrowing, never the trigger, so the facts
+ * that name one (`status`, `sub_status_id`) are deliberately absent, and so
+ * is anything else: a group this cannot read stops its rule rather than
+ * being quietly made smaller.
+ */
+const GROUP_LEAF_FIELDS: Readonly<Record<string, 'adgroup' | 'jobtype' | 'metro'>> = {
+  adgroup_id: 'adgroup',
+  job_type: 'jobtype',
+  metro_id: 'metro',
+};
+
+const GROUP_LEAF_CONDITION_FIELD: Readonly<Record<'adgroup' | 'jobtype' | 'metro', AutomationCondition['field']>> = {
+  adgroup: 'source',
+  jobtype: 'jobType',
+  metro: 'serviceArea',
+};
+
+/**
+ * A Workiz `{any: [...]}` group — "the source is GMB **or** Yelp **or**
+ * Facebook". All 79 of these in the export are `adgroup_id equal`, so when
+ * every alternative is the same field asking for equality the group
+ * collapses into one `in` condition with several values: simpler, and
+ * exactly what Workiz meant.
+ *
+ * A group with an alternative this cannot read is never dropped — dropping
+ * it is what made 25 rules fire for every source instead of three. It makes
+ * the whole rule not runnable, with the fact named, exactly as an
+ * untranslatable flat condition does.
+ */
+function readGroup(leaves: WorkizCondition[]): { node: AutomationConditionNode } | { reason: string } {
+  const conditions: AutomationCondition[] = [];
+  for (const leaf of leaves) {
+    const fact = asString(leaf.fact);
+    const namespace = GROUP_LEAF_FIELDS[fact];
+    if (!namespace) {
+      const named = asString(leaf.friendly_strings?.fact) || fact || 'an unnamed fact';
+      return { reason: `an "any of" condition group on "${named}", which BitCRM cannot narrow on` };
+    }
+    conditions.push(catalogCondition(GROUP_LEAF_CONDITION_FIELD[namespace], namespace, leaf));
+  }
+  if (!conditions.length) return { reason: 'an empty "any of" condition group, which would hold for nothing' };
+  if (conditions.length === 1) return { node: conditions[0] };
+
+  const [first] = conditions;
+  if (conditions.every((c) => c.field === first.field && c.op === 'in')) {
+    return {
+      node: {
+        field: first.field,
+        op: 'in',
+        values: conditions.flatMap((c) => c.values ?? []),
+        // One label per value, whatever each alternative carried, so the
+        // sentence can name every source rather than only the first.
+        labels: conditions.flatMap((c) => (c.values ?? []).map((v, i) => c.labels?.[i] ?? c.labels?.[0] ?? v)),
+      },
+    };
+  }
+  return { node: { any: conditions } };
 }
 
 function catalogCondition(

@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -12,6 +13,7 @@ import {
   Length,
   Max,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -117,6 +119,53 @@ export class AutomationConditionDto {
   @IsString({ each: true })
   @ArrayMaxSize(100)
   labels?: string[];
+}
+
+/**
+ * One entry of `spec.conditions`: a plain condition, or an OR group
+ * `{ any: [...] }` — Workiz's "only one of the conditions must be true",
+ * which 25 of the 80 imported rules carry. The top level stays AND, so both
+ * shapes travel in the same array and this class has to take either:
+ * `field` / `op` are demanded only where there is no `any`, and a node that
+ * carries an `any` array is the group (`isAutomationConditionGroup`), which
+ * is the same rule the evaluator and the sentence read it by.
+ */
+export class AutomationConditionNodeDto {
+  @ApiPropertyOptional({ enum: AUTOMATION_CONDITION_FIELDS })
+  @ValidateIf((o: AutomationConditionNodeDto) => o.any === undefined)
+  @IsIn(AUTOMATION_CONDITION_FIELDS as unknown as string[])
+  field?: string;
+
+  @ApiPropertyOptional({ enum: AUTOMATION_CONDITION_OPS })
+  @ValidateIf((o: AutomationConditionNodeDto) => o.any === undefined)
+  @IsIn(AUTOMATION_CONDITION_OPS as unknown as string[])
+  op?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(100)
+  values?: string[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Display names for `values`, same order.' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(100)
+  labels?: string[];
+
+  @ApiPropertyOptional({
+    type: [AutomationConditionDto],
+    description: 'An OR group: this entry holds when any one of these does. Groups do not nest.',
+  })
+  @ValidateIf((o: AutomationConditionNodeDto) => o.any !== undefined || o.field === undefined)
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => AutomationConditionDto)
+  any?: AutomationConditionDto[];
 }
 
 export class AutomationActionDto {
@@ -245,12 +294,12 @@ export class AutomationSpecDto {
   @Type(() => AutomationTriggerDto)
   trigger!: AutomationTriggerDto;
 
-  @ApiPropertyOptional({ type: [AutomationConditionDto] })
+  @ApiPropertyOptional({ type: [AutomationConditionNodeDto] })
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })
-  @Type(() => AutomationConditionDto)
-  conditions!: AutomationConditionDto[];
+  @Type(() => AutomationConditionNodeDto)
+  conditions!: AutomationConditionNodeDto[];
 
   @ApiPropertyOptional({ type: [AutomationActionDto] })
   @IsArray()
