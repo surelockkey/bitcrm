@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   Optional,
@@ -115,7 +116,15 @@ export class CallsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly numberSettings?: NumberSettingsRepository,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
-    @Optional() private readonly callTags?: CallTagsService,
+    /**
+     * Deliberately NOT @Optional: the catalog is what keeps `tagIds` a set of
+     * ids something can name. If CallTagsModule ever leaves CallsModule's
+     * imports, Nest must refuse to build this service rather than inject
+     * `undefined` and let the route write any string onto a call. The type
+     * stays optional only so unit tests can construct the service with the
+     * collaborators a case actually needs; updateTags refuses when it is.
+     */
+    private readonly callTags?: CallTagsService,
   ) {}
 
   /**
@@ -376,7 +385,15 @@ export class CallsService {
       throw new BadRequestException('Nothing to change — pass add and/or remove');
     }
 
-    if (add.length && this.callTags) {
+    if (add.length) {
+      if (!this.callTags) {
+        // Unreachable through DI — and if it is ever reached, refusing is the
+        // only safe answer: an unvalidated id would put a tag on the call that
+        // nothing can name and no picker can take off.
+        throw new InternalServerErrorException(
+          'Call-tag catalog unavailable — cannot validate tags',
+        );
+      }
       let catalog = await this.callTags.byId();
       // A tag the picker created seconds ago may be missing from this task's
       // memoised catalog: a write clears the cache only on the task that

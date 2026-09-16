@@ -1,6 +1,12 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { OPTIONAL_DEPS_METADATA } from '@nestjs/common/constants';
 import type { CallTag } from '@bitcrm/types';
 import { CallsService } from '../../src/calls/calls.service';
+import { CallTagsService } from '../../src/call-tags/call-tags.service';
 import {
   CallTagsConflictError,
   type CallRecord,
@@ -198,9 +204,11 @@ describe('CallsService.updateTags', () => {
 
   it('caps how many tags one call can carry', async () => {
     const many = Array.from({ length: 25 }, (_, i) => `t-${i}`);
+    // The 26th is a perfectly good tag — the cap is what refuses it.
+    const catalog = new Map(CATALOG).set('t-one-more', tag({ id: 't-one-more' }));
     const { service } = build(
       { tagIds: many },
-      { callTags: null }, // no catalog check, so the cap is what fails
+      { callTags: { byId: jest.fn(async () => catalog) } },
     );
     await expect(
       service.updateTags('CA1', { add: ['t-one-more'] }, actor),
@@ -262,10 +270,21 @@ describe('CallsService.updateTags', () => {
     expect(repo.setTags).toHaveBeenCalledTimes(3);
   });
 
-  it('skips catalog validation when constructed without the catalog (unit wiring)', async () => {
+  it('refuses to add anything at all when the catalog is not wired', async () => {
+    // CallTagsService is a required dependency, so Nest cannot build the
+    // service without it — but if that guarantee is ever lost, the route must
+    // fail loudly rather than write unvalidated ids onto calls.
     const { service, repo } = build({}, { callTags: null });
-    await service.updateTags('CA1', { add: ['anything'] }, actor);
-    expect(repo.setTags).toHaveBeenCalledWith('CA1', ['anything'], undefined);
+    await expect(
+      service.updateTags('CA1', { add: ['anything'] }, actor),
+    ).rejects.toBeInstanceOf(InternalServerErrorException);
+    expect(repo.setTags).not.toHaveBeenCalled();
+  });
+
+  it('still lets a tag come off without the catalog — removal needs no lookup', async () => {
+    const { service, repo } = build({ tagIds: ['t-spam'] }, { callTags: null });
+    await service.updateTags('CA1', { remove: ['t-spam'] }, actor);
+    expect(repo.setTags).toHaveBeenCalledWith('CA1', [], ['t-spam']);
   });
 
   it('never announces the hidden receiving leg of an internal call on the live bus', async () => {
@@ -274,5 +293,24 @@ describe('CallsService.updateTags', () => {
     expect(bus.publish).not.toHaveBeenCalled();
     // The cross-service event still fires — the record did change.
     expect(sns.publish).toHaveBeenCalled();
+  });
+
+  it('takes the catalog as a required dependency, so a missing import fails at boot', async () => {
+    // The wiring itself, since only the (docker-bound) e2e spec builds the
+    // real module graph: were CallTagsService @Optional, dropping
+    // CallTagsModule from CallsModule's imports would inject `undefined` and
+    // the route would start accepting any string as a tag id — with nothing
+    // in `npm test` to notice.
+    const params = Reflect.getMetadata(
+      'design:paramtypes',
+      CallsService,
+    ) as unknown[];
+    const optional =
+      (Reflect.getMetadata(OPTIONAL_DEPS_METADATA, CallsService) as number[]) ??
+      [];
+
+    const index = params.indexOf(CallTagsService);
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(optional).not.toContain(index);
   });
 });
