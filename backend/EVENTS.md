@@ -21,7 +21,8 @@ Publishers and consumers import these so the wire format can't drift; the
 
 ## Topic: `deal-events` (published by deal-service)
 `deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
-`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`.
+`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`,
+`deal.tech_confirmed`, `deal.tech_arrived`.
 
 `deal.updated` (`{dealId, updatedBy?}`) fires on any field edit (update, client
 reassignment, payment status) so the search index stays fresh; `deal.deleted`
@@ -38,6 +39,17 @@ removed by a roster change. Consumed by **messaging** (`deal.tech_assigned` + `d
 `deal-events-to-messaging`) for the "New job" SMS to technicians. Assignment itself is stored as adjacency rows
 (`PK=DEAL#<id>, SK=ASSIGN#<techId>`) indexed on the tech GSI, which is what
 `findByTech` — and therefore the `assigned_only` data scope — reads.
+
+**Deliberately unconsumed today:** `deal.tech_confirmed` (`{dealId, techId, confirmedAt}`) and
+`deal.tech_arrived` (`{dealId, techId, arrivedAt}`) — the technician flow's "Confirmed job receipt"
+and "Arrived at location". They are published for future consumers (an ETA/arrival notification to
+the client, dispatch alerting) and for the audit trail; what the office actually reads today is the
+`tech_confirmed` / `tech_arrived` **timeline entry** on the job, not the event. Neither is in the
+search document (`search-mappers.ts` carries `superStatus` only), so nothing reindexes on them.
+Because `deal-events` fans out with no SNS FilterPolicy, both still land on the messaging and search
+queues, where the shared consumer logs `No handler for event type "…", deleting message` at WARN and
+deletes them — no retry, no DLQ growth, just noise at the volume of the flow (~30k arrivals in the
+Workiz export). Register a handler (or a filter policy) before treating that log line as a fault.
 
 A deal line item (`SK=PRODUCT#<productId>`) carries a `fulfillment` of `sourced`
 (pulled from an assigned tech's container — deducts stock), `to_order` (a part the
