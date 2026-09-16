@@ -66,6 +66,12 @@ const SUPER_STATUS_LABEL: Record<string, string> = {
   [JobSuperStatus.CANCELED]: "Canceled",
 };
 
+/** A closed set, so the options never depend on a catalog having loaded. */
+const SUPER_STATUS_OPTIONS: PickerOption[] = Object.entries(SUPER_STATUS_LABEL).map(([id, name]) => ({
+  id,
+  name,
+}));
+
 const RECIPIENT_LABEL: Record<string, string> = {
   client: "Client",
   assigned_techs: "Assigned technicians",
@@ -159,7 +165,12 @@ export function AutomationFormDialog({
   const { data: statuses } = useJobStatuses();
 
   const parsed = useMemo(() => automationFormSchema.safeParse(values), [values]);
-  const named = useMemo<AutomationLabelMap>(() => ({ ...labels, ...pickedNames }), [labels, pickedNames]);
+  // The super-statuses are a closed enum with no catalog behind them, so
+  // without their names here the sentence would say "a status of done".
+  const named = useMemo<AutomationLabelMap>(
+    () => ({ ...SUPER_STATUS_LABEL, ...labels, ...pickedNames }),
+    [labels, pickedNames],
+  );
   const preview = useMemo(
     () => (parsed.success ? automationSentence(toSpec(parsed.data), named) : ""),
     [parsed, named],
@@ -182,23 +193,35 @@ export function AutomationFormDialog({
       actions: v.actions.map((a, i) => (i === index ? { ...a, ...patch } : a)),
     }));
 
-  const superStatus = values.trigger.to?.[0];
+  // The super-statuses this trigger fires on; empty is "any status".
+  const entered = values.trigger.to;
   const subStatusOptions: PickerOption[] = useMemo(
     () =>
       (statuses ?? [])
-        .filter((s) => s.active && (!superStatus || s.group === superStatus))
+        .filter((s) => s.active && (!entered?.length || entered.includes(s.group)))
         .map((s) => ({ id: s.id, name: s.name })),
-    [statuses, superStatus],
+    [statuses, entered],
   );
+
+  /**
+   * The chosen sub-statuses that still belong to one of `to`. A sub-status
+   * lives under exactly one super-status, so one that no longer fits can
+   * never be entered by this trigger; one the catalog cannot place is kept,
+   * because "we don't know where it belongs" is not "it does not fit".
+   */
+  const subStatusesUnder = (superStatuses: string[]): string[] =>
+    (values.trigger.toSubStatus ?? []).filter((id) => {
+      if (!superStatuses.length) return true;
+      const group = (statuses ?? []).find((s) => s.id === id)?.group;
+      return group === undefined || superStatuses.includes(group);
+    });
 
   const optionsFor = (field: string): PickerOption[] => {
     if (field === "tag") return tags ?? [];
     if (field === "jobType") return types ?? [];
     if (field === "source") return sources ?? [];
     if (field === "subStatus") return (statuses ?? []).map((s) => ({ id: s.id, name: s.name }));
-    if (field === "status") {
-      return Object.entries(SUPER_STATUS_LABEL).map(([id, name]) => ({ id, name }));
-    }
+    if (field === "status") return SUPER_STATUS_OPTIONS;
     return [];
   };
 
@@ -262,29 +285,21 @@ export function AutomationFormDialog({
               <div className="flex flex-wrap gap-3">
                 <div className="space-y-1.5">
                   <Label>Status entered</Label>
-                  <Select
-                    value={superStatus ?? "any"}
-                    onValueChange={(v) =>
-                      // A sub-status belongs to one super-status, so one that
-                      // no longer fits the chosen status cannot be kept.
-                      setTrigger({ to: v === "any" ? [] : [v], toSubStatus: [] })
-                    }
-                  >
-                    <SelectTrigger className="w-52" aria-label="Status entered">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="any">Any status</SelectItem>
-                      {Object.entries(SUPER_STATUS_LABEL).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {/* A rule may fire on several statuses — Workiz's own trigger
+                      takes a list, and so does `trigger.to`. Shown as the
+                      sibling of the sub-status picker below it, because a
+                      single select read a two-status rule as a one-status one. */}
+                  <AutomationValuePicker
+                    className="w-52"
+                    label="Status entered"
+                    options={SUPER_STATUS_OPTIONS}
+                    values={entered ?? []}
+                    placeholder="Any status"
+                    onChange={(ids) => setTrigger({ to: ids, toSubStatus: subStatusesUnder(ids) })}
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label id={`${fieldId}-sub`}>Sub-status</Label>
+                  <Label>Sub-status</Label>
                   <AutomationValuePicker
                     className="w-64"
                     label="Sub-status entered"

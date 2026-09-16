@@ -415,6 +415,65 @@ describe("the timing anchor", () => {
   });
 });
 
+describe("the status trigger", () => {
+  const onTwo: AutomationSpec = {
+    version: 1,
+    trigger: { kind: "deal.status_changed", to: ["done", "canceled"] },
+    conditions: [],
+    actions: [{ type: "send_sms", to: "client", body: "All done" }],
+  };
+  const onOne: AutomationSpec = { ...onTwo, trigger: { kind: "deal.status_changed", to: ["done"] } };
+
+  it("shows every status the rule fires on, and says so in the sentence", async () => {
+    renderDialog({ spec: onTwo });
+
+    const picker = await screen.findByLabelText("Status entered");
+    expect(picker).toHaveTextContent("Done");
+    expect(picker).toHaveTextContent("Canceled");
+    expect(
+      screen.getByText(
+        "When a job has a status of Done or Canceled, send the client a text message immediately",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("adds a second status to the one already picked instead of replacing it", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: onOne });
+
+    await user.click(await screen.findByLabelText("Status entered"));
+    await user.click(await screen.findByRole("option", { name: "Canceled" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({
+      kind: "deal.status_changed",
+      to: ["done", "canceled"],
+    });
+  });
+
+  it("keeps a sub-status that still fits, and drops one that cannot be entered any more", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: { ...onOne, trigger: { kind: "deal.status_changed", to: ["done"], toSubStatus: ["sub-done"] } },
+    });
+
+    // "Paid in full" is filed under Done, so widening the trigger to Canceled
+    // as well leaves it reachable.
+    await user.click(await screen.findByLabelText("Status entered"));
+    await user.click(await screen.findByRole("option", { name: "Canceled" }));
+    expect(screen.getByLabelText("Sub-status entered")).toHaveTextContent("Paid in full");
+
+    // Dropping Done leaves a sub-status this trigger can never enter.
+    await user.click(screen.getByRole("option", { name: "Done" }));
+    expect(screen.getByLabelText("Sub-status entered")).toHaveTextContent("Any sub-status");
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({ kind: "deal.status_changed", to: ["canceled"] });
+  });
+});
+
 describe("the sub-status picker", () => {
   const statusRule: AutomationSpec = {
     version: 1,
