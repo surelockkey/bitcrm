@@ -126,7 +126,7 @@ describe("useMoveStatus — required-to-close gate (422)", () => {
 });
 
 describe("useSendToTech — Workiz \"Send to tech\"", () => {
-  const deal = { id: "d1", dealNumber: "1042" } as Deal;
+  const deal = { id: "d1", dealNumber: "1042", assignedTechIds: ["t1", "t2"] } as Deal;
 
   it("posts the ticked channels and names them in the toast", async () => {
     let body: unknown;
@@ -144,6 +144,38 @@ describe("useSendToTech — Workiz \"Send to tech\"", () => {
       expect(toast.success).toHaveBeenCalledWith("Job sent to the technicians by SMS & Email"),
     );
     expect(body).toEqual({ channels: ["sms", "email"] });
+  });
+
+  // The card posts `{ channels }` alone — "everyone on the job" — so the
+  // plural has to come from the roster, not from the optional `techIds`.
+  it("counts the technicians from the job, not from the request body", async () => {
+    server.use(
+      http.post("*/deals/d1/send-to-tech", () =>
+        HttpResponse.json({ success: true, data: { ...deal, assignedTechIds: ["t1"] } }),
+      ),
+    );
+
+    const { result } = renderHook(() => useSendToTech("d1"), { wrapper: wrapper(newClient()) });
+    result.current.mutate({ channels: ["sms"] });
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Job sent to the technician by SMS"),
+    );
+  });
+
+  it("still pluralises when the dispatcher named several technicians", async () => {
+    server.use(
+      http.post("*/deals/d1/send-to-tech", () =>
+        HttpResponse.json({ success: true, data: { ...deal, assignedTechIds: ["t1"] } }),
+      ),
+    );
+
+    const { result } = renderHook(() => useSendToTech("d1"), { wrapper: wrapper(newClient()) });
+    result.current.mutate({ channels: ["sms"], techIds: ["t1", "t2"] });
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Job sent to the technicians by SMS"),
+    );
   });
 
   it("surfaces the server's refusal instead of claiming the job went out", async () => {

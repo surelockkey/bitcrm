@@ -880,6 +880,8 @@ describe("send-to-tech stamps", () => {
   it("turns a delivery reason into something a dispatcher can act on", () => {
     expect(deliveryReasonLabel("no_phone")).toBe("no personal phone on file");
     expect(deliveryReasonLabel("email_not_configured")).toBe("email sending is not set up");
+    // Reported when messaging could not read the job back at all.
+    expect(deliveryReasonLabel("no_deal")).toBe("the job could not be read");
     // An unknown reason from a newer service is shown as-is, not swallowed.
     expect(deliveryReasonLabel("carrier_rejected")).toBe("carrier_rejected");
     expect(deliveryReasonLabel(undefined)).toBe("no reason given");

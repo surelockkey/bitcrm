@@ -343,6 +343,8 @@ const DELIVERY_REASON_LABEL: Record<string, string> = {
   blank_text: "the job text rendered empty",
   not_on_roster: "no longer assigned to the job",
   no_template: "no “New job” text configured",
+  // messaging could not read the job back when the event reached it.
+  no_deal: "the job could not be read",
 };
 
 export const deliveryReasonLabel = (reason?: string): string =>

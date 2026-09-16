@@ -353,10 +353,13 @@ export function useSendToTech(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({
     mutationFn: (body: api.SendToTechBody) => api.sendToTech(id, body),
-    onSuccess: (_deal, body) => {
+    onSuccess: (deal, body) => {
       invalidate();
       const via = body.channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c]).join(" & ");
-      toast.success(`Job sent to the technician${body.techIds?.length === 1 ? "" : "s"} by ${via}`);
+      // The card sends no `techIds` — that means "the whole roster", so the
+      // count comes from the job the server handed back, not from the request.
+      const recipients = body.techIds?.length ?? deal.assignedTechIds?.length ?? 0;
+      toast.success(`Job sent to the technician${recipients === 1 ? "" : "s"} by ${via}`);
       // messaging reports each channel back through deal-service; give it a
       // beat, then pick the deliveries up without making the user reload.
       setTimeout(
