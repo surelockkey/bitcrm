@@ -26,7 +26,8 @@ export const metadata: Metadata = {
 /**
  * Phone chrome. `themeColor` paints the status bar / address bar to match the
  * app in each scheme, and `viewportFit: "cover"` lets the layout reach under
- * the notch — the safe-area insets are what keep content out of it.
+ * the notch — the `.app-safe-area` insets in `globals.css`, worn by the app
+ * shell, are what keep content out of it.
  *
  * `maximumScale` is deliberately absent: capping zoom on a page a technician
  * reads outdoors, one-handed, in the sun, is an accessibility failure.
