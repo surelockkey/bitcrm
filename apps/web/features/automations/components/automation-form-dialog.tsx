@@ -369,7 +369,10 @@ export function AutomationFormDialog({
 
             {values.actions.map((action, index) => {
               const to = action.to ?? "client";
-              const strandedRecipient = !jobRule && JOB_RECIPIENTS.has(to);
+              // A tag or sub-status action has no recipient at all; only a
+              // message has somebody to reach, or to fail to reach.
+              const notifies = sendsMessage(action.type);
+              const strandedRecipient = notifies && !jobRule && JOB_RECIPIENTS.has(to);
               const bodyLabelId = `${fieldId}-body-${index}`;
               return (
                 <div key={index} className="space-y-2 rounded-md border p-3">
@@ -408,7 +411,7 @@ export function AutomationFormDialog({
                         value={action.url ?? ""}
                         onChange={(e) => setAction(index, { url: e.target.value })}
                       />
-                    ) : (
+                    ) : notifies ? (
                       <Select
                         value={to}
                         onValueChange={(v) => setAction(index, { to: v as ActionValues["to"] })}
@@ -427,7 +430,7 @@ export function AutomationFormDialog({
                           })}
                         </SelectContent>
                       </Select>
-                    )}
+                    ) : null}
 
                     {values.actions.length > 1 ? (
                       <Button
@@ -454,7 +457,7 @@ export function AutomationFormDialog({
                     </p>
                   ) : null}
 
-                  {to === "users" && action.type !== "webhook" ? (
+                  {notifies && to === "users" ? (
                     <AutomationUserPicker
                       label={`Action ${index + 1} people`}
                       values={action.userIds ?? []}
@@ -463,7 +466,7 @@ export function AutomationFormDialog({
                     />
                   ) : null}
 
-                  {to === "role" && action.type !== "webhook" ? (
+                  {notifies && to === "role" ? (
                     <AutomationRolePicker
                       label={`Action ${index + 1} roles`}
                       values={action.roleIds ?? []}
@@ -472,7 +475,7 @@ export function AutomationFormDialog({
                     />
                   ) : null}
 
-                  {to === "number" && action.type !== "webhook" ? (
+                  {notifies && to === "number" ? (
                     <div className="flex flex-wrap gap-2">
                       {action.type !== "send_email" ? (
                         <Input
@@ -507,7 +510,7 @@ export function AutomationFormDialog({
                     </div>
                   ) : null}
 
-                  {sendsMessage(action.type) ? (
+                  {notifies ? (
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <Label id={bodyLabelId}>Message</Label>
@@ -548,7 +551,13 @@ export function AutomationFormDialog({
                     min={0}
                     className="w-24"
                     value={values.trigger.offsetValue ?? 0}
-                    onChange={(e) => setTrigger({ offsetValue: Math.abs(Number(e.target.value)) })}
+                    // An emptied box reads as zero rather than as NaN: the
+                    // sentence above stays live while the number is retyped,
+                    // instead of blanking on a form that briefly cannot parse.
+                    onChange={(e) => {
+                      const typed = Math.abs(Number(e.target.value));
+                      setTrigger({ offsetValue: Number.isFinite(typed) ? typed : 0 });
+                    }}
                   />
                 </div>
                 <Select
