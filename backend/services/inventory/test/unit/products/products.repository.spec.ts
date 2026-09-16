@@ -283,11 +283,25 @@ describe('ProductsRepository', () => {
       }
     });
 
-    it('lets the typed fields win over a stray stored value', async () => {
-      const product = await read({ name: 'Trip charge', priceClient: -35 });
+    /**
+     * The whole commit rests on `toProduct` spreading the stored row FIRST and
+     * writing the typed fields over it. That order is only observable where
+     * the typed read path produces something different from what is stored —
+     * `type` is that place (an unknown word is normalised to `service`). If
+     * `...extras` were spread last, or the typed fields moved above it, the
+     * raw `other` would win here and every `assertStockable` / TypeIndex
+     * consumer would see a value `ProductType` has no member for.
+     */
+    it('lets the typed fields win over the colliding stored value', async () => {
+      const product = await read({ type: 'other', taxable: 'yes-from-workiz' });
 
-      expect(product.name).toBe('Trip charge');
-      expect(product.priceClient).toBe(-35);
+      // Typed field beats the stored one it collides with…
+      expect(product.type).toBe('service');
+      expect(product.type).not.toBe('other');
+      // …while an attribute with no typed counterpart is still carried through
+      // (so the fix is the order, not dropping the spread).
+      expect(product.taxable).toBe('yes-from-workiz');
+      expect(product.workizType).toBe('other');
     });
 
     it("maps a Workiz 'other' type to service and keeps the word", async () => {
