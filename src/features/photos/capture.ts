@@ -83,9 +83,15 @@ export interface CapturedPhoto {
   size?: number;
 }
 
-/** Where captures live until they have been uploaded. */
+/**
+ * Where captures live until they have been uploaded — and until the queue
+ * sweeps them afterwards (`sweepOrphanedPhotos`, queue/transport.ts). Named
+ * here so the sweep and the capture cannot drift apart.
+ */
+export const PHOTO_DIRECTORY = 'job-photos';
+
 function photoDirectory(): Directory {
-  const dir = new Directory(Paths.document, 'job-photos');
+  const dir = new Directory(Paths.document, PHOTO_DIRECTORY);
   dir.create({ intermediates: true, idempotent: true });
   return dir;
 }

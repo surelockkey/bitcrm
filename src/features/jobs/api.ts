@@ -132,3 +132,16 @@ export const getAttachmentDownloadUrl = (
   attachmentId: string,
 ): Promise<{ url: string }> =>
   http.get<{ url: string }>(`/deals/${id}/attachments/${attachmentId}`);
+
+/**
+ * Remove an attachment: the metadata row, the S3 object and an
+ * `ATTACHMENT_REMOVED` timeline entry (deal-attachments.service.ts:148-158).
+ *
+ * Guarded by `deals.edit`, which `role-technician` holds
+ * (default-roles.ts:290) — so the upload queue can clean up after a presigned
+ * URL it never got to use. A second delete of the same id answers 404.
+ */
+export const deleteAttachment = (
+  id: string,
+  attachmentId: string,
+): Promise<unknown> => http.delete(`/deals/${id}/attachments/${attachmentId}`);
