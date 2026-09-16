@@ -8,7 +8,11 @@ import {
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { type DealProduct, type DealProductFulfillment } from '@bitcrm/types';
+import {
+  type DealProduct,
+  type DealProductFulfillment,
+  type DealProductPriceSource,
+} from '@bitcrm/types';
 import { DEALS_TABLE } from '../common/constants/dynamo.constants';
 
 @Injectable()
@@ -153,6 +157,9 @@ export class DealProductsRepository {
       sourceTechId: item.sourceTechId as string | undefined,
       fulfillment:
         (item.fulfillment as DealProductFulfillment | undefined) ?? 'sourced',
+      // Only the Workiz importer sets this; left undefined it means "the
+      // catalog/override flow wrote this line" and the ±15% band applies.
+      priceSource: item.priceSource as DealProductPriceSource | undefined,
       orderedAt: item.orderedAt as string | undefined,
       addedBy: item.addedBy as string,
       addedAt: item.addedAt as string,

@@ -113,3 +113,39 @@ has no conditions, so a direct import must guarantee uniqueness itself:
   rule is unchanged, so re-configuring such a line through the UI quantises it
   to a whole number ≥ 1. The importer must log every line it writes with a
   non-integer or < 1 quantity so the 769 are reviewable.
+
+## 3. Job line items — the ±15 % price band
+
+The add-item dialog blocks any client price further than ±15 % from the
+catalog price (`PRICE_BAND` in `apps/web/features/deals/lib.ts`; the backend
+`AddDealProductDto` accepts any price — the rule is UI-only). 128 460 of the
+156 612 matched Workiz lines differ from today's catalog price and 110 865 sit
+outside the band, so without an exemption every one of those lines would open
+in a dialog whose **Save** button is permanently disabled.
+
+**The band does not judge an imported line.** `priceBandApplies(line)` is false
+when either marker is present, and the importer must set one on every
+historical line:
+
+| Workiz line | Marker to write | Count |
+|---|---|---|
+| `type = product` / `other` | `fulfillment: "imported"` | 47 976 + 770 |
+| `type = service` | `fulfillment: "service"` **and** `priceSource: "imported"` | 107 890 |
+
+- `'imported'` is a new `DealProductFulfillment` value. It is **not accepted by
+  the API** (`AddDealProductDto` still only allows `sourced` / `to_order` /
+  `service`) — only the importer writes it.
+- An imported line never moved BitCRM stock, and the code already agrees:
+  `removeProduct` and `replaceProduct` restore only a `sourced` line, so the
+  35 243 historical stock lines already folded into the 2026-09-11 opening
+  snapshot are not double-counted.
+- `priceSource` is `'catalog' | 'override' | 'imported'`, optional, and absent
+  on every row BitCRM has written so far — readers treat "absent" as "the band
+  applies".
+- Editing an imported line through the UI turns it into an ordinary line
+  (`fulfillment` becomes `sourced` / `to_order` / `service`, `priceSource` is
+  dropped) and from then on the band applies. Swapping the item for a different
+  catalog product re-applies the band immediately.
+- The line list badges an imported line "Imported"; the configure step says
+  "Imported from Workiz — the ±15% band doesn't apply" and shows the catalog
+  price for reference.

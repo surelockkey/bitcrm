@@ -20,7 +20,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
 import { useUserMap, useAddProduct, useReplaceProduct } from "../hooks";
 import { fetchTechStock } from "../tech-stock";
-import { formatMoney, isPriceInBand, priceRange } from "../lib";
+import { formatMoney, isPriceInBand, priceBandApplies, priceRange } from "../lib";
 
 export function AddProductDialog({
   dealId,
@@ -128,6 +128,10 @@ export function AddProductDialog({
             // swapped pick backs out to the picker it came from.
             backLabel={editing && current.id === editing.productId ? "Change item" : undefined}
             submitLabel={isEdit ? "Save" : undefined}
+            // A line carried over from Workiz keeps whatever price Workiz
+            // recorded — 82% of the historical lines differ from today's
+            // catalog price, so the ±15% band must not block saving them.
+            bandExempt={!!editing && current.id === editing.productId && !priceBandApplies(editing)}
             initial={
               editing && current.id === editing.productId
                 ? { quantity: editing.quantity, price: editing.priceClient }
@@ -245,6 +249,7 @@ function Configure({
   pending,
   backLabel,
   submitLabel,
+  bandExempt = false,
   initial,
   onBack,
   onAdd,
@@ -260,6 +265,8 @@ function Configure({
   pending: boolean;
   backLabel?: string;
   submitLabel?: string;
+  /** Imported line: the ±15% band does not judge its price (see priceBandApplies). */
+  bandExempt?: boolean;
   /** Prefill when reconfiguring an existing line (edit mode, same product). */
   initial?: { quantity: number; price: number };
   onBack: () => void;
@@ -269,7 +276,7 @@ function Configure({
   const [qty, setQty] = useState(initial?.quantity ?? 1);
   const [price, setPrice] = useState(initial?.price ?? product.priceClient);
   const { min, max } = priceRange(product.priceClient);
-  const inBand = isPriceInBand(price, product.priceClient);
+  const inBand = bandExempt || isPriceInBand(price, product.priceClient);
 
   // A stockable part the chosen tech is short on — or with no tech to source
   // from — is added as a to-order line instead of a van deduction.
@@ -320,9 +327,16 @@ function Configure({
         <div className="space-y-1.5">
           <Label>Client price</Label>
           <Input className="h-9" type="number" step="0.01" value={price} onChange={(e) => setPrice(Number(e.target.value))} />
-          <p className={inBand ? "text-[11px] text-muted-foreground" : "text-[11px] text-destructive"}>
-            Allowed {formatMoney(min)}–{formatMoney(max)} (±15%)
-          </p>
+          {bandExempt ? (
+            <p className="text-[11px] text-muted-foreground">
+              Imported from Workiz — the ±15% band doesn&apos;t apply. Catalog{" "}
+              {formatMoney(product.priceClient)}.
+            </p>
+          ) : (
+            <p className={inBand ? "text-[11px] text-muted-foreground" : "text-[11px] text-destructive"}>
+              Allowed {formatMoney(min)}–{formatMoney(max)} (±15%)
+            </p>
+          )}
         </div>
       </div>
       {mustOrder ? (

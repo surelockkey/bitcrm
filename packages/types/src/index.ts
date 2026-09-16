@@ -90,7 +90,11 @@ export {
   ZipEntry,
   DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
-export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
+export {
+  DealProduct,
+  DealProductFulfillment,
+  DealProductPriceSource,
+} from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
 export { Product } from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';

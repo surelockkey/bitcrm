@@ -11,6 +11,9 @@ export class AddDealProductDto {
       "technician's container; `to_order` records a part the tech doesn't carry " +
       '(no deduction); `service` adds a non-stockable service line (no deduction).',
   })
+  // `imported` is deliberately not accepted: it marks a historical Workiz line
+  // that never moved BitCRM stock, and only the importer writes it. Editing
+  // such a line through the API turns it into a normal line.
   @IsOptional()
   @IsIn(['sourced', 'to_order', 'service'])
   fulfillment?: DealProductFulfillment;

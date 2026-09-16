@@ -1356,6 +1356,20 @@ describe('DealsService', () => {
 
       expect(http.restoreStock).not.toHaveBeenCalled();
     });
+
+    it('does not restore stock when removing an imported Workiz line', async () => {
+      // The 2026-09-11 opening snapshot already accounts for the 35 243
+      // historical stock lines — restoring would double-count them.
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-9'] }));
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'imported', sourceTechId: undefined }),
+      );
+
+      await service.removeProduct('deal-1', 'product-1', caller);
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+    });
   });
 
   describe('replaceProduct', () => {
@@ -1398,6 +1412,30 @@ describe('DealsService', () => {
         productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
       }));
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
+    });
+
+    it('editing an imported line restores nothing and drops both import markers', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        productId === 'product-1'
+          ? createMockDealProduct({
+              fulfillment: 'imported',
+              priceSource: 'imported',
+              sourceTechId: undefined,
+            })
+          : null,
+      );
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      // The imported line never deducted BitCRM stock, so nothing goes back.
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(http.deductStock).toHaveBeenCalledWith(
+        expect.objectContaining({ containerId: 'tech-1' }),
+      );
+      const written = products.addProduct.mock.calls[0][1];
+      expect(written.fulfillment).toBe('sourced');
+      expect(written.priceSource).toBeUndefined();
     });
 
     it('preserves the original addedBy/addedAt and stamps the editor', async () => {
