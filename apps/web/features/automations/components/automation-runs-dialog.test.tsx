@@ -255,9 +255,12 @@ describe("AutomationRunsDialog", () => {
     const log = await screen.findByTestId("automation-runs");
     expect(within(log).getByText("A job the event did not name")).toBeInTheDocument();
     expect(within(log).queryByRole("link", { name: "Open job unknown" })).not.toBeInTheDocument();
-    // An action the engine cannot run yet says so rather than looking sent.
+    // An action the engine cannot run yet says so rather than looking sent —
+    // and the tally above the badge counts it in the very same words, instead
+    // of handing the reader the engine's key for it.
     expect(within(log).getByText("Not supported here")).toBeInTheDocument();
     expect(within(log).getByText("SMS only for now")).toBeInTheDocument();
+    expect(screen.getByTestId("firing-run-5")).toHaveTextContent("1 not supported here");
   });
 
   it("offers the whole history of this rule on the activity page", async () => {

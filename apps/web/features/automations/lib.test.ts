@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { AutomationRule, AutomationRun } from "@bitcrm/types";
 import {
   OUTCOME_LABEL,
+  actionOutcomeLabel,
   anchorAllowsBefore,
   canEnable,
   categoryLabel,
@@ -195,11 +196,26 @@ describe("firing counts and outcomes", () => {
     expect(runSummary(run([{ type: "send_sms", outcome: "sent" }, { type: "send_sms", outcome: "sent" }]))).toBe(
       "2 sent",
     );
+    // The words the badge under it uses, not the engine's own keys: the
+    // summary and the badges are counting the same actions.
     expect(runSummary(run([{ type: "send_sms", outcome: "sent" }, { type: "send_sms", outcome: "skipped" }]))).toBe(
-      "1 sent, 1 skipped",
+      "1 sent, 1 not sent",
     );
+    expect(
+      runSummary(run([{ type: "send_sms", outcome: "sent" }, { type: "send_email", outcome: "unsupported" }])),
+    ).toBe("1 sent, 1 not supported here");
+    expect(runSummary(run([{ type: "send_sms", outcome: "duplicate" }]))).toBe("1 already sent");
+    // An outcome nobody has a word for is still said as words, not as a key.
+    expect(runSummary(run([{ type: "send_sms", outcome: "rate_limited" }]))).toBe("1 rate limited");
     expect(runSummary(run([], { outcome: "skipped", reason: "inside quiet hours" }))).toBe("inside quiet hours");
     expect(runSummary(run([], { outcome: "skipped" }))).toBe("Skipped");
+  });
+
+  it("names an action's outcome the same way wherever it is shown", () => {
+    expect(actionOutcomeLabel("unsupported")).toBe("Not supported here");
+    expect(actionOutcomeLabel("skipped")).toBe("Not sent");
+    expect(actionOutcomeLabel("dry_run")).toBe("Would send");
+    expect(actionOutcomeLabel("rate_limited")).toBe("rate limited");
   });
 });
 

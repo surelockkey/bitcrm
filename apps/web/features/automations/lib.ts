@@ -259,12 +259,38 @@ export function outcomeTone(outcome: AutomationRunOutcome): "ok" | "warn" | "bad
   return "muted";
 }
 
-/** "2 sent, 1 skipped" — the one-line summary of a firing. */
+/**
+ * What the engine did with one action of the rule, in the reader's words.
+ * The engine's own keys are not that: `unsupported` is a column value, "Not
+ * supported here" is the thing that happened.
+ */
+const ACTION_OUTCOME_LABEL: Record<string, string> = {
+  sent: "Sent",
+  duplicate: "Already sent",
+  skipped: "Not sent",
+  failed: "Failed",
+  dry_run: "Would send",
+  unsupported: "Not supported here",
+};
+
+export function actionOutcomeLabel(outcome: string): string {
+  return ACTION_OUTCOME_LABEL[outcome] ?? outcome.replace(/_/g, " ");
+}
+
+/**
+ * "2 sent, 1 not sent" — the one-line summary of a firing. It counts the
+ * same outcomes the badges under it name, so it has to say them the same
+ * way: a summary reading "1 unsupported" one line above a badge reading
+ * "Not supported here" is two different things as far as the reader knows.
+ * Lower-cased because this is a tally inside a sentence, not a badge.
+ */
 export function runSummary(run: AutomationRun): string {
   if (!run.actions?.length) return run.reason ?? OUTCOME_LABEL[run.outcome];
   const counts = new Map<string, number>();
   for (const action of run.actions) counts.set(action.outcome, (counts.get(action.outcome) ?? 0) + 1);
-  return [...counts.entries()].map(([outcome, n]) => `${n} ${outcome.replace(/_/g, " ")}`).join(", ");
+  return [...counts.entries()]
+    .map(([outcome, n]) => `${n} ${actionOutcomeLabel(outcome).toLowerCase()}`)
+    .join(", ");
 }
 
 /** `2026-09-16T15:04:05.000Z` → `Sep 16, 3:04 PM` in the reader's own zone. */

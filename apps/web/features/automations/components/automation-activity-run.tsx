@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { AutomationRun, AutomationRunAction, AutomationRunOutcome } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { OUTCOME_LABEL, formatFiredAt, outcomeTone, runSummary } from "../lib";
+import { OUTCOME_LABEL, actionOutcomeLabel, formatFiredAt, outcomeTone, runSummary } from "../lib";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "border-transparent bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
@@ -46,19 +46,6 @@ const RECIPIENT_WORD: Record<string, string> = {
   role: "everyone in the role",
   number: "the number in the rule",
 };
-
-const ACTION_OUTCOME_LABEL: Record<string, string> = {
-  sent: "Sent",
-  duplicate: "Already sent",
-  skipped: "Not sent",
-  failed: "Failed",
-  dry_run: "Would send",
-  unsupported: "Not supported here",
-};
-
-export function actionOutcomeLabel(outcome: string): string {
-  return ACTION_OUTCOME_LABEL[outcome] ?? outcome.replace(/_/g, " ");
-}
 
 function actionLabel(action: AutomationRunAction): string {
   return ACTION_LABEL[action.type] ?? String(action.type).replace(/_/g, " ");
