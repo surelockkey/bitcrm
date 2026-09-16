@@ -1,14 +1,8 @@
 "use client";
 
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Popover } from "radix-ui";
 import { ArrowUpDown, Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { CallTag } from "@bitcrm/types";
 import {
@@ -46,83 +40,29 @@ const SORT_OPTIONS = [
 ] as const;
 type SortKey = (typeof SORT_OPTIONS)[number]["key"];
 
-/** The panel's own size (w-80, header + search + max-h-64 list). */
-const PANEL_WIDTH = 320;
-const PANEL_HEIGHT = 340;
-/** Breathing room against the trigger and the viewport edges. */
-const GAP = 4;
-const EDGE = 8;
-
 /**
- * The picker panel, floated out of the page flow and pinned to its trigger.
+ * The click-catcher behind the open panel.
  *
- * In the call log this lives in a table cell, and the table wrapper is
- * `overflow-x-auto` — which per the CSS overflow spec computes the vertical
- * axis to `auto` as well, so a panel positioned inside the cell is clipped by
- * the table box. It bites hardest on the last rows on screen, which is exactly
- * where a dispatcher triages the oldest calls. Rendering into the body keeps
- * the panel whole, and measuring the trigger lets it flip above when there is
- * no room below.
+ * The picker sits in a clickable call-log row, so the click that dismisses it
+ * must not also open that row (or the row it lands on). A viewport-sized
+ * backdrop absorbs it: the pointerdown still reaches Radix as "outside the
+ * panel" and closes it, but the click itself lands here and goes no further.
  *
- * Clicks still reach the caller's handlers: a React portal bubbles events
- * through the tree it was rendered in, not the DOM it was placed in, so the
- * row-click guard above keeps working.
+ * Portaled next to the panel rather than inside `Popover.Portal`, which takes a
+ * single child — and with explicit `pointer-events`, because the modal Sheet of
+ * the call quick view sets `pointer-events: none` on <body> and this node is
+ * outside the layer Radix re-enables.
  */
-function FloatingPanel({
-  anchor,
-  onClose,
-  children,
-}: {
-  anchor: RefObject<HTMLButtonElement | null>;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const [placement, setPlacement] = useState<CSSProperties>({});
-
-  useLayoutEffect(() => {
-    const place = () => {
-      const rect = anchor.current?.getBoundingClientRect();
-      if (!rect) return;
-      const below = window.innerHeight - rect.bottom;
-      const flip = below < PANEL_HEIGHT && rect.top > below;
-      setPlacement({
-        left: Math.max(
-          EDGE,
-          Math.min(rect.left, window.innerWidth - PANEL_WIDTH - EDGE),
-        ),
-        ...(flip
-          ? { bottom: window.innerHeight - rect.top + GAP }
-          : { top: rect.bottom + GAP }),
-      });
-    };
-    place();
-    // Pinned to the viewport, so anything that moves the trigger moves it too
-    // — including a scroll inside the table itself (hence capture).
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place);
-    return () => {
-      window.removeEventListener("scroll", place, true);
-      window.removeEventListener("resize", place);
-    };
-  }, [anchor]);
-
+function PanelBackdrop({ onClose }: { onClose: () => void }) {
   if (typeof document === "undefined") return null;
-
   return createPortal(
-    <>
-      <button
-        type="button"
-        aria-label="Close"
-        className="fixed inset-0 z-40 cursor-default"
-        onClick={onClose}
-      />
-      <div
-        style={{ position: "fixed", ...placement }}
-        className="z-50 w-80 overflow-hidden rounded-lg border bg-popover shadow-md"
-      >
-        {children}
-      </div>
-    </>,
+    <button
+      type="button"
+      aria-label="Close"
+      style={{ pointerEvents: "auto" }}
+      className="fixed inset-0 z-40 cursor-default"
+      onClick={onClose}
+    />,
     document.body,
   );
 }
@@ -153,6 +93,30 @@ function sortTags(tags: CallTag[], sort: SortKey): CallTag[] {
  * `onChange` receives the whole next list; the caller turns that into the
  * add/remove delta `PATCH /calls/:sid/tags` expects, so two dispatchers
  * clearing a spam queue never overwrite each other.
+ *
+ * The panel is a Radix Popover, because its two mount points pull in opposite
+ * directions:
+ *
+ *  - In the call log it sits in a table cell whose wrapper is `overflow-x-auto`
+ *    — which per the CSS overflow spec computes the vertical axis to `auto` as
+ *    well, so a panel rendered inside the cell is clipped by the table box,
+ *    worst on the lowest rows where the oldest calls are triaged. The panel
+ *    must therefore be portaled out and pinned to its trigger.
+ *  - In the call quick view it sits inside a modal Sheet, which sets
+ *    `pointer-events: none` on <body> and traps focus in its own content. A
+ *    hand-rolled body portal is inert there: `pointer-events` is inherited, so
+ *    clicks fall through to the Sheet's overlay and dismiss the whole quick
+ *    view instead of toggling a tag, and the focus trap pulls focus straight
+ *    back out of the search box.
+ *
+ * Popover's portal answers the first and its layer answers the second: the
+ * content registers a dismissable layer above the Sheet's (so it gets
+ * `pointer-events: auto` and a pointerdown inside it is not "outside" the
+ * Sheet) and a focus scope that pauses the Sheet's trap while it is open.
+ *
+ * Clicks still reach the caller's handlers either way: a React portal bubbles
+ * events through the tree it was rendered in, not the DOM it was placed in, so
+ * the row-click guard below keeps working.
  */
 export function CallTagCombobox({
   value,
@@ -175,7 +139,7 @@ export function CallTagCombobox({
   const { can } = usePermissions();
   const archive = useArchiveCallTag();
   const map = callTagMap(data);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
@@ -187,6 +151,8 @@ export function CallTagCombobox({
   // The catalog is telephony configuration: one grant covers create, rename
   // and archive, exactly as the server has it (`settings.edit`).
   const canManage = can("settings", "edit");
+
+  const nestedDialogOpen = creating || Boolean(editing) || Boolean(archiving);
 
   const active = activeCallTags(data);
   const listed = sortTags(active, sort);
@@ -248,19 +214,43 @@ export function CallTagCombobox({
         ) : null
       ) : (
         <div className="relative">
-          <button
-            type="button"
-            ref={trigger}
-            onClick={() => setOpen((o) => !o)}
-            aria-expanded={open}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          >
-            <Plus className="size-3" /> Add tag
-          </button>
+          <Popover.Root open={open} onOpenChange={setOpen}>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                aria-expanded={open}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              >
+                <Plus className="size-3" /> Add tag
+              </button>
+            </Popover.Trigger>
 
-          {open ? (
-            <FloatingPanel anchor={trigger} onClose={() => setOpen(false)}>
-              <>
+            {open ? <PanelBackdrop onClose={() => setOpen(false)} /> : null}
+
+            <Popover.Portal>
+              <Popover.Content
+                data-slot="call-tag-panel"
+                // Radix defaults popover content to role="dialog"; this panel
+                // is a search box over a listbox, and calling it a dialog would
+                // both misdescribe it and collide with the real create/rename
+                // dialogs it opens.
+                role={undefined}
+                side="bottom"
+                align="start"
+                sideOffset={4}
+                collisionPadding={8}
+                // The search box, not the first button in the header.
+                onOpenAutoFocus={(e) => {
+                  e.preventDefault();
+                  search.current?.focus();
+                }}
+                // The create / rename / archive dialogs portal outside this
+                // panel; the focus they take must not dismiss it underneath.
+                onInteractOutside={(e) => {
+                  if (nestedDialogOpen) e.preventDefault();
+                }}
+                className="z-50 w-80 overflow-hidden rounded-lg border bg-popover shadow-md"
+              >
                 <div className="flex items-center justify-between px-3 pb-1 pt-2.5">
                   <span className="text-sm font-semibold">
                     Available tags ({active.length})
@@ -280,6 +270,7 @@ export function CallTagCombobox({
                   <div className="flex items-center gap-1 pr-1">
                     <div className="flex-1">
                       <CommandInput
+                        ref={search}
                         autoFocus
                         placeholder="Search tags…"
                         className="h-9"
@@ -402,9 +393,9 @@ export function CallTagCombobox({
                     </CommandGroup>
                   </CommandList>
                 </Command>
-              </>
-            </FloatingPanel>
-          ) : null}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
 
           {creating ? (
             <CallTagFormDialog

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
+import { Dialog } from "radix-ui";
 import type { CallTag } from "@bitcrm/types";
 
 const { createMutate, updateMutate, archiveMutate, canMock, catalog } = vi.hoisted(
@@ -101,6 +102,26 @@ import { CallTagCombobox } from "./call-tag-combobox";
 
 const openPicker = () =>
   fireEvent.click(screen.getByRole("button", { name: /add tag/i }));
+
+/**
+ * The call quick view mounts this picker inside a modal Sheet — a Radix Dialog,
+ * which sets `pointer-events: none` on <body> and traps focus in its content.
+ */
+const renderInModalSheet = (ui: React.ReactNode) => {
+  const onOpenChange = vi.fn();
+  render(
+    <Dialog.Root open onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay />
+        <Dialog.Content aria-describedby={undefined}>
+          <Dialog.Title>Incoming call</Dialog.Title>
+          {ui}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>,
+  );
+  return onOpenChange;
+};
 
 describe("CallTagCombobox — the tags on one call", () => {
   beforeEach(() => {
@@ -295,5 +316,69 @@ describe("CallTagCombobox — the tags on one call", () => {
       "div[style*='position: fixed']",
     );
     expect(panel?.contains(search)).toBe(true);
+  });
+
+  it("closes on a click outside without opening the call log row underneath", () => {
+    // The panel floats over the page, so the click that dismisses it would
+    // otherwise land on whatever row is under it. A backdrop absorbs it.
+    const rowClick = vi.fn();
+    render(
+      <div onClick={rowClick}>
+        <CallTagCombobox value={[]} onChange={vi.fn()} stopPropagation />
+      </div>,
+    );
+    openPicker();
+    expect(screen.getByPlaceholderText("Search tags…")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByPlaceholderText("Search tags…")).not.toBeInTheDocument();
+    expect(rowClick).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The picker's second mount point is the call quick view, inside a modal
+   * Sheet. A panel portaled to <body> with no layer of its own is inert there:
+   * `pointer-events` is inherited, so the Sheet's `pointer-events: none` on
+   * <body> makes every click fall through to the Sheet's overlay — tapping a
+   * tag dismissed the whole quick view — and the Sheet's focus trap pulls focus
+   * straight back out of the search box.
+   */
+  it("stays live inside the modal quick view: picking a tag toggles it and the sheet stays open", () => {
+    const onChange = vi.fn();
+    const sheetOpenChange = renderInModalSheet(
+      <CallTagCombobox value={[]} onChange={onChange} />,
+    );
+
+    openPicker();
+
+    expect(document.body.style.pointerEvents).toBe("none");
+    const panel = document.querySelector<HTMLElement>(
+      "[data-slot='call-tag-panel']",
+    );
+    expect(panel?.style.pointerEvents).toBe("auto");
+    expect(screen.getByPlaceholderText("Search tags…")).toHaveFocus();
+    // …and still floated out of the sheet's own scroll box, as in the call log.
+    expect(screen.getByRole("dialog").contains(panel)).toBe(false);
+
+    const option = screen.getByRole("option", { name: /SPAM CALLER/ });
+    fireEvent.pointerDown(option);
+    fireEvent.click(option);
+
+    expect(onChange).toHaveBeenCalledWith(["ct-spam"]);
+    expect(sheetOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("can be typed into inside the modal quick view", () => {
+    renderInModalSheet(<CallTagCombobox value={[]} onChange={vi.fn()} />);
+    openPicker();
+
+    const search = screen.getByPlaceholderText("Search tags…");
+    fireEvent.change(search, { target: { value: "spam" } });
+
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("option", { name: /SPAM CALLER/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /WRONG NUMBER/ })).not.toBeInTheDocument();
   });
 });
