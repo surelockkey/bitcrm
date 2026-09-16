@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotImplementedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, NotImplementedException } from '@nestjs/common';
 import { type Conversation, type DealSentToTechEvent, type SendToTechChannel } from '@bitcrm/types';
 import { RecipientOptedOutException, SendService } from '../outbound/send.service';
 import { MessagingSettingsService } from '../settings/messaging-settings.service';
@@ -32,7 +32,9 @@ export type SendToTechOutcome =
   | 'no_email'
   | 'email_not_configured'
   | 'opted_out'
-  | 'blank_text';
+  | 'blank_text'
+  /** The send was refused for good (a 4xx) — reported `failed`, with the refusal as the reason. */
+  | 'failed';
 
 /** Nothing was attempted for the whole event. */
 export type SendToTechSkip = 'malformed' | 'no_template' | 'no_deal';
@@ -40,8 +42,34 @@ export type SendToTechSkip = 'malformed' | 'no_template' | 'no_deal';
 /** Per technician, per channel. */
 export type SendToTechOutcomes = Record<string, Partial<Record<SendToTechChannel, SendToTechOutcome>>>;
 
-/** Only these two count as delivered; everything else is a `skipped` report with the outcome as its reason. */
+/** Only these two count as delivered; everything else is a `skipped` (or, for `failed`, a `failed`) report. */
 const DELIVERED: ReadonlyArray<SendToTechOutcome> = ['sent', 'duplicate'];
+
+/** A report's `reason` is one line on the job page — never a stack trace. */
+const MAX_REASON = 200;
+
+/**
+ * Is this error a permanent "no", or worth another delivery of the event?
+ *
+ * A 4xx out of the send path is the caller's fault and will answer the same
+ * on every redelivery — a `User.phone` stored unnormalised so it does not
+ * match the team thread's number, an address the conversation does not
+ * carry. Rethrowing one of those costs every technician after it in the loop
+ * their message until the event reaches the DLQ, and re-POSTs deal-service
+ * the same reports each pass. 408 / 429 are the two 4xx that do clear up, so
+ * they keep the retry; 5xx (the table, the queue, `NotImplementedException`)
+ * always do.
+ */
+function isPermanentSendFailure(error: unknown): error is HttpException {
+  if (!(error instanceof HttpException)) return false;
+  const status = error.getStatus();
+  return (
+    status >= 400 &&
+    status < 500 &&
+    status !== HttpStatus.REQUEST_TIMEOUT &&
+    status !== HttpStatus.TOO_MANY_REQUESTS
+  );
+}
 
 /**
  * Workiz "Send to tech" (design §6, §10 M21; `WORKIZ_FEATURE_GAPS` §2.1 /
@@ -62,10 +90,14 @@ const DELIVERED: ReadonlyArray<SendToTechOutcome> = ['sent', 'duplicate'];
  * sends again. Quiet hours do **not** hold it — a dispatcher asking for the
  * job to go out now is not a background automation.
  *
- * Every outcome is reported back with `PUT /deals/internal/:id/sent-to-tech`.
- * One channel failing never stops the others; only an unexpected error
- * (the table, the queue) is rethrown, and then SQS redelivers onto the
- * markers of what already went.
+ * Every outcome is reported back with `PUT /deals/internal/:id/sent-to-tech`,
+ * including the ones where nothing about the job could be read or rendered.
+ * One channel failing never stops the others: a refusal that redelivery
+ * cannot fix (any 4xx — an unnormalised `User.phone`, an address the thread
+ * does not carry) is reported `failed` with the refusal as its reason and
+ * the loop carries on, so one bad recipient costs one line rather than every
+ * technician after them. Only a transient error (the table, the queue, a 5xx)
+ * is rethrown, and then SQS redelivers onto the markers of what already went.
  */
 @Injectable()
 export class SendToTechService {
@@ -101,6 +133,10 @@ export class SendToTechService {
     const deal = await this.peers.deal(event.dealId);
     if (!deal) {
       this.logger.warn(`Send to tech for ${event.dealId} skipped: job not readable`);
+      // Say so on every (technician, channel), like the no-template branch: a
+      // delivery row that is never written leaves the card on "SMS · sending…"
+      // for good, which reads as "still on its way" rather than "nothing went".
+      await this.reportAll(event, 'failed', 'no_deal');
       return 'no_deal';
     }
 
@@ -196,6 +232,10 @@ export class SendToTechService {
       if (error instanceof NotImplementedException && channel === 'email') {
         return this.skip(event, user.id, channel, 'email_not_configured');
       }
+      // One bad recipient is one bad channel, not the end of the click: report
+      // it and let the rest of this technician's channels — and every
+      // technician after them — still go out.
+      if (isPermanentSendFailure(error)) return this.fail(event, user.id, channel, error);
       throw error;
     }
 
@@ -223,20 +263,33 @@ export class SendToTechService {
     return outcome;
   }
 
+  /** A channel refused for good: reported `failed`, with the refusal in the dispatcher's words. */
+  private async fail(
+    event: DealSentToTechEvent,
+    techId: string,
+    channel: SendToTechChannel,
+    error: HttpException,
+  ): Promise<SendToTechOutcome> {
+    const reason = (error.message || 'send refused').slice(0, MAX_REASON);
+    this.logger.error(`Send to tech ${event.dealId} → ${techId} (${channel}) failed: ${reason}`);
+    await this.report(event, techId, channel, 'failed', { reason });
+    return 'failed';
+  }
+
   private report(
     event: DealSentToTechEvent,
     techId: string,
     channel: SendToTechChannel,
     outcome: SendToTechOutcome,
-    ids: { messageId?: string; conversationId?: string } = {},
+    ids: { messageId?: string; conversationId?: string; reason?: string } = {},
   ): Promise<boolean> {
     const delivered = DELIVERED.includes(outcome);
     const report: SentToTechReport = {
       techId,
       channel,
-      status: delivered ? 'sent' : 'skipped',
+      status: delivered ? 'sent' : outcome === 'failed' ? 'failed' : 'skipped',
       sentAt: event.sentAt,
-      ...(delivered ? {} : { reason: outcome }),
+      ...(delivered ? {} : { reason: ids.reason ?? outcome }),
       ...(ids.messageId ? { messageId: ids.messageId } : {}),
       ...(ids.conversationId ? { conversationId: ids.conversationId } : {}),
       at: new Date().toISOString(),

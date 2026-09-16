@@ -1,4 +1,10 @@
-import { NotImplementedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  NotImplementedException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { type DealSentToTechEvent, type MessagingSettings } from '@bitcrm/types';
 import { AUTOMATIONS_ACTOR } from '../../../src/automations/automations.constants';
 import { type AutoSentMarker } from '../../../src/automations/auto-sent.repository';
@@ -45,7 +51,7 @@ function makeService(opts: {
   deal?: AutomationDeal | null;
   users?: Record<string, AutomationUser | null>;
   markers?: Record<string, AutoSentMarker>;
-  send?: { duplicate?: boolean; error?: Error; errorOn?: string };
+  send?: { duplicate?: boolean; error?: Error; errorOn?: string; errorForTech?: string };
   rendered?: string;
   report?: boolean;
 } = {}) {
@@ -73,7 +79,9 @@ function makeService(opts: {
   const renderer = { render: jest.fn(async () => ({ body: opts.rendered ?? 'New job #1001\nJohn Doe', missing: [] })) };
   const send = {
     sendSystem: jest.fn(async (input: { conversation: { id: string }; channel?: string }) => {
-      if (opts.send?.error && (!opts.send.errorOn || opts.send.errorOn === (input.channel ?? 'sms'))) throw opts.send.error;
+      const thisChannel = !opts.send?.errorOn || opts.send.errorOn === (input.channel ?? 'sms');
+      const thisTech = !opts.send?.errorForTech || input.conversation.id === `c-${opts.send.errorForTech}`;
+      if (opts.send?.error && thisChannel && thisTech) throw opts.send.error;
       return {
         duplicate: opts.send?.duplicate ?? false,
         message: createMockMessage({ id: `m-${input.channel ?? 'sms'}`, conversationId: input.conversation.id, direction: 'outbound', createdAt: T1 }),
@@ -213,6 +221,48 @@ describe('SendToTechService — deal.sent_to_tech', () => {
     expect(await service.onSentToTech(event({ channels: ['sms', 'in_app'] }))).toEqual({ t1: { sms: 'opted_out', in_app: 'sent' } });
   });
 
+  // The realistic one: a User.phone stored unnormalised, which SendService
+  // refuses with a BadRequest. Rethrowing it would take the whole click down —
+  // every technician after the bad one gets nothing until the event hits the
+  // DLQ, and each redelivery re-POSTs the same reports.
+  it('reports a permanently refused recipient as failed and keeps going for everyone else', async () => {
+    const { service, send, reports, markers } = makeService({
+      send: { error: new BadRequestException('toAddress is not one of the conversation phone numbers'), errorForTech: 't1' },
+    });
+
+    expect(await service.onSentToTech(event({ techIds: ['t1', 't2'], channels: ['sms'] }))).toEqual({
+      t1: { sms: 'failed' },
+      t2: { sms: 'sent' },
+    });
+
+    expect(send.sendSystem).toHaveBeenCalledTimes(2);
+    expect(reports[0]).toMatchObject({
+      techId: 't1',
+      channel: 'sms',
+      status: 'failed',
+      sentAt: SENT_AT,
+      reason: 'toAddress is not one of the conversation phone numbers',
+    });
+    expect(reports[1]).toMatchObject({ techId: 't2', status: 'sent' });
+    // Nothing was sent for t1, so no marker claims it was.
+    expect(markers.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused channel does not cost the technician their other channels', async () => {
+    const { service } = makeService({ send: { error: new BadRequestException('no such address'), errorOn: 'sms' } });
+    expect(await service.onSentToTech(event({ channels: ['sms', 'in_app'] }))).toEqual({
+      t1: { sms: 'failed', in_app: 'sent' },
+    });
+  });
+
+  it('still retries the ones that do clear up (5xx, throttling)', async () => {
+    const throttled = makeService({ send: { error: new HttpException('Slow down', HttpStatus.TOO_MANY_REQUESTS) } });
+    await expect(throttled.service.onSentToTech(event())).rejects.toThrow('Slow down');
+
+    const down = makeService({ send: { error: new ServiceUnavailableException('Twilio is down') } });
+    await expect(down.service.onSentToTech(event())).rejects.toThrow('Twilio is down');
+  });
+
   it('re-reads the roster: a technician taken off the job since the click, an unknown or inactive one is skipped', async () => {
     const { service, reports } = makeService({
       deal: deal({ assignedTechIds: ['t1', 't3'] }),
@@ -254,11 +304,14 @@ describe('SendToTechService — deal.sent_to_tech', () => {
     expect(reports.every((r) => r.status === 'skipped' && r.reason === 'no_template')).toBe(true);
   });
 
-  it('gives up quietly when the job is not readable', async () => {
+  // Without a delivery row the card reads "SMS · sending…" for ever, which
+  // says "on its way" about a message that was never attempted.
+  it('says so on every (technician, channel) when the job is not readable', async () => {
     const { service, send, reports } = makeService({ deal: null });
-    expect(await service.onSentToTech(event())).toBe('no_deal');
+    expect(await service.onSentToTech(event({ techIds: ['t1', 't2'], channels: ['sms', 'email'] }))).toBe('no_deal');
     expect(send.sendSystem).not.toHaveBeenCalled();
-    expect(reports).toHaveLength(0);
+    expect(reports).toHaveLength(4);
+    expect(reports.every((r) => r.status === 'failed' && r.reason === 'no_deal' && r.sentAt === SENT_AT)).toBe(true);
   });
 
   it('drops a malformed payload without touching the settings', async () => {
