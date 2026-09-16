@@ -40,17 +40,38 @@ export interface AutomationEvent {
 export const sha1 = (value: string): string => createHash('sha1').update(value).digest('hex');
 
 /**
- * The state a `deal.updated` rule fired for: the values of the facts *this
- * rule* reads, hashed. Workiz's "when a job has a status of X [and tag Y]"
- * fires the first time the combination holds — the tag may be added minutes
- * after the status — so the occurrence is the state, not the edit.
+ * The values of one condition that actually make it hold — the matched
+ * predicate, not the fact behind it.
+ *
+ * This is what keeps a `deal.updated` rule from re-sending. A job carries
+ * many tags and many technicians; hashing all of them would make every
+ * unrelated tag or roster edit a brand-new occurrence, and the rule would
+ * text the same people again although it matches for exactly the same
+ * reason as before. `in` / `eq` therefore contribute only the values the
+ * condition asked for and found; `not_in` / `ne` / `exists` / `not_exists`
+ * hold by absence or by "some value is there", which no particular value
+ * distinguishes, so they contribute a constant.
+ */
+function matchedValues(condition: AutomationCondition, facts: AutomationFacts): string[] {
+  if (condition.op !== 'in' && condition.op !== 'eq') return ['*'];
+  const wanted = condition.op === 'eq' ? (condition.values ?? []).slice(0, 1) : (condition.values ?? []);
+  if (!wanted.length) return ['*']; // an `in` with no values holds for anything
+  return (conditionFacts(condition.field, facts) ?? []).filter((v) => wanted.includes(v)).slice().sort();
+}
+
+/**
+ * The state a `deal.updated` rule fired for: the status the job is in plus
+ * the predicates *this rule* matched on, hashed. Workiz's "when a job has a
+ * status of X [and tag Y]" fires the first time the combination holds — the
+ * tag may be added minutes after the status — so the occurrence is the
+ * state, not the edit, and it changes only when the match itself changes.
  */
 export function stateOccurrence(conditions: AutomationCondition[], facts: AutomationFacts): string {
   const d = facts.deal;
   const parts = [
     `status=${d?.superStatus ?? ''}`,
     `sub=${d?.subStatusId ?? ''}`,
-    ...conditions.map((c) => `${c.field}=${(conditionFacts(c.field, facts) ?? []).slice().sort().join('|')}`),
+    ...conditions.map((c) => `${c.field}=${matchedValues(c, facts).join('|')}`),
   ];
   return `state:${sha1(parts.join(';'))}`;
 }

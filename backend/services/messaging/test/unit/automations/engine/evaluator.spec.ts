@@ -242,21 +242,33 @@ describe('evaluateRule', () => {
       conditions: [
         { field: 'status', op: 'in', values: ['submitted'] },
         { field: 'tag', op: 'in', values: ['tag-a'] },
+        { field: 'hasTechs', op: 'exists' },
       ],
     });
     const edit: AutomationEvent = { kind: 'deal.updated', at: NOW.toISOString(), dealId: 'd1' };
-    const first = evaluateRule({ id: 'r1', spec: tagRule }, edit, facts(), NOW);
-    const again = evaluateRule(
-      { id: 'r1', spec: tagRule },
-      { ...edit, at: '2026-09-16T16:00:00.000Z' },
-      facts(),
-      NOW,
-    );
-    expect(first.fired && again.fired && first.idempotencyKey).toBe(again.fired ? again.idempotencyKey : '');
+    const key = (over: Partial<AutomationDealFacts> = {}) => {
+      const decision = evaluateRule({ id: 'r1', spec: tagRule }, edit, facts(over), NOW);
+      return decision.fired ? decision.idempotencyKey : 'not fired';
+    };
+    const first = key();
+    expect(
+      evaluateRule({ id: 'r1', spec: tagRule }, { ...edit, at: '2026-09-16T16:00:00.000Z' }, facts(), NOW),
+    ).toMatchObject({ idempotencyKey: first });
 
-    // Another tag added → another state → the rule may fire again.
-    const moved = evaluateRule({ id: 'r1', spec: tagRule }, edit, facts({ tagIds: ['tag-a', 'tag-c'] }), NOW);
-    expect(moved.fired && first.fired && moved.idempotencyKey === first.idempotencyKey).toBe(false);
+    // The rule matches for the same reason after an unrelated tag is added
+    // or the roster changes, so it is the same firing — the techs it already
+    // texted must not be texted again.
+    expect(key({ tagIds: ['tag-a', 'tag-c'] })).toBe(first);
+    expect(key({ tagIds: ['tag-b', 'tag-a'] })).toBe(first);
+    expect(key({ assignedTechIds: ['t1', 't2', 't3'] })).toBe(first);
+
+    // The state the rule fired for still separates one firing from another:
+    // the job moving to another sub-status is a new occurrence.
+    expect(key({ subStatusId: 'sub-other' })).not.toBe(first);
+    // …and a job that stops matching stops firing.
+    expect(key({ superStatus: 'in_progress' })).toBe('not fired');
+    expect(key({ tagIds: ['tag-c'] })).toBe('not fired');
+    expect(key({ assignedTechIds: [] })).toBe('not fired');
   });
 
   it('occurrence keys are derived from the event, never the clock', () => {
