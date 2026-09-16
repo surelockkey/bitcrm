@@ -8,6 +8,7 @@ import { CommandMenu } from "./command-menu";
 import { LocationBroadcaster } from "@/features/technicians/components/location-broadcaster";
 import { SoftphoneProvider } from "@/features/telephony/components/softphone-provider";
 import { MessagingStreamProvider } from "@/features/messaging/components/messaging-stream-provider";
+import { InboxSidebarCollapse } from "@/features/messaging/components/inbox-sidebar-collapse";
 
 /** Authenticated app chrome: sidebar + header + command palette. */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Inbox live updates (SSE) for the whole session; feeds the sidebar
           badge and any open thread (renders nothing). */}
       <MessagingStreamProvider />
+      {/* The Inbox owns the screen: fold the navigation to its icon rail while
+          it is open, unfold on the way out (renders nothing). */}
+      <InboxSidebarCollapse />
     </SidebarProvider>
   );
 }
