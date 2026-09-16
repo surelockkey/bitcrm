@@ -22,7 +22,12 @@ export type DealProductFulfillment =
  *   lines differ from today's catalog price and 110 865 sit outside ±15%, so
  *   the band must not judge them.
  *
- * Absent on every line BitCRM has written so far — readers must cope.
+ * Absent on every line BitCRM has written so far — readers must cope, and
+ * "absent" is what they must treat as "the ±15% band applies".
+ *
+ * Only `imported` is written by anything today (the Workiz importer);
+ * `catalog` and `override` are reserved for the add-item dialog and are not
+ * produced by any current code path, so do not branch on them.
  */
 export type DealProductPriceSource = 'catalog' | 'override' | 'imported';
 

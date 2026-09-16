@@ -291,13 +291,15 @@ would invent stock nobody ever counted.
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>` (§3.0), with
   `fulfillment: "imported"` (§3.1) — and do **not** call deduct/restore.
 
-### 5.2 Locations — extra attributes survive an edit
+### 5.2 Locations — extra attributes are read back
 
 `toContainer` / `toWarehouse` now spread the stored row and then write the
-typed fields over it (key attributes excluded), and `create` spreads the entity
-first so the repository's own `PK`/`SK`/`GSI3` always win. So these importer
-attributes survive a rename, a department change or a technician reassignment
-from the UI:
+typed fields over it (key attributes excluded), so `GET /containers` and
+`GET /warehouses` **return** these importer attributes instead of silently
+dropping them on the floor. They were never at risk of being erased by an edit:
+both repositories update with an `UpdateCommand` that writes only the keys it
+is given, never a full `Put`. `create` spreads the entity first so the
+repository's own `PK`/`SK`/`GSI3` always win over anything in the payload.
 
 | Item | Extra attributes to write |
 |---|---|
