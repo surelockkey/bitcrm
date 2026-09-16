@@ -418,6 +418,39 @@ describe('AutomationsService', () => {
     expect(rows.get('w3')!.specVersion).toBe(TRANSLATOR_VERSION);
   });
 
+  /**
+   * A Notification Center row (Workiz's other automation page) is imported
+   * with a spec the importer wrote and no Workiz rule structure behind it.
+   * Translating such a row would replace a rule that runs with one built from
+   * fields it does not have, so it is left alone on read and by `migrate`.
+   */
+  it('leaves an imported Notification Center rule exactly as it was stored', async () => {
+    const notification: AutomationRule = {
+      ...translatable({ id: 'note_row_2', name: 'Notify client by SMS 1 Hours before appointment' }),
+      // What the import writes: its own spec, and no Workiz rule structure.
+      conditions: undefined,
+      events: undefined,
+      specSource: 'workiz-notification',
+      runnable: true,
+      spec: {
+        version: 1,
+        trigger: { kind: 'schedule.relative', anchor: 'scheduledStart', offsetMinutes: -60 },
+        actions: [{ type: 'send_sms', to: 'client', body: 'Reminder: {{job_date}}' }],
+        timing: { quietHours: 'hold' },
+      },
+    };
+    const { service, repo } = makeService([notification]);
+
+    const read = await service.get('note_row_2');
+    expect(read.specSource).toBe('workiz-notification');
+    expect(read.spec).toEqual(notification.spec);
+    expect(read.runnable).toBe(true);
+
+    const table = await service.migrate(caller);
+    expect(table.map((r) => r.id)).not.toContain('note_row_2');
+    expect(repo.put).not.toHaveBeenCalled();
+  });
+
   it('migrate leaves a hand-edited rule alone and can report without writing', async () => {
     const { service, repo } = makeService([
       { ...translatable(), specSource: 'user', spec: { version: 1, trigger: { kind: 'deal.created' }, conditions: [], actions: [] } },

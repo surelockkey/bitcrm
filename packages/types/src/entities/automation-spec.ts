@@ -186,8 +186,20 @@ export interface AutomationSpec {
   timing?: AutomationTiming;
 }
 
-/** Where a rule's `spec` came from. */
-export type AutomationSpecSource = 'builtin' | 'workiz-translator' | 'user';
+/**
+ * Where a rule's `spec` came from. `workiz-notification` is a row of Workiz's
+ * *other* automation page, the Notification Center: it carries no Workiz rule
+ * structure to translate, so the import writes the spec itself — and, like a
+ * hand-written one, it must never be overwritten by the translator.
+ */
+export type AutomationSpecSource = 'builtin' | 'workiz-translator' | 'workiz-notification' | 'user';
+
+/** The spec sources the translator leaves alone: nothing under them was translated. */
+export const AUTOMATION_OWN_SPEC_SOURCES = ['user', 'workiz-notification'] as const satisfies readonly AutomationSpecSource[];
+
+/** Whether this rule's spec is its own, rather than something the translator may redo. */
+export const isOwnAutomationSpec = (source?: AutomationSpecSource): boolean =>
+  source !== undefined && (AUTOMATION_OWN_SPEC_SOURCES as readonly AutomationSpecSource[]).includes(source);
 
 // ---------------------------------------------------------------------------
 // The rule sentence (Workiz "Automation Center" phrasing)

@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types';
+import { isOwnAutomationSpec, type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types';
 import {
   AUTOMATION_NAME_MAX_LENGTH,
   NOTHING_EXECUTABLE_REASON,
@@ -239,7 +239,7 @@ export class AutomationsService {
   async migrate(caller: { id: string }, opts: { dryRun?: boolean } = {}): Promise<AutomationMigrationRow[]> {
     const rows: AutomationMigrationRow[] = [];
     for (const stored of await this.repository.list()) {
-      if (isBuiltinRuleId(stored.id) || stored.specSource === 'user') continue;
+      if (isBuiltinRuleId(stored.id) || isOwnAutomationSpec(stored.specSource)) continue;
       const translated = this.overlay(stored);
       const upToDate = stored.specSource === 'workiz-translator' && stored.specVersion === TRANSLATOR_VERSION;
       const written = !upToDate && !opts.dryRun;
@@ -297,7 +297,10 @@ export class AutomationsService {
 
   /** The translation, unless the row already carries a current or hand-written one. */
   private withSpec(rule: AutomationRule): AutomationRule {
-    if (rule.specSource === 'user') return rule;
+    // A hand-written spec and an imported Notification Center row are both
+    // already specs; running the translator over either would replace a rule
+    // that works with one built from Workiz fields these rows do not have.
+    if (isOwnAutomationSpec(rule.specSource)) return rule;
     if (rule.specSource === 'workiz-translator' && rule.specVersion === TRANSLATOR_VERSION) return rule;
     if (!rule.events && !rule.conditions && !rule.spec) return rule;
 

@@ -258,6 +258,7 @@ export {
   AUTOMATION_ACTION_TYPES,
   AUTOMATION_CONDITION_FIELDS,
   AUTOMATION_CONDITION_OPS,
+  AUTOMATION_OWN_SPEC_SOURCES,
   AUTOMATION_RECIPIENTS,
   AUTOMATION_RUN_OUTCOMES,
   AUTOMATION_TRIGGER_KINDS,
@@ -269,6 +270,7 @@ export {
   automationSpecLabels,
   automationTriggerSentence,
   isAutomationConditionGroup,
+  isOwnAutomationSpec,
 } from './entities/automation-spec';
 export type {
   AutomationAction,
