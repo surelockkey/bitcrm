@@ -438,6 +438,31 @@ describe("AutomationsPage rule actions", () => {
     ).toBeInTheDocument();
   });
 
+  it("reads the new recipe in when one draft is swapped for another", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("tab", { name: "Library" }));
+    const missed = await screen.findByTestId("automation-template-missed-call-text-client");
+    await user.click(within(missed).getByLabelText("Use Missed call / Immediate text client"));
+    expect(await screen.findByLabelText("Name")).toHaveValue("Missed call / Immediate text client");
+
+    // The editor reads its draft into form state once, as it mounts. The open
+    // dialog hides the library from the pointer and from the accessibility
+    // tree, so the second recipe is taken at its own card — the shape of the
+    // path that would hand the editor a second draft without unmounting it.
+    const answered = screen.getByTestId("automation-template-completed-call-text-client");
+    fireEvent.click(within(answered).getByLabelText("Use Completed call / Text client"));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name")).toHaveValue("Completed call / Text client"),
+    );
+    expect(screen.getByRole("textbox", { name: "Message" }).textContent).toContain(
+      "Thank you for calling",
+    );
+  });
+
   it("reads the new rule in when the edited one is swapped for another", async () => {
     const user = userEvent.setup();
     renderPage();

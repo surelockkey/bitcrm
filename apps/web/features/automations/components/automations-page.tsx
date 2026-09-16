@@ -194,7 +194,9 @@ export function AutomationsPage() {
           <AutomationLibrary
             canEdit={canEdit}
             search={search}
-            onUse={(template: AutomationTemplate) => openCreate(template.draft)}
+            // The recipe's own id travels with its draft: it is what keys the
+            // editor below, and a draft has no id of its own to key it by.
+            onUse={(template: AutomationTemplate) => openCreate({ ...template.draft, id: template.id })}
           />
         </TabsContent>
 
@@ -325,7 +327,13 @@ export function AutomationsPage() {
         />
       ) : null}
       {creating ? (
+        // Keyed like the editor above, by the recipe the draft came from: a
+        // second recipe taken without closing the first would otherwise leave
+        // the first draft's trigger and message under the second one's name.
+        // A blank rule is keyed by the absence of one — there is nothing to
+        // re-read, and every blank draft starts from the same empty form.
         <AutomationFormDialog
+          key={draft?.id ?? "blank"}
           draft={draft}
           open
           labels={labels}

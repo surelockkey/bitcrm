@@ -110,6 +110,12 @@ const sendsEmail = (type: string) => type === "send_email" || type === SEND_BOTH
 
 /** What a new rule starts from — a library recipe, or nothing at all. */
 export interface AutomationDraft {
+  /**
+   * The recipe this draft came from (`templates.ts`), so the page can key the
+   * dialog by it. A draft is not a rule and has no id of its own, and the
+   * editor reads its draft into form state once, as it mounts.
+   */
+  id?: string;
   name: string;
   spec: AutomationSpec;
   category?: string;
