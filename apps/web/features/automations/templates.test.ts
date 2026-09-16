@@ -144,9 +144,10 @@ describe("automation template catalog", () => {
   });
 
   it("only sends to recipients this editor can fill in", () => {
-    // `users` and `role` have no picker in the editor, and `dispatcher` comes
-    // off the job — which a call-triggered rule does not have. Any of the three
-    // saves happily and then resolves to nobody on every firing.
+    // `users` and `role` are picked from this workspace's own people, which a
+    // shipped recipe cannot know, and `dispatcher` comes off the job — which a
+    // call-triggered rule does not have. Any of the three saves happily and
+    // then resolves to nobody on every firing.
     for (const t of AUTOMATION_TEMPLATES) {
       for (const action of t.draft.spec.actions) {
         expect(["client", "assigned_techs", "number"]).toContain(action.to);

@@ -140,10 +140,12 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
         version: 1,
         trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
         conditions: [],
-        // Workiz sent this to a named user. The editor has no user or role
-        // picker yet, and a `users` action with nobody in it resolves to no
-        // recipient and sends nothing for ever; a number is a slot the editor
-        // shows and the form refuses to save empty.
+        // Workiz sent this to a named user, and a recipe cannot name one: it
+        // ships with no ids from this workspace, and a `users` action with
+        // nobody on it resolves to no recipient and sends nothing for ever.
+        // A number is a slot the editor shows and the form refuses to save
+        // empty — and whoever starts from this recipe can point it at a
+        // person or a role in the editor's own pickers instead.
         actions: sms("We missed a call — nobody picked up. Please call the client back from the call log.", "number"),
       },
     },
