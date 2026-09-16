@@ -104,7 +104,10 @@ export function AutomationsPage() {
 
   const running = all.filter((r) => r.enabled).length;
   const narrowed = isFiltered(filter);
-  const activeTab = tab ?? (all.length ? "mine" : "library");
+  // An empty workspace is a fact about the answer, not about the wait: while
+  // the list is loading stay on the rules, so the skeleton is what a reader
+  // sees instead of the library flashing up and being replaced.
+  const activeTab = tab ?? (isLoading || all.length ? "mine" : "library");
 
   const clearFilters = () => {
     setSearch("");

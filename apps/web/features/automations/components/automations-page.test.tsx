@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, delay } from "msw";
 import { server } from "@/test/msw/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AutomationsPage } from "./automations-page";
@@ -215,14 +215,45 @@ describe("AutomationsPage tabs", () => {
   });
 
   it("opens on the library when there is nothing to list yet", async () => {
-    server.use(http.get("*/messaging/automations", () => HttpResponse.json({ success: true, data: [] })));
+    server.use(
+      http.get("*/messaging/automations", async () => {
+        await delay(20);
+        return HttpResponse.json({ success: true, data: [] });
+      }),
+    );
     renderPage();
 
-    expect(await screen.findByText("No recipes yet")).toBeInTheDocument();
+    // Not while it loads: an empty workspace is a fact about the answer.
+    expect(screen.getByRole("tab", { name: /My automations/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    expect(await screen.findByRole("tab", { name: "Library", selected: true })).toBeInTheDocument();
+    expect(screen.getByText("No recipes yet")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "My automations · 0" })).toHaveAttribute(
       "aria-selected",
       "false",
     );
+  });
+
+  it("waits on the rules with their skeleton, not with the library", async () => {
+    server.use(
+      http.get("*/messaging/automations", async () => {
+        await delay(20);
+        return HttpResponse.json({ success: true, data: rules });
+      }),
+    );
+    renderPage();
+
+    expect(screen.getByRole("tab", { name: /My automations/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+    expect(screen.queryByText("No recipes yet")).not.toBeInTheDocument();
+
+    expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
   });
 
   it("lets the reader cross to the library and back", async () => {
