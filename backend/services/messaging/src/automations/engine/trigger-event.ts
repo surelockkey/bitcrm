@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { type AutomationCondition, type AutomationTriggerKind } from '@bitcrm/types';
+import {
+  isAutomationConditionGroup,
+  type AutomationCondition,
+  type AutomationConditionNode,
+  type AutomationTriggerKind,
+} from '@bitcrm/types';
 import { conditionFacts, type AutomationFacts } from './facts';
 
 /**
@@ -66,14 +71,28 @@ function matchedValues(condition: AutomationCondition, facts: AutomationFacts): 
  * tag may be added minutes after the status — so the occurrence is the
  * state, not the edit, and it changes only when the match itself changes.
  */
-export function stateOccurrence(conditions: AutomationCondition[], facts: AutomationFacts): string {
+export function stateOccurrence(
+  conditions: AutomationConditionNode[] | undefined,
+  facts: AutomationFacts,
+): string {
   const d = facts.deal;
   const parts = [
     `status=${d?.superStatus ?? ''}`,
     `sub=${d?.subStatusId ?? ''}`,
-    ...conditions.map((c) => `${c.field}=${matchedValues(c, facts).join('|')}`),
+    ...(conditions ?? []).map((node) => nodeMatch(node, facts)),
   ];
   return `state:${sha1(parts.join(';'))}`;
+}
+
+/**
+ * One entry's contribution to that hash. An OR group contributes every
+ * alternative's, so a job that moves from one alternative to another (its
+ * source retagged from Yelp to GMB) is a new state the rule may act on
+ * again, while a change to a field the group never asked about is not.
+ */
+function nodeMatch(node: AutomationConditionNode, facts: AutomationFacts): string {
+  if (!isAutomationConditionGroup(node)) return `${node.field}=${matchedValues(node, facts).join('|')}`;
+  return `any(${(node.any ?? []).map((c) => `${c.field}=${matchedValues(c, facts).join('|')}`).join(',')})`;
 }
 
 /**
@@ -92,7 +111,7 @@ export function stateOccurrence(conditions: AutomationCondition[], facts: Automa
  */
 export function occurrenceOf(
   event: AutomationEvent,
-  conditions: AutomationCondition[],
+  conditions: AutomationConditionNode[] | undefined,
   facts: AutomationFacts,
   triggerKind: AutomationTriggerKind,
 ): string {

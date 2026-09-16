@@ -5,6 +5,9 @@ import {
   AUTOMATION_CONDITION_OPS,
   AUTOMATION_RECIPIENTS,
   AUTOMATION_TRIGGER_KINDS,
+  isAutomationConditionGroup,
+  type AutomationCondition,
+  type AutomationConditionNode,
   type AutomationSpec,
 } from "@bitcrm/types";
 
@@ -105,12 +108,17 @@ export function specToForm(name: string, spec?: AutomationSpec): AutomationFormV
       messageChannel: spec?.trigger.messageChannel,
       messagePartyKind: spec?.trigger.messagePartyKind,
     },
-    conditions: (spec?.conditions ?? []).map((c) => ({
-      field: c.field,
-      op: c.op,
-      values: c.values ?? [],
-      labels: c.labels,
-    })),
+    // Only a plain condition gets a row: the editor has no control for an
+    // "any of" group yet, so those are left out here and put back by
+    // `toSpec` at the position they held.
+    conditions: (spec?.conditions ?? [])
+      .filter((c): c is AutomationCondition => !isAutomationConditionGroup(c))
+      .map((c) => ({
+        field: c.field,
+        op: c.op,
+        values: c.values ?? [],
+        labels: c.labels,
+      })),
     actions: (spec?.actions ?? [{ type: "send_sms", to: "client", body: "" }]).map((a) => ({
       type: a.type,
       to: a.to,
@@ -135,10 +143,30 @@ export function specToForm(name: string, spec?: AutomationSpec): AutomationFormV
 }
 
 /**
+ * The edited rows with the rule's "any of" groups spliced back at the
+ * indexes they held. 25 of the imported rules keep their three sources in
+ * one, the editor has no control for it, and rebuilding `conditions` from
+ * the visible rows alone would drop it — so saving a typo fix on one of
+ * those rules would widen it from three sources to every source. Splicing
+ * by the original index means an untouched rule round-trips unchanged.
+ */
+function withConditionGroups(
+  edited: AutomationCondition[],
+  previous?: AutomationSpec,
+): AutomationConditionNode[] {
+  const out: AutomationConditionNode[] = [...edited];
+  (previous?.conditions ?? []).forEach((node, index) => {
+    if (isAutomationConditionGroup(node)) out.splice(Math.min(index, out.length), 0, node);
+  });
+  return out;
+}
+
+/**
  * The form's values → what `PATCH /automations/:id` takes. Empty fields are
  * dropped, and everything the editor does not show is carried through the
- * form (`specToForm` reads it, this writes it back) rather than rebuilt from
- * the visible fields — so fixing a typo in a message never widens the rule.
+ * form (`specToForm` reads it, this writes it back) or, for an "any of"
+ * group, from `previous` — rather than rebuilt from the visible fields, so
+ * fixing a typo in a message never widens the rule.
  * A field only ever survives on the trigger it belongs to, so switching the
  * trigger kind still drops what no longer applies. `previous` supplies the
  * rule's working-hours window, which lives on `timing` and has no form field.
@@ -170,14 +198,17 @@ export function toSpec(values: AutomationFormOutput, previous?: AutomationSpec):
         ? { anchor: values.trigger.anchor, offsetMinutes: values.trigger.offsetMinutes }
         : {}),
     },
-    conditions: values.conditions
-      .filter((c) => c.op === "exists" || c.op === "not_exists" || c.values.length > 0)
-      .map((c) => ({
-        field: c.field,
-        op: c.op,
-        ...(c.values.length ? { values: c.values } : {}),
-        ...(c.labels?.length ? { labels: c.labels } : {}),
-      })),
+    conditions: withConditionGroups(
+      values.conditions
+        .filter((c) => c.op === "exists" || c.op === "not_exists" || c.values.length > 0)
+        .map((c) => ({
+          field: c.field,
+          op: c.op,
+          ...(c.values.length ? { values: c.values } : {}),
+          ...(c.labels?.length ? { labels: c.labels } : {}),
+        })),
+      previous,
+    ),
     actions: values.actions.map((a) => ({
       type: a.type,
       ...(a.to ? { to: a.to } : {}),

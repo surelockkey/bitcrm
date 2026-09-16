@@ -77,6 +77,64 @@ describe('automationSentence', () => {
     ).toBe('When a call is missed, send the client a text message immediately');
   });
 
+  it('says an OR group as one list of the field it narrows', () => {
+    const spec: AutomationSpec = {
+      version: 1,
+      trigger: { kind: 'deal.status_changed', to: ['done'] },
+      conditions: [
+        {
+          any: [
+            { field: 'source', op: 'in', values: ['src-yelp'], labels: ['Yelp'] },
+            { field: 'source', op: 'in', values: ['src-gmb'], labels: ['GMB'] },
+            { field: 'source', op: 'in', values: ['src-fb'], labels: ['Facebook'] },
+          ],
+        },
+      ],
+      actions: [{ type: 'send_sms', to: 'client' }],
+    };
+    expect(automationSentence(spec, labels)).toBe(
+      'When a job has a status of Done and its source is one of Yelp, GMB or Facebook, ' +
+        'send the client a text message immediately',
+    );
+  });
+
+  it('spells out a mixed group, and reads a group of one as a plain condition', () => {
+    const of = (conditions: AutomationSpec['conditions']) =>
+      automationSentence({
+        version: 1,
+        trigger: { kind: 'deal.created' },
+        conditions,
+        actions: [{ type: 'send_sms', to: 'client' }],
+      });
+
+    expect(of([{ any: [{ field: 'tag', op: 'in', values: ['tag-sched'], labels: ['SCHEDULED'] }] }])).toBe(
+      'When a job is created and its job tag is SCHEDULED, send the client a text message immediately',
+    );
+    expect(
+      of([
+        {
+          any: [
+            { field: 'tag', op: 'in', values: ['tag-sched'], labels: ['SCHEDULED'] },
+            { field: 'hasTechs', op: 'not_exists' },
+          ],
+        },
+      ]),
+    ).toBe(
+      'When a job is created and its job tag is SCHEDULED or it has no technician, ' +
+        'send the client a text message immediately',
+    );
+  });
+
+  it('a spec with no conditions at all still reads (they are optional now)', () => {
+    expect(
+      automationSentence({
+        version: 1,
+        trigger: { kind: 'deal.created' },
+        actions: [{ type: 'send_sms', to: 'client' }],
+      }),
+    ).toBe('When a job is created, send the client a text message immediately');
+  });
+
   it('spells the delay in the largest whole unit', () => {
     expect(automationDelayText(undefined)).toBe('immediately');
     expect(automationDelayText(0)).toBe('immediately');

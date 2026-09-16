@@ -90,6 +90,35 @@ export interface AutomationCondition {
   labels?: string[];
 }
 
+/**
+ * "Only one of these has to be true" — Workiz's OR, written there as a
+ * `{any: [...]}` group inside the AND list. Not a future editor feature:
+ * 25 of the 80 imported rules already carry one (79 `adgroup_id`
+ * conditions, in groups of three and one of seven), and a rule read without
+ * its group fires for every source rather than the three it was written
+ * for. Groups do not nest — Workiz never nested them.
+ */
+export interface AutomationConditionGroup {
+  any: AutomationCondition[];
+}
+
+/** One entry of `AutomationSpec.conditions`: a condition, or an OR group of them. */
+export type AutomationConditionNode = AutomationCondition | AutomationConditionGroup;
+
+/**
+ * A node that carries an `any` array is the group, whatever else is on it —
+ * one rule, used by the evaluator, the sentence and the editor alike, so
+ * they can never disagree about what a stored node means.
+ */
+export function isAutomationConditionGroup(node: AutomationConditionNode): node is AutomationConditionGroup {
+  return Array.isArray((node as AutomationConditionGroup).any);
+}
+
+/** Every plain condition of a spec, groups flattened — for anything that only reads fields. */
+export function automationConditionLeaves(nodes: AutomationConditionNode[] | undefined): AutomationCondition[] {
+  return (nodes ?? []).flatMap((node) => (isAutomationConditionGroup(node) ? node.any : [node]));
+}
+
 export const AUTOMATION_ACTION_TYPES = [
   'send_sms',
   'send_email',
@@ -150,8 +179,8 @@ export interface AutomationTiming {
 export interface AutomationSpec {
   version: 1;
   trigger: AutomationTrigger;
-  /** All must hold (AND). */
-  conditions: AutomationCondition[];
+  /** All must hold (AND); a `{any: [...]}` entry holds when one of its own does (OR). */
+  conditions?: AutomationConditionNode[];
   /** Run in order; one failing does not stop the next. */
   actions: AutomationAction[];
   timing?: AutomationTiming;
@@ -223,7 +252,7 @@ export type AutomationLabelMap = Record<string, string | undefined>;
  */
 export function automationSpecLabels(spec: AutomationSpec): AutomationLabelMap {
   const out: AutomationLabelMap = {};
-  for (const condition of spec.conditions ?? []) {
+  for (const condition of automationConditionLeaves(spec.conditions)) {
     (condition.values ?? []).forEach((value, i) => {
       const label = condition.labels?.[i] ?? (condition.values?.length === 1 ? condition.labels?.[0] : undefined);
       if (label && !out[value]) out[value] = label;
@@ -239,16 +268,18 @@ const labelOf = (
   labels: AutomationLabelMap | undefined,
 ): string => labels?.[value] ?? condition?.labels?.[index] ?? value;
 
-const listOf = (
-  values: string[] | undefined,
-  condition: AutomationCondition | undefined,
-  labels: AutomationLabelMap | undefined,
-): string => {
-  const names = (values ?? []).map((v, i) => labelOf(v, i, condition, labels));
+/** "Yelp", "Yelp or GMB", "Yelp, GMB or Facebook". */
+const joinNames = (names: string[]): string => {
   if (names.length === 0) return 'any';
   if (names.length === 1) return names[0];
   return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
 };
+
+const listOf = (
+  values: string[] | undefined,
+  condition: AutomationCondition | undefined,
+  labels: AutomationLabelMap | undefined,
+): string => joinNames((values ?? []).map((v, i) => labelOf(v, i, condition, labels)));
 
 /** "immediately" / "after 30 minutes" / "after 1 day". */
 export function automationDelayText(minutes: number | undefined): string {
@@ -263,7 +294,11 @@ export function automationDelayText(minutes: number | undefined): string {
 /** The "When …" half of the sentence. */
 export function automationTriggerSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   const t = spec.trigger;
-  const statusCondition = spec.conditions.find((c) => c.field === 'status' || c.field === 'subStatus');
+  // Only a flat condition can be the one the trigger already says: a status
+  // inside an OR group is an alternative, not the thing that fired the rule.
+  const statusCondition = (spec.conditions ?? [])
+    .filter((c): c is AutomationCondition => !isAutomationConditionGroup(c))
+    .find((c) => c.field === 'status' || c.field === 'subStatus');
   const negated = statusCondition?.op === 'not_in' || statusCondition?.op === 'ne';
   switch (t.kind) {
     case 'deal.created':
@@ -313,6 +348,44 @@ export function automationTriggerSentence(spec: AutomationSpec, labels?: Automat
   }
 }
 
+/** One plain condition as a clause ("its job tag is SCHEDULED"). */
+function conditionClause(c: AutomationCondition, labels: AutomationLabelMap | undefined): string {
+  const field = CONDITION_FIELD_TEXT[c.field] ?? c.field;
+  switch (c.op) {
+    case 'exists':
+      return `it has a ${field}`;
+    case 'not_exists':
+      return `it has no ${field}`;
+    case 'not_in':
+    case 'ne':
+      return `its ${field} is not ${listOf(c.values, c, labels)}`;
+    default:
+      return `its ${field} is ${listOf(c.values, c, labels)}`;
+  }
+}
+
+/**
+ * An OR group as one clause. A group is almost always several values of the
+ * same field ("source = GMB or Yelp or Facebook" — that is what all 79
+ * imported group conditions are), and that reads as one list: "its source is
+ * one of GMB, Yelp or Facebook". A mixed group falls back to spelling out
+ * its alternatives.
+ */
+function groupClause(group: AutomationConditionGroup, labels: AutomationLabelMap | undefined): string {
+  const leaves = group.any ?? [];
+  if (!leaves.length) return 'nothing holds';
+  const [first] = leaves;
+  if (leaves.length === 1) return conditionClause(first, labels);
+  if (leaves.every((c) => c.field === first.field && (c.op === 'in' || c.op === 'eq'))) {
+    const names = leaves.flatMap((c) => {
+      const values = c.op === 'eq' ? (c.values ?? []).slice(0, 1) : (c.values ?? []);
+      return values.map((v, i) => labelOf(v, i, c, labels));
+    });
+    return `its ${CONDITION_FIELD_TEXT[first.field] ?? first.field} is one of ${joinNames(names)}`;
+  }
+  return leaves.map((c) => conditionClause(c, labels)).join(' or ');
+}
+
 /** The ", and …" half — the conditions the trigger does not already say. */
 export function automationConditionsSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   // `isLead` is always true here (BitCRM has no separate lead entity), so it
@@ -321,22 +394,9 @@ export function automationConditionsSentence(spec: AutomationSpec, labels?: Auto
     spec.trigger.kind === 'deal.updated' || spec.trigger.kind === 'deal.status_changed'
       ? new Set(['status', 'subStatus', 'isLead'])
       : new Set(['isLead']);
-  const parts = spec.conditions
-    .filter((c) => !saidByTrigger.has(c.field))
-    .map((c) => {
-      const field = CONDITION_FIELD_TEXT[c.field] ?? c.field;
-      switch (c.op) {
-        case 'exists':
-          return `it has a ${field}`;
-        case 'not_exists':
-          return `it has no ${field}`;
-        case 'not_in':
-        case 'ne':
-          return `its ${field} is not ${listOf(c.values, c, labels)}`;
-        default:
-          return `its ${field} is ${listOf(c.values, c, labels)}`;
-      }
-    });
+  const parts = (spec.conditions ?? [])
+    .filter((c) => isAutomationConditionGroup(c) || !saidByTrigger.has(c.field))
+    .map((c) => (isAutomationConditionGroup(c) ? groupClause(c, labels) : conditionClause(c, labels)));
   return parts.length ? ` and ${parts.join(', and ')}` : '';
 }
 
@@ -382,7 +442,16 @@ export function automationSentence(spec: AutomationSpec, labels?: AutomationLabe
 }
 
 /** One firing of a rule (`AUTORUN#` items, TTL). */
-export type AutomationRunOutcome = 'sent' | 'partial' | 'skipped' | 'failed' | 'scheduled' | 'dry_run' | 'duplicate';
+export const AUTOMATION_RUN_OUTCOMES = [
+  'sent',
+  'partial',
+  'skipped',
+  'failed',
+  'scheduled',
+  'dry_run',
+  'duplicate',
+] as const;
+export type AutomationRunOutcome = (typeof AUTOMATION_RUN_OUTCOMES)[number];
 
 export interface AutomationRunAction {
   type: AutomationActionType;

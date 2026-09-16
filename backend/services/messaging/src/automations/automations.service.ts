@@ -1,8 +1,14 @@
 import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types';
-import { NOTHING_EXECUTABLE_REASON, hasExecutableAction } from './automations.constants';
+import {
+  AUTOMATION_NAME_MAX_LENGTH,
+  NOTHING_EXECUTABLE_REASON,
+  hasExecutableAction,
+} from './automations.constants';
 import { AutomationsRepository } from './automations.repository';
 import { BUILTIN_RULES, isBuiltinRuleId } from './builtin-rules';
+import { type CreateAutomationDto } from './dto/create-automation.dto';
 import { type UpdateAutomationDto } from './dto/update-automation.dto';
 import { TRANSLATOR_VERSION, translateWorkizRule } from './translator/workiz-translator';
 
@@ -16,6 +22,21 @@ export class RuleNotRunnableException extends HttpException {
   constructor(ruleId: string, reason?: string) {
     super(
       `RULE_NOT_RUNNABLE: automation rule ${ruleId} cannot run${reason ? `: ${reason}` : ''}`,
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
+/**
+ * Raised when somebody deletes a built-in rule. A built-in is code, not a
+ * row: deleting its row would simply bring the code default back on the
+ * next read, switched on. Disabling is how you stop one.
+ */
+export class BuiltinRuleNotDeletableException extends HttpException {
+  constructor(ruleId: string) {
+    super(
+      `BUILTIN_RULE_NOT_DELETABLE: automation rule ${ruleId} is built into the service and cannot be deleted; ` +
+        'switch it off instead',
       HttpStatus.UNPROCESSABLE_ENTITY,
     );
   }
@@ -79,6 +100,41 @@ export class AutomationsService {
   }
 
   /**
+   * `POST /automations` — a rule written here rather than imported. It is
+   * `source: 'bitcrm'` / `specSource: 'user'` from birth, so the translator
+   * never touches it, and it is off unless the caller asks otherwise: a new
+   * rule is read once before it texts anybody. Asking for it on with a spec
+   * the engine cannot act on is the same 422 `PATCH` answers.
+   */
+  async create(dto: CreateAutomationDto, caller: { id: string }): Promise<AutomationRule> {
+    const at = new Date().toISOString();
+    const spec = dto.spec as unknown as AutomationRule['spec'];
+    const runnable = hasExecutableAction(spec?.actions);
+    const id = randomUUID();
+    if (dto.enabled === true && !runnable) throw new RuleNotRunnableException(id, NOTHING_EXECUTABLE_REASON);
+
+    const saved = await this.repository.put({
+      id,
+      name: dto.name.trim(),
+      enabled: dto.enabled === true,
+      ...(dto.description ? { description: dto.description } : {}),
+      ...(dto.category ? { category: dto.category } : {}),
+      spec,
+      specSource: 'user',
+      specVersion: TRANSLATOR_VERSION,
+      runnable,
+      ...(runnable ? {} : { notRunnableReason: NOTHING_EXECUTABLE_REASON }),
+      source: 'bitcrm',
+      createdAt: at,
+      updatedAt: at,
+      createdBy: caller.id,
+      updatedBy: caller.id,
+    });
+    this.logger.log(`Automation rule ${id} "${saved.name}" created by ${caller.id} (enabled=${saved.enabled})`);
+    return saved;
+  }
+
+  /**
    * `PATCH /automations/:id` — enable / disable / rename / edit the spec.
    * Whole-document write over what is stored (or over the built-in default
    * on first edit). Enabling a rule the engine cannot run is refused with
@@ -119,6 +175,61 @@ export class AutomationsService {
   }
 
   /**
+   * `POST /automations/:id/duplicate` — "start from this one". The copy
+   * takes what describes the rule (name, spec, category, description,
+   * notify medium) and none of what describes *that* rule's life: it is
+   * always off, its firing counters start at zero, and the Workiz
+   * provenance (`workiz*`, `externalId`, `source: 'workiz'`) stays with the
+   * original — the copy was written here. Its spec is `specSource: 'user'`,
+   * the spec the original evaluates to today, frozen: a copy of an imported
+   * rule must never be silently re-translated into something else later.
+   */
+  async duplicate(id: string, name: string | undefined, caller: { id: string }): Promise<AutomationRule> {
+    const source = await this.get(id);
+    const rules = await this.list();
+    const at = new Date().toISOString();
+    const copyId = randomUUID();
+    const runnable = hasExecutableAction(source.spec?.actions);
+
+    const saved = await this.repository.put({
+      id: copyId,
+      name: name?.trim() || this.copyName(source.name, rules),
+      enabled: false,
+      ...(source.description ? { description: source.description } : {}),
+      ...(source.category ? { category: source.category } : {}),
+      ...(source.notifyMedium ? { notifyMedium: source.notifyMedium } : {}),
+      ...(source.spec ? { spec: source.spec } : {}),
+      specSource: 'user',
+      specVersion: TRANSLATOR_VERSION,
+      runnable,
+      // A rule the engine cannot run keeps the original's own reason: "this
+      // came from an invoice rule" is the truth about the copy too, and it
+      // is more use than the generic one.
+      ...(runnable ? {} : { notRunnableReason: source.notRunnableReason ?? NOTHING_EXECUTABLE_REASON }),
+      source: 'bitcrm',
+      createdAt: at,
+      updatedAt: at,
+      createdBy: caller.id,
+      updatedBy: caller.id,
+    });
+    this.logger.log(`Automation rule ${id} duplicated to ${copyId} "${saved.name}" by ${caller.id}`);
+    return saved;
+  }
+
+  /**
+   * `DELETE /automations/:id` — drops the rule row. 404 for a rule that is
+   * not there, 422 for a built-in one (it lives in code; switching it off is
+   * how you stop it). An imported Workiz rule is ordinary data and goes.
+   */
+  async remove(id: string, caller: { id: string }): Promise<{ id: string }> {
+    const rule = await this.get(id);
+    if (rule.builtin || isBuiltinRuleId(id)) throw new BuiltinRuleNotDeletableException(id);
+    await this.repository.delete(id);
+    this.logger.log(`Automation rule ${id} "${rule.name}" deleted by ${caller.id}`);
+    return { id };
+  }
+
+  /**
    * `POST /automations/migrate` — writes the translation of every imported
    * rule to its row, so specs stop being recomputed on every read and can
    * be edited. Idempotent, and it never touches a rule somebody edited by
@@ -154,6 +265,24 @@ export class AutomationsService {
     return rows.sort(
       (a, b) => (b.workizTriggered ?? 0) - (a.workizTriggered ?? 0) || a.name.localeCompare(b.name),
     );
+  }
+
+  /**
+   * "Canceled job & techs (copy)", then "(copy 2)", "(copy 3)" … — the
+   * first name nothing else is called, compared the way the catalog sorts
+   * (trimmed, case-insensitive). The base is clipped so the suffix always
+   * fits inside the 120 characters a name may have.
+   */
+  private copyName(base: string, existing: AutomationRule[]): string {
+    const taken = new Set(existing.map((r) => r.name.trim().toLowerCase()));
+    for (let n = 1; n <= taken.size + 1; n += 1) {
+      const suffix = n === 1 ? ' (copy)' : ` (copy ${n})`;
+      const candidate = `${base.trim().slice(0, AUTOMATION_NAME_MAX_LENGTH - suffix.length).trim()}${suffix}`;
+      if (!taken.has(candidate.toLowerCase())) return candidate;
+    }
+    // Unreachable: `taken.size + 1` candidates cannot all collide with
+    // `taken.size` names. Kept so the loop has no way to run forever.
+    return `${base.trim().slice(0, AUTOMATION_NAME_MAX_LENGTH - 40)} (copy ${Date.now()})`;
   }
 
   /**
