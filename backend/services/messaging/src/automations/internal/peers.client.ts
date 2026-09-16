@@ -25,17 +25,37 @@ export interface AutomationUser {
   lastName?: string;
   /** E.164 personal phone (`User.phone`), absent when never set. */
   phone?: string;
+  /** Work email (`User.email`) — where the `email` channel of "Send to tech" goes. */
+  email?: string;
   status?: string;
+}
+
+/**
+ * One (technician, channel) outcome of a `deal.sent_to_tech`, reported to
+ * deal-service so the job page can show what reached whom. Mirrors
+ * `RecordSentToTechDto` in deal-service (EVENTS.md).
+ */
+export interface SentToTechReport {
+  techId: string;
+  channel: string;
+  status: 'sent' | 'skipped' | 'failed';
+  /** The `sentAt` of the click this delivery belongs to. */
+  sentAt: string;
+  reason?: string;
+  messageId?: string;
+  conversationId?: string;
+  at?: string;
 }
 
 /**
  * Deal and user reads for the automations — `GET /api/deals/internal/:id`
  * and `GET /api/users/internal/:id` with `x-internal-secret`, like the
- * other internal clients. Deliberately **uncached**: an event handler
- * decides on the job as it is now (a reschedule right after an assignment
- * must not read a 60 s-old copy), and events are rare. `null` means "not
- * found or not reachable"; the handler skips and SQS redelivers on throw
- * only for what it rethrows.
+ * other internal clients — plus the one write back,
+ * `PUT /api/deals/internal/:id/sent-to-tech`. Deliberately **uncached**: an
+ * event handler decides on the job as it is now (a reschedule right after
+ * an assignment must not read a 60 s-old copy), and events are rare.
+ * `null` means "not found or not reachable"; the handler skips and SQS
+ * redelivers on throw only for what it rethrows.
  */
 @Injectable()
 export class AutomationPeersClient {
@@ -69,7 +89,43 @@ export class AutomationPeersClient {
       `user ${userId}`,
     );
     if (!raw?.id) return null;
-    return { id: raw.id, firstName: raw.firstName, lastName: raw.lastName, phone: raw.phone || undefined, status: raw.status };
+    return {
+      id: raw.id,
+      firstName: raw.firstName,
+      lastName: raw.lastName,
+      phone: raw.phone || undefined,
+      email: raw.email || undefined,
+      status: raw.status,
+    };
+  }
+
+  /**
+   * "This is what happened to one channel of the send" — best-effort: the
+   * dispatcher's click already stamped the job (Workiz stamps at the click,
+   * not at delivery), so a lost report only costs the per-channel detail on
+   * the job page. Never throws; answers whether deal-service took it.
+   */
+  async reportSentToTech(dealId: string, report: SentToTechReport): Promise<boolean> {
+    try {
+      const res = await this.fetchImpl(
+        `${DEAL_SERVICE_URL}/api/deals/internal/${encodeURIComponent(dealId)}/sent-to-tech`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-internal-secret': INTERNAL_SECRET },
+          body: JSON.stringify(report),
+        },
+      );
+      if (!res.ok) {
+        this.logger.warn(`sent-to-tech report for ${dealId}/${report.techId} (${report.channel}) returned ${res.status}`);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `sent-to-tech report for ${dealId}/${report.techId} (${report.channel}) failed: ${error instanceof Error ? error.message : error}`,
+      );
+      return false;
+    }
   }
 
   private async getJson<T>(url: string, what: string): Promise<T | null> {

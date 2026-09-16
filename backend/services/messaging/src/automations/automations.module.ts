@@ -1,5 +1,6 @@
 import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { SqsConsumerService } from '@bitcrm/shared';
+import { DealEventType } from '@bitcrm/types';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { OutboundModule } from '../outbound/outbound.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -12,6 +13,7 @@ import { AutoSentRepository } from './auto-sent.repository';
 import { DEAL_TECH_ASSIGNED_EVENT, DEAL_UPDATED_EVENT } from './deal-events';
 import { AutomationPeersClient } from './internal/peers.client';
 import { NewJobSmsService } from './new-job-sms.service';
+import { SendToTechService } from './send-to-tech.service';
 import { TeamThreadService } from './team-thread.service';
 import { TechNoticesController } from './tech-notices.controller';
 import { TechNoticesService } from './tech-notices.service';
@@ -23,8 +25,10 @@ export const DEAL_EVENTS_SQS_CONSUMER = Symbol('DEAL_EVENTS_SQS_CONSUMER');
  * Automations (design §10 M21 minimum): the rules as data
  * (`GET/PATCH /automations`), the "New job" SMS to technicians fed by the
  * `deal-events-to-messaging` queue (`deal.tech_assigned`, `deal.updated`),
- * and the technician-triggered "on my way" / "late" texts. The remaining
- * imported Workiz rules stay data until the rule engine (a later L).
+ * the dispatcher's "Send to tech" delivery off the same queue
+ * (`deal.sent_to_tech`), and the technician-triggered "on my way" / "late"
+ * texts. The remaining imported Workiz rules stay data until the rule
+ * engine (a later L).
  *
  * The queue consumer follows the outbound module: handlers registered in
  * `onModuleInit`, polling only under `ENABLE_SQS_CONSUMER=true`, nothing
@@ -55,26 +59,33 @@ export const DEAL_EVENTS_SQS_CONSUMER = Symbol('DEAL_EVENTS_SQS_CONSUMER');
     AutomationPeersClient,
     TeamThreadService,
     NewJobSmsService,
+    SendToTechService,
     TechNoticesService,
   ],
-  exports: [AutomationsRepository, AutomationsService, NewJobSmsService, TechNoticesService],
+  exports: [AutomationsRepository, AutomationsService, NewJobSmsService, SendToTechService, TechNoticesService],
 })
 export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AutomationsModule.name);
 
   constructor(
     private readonly newJobSms: NewJobSmsService,
+    private readonly sendToTech: SendToTechService,
     @Inject(AUTOMATIONS_CONFIG) private readonly config: AutomationsConfig,
     @Optional() @Inject(DEAL_EVENTS_SQS_CONSUMER) private readonly consumer?: SqsConsumerService | null,
   ) {}
 
   onModuleInit() {
     if (!this.consumer) {
-      this.logger.warn('DEAL_EVENTS_TO_MESSAGING_QUEUE_URL is not set: the New-job SMS automation is not fed');
+      this.logger.warn(
+        'DEAL_EVENTS_TO_MESSAGING_QUEUE_URL is not set: the New-job SMS automation and "Send to tech" are not fed',
+      );
       return;
     }
     this.consumer.registerHandler(DEAL_TECH_ASSIGNED_EVENT, (payload) => this.newJobSms.onTechAssigned(payload));
     this.consumer.registerHandler(DEAL_UPDATED_EVENT, (payload) => this.newJobSms.onDealUpdated(payload));
+    this.consumer.registerHandler(DealEventType.SENT_TO_TECH, async (payload) => {
+      await this.sendToTech.onSentToTech(payload);
+    });
     if (this.config.consumerEnabled) this.consumer.start();
   }
 

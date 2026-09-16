@@ -6,12 +6,14 @@ function makeService(opts: {
   append?: { duplicate: boolean; existing?: { conversationId: string; messageSk: string } };
   enqueue?: Error;
   contactConversation?: ReturnType<typeof createMockConversation> | null;
+  emailConfigured?: boolean;
 } = {}) {
   const conversations = {
     get: jest.fn(async () => null),
     getByParty: jest.fn(async () => opts.contactConversation ?? null),
     getByAddress: jest.fn(async () => null),
     findOrCreate: jest.fn(async (input: { conversation: unknown }) => ({ conversation: input.conversation, created: true })),
+    putReadMarker: jest.fn(async () => undefined),
   };
   const messages = {
     appendOutbound: jest.fn(async (input: { conversation: unknown }) => ({ duplicate: false, conversation: input.conversation, ...(opts.append ?? {}) })),
@@ -23,13 +25,33 @@ function makeService(opts: {
   const queue = { enqueue: jest.fn(async () => { if (opts.enqueue) throw opts.enqueue; return 'queued'; }) };
   const deals = { find: jest.fn(async () => null) };
   const crm = { getContact: jest.fn(async () => ({ id: 'ct1', phones: ['+14045551234'], emails: ['a@x.co'] })), findByPhone: jest.fn(async () => null) };
-  const events = { conversationUpdated: jest.fn(async () => undefined) };
-  const realtime = { messageUpserted: jest.fn() };
+  const events = { conversationUpdated: jest.fn(async () => undefined), messageReceived: jest.fn(async () => undefined) };
+  const realtime = { messageUpserted: jest.fn(), teamCountersInvalidated: jest.fn() };
+  const users = { find: jest.fn(async () => ({ id: 'disp-1', name: 'Dana Dispatch' })) };
+  const email = {
+    configured: opts.emailConfigured ?? true,
+    resolve: jest.fn(async (conversationId: string) => ({
+      from: 'office@surelock.test',
+      fromHeader: 'Sure Lock <office@surelock.test>',
+      replyTo: `c-${conversationId}@reply.surelock.test`,
+    })),
+  };
   const service = new SendService(
-    conversations as any, messages as any, optOuts as any, sender as any, queue as any, deals as any, crm as any, events as any, undefined, realtime as any,
+    conversations as any, messages as any, optOuts as any, sender as any, queue as any, deals as any, crm as any, events as any,
+    undefined, realtime as any, users as any, undefined, email as any,
   );
-  return { service, conversations, messages, optOuts, sender, queue, events, realtime, crm };
+  return { service, conversations, messages, optOuts, sender, queue, events, realtime, crm, users, email };
 }
+
+/** The technician's team thread — where every "Send to tech" channel lands. */
+const teamThread = () =>
+  createMockConversation({
+    id: 'c-team',
+    kind: 'team',
+    partyKind: 'user',
+    partyId: 't1',
+    addresses: { phones: ['+14045550001'], emails: [] },
+  });
 
 const input = (overrides: Partial<SystemSendInput> = {}): SystemSendInput => ({
   conversation: createMockConversation(),
@@ -103,6 +125,104 @@ describe('SendService.sendSystem', () => {
     const { service, messages } = makeService({ enqueue: new Error('sqs down') });
     await expect(service.sendSystem(input())).rejects.toMatchObject({ status: 502 });
     expect(messages.updateStatus).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ status: 'failed', errorCode: 'ENQUEUE_FAILED' }));
+  });
+});
+
+describe('SendService.sendSystem — channel: in_app (Workiz "Send to tech · In App")', () => {
+  it('stores the line `sent` in the technician\'s team thread with no provider and wakes them over SSE', async () => {
+    const { service, messages, queue, realtime, events, conversations } = makeService();
+    const { message, duplicate } = await service.sendSystem(
+      input({
+        conversation: teamThread(),
+        channel: 'in_app',
+        automationRuleId: 'send-to-tech:in_app',
+        sentByUserId: 'disp-1',
+        clientMessageId: 'send-to-tech:d1:t1:in_app:2026-09-16T10:00:00.000Z',
+      }),
+    );
+
+    expect(duplicate).toBe(false);
+    expect(message).toMatchObject({
+      conversationId: 'c-team',
+      channel: 'in_app',
+      direction: 'outbound',
+      body: 'New job #1001',
+      status: 'sent',
+      origin: 'automation',
+      automationRuleId: 'send-to-tech:in_app',
+      sentByUserId: 'disp-1',
+      sentByName: 'Dana Dispatch',
+      dealId: 'd1',
+    });
+    expect(message.sentAt).toBe(message.createdAt);
+    expect(queue.enqueue).not.toHaveBeenCalled();
+    expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ markUnread: false, createdBy: 'system:automations' }));
+    // The dispatcher is the sender, so the thread's technician is the recipient.
+    expect(realtime.messageUpserted).toHaveBeenCalledWith(message, expect.anything(), message.createdAt, { recipients: ['t1'], mentions: undefined });
+    expect(realtime.teamCountersInvalidated).toHaveBeenCalledWith('c-team', ['t1'], message.createdAt);
+    expect(events.messageReceived).toHaveBeenCalled();
+    // A service has no read marker of its own.
+    expect(conversations.putReadMarker).not.toHaveBeenCalled();
+  });
+
+  it('answers duplicate: true on a replay and refuses a client thread or a blank body', async () => {
+    const dup = makeService({ append: { duplicate: true, existing: { conversationId: 'c-team', messageSk: `MSG#${T1}#first` } } });
+    const replayed = await dup.service.sendSystem(input({ conversation: teamThread(), channel: 'in_app' }));
+    expect(replayed).toMatchObject({ duplicate: true, message: expect.objectContaining({ id: 'first' }) });
+
+    const { service } = makeService();
+    await expect(service.sendSystem(input({ channel: 'in_app' }))).rejects.toMatchObject({ status: 501 });
+    await expect(service.sendSystem(input({ conversation: teamThread(), channel: 'in_app', body: '  ' }))).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe('SendService.sendSystem — channel: email (Workiz "Send to tech · Email")', () => {
+  const emailInput = (overrides = {}) =>
+    input({
+      conversation: teamThread(),
+      channel: 'email',
+      to: 'Ann@Example.COM',
+      subject: '  New job #1001  ',
+      automationRuleId: 'send-to-tech:email',
+      sentByUserId: 'disp-1',
+      clientMessageId: 'send-to-tech:d1:t1:email:2026-09-16T10:00:00.000Z',
+      ...overrides,
+    });
+
+  it('queues a mail with both bodies, the resolved sender and the thread it belongs to', async () => {
+    const { service, queue, optOuts, email, messages } = makeService();
+    const { message } = await service.sendSystem(emailInput());
+
+    expect(message).toMatchObject({
+      conversationId: 'c-team',
+      channel: 'email',
+      direction: 'outbound',
+      subject: 'New job #1001',
+      body: 'New job #1001',
+      bodyHtml: '<p>New job #1001</p>',
+      from: 'office@surelock.test',
+      to: 'ann@example.com',
+      contactAddress: 'ann@example.com',
+      status: 'queued',
+      provider: 'ses',
+      origin: 'automation',
+      automationRuleId: 'send-to-tech:email',
+      sentByUserId: 'disp-1',
+      dealId: 'd1',
+    });
+    expect(optOuts.isOptedOut).toHaveBeenCalledWith('email', 'ann@example.com');
+    expect(email.resolve).toHaveBeenCalledWith('c-team');
+    expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ createdBy: 'system:automations' }));
+    expect(queue.enqueue).toHaveBeenCalled();
+  });
+
+  it('answers 501 without MESSAGING_EMAIL_FROM, 422 for an unsubscribed address and 400 without a recipient or subject', async () => {
+    await expect(makeService({ emailConfigured: false }).service.sendSystem(emailInput())).rejects.toMatchObject({ status: 501 });
+    await expect(makeService({ optedOut: true }).service.sendSystem(emailInput())).rejects.toBeInstanceOf(RecipientOptedOutException);
+
+    const { service } = makeService();
+    await expect(service.sendSystem(emailInput({ to: undefined }))).rejects.toMatchObject({ status: 400 });
+    await expect(service.sendSystem(emailInput({ subject: ' ' }))).rejects.toMatchObject({ status: 400 });
   });
 });
 
