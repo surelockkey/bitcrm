@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { MESSAGE_TEMPLATE_CHANNELS, SMS_BODY_MAX_LENGTH, type MessagingSettings } from "@bitcrm/types";
+import {
+  MESSAGE_TEMPLATE_CHANNELS,
+  SEND_TO_TECH_CHANNELS,
+  SMS_BODY_MAX_LENGTH,
+  type MessagingSettings,
+} from "@bitcrm/types";
 import { normalizePhone } from "@/lib/phone";
 import type { MessageTemplateBody, MessagingSettingsBody } from "./api";
 
@@ -71,6 +76,8 @@ export const messagingSettingsSchema = z
     smsPre: z.string().max(160, "At most 160 characters"),
     signature: z.string().max(160, "At most 160 characters"),
     smsFormat: z.string().max(SMS_BODY_MAX_LENGTH),
+    /** Which channels the job page's "Send to tech" ticks by default. */
+    sendToTechChannels: z.array(z.enum(SEND_TO_TECH_CHANNELS)),
     onMyWayMsg: z.string().max(SMS_BODY_MAX_LENGTH),
     lateMsg: z.string().max(SMS_BODY_MAX_LENGTH),
     onMyWayMsgNotify: z.boolean(),
@@ -107,6 +114,8 @@ export function settingsToForm(s: MessagingSettings | undefined): MessagingSetti
     smsPre: s?.smsPre ?? "",
     signature: s?.signature ?? "",
     smsFormat: s?.smsFormat ?? "",
+    // Nothing stored = what Workiz used for nearly every send.
+    sendToTechChannels: s?.sendToTechChannels?.length ? [...s.sendToTechChannels] : ["sms"],
     onMyWayMsg: s?.onMyWayMsg ?? "",
     lateMsg: s?.lateMsg ?? "",
     onMyWayMsgNotify: s?.onMyWayMsgNotify ?? false,
@@ -138,6 +147,7 @@ export function toSettingsBody(v: MessagingSettingsFormOutput): MessagingSetting
     smsPre: v.smsPre,
     signature: v.signature,
     smsFormat: v.smsFormat,
+    sendToTechChannels: v.sendToTechChannels,
     onMyWayMsg: v.onMyWayMsg,
     lateMsg: v.lateMsg,
     onMyWayMsgNotify: v.onMyWayMsgNotify,

@@ -12,6 +12,7 @@ import type {
   CustomFieldValue,
   Deal,
   DealProduct,
+  SendToTechChannel,
 } from "@bitcrm/types";
 import {
   addressInList,
@@ -290,6 +291,62 @@ export function scheduleMarker(d: Deal, now: Date = new Date()): ScheduleMarker 
   if (CLOSED_STATUSES.includes(d.superStatus)) return null;
   return scheduleRelative(d.scheduledDate, d.scheduledTimeSlot, now);
 }
+
+/* ------------------------------------------------------- send to tech / seen */
+
+/** Workiz's own wording for the three "Send to tech" channels. */
+export const SEND_TO_TECH_CHANNEL_LABEL: Record<SendToTechChannel, string> = {
+  sms: "SMS",
+  email: "Email",
+  in_app: "In App",
+};
+
+/**
+ * A stamp as a dispatcher reads it: the clock alone while it happened today
+ * ("12:10 PM"), the day in front of it once it did not ("Sep 14, 12:10 PM").
+ * Invalid input is handed back untouched rather than rendered "Invalid Date".
+ */
+export function formatStamp(iso: string, now: Date = new Date()): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (at.toDateString() === now.toDateString()) return time;
+  return `${at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
+}
+
+/** "Sent · 12:10 PM via SMS & Email", or null for a job never sent. */
+export function sentToTechLabel(
+  d: Pick<Deal, "sentToTechAt" | "sentToTechVia">,
+  now?: Date,
+): string | null {
+  if (!d.sentToTechAt) return null;
+  const via = (d.sentToTechVia ?? [])
+    .map((c) => SEND_TO_TECH_CHANNEL_LABEL[c])
+    .filter(Boolean)
+    .join(" & ");
+  return `Sent · ${formatStamp(d.sentToTechAt, now)}${via ? ` via ${via}` : ""}`;
+}
+
+/** "Seen · 12:14 PM" — the first time any assigned technician opened it. */
+export function seenByTechLabel(d: Pick<Deal, "seenByTechAt">, now?: Date): string | null {
+  return d.seenByTechAt ? `Seen · ${formatStamp(d.seenByTechAt, now)}` : null;
+}
+
+/** Why a channel did not go out, in words a dispatcher can act on. */
+const DELIVERY_REASON_LABEL: Record<string, string> = {
+  no_phone: "no personal phone on file",
+  no_email: "no email on file",
+  no_user: "user record not found",
+  inactive_user: "user is not active",
+  email_not_configured: "email sending is not set up",
+  opted_out: "opted out of texts",
+  blank_text: "the job text rendered empty",
+  not_on_roster: "no longer assigned to the job",
+  no_template: "no “New job” text configured",
+};
+
+export const deliveryReasonLabel = (reason?: string): string =>
+  (reason && DELIVERY_REASON_LABEL[reason]) || reason || "no reason given";
 
 export type DatePreset = "all" | "today" | "week";
 

@@ -2,6 +2,7 @@ import type {
   Deal,
   DealProduct,
   JobSuperStatus,
+  SendToTechChannel,
   TimelineEntry,
   PaginatedResponse,
 } from "@bitcrm/types";
@@ -152,6 +153,62 @@ export const unassignTech = (id: string, techId: string): Promise<Deal> =>
 /** Persist a manual job order for a technician (story 4.02). */
 export const reorderDeals = (techId: string, orderedDealIds: string[]): Promise<{ ok: true }> =>
   http.post<{ ok: true }>(`/deals/reorder`, { techId, orderedDealIds });
+
+/* ------------------------------------------------------- send to tech / seen */
+
+/** What messaging-service reported for one (technician, channel) of a send. */
+export interface SentToTechDelivery {
+  status: "sent" | "skipped" | "failed";
+  /** The click this delivery belongs to. */
+  sentAt: string;
+  at: string;
+  /** Why nothing went out — `no_phone`, `no_email`, `email_not_configured`, … */
+  reason?: string;
+  messageId?: string;
+  conversationId?: string;
+}
+
+/**
+ * One technician's row on a job: roster membership plus the Workiz
+ * per-technician "sent" / "seen" stamps (`GET /deals/:id/assignments`).
+ */
+export interface DealAssignment {
+  dealId: string;
+  techId: string;
+  assignedBy?: string;
+  assignedAt?: string;
+  scheduledDate?: string;
+  /** The latest "Send to tech" that included this technician. */
+  sentAt?: string;
+  sentVia?: SendToTechChannel[];
+  sentBy?: string;
+  /** First time they opened the job in their app (sticky). */
+  seenAt?: string;
+  deliveries?: Partial<Record<SendToTechChannel, SentToTechDelivery>>;
+}
+
+export interface SendToTechBody {
+  channels: SendToTechChannel[];
+  /** Narrows the roster; omitted = everyone assigned. */
+  techIds?: string[];
+}
+
+/** Workiz "Send to tech" — stamps the job and hands it to messaging. `deals.edit`. */
+export const sendToTech = (id: string, body: SendToTechBody): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/send-to-tech`, body);
+
+export const getDealAssignments = (id: string): Promise<DealAssignment[]> =>
+  http.get<DealAssignment[]>(`/deals/${id}/assignments`);
+
+/**
+ * Workiz `seen` / "Viewed job in app": the technician's app on open. Only an
+ * assigned technician counts — anyone else is answered `seen: false` without
+ * a write, so it is safe to call blindly.
+ */
+export const markDealSeen = (
+  id: string,
+): Promise<{ seen: boolean; seenAt?: string; first: boolean }> =>
+  http.post<{ seen: boolean; seenAt?: string; first: boolean }>(`/deals/${id}/seen`);
 
 /* --------------------------------------------------------------- products */
 

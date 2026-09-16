@@ -7,7 +7,7 @@ import { JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { useMoveStatus, useSetDealTags } from "./hooks";
+import { useMarkSeenOnOpen, useMoveStatus, useSendToTech, useSetDealTags } from "./hooks";
 
 // Capture toast calls so we can assert exactly what the user is shown.
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -122,5 +122,99 @@ describe("useMoveStatus — required-to-close gate (422)", () => {
     result.current.mutate({ superStatus: JobSuperStatus.DONE });
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("You can't move this job"));
+  });
+});
+
+describe("useSendToTech — Workiz \"Send to tech\"", () => {
+  const deal = { id: "d1", dealNumber: "1042" } as Deal;
+
+  it("posts the ticked channels and names them in the toast", async () => {
+    let body: unknown;
+    server.use(
+      http.post("*/deals/d1/send-to-tech", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ success: true, data: deal });
+      }),
+    );
+
+    const { result } = renderHook(() => useSendToTech("d1"), { wrapper: wrapper(newClient()) });
+    result.current.mutate({ channels: ["sms", "email"] });
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Job sent to the technicians by SMS & Email"),
+    );
+    expect(body).toEqual({ channels: ["sms", "email"] });
+  });
+
+  it("surfaces the server's refusal instead of claiming the job went out", async () => {
+    server.use(
+      http.post("*/deals/d1/send-to-tech", () =>
+        HttpResponse.json(
+          { success: false, message: "Assign a technician before sending the job" },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const { result } = renderHook(() => useSendToTech("d1"), { wrapper: wrapper(newClient()) });
+    result.current.mutate({ channels: ["sms"] });
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Assign a technician before sending the job"),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe("useMarkSeenOnOpen — Workiz \"Viewed job in app\"", () => {
+  const job = (techIds: string[]) => ({ id: "d1", assignedTechIds: techIds }) as Deal;
+  const seenRoute = (calls: string[]) =>
+    http.post("*/deals/d1/seen", () => {
+      calls.push("d1");
+      return HttpResponse.json({ success: true, data: { seen: true, first: true, seenAt: "2026-09-16T16:10:00.000Z" } });
+    });
+
+  it("stamps the job when the viewer is a technician on it", async () => {
+    const calls: string[] = [];
+    server.use(seenRoute(calls));
+
+    renderHook(() => useMarkSeenOnOpen(job(["t1"]), "t1"), { wrapper: wrapper(newClient()) });
+    await waitFor(() => expect(calls).toEqual(["d1"]));
+  });
+
+  it("only fires once however often the page re-renders", async () => {
+    const calls: string[] = [];
+    server.use(seenRoute(calls));
+
+    const { rerender } = renderHook(() => useMarkSeenOnOpen(job(["t1"]), "t1"), {
+      wrapper: wrapper(newClient()),
+    });
+    rerender();
+    rerender();
+    await waitFor(() => expect(calls).toEqual(["d1"]));
+  });
+
+  it("makes no request for a dispatcher, an unknown viewer, or before the job loads", async () => {
+    const calls: string[] = [];
+    server.use(seenRoute(calls));
+
+    renderHook(() => useMarkSeenOnOpen(job(["t1"]), "disp-1"), { wrapper: wrapper(newClient()) });
+    renderHook(() => useMarkSeenOnOpen(job(["t1"]), undefined), { wrapper: wrapper(newClient()) });
+    renderHook(() => useMarkSeenOnOpen(undefined, "t1"), { wrapper: wrapper(newClient()) });
+
+    await new Promise((r) => setTimeout(r, 30));
+    expect(calls).toEqual([]);
+  });
+
+  it("stays silent when the stamp fails — nobody asked for a read receipt", async () => {
+    server.use(
+      http.post("*/deals/d1/seen", () =>
+        HttpResponse.json({ success: false, message: "Nope" }, { status: 500 }),
+      ),
+    );
+
+    renderHook(() => useMarkSeenOnOpen(job(["t1"]), "t1"), { wrapper: wrapper(newClient()) });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

@@ -43,6 +43,7 @@ export const queryKeys = {
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
+    assignments: (id: string) => ["deals", id, "assignments"] as const,
     products: (id: string) => ["deals", id, "products"] as const,
     attachments: (id: string) => ["deals", id, "attachments"] as const,
     attachmentUrl: (id: string, attachmentId: string) =>

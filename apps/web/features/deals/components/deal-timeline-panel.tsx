@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
+  Eye,
   FilePlus2,
   FileX,
   History,
@@ -16,6 +17,7 @@ import {
   PhoneCall,
   PhoneOff,
   Search,
+  Send,
   Sparkles,
   Trash2,
   UserMinus,
@@ -23,7 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { TimelineEventType } from "@bitcrm/types";
-import type { TimelineEntry } from "@bitcrm/types";
+import type { SendToTechChannel, TimelineEntry } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,7 +48,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
-import { stageLabel, superStatusLabel } from "../lib";
+import { SEND_TO_TECH_CHANNEL_LABEL, stageLabel, superStatusLabel } from "../lib";
 import {
   useAddNote,
   useContactMap,
@@ -74,6 +76,9 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.ATTACHMENT_ADDED]: { icon: Paperclip, label: "File added" },
   [TimelineEventType.ATTACHMENT_RENAMED]: { icon: Paperclip, label: "File renamed" },
   [TimelineEventType.ATTACHMENT_REMOVED]: { icon: FileX, label: "File removed" },
+  // Workiz "Sent to tech by SMS / In App / Email" and "Viewed job in app".
+  [TimelineEventType.SENT_TO_TECH]: { icon: Send, label: "Sent to tech" },
+  [TimelineEventType.SEEN_BY_TECH]: { icon: Eye, label: "Viewed job in app" },
 };
 
 const FIELD_LABEL: Record<string, string> = {
@@ -332,6 +337,18 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     const name = d.fileName as string | undefined;
     const category = d.category as string | undefined;
     if (name) return category ? `${name} · ${category}` : name;
+  }
+  if (entry.eventType === TimelineEventType.SENT_TO_TECH) {
+    // Workiz's own wording: "Sent to tech by SMS · Ann Lee, Bob Ray".
+    const channels = Array.isArray(d.channels) ? (d.channels as SendToTechChannel[]) : [];
+    const via = channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c] ?? c).join(" & ");
+    const who = Array.isArray(d.techIds)
+      ? (d.techIds as string[]).map((id) => lk.userName(id) ?? id).join(", ")
+      : "";
+    return [via ? `by ${via}` : "", who].filter(Boolean).join(" · ") || null;
+  }
+  if (entry.eventType === TimelineEventType.SEEN_BY_TECH) {
+    return typeof d.techId === "string" ? lk.userName(d.techId) : null;
   }
   return null;
 }

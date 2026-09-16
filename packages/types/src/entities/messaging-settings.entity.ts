@@ -1,3 +1,5 @@
+import { type SendToTechChannel } from './deal.entity';
+
 /** Local-time window in which automations hold non-urgent messages. */
 export interface QuietHours {
   /** `HH:mm` */
@@ -20,6 +22,12 @@ export interface MessagingSettings {
   sndFwd?: string[];
   /** Template of the "New job" SMS sent to technicians (Workiz `sms_format`). */
   smsFormat?: string;
+  /**
+   * Which channels the "Send to tech" dialog ticks by default (Workiz's
+   * SMS / Email / In App checkboxes). Absent = `['sms']`, what Workiz used
+   * for the overwhelming majority of its 455 k sends.
+   */
+  sendToTechChannels?: SendToTechChannel[];
   useCloseLink?: boolean;
   /** Text prepended to every outbound SMS (Workiz `sms_pre`). */
   smsPre?: string;

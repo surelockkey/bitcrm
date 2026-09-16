@@ -86,4 +86,26 @@ describe("messagingSettingsSchema", () => {
     expect(form.quietFrom).toBe("21:00");
     expect(form.signature).toBe("— SLK");
   });
+
+  // What the job page's "Send to tech" ticks before a dispatcher touches it.
+  it("defaults the send-to-tech channels to SMS and round-trips a stored choice", () => {
+    expect(settingsToForm(undefined).sendToTechChannels).toEqual(["sms"]);
+    // A workspace that cleared every box still gets a usable default.
+    expect(settingsToForm({ sendToTechChannels: [] }).sendToTechChannels).toEqual(["sms"]);
+    expect(settingsToForm({ sendToTechChannels: ["sms", "in_app"] }).sendToTechChannels).toEqual([
+      "sms",
+      "in_app",
+    ]);
+
+    const body = toSettingsBody(
+      messagingSettingsSchema.parse({ ...base, sendToTechChannels: ["email"] }),
+    );
+    expect(body.sendToTechChannels).toEqual(["email"]);
+  });
+
+  it("refuses a channel the job page cannot send on", () => {
+    expect(
+      messagingSettingsSchema.safeParse({ ...base, sendToTechChannels: ["carrier-pigeon"] }).success,
+    ).toBe(false);
+  });
 });

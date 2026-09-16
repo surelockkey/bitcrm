@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   updateContact: vi.fn(),
   createContact: vi.fn(),
   changeClient: vi.fn(),
+  sendToTech: vi.fn(),
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
   attachments: [] as { id: string }[],
@@ -181,6 +182,17 @@ vi.mock("../hooks", () => ({
     fetchNextPage: vi.fn(),
   }),
   useAddNote: () => ({ mutate: vi.fn(), isPending: false }),
+  // "Send to tech" sits in the Team section; the card itself renders for real.
+  useMarkSeenOnOpen: () => undefined,
+  useSendToTech: () => ({ mutate: mocks.sendToTech, isPending: false }),
+  useDealAssignments: () => ({ data: [] }),
+  useUserMap: () => ({ map: new Map(), users: [], isLoading: false }),
+}));
+
+// The workspace channel default is a messaging setting; nothing here needs a
+// QueryClient to answer it.
+vi.mock("@/features/messaging/hooks", () => ({
+  useMessagingSettings: () => ({ data: undefined }),
 }));
 
 vi.mock("@/features/clients/hooks", () => ({
@@ -265,6 +277,17 @@ describe("DealDetailPage (read only)", () => {
     // throws if a timeline tab button were still rendered next to it.
     const handle = screen.getByRole("button", { name: /timeline/i });
     expect(handle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  /**
+   * Workiz puts "Send to tech" with the roster, not in a menu — handing the
+   * job over is the step right after picking who does it.
+   */
+  it("puts 'Send to tech' in the Team section, read-only for a viewer", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByRole("button", { name: /send to tech/i })).toBeDisabled();
+    expect(screen.getByTestId("send-to-tech")).toBeInTheDocument();
   });
 });
 

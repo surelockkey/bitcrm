@@ -35,6 +35,10 @@ import {
   jobDayKey,
   jobHourKey,
   dealClientName,
+  formatStamp,
+  sentToTechLabel,
+  seenByTechLabel,
+  deliveryReasonLabel,
 } from "./lib";
 
 function deal(over: Partial<Deal> = {}): Deal {
@@ -833,5 +837,51 @@ describe("buildContactBody — phone extensions", () => {
   it("an unchanged draft stays clean", () => {
     const c = contact({ phoneExtensions: { "+14045551234": "102" } });
     expect(buildContactBody(c, clientDraftFromContact(c))).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------- send to tech / seen */
+
+describe("send-to-tech stamps", () => {
+  // Built in local time so the assertions hold in any TZ the suite runs under.
+  const at = (h: number, m: number, dayOffset = 0) =>
+    new Date(2026, 8, 16 + dayOffset, h, m).toISOString();
+  const now = new Date(2026, 8, 16, 15, 0);
+
+  it("shows the clock alone for today and puts the day in front once it is not", () => {
+    expect(formatStamp(at(12, 10), now)).toBe("12:10 PM");
+    expect(formatStamp(at(12, 10, -2), now)).toBe("Sep 14, 12:10 PM");
+  });
+
+  it("hands back unparseable input rather than rendering 'Invalid Date'", () => {
+    expect(formatStamp("not-a-date", now)).toBe("not-a-date");
+  });
+
+  it("reads 'Sent · 12:10 PM via SMS', naming every channel the dispatcher ticked", () => {
+    expect(sentToTechLabel({ sentToTechAt: at(12, 10), sentToTechVia: ["sms"] }, now)).toBe(
+      "Sent · 12:10 PM via SMS",
+    );
+    expect(
+      sentToTechLabel({ sentToTechAt: at(12, 10), sentToTechVia: ["sms", "email"] }, now),
+    ).toBe("Sent · 12:10 PM via SMS & Email");
+    // An imported job may carry the stamp without the channels.
+    expect(sentToTechLabel({ sentToTechAt: at(12, 10) }, now)).toBe("Sent · 12:10 PM");
+  });
+
+  it("says nothing at all about a job that was never sent or never opened", () => {
+    expect(sentToTechLabel({}, now)).toBeNull();
+    expect(seenByTechLabel({}, now)).toBeNull();
+  });
+
+  it("reads 'Seen · 12:14 PM' once a technician has opened the job", () => {
+    expect(seenByTechLabel({ seenByTechAt: at(12, 14) }, now)).toBe("Seen · 12:14 PM");
+  });
+
+  it("turns a delivery reason into something a dispatcher can act on", () => {
+    expect(deliveryReasonLabel("no_phone")).toBe("no personal phone on file");
+    expect(deliveryReasonLabel("email_not_configured")).toBe("email sending is not set up");
+    // An unknown reason from a newer service is shown as-is, not swallowed.
+    expect(deliveryReasonLabel("carrier_rejected")).toBe("carrier_rejected");
+    expect(deliveryReasonLabel(undefined)).toBe("no reason given");
   });
 });
