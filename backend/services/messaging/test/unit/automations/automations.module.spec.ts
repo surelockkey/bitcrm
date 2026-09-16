@@ -21,7 +21,9 @@ import {
 import { AutomationDealEventsHandler } from '../../../src/automations/engine/deal-events.handler';
 import { AutomationRuleEngine } from '../../../src/automations/engine/rule-engine.service';
 import { NewJobSmsService } from '../../../src/automations/new-job-sms.service';
+import { SendToTechService } from '../../../src/automations/send-to-tech.service';
 import { TechNoticesService } from '../../../src/automations/tech-notices.service';
+import { DealEventType } from '@bitcrm/types';
 
 /** The platform globals AppModule provides (see outbound.module.spec.ts). */
 @Global()
@@ -70,6 +72,7 @@ describe('AutomationsModule wiring', () => {
 
     expect(moduleRef.get(AutomationsService)).toBeInstanceOf(AutomationsService);
     expect(moduleRef.get(NewJobSmsService)).toBeInstanceOf(NewJobSmsService);
+    expect(moduleRef.get(SendToTechService)).toBeInstanceOf(SendToTechService);
     expect(moduleRef.get(TechNoticesService)).toBeInstanceOf(TechNoticesService);
     expect(moduleRef.get(AutomationRuleEngine)).toBeInstanceOf(AutomationRuleEngine);
     expect(moduleRef.get(AutomationDealEventsHandler)).toBeInstanceOf(AutomationDealEventsHandler);
@@ -85,7 +88,7 @@ describe('AutomationsModule wiring', () => {
     await moduleRef.close();
   });
 
-  it('with a queue URL, registers every job event on a dedicated consumer and polls only when enabled', async () => {
+  it('with a queue URL, registers every job event (deal.sent_to_tech included) on a dedicated consumer and polls only when enabled', async () => {
     process.env.DEAL_EVENTS_TO_MESSAGING_QUEUE_URL = 'http://localhost:4566/000000000000/deal-events-to-messaging';
     const moduleRef = await Test.createTestingModule({ imports: [FakePlatformModule, AutomationsModule] }).compile();
     const consumer = moduleRef.get<SqsConsumerService>(DEAL_EVENTS_SQS_CONSUMER);
@@ -100,6 +103,7 @@ describe('AutomationsModule wiring', () => {
       DEAL_STATUS_CHANGED_EVENT,
       DEAL_TECH_ASSIGNED_EVENT,
       DEAL_SCHEDULED_CHANGED_EVENT,
+      DealEventType.SENT_TO_TECH,
     ]) {
       expect(handlers.has(event)).toBe(true);
     }
@@ -113,6 +117,13 @@ describe('AutomationsModule wiring', () => {
     await handlers.get(DEAL_UPDATED_EVENT)!({ dealId: 'd1', updatedBy: 'u1' });
     expect(assigned).toHaveBeenCalledWith({ dealId: 'd1', techId: 't1', assignedBy: 'u1' });
     expect(updated).toHaveBeenCalledWith({ dealId: 'd1', updatedBy: 'u1' });
+
+    const sendToTech = moduleRef.get(SendToTechService);
+    const sent = jest.spyOn(sendToTech, 'onSentToTech').mockResolvedValue('no_deal');
+    const event = { dealId: 'd1', techIds: ['t1'], channels: ['sms'], sentAt: '2026-09-16T10:00:00.000Z', sentBy: 'u1' };
+    // The handler must resolve to void, whatever the service reports back.
+    await expect(handlers.get(DealEventType.SENT_TO_TECH)!(event)).resolves.toBeUndefined();
+    expect(sent).toHaveBeenCalledWith(event);
 
     await moduleRef.close();
   });

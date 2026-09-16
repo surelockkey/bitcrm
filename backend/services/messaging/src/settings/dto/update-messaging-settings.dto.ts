@@ -1,8 +1,10 @@
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
   IsBoolean,
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   Length,
@@ -11,6 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { SEND_TO_TECH_CHANNELS, type SendToTechChannel } from '@bitcrm/types';
 
 const E164 = /^\+[1-9]\d{6,14}$/;
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -56,6 +59,18 @@ export class UpdateMessagingSettingsDto {
   @IsString()
   @Length(0, 1600)
   smsFormat?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    enum: SEND_TO_TECH_CHANNELS,
+    example: ['sms'],
+    description: 'Channels the "Send to tech" dialog ticks by default; `[]` clears it back to `sms`.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsIn(SEND_TO_TECH_CHANNELS, { each: true })
+  sendToTechChannels?: SendToTechChannel[];
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -211,6 +211,12 @@ export function createMockDealsRepository() {
     // Answers with the stamp the row already had; undefined = this call is the
     // one that confirmed it.
     confirmAssignment: jest.fn().mockResolvedValue(undefined),
+    // Send-to-tech / seen stamps on the ASSIGN# rows.
+    listAssignments: jest.fn().mockResolvedValue([]),
+    markAssignmentsSent: jest.fn().mockResolvedValue(undefined),
+    // Echoes the given time — "this open was the first" — unless a test says otherwise.
+    markAssignmentSeen: jest.fn().mockImplementation(async (_d: string, _t: string, at: string) => at),
+    recordAssignmentDelivery: jest.fn().mockResolvedValue(undefined),
   };
 }
 

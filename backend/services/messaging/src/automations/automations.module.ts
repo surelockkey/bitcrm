@@ -1,5 +1,6 @@
 import { Inject, Logger, Module, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { SqsConsumerService } from '@bitcrm/shared';
+import { DealEventType } from '@bitcrm/types';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { OutboundModule } from '../outbound/outbound.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
@@ -25,6 +26,7 @@ import { AutomationRuleEngine } from './engine/rule-engine.service';
 import { AutomationScheduleRepository } from './engine/schedule.repository';
 import { AutomationPeersClient } from './internal/peers.client';
 import { NewJobSmsService } from './new-job-sms.service';
+import { SendToTechService } from './send-to-tech.service';
 import { TeamThreadService } from './team-thread.service';
 import { TechNoticesController } from './tech-notices.controller';
 import { TechNoticesService } from './tech-notices.service';
@@ -37,11 +39,13 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
 /**
  * Automations (design §10 M21): the rules as data and as specs
  * (`GET/PATCH /automations`), the "New job" SMS to technicians, the
+ * dispatcher's "Send to tech" delivery (`deal.sent_to_tech`), the
  * technician-triggered "on my way" / "late" texts, and the rule engine —
  * fed by `deal-events-to-messaging` (`deal.created`, `deal.updated`,
- * `deal.status_changed`, `deal.tech_assigned`, and `deal.scheduled_changed`
- * if deal-service ever publishes it) and `call-events-to-messaging`
- * (`call.completed`), with a minute poller for everything that has to wait.
+ * `deal.status_changed`, `deal.tech_assigned`, `deal.sent_to_tech`, and
+ * `deal.scheduled_changed` if deal-service ever publishes it) and
+ * `call-events-to-messaging` (`call.completed`), with a minute poller for
+ * everything that has to wait.
  *
  * The queue consumers follow the outbound module: handlers registered in
  * `onModuleInit`, polling only under `ENABLE_SQS_CONSUMER=true`, nothing at
@@ -88,6 +92,7 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
     AutomationPeersClient,
     TeamThreadService,
     NewJobSmsService,
+    SendToTechService,
     TechNoticesService,
     AutomationRunsRepository,
     AutomationActionExecutor,
@@ -100,6 +105,7 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
     AutomationsRepository,
     AutomationsService,
     NewJobSmsService,
+    SendToTechService,
     TechNoticesService,
     AutomationRunsRepository,
     AutomationActionExecutor,
@@ -114,6 +120,7 @@ export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly events: AutomationDealEventsHandler,
     private readonly engine: AutomationRuleEngine,
+    private readonly sendToTech: SendToTechService,
     @Inject(AUTOMATIONS_CONFIG) private readonly config: AutomationsConfig,
     @Optional() @Inject(DEAL_EVENTS_SQS_CONSUMER) private readonly consumer?: SqsConsumerService | null,
     @Optional() @Inject(CALL_EVENTS_SQS_CONSUMER) private readonly callConsumer?: SqsConsumerService | null,
@@ -129,9 +136,16 @@ export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
       this.consumer.registerHandler(DEAL_TECH_ASSIGNED_EVENT, (p) => this.events.onTechAssigned(p));
       this.consumer.registerHandler(DEAL_UPDATED_EVENT, (p) => this.events.onDealUpdated(p));
       this.consumer.registerHandler(DEAL_SCHEDULED_CHANGED_EVENT, (p) => this.events.onScheduledChanged(p));
+      // "Send to tech" is a delivery, not a rule: it goes straight to its
+      // own service and resolves to void whatever the service reports.
+      this.consumer.registerHandler(DealEventType.SENT_TO_TECH, async (p) => {
+        await this.sendToTech.onSentToTech(p);
+      });
       if (this.config.consumerEnabled) this.consumer.start();
     } else {
-      this.logger.warn('DEAL_EVENTS_TO_MESSAGING_QUEUE_URL is not set: job automations are not fed');
+      this.logger.warn(
+        'DEAL_EVENTS_TO_MESSAGING_QUEUE_URL is not set: job automations and "Send to tech" are not fed',
+      );
     }
 
     if (this.callConsumer) {

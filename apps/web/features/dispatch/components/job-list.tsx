@@ -1,10 +1,41 @@
 "use client";
 
-import { MapPin, MapPinOff } from "lucide-react";
+import { Eye, MapPin, MapPinOff, Send } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { StageBadge } from "@/features/deals/components/deal-badges";
+import { seenByTechLabel, sentToTechLabel } from "@/features/deals/lib";
 import { useJobTypeName } from "@/features/job-types/lib";
+
+/**
+ * The Workiz dispatch stamps as two small chips on a board row: whether the
+ * job has been handed to its technician (`last_sent`) and whether they have
+ * opened it (`seen`). A job never sent shows nothing — the board's job is to
+ * make the gap visible, not to nag about every row.
+ */
+function SendStateChips({ deal }: { deal: Deal }) {
+  const sent = sentToTechLabel(deal);
+  if (!sent) return null;
+  const seen = seenByTechLabel(deal);
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1">
+      <span
+        title={sent}
+        className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+      >
+        <Send className="size-2.5" /> Sent
+      </span>
+      {seen ? (
+        <span
+          title={seen}
+          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+        >
+          <Eye className="size-2.5" /> Seen
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 function JobRow({
   deal,
@@ -58,6 +89,7 @@ function JobRow({
         <span className="truncate text-xs text-muted-foreground">
           {jobTypeName(deal.jobTypeId)}
         </span>
+        <SendStateChips deal={deal} />
       </div>
 
       <div className="truncate pl-5 text-xs text-muted-foreground">

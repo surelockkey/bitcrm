@@ -5,6 +5,15 @@ import { type DealPriority } from '../enums/deal-priority.enum';
 import { type DealStatus } from '../enums/deal-status.enum';
 import { type CustomFieldValue } from './custom-field.entity';
 
+/**
+ * How a job is handed to a technician (Workiz "Send to tech": SMS / Email /
+ * In App). `sms` texts the technician's personal phone, `email` their user
+ * email, `in_app` posts into their team thread (the Workiz mobile-app
+ * notification). Several may be picked at once ("Sent to tech by SMS & Email").
+ */
+export const SEND_TO_TECH_CHANNELS = ['sms', 'email', 'in_app'] as const;
+export type SendToTechChannel = (typeof SEND_TO_TECH_CHANNELS)[number];
+
 export interface Deal {
   id: string;
   /**
@@ -92,6 +101,23 @@ export interface Deal {
    * re-stamped by every real status move. Drives "time in status" displays.
    */
   statusChangedAt?: string;
+  /**
+   * Workiz `last_sent` / `sent`: the latest time a dispatcher pressed
+   * "Send to tech" on this job (stamped at the click, before the messages
+   * go out). Absent = never sent. Per-technician stamps live on the
+   * `ASSIGN#<techId>` rows (`sentAt`, `sentVia`, `seenAt`, `deliveries`).
+   */
+  sentToTechAt?: string;
+  /** Channels picked for the latest send — `['sms']`, `['sms', 'email']`, … */
+  sentToTechVia?: SendToTechChannel[];
+  /** Who pressed "Send to tech" last. */
+  sentToTechBy?: string;
+  /**
+   * Workiz `seen`: the first time any assigned technician opened the job in
+   * their app (`POST /deals/:id/seen`). Sticky — a later re-send does not
+   * clear it; the per-technician `seenAt` on `ASSIGN#` says who and when.
+   */
+  seenByTechAt?: string;
   /**
    * Technician flow (Workiz "Confirmed job receipt"): when an assigned
    * technician acknowledged the job from their phone, and who. Absent until

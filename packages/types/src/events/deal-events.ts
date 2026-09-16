@@ -1,9 +1,11 @@
+import { type SendToTechChannel } from '../entities/deal.entity';
+
 /**
  * Canonical contract for the events on the `deal-events` SNS topic that
  * other services consume (EVENTS.md). Publisher: deal-service. Consumers:
- * messaging-service (automations), search-service (index). The catalog
- * events (`job-type.*`, `job-tag.*`, …) are documented in EVENTS.md and not
- * typed here.
+ * messaging-service (automations, "Send to tech" delivery), search-service
+ * (index). The catalog events (`job-type.*`, `job-tag.*`, …) are documented
+ * in EVENTS.md and not typed here.
  */
 export const DEAL_EVENT_TOPIC = 'deal-events' as const;
 
@@ -19,6 +21,8 @@ export const DealEventType = {
   DEAL_TECH_UNASSIGNED: 'deal.tech_unassigned',
   /** The job's date, end date or time slot moved (also emitted alongside `deal.updated`). */
   DEAL_SCHEDULED_CHANGED: 'deal.scheduled_changed',
+  /** A dispatcher pressed "Send to tech" — messaging delivers the job text per channel. */
+  SENT_TO_TECH: 'deal.sent_to_tech',
 } as const;
 
 export type DealEventType = (typeof DealEventType)[keyof typeof DealEventType];
@@ -78,4 +82,23 @@ export interface DealScheduledChangedEvent {
 export interface DealDeletedEvent {
   dealId: string;
   deletedBy?: string;
+}
+
+/**
+ * `deal.sent_to_tech` — one event per click, however many technicians and
+ * channels were picked. `sentAt` is the idempotency key the consumer uses
+ * per (deal, technician, channel): a redelivery of the same event sends
+ * nothing twice, a later click (new `sentAt`) sends again.
+ */
+export interface DealSentToTechEvent {
+  dealId: string;
+  /** Human-facing Job ID, for the message subject / log lines. */
+  dealNumber?: string;
+  /** The technicians to notify — a subset of the roster at click time. */
+  techIds: string[];
+  channels: SendToTechChannel[];
+  /** ISO-8601; equals the deal's `sentToTechAt` after this click. */
+  sentAt: string;
+  /** The dispatcher who pressed the button. */
+  sentBy: string;
 }

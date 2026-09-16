@@ -54,22 +54,34 @@ export interface SendCaller {
   perms?: ResolvedPermissions;
 }
 
+/** Channels the service can send on its own behalf (`SendService.sendSystem`). */
+export type SystemSendChannel = 'sms' | 'in_app' | 'email';
+
 /**
- * An outbound SMS the service sends on its own behalf (design §10 M21:
- * automations, technician-triggered notices) — no HTTP caller, no DTO, no
- * permission check; the opt-out rule, the sender chain and the
- * `CLIENTMSG#` idempotency guard still apply.
+ * An outbound message the service sends on its own behalf (design §10 M21:
+ * automations, technician-triggered notices, Workiz "Send to tech") — no
+ * HTTP caller, no DTO, no permission check; the opt-out rule, the sender
+ * chain and the `CLIENTMSG#` idempotency guard still apply.
  */
 export interface SystemSendInput {
   conversation: Conversation;
+  /**
+   * How the line goes out. Omitted = `sms`, which is what every caller
+   * meant before the other two existed. `in_app` stores the line in a
+   * team / group thread with no provider; `email` needs `to` and `subject`
+   * and answers 501 until `MESSAGING_EMAIL_FROM` is configured.
+   */
+  channel?: SystemSendChannel;
   /** Already rendered; blank is refused. */
   body: string;
-  /** E.164 among the conversation phones; the first one when absent. */
+  /** Email only: the subject line — required for `channel: 'email'`. */
+  subject?: string;
+  /** E.164 among the conversation phones (`sms`), or the address to mail (`email`); the first phone when absent. */
   to?: string;
   dealId?: string;
   origin: Extract<MessageOrigin, 'automation' | 'system'>;
   automationRuleId?: string;
-  /** The user on whose behalf it goes (a technician's "on my way"), if any. */
+  /** The user on whose behalf it goes (a technician's "on my way", the dispatcher who pressed "Send to tech"), if any. */
   sentByUserId?: string;
   templateId?: string;
   /** Deterministic for automations (`automation:<rule>:<deal>:<tech>:<date>`) so a replay sends once. */
@@ -525,13 +537,26 @@ export class SendService {
   }
 
   /**
-   * The service's own sends (automations, "on my way" / "late"): the same
-   * path as a composer send from the opt-out check on, minus authorisation
-   * and templating — the caller has rendered the text and checked its own
-   * rules. Throws `RecipientOptedOutException` like the HTTP path; a repeat
-   * of `clientMessageId` answers `duplicate: true` with the first message.
+   * The service's own sends (automations, "on my way" / "late", "Send to
+   * tech"): the same path as a composer send from the opt-out check on,
+   * minus authorisation and templating — the caller has rendered the text
+   * and checked its own rules. Throws `RecipientOptedOutException` like the
+   * HTTP path; a repeat of `clientMessageId` answers `duplicate: true` with
+   * the first message. `channel` picks the path (omitted = `sms`).
    */
   async sendSystem(input: SystemSendInput): Promise<SystemSendResult> {
+    switch (input.channel ?? 'sms') {
+      case 'in_app':
+        return this.sendSystemInApp(input);
+      case 'email':
+        return this.sendSystemEmail(input);
+      default:
+        return this.sendSystemSms(input);
+    }
+  }
+
+  /** `sendSystem` over SMS — the original behaviour, unchanged. */
+  private async sendSystemSms(input: SystemSendInput): Promise<SystemSendResult> {
     const { conversation } = input;
     const to = this.recipient(conversation, input.to);
     if (await this.optOuts.isOptedOut('sms', to)) throw new RecipientOptedOutException(to);
@@ -555,6 +580,102 @@ export class SendService {
       senderSource: sender.source,
       status: 'queued',
       provider: 'twilio',
+      origin: input.origin,
+      sentByUserId: input.sentByUserId,
+      automationRuleId: input.automationRuleId,
+      dealId: input.dealId,
+      templateId: input.templateId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.accept(conversation, message, { clientMessageId: input.clientMessageId, createdBy: input.actorId });
+  }
+
+  /**
+   * `sendSystem` over `in_app` (Workiz "Send to tech · In App"): a line in
+   * the technician's team thread with no provider, stored `sent` and pushed
+   * over SSE exactly like a dispatcher's own in-app line. `sentByUserId` is
+   * the person the line is from (the dispatcher who pressed the button); the
+   * recipients are the thread's members minus them, so the technician's
+   * badge lights up. No read marker is written — the sender is a service.
+   */
+  private async sendSystemInApp(input: SystemSendInput): Promise<SystemSendResult> {
+    const { conversation } = input;
+    if (!isTeamKind(conversation.kind)) {
+      throw new NotImplementedException('In-app messages can only be sent in team and group conversations');
+    }
+    const body = input.body.trim();
+    if (!body) throw new BadRequestException('body must not be blank');
+
+    const now = new Date().toISOString();
+    const message: Message = {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'in_app',
+      direction: 'outbound',
+      body,
+      status: 'sent',
+      origin: input.origin,
+      sentByUserId: input.sentByUserId,
+      sentByName: input.sentByUserId ? await this.senderName(input.sentByUserId) : undefined,
+      automationRuleId: input.automationRuleId,
+      dealId: input.dealId,
+      templateId: input.templateId,
+      createdAt: now,
+      sentAt: now,
+      updatedAt: now,
+    };
+    return this.acceptInApp(conversation, message, {
+      clientMessageId: input.clientMessageId,
+      createdBy: input.actorId,
+      senderId: input.sentByUserId ?? input.actorId,
+      markUnread: false,
+    });
+  }
+
+  /**
+   * `sendSystem` over `email` (Workiz "Send to tech · Email"): the already
+   * rendered text becomes the HTML + text bodies, the sender address is
+   * resolved as for a composer mail (so `Reply-To` threads the answer back
+   * into the same conversation) and the line joins the normal accept path —
+   * `queued` under the `CLIENTMSG#` guard, then `EmailOutboundWorker`.
+   * 501 without `MESSAGING_EMAIL_FROM`, 422 for an unsubscribed address.
+   */
+  private async sendSystemEmail(input: SystemSendInput): Promise<SystemSendResult> {
+    const { conversation } = input;
+    if (!this.email?.configured) {
+      throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
+    }
+    const to = input.to?.trim().toLowerCase();
+    if (!to) throw new BadRequestException('to is required for a system email');
+    if (await this.optOuts.isOptedOut('email', to)) throw new RecipientOptedOutException(to, 'email');
+
+    const subject = input.subject?.trim();
+    if (!subject) throw new BadRequestException('subject is required for email');
+    const raw = input.body.trim();
+    if (!raw) throw new BadRequestException('body must not be blank');
+    const bodies = emailBodies(raw);
+    if (bodies.html.length > EMAIL_BODY_MAX_LENGTH) {
+      throw new BadRequestException(`Email body must be at most ${EMAIL_BODY_MAX_LENGTH} characters of HTML`);
+    }
+
+    const sender = await this.email.resolve(conversation.id);
+    if (!sender) throw new NotImplementedException('Email sending is not configured (MESSAGING_EMAIL_FROM)');
+
+    const now = new Date().toISOString();
+    const message: Message = {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      channel: 'email',
+      direction: 'outbound',
+      subject,
+      body: bodies.text || undefined,
+      bodyHtml: bodies.html,
+      from: sender.from,
+      to,
+      contactAddress: to,
+      status: 'queued',
+      provider: 'ses',
       origin: input.origin,
       sentByUserId: input.sentByUserId,
       automationRuleId: input.automationRuleId,
@@ -646,38 +767,71 @@ export class SendService {
       updatedAt: now,
     };
 
-    const result = await this.messages.appendOutbound({
-      message,
+    const accepted = await this.acceptInApp(conversation, message, {
       clientMessageId: dto.clientMessageId,
       createdBy: caller.user.id,
+      senderId: caller.user.id,
+      markUnread: fromParty,
+      markReadFor: caller.user.id,
+      mentions,
+    });
+    return accepted.message;
+  }
+
+  /**
+   * Storing and fanning out an in-app line, shared by the composer path and
+   * `sendSystem({ channel: 'in_app' })`. `senderId` is who the line is from
+   * (whom the recipients are computed against), `markReadFor` the author
+   * whose own `READ#` marker is advanced so it never counts as unread for
+   * them — a service sender has none.
+   */
+  private async acceptInApp(
+    conversation: Conversation,
+    message: Message,
+    opts: {
+      clientMessageId: string;
+      createdBy: string;
+      senderId: string;
+      markUnread: boolean;
+      markReadFor?: string;
+      mentions?: string[];
+    },
+  ): Promise<SystemSendResult> {
+    const now = message.createdAt;
+    const result = await this.messages.appendOutbound({
+      message,
+      clientMessageId: opts.clientMessageId,
+      createdBy: opts.createdBy,
       conversation,
       at: now,
-      markUnread: fromParty,
+      markUnread: opts.markUnread,
     });
-    if (result.duplicate) return this.firstSubmit(result);
+    if (result.duplicate) return { message: await this.firstSubmit(result), duplicate: true };
 
-    try {
-      await this.conversations.putReadMarker(conversation.id, caller.user.id, {
-        lastReadMessageSk: messageSk(now, message.id),
-        at: now,
-      });
-    } catch (error) {
-      this.logger.warn(`Read marker for ${caller.user.id} on ${conversation.id} not written: ${error instanceof Error ? error.message : error}`);
+    if (opts.markReadFor) {
+      try {
+        await this.conversations.putReadMarker(conversation.id, opts.markReadFor, {
+          lastReadMessageSk: messageSk(now, message.id),
+          at: now,
+        });
+      } catch (error) {
+        this.logger.warn(`Read marker for ${opts.markReadFor} on ${conversation.id} not written: ${error instanceof Error ? error.message : error}`);
+      }
     }
 
-    const recipients = teamRecipients(result.conversation, caller.user.id);
+    const recipients = teamRecipients(result.conversation, opts.senderId);
     this.logger.log(`In-app ${message.id} stored in ${conversation.id} (${conversation.kind}) for ${recipients.length} member(s)`);
-    this.realtime?.messageUpserted(message, result.conversation, now, { recipients, mentions });
+    this.realtime?.messageUpserted(message, result.conversation, now, { recipients, mentions: opts.mentions });
     // Badges (§6): every recipient's own team-chat badge is recounted on
     // their stream; when the employee's line marked the office's thread
     // unread, the company-wide counters are read back and pushed too.
     this.realtime?.teamCountersInvalidated(conversation.id, recipients, now);
-    if (fromParty && countersDelta(conversation, result.conversation)) this.pushInboxCounters();
+    if (opts.markUnread && countersDelta(conversation, result.conversation)) this.pushInboxCounters();
     // The `message.received` a notifier subscribes to (EVENTS.md): the
     // thread's party says whom to wake — the employee, or the group.
     void this.events.messageReceived(message, result.conversation);
     void this.events.conversationUpdated(conversation.id);
-    return message;
+    return { message, duplicate: false };
   }
 
   /** The inbox badge after a write that moved `INBOX#COUNTERS`; never awaited on the request path. */

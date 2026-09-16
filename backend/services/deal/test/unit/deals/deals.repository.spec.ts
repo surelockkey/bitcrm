@@ -319,8 +319,8 @@ describe('DealsRepository', () => {
       // An UpdateCommand (targeted SET), not a Put that would drop the
       // technician's confirmation along with the old sort key.
       expect(input.Item).toBeUndefined();
-      expect(input.ExpressionAttributeValues[':sk']).toBe('2026-06-02#DEAL#deal-1');
-      expect(input.UpdateExpression).toContain('GSI2SK = :sk');
+      expect(input.ExpressionAttributeValues[':gsi2sk']).toBe('2026-06-02#DEAL#deal-1');
+      expect(input.UpdateExpression).toContain('GSI2SK = :gsi2sk');
       expect(input.UpdateExpression).not.toContain('techConfirmedAt');
     });
   });

@@ -4,6 +4,10 @@ import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
  * Static hideable columns of the Jobs table — every displayable deal field.
  * Order here is column order. The job number is intentionally not listed: it
  * carries the row's open-in-new-tab link, so it always renders first.
+ *
+ * `sent` / `seen` are the Workiz dispatch stamps (`last_sent` / `seen`): both
+ * off by default, like every other opt-in column, so an existing saved
+ * preference is unaffected.
  */
 export const JOB_FIELDS = [
   { id: "client", label: "Client" },
@@ -21,6 +25,8 @@ export const JOB_FIELDS = [
   { id: "address", label: "Address" },
   { id: "serviceArea", label: "Service area" },
   { id: "scheduled", label: "Scheduled" },
+  { id: "sent", label: "Sent" },
+  { id: "seen", label: "Seen" },
   { id: "jobType", label: "Job type" },
   { id: "source", label: "Source" },
   { id: "externalCompany", label: "External company" },

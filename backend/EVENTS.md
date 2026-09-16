@@ -22,7 +22,67 @@ Publishers and consumers import these so the wire format can't drift; the
 ## Topic: `deal-events` (published by deal-service)
 `deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
 `deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`,
-`deal.tech_confirmed`, `deal.tech_arrived`.
+`deal.tech_confirmed`, `deal.tech_arrived`, `deal.sent_to_tech`.
+
+### `deal.sent_to_tech` — Workiz "Send to tech" (typed: `DealSentToTechEvent` in `@bitcrm/types`)
+
+| Field | Meaning |
+|---|---|
+| `dealId`, `dealNumber?` | the job |
+| `techIds` | the technicians to notify — a subset of the roster at click time (omitted `techIds` on the request = everyone assigned) |
+| `channels` | `('sms' \| 'email' \| 'in_app')[]` — what the dispatcher ticked |
+| `sentAt` | ISO-8601, equals the deal's `sentToTechAt` after the click; **the idempotency key** per (deal, technician, channel) |
+| `sentBy` | the dispatcher |
+
+Published by `POST /api/deals/:id/send-to-tech` (`deals.edit`) **after** the deal is stamped
+(`sentToTechAt` / `sentToTechVia` / `sentToTechBy` = Workiz `last_sent` / `sent`, plus `sentAt` /
+`sentVia` / `sentBy` on each `ASSIGN#<techId>` row) and the `sent_to_tech` timeline entry is written —
+the click is the "sent" moment, as in Workiz; delivery is asynchronous. One event per click, however
+many technicians / channels; pressing again is a resend with a new `sentAt`.
+
+Write order inside that request is load-bearing: **`ASSIGN#` rows → deal stamp → timeline entry →
+event**. A job must never carry a "Sent" stamp for a click that published no event — that would read
+`Sent · 12:10 PM` forever for a message nothing was asked to deliver. A roster technician whose
+`ASSIGN#` row is missing is skipped with a warning instead of failing the send (see the import rule
+below); anything else (a throttled table) aborts before the deal is stamped, so a retry is clean.
+
+Consumed by **messaging** (queue `deal-events-to-messaging`, `SendToTechService`): renders the settings
+`smsFormat` "New job" text for the job + technician and delivers it per channel — `sms` to the
+technician's personal phone in their team thread, `in_app` as a line in that thread, `email` to their
+user email (skipped with `email_not_configured` until `MESSAGING_EMAIL_FROM` is set). Idempotent per
+(deal, technician, channel, `sentAt`) through the `CLIENTMSG#` key
+`send-to-tech:<dealId>:<techId>:<channel>:<sentAt>` plus an `AUTOSENT#` marker (`ruleId`
+`send-to-tech:<channel>`). Not held by quiet hours (a dispatcher's explicit action). Each
+(technician, channel) outcome is reported back with `PUT /api/deals/internal/:id/sent-to-tech`
+`{techId, channel, status: sent|skipped|failed, sentAt, reason?, messageId?, conversationId?, at?}`
+→ `deliveries.<channel>` on the `ASSIGN#` row (a report about an older `sentAt` than the row's is
+ignored). Chosen over letting messaging write the deals table: repositories stay per-service.
+
+**Seen** (Workiz `seen` / "Viewed job in app"): `POST /api/deals/:id/seen` (`deals.view`) is called by
+the technician's app on open; only an assigned technician counts — first open stamps `seenAt` on their
+`ASSIGN#` row, `seenByTechAt` on the deal (sticky; a re-send does not clear it) and a `seen_by_tech`
+timeline entry; later opens and non-roster callers answer `seen: false` / unchanged. No event.
+
+**Assignment-row contract (Workiz import / any backfill).** Everything above hangs off the `ASSIGN#`
+rows, so whatever writes a job's roster must write them the way `addAssignment` does — this is the
+rule the generator follows, stated against the code that reads them:
+
+| Attribute | Value | Why |
+|---|---|---|
+| `PK` / `SK` | `DEAL#<dealId>` / `ASSIGN#<techId>` | one row per (job, technician); `deal.assignedTechIds` on `METADATA` must list exactly these `techId`s |
+| `GSI2PK` | `TECH#<techId>` | the tech index — a row without it is invisible to `findByTech` and to the dispatch board |
+| `GSI2SK` | `<scheduledDate or now ISO>#DEAL#<dealId>` | orders a technician's day |
+| `dealId`, `techId`, `scheduledDate` | as on the deal | read back by `listAssignments` / `getAssignment` |
+| `assignedBy`, `assignedAt` | importer actor / import time | never rewritten afterwards |
+
+`sentAt` / `sentVia` / `sentBy` / `seenAt` / `deliveries` / `techConfirmedAt` are runtime-only: the
+import leaves them absent (an imported Workiz `sent` / `seen` timestamp belongs on the deal's
+`sentToTechAt` / `seenByTechAt`, and may be copied to the row's `sentAt` / `seenAt`, but never invents
+`deliveries`). A reschedule re-stamps only the index keys, the date and `restampedBy` / `restampedAt`,
+so none of these is erased by moving the job.
+A roster entry with no `ASSIGN#` row costs that technician their per-channel line on the job page and
+their place on the tech index; it no longer breaks the send itself, and a reschedule rewrites `GSI2PK`
+so a row that lost it heals on the next date change.
 
 `deal.updated` (`{dealId, updatedBy?}`) fires on any field edit (update, client
 reassignment, payment status) so the search index stays fresh; `deal.deleted`
