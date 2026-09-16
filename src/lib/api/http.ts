@@ -9,8 +9,16 @@ import { ApiError } from './errors';
  */
 type TokenProvider = () => string | null | undefined;
 
+/**
+ * Exchanges the stored refresh token for a fresh id token. Resolves true when
+ * the session was renewed, false when it is really over. Registered by the auth
+ * layer for the same reason as the token provider.
+ */
+type TokenRefresher = () => Promise<boolean>;
+
 let getToken: TokenProvider = () => null;
 let onUnauthorized: (() => void) | null = null;
+let refreshTokens: TokenRefresher | null = null;
 
 export function setAuthTokenProvider(fn: TokenProvider): void {
   getToken = fn;
@@ -18,6 +26,54 @@ export function setAuthTokenProvider(fn: TokenProvider): void {
 
 export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
+}
+
+export function setTokenRefresher(fn: TokenRefresher | null): void {
+  refreshTokens = fn;
+}
+
+/**
+ * One refresh at a time.
+ *
+ * The job screen fires several requests at once (the job, its timeline, its
+ * attachments). An expired token 401s all of them within the same tick, and
+ * without this they would each burn the refresh token — Cognito rotates it, so
+ * the second exchange fails and signs out a technician whose session was fine.
+ */
+let inFlightRefresh: Promise<boolean> | null = null;
+
+async function refreshOnce(): Promise<boolean> {
+  if (!refreshTokens) return false;
+  if (!inFlightRefresh) {
+    inFlightRefresh = refreshTokens()
+      .catch(() => false)
+      .finally(() => {
+        inFlightRefresh = null;
+      });
+  }
+  return inFlightRefresh;
+}
+
+/** Response envelope every BitCRM controller returns. */
+interface Envelope<T> {
+  success: true;
+  data: T;
+  pagination?: Pagination;
+}
+
+export interface Pagination {
+  nextCursor?: string;
+  count?: number;
+}
+
+export interface Page<T> {
+  data: T[];
+  pagination: Pagination;
+}
+
+interface ApiRequestInit extends RequestInit {
+  /** Set on the refresh call itself, so a failed refresh cannot recurse. */
+  skipAuthRefresh?: boolean;
 }
 
 function buildHeaders(init: RequestInit): Headers {
@@ -30,7 +86,14 @@ function buildHeaders(init: RequestInit): Headers {
   return headers;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+interface RawResponse {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  body: unknown;
+}
+
+async function send(path: string, init: ApiRequestInit): Promise<RawResponse> {
   let res: Response;
   try {
     res = await fetch(`${env.apiBaseUrl}${path}`, {
@@ -43,20 +106,44 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       'Unable to reach the server. Please check your connection and try again.',
     );
   }
-
   const body: unknown = await res.json().catch(() => null);
+  return { status: res.status, statusText: res.statusText, ok: res.ok, body };
+}
 
-  if (res.status === 401) onUnauthorized?.();
+/**
+ * One request, with a single transparent token refresh on 401.
+ *
+ * A technician's shift outlives an id token, and being thrown back to the login
+ * screen mid-job is the worst possible moment. So a 401 buys one refresh and
+ * one retry; only a second 401 — or a refresh the server refuses — actually
+ * ends the session (docs/ARCHITECTURE.md §2.5).
+ */
+async function requestEnvelope<T>(
+  path: string,
+  init: ApiRequestInit = {},
+): Promise<Envelope<T>> {
+  let attempt = await send(path, init);
 
-  if (!res.ok || !isSuccess(body)) {
+  if (attempt.status === 401 && !init.skipAuthRefresh) {
+    const renewed = await refreshOnce();
+    if (renewed) attempt = await send(path, init);
+  }
+
+  if (attempt.status === 401) onUnauthorized?.();
+
+  if (!attempt.ok || !isSuccess(attempt.body)) {
     throw new ApiError(
-      res.status,
-      extractMessage(body) ?? res.statusText ?? 'Request failed',
-      body,
+      attempt.status,
+      extractMessage(attempt.body) ?? attempt.statusText ?? 'Request failed',
+      attempt.body,
     );
   }
 
-  return (body as { data: T }).data;
+  return attempt.body as Envelope<T>;
+}
+
+async function request<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
+  return (await requestEnvelope<T>(path, init)).data;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -73,6 +160,8 @@ function extractMessage(body: unknown): string | null {
     if (parts.length) return parts.join(', ');
   }
   if (typeof error === 'string' && error) return error;
+  // nginx answers a dead upstream with { error: { code, message } }.
+  if (isRecord(error) && typeof error.message === 'string') return error.message;
   return null;
 }
 
@@ -80,9 +169,31 @@ function isSuccess(v: unknown): boolean {
   return isRecord(v) && v.success === true;
 }
 
+const json = (body: unknown) => JSON.stringify(body ?? {});
+
 /** Convenience helpers. Bodies are JSON-serialized; responses are unwrapped. */
 export const http = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+    request<T>(path, { method: 'POST', body: json(body) }),
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PUT', body: json(body) }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: json(body) }),
+  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** POST that must not trigger a token refresh — the refresh call itself. */
+  postWithoutRefresh: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'POST', body: json(body), skipAuthRefresh: true }),
+  /**
+   * A list endpoint: keeps `pagination` alongside `data`, which the plain
+   * helpers throw away. Cursor paging is the only way to read a technician's
+   * jobs — the list has no date filter (docs/ARCHITECTURE.md §1.2).
+   */
+  paginated: async <T>(path: string): Promise<Page<T>> => {
+    const envelope = await requestEnvelope<T[]>(path);
+    return {
+      data: Array.isArray(envelope.data) ? envelope.data : [],
+      pagination: envelope.pagination ?? {},
+    };
+  },
 };

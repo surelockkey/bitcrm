@@ -2,7 +2,7 @@ import { http } from '../../lib/api/http';
 import { getMe, login, refresh } from './api';
 
 jest.mock('../../lib/api/http', () => ({
-  http: { get: jest.fn(), post: jest.fn() },
+  http: { get: jest.fn(), post: jest.fn(), postWithoutRefresh: jest.fn() },
 }));
 
 const mockHttp = http as jest.Mocked<typeof http>;
@@ -30,16 +30,23 @@ describe('auth api', () => {
     expect(mockHttp.get).toHaveBeenCalledWith('/users/me');
   });
 
-  it('refreshes tokens via POST /users/auth/refresh', async () => {
-    mockHttp.post.mockResolvedValue({
+  /**
+   * Sent with the helper that opts out of the 401 refresh hook: a 401 on the
+   * refresh endpoint is the one place in the app where it really does mean the
+   * session is over, and refreshing in response would be an infinite loop.
+   */
+  it('refreshes tokens via POST /users/auth/refresh, without re-entering the refresh hook', async () => {
+    mockHttp.postWithoutRefresh.mockResolvedValue({
       idToken: 'i2',
       accessToken: 'a2',
       expiresIn: 3600,
     });
 
     await refresh('REFRESH_1');
-    expect(mockHttp.post).toHaveBeenCalledWith('/users/auth/refresh', {
-      refreshToken: 'REFRESH_1',
-    });
+    expect(mockHttp.postWithoutRefresh).toHaveBeenCalledWith(
+      '/users/auth/refresh',
+      { refreshToken: 'REFRESH_1' },
+    );
+    expect(mockHttp.post).not.toHaveBeenCalled();
   });
 });

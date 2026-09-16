@@ -6,14 +6,22 @@ import React, {
   useReducer,
   useState,
 } from 'react';
-import { setAuthTokenProvider, setUnauthorizedHandler } from '../../lib/api/http';
+import {
+  setAuthTokenProvider,
+  setTokenRefresher,
+  setUnauthorizedHandler,
+} from '../../lib/api/http';
 import { ApiError } from '../../lib/api/errors';
+import { resetAppCache } from '../../lib/query/client';
 import { authReducer, initialAuthState, type AuthState } from './auth-reducer';
-import { getMe, login as loginApi } from './api';
+import { getMe, login as loginApi, refresh as refreshApi } from './api';
+import { clearProfile, loadProfile, saveProfile } from './profile-store';
 import {
   clearTokens,
   getIdToken,
+  getRefreshToken,
   loadTokens,
+  saveRefreshedTokens,
   saveTokens,
 } from './token-store';
 import { isChallenge } from './types';
@@ -28,18 +36,40 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Renew the session in place. Handed to the HTTP layer, which calls it on a
+ * 401 and retries the request once if it succeeds — a shift outlives an id
+ * token, and being bounced to login mid-job is the worst possible moment
+ * (docs/ARCHITECTURE.md §2.5).
+ */
+async function renewSession(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const tokens = await refreshApi(refreshToken);
+    await saveRefreshedTokens(tokens);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialAuthState);
   const [submitting, setSubmitting] = useState(false);
 
   const signOut = useCallback(async () => {
     await clearTokens();
+    // The van's phone gets handed over. Nothing about the last technician —
+    // their route, their clients' addresses — may survive into the next session.
+    await Promise.all([clearProfile(), resetAppCache()]);
     dispatch({ type: 'signOut' });
   }, []);
 
   // Wire the HTTP layer to our token store, then restore any saved session.
   useEffect(() => {
     setAuthTokenProvider(getIdToken);
+    setTokenRefresher(renewSession);
     setUnauthorizedHandler(() => {
       void signOut();
     });
@@ -52,9 +82,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const user = await getMe();
+        void saveProfile(user);
         dispatch({ type: 'restored', user });
-      } catch {
+      } catch (err) {
+        // Only the server refusing the session ends it. A technician who opens
+        // the app with no signal keeps their session — and their cached day —
+        // on the strength of the profile last written to disk; a dead network
+        // is not a sign-out.
+        if (err instanceof ApiError && err.status === 0) {
+          const cached = await loadProfile();
+          if (cached) {
+            dispatch({ type: 'restored', user: cached });
+            return;
+          }
+        }
         await clearTokens();
+        await clearProfile();
         dispatch({ type: 'noSession' });
       }
     })();
@@ -75,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       await saveTokens(result);
       const user = await getMe();
+      await saveProfile(user);
       dispatch({ type: 'signInSuccess', user });
     } catch (err) {
       const message =
