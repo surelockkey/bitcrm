@@ -44,6 +44,19 @@ const isChip = (node: Node | null | undefined): node is HTMLElement =>
   !!node && node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).hasAttribute(CHIP);
 
 /**
+ * How far into `node` a caret can sit — characters in a text node, children
+ * in an element. The two are counted differently, and a remembered offset
+ * clamped against the wrong one lands the caret somewhere nobody asked for.
+ */
+const caretLimit = (node: Node): number =>
+  node.nodeType === Node.TEXT_NODE ? (node.textContent?.length ?? 0) : node.childNodes.length;
+
+export interface MessageEditorHandle {
+  /** Drop `{{code}}` in as one chip, where the caret is (or was). */
+  insertCode: (code: string) => void;
+}
+
+/**
  * The message body, with `{{short_codes}}` as atomic chips (Workiz stores
  * them as Draft.js `SHORT_CODE` entities — "immutable", §1.5.5). A variable
  * is one thing: one Backspace removes it whole, and no stray keystroke can
@@ -55,11 +68,6 @@ const isChip = (node: Node | null | undefined): node is HTMLElement =>
  * and reach the short-code menu by Tab — inserting from it puts the chip
  * back where the caret was and returns focus to the text.
  */
-export interface MessageEditorHandle {
-  /** Drop `{{code}}` in as one chip, where the caret is (or was). */
-  insertCode: (code: string) => void;
-}
-
 export function AutomationMessageEditor({
   value,
   onChange,
@@ -141,7 +149,7 @@ export function AutomationMessageEditor({
     const where = saved.current;
     const range = doc.createRange();
     if (where && root.contains(where.node)) {
-      range.setStart(where.node, Math.min(where.offset, where.node.textContent?.length ?? 0));
+      range.setStart(where.node, Math.min(where.offset, caretLimit(where.node)));
       range.collapse(true);
     } else {
       range.selectNodeContents(root);
@@ -168,7 +176,7 @@ export function AutomationMessageEditor({
         if (!box.current || !after || !box.current.contains(after.node)) return;
         box.current.focus();
         const range = box.current.ownerDocument.createRange();
-        range.setStart(after.node, after.offset);
+        range.setStart(after.node, Math.min(after.offset, caretLimit(after.node)));
         range.collapse(true);
         const selection = box.current.ownerDocument.getSelection();
         selection?.removeAllRanges();
