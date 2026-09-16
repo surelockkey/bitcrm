@@ -17,6 +17,8 @@ describe('DealsController', () => {
       update: jest.fn(),
       softDelete: jest.fn(),
       moveStatus: jest.fn(),
+      confirmReceipt: jest.fn(),
+      markArrived: jest.fn(),
       getTimeline: jest.fn(),
       addNote: jest.fn(),
       getQualifiedTechs: jest.fn(),
@@ -109,6 +111,42 @@ describe('DealsController', () => {
       const result = await controller.softDelete('deal-1', caller);
 
       expect(result).toEqual({ success: true, data: { id: 'deal-1', deleted: true } });
+    });
+  });
+
+  describe('technician flow', () => {
+    const perms = { dataScope: { deals: 'assigned_only' } } as any;
+
+    it('confirm receipt delegates with the caller and their deals scope', async () => {
+      const deal = createMockDeal({ techConfirmedAt: '2026-09-16T10:00:00.000Z' });
+      const caller = createMockJwtUser({ id: 'tech-1' });
+      service.confirmReceipt.mockResolvedValue(deal);
+
+      const result = await controller.confirmReceipt('deal-1', caller, perms);
+
+      expect(result).toEqual({ success: true, data: deal });
+      expect(service.confirmReceipt).toHaveBeenCalledWith('deal-1', caller, 'assigned_only');
+    });
+
+    it('arrival forwards the body, the caller and their deals scope', async () => {
+      const deal = createMockDeal({ arrivedAt: '2026-09-16T10:30:00.000Z' });
+      const caller = createMockJwtUser({ id: 'tech-1' });
+      service.markArrived.mockResolvedValue(deal);
+
+      const body = { lat: 41.76, lng: -72.67 };
+      const result = await controller.markArrived('deal-1', body as any, caller, perms);
+
+      expect(result).toEqual({ success: true, data: deal });
+      expect(service.markArrived).toHaveBeenCalledWith('deal-1', body, caller, 'assigned_only');
+    });
+
+    it('passes an undefined scope through rather than inventing one', async () => {
+      const caller = createMockJwtUser();
+      service.confirmReceipt.mockResolvedValue(createMockDeal());
+
+      await controller.confirmReceipt('deal-1', caller, undefined as any);
+
+      expect(service.confirmReceipt).toHaveBeenCalledWith('deal-1', caller, undefined);
     });
   });
 

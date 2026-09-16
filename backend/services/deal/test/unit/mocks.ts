@@ -205,6 +205,10 @@ export function createMockDealsRepository() {
     removeAssignment: jest.fn(),
     listAssignmentTechIds: jest.fn().mockResolvedValue([]),
     restampAssignmentDates: jest.fn(),
+    // Technician flow: an assignment row nobody has confirmed yet, unless a
+    // test says otherwise.
+    getAssignment: jest.fn().mockResolvedValue(null),
+    confirmAssignment: jest.fn(),
   };
 }
 
