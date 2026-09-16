@@ -31,6 +31,7 @@ const call = (over: Partial<CallRecord> = {}): CallRecord => ({
   direction: "inbound",
   status: "completed",
   startedAt: "2026-09-16T10:00:00.000Z",
+  updatedAt: "2026-09-16T10:00:00.000Z",
   ...over,
 });
 
