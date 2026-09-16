@@ -532,6 +532,44 @@ describe("the sub-status picker", () => {
   });
 });
 
+/**
+ * The chips are the answer, not decoration: a picker that names only itself
+ * tells a screen reader which control it is and nothing about what the rule
+ * will fire on.
+ */
+describe("the value picker's accessible name", () => {
+  const onStatuses = (to: string[]): AutomationSpec => ({
+    version: 1,
+    trigger: { kind: "deal.status_changed", to },
+    conditions: [],
+    actions: [{ type: "send_sms", to: "client", body: "All done" }],
+  });
+
+  it("says the placeholder when nothing is picked", async () => {
+    renderDialog({ spec: onStatuses([]) });
+
+    expect(await screen.findByLabelText("Status entered")).toHaveAccessibleName(
+      "Status entered Any status",
+    );
+  });
+
+  it("says the one value that is picked", async () => {
+    renderDialog({ spec: onStatuses(["done"]) });
+
+    expect(await screen.findByLabelText("Status entered")).toHaveAccessibleName(
+      "Status entered Done",
+    );
+  });
+
+  it("says every value that is picked, not just that there are chips", async () => {
+    renderDialog({ spec: onStatuses(["done", "canceled"]) });
+
+    expect(await screen.findByLabelText("Status entered")).toHaveAccessibleName(
+      "Status entered Done, Canceled",
+    );
+  });
+});
+
 describe("email actions", () => {
   it("asks for a subject only when there is a subject line to fill", async () => {
     const user = userEvent.setup();
@@ -765,6 +803,37 @@ describe("conditions", () => {
     await user.click(screen.getByRole("button", { name: "Save rule" }));
     await waitFor(() => expect(patched).toHaveLength(1));
     expect(patched[0].body.spec?.conditions).toEqual([]);
+  });
+
+  it("says so when an \"is\" condition loses its one value, too", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: {
+        ...rule.spec!,
+        conditions: [
+          { field: "source", op: "eq", values: ["src-gmb"], labels: ["GMB"] },
+          { field: "tag", op: "in", values: [TAG_ID], labels: ["SCHEDULED"] },
+        ],
+      },
+    });
+
+    const picker = await screen.findByLabelText("Condition 1 value");
+    expect(picker).toHaveTextContent("GMB");
+    expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
+
+    // "is" takes one value, so the list answers a press by re-picking; the
+    // chip's × is the way out, and it widens the rule from one source to all.
+    await user.click(within(picker).getByRole("presentation", { hidden: true }));
+    expect(picker).not.toHaveTextContent("GMB");
+    expect(await screen.findByText(/narrows nothing/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    // The drop itself is deliberate — an empty `eq` matches everything — so
+    // the other line is stored exactly as it was and the emptied one is gone.
+    expect(patched[0].body.spec?.conditions).toEqual([
+      { field: "tag", op: "in", values: [TAG_ID], labels: ["SCHEDULED"] },
+    ]);
   });
 
   it("adds an empty or-group from the header and saves what was filled in", async () => {

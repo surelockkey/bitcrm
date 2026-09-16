@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import {
   Command,
@@ -60,6 +60,9 @@ export function AutomationValuePicker({
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const fieldId = useId();
+  const labelId = `${fieldId}-label`;
+  const pickedId = `${fieldId}-picked`;
 
   // The picker lives inside a scrolling dialog, so the panel is positioned
   // rather than portalled; closing on an outside pointer keeps it from
@@ -110,6 +113,16 @@ export function AutomationValuePicker({
    */
   const unlisted = options.length ? values.filter((id) => !options.some((o) => o.id === id)) : [];
 
+  /**
+   * What the chips say, for the trigger's accessible name. The chips are the
+   * answer this control holds, and a name that is only the label ("Status
+   * entered, collapsed") reads out the question and hides the answer — so the
+   * name is the label *and* the selection, or the placeholder when there is
+   * none. Written out rather than left to the chips' own text: the names are
+   * separate elements, and what falls between them is up to the browser.
+   */
+  const picked = values.length ? values.map((id, i) => nameOf(id, i)).join(", ") : placeholder;
+
   return (
     <div
       ref={box}
@@ -124,7 +137,9 @@ export function AutomationValuePicker({
       <button
         ref={trigger}
         type="button"
-        aria-label={label}
+        // Two halves rather than `aria-label`, which would override the
+        // contents and leave the chips unsaid.
+        aria-labelledby={`${labelId} ${pickedId}`}
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={disabled}
@@ -134,6 +149,12 @@ export function AutomationValuePicker({
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         )}
       >
+        <span id={labelId} className="sr-only">
+          {label}
+        </span>
+        <span id={pickedId} className="sr-only">
+          {picked}
+        </span>
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {values.length === 0 ? (
             <span className="text-muted-foreground">{placeholder}</span>
