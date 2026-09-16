@@ -156,9 +156,25 @@ describe('AutomationRunsRepository', () => {
   it('rejects a cursor that is not ours, or points at a partition the feed no longer reads', async () => {
     const { dynamo } = mockDynamo();
     const repo = new AutomationRunsRepository(dynamo);
-    for (const cursor of ['not-base64-json', encodeCursor({ k: { PK: 'x' } }), encodeCursor({ p: '2019-01' })]) {
+    for (const cursor of [
+      'not-base64-json',
+      encodeCursor({ k: { PK: 'x' } }),
+      encodeCursor({ p: '2019-01' }),
+      // `typeof null` and `typeof []` are 'object' too, and neither is a key.
+      encodeCursor({ p: '2026-09', k: null } as object),
+      encodeCursor({ p: '2026-09', k: [] }),
+    ]) {
       await expect(repo.listFeed({ limit: 10, cursor, now: NOW })).rejects.toBeInstanceOf(InvalidCursorError);
     }
+  });
+
+  it('reads the feed, not one rule, when no rule is named', async () => {
+    const { dynamo, sent } = mockDynamo([{ Items: [] }, { Items: [] }]);
+    // `listFeed` picks the partitions on truthiness; the query has to agree,
+    // or an empty `ruleId` reads a month partition off the base table.
+    await new AutomationRunsRepository(dynamo).listFeed({ limit: 10, ruleId: '', now: NOW });
+    expect(sent[0].input.IndexName).toBe('CategoryIndex');
+    expect(sent[0].input.ExpressionAttributeValues[':pk']).toBe('AUTORUN#2026-09');
   });
 
   it('narrows by since as a key condition, on the feed and on one rule', async () => {

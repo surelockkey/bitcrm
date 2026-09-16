@@ -44,6 +44,9 @@ export interface AutomationRunFeedPage {
   nextCursor?: string;
 }
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
 /**
  * The firing log and the idempotency ledger of the rule engine
  * (`AUTORUN#<ruleId>`, design §3.2 + §4.9):
@@ -160,7 +163,10 @@ export class AutomationRunsRepository {
       ? [query.ruleId]
       : autoRunFeedMonths(query.now ?? new Date(), query.since);
     const raw = decodeCursor<{ p?: unknown; k?: unknown }>(query.cursor);
-    if (raw && (typeof raw.p !== 'string' || (raw.k !== undefined && typeof raw.k !== 'object'))) {
+    // `typeof null` and `typeof []` are both 'object', and either one reaches
+    // DynamoDB as a malformed ExclusiveStartKey — a 500 for what is a bad
+    // cursor, which is a 400.
+    if (raw && (typeof raw.p !== 'string' || (raw.k !== undefined && !isPlainObject(raw.k)))) {
       throw new InvalidCursorError();
     }
 
@@ -193,7 +199,10 @@ export class AutomationRunsRepository {
     limit: number,
     query: AutomationRunFeedQuery,
   ) {
-    const byRule = query.ruleId !== undefined;
+    // The same test `listFeed` chose the partitions by: `ruleId !== undefined`
+    // would send an empty one down the per-rule path and query
+    // `AUTORUN#<a month>` on the base table, which holds nothing.
+    const byRule = Boolean(query.ruleId);
     // `ONCE#` sorts below `RUN#`, so "at or after this run key" selects the
     // log and nothing else — which is what lets `since` be a key condition
     // rather than a filter over the whole partition.
