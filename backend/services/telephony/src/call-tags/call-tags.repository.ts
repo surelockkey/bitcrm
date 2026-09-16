@@ -28,12 +28,19 @@ export class CallTagsRepository {
     return { PK: CALL_TAG_PK, SK: callTagSk(tag.id), ...tag };
   }
 
+  /**
+   * The whole catalog. Read consistently: the partition is tens of items (a
+   * workspace has ~28 call tags), and the alternative is a tag created a
+   * second ago being missing from the read that decides whether tagging a call
+   * with it is a 404 — the picker's "Create new" does exactly create-then-attach.
+   */
   async listAll(): Promise<CallTag[]> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: CALLS_TABLE,
         KeyConditionExpression: 'PK = :pk',
         ExpressionAttributeValues: { ':pk': CALL_TAG_PK },
+        ConsistentRead: true,
       }),
     );
     return (result.Items ?? []).map((i) => this.toEntity(i));

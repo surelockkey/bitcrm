@@ -377,7 +377,16 @@ export class CallsService {
     }
 
     if (add.length && this.callTags) {
-      const catalog = await this.callTags.byId();
+      let catalog = await this.callTags.byId();
+      // A tag the picker created seconds ago may be missing from this task's
+      // memoised catalog: a write clears the cache only on the task that
+      // served it, and there are always at least two during a rolling deploy.
+      // Re-read once before calling an id unknown — create-then-attach is a
+      // single gesture in the UI, and a 404 there reverts the chip with no
+      // explanation the dispatcher can act on.
+      if (add.some((id) => !catalog.has(id))) {
+        catalog = await this.callTags.byId({ refresh: true });
+      }
       for (const id of add) {
         const tag = catalog.get(id);
         if (!tag) throw new NotFoundException(`Call tag ${id} not found`);

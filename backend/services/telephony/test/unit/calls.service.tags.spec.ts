@@ -149,11 +149,41 @@ describe('CallsService.updateTags', () => {
   });
 
   it('404s for a tag the catalog does not know', async () => {
-    const { service, repo } = build({});
+    const { service, repo, callTags } = build({});
     await expect(
       service.updateTags('CA1', { add: ['t-nope'] }, actor),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(repo.setTags).not.toHaveBeenCalled();
+    // …but not before asking for a catalog that is definitely current.
+    expect(callTags.byId).toHaveBeenLastCalledWith({ refresh: true });
+  });
+
+  it('re-reads the catalog before calling a tag unknown', async () => {
+    // The picker creates a tag and attaches it in one gesture. The POST and
+    // the PATCH can land on different tasks (min 1 / max 2, and always two
+    // during a rolling deploy), and this one memoised the catalog before the
+    // tag existed — a 404 here just reverts the chip.
+    const fresh = new Map(CATALOG).set(
+      't-new',
+      tag({ id: 't-new', name: 'Platinum' }),
+    );
+    const byId = jest
+      .fn()
+      .mockResolvedValueOnce(CATALOG) // the stale memo
+      .mockResolvedValue(fresh); // the re-read
+    const { service, repo } = build({}, { callTags: { byId } });
+
+    await service.updateTags('CA1', { add: ['t-new'] }, actor);
+
+    expect(byId).toHaveBeenCalledTimes(2);
+    expect(byId).toHaveBeenLastCalledWith({ refresh: true });
+    expect(repo.setTags).toHaveBeenCalledWith('CA1', ['t-new'], undefined);
+  });
+
+  it('does not re-read when every id is already known', async () => {
+    const { service, callTags } = build({});
+    await service.updateTags('CA1', { add: ['t-spam'] }, actor);
+    expect(callTags.byId).toHaveBeenCalledTimes(1);
   });
 
   it('400s an empty change rather than writing nothing quietly', async () => {

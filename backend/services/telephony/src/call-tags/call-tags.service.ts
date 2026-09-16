@@ -53,9 +53,16 @@ export class CallTagsService {
    * The catalog as a map, memoised briefly. Tagging a call checks every id it
    * is given against this, and a dispatcher clearing a queue of spam calls
    * must not cost one catalog Query per click.
+   *
+   * `refresh` skips the memo. A write only clears the cache of the task that
+   * served it, so a tag created on one task is invisible to another for up to
+   * CACHE_TTL_MS — and there are always at least two tasks during a rolling
+   * deploy. The tagging path re-reads with this before calling an id unknown,
+   * which is the difference between the picker's create-then-attach working
+   * and a 404 that silently reverts the chip.
    */
-  async byId(): Promise<Map<string, CallTag>> {
-    if (!this.cache || this.cache.expiresAt <= Date.now()) {
+  async byId(options?: { refresh?: boolean }): Promise<Map<string, CallTag>> {
+    if (options?.refresh || !this.cache || this.cache.expiresAt <= Date.now()) {
       const value = await this.repository.listAll();
       this.cache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
     }

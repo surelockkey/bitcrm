@@ -64,6 +64,9 @@ describe('CallTagsRepository', () => {
     expect(sent[0].input.KeyConditionExpression).toBe('PK = :pk');
     expect(sent[0].input.ExpressionAttributeValues[':pk']).toBe('CALLTAG#ALL');
     expect(sent[0].input.IndexName).toBeUndefined();
+    // Tens of items, and the read decides whether tagging a call with a
+    // just-created tag is a 404 — pay for a consistent read.
+    expect(sent[0].input.ConsistentRead).toBe(true);
     expect(all).toEqual([tag]);
   });
 

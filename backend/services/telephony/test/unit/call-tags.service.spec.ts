@@ -198,5 +198,23 @@ describe('CallTagsService', () => {
         expect.arrayContaining(['SPAM CALLER', 'Tech Call']),
       );
     });
+
+    it('re-reads on demand, because a write clears the cache of one task only', async () => {
+      const { service, repository, store } = build([tag()]);
+
+      await service.byId();
+      // Another task creates a tag. This one's memo knows nothing about it,
+      // and nothing will tell it for up to the TTL.
+      store.set('t2', tag({ id: 't2', name: 'Platinum' }));
+      expect([...(await service.byId()).keys()]).toEqual(['t1']);
+      expect(repository.listAll).toHaveBeenCalledTimes(1);
+
+      const map = await service.byId({ refresh: true });
+      expect(map.get('t2')?.name).toBe('Platinum');
+      expect(repository.listAll).toHaveBeenCalledTimes(2);
+      // The refreshed catalog is what the next cached read serves.
+      expect([...(await service.byId()).keys()]).toEqual(['t1', 't2']);
+      expect(repository.listAll).toHaveBeenCalledTimes(2);
+    });
   });
 });
