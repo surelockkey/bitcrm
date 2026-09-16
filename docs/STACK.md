@@ -6,8 +6,9 @@ and do **not** move to SDK 58 when it ships until Stripe merges the AGP 9 fix
 ([stripe-terminal-react-native#1134](https://github.com/stripe/stripe-terminal-react-native/issues/1134)).
 
 Everything below was verified against live package metadata (`npm view`, unpacked tarballs of
-`@stripe/stripe-terminal-react-native@0.0.1-beta.33`, `expo@57.0.23`, `react-native@0.86.0`) and the
-current Stripe / Expo documentation. Versions are as published on 2026-09-16.
+`@stripe/stripe-terminal-react-native@0.0.1-beta.33`, `expo@57.0.8` and `expo@57.0.23`,
+`react-native@0.86.0` and `react-native@0.86.3`) and the current Stripe / Expo documentation.
+Versions are as published on 2026-09-16.
 
 ---
 
@@ -25,14 +26,15 @@ current Stripe / Expo documentation. Versions are as published on 2026-09-16.
 
 > "The SDK is currently in public preview and released as beta versions, such as `0.0.1-beta.x`.
 > During public preview, Stripe supports the SDK, but users should expect to update regularly
-> because some breaking changes can occur."
+> because some breaking changes can occur as we keep pace with the underlying native SDKs."
 
 **Operational consequence (important):** Stripe enforces **end-of-life blocking**. When the native
 major version bundled in your SDK build reaches the end of its Deprecated phase, that build is
 **blocked from discovering readers, connecting to readers, or processing payments**. Falling behind
 on upgrades is a payments-outage risk, not just a tech-debt risk. Subscribe to
-`terminal-announce@lists.stripe.com` and budget an upgrade every release (~6–8 weeks based on the
-2026 cadence: beta.29 Mar, .30 Apr, .31 May, .32 Jul, .33 Sep).
+`terminal-announce@lists.stripe.com` and budget an upgrade every release (~5–9 weeks based on the
+2026 npm publish dates: beta.29 Mar 6, .30 Apr 22, .31 May 28, .32 Jul 30, .33 Sep 11 — gaps of
+36–63 days).
 
 ### 1.2 Supported React Native versions
 
@@ -45,8 +47,8 @@ stated in the beta.33 changelog:
 
 Corroborated by the package's own `devDependencies`: `react-native: "^0.85.0"`,
 `react: "19.2.3"`, `@react-native/babel-preset: "^0.85.0"`.
-The example app (`example-app/package.json`) pins `expo: "^56.0.0"`, `react-native: "^0.85.0"`,
-`react: "19.2.3"`.
+The example app (`example-app/package.json` on GitHub `main` — the npm tarball ships only the
+library) pins `expo: "^56.0.0"`, `react-native: "^0.85.0"`, `react: "19.2.3"`.
 
 New Architecture (Fabric/TurboModules) has been officially supported since **beta.24** (RN 0.76).
 
@@ -54,8 +56,9 @@ New Architecture (Fabric/TurboModules) has been officially supported since **bet
 
 **Yes — via a config plugin, with a custom development build. Expo Go will never work.**
 
-- The published tarball ships `app.plugin.js` → `src/plugin/withStripeTerminal.ts`. Verified present
-  in beta.33.
+- The published tarball ships `app.plugin.js` (which requires `lib/commonjs/plugin/withStripeTerminal`;
+  the TypeScript source is shipped alongside it at `src/plugin/withStripeTerminal.ts`). Verified
+  present in beta.33.
 - Stripe's own docs say: *"This package can't be used in the 'Expo Go' app because it requires custom
   native code. You must use `npx expo prebuild` to generate native projects and run your app using
   `npx expo run:ios` or `npx expo run:android`."*
@@ -152,17 +155,18 @@ is RN 0.85 / Expo SDK 56, but the gap is nil in substance:
    **React unchanged at 19.2**, "React Native 0.86 is intended to have no breaking changes from 0.85".
    React 19.2 is exactly the React that Stripe dev-deps against (`react: "19.2.3"` — identical to our
    `package.json`).
-2. **The Android toolchain is unchanged in the way that matters.** `react-native@0.86.0`'s
-   `gradle/libs.versions.toml` pins **AGP 8.12.0, Kotlin 2.1.20, compileSdk 36, targetSdk 36**.
-   Stripe's library requires compileSdk/targetSdk ≥ 35 — satisfied. Kotlin 2.1.20 is within Expo's
-   supported range (< 2.3.0).
+2. **The Android toolchain is unchanged in the way that matters.** `react-native@0.86.0` and
+   `@0.86.3` both pin, in `gradle/libs.versions.toml`, **AGP 8.12.0, Kotlin 2.1.20, compileSdk 36,
+   targetSdk 36**. Stripe's README states `compileSdkVersion = 35` / `targetSdkVersion = 35`;
+   the Stripe module takes both from `rootProject.ext`, so it compiles at RN's 36 — the normal
+   forward direction, not a violation. Kotlin 2.1.20 is within Expo's supported range (< 2.3.0).
 3. **The one known future breakage does not affect us.** Stripe PR/issue #1134 fixes
    `Cannot add extension with name 'kotlin'` under **AGP 9**, which the author states affects
    **React Native 0.87+ and Expo SDK 58+**. We are on AGP 8.12 → unaffected. This is the strongest
    argument *for* SDK 57 and *against* jumping to SDK 58 on release.
 4. `react-native: "*"` peer dep means no install-time friction either way.
 5. No open issue on the Stripe repo reports RN 0.86 or Expo SDK 57 breakage
-   (checked all 28 open issues as of 2026-09-16).
+   (checked all 18 open issues — 27 open items including the 9 open PRs — as of 2026-09-16).
 
 **Residual risk:** "built and tested against 0.85" is a statement about Stripe's CI, not a guarantee.
 The mitigation is cheap and must happen early: **build a Tap to Pay smoke test on a physical iPhone
@@ -179,7 +183,7 @@ raw `latest`.
 
 | Need | Package | SDK 57 version | Expo Go? | Notes |
 | --- | --- | --- | --- | --- |
-| Camera capture | `expo-camera` | `~57.0.5` | yes | Config plugin sets `cameraPermission` / `microphonePermission` (iOS) and `recordAudioAndroid`. Set `barcodeScannerEnabled: false` if we don't scan, to cut app size. |
+| Camera capture | `expo-camera` | `~57.0.5` | yes | Config plugin sets `cameraPermission` / `microphonePermission` (iOS) and `recordAudioAndroid`. Set `barcodeScannerEnabled: false` if we don't scan, to cut app size — but note that on Android this only takes effect when `expo-camera` is listed in `expo.autolinking.buildFromSource`; the prebuilt module always includes the barcode libraries. |
 | Pick existing photos | `expo-image-picker` | `~57.0.18` | yes | |
 | Save to gallery | `expo-media-library` | `~57.0.5` | yes | Only if techs need photos in their camera roll. |
 | Photo upload, background | `expo-file-system` | `~57.0.7` | yes | New API: `File.upload(url, options)` and `File.createUploadTask(url, options)`; `uploadType: BINARY_CONTENT \| MULTIPART`, `onProgress`, `AbortSignal`. **`sessionType: 'background'` is iOS-only** — native transfer survives app suspension. See §2.1. |
@@ -278,7 +282,8 @@ smaller. **Add MMKV only if a measured performance problem justifies it.**
 ### 2.5 Mandatory `expo-build-properties` setting
 
 **Expo/RN default `minSdkVersion` is 24. Stripe Terminal requires 26** and explicitly warns that
-overriding it downward fails at runtime:
+overriding it downward fails at runtime — from the SDK's own
+[README, "Requirements → Android"](https://github.com/stripe/stripe-terminal-react-native/blob/main/README.md#android):
 
 > "Note that attempting to override minSdkVersion to decrease the minimum supported API level will
 > not work due to internal runtime API level validation."
@@ -334,10 +339,16 @@ Rationale, in order of weight:
 
 ```
 expo                ~57.0.23    (currently ~57.0.8 — run `npx expo install --check`)
-react-native        0.86.0
+react-native        0.86.3      (currently 0.86.0 — see note)
 react               19.2.3
 typescript          ~6.0.3
 ```
+
+**Note on the React Native patch.** `react-native` is pinned by the `expo` patch you are on:
+`expo@57.0.8`'s `bundledNativeModules.json` names `0.86.0`, `expo@57.0.23`'s names `0.86.3`.
+Moving to `expo@~57.0.23` therefore moves React Native to `0.86.3` — `npx expo install --check`
+will say so. Both patches carry the identical Android toolchain (AGP 8.12.0 / Kotlin 2.1.20 /
+compileSdk 36), so nothing in §1.6 changes; just don't hand-pin `0.86.0` next to `expo@57.0.23`.
 
 Add, all via `npx expo install`:
 
@@ -366,8 +377,8 @@ A `^` or `~` range on a `0.0.1-beta.x` version is a trap: npm's semver treats pr
 unpredictably, and an unreviewed beta bump can break a payment flow in production. Upgrade it
 deliberately, read the changelog, and re-run the on-device Tap to Pay smoke test each time.
 
-**Do not add:** `react-native-mmkv` (§2.4), `expo-av` (removed from SDK 57 — use `expo-audio` /
-`expo-video`).
+**Do not add:** `react-native-mmkv` (§2.4), `expo-av` (last bundled in SDK 54 at `~16.0.8`; absent
+from SDK 55, 56 and 57 — use `expo-audio` / `expo-video`).
 
 ### Cost of changing later
 
@@ -429,8 +440,9 @@ on-device release in days rather than weeks.
 
 ## Sources
 
-- npm registry metadata, 2026-09-16: `@stripe/stripe-terminal-react-native@0.0.1-beta.33` (published 2026-09-11), `expo@57.0.23`, `react-native@0.86.0`, `react-native-mmkv@4.3.2`, `react-native-nitro-modules@0.37.1`
-- Unpacked package contents: `app.plugin.js` / `src/plugin/withStripeTerminal.ts`, `stripe-terminal-react-native.podspec` (iOS 15.1, `StripeTerminal ~> 5.8.0`), `android/build.gradle` (minSdk 26, JVM 17), `CHANGELOG.md`, `SUPPORT.md`; `expo@57.0.23/bundledNativeModules.json`; `react-native@0.86.0/gradle/libs.versions.toml` (minSdk 24, compileSdk/targetSdk 36, AGP 8.12.0, Kotlin 2.1.20); Expo SDK 57 template `android/gradle.properties` (`newArchEnabled=true`) and `ios/Podfile` (deployment target 16.4)
+- npm registry metadata, 2026-09-16: `@stripe/stripe-terminal-react-native@0.0.1-beta.33` (published 2026-09-11; `latest`), `expo@57.0.23` (`latest`, `sdk-57`), `react-native@0.86.3` (`0.86-stable`), `react-native-mmkv@4.3.2`, `react-native-nitro-modules@0.37.1`
+- Unpacked package contents: `app.plugin.js` / `src/plugin/withStripeTerminal.ts`, `stripe-terminal-react-native.podspec` (iOS 15.1, `StripeTerminal ~> 5.8.0`), `android/build.gradle` (minSdk 26, JVM 17), `README.md` (API level 26, compileSdk/targetSdk 35), `CHANGELOG.md`, `SUPPORT.md`; `expo@57.0.8` and `expo@57.0.23` `bundledNativeModules.json` (react-native `0.86.0` → `0.86.3`); `react-native@0.86.0` and `@0.86.3` `gradle/libs.versions.toml` (minSdk 24, compileSdk/targetSdk 36, AGP 8.12.0, Kotlin 2.1.20); `expo-template-bare-minimum@sdk-57` `android/gradle.properties` (`newArchEnabled=true`) and `ios/Podfile` (`platform :ios, … || '16.4'`)
+- [`example-app/package.json` on GitHub `main`](https://github.com/stripe/stripe-terminal-react-native/blob/main/example-app/package.json) · [beta.24 release notes](https://github.com/stripe/stripe-terminal-react-native/releases/tag/v0.0.1-beta.24) (New Architecture / RN 0.76)
 - [Stripe Terminal React Native SDK — GitHub](https://github.com/stripe/stripe-terminal-react-native) · [README](https://raw.githubusercontent.com/stripe/stripe-terminal-react-native/main/README.md) · [releases](https://github.com/stripe/stripe-terminal-react-native/releases) · [issue/PR #1134 (AGP 9 / RN 0.87+ / Expo SDK 58+)](https://github.com/stripe/stripe-terminal-react-native/issues/1134)
 - [Stripe — Set up your integration (React Native)](https://docs.stripe.com/terminal/payments/setup-integration?terminal-sdk-platform=react-native)
 - [Stripe — Tap to Pay on iPhone](https://docs.stripe.com/terminal/payments/setup-reader/tap-to-pay?platform=ios) · [Tap to Pay on Android](https://docs.stripe.com/terminal/payments/setup-reader/tap-to-pay?platform=android) · [Tap to Pay Guide (PDF)](https://docs.stripecdn.com/fd6123a72c0ea6d22019c125f9a35d855fe859b4e327faeb89a2934091830744.pdf)
