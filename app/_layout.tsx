@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/features/auth/auth-context';
+import { QueueProvider } from '../src/features/queue/queue-provider';
 import { QueryProvider } from '../src/lib/query/query-provider';
 import { ThemeProvider, useTheme } from '../src/lib/theme/theme-provider';
 import { AppErrorBoundary, ErrorScreen } from '../src/ui/error-boundary';
@@ -36,7 +37,9 @@ export default function RootLayout() {
         <AppErrorBoundary>
           <QueryProvider>
             <AuthProvider>
-              <RootNavigator />
+              <QueueProvider>
+                <RootNavigator />
+              </QueueProvider>
             </AuthProvider>
           </QueryProvider>
         </AppErrorBoundary>

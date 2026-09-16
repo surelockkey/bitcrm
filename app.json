@@ -42,6 +42,19 @@
             "backgroundColor": "#05090F"
           }
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BitCRM records where you were when you tap Arrived, so dispatch can see you reached the job. Location is never tracked in the background."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "BitCRM uses the camera so you can attach photos of the work to a job.",
+          "photosPermission": "BitCRM can attach a photo you already took to a job."
+        }
       ]
     ]
   }
