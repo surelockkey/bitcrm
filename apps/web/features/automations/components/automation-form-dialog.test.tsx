@@ -333,6 +333,24 @@ describe("the delivery window", () => {
     });
   });
 
+  it('will not put "send anyway" beside a window the engine would then ignore', async () => {
+    const user = userEvent.setup();
+    // A rule Workiz exported with DND off: no window, sends at any hour.
+    renderDialog({ spec: { ...rule.spec!, timing: { quietHours: "ignore" } } });
+
+    expect(await screen.findByLabelText("Outside those hours")).toHaveTextContent("Send anyway");
+    await pick(user, "Automation will be sent", "Only between set hours");
+
+    // Asking for a window means asking for it to be kept — "send anyway"
+    // short-circuits `placement` before it ever reads `workingHours`.
+    expect(screen.getByLabelText("Outside those hours")).toHaveTextContent("Hold until the window opens");
+    await user.click(screen.getByLabelText("Outside those hours"));
+    expect(await screen.findByRole("option", { name: /Send anyway — not with a window/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("says what happens outside the window, holding by default as Workiz does", async () => {
     const user = userEvent.setup();
     renderDialog();

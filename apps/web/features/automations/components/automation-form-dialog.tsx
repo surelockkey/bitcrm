@@ -643,7 +643,18 @@ export function AutomationFormDialog({
                 <Label>Automation will be sent</Label>
                 <Select
                   value={values.deliveryWindow ?? "always"}
-                  onValueChange={(v) => set("deliveryWindow", v as "always" | "between")}
+                  onValueChange={(v) =>
+                    setValues((current) => ({
+                      ...current,
+                      deliveryWindow: v as "always" | "between",
+                      // "Send anyway" answers before the engine ever looks at
+                      // the window, so the two together are a window that does
+                      // nothing. Asking for one means asking for it to be kept.
+                      ...(v === "between" && current.quietHours === "ignore"
+                        ? { quietHours: "hold" as const }
+                        : {}),
+                    }))
+                  }
                 >
                   <SelectTrigger className="w-52" aria-label="Automation will be sent">
                     <SelectValue />
@@ -703,7 +714,11 @@ export function AutomationFormDialog({
                 <SelectContent>
                   <SelectItem value="hold">Hold until the window opens</SelectItem>
                   <SelectItem value="skip">Skip the message</SelectItem>
-                  <SelectItem value="ignore">Send anyway</SelectItem>
+                  <SelectItem value="ignore" disabled={values.deliveryWindow === "between"}>
+                    {values.deliveryWindow === "between"
+                      ? "Send anyway — not with a window"
+                      : "Send anyway"}
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

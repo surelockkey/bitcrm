@@ -63,12 +63,15 @@ export const actionSchema = z
   .object({
     type: z.enum(FORM_ACTION_TYPES),
     to: z.enum(AUTOMATION_RECIPIENTS).optional(),
-    number: z.string().trim().optional(),
-    email: z.string().trim().optional(),
+    // The lengths are `AutomationActionDto`'s own: what the editor refuses
+    // here the API refuses there, and being told which field is too long
+    // beats a 400 that loses everything else typed alongside it.
+    number: z.string().trim().max(32, "That is not a phone number").optional(),
+    email: z.string().trim().max(320, "That address is too long").optional(),
     templateId: z.string().trim().optional(),
-    body: z.string().optional(),
-    subject: z.string().optional(),
-    url: z.string().trim().optional(),
+    body: z.string().max(5000, "The message is too long — 5000 characters at most").optional(),
+    subject: z.string().max(500, "The subject is too long — 500 characters at most").optional(),
+    url: z.string().trim().max(2048, "That URL is too long").optional(),
     userIds: z.array(z.string()).optional(),
     roleIds: z.array(z.string()).optional(),
     // Carried through the form untouched: the editor has no field for any of
@@ -113,6 +116,17 @@ export const actionSchema = z
   });
 
 const HH_MM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * How many actions the spec may hold — `AutomationSpecDto.actions`
+ * `@ArrayMaxSize(10)`. Counted after "text and email" is expanded, because
+ * that is what the API is handed: six of those rows is twelve actions and a
+ * 400 on save, with the rule's whole editing session lost to it.
+ */
+const MAX_SPEC_ACTIONS = 10;
+
+/** The spec actions one form row becomes. */
+const actionCount = (type: FormActionType): number => (type === SEND_BOTH ? 2 : 1);
 
 export const automationFormSchema = z
   .object({
@@ -182,6 +196,25 @@ export const automationFormSchema = z
           path: ["workingHours", "to"],
         });
       }
+      // `placement` in `rule-engine.service.ts` answers "now" on `ignore`
+      // before it ever looks at `workingHours`, so a window saved beside it
+      // is a window the engine throws away — a rule that reads as 9-to-5 and
+      // texts at 3am.
+      if (values.quietHours === "ignore") {
+        ctx.addIssue({
+          code: "custom",
+          message: 'A rule that sends anyway has no window — choose "Hold" or "Skip", or send 24/7',
+          path: ["quietHours"],
+        });
+      }
+    }
+    const actions = values.actions.reduce((n, a) => n + actionCount(a.type), 0);
+    if (actions > MAX_SPEC_ACTIONS) {
+      ctx.addIssue({
+        code: "custom",
+        message: `A rule can do ${MAX_SPEC_ACTIONS} things at most, and "text and email" counts as two`,
+        path: ["actions"],
+      });
     }
   });
 

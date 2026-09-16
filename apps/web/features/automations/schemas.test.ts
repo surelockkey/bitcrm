@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AutomationSpec } from "@bitcrm/types";
 import {
+  SEND_BOTH,
   automationFormSchema,
   isConditionGroupValues,
   specToForm,
@@ -56,6 +57,40 @@ describe("automation form schema", () => {
     expect(between("09:00", "17:00").success).toBe(true);
     expect(between("9am", "17:00").error?.issues[0]?.message).toMatch(/time like 09:00/i);
     expect(between("09:00", "09:00").error?.issues[0]?.message).toMatch(/same as 24\/7/i);
+  });
+
+  it('refuses a window beside "send anyway" — the engine never reads one', () => {
+    // `placement` answers "now" on `ignore` before it looks at
+    // `workingHours`, so the pair is a rule that reads as 9-to-5 and texts
+    // at 3am. `ignore` alone is the imported "DND off" rule and stays valid.
+    const base = specToForm("Rule", spec);
+    const of = (over: Record<string, unknown>) => automationFormSchema.safeParse({ ...base, ...over });
+    expect(of({ quietHours: "ignore" }).error?.issues[0]?.message).toMatch(/has no window/i);
+    expect(of({ quietHours: "ignore", deliveryWindow: "always" }).success).toBe(true);
+    expect(of({ quietHours: "skip" }).success).toBe(true);
+  });
+
+  it("refuses more actions than the spec can hold, counting both halves of a pair", () => {
+    // `AutomationSpecDto.actions` is `@ArrayMaxSize(10)`, and one "text and
+    // email" row is two of them — six rows is a 400 that loses the edit.
+    const base = specToForm("Rule", spec);
+    const rows = (n: number, type: string) =>
+      automationFormSchema.safeParse({
+        ...base,
+        actions: Array.from({ length: n }, () => ({ type, to: "client", body: "Hi" })),
+      });
+    expect(rows(10, "send_sms").success).toBe(true);
+    expect(rows(5, SEND_BOTH).success).toBe(true);
+    expect(rows(6, SEND_BOTH).error?.issues[0]?.message).toMatch(/10 things at most/i);
+  });
+
+  it("holds a message and a subject to the lengths the API takes", () => {
+    const base = specToForm("Rule", spec);
+    const of = (action: Record<string, unknown>) =>
+      automationFormSchema.safeParse({ ...base, actions: [{ type: "send_email", to: "client", ...action }] });
+    expect(of({ body: "x".repeat(5000) }).success).toBe(true);
+    expect(of({ body: "x".repeat(5001) }).error?.issues[0]?.message).toMatch(/message is too long/i);
+    expect(of({ body: "Hi", subject: "x".repeat(501) }).error?.issues[0]?.message).toMatch(/subject is too long/i);
   });
 
   it("keeps the narrowings the form does not show — editing a message never widens a rule", () => {
