@@ -28,6 +28,14 @@ const bodiesOf = (spec: (typeof AUTOMATION_TEMPLATES)[number]["draft"]["spec"]) 
 
 const codesIn = (text: string) => [...text.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((m) => m[1]);
 
+/**
+ * The one recipe that ships an empty required slot — the office number, which
+ * only this workspace knows. Everything else opens in the editor ready to save.
+ */
+const NEEDS_A_NUMBER = "missed-call-notify-office";
+const READY = AUTOMATION_TEMPLATES.filter((t) => t.id !== NEEDS_A_NUMBER);
+const officeRecipe = () => AUTOMATION_TEMPLATES.find((t) => t.id === NEEDS_A_NUMBER)!;
+
 /** Every value a spec pins to something the workspace owns. */
 const idsIn = (spec: (typeof AUTOMATION_TEMPLATES)[number]["draft"]["spec"]) => [
   ...(spec.trigger.toSubStatus ?? []),
@@ -70,27 +78,26 @@ describe("automation template catalog", () => {
     }
   });
 
-  it("ships the nine recipes the research backs, and nothing else", () => {
+  it("ships the eight recipes the research backs and this engine can run", () => {
     expect(AUTOMATION_TEMPLATES.map((t) => t.id)).toEqual([
       "job-canceled-notify-techs",
       "job-scheduled-notify-techs",
       "missed-call-text-client",
       "missed-call-notify-office",
       "completed-call-text-client",
-      "voicemail-text-client",
       "one-hour-notice-client-reminder",
       "one-hour-notice-tech-reminder",
       "collect-reviews-1-day-after",
     ]);
   });
 
-  it.each(AUTOMATION_TEMPLATES.map((t) => [t.id, t] as const))("%s parses with the editor's schema", (_id, t) => {
+  it.each(READY.map((t) => [t.id, t] as const))("%s parses with the editor's schema", (_id, t) => {
     const parsed = automationFormSchema.safeParse(specToForm(t.draft.name, t.draft.spec));
     expect(parsed.error?.issues[0]?.message).toBeUndefined();
     expect(parsed.success).toBe(true);
   });
 
-  it.each(AUTOMATION_TEMPLATES.map((t) => [t.id, t] as const))(
+  it.each(READY.map((t) => [t.id, t] as const))(
     "%s round-trips through the editor unchanged",
     (_id, t) => {
       const values = automationFormSchema.parse(specToForm(t.draft.name, t.draft.spec));
@@ -100,6 +107,80 @@ describe("automation template catalog", () => {
       expect(values.name).toBe(t.draft.name);
     },
   );
+
+  it("asks for the office number, and for nothing else", () => {
+    const t = officeRecipe();
+    const parsed = automationFormSchema.safeParse(specToForm(t.draft.name, t.draft.spec));
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues.map((i) => [i.path.join("."), i.message])).toEqual([
+      ["actions.0.number", "Enter the number to text"],
+    ]);
+  });
+
+  it("round-trips the office recipe once the number is filled in", () => {
+    const t = officeRecipe();
+    const draft = specToForm(t.draft.name, t.draft.spec);
+    draft.actions[0].number = "+14045551234";
+    const values = automationFormSchema.parse(draft);
+
+    const saved = toSpec(values);
+    expect(saved).toEqual({
+      ...t.draft.spec,
+      actions: [{ ...t.draft.spec.actions[0], number: "+14045551234" }],
+    });
+  });
+
+  it("only sends to recipients this editor can fill in", () => {
+    // `users` and `role` have no picker in the editor, and `dispatcher` comes
+    // off the job — which a call-triggered rule does not have. Any of the three
+    // saves happily and then resolves to nobody on every firing.
+    for (const t of AUTOMATION_TEMPLATES) {
+      for (const action of t.draft.spec.actions) {
+        expect(["client", "assigned_techs", "number"]).toContain(action.to);
+      }
+    }
+  });
+
+  it("never waits for a status a job with technicians cannot be in", () => {
+    // BitCRM creates every job Submitted with an empty roster and moves it to
+    // In progress on the first assignment (`deals.service.ts` assignTechs), so
+    // "entered Submitted" and "has a technician" never hold together and a
+    // recipe pairing them would text nobody, ever.
+    for (const t of AUTOMATION_TEMPLATES) {
+      const needsTechs =
+        t.draft.spec.conditions.some((c) => c.field === "hasTechs") ||
+        t.draft.spec.actions.some((a) => a.to === "assigned_techs");
+      const entersSubmitted =
+        t.draft.spec.trigger.kind === "deal.status_changed" &&
+        (t.draft.spec.trigger.to ?? []).includes(JobSuperStatus.SUBMITTED);
+      expect(needsTechs && entersSubmitted).toBe(false);
+    }
+  });
+
+  it("holds a reminder back only for a job that is off", () => {
+    const reminders = AUTOMATION_TEMPLATES.filter((t) => t.draft.spec.trigger.kind === "schedule.relative");
+    expect(reminders.length).toBeGreaterThan(0);
+    for (const t of reminders) {
+      const status = t.draft.spec.conditions.filter((c) => c.field === "status");
+      // `in` would pin the reminder to one status, and the engine re-checks the
+      // conditions when the minute comes: a dispatched job is In progress by
+      // then, so such a reminder is armed and then always skipped.
+      expect(status.map((c) => c.op)).not.toContain("in");
+      expect(status.flatMap((c) => c.values ?? [])).toEqual(
+        expect.arrayContaining([JobSuperStatus.CANCELED, JobSuperStatus.DONE]),
+      );
+    }
+  });
+
+  it("asks telephony only for outcomes it publishes", () => {
+    // `call.completed` carries no voicemail flag (telephony's payload has none),
+    // so `callOutcome()` answers missed or answered and a voicemail recipe would
+    // wait for ever.
+    for (const t of AUTOMATION_TEMPLATES) {
+      if (t.draft.spec.trigger.kind !== "call.completed") continue;
+      expect(["missed", "answered"]).toContain(t.draft.spec.trigger.callOutcome);
+    }
+  });
 
   it.each(AUTOMATION_TEMPLATES.map((t) => [t.id, t] as const))("%s sends a message, with a body", (_id, t) => {
     expect(t.draft.spec.actions.length).toBeGreaterThan(0);

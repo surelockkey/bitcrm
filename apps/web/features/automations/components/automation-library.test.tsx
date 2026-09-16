@@ -40,10 +40,10 @@ describe("AutomationLibrary", () => {
     const user = userEvent.setup();
     const { onUse } = renderLibrary();
 
-    await user.click(screen.getByRole("button", { name: "Use Voicemail / Immediate text" }));
+    await user.click(screen.getByRole("button", { name: "Use Completed call / Text client" }));
 
     expect(onUse).toHaveBeenCalledTimes(1);
-    expect(onUse).toHaveBeenCalledWith(AUTOMATION_TEMPLATES.find((t) => t.id === "voicemail-text-client"));
+    expect(onUse).toHaveBeenCalledWith(AUTOMATION_TEMPLATES.find((t) => t.id === "completed-call-text-client"));
   });
 
   it("reaches Use with the keyboard alone — it is never hover-only", async () => {
@@ -60,13 +60,13 @@ describe("AutomationLibrary", () => {
   });
 
   it("filters on the title, the sentence and the blurb", () => {
-    const { rerender } = render(<AutomationLibrary canEdit search="voicemail" onUse={vi.fn()} />);
+    const { rerender } = render(<AutomationLibrary canEdit search="answered" onUse={vi.fn()} />);
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Phone"]);
-    expect(cardOf("voicemail-text-client")).toBeInTheDocument();
+    expect(cardOf("completed-call-text-client")).toBeInTheDocument();
     expect(screen.queryByTestId("automation-template-missed-call-text-client")).not.toBeInTheDocument();
 
     // A word only the sentence has…
-    rerender(<AutomationLibrary canEdit search="ahead of the job" onUse={vi.fn()} />);
+    rerender(<AutomationLibrary canEdit search="before a job starts" onUse={vi.fn()} />);
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Reminders"]);
 
     // …and one only a blurb has.

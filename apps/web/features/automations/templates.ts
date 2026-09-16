@@ -12,10 +12,22 @@ import { JobSuperStatus, type AutomationSpec } from "@bitcrm/types";
  * codes (`templates/short-codes.ts`). Nothing is invented — a recipe with no
  * evidence behind it is a guess a dispatcher would have to unlearn.
  *
+ * What is NOT copied from Workiz is the plumbing: a recipe has to fire *here*.
+ * Three of the Workiz originals hang on "a job has a status of submitted",
+ * which in BitCRM is the status of a job nobody has been put on yet — the
+ * first assignment moves it to In progress (`deals.service.ts` assignTechs)
+ * and publishes `deal.tech_assigned`, not a status change. Those recipes are
+ * translated to the event that actually happens, and the reminders ask what
+ * they really mean ("the job is still on") instead of naming a status.
+ *
  * Section order is what carries traffic here, not what Workiz listed first:
  * four job-status / phone rules are 79.7% of the 2026 automated messages.
  * Invoice, estimate, payment, lead and service-plan recipes are deliberately
- * absent — money and leads are out of scope until BitCRM has invoices.
+ * absent — money and leads are out of scope until BitCRM has invoices. So is
+ * Workiz's `Voicemail / Immediate text`: nothing publishes a voicemail flag on
+ * `call.completed` (telephony's payload has none, so `callOutcome` only ever
+ * answers missed / answered), and a caller who leaves one after a failed dial
+ * is already reported as a missed call — the missed-call recipe texts them.
  */
 export const AUTOMATION_TEMPLATE_SECTIONS = ["Job status", "Phone", "Reminders", "Marketing"] as const;
 export type AutomationTemplateSection = (typeof AUTOMATION_TEMPLATE_SECTIONS)[number];
@@ -38,6 +50,12 @@ export interface AutomationTemplate {
 
 const sms = (body: string, to: AutomationSpec["actions"][number]["to"] = "client") =>
   [{ type: "send_sms" as const, to, body }];
+
+/** "The job is still on" — every reminder's real precondition. One value each, because the editor's condition row edits one. */
+const stillOn = (): AutomationSpec["conditions"] => [
+  { field: "status", op: "not_in", values: [JobSuperStatus.CANCELED], labels: ["Canceled"] },
+  { field: "status", op: "not_in", values: [JobSuperStatus.DONE], labels: ["Done"] },
+];
 
 export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   // ------------------------------------------------------------- Job status
@@ -66,16 +84,18 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     id: "job-scheduled-notify-techs",
     section: "Job status",
     title: "Job scheduled / Notify techs",
-    sentence: "When a job has a status of <Submitted>, send <the assigned techs> <a text message> immediately",
-    blurb: "Every tech put on a new job gets the address, the window and what the work is.",
+    sentence: "When a technician is put on a job, send <the assigned techs> <a text message> immediately",
+    // Workiz fired this on "status = submitted"; here that is the status of a
+    // job with an empty roster, so the Workiz shape would text nobody, ever.
+    blurb: "Every tech put on a job gets the address, the window and the work — in your own words.",
     popular: true,
     draft: {
       name: "Job scheduled / Notify techs",
       category: "job",
       spec: {
         version: 1,
-        trigger: { kind: "deal.status_changed", to: [JobSuperStatus.SUBMITTED] },
-        conditions: [{ field: "hasTechs", op: "exists" }],
+        trigger: { kind: "deal.tech_assigned" },
+        conditions: [],
         actions: sms(
           "New scheduled job at {{full_address}}\nTime: {{job_date}} from {{appointment_time}} to {{job_end_time}}\nService: {{description}}\nJob {{job_id}}\nPlease let us know if anything has to change.",
           "assigned_techs",
@@ -109,8 +129,8 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     id: "missed-call-notify-office",
     section: "Phone",
     title: "Missed call / Notify office",
-    sentence: "When a call is missed, send <the office> <a text message> immediately",
-    blurb: "The office is told at once so somebody calls back — the number is in the call log.",
+    sentence: "When a call is missed, send <the office number> <a text message> immediately",
+    blurb: "Whoever covers the phones is told at once — the caller's number is in the call log.",
     draft: {
       name: "Missed call / Notify office",
       category: "phone",
@@ -118,9 +138,11 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
         version: 1,
         trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
         conditions: [],
-        // Who "the office" is, is a slot: user ids belong to this workspace,
-        // so the recipe ships the recipient kind and nobody in it.
-        actions: sms("We missed a call — nobody picked up. Please call the client back from the call log.", "users"),
+        // Workiz sent this to a named user. The editor has no user or role
+        // picker yet, and a `users` action with nobody in it resolves to no
+        // recipient and sends nothing for ever; a number is a slot the editor
+        // shows and the form refuses to save empty.
+        actions: sms("We missed a call — nobody picked up. Please call the client back from the call log.", "number"),
       },
     },
   },
@@ -144,25 +166,6 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
       },
     },
   },
-  {
-    id: "voicemail-text-client",
-    section: "Phone",
-    title: "Voicemail / Immediate text",
-    sentence: "When a call goes to voicemail, send the client <a text message> immediately",
-    blurb: "Somebody who left a voicemail is told a person is already on it.",
-    draft: {
-      name: "Voicemail / Immediate text",
-      category: "phone",
-      spec: {
-        version: 1,
-        trigger: { kind: "call.completed", callOutcome: "voicemail", callDirection: "inbound" },
-        conditions: [],
-        actions: sms(
-          "Thank you for calling {{biz_name}}! Sorry we missed your call — a team member will get back to you shortly. We are here 24/7 at {{biz_number}}.",
-        ),
-      },
-    },
-  },
 
   // -------------------------------------------------------------- Reminders
   {
@@ -170,7 +173,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     section: "Reminders",
     title: "1 hour notice / Client reminder",
     sentence:
-      "When a job has a status of <Submitted>, send the client <a text message> <1 hour> ahead of the job's start",
+      "When it is <1 hour> before a job starts and the job is not canceled or done, send the client <a text message>",
     blurb: "Cuts no-shows: the client gets the time, the address and a confirm link an hour out.",
     draft: {
       name: "1 hour notice / Client reminder",
@@ -178,7 +181,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
       spec: {
         version: 1,
         trigger: { kind: "schedule.relative", anchor: "scheduledStart", offsetMinutes: -60 },
-        conditions: [{ field: "status", op: "in", values: [JobSuperStatus.SUBMITTED], labels: ["Submitted"] }],
+        conditions: stillOn(),
         actions: sms(
           "Hi {{first_name}}, a reminder about your appointment with {{biz_name}}.\nDate: {{job_date}} at {{appointment_time}}\nAddress: {{full_address}}\nTech: {{tech_assigned}}\nPlease confirm here: {{confirm_link}}\nCall or text us with any questions.",
         ),
@@ -190,7 +193,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     section: "Reminders",
     title: "1 hour notice / Tech reminder",
     sentence:
-      "When a job has a status of <Submitted>, send <the assigned techs> <a text message> <1 hour> ahead of the job's start",
+      "When it is <1 hour> before a job starts and a tech is on it, send <the assigned techs> <a text message>",
     blurb: "The tech is reminded of the next job an hour out — address, time and the work.",
     draft: {
       name: "1 hour notice / Tech reminder",
@@ -198,7 +201,9 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
       spec: {
         version: 1,
         trigger: { kind: "schedule.relative", anchor: "scheduledStart", offsetMinutes: -60 },
-        conditions: [{ field: "status", op: "in", values: [JobSuperStatus.SUBMITTED], labels: ["Submitted"] }],
+        // Without the roster check this reminder would arm for jobs nobody is
+        // on and then find no one to text.
+        conditions: [...stillOn(), { field: "hasTechs", op: "exists" }],
         actions: sms(
           "Reminder: job {{job_id}} starts at {{appointment_time}} today.\nAddress: {{full_address}}\nService: {{description}}",
           "assigned_techs",
