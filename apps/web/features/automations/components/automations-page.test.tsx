@@ -198,8 +198,13 @@ describe("AutomationsPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Firing log of Canceled job & techs" }));
     const runs = await screen.findByTestId("automation-runs");
-    expect(within(runs).getByText("deal:d1 · 1 sent")).toBeInTheDocument();
-    expect(within(runs).getByText("Sent")).toBeInTheDocument();
+    // The log names what it did, not the key it is filed under (§4.6 item 1).
+    expect(within(runs).getByRole("link", { name: "Open job d1" })).toHaveAttribute(
+      "href",
+      "/deals/d1",
+    );
+    expect(within(runs).getByText(/1 sent/)).toBeInTheDocument();
+    expect(within(runs).getByText(/to tech Ann/)).toBeInTheDocument();
   });
 });
 
