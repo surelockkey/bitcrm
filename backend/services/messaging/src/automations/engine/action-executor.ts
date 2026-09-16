@@ -220,7 +220,13 @@ export class AutomationActionExecutor {
     switch (action.to ?? 'client') {
       case 'client': {
         const contactId = deal?.contactId ?? ctx.facts.message?.partyId ?? ctx.facts.call?.contactId;
-        return contactId ? [{ key: `contact:${contactId}`, label: 'client', contactId }] : [];
+        if (contactId) return [{ key: `contact:${contactId}`, label: 'client', contactId }];
+        // A missed call carries no contact id — the client *is* the other
+        // end of the call. The number is routed through ADDR# and CRM the
+        // same way an inbound text from it would be, so a caller CRM knows
+        // lands in their own thread and a stranger gets an `unknown` one.
+        const phone = this.otherEnd(ctx);
+        return phone ? [{ key: `num:${phone}`, label: 'client', phone }] : [];
       }
       case 'assigned_techs':
         return this.users(deal?.assignedTechIds ?? [], 'tech');
@@ -238,6 +244,13 @@ export class AutomationActionExecutor {
       default:
         return [];
     }
+  }
+
+  /** The customer's own number on a call or an inbound message, if the event carries one. */
+  private otherEnd(ctx: ActionContext): string | undefined {
+    const call = ctx.facts.call;
+    if (call) return call.direction === 'outbound' ? call.to : call.from;
+    return ctx.facts.message?.from;
   }
 
   private async users(ids: string[], label: string): Promise<Recipient[]> {

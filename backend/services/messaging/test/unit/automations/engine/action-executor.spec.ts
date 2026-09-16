@@ -187,6 +187,31 @@ describe('AutomationActionExecutor', () => {
     expect(result.conversationId).toBeUndefined();
   });
 
+  it('texts the caller back when a call rule has no job and no contact', async () => {
+    const { executor, send } = harness();
+    const callCtx = ctx({
+      event: { kind: 'call.completed', at: NOW, call: { sid: 'CA1', outcome: 'missed', direction: 'inbound' } },
+      facts: { call: { callSid: 'CA1', direction: 'inbound', status: 'no-answer', from: '+14045551234', to: '+14045550000' } },
+      entity: 'call:CA1',
+      occurrence: 'call:CA1',
+    });
+    const [result] = await executor.run(sms(), callCtx);
+
+    expect(send.conversationForParty).toHaveBeenCalledWith({ phone: '+14045551234' });
+    expect(result).toMatchObject({ to: 'client', outcome: 'sent' });
+
+    // On an outbound call the client is the number we dialled.
+    const { executor: out, send: outSend } = harness();
+    await out.run(
+      sms(),
+      ctx({
+        ...callCtx,
+        facts: { call: { callSid: 'CA2', direction: 'outbound', status: 'completed', from: '+14045550000', to: '+14045557777' } },
+      }),
+    );
+    expect(outSend.conversationForParty).toHaveBeenCalledWith({ phone: '+14045557777' });
+  });
+
   it('resolves role recipients through the directory', async () => {
     const { executor, peers } = harness();
     const results = await executor.run(sms({ to: 'role', roleIds: ['role-dispatch'] }), ctx());
