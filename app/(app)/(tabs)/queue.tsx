@@ -1,15 +1,6 @@
-import { EmptyState } from '../../../src/ui/EmptyState';
-import { Screen, ScreenHeader } from '../../../src/ui/Screen';
+import { router } from 'expo-router';
+import { QueueScreen } from '../../../src/features/queue/queue-screen';
 
-/** Placeholder until the outbox lands. */
 export default function QueueTab() {
-  return (
-    <Screen testID="queue-screen">
-      <ScreenHeader title="Queue" />
-      <EmptyState
-        title="Nothing waiting"
-        body="Actions taken without a signal will be listed here."
-      />
-    </Screen>
-  );
+  return <QueueScreen onOpenJob={(dealId) => router.push(`/jobs/${dealId}`)} />;
 }

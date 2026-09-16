@@ -1,5 +1,7 @@
 import { StyleSheet, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router/js-tabs';
+import { summarizeQueue, tabBadge } from '../../../src/features/queue/lib';
+import { useQueue } from '../../../src/features/queue/queue-provider';
 import { useTheme } from '../../../src/lib/theme/theme-provider';
 
 /** A tab marker drawn from Views — no icon font, nothing extra to ship. */
@@ -16,6 +18,9 @@ function TabDot({ color, focused }: { color: ColorValue; focused: boolean }) {
 
 export default function TabsLayout() {
   const { colors, type } = useTheme();
+  const { records } = useQueue();
+  const counts = summarizeQueue(records);
+
   return (
     <Tabs
       screenOptions={{
@@ -33,7 +38,19 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'My jobs' }} />
-      <Tabs.Screen name="queue" options={{ title: 'Queue' }} />
+      <Tabs.Screen
+        name="queue"
+        options={{
+          title: 'Queue',
+          // What has not reached the server, visible from every screen — a
+          // technician should never have to go looking to find that out.
+          tabBarBadge: tabBadge(counts),
+          tabBarBadgeStyle: {
+            backgroundColor: counts.failed ? colors.danger : colors.primary,
+            color: colors.onAccent,
+          },
+        }}
+      />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );
