@@ -20,8 +20,9 @@ import { ProductType } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import {
   createProductSchema,
-  updateProductSchema,
+  updateProductSchemaFor,
   type CreateProductValues,
+  type UpdateProductValues,
 } from "../schemas";
 import { formatMargin } from "../lib";
 
@@ -60,10 +61,21 @@ export function ProductForm({
   categories: string[];
   submitting: boolean;
   submitLabel: string;
-  onSubmit: (values: ProductFormValues) => void;
+  /**
+   * `changed` carries only the fields whose value the user actually edited —
+   * send that as the PUT body so an imported item with an out-of-range value
+   * somewhere else in the form still saves (the API validates only the fields
+   * present in the body). `values` is the whole form, as before.
+   */
+  onSubmit: (values: ProductFormValues, changed: Partial<ProductFormValues>) => void;
   onCancel: () => void;
 }) {
-  const schema = mode === "create" ? createProductSchema : updateProductSchema;
+  // In edit mode the caps are waived for values the user leaves untouched —
+  // imported items break them and must stay editable (see updateProductSchemaFor).
+  const schema =
+    mode === "create"
+      ? createProductSchema
+      : updateProductSchemaFor(defaults as Partial<UpdateProductValues> | undefined);
   const form = useForm<ProductFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(schema as any),
@@ -71,6 +83,21 @@ export function ProductForm({
   });
   const { register, control, setValue, handleSubmit, formState } = form;
   const errors = formState.errors;
+  // Read during render so react-hook-form's formState proxy actually tracks it.
+  const dirtyFields = formState.dirtyFields as Partial<
+    Record<keyof ProductFormValues, boolean>
+  >;
+
+  const submit = (values: ProductFormValues) => {
+    const changed: Partial<ProductFormValues> = {};
+    for (const key of Object.keys(values) as (keyof ProductFormValues)[]) {
+      if (dirtyFields[key]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (changed as any)[key] = values[key];
+      }
+    }
+    onSubmit(values, changed);
+  };
 
   const type = useWatch({ control, name: "type" });
   const serialTracking = useWatch({ control, name: "serialTracking" });
@@ -85,7 +112,7 @@ export function ProductForm({
     ) : null;
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-7" noValidate>
+    <form onSubmit={handleSubmit(submit)} className="space-y-7" noValidate>
       {/* Identity */}
       <Group label="Identity">
         <Field label="Name" error={err("name")}>
@@ -116,7 +143,7 @@ export function ProductForm({
             <Select
               value={type}
               disabled={readOnly}
-              onValueChange={(v) => setValue("type", v as ProductType)}
+              onValueChange={(v) => setValue("type", v as ProductType, { shouldDirty: true })}
             >
               <SelectTrigger className="h-10 w-full">
                 <SelectValue />
@@ -171,7 +198,7 @@ export function ProductForm({
               <Switch
                 checked={!!serialTracking}
                 disabled={readOnly}
-                onCheckedChange={(c) => setValue("serialTracking", c)}
+                onCheckedChange={(c) => setValue("serialTracking", c, { shouldDirty: true })}
               />
             </label>
             <div className="grid grid-cols-2 gap-3">

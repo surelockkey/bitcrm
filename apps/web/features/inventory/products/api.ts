@@ -1,6 +1,6 @@
 import type { Product, PaginatedResponse } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
-import type { CreateProductValues, UpdateProductValues } from "./schemas";
+import type { CreateProductValues, PatchProductValues } from "./schemas";
 import { effectiveProductQuery, type ProductFilter } from "./lib";
 
 export interface ImportResult {
@@ -43,9 +43,10 @@ export function createProduct(body: CreateProductValues): Promise<Product> {
   return http.post<Product>("/inventory/products", body);
 }
 
+/** Partial body: only the fields the caller means to change are validated. */
 export function updateProduct(
   id: string,
-  body: UpdateProductValues,
+  body: PatchProductValues,
 ): Promise<Product> {
   return http.put<Product>(`/inventory/products/${id}`, body);
 }
