@@ -51,14 +51,21 @@ function harness(over: Record<string, any> = {}) {
     ...(over.send ?? {}),
   };
   const fetchImpl = over.fetchImpl ?? jest.fn(async () => ({ ok: true, status: 200 }) as Response);
+  const conversations = {
+    getByParty: jest.fn(async () => createMockConversation({ id: 'c-existing' })),
+    getByAddress: jest.fn(async () => ({ conversationId: 'c-existing' })),
+    get: jest.fn(async () => createMockConversation({ id: 'c-existing' })),
+    ...(over.conversations ?? {}),
+  };
   const executor = new AutomationActionExecutor(
     peers as any,
     threads as any,
     renderer as any,
     send as any,
     fetchImpl as any,
+    conversations as any,
   );
-  return { executor, peers, threads, renderer, send, fetchImpl };
+  return { executor, peers, threads, renderer, send, fetchImpl, conversations };
 }
 
 const sms = (over: Partial<AutomationAction> = {}): AutomationAction => ({
@@ -151,8 +158,33 @@ describe('AutomationActionExecutor', () => {
   it('a test run renders and resolves but sends nothing', async () => {
     const { executor, send } = harness();
     const [result] = await executor.run(sms(), ctx({ dryRun: true }));
-    expect(result).toMatchObject({ outcome: 'dry_run', body: 'Hi Jane' });
+    expect(result).toMatchObject({ outcome: 'dry_run', body: 'Hi Jane', conversationId: 'c-existing' });
     expect(send.sendSystem).not.toHaveBeenCalled();
+  });
+
+  it('a test run opens no thread and writes no pointer — it only reads', async () => {
+    const { executor, send, threads, conversations } = harness();
+
+    const [client] = await executor.run(sms(), ctx({ dryRun: true }));
+    const techs = await executor.run(sms({ to: 'assigned_techs' }), ctx({ dryRun: true }));
+    const [number] = await executor.run(sms({ to: 'number', number: '+14045559999' }), ctx({ dryRun: true }));
+
+    expect([client, ...techs, number].every((r) => r.outcome === 'dry_run')).toBe(true);
+    // None of the find-or-create paths ran: those write a thread and its ADDR# rows.
+    expect(send.conversationForContact).not.toHaveBeenCalled();
+    expect(send.conversationForParty).not.toHaveBeenCalled();
+    expect(threads.forTechnician).not.toHaveBeenCalled();
+    expect(conversations.getByParty).toHaveBeenCalledWith('contact', 'ct1');
+    expect(conversations.getByAddress).toHaveBeenCalledWith('+14045559999');
+  });
+
+  it('a test run still renders for a recipient who has no thread yet', async () => {
+    const { executor } = harness({
+      conversations: { getByParty: jest.fn(async () => null), getByAddress: jest.fn(async () => null) },
+    });
+    const [result] = await executor.run(sms(), ctx({ dryRun: true }));
+    expect(result).toMatchObject({ outcome: 'dry_run', body: 'Hi Jane' });
+    expect(result.conversationId).toBeUndefined();
   });
 
   it('resolves role recipients through the directory', async () => {

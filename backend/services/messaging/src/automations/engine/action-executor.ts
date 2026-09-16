@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { type AutomationAction, type AutomationRunAction } from '@bitcrm/types';
+import { tryNormalizePhone } from '@bitcrm/shared';
+import { type AutomationAction, type AutomationRunAction, type Conversation } from '@bitcrm/types';
+import { ConversationsRepository } from '../../conversations/conversations.repository';
 import { INTERNAL_FETCH, defaultFetch, type FetchLike } from '../../outbound/internal/internal-fetch';
 import { RecipientOptedOutException, SendService } from '../../outbound/send.service';
 import { TemplateRenderer } from '../../templates/template-renderer';
@@ -69,6 +71,7 @@ export class AutomationActionExecutor {
     private readonly renderer: TemplateRenderer,
     private readonly send: SendService,
     @Optional() @Inject(INTERNAL_FETCH) private readonly fetchImpl: FetchLike = defaultFetch,
+    private readonly conversations: ConversationsRepository,
   ) {}
 
   async run(action: AutomationAction, ctx: ActionContext): Promise<AutomationRunAction[]> {
@@ -123,14 +126,13 @@ export class AutomationActionExecutor {
   ): Promise<AutomationRunAction> {
     const base: AutomationRunAction = { type: action.type, to: recipient.label, outcome: 'skipped' };
     try {
-      const conversation = recipient.user
-        ? await this.threads.forTechnician(recipient.user)
-        : recipient.contactId
-          ? (await this.send.conversationForContact(recipient.contactId)).conversation
-          : recipient.phone
-            ? (await this.send.conversationForParty({ phone: recipient.phone })).conversation
-            : undefined;
-      if (!conversation) return { ...base, error: 'no conversation for the recipient' };
+      // A test run must leave the table exactly as it found it: the
+      // find-or-create resolvers open a thread (and its ADDR# pointers) for
+      // a recipient who has none, so a dry run reads instead — and renders
+      // without one when there is nothing to read.
+      const conversation = ctx.dryRun
+        ? await this.existingConversation(recipient)
+        : await this.openConversation(recipient);
 
       const to = recipient.user?.phone ?? recipient.phone;
       if (recipient.user && !to) return { ...base, error: 'the employee has no personal phone' };
@@ -142,7 +144,7 @@ export class AutomationActionExecutor {
           format: 'text',
         },
         {
-          conversationId: conversation.id,
+          ...(conversation ? { conversationId: conversation.id } : {}),
           contactId: recipient.contactId ?? ctx.facts.deal?.contactId,
           dealId: ctx.facts.deal?.id,
           userId: recipient.user?.id,
@@ -151,7 +153,10 @@ export class AutomationActionExecutor {
       );
       const body = rendered.body.trim();
       if (!body) return { ...base, error: 'the text rendered empty' };
-      if (ctx.dryRun) return { ...base, outcome: 'dry_run', body, conversationId: conversation.id };
+      if (ctx.dryRun) {
+        return { ...base, outcome: 'dry_run', body, ...(conversation ? { conversationId: conversation.id } : {}) };
+      }
+      if (!conversation) return { ...base, error: 'no conversation for the recipient' };
 
       const result = await this.send.sendSystem({
         conversation,
@@ -177,6 +182,30 @@ export class AutomationActionExecutor {
       this.logger.warn(`Rule ${ctx.ruleId} could not text ${recipient.label}: ${message}`);
       return { ...base, outcome: 'failed', error: message };
     }
+  }
+
+  /** The recipient's thread, opened if they have none — the real send path. */
+  private async openConversation(recipient: Recipient): Promise<Conversation | undefined> {
+    if (recipient.user) return this.threads.forTechnician(recipient.user);
+    if (recipient.contactId) return (await this.send.conversationForContact(recipient.contactId)).conversation;
+    if (recipient.phone) return (await this.send.conversationForParty({ phone: recipient.phone })).conversation;
+    return undefined;
+  }
+
+  /**
+   * The recipient's thread only if it already exists — three `GetItem`s at
+   * most and never a write. `POST /automations/:id/test` says "nothing is
+   * sent, nothing is logged", and that has to include the thread and the
+   * `ADDR#` pointers a first text would open.
+   */
+  private async existingConversation(recipient: Recipient): Promise<Conversation | undefined> {
+    if (recipient.user) return (await this.conversations.getByParty('user', recipient.user.id)) ?? undefined;
+    if (recipient.contactId) return (await this.conversations.getByParty('contact', recipient.contactId)) ?? undefined;
+    if (recipient.phone) {
+      const pointer = await this.conversations.getByAddress(tryNormalizePhone(recipient.phone) ?? recipient.phone);
+      return pointer ? ((await this.conversations.get(pointer.conversationId)) ?? undefined) : undefined;
+    }
+    return undefined;
   }
 
   /** `automation:<rule>:<entity>:<occurrence hash>:<action>:<recipient>` — replay-proof and bounded. */
