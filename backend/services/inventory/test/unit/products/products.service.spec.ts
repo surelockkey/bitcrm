@@ -194,6 +194,51 @@ describe('ProductsService', () => {
 
       expect(repository.findById).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * Every deduct and every restore runs assertStockable and then
+     * partitionStockManaged over the same ids. Both used to go straight to the
+     * repository, so a movement cost 2 × GetItem per distinct product.
+     */
+    it('reads a product once across both stock guards', async () => {
+      const store = new Map<string, unknown>();
+      cache.get.mockImplementation(async (id: string) => store.get(id) ?? null);
+      cache.set.mockImplementation(async (id: string, p: unknown) => {
+        store.set(id, p);
+      });
+      repository.findById.mockResolvedValue(
+        createMockProduct({ id: 'prod-1', type: ProductType.PRODUCT }),
+      );
+      const items = [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 1 }];
+
+      await service.assertStockable(items.map((i) => i.productId));
+      const { managed } = await service.partitionStockManaged(items);
+
+      expect(managed).toEqual(items);
+      expect(repository.findById).toHaveBeenCalledTimes(1);
+    });
+
+    it('still guards when the cache is unavailable', async () => {
+      // These paths had no Redis dependency before; a cache outage must not
+      // turn into a failed deduct.
+      cache.get.mockRejectedValue(new Error('redis down'));
+      cache.set.mockRejectedValue(new Error('redis down'));
+      repository.findById.mockResolvedValue(
+        createMockProduct({ id: 'svc-1', name: 'Rekey', type: ProductType.SERVICE }),
+      );
+
+      await expect(service.assertStockable(['svc-1'])).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.isStockManaged('svc-1')).resolves.toBe(true);
+    });
+
+    it('reflects a cached manageStock: false without a second read', async () => {
+      cache.get.mockResolvedValue({ ...createMockProduct(), manageStock: false });
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(false);
+      expect(repository.findById).not.toHaveBeenCalled();
+    });
   });
 
   describe('findBySku', () => {

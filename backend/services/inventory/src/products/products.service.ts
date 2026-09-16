@@ -130,6 +130,40 @@ export class ProductsService {
   }
 
   /**
+   * One read per product for the stock guards, shared between them.
+   * `assertStockable` and `partitionStockManaged` run back to back on every
+   * deduct and every restore; without a shared read that is 2 × GetItem per
+   * distinct product. Unlike `findById` this resolves an unknown id to null
+   * instead of throwing — stock callers may pass ids this service never
+   * persisted.
+   *
+   * Cache failures degrade to a plain repository read: these paths worked with
+   * no Redis dependency at all before, and must keep working if it is down.
+   */
+  private async loadForStockGuard(id: string): Promise<ProductWithExtras | null> {
+    try {
+      const cached = await this.cache.get(id);
+      if (cached) return cached as ProductWithExtras;
+    } catch (err) {
+      this.logger.warn(
+        `Product cache read failed for ${id}: ${(err as Error).message}`,
+      );
+    }
+
+    const product = await this.repository.findById(id);
+    if (product) {
+      try {
+        await this.cache.set(id, product);
+      } catch (err) {
+        this.logger.warn(
+          `Product cache write failed for ${id}: ${(err as Error).message}`,
+        );
+      }
+    }
+    return product as ProductWithExtras | null;
+  }
+
+  /**
    * Guard for stock operations. Services are non-stockable, so they may never be
    * received into a warehouse, transferred between locations, or moved through a
    * technician's container. Unknown product ids are ignored (callers may pass ids
@@ -139,7 +173,7 @@ export class ProductsService {
     const uniqueIds = [...new Set(productIds)];
     const serviceNames: string[] = [];
     for (const id of uniqueIds) {
-      const product = await this.repository.findById(id);
+      const product = await this.loadForStockGuard(id);
       if (product?.type === ProductType.SERVICE) {
         serviceNames.push(product.name);
       }
@@ -163,11 +197,12 @@ export class ProductsService {
    * A product is stock-managed unless its stored row says `manageStock` is
    * exactly `false`. Everything BitCRM has written carries no such attribute,
    * so this changes nothing for existing data.
+   *
+   * Shares `loadForStockGuard` with `assertStockable`, which always runs
+   * first, so the product is fetched once per movement rather than twice.
    */
   async isStockManaged(productId: string): Promise<boolean> {
-    const product = (await this.repository.findById(productId)) as
-      | ProductWithExtras
-      | null;
+    const product = await this.loadForStockGuard(productId);
     return product?.manageStock !== false;
   }
 
