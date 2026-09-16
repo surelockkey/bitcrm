@@ -4,6 +4,7 @@ import {
   type AutomationRule,
   type AutomationRun,
   type AutomationRunOutcome,
+  type AutomationScheduleAnchor,
   type AutomationTriggerKind,
 } from "@bitcrm/types";
 
@@ -18,6 +19,96 @@ export const TRIGGER_LABEL: Record<AutomationTriggerKind, string> = {
   "message.received": "Message received",
   "schedule.relative": "Before / after the job",
 };
+
+/**
+ * Whether the thing that fires this rule is a job. A call and an inbound
+ * message are not: the engine hands them no deal (`deal-events.handler.ts`
+ * builds call facts with no `dealId`), so every recipient read off a job —
+ * the dispatcher, the assigned techs — resolves to nobody there.
+ */
+export function triggerHasJob(kind: AutomationTriggerKind): boolean {
+  return kind !== "call.completed" && kind !== "message.received";
+}
+
+/** The Workiz `{p6}` slot: the date a relative reminder counts from. */
+export const ANCHOR_LABEL: Record<AutomationScheduleAnchor, string> = {
+  scheduledStart: "the job's start",
+  scheduledEnd: "the job's end",
+  statusChangedAt: "the status change",
+  createdAt: "when it was created",
+};
+
+/**
+ * Whether a reminder can be asked for *ahead of* this anchor. Only a job's
+ * schedule lies in the future: a job's creation and its last status change
+ * have already happened by the time any event reaches the engine, and
+ * `armRelative` arms nothing for a moment more than two minutes past
+ * (`rule-engine.service.ts` RELATIVE_ARM_GRACE_MINUTES) — so "1 hour ahead
+ * of when it was created" is a rule that can never fire.
+ */
+export function anchorAllowsBefore(anchor: AutomationScheduleAnchor): boolean {
+  return anchor === "scheduledStart" || anchor === "scheduledEnd";
+}
+
+export const OFFSET_UNITS = ["minutes", "hours", "days"] as const;
+export type OffsetUnit = (typeof OFFSET_UNITS)[number];
+
+const UNIT_MINUTES: Record<OffsetUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+
+/** How far the editor lets an offset reach — the spec's own ±30 days. */
+export const MAX_OFFSET_MINUTES = 43_200;
+
+export interface OffsetParts {
+  value: number;
+  unit: OffsetUnit;
+  /** Workiz's `{p5}` operator: `ahead` is a negative offset, `after` a positive one. */
+  direction: "before" | "after";
+}
+
+/** `-60` → `1 hour before`; the largest whole unit, so the editor reads back what was written. */
+export function splitOffset(minutes: number | undefined): OffsetParts {
+  const total = minutes ?? 0;
+  const abs = Math.abs(total);
+  const unit: OffsetUnit = abs % 1440 === 0 && abs !== 0 ? "days" : abs % 60 === 0 && abs !== 0 ? "hours" : "minutes";
+  return { value: abs / UNIT_MINUTES[unit], unit, direction: total < 0 ? "before" : "after" };
+}
+
+/** The inverse of `splitOffset` — what the trigger stores. */
+export function joinOffset(parts: OffsetParts): number {
+  const magnitude = Math.round(parts.value) * UNIT_MINUTES[parts.unit];
+  return parts.direction === "before" ? -magnitude : magnitude;
+}
+
+/**
+ * A message body split into what the chip editor draws: runs of plain text
+ * and atomic short codes. `raw` is the placeholder exactly as it was written
+ * — the renderer accepts `{{ job_date }}` and `{{Gate code}}` as readily as
+ * `{{job_date}}` (`template-renderer.ts` PLACEHOLDER), and an editor that
+ * rewrote them would quietly edit a message nobody asked it to touch.
+ */
+export type MessageSegment =
+  | { type: "text"; text: string }
+  | { type: "code"; code: string; raw: string };
+
+const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
+
+export function messageSegments(body: string): MessageSegment[] {
+  const out: MessageSegment[] = [];
+  let at = 0;
+  for (const match of body.matchAll(PLACEHOLDER)) {
+    const start = match.index ?? 0;
+    if (start > at) out.push({ type: "text", text: body.slice(at, start) });
+    out.push({ type: "code", code: match[1], raw: match[0] });
+    at = start + match[0].length;
+  }
+  if (at < body.length) out.push({ type: "text", text: body.slice(at) });
+  return out;
+}
+
+/** The body back, character for character — `segmentsToBody(messageSegments(x)) === x`. */
+export function segmentsToBody(segments: MessageSegment[]): string {
+  return segments.map((s) => (s.type === "code" ? s.raw : s.text)).join("");
+}
 
 /**
  * The Workiz-style sentence for a rule. A rule with a spec says what it
