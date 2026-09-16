@@ -10,6 +10,7 @@ import { useMe } from "@/features/auth/use-me";
 import { useDeals } from "@/features/deals/hooks";
 import * as dealsApi from "@/features/deals/api";
 import * as messagingApi from "@/features/messaging/api";
+import { newClientMessageId } from "@/features/messaging/lib";
 import { groupJobsByDay, localDateIso } from "./lib";
 
 /**
@@ -21,9 +22,11 @@ import { groupJobsByDay, localDateIso } from "./lib";
 export function useMyJobs(todayIso: string = localDateIso()) {
   const { data: me } = useMe();
   const techId = me?.id;
-  // The server forces `techId = caller` under the assigned_only scope, but a
-  // dispatcher opening this page still sees only THEIR jobs, so pass it — and
-  // wait for the id rather than asking for the whole board in the meantime.
+  // `techId` is what makes this page "mine": the server only DEFAULTS it to
+  // the caller under the assigned_only scope (`DealsService.list`), and a
+  // dispatcher opening this page has no scope narrowing them at all, so the
+  // id has to be sent — and waited for, rather than asking for the whole
+  // board in the meantime.
   const query = useDeals({ techId }, { poll: true, enabled: Boolean(techId) });
   const groups = useMemo(
     () => groupJobsByDay(query.data ?? [], todayIso, techId),
@@ -113,6 +116,17 @@ export function useMarkArrived(dealId: string) {
  */
 export const GEOLOCATION_TIMEOUT_MS = 8_000;
 
+/**
+ * The widest fix the server will store (`MarkArrivedDto.accuracy`, `@Max`).
+ * A laptop or a tablet with no GPS gets its position from the network and can
+ * report a radius of hundreds of kilometres; that number is an annotation, so
+ * it is dropped rather than allowed to 400 the arrival it annotates.
+ */
+export const MAX_REPORTED_ACCURACY_M = 100_000;
+
+const reportableAccuracy = (accuracy: number): boolean =>
+  Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= MAX_REPORTED_ACCURACY_M;
+
 export function currentPosition(): Promise<
   { lat: number; lng: number; accuracy?: number } | undefined
 > {
@@ -125,7 +139,7 @@ export function currentPosition(): Promise<
         resolve({
           lat: p.coords.latitude,
           lng: p.coords.longitude,
-          ...(Number.isFinite(p.coords.accuracy) ? { accuracy: p.coords.accuracy } : {}),
+          ...(reportableAccuracy(p.coords.accuracy) ? { accuracy: p.coords.accuracy } : {}),
         }),
       () => resolve(undefined),
       { enableHighAccuracy: true, timeout: GEOLOCATION_TIMEOUT_MS, maximumAge: 60_000 },
@@ -133,11 +147,27 @@ export function currentPosition(): Promise<
   });
 }
 
+/**
+ * "On my way" / "Running late" — the workspace's own text, rendered and sent
+ * server-side.
+ *
+ * Each tap mints its own `clientMessageId`. Without one the server dedupes on
+ * (rule, job, technician, 15-minute bucket), which ignores the minutes: a
+ * technician who says "15 minutes" and then, five minutes later, "45 minutes"
+ * would see the second text accepted (202) and silently dropped as a duplicate,
+ * while the client was never told. A genuine double-tap is already covered —
+ * the button is disabled while the mutation is in flight.
+ */
+
 /** "On my way" — the workspace's own text, rendered and sent server-side. */
 export function useOnMyWay(dealId: string) {
   return useMutation({
     mutationFn: (etaMinutes?: number) =>
-      messagingApi.sendOnMyWay({ dealId, ...(etaMinutes ? { etaMinutes } : {}) }),
+      messagingApi.sendOnMyWay({
+        dealId,
+        ...(etaMinutes ? { etaMinutes } : {}),
+        clientMessageId: newClientMessageId(),
+      }),
     onSuccess: () => toast.success("Client told you're on the way"),
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -146,7 +176,8 @@ export function useOnMyWay(dealId: string) {
 /** "Running late" — same, with how many minutes. */
 export function useRunningLate(dealId: string) {
   return useMutation({
-    mutationFn: (minutes: number) => messagingApi.sendRunningLate({ dealId, minutes }),
+    mutationFn: (minutes: number) =>
+      messagingApi.sendRunningLate({ dealId, minutes, clientMessageId: newClientMessageId() }),
     onSuccess: () => toast.success("Client told you're running late"),
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

@@ -480,9 +480,21 @@ export const lookupOptOuts = (address: string): Promise<OptOut[]> =>
  *
  * Both answer 202 with the queued message. 403 when the caller isn't on the
  * job's roster, 422 when the rule is switched off or the client has opted out.
+ *
+ * `clientMessageId` is the idempotency key, and the caller should always mint
+ * one: without it the server falls back to a key made of the rule, the job,
+ * the technician and a 15-minute bucket — which does NOT include how late the
+ * technician said they were, so "late 15" at 10:02 and "late 45" at 10:07
+ * would collapse into one text and the second would be silently dropped.
  */
-export const sendOnMyWay = (body: { dealId: string; etaMinutes?: number }): Promise<Message> =>
-  http.post<Message>(`${BASE}/automations/on-my-way`, body);
+export const sendOnMyWay = (body: {
+  dealId: string;
+  etaMinutes?: number;
+  clientMessageId?: string;
+}): Promise<Message> => http.post<Message>(`${BASE}/automations/on-my-way`, body);
 
-export const sendRunningLate = (body: { dealId: string; minutes: number }): Promise<Message> =>
-  http.post<Message>(`${BASE}/automations/late`, body);
+export const sendRunningLate = (body: {
+  dealId: string;
+  minutes: number;
+  clientMessageId?: string;
+}): Promise<Message> => http.post<Message>(`${BASE}/automations/late`, body);

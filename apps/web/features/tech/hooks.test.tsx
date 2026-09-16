@@ -12,7 +12,15 @@ import {
 } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { currentPosition, useConfirmReceipt, useMarkArrived, useMyJobs } from "./hooks";
+import {
+  currentPosition,
+  MAX_REPORTED_ACCURACY_M,
+  useConfirmReceipt,
+  useMarkArrived,
+  useMyJobs,
+  useOnMyWay,
+  useRunningLate,
+} from "./hooks";
 
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -139,6 +147,51 @@ describe("technician actions", () => {
   });
 });
 
+describe("the client texts", () => {
+  /** Collects what the hook actually posted to an automation endpoint. */
+  function recorder(path: string) {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      http.post(path, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ success: true, data: { id: `m${bodies.length}` } }, { status: 202 });
+      }),
+    );
+    return bodies;
+  }
+
+  it("gives every 'Running late' tap its own idempotency key, so a later ETA is not swallowed", async () => {
+    const bodies = recorder("*/messaging/automations/late");
+    const { result } = renderHook(() => useRunningLate("d1"), { wrapper: wrapper(newClient()) });
+
+    // 10:02 "15 minutes", then 10:07 "45 minutes": same job, same technician,
+    // same 15-minute window — the server's fallback dedup key cannot tell them
+    // apart, so the second text would be accepted and never sent.
+    result.current.mutate(15);
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    result.current.mutate(45);
+    await waitFor(() => expect(bodies).toHaveLength(2));
+
+    expect(bodies.map((b) => b.minutes)).toEqual([15, 45]);
+    expect(bodies[0].clientMessageId).toEqual(expect.any(String));
+    expect(bodies[1].clientMessageId).not.toBe(bodies[0].clientMessageId);
+  });
+
+  it("gives every 'On my way' tap its own idempotency key too", async () => {
+    const bodies = recorder("*/messaging/automations/on-my-way");
+    const { result } = renderHook(() => useOnMyWay("d1"), { wrapper: wrapper(newClient()) });
+
+    result.current.mutate(undefined);
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    result.current.mutate(20);
+    await waitFor(() => expect(bodies).toHaveLength(2));
+
+    expect(bodies[1].etaMinutes).toBe(20);
+    expect(bodies[0].clientMessageId).toEqual(expect.any(String));
+    expect(bodies[1].clientMessageId).not.toBe(bodies[0].clientMessageId);
+  });
+});
+
 describe("currentPosition", () => {
   it("resolves to nothing rather than hanging when the browser has no geolocation", async () => {
     const original = Object.getOwnPropertyDescriptor(navigator, "geolocation");
@@ -172,6 +225,45 @@ describe("currentPosition", () => {
     });
 
     await expect(currentPosition()).resolves.toEqual({ lat: 41.76, lng: -72.67, accuracy: 9 });
+
+    if (original) Object.defineProperty(navigator, "geolocation", original);
+  });
+
+  it("keeps the arrival but drops an accuracy the server would reject", async () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        // A tablet in the van with no GPS: a network fix, accurate to 250 km.
+        getCurrentPosition: (ok: (p: unknown) => void) =>
+          ok({ coords: { latitude: 41.76, longitude: -72.67, accuracy: 250_000 } }),
+      },
+      configurable: true,
+    });
+
+    // The whole POST would 400 on the DTO's @Max and the arrival would be lost;
+    // the coordinates are what matter, so only the annotation is dropped.
+    await expect(currentPosition()).resolves.toEqual({ lat: 41.76, lng: -72.67 });
+    // The cap is the server's: MarkArrivedDto.accuracy @Max(100000).
+    expect(MAX_REPORTED_ACCURACY_M).toBe(100_000);
+
+    if (original) Object.defineProperty(navigator, "geolocation", original);
+  });
+
+  it("keeps a fix sitting exactly on the cap", async () => {
+    const original = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+    Object.defineProperty(navigator, "geolocation", {
+      value: {
+        getCurrentPosition: (ok: (p: unknown) => void) =>
+          ok({ coords: { latitude: 41.76, longitude: -72.67, accuracy: 100_000 } }),
+      },
+      configurable: true,
+    });
+
+    await expect(currentPosition()).resolves.toEqual({
+      lat: 41.76,
+      lng: -72.67,
+      accuracy: 100_000,
+    });
 
     if (original) Object.defineProperty(navigator, "geolocation", original);
   });
