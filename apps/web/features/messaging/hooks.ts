@@ -88,6 +88,24 @@ export function useInboxCounters() {
   });
 }
 
+/**
+ * The caller's team-chat badge (design §6): their own thread plus the groups
+ * they are in, against their read markers — what a technician's "My jobs"
+ * page shows next to the chat link. Pushed as `team_counters.changed` while
+ * the stream is up; polled otherwise. Off for anyone without `team_chat.view`.
+ */
+export function useTeamChatCounters() {
+  const { can } = usePermissions();
+  const connected = useMessagingStreamStore((s) => s.connected);
+  return useQuery({
+    queryKey: queryKeys.messaging.teamCounters(),
+    queryFn: api.getTeamCounters,
+    enabled: can("team_chat"),
+    refetchInterval: connected ? false : COUNTERS_FALLBACK_POLL_MS,
+    refetchOnWindowFocus: true,
+  });
+}
+
 export function useConversations(filter: ConversationListFilter, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.messaging.conversationList(filter),

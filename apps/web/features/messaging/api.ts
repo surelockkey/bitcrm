@@ -13,6 +13,7 @@ import type {
   OptOutStatus,
   PaginatedResponse,
   SendableMessageChannel,
+  TeamChatCounters,
 } from "@bitcrm/types";
 import { apiFetchPaginated, http } from "@/lib/api/http";
 import { ApiError } from "@/lib/api/errors";
@@ -185,11 +186,23 @@ export interface OptOutChangedEvent {
   status: OptOutStatus;
   conversationId?: string;
 }
+/**
+ * One member's team-chat badge (design §6) — written to that member's
+ * stream only, after anything that moves it (a new in-app line, a read
+ * marker, a membership change).
+ */
+export interface TeamCountersChangedEvent {
+  type: "team_counters.changed";
+  at: string;
+  userId: string;
+  counters: TeamChatCounters;
+}
 export type MessagingRealtimeEvent =
   | ConversationUpsertedEvent
   | MessageUpsertedEvent
   | CountersChangedEvent
-  | OptOutChangedEvent;
+  | OptOutChangedEvent
+  | TeamCountersChangedEvent;
 
 /** The SSE stream (opened with fetch so the Bearer header can be sent). */
 export const MESSAGING_EVENTS_PATH = `${BASE}/events`;
@@ -233,6 +246,10 @@ export const getConversation = (id: string): Promise<ConversationDetail> =>
 
 export const getCounters = (): Promise<InboxCounters> =>
   http.get<InboxCounters>(`${BASE}/conversations/counters`);
+
+/** The caller's own team-chat badge — their thread and groups, against their read markers. */
+export const getTeamCounters = (): Promise<TeamChatCounters> =>
+  http.get<TeamChatCounters>(`${BASE}/team/counters`);
 
 export const getConversationByParty = (
   kind: PartyLookupKind,

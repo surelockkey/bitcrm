@@ -203,6 +203,8 @@ export const queryKeys = {
     messagesByJob: (dealId: string) => ["messaging", "messages", "by-job", dealId] as const,
     flaggedMessages: () => ["messaging", "messages", "flagged"] as const,
     counters: () => ["messaging", "counters"] as const,
+    /** The caller's own team-chat badge (`GET /team/counters`). */
+    teamCounters: () => ["messaging", "team-counters"] as const,
     templates: (params?: unknown) => ["messaging", "templates", "list", params] as const,
     templatesAll: () => ["messaging", "templates"] as const,
     template: (id: string) => ["messaging", "templates", "detail", id] as const,

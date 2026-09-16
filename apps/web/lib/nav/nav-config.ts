@@ -111,13 +111,21 @@ export const MAIN_NAV: NavGroup[] = [
   },
 ];
 
-/** Simplified nav for the Technician role (assigned-only scope). */
+/**
+ * Simplified nav for the Technician role (assigned-only scope). The
+ * phone-first pages come first: the day list, then the van. `/deals` and
+ * `/inventory/containers` keep working for a technician who lands on them
+ * (the office's table view of the same jobs, the same van read-only).
+ */
 export const TECHNICIAN_NAV: NavItem[] = [
-  { label: "My Jobs", href: "/deals", icon: Briefcase },
+  { label: "My Jobs", href: "/my-jobs", icon: Briefcase },
   { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
-  { label: "My Container", href: "/inventory/containers", icon: Truck },
+  { label: "My Stock", href: "/my-stock", icon: Truck, resource: "containers" },
   { label: "My Profile", href: "/profile", icon: UserRound },
 ];
+
+/** Where a technician lands after signing in — their day, not a dashboard. */
+export const TECHNICIAN_HOME = "/my-jobs";
 
 export const SHOW_ROADMAP = process.env.NEXT_PUBLIC_SHOW_ROADMAP === "true";
 
