@@ -1,12 +1,29 @@
 import {
+  JobSuperStatus,
   automationSentence,
+  automationSpecLabels,
   type AutomationLabelMap,
   type AutomationRule,
   type AutomationRun,
   type AutomationRunOutcome,
   type AutomationScheduleAnchor,
+  type AutomationSpec,
   type AutomationTriggerKind,
 } from "@bitcrm/types";
+
+/**
+ * What each super-status is called. A closed enum with no catalog behind it,
+ * so nothing else can supply these names — and a rule that stores one is
+ * every rule written here or started from a recipe.
+ */
+export const SUPER_STATUS_LABEL: Record<string, string> = {
+  [JobSuperStatus.SUBMITTED]: "Submitted",
+  [JobSuperStatus.IN_PROGRESS]: "In progress",
+  [JobSuperStatus.DONE]: "Done",
+  [JobSuperStatus.PENDING]: "Pending",
+  [JobSuperStatus.DONE_PENDING_APPROVAL]: "Done pending approval",
+  [JobSuperStatus.CANCELED]: "Canceled",
+};
 
 /** What each trigger is called in the list's filter chips and the editor. */
 export const TRIGGER_LABEL: Record<AutomationTriggerKind, string> = {
@@ -111,13 +128,30 @@ export function segmentsToBody(segments: MessageSegment[]): string {
 }
 
 /**
+ * A spec as a sentence, read with every name anyone here can supply. The
+ * super-status names are the floor rather than the ceiling: without them a
+ * card reads "a status of canceled", and above them a rule that carries its
+ * own word for a status — every imported one does — goes on saying it.
+ *
+ * The one place this is built, so the card under a rule's name and the live
+ * preview in its editor cannot drift into two different sentences.
+ */
+export function specSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
+  return automationSentence(spec, {
+    ...SUPER_STATUS_LABEL,
+    ...automationSpecLabels(spec),
+    ...labels,
+  });
+}
+
+/**
  * The Workiz-style sentence for a rule. A rule with a spec says what it
  * does ("When a job has a status of Canceled check, send the assigned tech
  * a text message immediately"); one without falls back to the sentence
  * Workiz itself exported, and then to nothing.
  */
 export function ruleSentence(rule: AutomationRule, labels?: AutomationLabelMap): string {
-  if (rule.spec) return automationSentence(rule.spec, labels);
+  if (rule.spec) return specSentence(rule.spec, labels);
   const workiz = rule.ruleSentence as { sentence?: string } | undefined;
   return typeof workiz?.sentence === "string" ? workiz.sentence : "";
 }

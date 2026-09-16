@@ -142,9 +142,11 @@ describe("AutomationsPage", () => {
     renderPage();
 
     expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
+    // The status reads as the editor writes it — "Canceled", not the
+    // `canceled` the trigger stores — on the card as well as in the editor.
     expect(
       screen.getByText(
-        "When a job has a status of canceled and it has a technician, send the assigned tech a text message immediately",
+        "When a job has a status of Canceled and it has a technician, send the assigned tech a text message immediately",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Firing log of Canceled job & techs" })).toHaveTextContent(

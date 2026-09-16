@@ -3,8 +3,6 @@
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import {
-  JobSuperStatus,
-  automationSentence,
   type AutomationLabelMap,
   type AutomationRule,
   type AutomationScheduleAnchor,
@@ -37,8 +35,10 @@ import { useCreateAutomation, useUpdateAutomation } from "../hooks";
 import {
   ANCHOR_LABEL,
   OFFSET_UNITS,
+  SUPER_STATUS_LABEL,
   TRIGGER_LABEL,
   anchorAllowsBefore,
+  specSentence,
   triggerHasJob,
   type OffsetUnit,
 } from "../lib";
@@ -56,15 +56,6 @@ import { AutomationMessageEditor, type MessageEditorHandle } from "./automation-
 import { AutomationRolePicker, AutomationUserPicker } from "./automation-recipient-picker";
 import { AutomationTestDialog } from "./automation-test-dialog";
 import { AutomationValuePicker, type PickerOption } from "./automation-value-picker";
-
-const SUPER_STATUS_LABEL: Record<string, string> = {
-  [JobSuperStatus.SUBMITTED]: "Submitted",
-  [JobSuperStatus.IN_PROGRESS]: "In progress",
-  [JobSuperStatus.DONE]: "Done",
-  [JobSuperStatus.PENDING]: "Pending",
-  [JobSuperStatus.DONE_PENDING_APPROVAL]: "Done pending approval",
-  [JobSuperStatus.CANCELED]: "Canceled",
-};
 
 /** A closed set, so the options never depend on a catalog having loaded. */
 const SUPER_STATUS_OPTIONS: PickerOption[] = Object.entries(SUPER_STATUS_LABEL).map(([id, name]) => ({
@@ -165,14 +156,11 @@ export function AutomationFormDialog({
   const { data: statuses } = useJobStatuses();
 
   const parsed = useMemo(() => automationFormSchema.safeParse(values), [values]);
-  // The super-statuses are a closed enum with no catalog behind them, so
-  // without their names here the sentence would say "a status of done".
-  const named = useMemo<AutomationLabelMap>(
-    () => ({ ...SUPER_STATUS_LABEL, ...labels, ...pickedNames }),
-    [labels, pickedNames],
-  );
+  // Names for the pickers' chips; `specSentence` adds the super-statuses
+  // under these, so the preview here reads exactly as the card does.
+  const named = useMemo<AutomationLabelMap>(() => ({ ...labels, ...pickedNames }), [labels, pickedNames]);
   const preview = useMemo(
-    () => (parsed.success ? automationSentence(toSpec(parsed.data), named) : ""),
+    () => (parsed.success ? specSentence(toSpec(parsed.data), named) : ""),
     [parsed, named],
   );
 

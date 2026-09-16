@@ -60,6 +60,24 @@ describe("ruleSentence", () => {
     expect(ruleSentence(rule())).toBe("");
   });
 
+  it("names a super-status with no catalog to name it, and gives way to one that has a word", () => {
+    // No catalog holds the super-statuses, so without this a rule written
+    // here or taken from a recipe reads "a status of done" on its card.
+    expect(ruleSentence(withSpec())).toContain("a status of Done");
+
+    // Under everything else, though: an imported rule carries Workiz's own
+    // word for the status it waits on, and that is the word it went out with.
+    const imported = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: ["done"] },
+        conditions: [{ field: "status", op: "in", values: ["done"], labels: ["Job Completed"] }],
+        actions: [{ type: "send_sms", to: "client", body: "Thanks!" }],
+      },
+    });
+    expect(ruleSentence(imported)).toContain("a status of Job Completed");
+  });
+
   it("says one channel choice per clause — a shared text and email is one thing", () => {
     // Workiz's `notify_medium: both` is one entry in the editor and two
     // actions in the spec; saying it twice would read as two decisions.

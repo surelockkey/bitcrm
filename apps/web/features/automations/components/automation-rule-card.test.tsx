@@ -51,9 +51,11 @@ describe("AutomationRuleCard", () => {
     // No category on the rule — it was written here, so it reads as Custom.
     expect(screen.getByText("Custom")).toBeInTheDocument();
     expect(screen.getByText("Job status changes")).toBeInTheDocument();
+    // "Canceled", not the `canceled` the trigger stores: a card handed no
+    // catalog at all still knows the super-statuses, because they are an enum.
     expect(
       screen.getByText(
-        "When a job has a status of canceled, send the assigned tech a text message immediately",
+        "When a job has a status of Canceled, send the assigned tech a text message immediately",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Firing log of Canceled job & techs" })).toHaveTextContent(
