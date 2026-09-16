@@ -10,6 +10,8 @@ import { AutomationsRepository } from './automations.repository';
 import { AutomationsService } from './automations.service';
 import { AutoSentRepository } from './auto-sent.repository';
 import { DEAL_TECH_ASSIGNED_EVENT, DEAL_UPDATED_EVENT } from './deal-events';
+import { AutomationActionExecutor } from './engine/action-executor';
+import { AutomationRunsRepository } from './engine/automation-runs.repository';
 import { AutomationPeersClient } from './internal/peers.client';
 import { NewJobSmsService } from './new-job-sms.service';
 import { TeamThreadService } from './team-thread.service';
@@ -56,8 +58,17 @@ export const DEAL_EVENTS_SQS_CONSUMER = Symbol('DEAL_EVENTS_SQS_CONSUMER');
     TeamThreadService,
     NewJobSmsService,
     TechNoticesService,
+    AutomationRunsRepository,
+    AutomationActionExecutor,
   ],
-  exports: [AutomationsRepository, AutomationsService, NewJobSmsService, TechNoticesService],
+  exports: [
+    AutomationsRepository,
+    AutomationsService,
+    NewJobSmsService,
+    TechNoticesService,
+    AutomationRunsRepository,
+    AutomationActionExecutor,
+  ],
 })
 export class AutomationsModule implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AutomationsModule.name);
