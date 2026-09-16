@@ -257,10 +257,21 @@ module "sns_sqs" {
     contact-events-to-messaging = {
       topic_subscriptions = ["contact-events"]
     }
-    # deal.tech_assigned / deal.updated from deal: the "New job" SMS to the
-    # assigned technician (and again on a reschedule) — messaging automations.
+    # Every deal event from deal-service: the built-in "New job" SMS to the
+    # assigned technician (deal.tech_assigned / deal.updated) and the rule
+    # engine (deal.created / deal.status_changed / deal.tech_assigned /
+    # deal.updated, plus deal.scheduled_changed once deal-service publishes
+    # one). The queue subscribes to the whole topic — no filter policy — so a
+    # new event type needs a handler, not a subscription.
     deal-events-to-messaging = {
       topic_subscriptions = ["deal-events"]
+    }
+    # call.completed from telephony: the Workiz "missed call" / "completed
+    # call" rules that text the caller back (4 103 + 2 332 firings in the
+    # imported account). The live calls UI stays on SSE — only the
+    # automations consume this.
+    call-events-to-messaging = {
+      topic_subscriptions = ["call-events"]
     }
   }
 }

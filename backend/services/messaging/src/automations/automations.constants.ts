@@ -60,3 +60,8 @@ export const scheduleSk = (ruleId: string, entity: string, occurrence: string) =
 /** ISO instant → the UTC minute bucket it falls in (`2026-09-16T13:45`). */
 export const dueMinuteOf = (iso: string) => iso.slice(0, 16);
 export const SCHEDULE_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+/** `DEALSNAP#<dealId>` / METADATA — the last schedule we saw, for reschedule detection. */
+export const dealSnapshotPk = (dealId: string) => `DEALSNAP#${dealId}`;
+/** A job nobody has touched in half a year cannot be "rescheduled" in any useful sense. */
+export const DEAL_SNAPSHOT_TTL_SECONDS = 180 * 24 * 60 * 60;
