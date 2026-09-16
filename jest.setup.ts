@@ -87,9 +87,37 @@ jest.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
 }));
 
+/* ------------------------------------------------------ SQLite (queues) */
+
+// Not a fake: a real SQLite engine, so the queue's own SQL is what runs. See
+// src/test/expo-sqlite-double.ts for why that distinction matters here.
+jest.mock('expo-sqlite', () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('./src/test/expo-sqlite-double'),
+);
+
 beforeEach(() => {
   mockKeychain.clear();
   mockDisk.clear();
   mockUuidCounter = 0;
   jest.clearAllMocks();
+});
+
+// Required after the mock is registered; `require` here rather than at the top
+// so the double is only loaded by suites that touch SQLite.
+const sqliteDouble = () =>
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('./src/test/expo-sqlite-double') as {
+    __resetSqlite: () => void;
+    __closeSqlite: () => void;
+  };
+
+afterEach(() => {
+  sqliteDouble().__resetSqlite();
+});
+
+// An open SQLite handle keeps Node's event loop alive, and Jest hangs after
+// the last test rather than exiting.
+afterAll(() => {
+  sqliteDouble().__closeSqlite();
 });
