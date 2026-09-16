@@ -148,6 +148,33 @@ describe('DealsService — send to tech / seen', () => {
       expect(sns.publish).not.toHaveBeenCalled();
     });
 
+    // The stamp is what the job page, the list and the dispatch board read as
+    // "this went out". It must never outlive the event that makes it true.
+    it('stamps the assignment rows before the job, and leaves the job unsent when they fail', async () => {
+      const deal = createMockDeal({ assignedTechIds: ['tech-1'] });
+      repo.findById.mockResolvedValue(deal);
+      repo.update.mockResolvedValue(deal);
+
+      await service.sendToTech('deal-1', { channels: ['sms'] }, dispatcher);
+      expect(repo.markAssignmentsSent.mock.invocationCallOrder[0]).toBeLessThan(
+        repo.update.mock.invocationCallOrder[0],
+      );
+
+      jest.clearAllMocks();
+      repo.findById.mockResolvedValue(deal);
+      repo.update.mockResolvedValue(deal);
+      repo.markAssignmentsSent.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+
+      await expect(service.sendToTech('deal-1', { channels: ['sms'] }, dispatcher)).rejects.toThrow(
+        'ProvisionedThroughputExceededException',
+      );
+
+      // Nothing said "Sent": no stamp, no activity entry, no event for messaging.
+      expect(stampedWrite()).toBeUndefined();
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+      expect(sns.publish).not.toHaveBeenCalled();
+    });
+
     it('pressing again is a resend: a fresh sentAt, another timeline entry and event', async () => {
       const deal = createMockDeal({
         assignedTechIds: ['tech-1'],

@@ -365,31 +365,59 @@ export class DealsRepository {
   }
 
   /**
-   * Re-stamp every assignment row's sort key when a deal's date changes. An
-   * in-place UPDATE, not a re-Put: the rows also carry the technician's
-   * "sent" / "seen" stamps, which a reschedule must not erase. `by` is kept
-   * for the call shape; the original `assignedBy` / `assignedAt` stay.
+   * Re-stamp every assignment row's tech-index keys when a deal's date
+   * changes. An in-place UPDATE, not a re-Put: the rows also carry the
+   * technician's "sent" / "seen" stamps, which a reschedule must not erase.
+   * `by` is kept for the call shape; the original `assignedBy` /
+   * `assignedAt` stay.
+   *
+   * `GSI2PK` is written next to `GSI2SK` even though it never changes: the
+   * re-Put this replaced also rewrote it, so a row that lost it (or an
+   * imported one that never had it) was healed by any reschedule and stayed
+   * visible to `findByTech` / the dispatch board. Keeping that repair is the
+   * whole reason the SET clause is wider than it needs to be.
    */
   async restampAssignmentDates(dealId: string, scheduledDate: string | undefined, _by: string): Promise<void> {
     const techIds = await this.listAssignmentTechIds(dealId);
     await Promise.all(
       techIds.map((techId) =>
-        this.dynamoDb.client.send(
+        this.writeAssignmentIfPresent(
           new UpdateCommand({
             TableName: this.tableName,
             Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
             UpdateExpression: scheduledDate
-              ? 'SET GSI2SK = :gsi2sk, scheduledDate = :scheduledDate'
-              : 'SET GSI2SK = :gsi2sk REMOVE scheduledDate',
+              ? 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate'
+              : 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk REMOVE scheduledDate',
             ExpressionAttributeValues: {
+              ':gsi2pk': `TECH#${techId}`,
               ':gsi2sk': `${scheduledDate || new Date().toISOString()}#DEAL#${dealId}`,
               ...(scheduledDate ? { ':scheduledDate': scheduledDate } : {}),
             },
             ConditionExpression: 'attribute_exists(PK)',
           }),
+          `date restamp of ${dealId}/${techId}`,
         ),
       ),
     );
+  }
+
+  /**
+   * An `ASSIGN#` write guarded by `attribute_exists(PK)`. The row vanishing
+   * under us — a concurrent unassign between the roster read and this write —
+   * is an expected race, not a failure: the row that is gone is exactly the
+   * one that no longer needs the write, and the unconditional Put this
+   * replaced would simply have succeeded. Logged and reported as "not
+   * written"; every other error rethrows.
+   */
+  private async writeAssignmentIfPresent(command: UpdateCommand, what: string): Promise<boolean> {
+    try {
+      await this.dynamoDb.client.send(command);
+      return true;
+    } catch (error) {
+      if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+      this.logger.warn(`Skipped the ${what}: the assignment row is no longer there`);
+      return false;
+    }
   }
 
   // ------------------------------------------------ assignments: sent / seen
@@ -420,16 +448,19 @@ export class DealsRepository {
   /**
    * Stamp "Send to tech" on each named technician's row (Workiz `last_sent`
    * per tech). The previous send's per-channel `deliveries` are dropped —
-   * they described the old click. Only existing rows are touched.
+   * they described the old click. Only existing rows are touched, and a
+   * technician on the roster whose row is missing (a concurrent unassign, a
+   * job the assignment backfill never reached) is skipped rather than
+   * aborting the send for everyone else. Answers which rows were stamped.
    */
   async markAssignmentsSent(
     dealId: string,
     techIds: string[],
     stamp: { sentAt: string; sentVia: SendToTechChannel[]; sentBy: string },
-  ): Promise<void> {
-    await Promise.all(
-      techIds.map((techId) =>
-        this.dynamoDb.client.send(
+  ): Promise<string[]> {
+    const written = await Promise.all(
+      techIds.map(async (techId) => {
+        const ok = await this.writeAssignmentIfPresent(
           new UpdateCommand({
             TableName: this.tableName,
             Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
@@ -441,9 +472,12 @@ export class DealsRepository {
             },
             ConditionExpression: 'attribute_exists(PK)',
           }),
-        ),
-      ),
+          `sent stamp of ${dealId}/${techId}`,
+        );
+        return ok ? techId : null;
+      }),
     );
+    return written.filter((techId): techId is string => techId !== null);
   }
 
   /**

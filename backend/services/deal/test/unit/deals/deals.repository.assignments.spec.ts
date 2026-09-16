@@ -18,7 +18,10 @@ describe('DealsRepository — assignment sent / seen stamps', () => {
 
   const command = (n: number) => dynamoDb.client.send.mock.calls[n][0];
 
-  it('restampAssignmentDates updates the sort key in place, keeping sentAt / seenAt', async () => {
+  /** What Dynamo throws when `attribute_exists(PK)` no longer holds. */
+  const rowGone = () => Object.assign(new Error('The conditional request failed'), { name: 'ConditionalCheckFailedException' });
+
+  it('restampAssignmentDates updates the keys in place, keeping sentAt / seenAt', async () => {
     dynamoDb.client.send
       .mockResolvedValueOnce({ Items: [{ techId: 'tech-1' }, { techId: 'tech-2' }] })
       .mockResolvedValue({});
@@ -30,12 +33,25 @@ describe('DealsRepository — assignment sent / seen stamps', () => {
       const cmd = command(n);
       expect(cmd.constructor.name).toBe('UpdateCommand');
       expect(cmd.input.Key.PK).toBe('DEAL#deal-1');
-      expect(cmd.input.UpdateExpression).toBe('SET GSI2SK = :gsi2sk, scheduledDate = :scheduledDate');
-      expect(cmd.input.ExpressionAttributeValues).toEqual({ ':gsi2sk': '2026-05-02#DEAL#deal-1', ':scheduledDate': '2026-05-02' });
+      expect(cmd.input.UpdateExpression).toBe('SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate');
+      expect(cmd.input.ExpressionAttributeValues).toMatchObject({ ':gsi2sk': '2026-05-02#DEAL#deal-1', ':scheduledDate': '2026-05-02' });
       expect(cmd.input.ConditionExpression).toBe('attribute_exists(PK)');
     }
     expect(command(1).input.Key.SK).toBe('ASSIGN#tech-1');
     expect(command(2).input.Key.SK).toBe('ASSIGN#tech-2');
+  });
+
+  // The Put this replaced rewrote GSI2PK on every reschedule, so a row that
+  // lost it (or an import that never wrote it) came back on the tech index.
+  it('restampAssignmentDates rewrites GSI2PK, repairing a row missing from the tech index', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [{ techId: 'tech-1' }, { techId: 'tech-2' }] })
+      .mockResolvedValue({});
+
+    await repository.restampAssignmentDates('deal-1', '2026-05-02', 'disp-1');
+
+    expect(command(1).input.ExpressionAttributeValues[':gsi2pk']).toBe('TECH#tech-1');
+    expect(command(2).input.ExpressionAttributeValues[':gsi2pk']).toBe('TECH#tech-2');
   });
 
   it('restampAssignmentDates removes the date when the job becomes unscheduled', async () => {
@@ -44,9 +60,34 @@ describe('DealsRepository — assignment sent / seen stamps', () => {
     await repository.restampAssignmentDates('deal-1', undefined, 'disp-1');
 
     const cmd = command(1);
-    expect(cmd.input.UpdateExpression).toBe('SET GSI2SK = :gsi2sk REMOVE scheduledDate');
+    expect(cmd.input.UpdateExpression).toBe('SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk REMOVE scheduledDate');
     expect(cmd.input.ExpressionAttributeValues[':gsi2sk']).toMatch(/#DEAL#deal-1$/);
+    expect(cmd.input.ExpressionAttributeValues[':gsi2pk']).toBe('TECH#tech-1');
     expect(cmd.input.ExpressionAttributeValues).not.toHaveProperty(':scheduledDate');
+  });
+
+  // A concurrent unassign between the roster read and the write: the row that
+  // vanished is the one that no longer needs restamping. The Put this replaced
+  // simply succeeded, so a reschedule must not start 500-ing over it.
+  it('restampAssignmentDates skips a row deleted under it and still restamps the rest', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [{ techId: 'tech-1' }, { techId: 'tech-2' }] })
+      .mockRejectedValueOnce(rowGone())
+      .mockResolvedValueOnce({});
+
+    await expect(repository.restampAssignmentDates('deal-1', '2026-05-02', 'disp-1')).resolves.toBeUndefined();
+
+    expect(command(2).input.Key.SK).toBe('ASSIGN#tech-2');
+  });
+
+  it('restampAssignmentDates still throws anything that is not a vanished row', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [{ techId: 'tech-1' }] })
+      .mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+
+    await expect(repository.restampAssignmentDates('deal-1', '2026-05-02', 'disp-1')).rejects.toThrow(
+      'ProvisionedThroughputExceededException',
+    );
   });
 
   it('markAssignmentsSent stamps each named row and drops the previous deliveries', async () => {
@@ -66,6 +107,30 @@ describe('DealsRepository — assignment sent / seen stamps', () => {
     });
     expect(cmd.input.ConditionExpression).toBe('attribute_exists(PK)');
     expect(command(1).input.Key.SK).toBe('ASSIGN#tech-2');
+  });
+
+  // One roster entry whose row is missing (a concurrent unassign, a job the
+  // assignment backfill never reached) used to reject the whole Promise.all,
+  // 500-ing a send that the deal row had already been stamped for.
+  it('markAssignmentsSent skips a technician whose row is gone and reports who was stamped', async () => {
+    dynamoDb.client.send.mockRejectedValueOnce(rowGone()).mockResolvedValueOnce({});
+
+    const stamped = await repository.markAssignmentsSent('deal-1', ['tech-1', 'tech-2'], {
+      sentAt: '2026-04-16T10:00:00.000Z', sentVia: ['sms'], sentBy: 'disp-1',
+    });
+
+    expect(stamped).toEqual(['tech-2']);
+    expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('markAssignmentsSent still throws anything that is not a vanished row', async () => {
+    dynamoDb.client.send.mockRejectedValueOnce(new Error('ProvisionedThroughputExceededException'));
+
+    await expect(
+      repository.markAssignmentsSent('deal-1', ['tech-1'], {
+        sentAt: '2026-04-16T10:00:00.000Z', sentVia: ['sms'], sentBy: 'disp-1',
+      }),
+    ).rejects.toThrow('ProvisionedThroughputExceededException');
   });
 
   it('markAssignmentSeen keeps the earliest time and reports what is stored', async () => {

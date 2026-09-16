@@ -1005,12 +1005,17 @@ export class DealsService {
     const channels = [...new Set(dto.channels)];
     const sentAt = new Date().toISOString();
 
+    // Order matters: the per-technician rows first, the job's own stamp only
+    // once they are written, the timeline entry and the event last of all. A
+    // write that fails here has to leave the job "not sent" — the alternative
+    // is a job reading `Sent · 12:10 PM` forever for a send no consumer was
+    // ever told to deliver, where pressing Resend repeats the same failure.
+    await this.repository.markAssignmentsSent(id, techIds, { sentAt, sentVia: channels, sentBy: caller.id });
     await this.repository.update(id, {
       sentToTechAt: sentAt,
       sentToTechVia: channels,
       sentToTechBy: caller.id,
     });
-    await this.repository.markAssignmentsSent(id, techIds, { sentAt, sentVia: channels, sentBy: caller.id });
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.SENT_TO_TECH, caller, { techIds, channels, sentAt });
