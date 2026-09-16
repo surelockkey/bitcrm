@@ -133,8 +133,10 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     resource: "message_templates",
   },
   {
+    // The module moved out to /automations; the settings index keeps the
+    // shortcut so anyone who looks for it here still lands on it.
     label: "Automations",
-    href: "/settings/automations",
+    href: "/automations",
     description: "What the system texts on its own — job status, missed calls, reminders.",
     icon: Workflow,
     resource: "settings",

@@ -18,6 +18,7 @@ import {
   Truck,
   UserRound,
   UsersRound,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
@@ -90,6 +91,9 @@ export const MAIN_NAV: NavGroup[] = [
       { label: "Calls", href: "/calls", icon: Phone, resource: "calls" },
       // The client inbox (SMS today; email and in-app land on the same page).
       { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
+      // A rule that texts a client on its own belongs next to the inbox, not
+      // buried in settings — Workiz puts its Automation Center at this level too.
+      { label: "Automations", href: "/automations", icon: Workflow, resource: "settings" },
     ],
   },
   {

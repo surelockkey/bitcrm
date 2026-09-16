@@ -3,6 +3,7 @@ import { MAIN_NAV, TECHNICIAN_HOME, TECHNICIAN_NAV, visibleNavItems } from "./na
 import type { Resource } from "@bitcrm/types";
 
 const work = MAIN_NAV.find((g) => g.label === "Work")!;
+const communications = MAIN_NAV.find((g) => g.label === "Communications")!;
 
 describe("TECHNICIAN_NAV", () => {
   it("leads with the phone-first day list, which is also the technician's home", () => {
@@ -34,6 +35,22 @@ describe("MAIN_NAV structure", () => {
       "containers",
       "transfers",
     ]);
+  });
+
+  it("puts Automations in Communications as a first-level item gated on settings", () => {
+    const automations = communications.items.find((i) => i.label === "Automations")!;
+    expect(automations).toMatchObject({ href: "/automations", resource: "settings" });
+    // It sits after the inbox: a rule that texts a client belongs next to it.
+    expect(communications.items.map((i) => i.label)).toEqual([
+      "Calls",
+      "Messages",
+      "Automations",
+    ]);
+  });
+
+  it("hides Automations from a user without settings.view", () => {
+    const items = visibleNavItems(communications.items, (r: Resource) => r === "messages");
+    expect(items.map((i) => i.label)).toEqual(["Messages"]);
   });
 });
 
