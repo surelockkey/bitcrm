@@ -629,6 +629,26 @@ describe("conditions", () => {
     expect(screen.getByText(/No conditions/)).toBeInTheDocument();
   });
 
+  it("says so when a condition is emptied, instead of dropping it in silence", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: { ...rule.spec!, conditions: [{ field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] }] },
+    });
+
+    expect(await screen.findByLabelText("Condition 1 value")).toHaveTextContent("GMB");
+    expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
+
+    // Unticking the last source widens the rule from one source to every
+    // source — the engine reads an empty `in` as no narrowing at all.
+    await user.click(screen.getByLabelText("Condition 1 value"));
+    await user.click(await screen.findByRole("option", { name: "GMB" }));
+    expect(await screen.findByText(/narrows nothing/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([]);
+  });
+
   it("adds an empty or-group from the header and saves what was filled in", async () => {
     const user = userEvent.setup();
     renderDialog({ spec: { ...rule.spec!, conditions: [] } });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { AutomationSpec } from "@bitcrm/types";
+import { AUTOMATION_TEMPLATES } from "./templates";
 import {
   SEND_BOTH,
   automationFormSchema,
@@ -456,6 +457,25 @@ describe("automation form schema", () => {
     expect(automationFormSchema.safeParse({ ...base, name: " " }).success).toBe(false);
     expect(automationFormSchema.safeParse({ ...base, actions: [] }).success).toBe(false);
     expect(automationFormSchema.safeParse({ ...base, delayMinutes: 999_999 }).success).toBe(false);
+  });
+
+  it("saves every library recipe back as the recipe wrote it", () => {
+    // The whole create path in one assertion: a recipe read into the form and
+    // saved untouched has to come back byte for byte, or "use this recipe"
+    // quietly ships something other than the recipe that was reviewed.
+    for (const template of AUTOMATION_TEMPLATES) {
+      const result = automationFormSchema.safeParse(specToForm(template.draft.name, template.draft.spec));
+      // One recipe deliberately ships an empty number for the office to fill
+      // in, and the editor refuses to save it blank rather than text nobody.
+      if (!result.success) {
+        expect([template.id, result.error.issues[0]?.message]).toEqual([
+          "missed-call-notify-office",
+          "Enter the number to text",
+        ]);
+        continue;
+      }
+      expect([template.id, toSpec(result.data)]).toEqual([template.id, template.draft.spec]);
+    }
   });
 
   it("starts a rule with no spec on a sensible default, waiting for its message", () => {
