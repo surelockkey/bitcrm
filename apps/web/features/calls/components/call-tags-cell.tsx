@@ -33,9 +33,12 @@ export function CallTagsCell({
   const setTags = useSetCallTags();
   const stored = call.tagIds ?? [];
   // What the picker shows while the write is in flight, remembered together
-  // with the list it was computed from. Once the refreshed record arrives the
-  // `from` no longer matches and the draft falls away on its own — no effect
-  // to clear it, and the server stays the source of truth.
+  // with the list it was computed from: a record that changes under the draft
+  // (SSE, another dispatcher) wins immediately rather than after the response.
+  // The draft lives only for the round trip — it is dropped when the mutation
+  // settles, because a draft left standing would re-activate itself any time a
+  // later change happened to restore `from`, painting tags the call no longer
+  // carries.
   const [draft, setDraft] = useState<{ from: string[]; next: string[] } | null>(
     null,
   );
@@ -52,9 +55,11 @@ export function CallTagsCell({
     setDraft({ from: stored, next });
     setTags.mutate(
       { sid: call.callSid, add, remove },
-      // A rejected change (unknown or archived tag, cap reached) must not
-      // leave the chip on screen — the toast explains, the chips revert.
-      { onError: () => setDraft(null) },
+      // Settled either way, the server is the answer: on success the hook has
+      // already written the returned record into the cache (no blink), and on
+      // a rejection (unknown or archived tag, cap reached) the chip must not
+      // be left standing — the toast explains, the chips revert.
+      { onSettled: () => setDraft(null) },
     );
   };
 

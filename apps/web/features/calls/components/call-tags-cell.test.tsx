@@ -97,9 +97,38 @@ describe("CallTagsCell", () => {
 
     // The server rejected it (archived tag, cap reached) — the toast explains
     // and the chip must not be left standing.
-    const onError = mocks.mutate.mock.calls[0][1].onError as () => void;
-    act(() => onError());
+    const opts = mocks.mutate.mock.calls[0][1];
+    act(() => {
+      opts.onError?.();
+      opts.onSettled?.();
+    });
     expect(screen.getByTestId("value")).toHaveTextContent("ct-tech");
+  });
+
+  it("retires the optimistic list once the write settles", () => {
+    render(<CallTagsCell call={call} />);
+    fireEvent.click(screen.getByRole("button", { name: "add spam" }));
+
+    act(() => mocks.mutate.mock.calls[0][1].onSettled?.());
+    // The stored record has not caught up yet; what it says is still the
+    // truth, and the hook has already put the server's list in the cache.
+    expect(screen.getByTestId("value").textContent).toBe("ct-tech");
+  });
+
+  it("does not resurrect a settled draft when the stored list comes back round", () => {
+    // Tag the call from the log, then take the tag off somewhere else (the
+    // quick view, another dispatcher, an SSE refetch). The stored list is
+    // exactly the one the draft was computed from again — the row must follow
+    // the server, not re-show the chip it once proposed.
+    const { rerender } = render(<CallTagsCell call={call} />);
+    fireEvent.click(screen.getByRole("button", { name: "add spam" }));
+    act(() => mocks.mutate.mock.calls[0][1].onSettled?.());
+
+    rerender(<CallTagsCell call={{ callSid: "CA1", tagIds: ["ct-tech", "ct-spam"] }} />);
+    expect(screen.getByTestId("value").textContent).toBe("ct-tech,ct-spam");
+
+    rerender(<CallTagsCell call={{ callSid: "CA1", tagIds: ["ct-tech"] }} />);
+    expect(screen.getByTestId("value").textContent).toBe("ct-tech");
   });
 
   it("treats an untagged call as an empty list", () => {

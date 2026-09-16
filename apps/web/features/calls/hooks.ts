@@ -5,12 +5,44 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { PaginatedResponse } from "@bitcrm/types";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { queryKeys } from "@/lib/query-keys";
 import * as api from "./api";
-import type { CallsFilter } from "./lib";
+import type { CallRecord, CallsFilter } from "./lib";
+
+type CallPages = InfiniteData<PaginatedResponse<CallRecord>, string | undefined>;
+
+/**
+ * Write the tag list the server just stored into the caches that already hold
+ * this call, before the invalidated queries have refetched.
+ *
+ * Without this there is a gap — mutation settled, refetch still in flight — in
+ * which a cell that dropped its optimistic draft would draw the pre-edit list
+ * again. The refetch still runs; this only removes the blink. Only `tagIds` is
+ * copied, and always by key, so "the last tag came off" (absent, never `[]`)
+ * lands as absent rather than being skipped as "nothing to merge".
+ */
+function patchCachedCallTags(qc: QueryClient, call: CallRecord) {
+  const retag = (c: CallRecord): CallRecord =>
+    c.callSid === call.callSid ? { ...c, tagIds: call.tagIds } : c;
+
+  qc.setQueryData<CallRecord>(queryKeys.calls.detail(call.callSid), (prev) =>
+    prev ? retag(prev) : call,
+  );
+  qc.setQueriesData<CallPages>(
+    { queryKey: queryKeys.calls.lists() },
+    (prev) =>
+      prev && {
+        ...prev,
+        pages: prev.pages.map((page) => ({ ...page, data: page.data.map(retag) })),
+      },
+  );
+}
 
 /** Safety-net poll — SSE is the primary transport for live updates. */
 /**
@@ -82,7 +114,11 @@ export function useSetCallTags() {
   return useMutation({
     mutationFn: (args: { sid: string; add?: string[]; remove?: string[] }) =>
       api.setCallTags(args.sid, { add: args.add, remove: args.remove }),
-    onSuccess: () => {
+    onSuccess: (call) => {
+      // The list the server actually stored goes into the cache first, so the
+      // cell can drop its optimistic draft the moment the write settles
+      // without the chips blinking back to the pre-edit list.
+      patchCachedCallTags(qc, call);
       qc.invalidateQueries({ queryKey: queryKeys.calls.all() });
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
