@@ -1,8 +1,10 @@
 import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types';
 import { NOTHING_EXECUTABLE_REASON, hasExecutableAction } from './automations.constants';
 import { AutomationsRepository } from './automations.repository';
 import { BUILTIN_RULES, isBuiltinRuleId } from './builtin-rules';
+import { type CreateAutomationDto } from './dto/create-automation.dto';
 import { type UpdateAutomationDto } from './dto/update-automation.dto';
 import { TRANSLATOR_VERSION, translateWorkizRule } from './translator/workiz-translator';
 
@@ -76,6 +78,41 @@ export class AutomationsService {
   async isEnabled(id: BuiltinAutomationRuleId): Promise<boolean> {
     const rule = await this.find(id);
     return rule?.enabled === true;
+  }
+
+  /**
+   * `POST /automations` — a rule written here rather than imported. It is
+   * `source: 'bitcrm'` / `specSource: 'user'` from birth, so the translator
+   * never touches it, and it is off unless the caller asks otherwise: a new
+   * rule is read once before it texts anybody. Asking for it on with a spec
+   * the engine cannot act on is the same 422 `PATCH` answers.
+   */
+  async create(dto: CreateAutomationDto, caller: { id: string }): Promise<AutomationRule> {
+    const at = new Date().toISOString();
+    const spec = dto.spec as unknown as AutomationRule['spec'];
+    const runnable = hasExecutableAction(spec?.actions);
+    const id = randomUUID();
+    if (dto.enabled === true && !runnable) throw new RuleNotRunnableException(id, NOTHING_EXECUTABLE_REASON);
+
+    const saved = await this.repository.put({
+      id,
+      name: dto.name.trim(),
+      enabled: dto.enabled === true,
+      ...(dto.description ? { description: dto.description } : {}),
+      ...(dto.category ? { category: dto.category } : {}),
+      spec,
+      specSource: 'user',
+      specVersion: TRANSLATOR_VERSION,
+      runnable,
+      ...(runnable ? {} : { notRunnableReason: NOTHING_EXECUTABLE_REASON }),
+      source: 'bitcrm',
+      createdAt: at,
+      updatedAt: at,
+      createdBy: caller.id,
+      updatedBy: caller.id,
+    });
+    this.logger.log(`Automation rule ${id} "${saved.name}" created by ${caller.id} (enabled=${saved.enabled})`);
+    return saved;
   }
 
   /**

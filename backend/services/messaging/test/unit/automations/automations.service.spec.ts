@@ -190,6 +190,69 @@ describe('AutomationsService', () => {
     expect((await service.update('w3', { enabled: true }, caller)).enabled).toBe(true);
   });
 
+  // --- the Automation Center writes rules of its own (create)
+
+  const smsSpec = {
+    version: 1,
+    trigger: { kind: 'deal.status_changed', to: ['canceled'] },
+    conditions: [],
+    actions: [{ type: 'send_sms', to: 'assigned_techs', body: 'Job {{job_id}} was canceled' }],
+  } as never;
+
+  it('creates a rule off, owned here, with a uuid the translator will never touch', async () => {
+    const { service, rows } = makeService();
+    const created = await service.create({ name: '  Job canceled — techs  ', spec: smsSpec }, caller);
+
+    expect(created.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(created).toMatchObject({
+      name: 'Job canceled — techs',
+      enabled: false,
+      source: 'bitcrm',
+      specSource: 'user',
+      runnable: true,
+      createdBy: 'u1',
+      updatedBy: 'u1',
+    });
+    expect(created.notRunnableReason).toBeUndefined();
+    expect(created.createdAt).toBe(created.updatedAt);
+    expect(rows.get(created.id)!.spec!.trigger.kind).toBe('deal.status_changed');
+
+    // Read back: a `user` spec is never re-translated, even with no Workiz data on the row.
+    expect((await service.get(created.id)).specSource).toBe('user');
+  });
+
+  it('creates a rule switched on when asked, and carries the library section and blurb', async () => {
+    const { service } = makeService();
+    const created = await service.create(
+      { name: 'Missed call text', spec: smsSpec, enabled: true, category: 'phone', description: 'Texts back' },
+      caller,
+    );
+    expect(created).toMatchObject({ enabled: true, category: 'phone', description: 'Texts back' });
+  });
+
+  it('refuses to create an enabled rule the engine cannot act on, with the same 422 as PATCH', async () => {
+    const { service, repo } = makeService();
+    const emailOnly = {
+      version: 1,
+      trigger: { kind: 'deal.created' },
+      conditions: [],
+      actions: [{ type: 'send_email', to: 'client', body: 'Hi' }],
+    } as never;
+
+    const err = await service.create({ name: 'Email only', spec: emailOnly, enabled: true }, caller).catch((e) => e);
+    expect(err).toBeInstanceOf(RuleNotRunnableException);
+    expect(err.getStatus()).toBe(422);
+    expect(err.message).toMatch(/^RULE_NOT_RUNNABLE/);
+    expect(err.message).toMatch(/email/i);
+    expect(repo.put).not.toHaveBeenCalled();
+
+    // The same rule created off is stored, and says why it cannot be switched on.
+    const off = await service.create({ name: 'Email only', spec: emailOnly }, caller);
+    expect(off).toMatchObject({ enabled: false, runnable: false });
+    expect(off.notRunnableReason).toMatch(/email/i);
+    await expect(service.update(off.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
+  });
+
   it('migrate writes the specs once and reports the coverage table', async () => {
     const { service, repo, rows } = makeService([
       translatable({ workizTriggered: 5411 }),

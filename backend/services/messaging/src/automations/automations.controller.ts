@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { AutomationsService } from './automations.service';
+import { CreateAutomationDto } from './dto/create-automation.dto';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
 import { TestAutomationDto } from './dto/test-automation.dto';
 import { AutomationRunsRepository } from './engine/automation-runs.repository';
@@ -35,6 +36,22 @@ export class AutomationsController {
   })
   async list() {
     const data = await this.service.list();
+    return { success: true, data };
+  }
+
+  @Post()
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Create an automation rule',
+    description:
+      '**Guard:** `settings.edit`. The rule the Automation Center writes — from a library recipe or from ' +
+      'scratch. It is `source: bitcrm` / `specSource: user`, so the Workiz translator never rewrites it, and it ' +
+      'is created switched off unless `enabled: true` is asked for; asking for that with a spec the engine ' +
+      'cannot act on answers 422 `RULE_NOT_RUNNABLE`.',
+  })
+  async create(@Body() dto: CreateAutomationDto, @CurrentUser() user: JwtUser) {
+    const data = await this.service.create(dto, user);
+    this.engine.invalidate();
     return { success: true, data };
   }
 

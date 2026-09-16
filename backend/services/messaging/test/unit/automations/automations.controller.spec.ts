@@ -3,6 +3,7 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { PERMISSION_KEY } from '@bitcrm/shared';
 import { AutomationsController } from '../../../src/automations/automations.controller';
+import { CreateAutomationDto } from '../../../src/automations/dto/create-automation.dto';
 import { UpdateAutomationDto } from '../../../src/automations/dto/update-automation.dto';
 import { ADMIN } from '../api/api-mocks';
 
@@ -10,6 +11,7 @@ function makeController() {
   const service = {
     list: jest.fn(async () => [{ id: 'new-job-sms' }]),
     get: jest.fn(async (id: string) => ({ id })),
+    create: jest.fn(async (dto: { name: string }, caller: { id: string }) => ({ id: 'r-new', ...dto, createdBy: caller.id })),
     update: jest.fn(async (id: string, dto: unknown, caller: { id: string }) => ({ id, ...(dto as object), updatedBy: caller.id })),
     migrate: jest.fn(async () => [
       { id: 'w1', name: 'Canceled job & techs', runnable: true, trigger: 'deal.status_changed', actions: ['send_sms:assigned_techs'], written: true },
@@ -49,6 +51,7 @@ describe('AutomationsController', () => {
     const perm = (method: string) => Reflect.getMetadata(PERMISSION_KEY, AutomationsController.prototype[method as keyof AutomationsController]);
     expect(perm('list')).toEqual({ resource: 'settings', action: 'view' });
     expect(perm('get')).toEqual({ resource: 'settings', action: 'view' });
+    expect(perm('create')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('update')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('migrate')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('listRuns')).toEqual({ resource: 'settings', action: 'view' });
@@ -84,6 +87,41 @@ describe('AutomationsController', () => {
 
     await controller.migrate(ADMIN, 'true');
     expect(service.migrate).toHaveBeenLastCalledWith(ADMIN, { dryRun: true });
+  });
+
+  it('creates a rule, passes the caller through and drops the engine cache', async () => {
+    const { controller, service, engine } = makeController();
+    const body = { name: 'Job canceled', spec: { version: 1, trigger: { kind: 'deal.created' }, conditions: [], actions: [] } } as never;
+    expect(await controller.create(body, ADMIN)).toEqual({
+      success: true,
+      data: { id: 'r-new', ...(body as object), createdBy: ADMIN.id },
+    });
+    expect(service.create).toHaveBeenCalledWith(body, ADMIN);
+    expect(engine.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('validates the create body: a name and a whole spec are required', async () => {
+    const spec = {
+      version: 1,
+      trigger: { kind: 'deal.status_changed', to: ['canceled'] },
+      conditions: [{ field: 'tag', op: 'in', values: ['t1'] }],
+      actions: [{ type: 'send_sms', to: 'client', body: 'Hi' }],
+    };
+    expect(await validate(plainToInstance(CreateAutomationDto, { name: 'Rule', spec }))).toHaveLength(0);
+    expect(
+      await validate(plainToInstance(CreateAutomationDto, { name: 'Rule', spec, enabled: true, category: 'phone', description: 'x' })),
+    ).toHaveLength(0);
+
+    for (const bad of [
+      { spec }, // no name
+      { name: '', spec },
+      { name: 'Rule' }, // no spec
+      { name: 'Rule', spec: { ...spec, trigger: { kind: 'deal.exploded' } } },
+      { name: 'Rule', spec: { ...spec, actions: [{ type: 'launch_missile' }] } },
+      { name: 'Rule', spec, enabled: 'yes' },
+    ]) {
+      expect(await validate(plainToInstance(CreateAutomationDto, bad))).not.toHaveLength(0);
+    }
   });
 
   it('validates the patch body', async () => {
