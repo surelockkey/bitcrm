@@ -170,8 +170,10 @@ export function AutomationFormDialog({
     const body = { name: parsed.data.name, spec: toSpec(parsed.data, base) };
     const close = { onSuccess: () => onOpenChange(false) };
     if (rule) update.mutate({ id: rule.id, body }, close);
-    // A new rule always lands off, so it can be read back before it runs.
-    else create.mutate({ ...body, category: draft?.category }, close);
+    // A new rule lands off, so it can be read back before it texts anybody.
+    // Said here rather than left to the endpoint's default: whichever way
+    // that default goes, a rule created by accident must not start sending.
+    else create.mutate({ ...body, enabled: false, category: draft?.category }, close);
   };
 
   const kind = values.trigger.kind;

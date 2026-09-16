@@ -293,7 +293,9 @@ export function AutomationsPage() {
                   busy={update.isPending}
                   onToggle={(enabled) => update.mutate({ id: rule.id, body: { enabled } })}
                   onEdit={() => setEditing(rule)}
-                  onDuplicate={() => duplicate.mutate({ id: rule.id })}
+                  // "… (copy)" is named here, not left to the endpoint: two
+                  // rules under one name is how a list of 80 becomes unreadable.
+                  onDuplicate={() => duplicate.mutate({ id: rule.id, name: `${rule.name} (copy)` })}
                   onHistory={() => setShowing(rule)}
                   onDelete={() => setDeleting(rule)}
                 />

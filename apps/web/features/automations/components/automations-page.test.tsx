@@ -60,7 +60,7 @@ const rules = [
 
 const patched: Array<{ id: string; body: unknown }> = [];
 const created: unknown[] = [];
-const duplicated: string[] = [];
+const duplicated: Array<{ id: string; body: unknown }> = [];
 const deleted: string[] = [];
 
 beforeEach(() => {
@@ -91,8 +91,8 @@ beforeEach(() => {
       created.push(await request.json());
       return HttpResponse.json({ success: true, data: { ...rules[0], id: "new-1", name: "Late tech" } });
     }),
-    http.post("*/messaging/automations/:id/duplicate", ({ params }) => {
-      duplicated.push(String(params.id));
+    http.post("*/messaging/automations/:id/duplicate", async ({ params, request }) => {
+      duplicated.push({ id: String(params.id), body: await request.json() });
       return HttpResponse.json({ success: true, data: { ...rules[0], id: "copy", name: "Copy" } });
     }),
     http.delete("*/messaging/automations/:id", ({ params }) => {
@@ -358,18 +358,24 @@ describe("AutomationsPage rule actions", () => {
     await waitFor(() => expect(created).toHaveLength(1));
     expect(created[0]).toMatchObject({
       name: "Late tech",
+      // Off, and said so: a rule created by accident must not start texting.
+      enabled: false,
       spec: { actions: [{ type: "send_sms", to: "client", body: "Running late" }] },
     });
   });
 
-  it("duplicates a rule from its menu", async () => {
+  it("duplicates a rule from its menu, under a name that tells the two apart", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Canceled job & techs");
 
     await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
     await user.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
-    await waitFor(() => expect(duplicated).toEqual(["canceled"]));
+    await waitFor(() =>
+      expect(duplicated).toEqual([
+        { id: "canceled", body: { name: "Canceled job & techs (copy)" } },
+      ]),
+    );
   });
 
   it("deletes a rule only after the confirm names it", async () => {
