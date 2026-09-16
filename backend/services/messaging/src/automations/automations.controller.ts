@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -111,6 +111,21 @@ export class AutomationsController {
   })
   async test(@Param('id') id: string, @Body() dto: TestAutomationDto) {
     const data = await this.engine.testRun(id, dto.dealId);
+    return { success: true, data };
+  }
+
+  @Delete(':id')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Delete an automation rule',
+    description:
+      '**Guard:** `settings.edit`. Removes the rule for good — imported Workiz rules included, they are data. ' +
+      'A built-in rule (New-job SMS, on-my-way, late) answers 422 `BUILTIN_RULE_NOT_DELETABLE`: it lives in ' +
+      'code, so switching it off is how you stop it. The rule\'s firing history is left to expire on its own TTL.',
+  })
+  async remove(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    const data = await this.service.remove(id, user);
+    this.engine.invalidate();
     return { success: true, data };
   }
 

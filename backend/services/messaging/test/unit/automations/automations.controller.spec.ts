@@ -12,6 +12,7 @@ function makeController() {
     list: jest.fn(async () => [{ id: 'new-job-sms' }]),
     get: jest.fn(async (id: string) => ({ id })),
     create: jest.fn(async (dto: { name: string }, caller: { id: string }) => ({ id: 'r-new', ...dto, createdBy: caller.id })),
+    remove: jest.fn(async (id: string) => ({ id })),
     update: jest.fn(async (id: string, dto: unknown, caller: { id: string }) => ({ id, ...(dto as object), updatedBy: caller.id })),
     migrate: jest.fn(async () => [
       { id: 'w1', name: 'Canceled job & techs', runnable: true, trigger: 'deal.status_changed', actions: ['send_sms:assigned_techs'], written: true },
@@ -52,6 +53,7 @@ describe('AutomationsController', () => {
     expect(perm('list')).toEqual({ resource: 'settings', action: 'view' });
     expect(perm('get')).toEqual({ resource: 'settings', action: 'view' });
     expect(perm('create')).toEqual({ resource: 'settings', action: 'edit' });
+    expect(perm('remove')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('update')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('migrate')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('listRuns')).toEqual({ resource: 'settings', action: 'view' });
@@ -97,6 +99,13 @@ describe('AutomationsController', () => {
       data: { id: 'r-new', ...(body as object), createdBy: ADMIN.id },
     });
     expect(service.create).toHaveBeenCalledWith(body, ADMIN);
+    expect(engine.invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('deletes a rule and drops the engine cache so it stops firing at once', async () => {
+    const { controller, service, engine } = makeController();
+    expect(await controller.remove('w1', ADMIN)).toEqual({ success: true, data: { id: 'w1' } });
+    expect(service.remove).toHaveBeenCalledWith('w1', ADMIN);
     expect(engine.invalidate).toHaveBeenCalledTimes(1);
   });
 

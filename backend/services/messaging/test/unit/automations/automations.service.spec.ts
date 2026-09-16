@@ -1,6 +1,10 @@
 import { type AutomationRule } from '@bitcrm/types';
 import { bitcrmId } from '../../../src/automations/translator/workiz-ids';
-import { AutomationsService, RuleNotRunnableException } from '../../../src/automations/automations.service';
+import {
+  AutomationsService,
+  BuiltinRuleNotDeletableException,
+  RuleNotRunnableException,
+} from '../../../src/automations/automations.service';
 import { BUILTIN_RULES, BUILTIN_RULES_SINCE } from '../../../src/automations/builtin-rules';
 import { T0 } from '../mocks';
 
@@ -23,6 +27,9 @@ function makeService(stored: AutomationRule[] = []) {
     put: jest.fn(async (rule: AutomationRule) => {
       rows.set(rule.id, rule);
       return rule;
+    }),
+    delete: jest.fn(async (id: string) => {
+      rows.delete(id);
     }),
   };
   return { service: new AutomationsService(repo as any), repo, rows };
@@ -251,6 +258,34 @@ describe('AutomationsService', () => {
     expect(off).toMatchObject({ enabled: false, runnable: false });
     expect(off.notRunnableReason).toMatch(/email/i);
     await expect(service.update(off.id, { enabled: true }, caller)).rejects.toBeInstanceOf(RuleNotRunnableException);
+  });
+
+  // --- delete
+
+  it('deletes a rule of ours and an imported Workiz one, and 404s an unknown id', async () => {
+    const { service, repo, rows } = makeService([workizRule()]);
+    const mine = await service.create({ name: 'Mine', spec: smsSpec }, caller);
+
+    expect(await service.remove(mine.id, caller)).toEqual({ id: mine.id });
+    expect(rows.has(mine.id)).toBe(false);
+    expect(await service.remove('w1', caller)).toEqual({ id: 'w1' });
+    expect(repo.delete).toHaveBeenCalledWith('w1');
+    expect(await service.list()).toHaveLength(3); // only the built-ins are left
+
+    await expect(service.remove('nope', caller)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses to delete a built-in rule, stored or not — switching it off is the way to stop it', async () => {
+    const { service, repo } = makeService([{ ...BUILTIN_RULES.late, enabled: false, updatedAt: T0 }]);
+
+    for (const id of ['new-job-sms', 'late']) {
+      const err = await service.remove(id, caller).catch((e) => e);
+      expect(err).toBeInstanceOf(BuiltinRuleNotDeletableException);
+      expect(err.getStatus()).toBe(422);
+      expect(err.message).toMatch(/^BUILTIN_RULE_NOT_DELETABLE/);
+      expect(err.message).toMatch(/switch it off/);
+    }
+    expect(repo.delete).not.toHaveBeenCalled();
   });
 
   it('migrate writes the specs once and reports the coverage table', async () => {

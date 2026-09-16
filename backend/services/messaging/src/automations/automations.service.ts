@@ -23,6 +23,21 @@ export class RuleNotRunnableException extends HttpException {
   }
 }
 
+/**
+ * Raised when somebody deletes a built-in rule. A built-in is code, not a
+ * row: deleting its row would simply bring the code default back on the
+ * next read, switched on. Disabling is how you stop one.
+ */
+export class BuiltinRuleNotDeletableException extends HttpException {
+  constructor(ruleId: string) {
+    super(
+      `BUILTIN_RULE_NOT_DELETABLE: automation rule ${ruleId} is built into the service and cannot be deleted; ` +
+        'switch it off instead',
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+}
+
 /** What `migrate()` did, per rule — the coverage table. */
 export interface AutomationMigrationRow {
   id: string;
@@ -153,6 +168,19 @@ export class AutomationsService {
     });
     this.logger.log(`Automation rule ${id} updated by ${caller.id}: ${Object.keys(dto).join(', ')}`);
     return saved;
+  }
+
+  /**
+   * `DELETE /automations/:id` — drops the rule row. 404 for a rule that is
+   * not there, 422 for a built-in one (it lives in code; switching it off is
+   * how you stop it). An imported Workiz rule is ordinary data and goes.
+   */
+  async remove(id: string, caller: { id: string }): Promise<{ id: string }> {
+    const rule = await this.get(id);
+    if (rule.builtin || isBuiltinRuleId(id)) throw new BuiltinRuleNotDeletableException(id);
+    await this.repository.delete(id);
+    this.logger.log(`Automation rule ${id} "${rule.name}" deleted by ${caller.id}`);
+    return { id };
   }
 
   /**
