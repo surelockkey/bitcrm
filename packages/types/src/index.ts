@@ -251,6 +251,52 @@ export {
 export type { InboxCounters, InboxTotals, TeamChatCounters } from './entities/inbox-counters.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
+export {
+  AUTOMATION_ACTION_TYPES,
+  AUTOMATION_CONDITION_FIELDS,
+  AUTOMATION_CONDITION_OPS,
+  AUTOMATION_RECIPIENTS,
+  AUTOMATION_TRIGGER_KINDS,
+  automationActionSentence,
+  automationConditionsSentence,
+  automationDelayText,
+  automationSentence,
+  automationSpecLabels,
+  automationTriggerSentence,
+} from './entities/automation-spec';
+export type {
+  AutomationAction,
+  AutomationActionType,
+  AutomationCallOutcome,
+  AutomationCondition,
+  AutomationConditionField,
+  AutomationConditionOp,
+  AutomationLabelMap,
+  AutomationQuietHoursMode,
+  AutomationRecipient,
+  AutomationRun,
+  AutomationRunAction,
+  AutomationRunOutcome,
+  AutomationScheduleAnchor,
+  AutomationSpec,
+  AutomationSpecSource,
+  AutomationTiming,
+  AutomationTrigger,
+  AutomationTriggerKind,
+} from './entities/automation-spec';
+
+// Event contract (deal-events topic)
+export { DEAL_EVENT_TOPIC, DealEventType } from './events/deal-events';
+export type {
+  DealCreatedEvent,
+  DealDeletedEvent,
+  DealScheduleSlice,
+  DealScheduledChangedEvent,
+  DealStatusChangedEvent,
+  DealTechAssignedEvent,
+  DealTechUnassignedEvent,
+  DealUpdatedEvent,
+} from './events/deal-events';
 
 // Event contract (message-events topic)
 export { MESSAGE_EVENT_TOPIC, MessageEventType } from './events/message-events';

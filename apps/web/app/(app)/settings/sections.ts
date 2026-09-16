@@ -124,4 +124,11 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     icon: FileText,
     resource: "message_templates",
   },
+  {
+    label: "Automations",
+    href: "/settings/automations",
+    description: "What the system texts on its own — job status, missed calls, reminders.",
+    icon: Workflow,
+    resource: "settings",
+  },
 ];

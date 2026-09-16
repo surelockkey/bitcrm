@@ -1,0 +1,182 @@
+{
+  "_id": "6a67175aaa9e18a883a40711",
+  "name": "zelli_job_completed",
+  "entities": [
+    "job"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1785053566.232
+      },
+      {
+        "fact": "sub_status_id",
+        "operator": "equal",
+        "value": "13525",
+        "friendly_strings": {
+          "value": "job done",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "adgroup_id",
+        "entity": "job",
+        "operator": "equal",
+        "value": "2110798",
+        "friendly_strings": {
+          "fact": "source",
+          "value": "ZELLI"
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "webhookPost",
+      "webhook_url": "https://example.test/api/webhook",
+      "auth_key": "masked-auth-key",
+      "trigger_type": "job_status_job_done",
+      "rule_name": "zelli_job_completed",
+      "time_interval": {
+        "value": 0,
+        "operator": null,
+        "time_field": null,
+        "time_unit": "minutes",
+        "time_field_friendly_string": null
+      },
+      "working_hours": {
+        "dnd": false,
+        "from": "09:00",
+        "to": "17:00"
+      }
+    }
+  ],
+  "createdAt": "2026-07-27T08:31:22.234Z",
+  "updatedAt": "2026-08-17T22:48:23.209Z",
+  "enabled": true,
+  "deleted": false,
+  "default_rule": false,
+  "hidden": false,
+  "hiddenReason": null,
+  "paused": false,
+  "triggered": 8,
+  "category": "custom",
+  "namespace": "2774",
+  "parameters": {
+    "p1": {
+      "text": "a job",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "job done",
+      "type": "entity_main_condition"
+    },
+    "p8": {
+      "text": "post webhook",
+      "type": "action_type"
+    },
+    "p3": {
+      "text": "https://example.test/",
+      "type": "webhook_url"
+    },
+    "p5": {
+      "text": "immediately",
+      "type": "time"
+    }
+  },
+  "validFrom": "2026-07-27T08:12:46.232Z",
+  "notifyMedium": null,
+  "trigger": {
+    "sentence": "When {p1} {p2} of {p7}",
+    "parameters": {
+      "p1": {
+        "text": "a job",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "has a status",
+        "type": "type_of_main_condition"
+      },
+      "p7": {
+        "text": "job done",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": "has a status"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p5}",
+      "parameters": {
+        "p8": {
+          "text": "post webhook",
+          "type": "action_type"
+        },
+        "p3": {
+          "text": "https://example.test/",
+          "type": "webhook_url"
+        },
+        "p5": {
+          "text": "immediately",
+          "type": "time"
+        }
+      },
+      "events": [
+        {
+          "type": "webhookPost",
+          "webhook_url": "https://example.test/api/webhook",
+          "auth_key": "masked-auth-key",
+          "trigger_type": "job_status_job_done",
+          "rule_name": "zelli_job_completed",
+          "time_interval": {
+            "value": 0,
+            "operator": null,
+            "time_field": null,
+            "time_unit": "minutes",
+            "time_field_friendly_string": null
+          },
+          "working_hours": {
+            "dnd": false,
+            "from": "09:00",
+            "to": "17:00"
+          }
+        }
+      ],
+      "type": "WEBHOOK",
+      "actionSpecificParams": []
+    }
+  ],
+  "hash_code": "5c0083071c8e01d77f7b8abd8dd1604b",
+  "__v": 0,
+  "sentence": "",
+  "fullSentence": ""
+}

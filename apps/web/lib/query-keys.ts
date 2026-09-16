@@ -210,4 +210,11 @@ export const queryKeys = {
     settings: () => ["messaging", "settings"] as const,
     optOuts: (address: string) => ["messaging", "opt-outs", address] as const,
   },
+
+  automations: {
+    all: () => ["automations"] as const,
+    list: () => ["automations", "list"] as const,
+    detail: (id: string) => ["automations", "detail", id] as const,
+    runs: (id: string) => ["automations", "runs", id] as const,
+  },
 } as const;
