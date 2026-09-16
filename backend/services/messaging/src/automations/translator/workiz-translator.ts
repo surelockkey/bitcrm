@@ -35,7 +35,9 @@ import { rewriteShortCodes } from './workiz-short-codes';
  *
  * The result is advisory: it is computed at read time and only written to
  * the table by `POST /automations/migrate`, so re-running a better
- * translator needs no data migration.
+ * translator needs no data migration — as long as `TRANSLATOR_VERSION`
+ * moves with it, which is what tells an already-migrated row to be read
+ * again.
  */
 
 /**
