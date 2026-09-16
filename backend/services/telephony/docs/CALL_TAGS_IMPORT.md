@@ -159,5 +159,11 @@ staying inside the same rules keeps the data usable afterwards:
 - `GET /calls?tagId=<id>` — a `contains` FilterExpression inside the
   `CALL#ALL` date-ordered walk, not an index. Fine for a common tag, expensive
   for a rare one over all of time; the web toolbar tells the user to add a date
-  range. If tag lookups become routine, the upgrade is a sparse
-  `CALLTAG#<id>` GSI maintained by `setTags` — not a cheaper filter.
+  range. The walk is bounded per request (`MAX_QUERY_PAGES`), so a page can come
+  back short — even empty — while still carrying `nextCursor`, which means
+  "nothing more in the stretch read so far", not "no more calls". If tag lookups
+  become routine, the upgrade is a sparse `CALLTAG#<id>` GSI maintained by
+  `setTags` — not a cheaper filter. **A generator that writes such a GSI today
+  would be wrong**: no call-tag row and no `tagIds` write puts any GSI key on
+  the item, and the three call indexes (`GSI1 AgentIndex`, `GSI2 AllCallsIndex`,
+  `GSI3 PartyIndex`) are the only ones the calls table has.

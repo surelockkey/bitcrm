@@ -279,6 +279,10 @@ export class CallsController {
       'dateFrom/dateTo (ISO instants or prefixes), origin, tagId (one ' +
       'call-tag id; a filter inside the date-ordered walk, so pair it with ' +
       'dateFrom/dateTo — a rare tag over the whole log is expensive). ' +
+      'The walk is bounded per request, so a filtered page can come back ' +
+      'short — even empty — while still carrying `nextCursor`: that means ' +
+      '"nothing more in the stretch read so far", not "no more calls". A ' +
+      'page is the last one only when `nextCursor` is absent. ' +
       'Parties are named on the way out: system users from user-service, ' +
       'outside callers from CRM contacts. Each row carries its `tagIds`.',
   })
