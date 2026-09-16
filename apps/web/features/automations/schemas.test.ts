@@ -31,6 +31,46 @@ describe("automation form schema", () => {
     expect(toSpec({ ...values, delayMinutes: 0 })?.timing).toBeUndefined();
   });
 
+  it("keeps the narrowings the form does not show — editing a message never widens a rule", () => {
+    // A translated call rule: inbound only, with a webhook that carries an
+    // auth header, a PUT and a JSON body. Editing the text must change the
+    // text and nothing else.
+    const narrow: AutomationSpec = {
+      version: 1,
+      trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
+      conditions: [],
+      actions: [
+        { type: "send_sms", to: "client", body: "Sorry we missed you" },
+        {
+          type: "webhook",
+          url: "https://example.test/hook",
+          method: "PUT",
+          headers: { "X-Auth": "secret" },
+          payload: '{"job":"{{job_id}}"}',
+        },
+      ],
+    };
+    const values = parse(specToForm("Missed call", narrow));
+    const edited = toSpec(
+      { ...values, actions: values.actions.map((a, i) => (i === 0 ? { ...a, body: "Sorry we missed your call" } : a)) },
+      narrow,
+    );
+
+    expect(edited.trigger).toEqual({ kind: "call.completed", callOutcome: "missed", callDirection: "inbound" });
+    expect(edited.actions[0]).toMatchObject({ body: "Sorry we missed your call" });
+    expect(edited.actions[1]).toEqual(narrow.actions[1]);
+  });
+
+  it("keeps a status trigger's `from` and `onCreate: false`", () => {
+    const narrow: AutomationSpec = {
+      version: 1,
+      trigger: { kind: "deal.status_changed", to: ["done"], from: ["in_progress"], onCreate: false },
+      conditions: [],
+      actions: [{ type: "send_sms", to: "client", body: "Done" }],
+    };
+    expect(toSpec(parse(specToForm("Job done", narrow)), narrow).trigger).toEqual(narrow.trigger);
+  });
+
   it("drops the trigger fields that belong to another trigger", () => {
     const values = parse({
       ...specToForm("Rule", spec),

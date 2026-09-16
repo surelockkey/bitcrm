@@ -25,12 +25,23 @@ export const actionSchema = z
     type: z.enum(AUTOMATION_ACTION_TYPES),
     to: z.enum(AUTOMATION_RECIPIENTS).optional(),
     number: z.string().trim().optional(),
+    email: z.string().trim().optional(),
     templateId: z.string().trim().optional(),
     body: z.string().optional(),
     subject: z.string().optional(),
     url: z.string().trim().optional(),
     userIds: z.array(z.string()).optional(),
     roleIds: z.array(z.string()).optional(),
+    // Carried through the form untouched: the editor has no field for any of
+    // these, and rebuilding an action without them would quietly change what
+    // the rule does (a PUT webhook becomes a POST, its auth header and its
+    // JSON body vanish, a tag or sub-status write loses its target).
+    method: z.enum(["POST", "PUT"]).optional(),
+    headers: z.record(z.string()).optional(),
+    payload: z.string().optional(),
+    tagId: z.string().optional(),
+    superStatus: z.string().optional(),
+    subStatusId: z.string().optional(),
   })
   .superRefine((action, ctx) => {
     if (action.type === "webhook") {
@@ -59,6 +70,14 @@ export const automationFormSchema = z.object({
     callOutcome: z.enum(["missed", "answered", "voicemail", "any"]).default("any"),
     anchor: z.enum(["scheduledStart", "scheduledEnd", "statusChangedAt", "createdAt"]).default("scheduledStart"),
     offsetMinutes: z.coerce.number().int().min(-43200).max(43200).default(0),
+    // Narrowings the editor does not show but must never widen: the status
+    // a job left, "not on creation", the direction of a call, the channel
+    // and party of a message.
+    from: z.array(z.string()).default([]),
+    onCreate: z.boolean().optional(),
+    callDirection: z.enum(["inbound", "outbound", "any"]).optional(),
+    messageChannel: z.enum(["sms", "email", "in_app", "any"]).optional(),
+    messagePartyKind: z.enum(["contact", "company", "user", "none", "any"]).optional(),
   }),
   conditions: z.array(conditionSchema).max(20).default([]),
   actions: z.array(actionSchema).min(1, "A rule needs at least one action").max(10),
@@ -80,6 +99,11 @@ export function specToForm(name: string, spec?: AutomationSpec): AutomationFormV
       callOutcome: spec?.trigger.callOutcome ?? "any",
       anchor: spec?.trigger.anchor ?? "scheduledStart",
       offsetMinutes: spec?.trigger.offsetMinutes ?? 0,
+      from: spec?.trigger.from ?? [],
+      onCreate: spec?.trigger.onCreate,
+      callDirection: spec?.trigger.callDirection,
+      messageChannel: spec?.trigger.messageChannel,
+      messagePartyKind: spec?.trigger.messagePartyKind,
     },
     conditions: (spec?.conditions ?? []).map((c) => ({
       field: c.field,
@@ -91,12 +115,19 @@ export function specToForm(name: string, spec?: AutomationSpec): AutomationFormV
       type: a.type,
       to: a.to,
       number: a.number,
+      email: a.email,
       templateId: a.templateId,
       body: a.body ?? "",
       subject: a.subject,
       url: a.url,
       userIds: a.userIds,
       roleIds: a.roleIds,
+      method: a.method,
+      headers: a.headers,
+      payload: a.payload,
+      tagId: a.tagId,
+      superStatus: a.superStatus,
+      subStatusId: a.subStatusId,
     })),
     delayMinutes: spec?.timing?.delayMinutes ?? 0,
     quietHours: spec?.timing?.quietHours ?? "hold",
@@ -105,21 +136,36 @@ export function specToForm(name: string, spec?: AutomationSpec): AutomationFormV
 
 /**
  * The form's values → what `PATCH /automations/:id` takes. Empty fields are
- * dropped. `previous` keeps the one thing the form does not show — the
- * rule's own working-hours window, which only the Workiz import sets — so
- * editing a message never widens when the rule may send.
+ * dropped, and everything the editor does not show is carried through the
+ * form (`specToForm` reads it, this writes it back) rather than rebuilt from
+ * the visible fields — so fixing a typo in a message never widens the rule.
+ * A field only ever survives on the trigger it belongs to, so switching the
+ * trigger kind still drops what no longer applies. `previous` supplies the
+ * rule's working-hours window, which lives on `timing` and has no form field.
  */
 export function toSpec(values: AutomationFormOutput, previous?: AutomationSpec): AutomationSpec {
   const kind = values.trigger.kind;
+  const statusTrigger = kind === "deal.status_changed";
   const spec: AutomationSpec = {
     version: 1,
     trigger: {
       kind,
-      ...(kind === "deal.status_changed" && values.trigger.to.length ? { to: values.trigger.to } : {}),
-      ...(kind === "deal.status_changed" && values.trigger.toSubStatus.length
+      ...(statusTrigger && values.trigger.to.length ? { to: values.trigger.to } : {}),
+      ...(statusTrigger && values.trigger.from.length ? { from: values.trigger.from } : {}),
+      ...(statusTrigger && values.trigger.toSubStatus.length
         ? { toSubStatus: values.trigger.toSubStatus }
         : {}),
+      ...(statusTrigger && values.trigger.onCreate === false ? { onCreate: false } : {}),
       ...(kind === "call.completed" ? { callOutcome: values.trigger.callOutcome } : {}),
+      ...(kind === "call.completed" && values.trigger.callDirection && values.trigger.callDirection !== "any"
+        ? { callDirection: values.trigger.callDirection }
+        : {}),
+      ...(kind === "message.received" && values.trigger.messageChannel
+        ? { messageChannel: values.trigger.messageChannel }
+        : {}),
+      ...(kind === "message.received" && values.trigger.messagePartyKind
+        ? { messagePartyKind: values.trigger.messagePartyKind }
+        : {}),
       ...(kind === "schedule.relative"
         ? { anchor: values.trigger.anchor, offsetMinutes: values.trigger.offsetMinutes }
         : {}),
@@ -136,10 +182,16 @@ export function toSpec(values: AutomationFormOutput, previous?: AutomationSpec):
       type: a.type,
       ...(a.to ? { to: a.to } : {}),
       ...(a.to === "number" && a.number ? { number: a.number } : {}),
+      ...(a.to === "number" && a.email ? { email: a.email } : {}),
       ...(a.templateId ? { templateId: a.templateId } : {}),
       ...(a.body?.trim() ? { body: a.body } : {}),
       ...(a.subject?.trim() ? { subject: a.subject } : {}),
-      ...(a.type === "webhook" && a.url ? { url: a.url, method: "POST" as const } : {}),
+      ...(a.type === "webhook" && a.url ? { url: a.url, method: a.method ?? ("POST" as const) } : {}),
+      ...(a.type === "webhook" && a.headers && Object.keys(a.headers).length ? { headers: a.headers } : {}),
+      ...(a.type === "webhook" && a.payload?.trim() ? { payload: a.payload } : {}),
+      ...(a.type === "add_tag" && a.tagId ? { tagId: a.tagId } : {}),
+      ...(a.type === "change_sub_status" && a.superStatus ? { superStatus: a.superStatus } : {}),
+      ...(a.type === "change_sub_status" && a.subStatusId ? { subStatusId: a.subStatusId } : {}),
       ...(a.userIds?.length ? { userIds: a.userIds } : {}),
       ...(a.roleIds?.length ? { roleIds: a.roleIds } : {}),
     })),
