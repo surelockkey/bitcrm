@@ -12,6 +12,13 @@ vi.mock("./call-associations", () => ({
 vi.mock("./call-party-cell", () => ({
   CallPartyCell: () => <span>party</span>,
 }));
+// The tag picker reads the catalog and writes through a mutation of its own;
+// its behaviour is covered by call-tags-cell.test.tsx.
+vi.mock("./call-tags-cell", () => ({
+  CallTagsCell: ({ call }: { call: { tagIds?: string[] } }) => (
+    <span>calltags:{(call.tagIds ?? []).join(",")}</span>
+  ),
+}));
 vi.mock("@/features/job-sources/lib", () => ({
   useJobSourceName: () => (id?: string) =>
     id === "src-1" ? "SURE CT GOOGLE ADS" : "—",

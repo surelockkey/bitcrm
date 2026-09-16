@@ -21,6 +21,17 @@ export const queryKeys = {
     callFlows: () => ["telephony", "call-flows"] as const,
   },
 
+  /**
+   * The call-tag catalog. Its own root (not under `telephony`) so that the
+   * chips, the picker and the Settings page share one cache entry that a
+   * telephony-wide invalidation never sweeps out from under them.
+   */
+  callTags: {
+    all: () => ["call-tags"] as const,
+    list: () => ["call-tags", "list"] as const,
+    detail: (id: string) => ["call-tags", "detail", id] as const,
+  },
+
   calls: {
     all: () => ["calls"] as const,
     /** Prefix for every filtered list — use for invalidation. */

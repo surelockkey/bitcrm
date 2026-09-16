@@ -55,6 +55,12 @@ export interface CallRecord {
   dealLinkedAt?: string;
   /** Job source the call is attributed to (from the tracked number it used). */
   sourceId?: string;
+  /**
+   * Call-tag catalog ids a person put on this call — the Workiz "Tags" column
+   * (SPAM CALLER, Tech Call, WRONG NUMBER…). Absent, never `[]`, when the call
+   * carries none; changed through `PATCH /calls/:sid/tags`, never by a webhook.
+   */
+  tagIds?: string[];
   /** How the party was decided — a manual choice is never re-derived. */
   partySource?: "auto" | "manual";
   /** The call flow that answered, and where it took the caller. */
@@ -90,6 +96,12 @@ export interface CallsFilter {
   numbers?: string[];
   dateFrom?: string;
   dateTo?: string;
+  /**
+   * Only calls carrying this call tag. The server filters inside the
+   * date-ordered walk of the whole log, so a rare tag over all of time is
+   * expensive — the toolbar says to pair it with a date range.
+   */
+  tagId?: string;
 }
 
 export const LIVE_STATUSES: CallStatus[] = [

@@ -20,6 +20,7 @@ import { CallAssociations } from "./call-associations";
 import { CallFlowPath } from "./call-flow-path";
 import { CallPartyCell } from "./call-party-cell";
 import { CallStatusBadge } from "./call-status-badge";
+import { CallTagsCell } from "./call-tags-cell";
 import { RecordingPlayer } from "./recording-player";
 import { LiveCalls } from "./live-calls";
 
@@ -117,6 +118,9 @@ export function CallDetailPage({ callId }: { callId: string }) {
                 : "None"
             }
           />
+          {/* Same picker as the log and the side preview — whoever opened the
+              full call can still mark it spam without going back. */}
+          <Field label="Tags" value={<CallTagsCell call={call} />} />
         </dl>
       </section>
 

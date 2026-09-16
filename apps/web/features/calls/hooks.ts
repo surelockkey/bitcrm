@@ -70,6 +70,25 @@ export function useLinkCallToDeal() {
   });
 }
 
+/**
+ * Tag a call, or take a tag off it.
+ *
+ * The API takes a delta, so what the caller passes is the ids that changed —
+ * not the list. Refreshes every call view, because the same record is drawn in
+ * the log, the side preview and the call page at once.
+ */
+export function useSetCallTags() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { sid: string; add?: string[]; remove?: string[] }) =>
+      api.setCallTags(args.sid, { add: args.add, remove: args.remove }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.calls.all() });
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 /** Correct who a call was with. */
 export function useSetCallParty() {
   const qc = useQueryClient();
