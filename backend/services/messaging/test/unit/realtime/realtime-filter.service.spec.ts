@@ -124,7 +124,15 @@ describe('RealtimeFilterService.forViewer — counters.changed', () => {
       kind === 'contact' && id === 'ct1' ? createMockConversation({ id: 'c1', unread: true, unreadCount: 1 }) : null,
     );
     const out = (await filter.forViewer(COUNTERS, filter.viewerFor(TECH, techPerms()))) as any;
-    expect(out.counters).toEqual({ unreadConversations: 1, flaggedConversations: 0, unreadByKind: { client: 1 } });
+    expect(out.counters).toMatchObject({
+      unreadConversations: 1,
+      flaggedConversations: 0,
+      unreadByKind: { client: 1 },
+      // The scoped recount walks the rows, so it carries exact totals too.
+      totalConversations: 1,
+      totalByKind: { client: 1 },
+      archivedConversations: 0,
+    });
     expect(countersRepo.get).not.toHaveBeenCalled();
   });
 

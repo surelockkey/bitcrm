@@ -2,11 +2,16 @@ import { describe, it, expect } from "vitest";
 import type { PaginatedResponse } from "@bitcrm/types";
 import type { FeedMessage, InboxConversation } from "./api";
 import {
+  categoryCount,
+  categoryTooltip,
+  categoryTotal,
+  categoryUnread,
   conversationTitle,
   describeResendError,
   EMPTY_PARTY_NAMES,
   errorText,
   flattenFeed,
+  formatCategoryCount,
   formatDayChip,
   formatDayLabel,
   formatListTime,
@@ -300,5 +305,93 @@ describe("composer helpers", () => {
     const a = newClientMessageId();
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(newClientMessageId()).not.toBe(a);
+  });
+});
+
+describe("category counters", () => {
+  // A counters item as it arrives after a recount, matching reference 01:
+  // All 42657, Requests 0, Clients 42423, Team 234, Archived 2.
+  const counted = {
+    unreadConversations: 4,
+    flaggedConversations: 1,
+    unreadByKind: { client: 3, unknown: 1 },
+    totalConversations: 42_657,
+    totalByKind: { client: 42_423, team: 200, group: 34 },
+    archivedConversations: 2,
+    totalsRecountedAt: "2026-09-16T12:00:00.000Z",
+  };
+  // The same item straight out of the Workiz import: unread numbers only.
+  const uncounted = {
+    unreadConversations: 4,
+    flaggedConversations: 1,
+    unreadByKind: { client: 3, unknown: 1 },
+  };
+
+  it("reads the total of each category, folding groups into Team", () => {
+    expect(categoryTotal("all", counted)).toBe(42_657);
+    expect(categoryTotal("requests", counted)).toBe(0);
+    expect(categoryTotal("clients", counted)).toBe(42_423);
+    expect(categoryTotal("team", counted)).toBe(234);
+    expect(categoryTotal("archived", counted)).toBe(2);
+  });
+
+  it("reports totals as UNKNOWN, not zero, until they have been recounted", () => {
+    // This is the dev bug: the column printed 0 next to All and Requests over
+    // an inbox with 42 657 conversations in it.
+    for (const cat of ["all", "requests", "clients", "team", "archived"] as const) {
+      expect(categoryTotal(cat, uncounted)).toBeUndefined();
+      expect(categoryTotal(cat, undefined)).toBeUndefined();
+    }
+    // Even a counters item that happens to carry the numbers is not trusted
+    // without the stamp that says they were actually rebuilt.
+    expect(categoryTotal("all", { ...uncounted, totalConversations: 7 })).toBeUndefined();
+  });
+
+  it("still counts unread separately — that is the dot, not the number", () => {
+    expect(categoryUnread("all", counted)).toBe(4);
+    expect(categoryUnread("clients", counted)).toBe(3);
+    expect(categoryUnread("requests", counted)).toBe(1);
+    expect(categoryUnread("team", counted)).toBe(0);
+  });
+
+  it("prefers the real total and marks it exact", () => {
+    expect(categoryCount("all", counted, 50)).toEqual({ total: 42_657, approximate: false, unread: 4 });
+    expect(formatCategoryCount(categoryCount("all", counted))).toBe("42,657");
+  });
+
+  it("falls back to the loaded rows with a + when the totals are missing", () => {
+    expect(categoryCount("all", uncounted, 42)).toEqual({ total: 42, approximate: true, unread: 4 });
+    expect(formatCategoryCount(categoryCount("all", uncounted, 42))).toBe("42+");
+  });
+
+  it("prints nothing at all when nothing is known — never a wrong 0", () => {
+    const c = categoryCount("clients", uncounted, undefined);
+    expect(c.total).toBeUndefined();
+    expect(formatCategoryCount(c)).toBe("");
+    // The dot survives: the unread half of the item is real either way.
+    expect(c.unread).toBe(3);
+    expect(formatCategoryCount(categoryCount("all", undefined))).toBe("");
+  });
+
+  it("prints a counted zero as 0 — an empty Requests really is empty", () => {
+    expect(formatCategoryCount(categoryCount("requests", counted))).toBe("0");
+  });
+
+  it("puts the size and the unread count in the tooltip", () => {
+    expect(categoryTooltip("Clients", categoryCount("clients", counted))).toBe(
+      "Clients · 42,423 conversations · 3 unread",
+    );
+    expect(categoryTooltip("Team", categoryCount("team", counted))).toBe("Team · 234 conversations");
+    expect(categoryTooltip("All", categoryCount("all", uncounted, 42))).toBe("All · 42+ conversations · 4 unread");
+    // Nothing known: the label alone, with the unread part still honest.
+    expect(categoryTooltip("Clients", categoryCount("clients", uncounted))).toBe("Clients · 3 unread");
+    expect(categoryTooltip("Archived", categoryCount("archived", undefined))).toBe("Archived");
+  });
+
+  it("says 'conversation' in the singular only for an exact 1", () => {
+    const one = { ...counted, totalConversations: 1, totalByKind: {}, archivedConversations: 0 };
+    expect(categoryTooltip("All", categoryCount("all", one))).toBe("All · 1 conversation · 4 unread");
+    // "1+" means at least one, so the plural is the honest form.
+    expect(categoryTooltip("All", categoryCount("all", uncounted, 1))).toBe("All · 1+ conversations · 4 unread");
   });
 });

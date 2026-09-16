@@ -30,11 +30,32 @@ describe('CountersService', () => {
     };
     conversations.getByParty.mockImplementation(async (kind: string, id: string) => threads[`${kind}:${id}`] ?? null);
 
-    expect(await svc.get(TECH, techPerms())).toEqual({
+    const out = await svc.get(TECH, techPerms());
+    expect(out).toMatchObject({
       unreadConversations: 2,
       flaggedConversations: 1,
       unreadByKind: { client: 1, team: 1 },
     });
     expect(counters.get).not.toHaveBeenCalled();
+
+    // The scoped branch walks every one of the caller's threads, so unlike the
+    // company item it can report the category totals exactly — c1 and c-me are
+    // open, c2 is archived. It stamps `totalsRecountedAt` to say so.
+    expect(out.totalConversations).toBe(2);
+    expect(out.totalByKind).toEqual({ client: 1, team: 1 });
+    expect(out.archivedConversations).toBe(1);
+    expect(typeof out.totalsRecountedAt).toBe('string');
+  });
+
+  it('reports zero totals (not absent ones) for a tech with no threads at all', async () => {
+    const { svc, deals } = make();
+    deals.listByTech.mockResolvedValue([]);
+
+    const out = await svc.get(TECH, techPerms());
+    // An empty scope is genuinely known to be empty, so 0 here is a true 0 —
+    // `totalsRecountedAt` is what lets the column print it rather than fall back.
+    expect(out.totalConversations).toBe(0);
+    expect(out.archivedConversations).toBe(0);
+    expect(out.totalsRecountedAt).toBeDefined();
   });
 });

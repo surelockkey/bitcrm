@@ -234,8 +234,12 @@ export type {
   MessagingSettings,
   QuietHours,
 } from './entities/messaging-settings.entity';
-export { EMPTY_INBOX_COUNTERS, EMPTY_TEAM_CHAT_COUNTERS } from './entities/inbox-counters.entity';
-export type { InboxCounters, TeamChatCounters } from './entities/inbox-counters.entity';
+export {
+  EMPTY_INBOX_COUNTERS,
+  EMPTY_INBOX_TOTALS,
+  EMPTY_TEAM_CHAT_COUNTERS,
+} from './entities/inbox-counters.entity';
+export type { InboxCounters, InboxTotals, TeamChatCounters } from './entities/inbox-counters.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
 
