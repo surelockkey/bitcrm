@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types';
+import { NOTHING_EXECUTABLE_REASON, hasExecutableAction } from './automations.constants';
 import { AutomationsRepository } from './automations.repository';
 import { BUILTIN_RULES, isBuiltinRuleId } from './builtin-rules';
 import { type UpdateAutomationDto } from './dto/update-automation.dto';
@@ -92,8 +93,13 @@ export class AutomationsService {
       next.spec = dto.spec as AutomationRule['spec'];
       next.specSource = 'user';
       next.specVersion = TRANSLATOR_VERSION;
-      next.runnable = true;
-      delete next.notRunnableReason;
+      // A spec written here is held to the same bar as a translated one: a
+      // rule whose actions are all `unsupported` (email, in-app, tag,
+      // sub-status) would fire and do nothing, so it stays not runnable and
+      // cannot be switched on.
+      next.runnable = hasExecutableAction(next.spec?.actions);
+      if (next.runnable) delete next.notRunnableReason;
+      else next.notRunnableReason = NOTHING_EXECUTABLE_REASON;
     }
     if (dto.enabled === true && !next.builtin && !(next.spec && next.runnable !== false)) {
       throw new RuleNotRunnableException(id, next.notRunnableReason);

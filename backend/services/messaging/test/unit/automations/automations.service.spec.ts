@@ -152,6 +152,44 @@ describe('AutomationsService', () => {
     expect(read.spec?.trigger.kind).toBe('deal.created'); // not translated back
   });
 
+  it('a saved spec the engine cannot act on stays not runnable and cannot be switched on', async () => {
+    const { service } = makeService([translatable()]);
+    const emailOnly = await service.update(
+      'w3',
+      {
+        spec: {
+          version: 1,
+          trigger: { kind: 'deal.created' },
+          conditions: [],
+          actions: [{ type: 'send_email', to: 'client', body: 'Welcome' }],
+        } as never,
+      },
+      caller,
+    );
+    expect(emailOnly.runnable).toBe(false);
+    expect(emailOnly.notRunnableReason).toMatch(/email/i);
+
+    const err = await service.update('w3', { enabled: true }, caller).catch((e) => e);
+    expect(err).toBeInstanceOf(RuleNotRunnableException);
+
+    // Adding an action the engine performs makes it runnable again.
+    const withSms = await service.update(
+      'w3',
+      {
+        spec: {
+          version: 1,
+          trigger: { kind: 'deal.created' },
+          conditions: [],
+          actions: [{ type: 'send_email', to: 'client', body: 'Welcome' }, { type: 'send_sms', to: 'client', body: 'Hi' }],
+        } as never,
+      },
+      caller,
+    );
+    expect(withSms.runnable).toBe(true);
+    expect(withSms.notRunnableReason).toBeUndefined();
+    expect((await service.update('w3', { enabled: true }, caller)).enabled).toBe(true);
+  });
+
   it('migrate writes the specs once and reports the coverage table', async () => {
     const { service, repo, rows } = makeService([
       translatable({ workizTriggered: 5411 }),

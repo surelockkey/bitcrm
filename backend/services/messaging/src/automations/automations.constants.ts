@@ -26,6 +26,21 @@ export const autoSentSk = (ruleId: string, techId: string) => `${ruleId}#${techI
 /** `updatedBy` / `createdBy` / `sentByUserId` stamp of everything the automations write. */
 export const AUTOMATIONS_ACTOR = 'system:automations';
 
+/**
+ * The action types the engine actually performs today
+ * (`AutomationActionExecutor.run`). `send_email` / `send_in_app` /
+ * `add_tag` / `change_sub_status` are typed, translated and editable but
+ * answer `unsupported`, so a rule made only of those would fire and do
+ * nothing — it is not runnable, whether it came from the translator or from
+ * a spec somebody wrote in the Automation Center.
+ */
+export const EXECUTABLE_ACTION_TYPES = ['send_sms', 'webhook'] as const;
+
+export const NOTHING_EXECUTABLE_REASON = 'only email / in-app actions, which the engine cannot send yet';
+
+export const hasExecutableAction = (actions: ReadonlyArray<{ type?: string }> | undefined): boolean =>
+  (actions ?? []).some((a) => (EXECUTABLE_ACTION_TYPES as readonly string[]).includes(a?.type ?? ''));
+
 // ---------------------------------------------------------------------------
 // Rule engine (M21 L). One partition per rule holds both halves of a firing:
 //

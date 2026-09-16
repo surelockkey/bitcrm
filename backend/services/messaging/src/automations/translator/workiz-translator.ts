@@ -6,6 +6,7 @@ import {
   type AutomationTrigger,
 } from '@bitcrm/types';
 import { htmlToText, looksLikeHtml } from '../../templates/html-text';
+import { NOTHING_EXECUTABLE_REASON, hasExecutableAction } from '../automations.constants';
 import { bitcrmId } from './workiz-ids';
 import { rewriteShortCodes } from './workiz-short-codes';
 
@@ -153,14 +154,8 @@ export function translateWorkizRule(rule: AutomationRule): TranslationResult {
   if (!actions.length) {
     return { spec, runnable: false, notRunnableReason: blocked ?? 'the rule does nothing the engine can do', notes };
   }
-  const executable = actions.some((a) => a.type === 'send_sms' || a.type === 'webhook');
-  if (!executable) {
-    return {
-      spec,
-      runnable: false,
-      notRunnableReason: 'only email / in-app actions, which the engine cannot send yet',
-      notes,
-    };
+  if (!hasExecutableAction(actions)) {
+    return { spec, runnable: false, notRunnableReason: NOTHING_EXECUTABLE_REASON, notes };
   }
   return { spec, runnable: true, notes };
 }
