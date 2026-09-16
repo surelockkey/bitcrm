@@ -3,10 +3,17 @@ import type { AutomationRule, AutomationRun } from "@bitcrm/types";
 import {
   OUTCOME_LABEL,
   canEnable,
+  categoryLabel,
+  filterRules,
   firingCount,
+  formatEditedAt,
   formatFiredAt,
+  isFiltered,
   outcomeTone,
+  ruleCategories,
+  ruleCategory,
   ruleSentence,
+  ruleState,
   runSummary,
   sortRules,
 } from "./lib";
@@ -116,5 +123,112 @@ describe("formatFiredAt", () => {
   it("shows a short local date and time, and passes anything unreadable through", () => {
     expect(formatFiredAt("2026-09-16T15:04:00.000Z")).toMatch(/Sep 16/);
     expect(formatFiredAt("not a date")).toBe("not a date");
+  });
+});
+
+describe("formatEditedAt", () => {
+  it("shows a short date with the year, and passes anything unreadable through", () => {
+    expect(formatEditedAt("2024-10-09T12:00:00.000Z")).toMatch(/Oct 9, 2024/);
+    expect(formatEditedAt("not a date")).toBe("not a date");
+  });
+});
+
+describe("ruleState", () => {
+  it("splits the list into on, off and what cannot run", () => {
+    expect(ruleState(withSpec({ enabled: true }))).toBe("on");
+    expect(ruleState(withSpec())).toBe("off");
+    expect(ruleState(rule({ runnable: false }))).toBe("blocked");
+    // A built-in that is off is still switchable, so it is "off", not blocked.
+    expect(ruleState(rule({ builtin: true }))).toBe("off");
+  });
+});
+
+describe("categories", () => {
+  it("reads a missing category as custom", () => {
+    expect(ruleCategory(rule())).toBe("custom");
+    expect(ruleCategory(rule({ category: "phone" }))).toBe("phone");
+  });
+
+  it("names the Workiz library sections, and turns anything else into words", () => {
+    expect(categoryLabel("followUps")).toBe("Follow-ups");
+    expect(categoryLabel("custom")).toBe("Custom");
+    expect(categoryLabel("job-status")).toBe("Job status");
+  });
+
+  it("lists only the categories the workspace actually uses, by label", () => {
+    expect(
+      ruleCategories([rule({ category: "phone" }), rule(), rule({ category: "marketing" }), rule()]),
+    ).toEqual(["custom", "marketing", "phone"]);
+  });
+});
+
+describe("filterRules", () => {
+  const list = [
+    withSpec({ id: "on", name: "Canceled job & techs", enabled: true, firedCount: 90, category: "job" }),
+    withSpec({
+      id: "off",
+      name: "Review request",
+      firedCount: 2,
+      updatedAt: "2026-09-16T00:00:00.000Z",
+      spec: {
+        version: 1,
+        trigger: { kind: "call.completed", callOutcome: "missed" },
+        conditions: [],
+        actions: [{ type: "send_sms", to: "client", body: "Sorry we missed you" }],
+      },
+    }),
+    rule({ id: "blocked", name: "Invoice due 7 days", runnable: false, category: "followUps" }),
+  ];
+
+  it("keeps everything, most used first, with no filter", () => {
+    expect(filterRules(list, {}).map((r) => r.id)).toEqual(["on", "off", "blocked"]);
+  });
+
+  it("matches the name and the sentence, every word of the search", () => {
+    expect(filterRules(list, { search: "invoice" }).map((r) => r.id)).toEqual(["blocked"]);
+    // "canceled" is only in the rendered sentence, not in the name.
+    expect(filterRules(list, { search: "status of canceled" }).map((r) => r.id)).toEqual(["on"]);
+    expect(filterRules(list, { search: "canceled review" })).toEqual([]);
+  });
+
+  it("filters by state, and treats several chips as a union", () => {
+    expect(filterRules(list, { states: ["on"] }).map((r) => r.id)).toEqual(["on"]);
+    expect(filterRules(list, { states: ["off", "blocked"] }).map((r) => r.id)).toEqual([
+      "off",
+      "blocked",
+    ]);
+  });
+
+  it("filters by trigger, which a rule without a spec never matches", () => {
+    expect(filterRules(list, { trigger: "call.completed" }).map((r) => r.id)).toEqual(["off"]);
+    expect(filterRules(list, { trigger: "deal.created" })).toEqual([]);
+  });
+
+  it("filters by category, with custom covering the rules that carry none", () => {
+    expect(filterRules(list, { category: "followUps" }).map((r) => r.id)).toEqual(["blocked"]);
+    expect(filterRules(list, { category: "custom" }).map((r) => r.id)).toEqual(["off"]);
+  });
+
+  it("sorts by name and by when the rule was last edited", () => {
+    expect(filterRules(list, { sort: "name" }).map((r) => r.id)).toEqual(["on", "blocked", "off"]);
+    expect(filterRules(list, { sort: "edited" }).map((r) => r.id)).toEqual(["off", "on", "blocked"]);
+  });
+
+  it("does not disturb the list it was given", () => {
+    const input = [...list];
+    filterRules(input, { sort: "name" });
+    expect(input.map((r) => r.id)).toEqual(["on", "off", "blocked"]);
+  });
+});
+
+describe("isFiltered", () => {
+  it("is true only when something narrows the list — the sort never does", () => {
+    expect(isFiltered({})).toBe(false);
+    expect(isFiltered({ sort: "name" })).toBe(false);
+    expect(isFiltered({ search: "  " })).toBe(false);
+    expect(isFiltered({ search: "invoice" })).toBe(true);
+    expect(isFiltered({ states: ["on"] })).toBe(true);
+    expect(isFiltered({ trigger: "deal.created" })).toBe(true);
+    expect(isFiltered({ category: "phone" })).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import {
 const spec: AutomationSpec = {
   version: 1,
   trigger: { kind: "deal.status_changed", to: ["canceled"] },
+  conditions: [],
   actions: [{ type: "send_sms", to: "client", body: "Hi" }],
 };
 
