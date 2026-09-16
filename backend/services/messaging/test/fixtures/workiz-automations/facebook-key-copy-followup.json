@@ -1,0 +1,603 @@
+{
+  "_id": "69a72d63801326ebf52eb7a6",
+  "name": "Facebook Campaign - Copy & Follow-up",
+  "entities": [
+    "job"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "status",
+        "operator": "notEqual",
+        "value": "Canceled"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1772479212.234
+      },
+      {
+        "fact": "sub_status_id",
+        "operator": "equal",
+        "value": "4585",
+        "friendly_strings": {
+          "value": "no answer",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "adgroup_id",
+        "entity": "job",
+        "operator": "equal",
+        "value": "1530896",
+        "friendly_strings": {
+          "fact": "source",
+          "value": "Car Key Duplicates Form"
+        }
+      },
+      {
+        "fact": "job_type",
+        "entity": "job",
+        "operator": "equal",
+        "value": "13765",
+        "friendly_strings": {
+          "fact": "job type",
+          "value": "Car Key Copy "
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "client",
+      "message_attachments": [],
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Update from {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 12,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name"
+            }
+          }
+        ]
+      },
+      "message_from": "Example Locksmith",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Hi {{first_name}}!  This is Kris from Example Locksmith LLC.",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 3,
+                "length": 14,
+                "key": 0
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "eid3g",
+            "text": "I’m reaching out regarding a Facebook request to make a key copy.",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "5rqc5",
+            "text": "Do you still need us to make a copy of your car key? ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "frrc0",
+            "text": "Please let me know!",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "first_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "eb3dde36-a195-4a83-9561-e04234fbd944",
+              "forceText": null
+            }
+          }
+        ]
+      },
+      "time_interval": {
+        "value": 1,
+        "operator": "after",
+        "time_field": "status_changed_date_utc",
+        "time_unit": "days",
+        "time_field_friendly_string": "last status change date"
+      },
+      "working_hours": {
+        "dnd": false,
+        "from": "09:00",
+        "to": "17:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Update from {{account_business_name}} ",
+      "message_template": "<p>Hi {{first_name}}!  This is Kris from Sure Lock &amp; Key LLC.</p>\n<p>I’m reaching out regarding a Facebook request to make a key copy.</p>\n<p>Do you still need us to make a copy of your car key?&nbsp;</p>\n<p>Please let me know!</p>\n"
+    },
+    {
+      "type": "notification",
+      "notify_medium": "email",
+      "receiverType": "client",
+      "message_attachments": [],
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Need a spare key? ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "message_from": "Example Locksmith",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Hi {{first_name}}!  This is Kris from Example Locksmith LLC.",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 3,
+                "length": 14,
+                "key": 0
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "79h0j",
+            "text": "Our Special Campaign offer is $69 for the transponder chip key. For the flip key, the price will be $129, and for push-to-start, we charge $169. ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "3rgd3",
+            "text": "Please, text us back or call us at ((555) 010-0100, and we will set up an appointment. Thanks! ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "first_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "eb3dde36-a195-4a83-9561-e04234fbd944",
+              "forceText": null
+            }
+          }
+        ]
+      },
+      "time_interval": {
+        "value": 1,
+        "operator": "after",
+        "time_field": "status_changed_date_utc",
+        "time_unit": "days",
+        "time_field_friendly_string": "last status change date"
+      },
+      "working_hours": {
+        "dnd": false,
+        "from": "09:00",
+        "to": "17:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Need a spare key? ",
+      "message_template": "<p>Hi {{first_name}}!  This is Kris from Sure Lock &amp; Key LLC.</p>\n<p>Our Special Campaign offer is $69 for the transponder chip key. For the flip key, the price will be $129, and for push-to-start, we charge $169.&nbsp;</p>\n<p>Please, text us back or call us at ((555) 010-0100, and we will set up an appointment. Thanks!&nbsp;</p>\n"
+    }
+  ],
+  "createdAt": "2026-03-03T18:50:11.368Z",
+  "updatedAt": "2026-05-28T12:07:07.657Z",
+  "enabled": true,
+  "deleted": false,
+  "default_rule": false,
+  "hidden": false,
+  "hiddenReason": null,
+  "paused": false,
+  "triggered": 311,
+  "category": "custom",
+  "namespace": "2774",
+  "ruleSentence": {
+    "_id": "notification2",
+    "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5} the {entity} {p6}"
+  },
+  "parameters": {
+    "p1": {
+      "text": "a job",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "no answer",
+      "type": "entity_main_condition"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    },
+    "p3": {
+      "text": "client",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text and email",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "1 day after",
+      "type": "time"
+    },
+    "p6": {
+      "text": "last status change date",
+      "type": "time_field"
+    }
+  },
+  "validFrom": "2026-03-03T19:20:12.234Z",
+  "notifyMedium": "smsEmail",
+  "trigger": {
+    "sentence": "When {p1} {p2} of {p7}",
+    "parameters": {
+      "p1": {
+        "text": "a job",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "has a status",
+        "type": "type_of_main_condition"
+      },
+      "p7": {
+        "text": "no answer",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": "has a status"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5} the job {p6}",
+      "parameters": {
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        },
+        "p3": {
+          "text": "client",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text and email",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "1 day after",
+          "type": "time"
+        },
+        "p6": {
+          "text": "last status change date",
+          "type": "time_field"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "smsEmail"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "client",
+          "message_attachments": [],
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Update from {{account_business_name}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 12,
+                    "length": 25,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "account_business_name"
+                }
+              }
+            ]
+          },
+          "message_from": "Example Locksmith",
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "Hi {{first_name}}!  This is Kris from Example Locksmith LLC.",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 3,
+                    "length": 14,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "eid3g",
+                "text": "I’m reaching out regarding a Facebook request to make a key copy.",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "5rqc5",
+                "text": "Do you still need us to make a copy of your car key? ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "frrc0",
+                "text": "Please let me know!",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "first_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "eb3dde36-a195-4a83-9561-e04234fbd944",
+                  "forceText": null
+                }
+              }
+            ]
+          },
+          "time_interval": {
+            "value": 1,
+            "operator": "after",
+            "time_field": "status_changed_date_utc",
+            "time_unit": "days",
+            "time_field_friendly_string": "last status change date"
+          },
+          "working_hours": {
+            "dnd": false,
+            "from": "09:00",
+            "to": "17:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "client",
+          "message_subject_template": "Update from {{account_business_name}} ",
+          "message_template": "<p>Hi {{first_name}}!  This is Kris from Sure Lock &amp; Key LLC.</p>\n<p>I’m reaching out regarding a Facebook request to make a key copy.</p>\n<p>Do you still need us to make a copy of your car key?&nbsp;</p>\n<p>Please let me know!</p>\n"
+        },
+        {
+          "type": "notification",
+          "notify_medium": "email",
+          "receiverType": "client",
+          "message_attachments": [],
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Need a spare key? ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": []
+          },
+          "message_from": "Example Locksmith",
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "Hi {{first_name}}!  This is Kris from Example Locksmith LLC.",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 3,
+                    "length": 14,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "79h0j",
+                "text": "Our Special Campaign offer is $69 for the transponder chip key. For the flip key, the price will be $129, and for push-to-start, we charge $169. ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "3rgd3",
+                "text": "Please, text us back or call us at ((555) 010-0100, and we will set up an appointment. Thanks! ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "first_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "eb3dde36-a195-4a83-9561-e04234fbd944",
+                  "forceText": null
+                }
+              }
+            ]
+          },
+          "time_interval": {
+            "value": 1,
+            "operator": "after",
+            "time_field": "status_changed_date_utc",
+            "time_unit": "days",
+            "time_field_friendly_string": "last status change date"
+          },
+          "working_hours": {
+            "dnd": false,
+            "from": "09:00",
+            "to": "17:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "client",
+          "message_subject_template": "Need a spare key? ",
+          "message_template": "<p>Hi {{first_name}}!  This is Kris from Sure Lock &amp; Key LLC.</p>\n<p>Our Special Campaign offer is $69 for the transponder chip key. For the flip key, the price will be $129, and for push-to-start, we charge $169.&nbsp;</p>\n<p>Please, text us back or call us at ((555) 010-0100, and we will set up an appointment. Thanks!&nbsp;</p>\n"
+        }
+      ],
+      "type": "SEND"
+    }
+  ],
+  "hash_code": "62a54ea8cdf5f482774b35217c47db8e",
+  "__v": 0,
+  "sentence": "",
+  "fullSentence": ""
+}

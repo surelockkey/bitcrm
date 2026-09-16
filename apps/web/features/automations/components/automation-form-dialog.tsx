@@ -488,7 +488,12 @@ export function AutomationFormDialog({
                       value={action.body ?? ""}
                       placeholder="Hi {{first_name}}, your job {{job_id}} is scheduled for {{job_date}}."
                       onChange={(e) => setAction(index, { body: e.target.value })}
-                      onSelect={(e) => setCaret((c) => ({ ...c, [index]: e.currentTarget.selectionStart ?? 0 }))}
+                      // `currentTarget` is already gone when the select event
+                      // arrives after a programmatic clear — read the target.
+                      onSelect={(e) => {
+                        const caretAt = (e.target as HTMLTextAreaElement | null)?.selectionStart ?? 0;
+                        setCaret((c) => ({ ...c, [index]: caretAt }));
+                      }}
                     />
                   </div>
                 )}

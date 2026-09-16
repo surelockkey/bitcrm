@@ -1,0 +1,128 @@
+[
+  {
+    "file": "canceled-job-and-techs.json",
+    "name": "Canceled job & techs",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 5411
+  },
+  {
+    "file": "scheduled-jobs.json",
+    "name": "Scheduled jobs",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 2854
+  },
+  {
+    "file": "missed-call-na.json",
+    "name": "Missed call - n/a",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 4128
+  },
+  {
+    "file": "ooa-jobs.json",
+    "name": "OOA JOBS",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 917
+  },
+  {
+    "file": "facebook-key-copy.json",
+    "name": "Facebook Campaign - Key copy",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 770
+  },
+  {
+    "file": "facebook-key-copy-followup.json",
+    "name": "Facebook Campaign - Copy & Follow-up",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 311
+  },
+  {
+    "file": "zelli-job-completed.json",
+    "name": "zelli_job_completed",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 8
+  },
+  {
+    "file": "missed-call-immediate-text.json",
+    "name": "Missed call Immediately / Text",
+    "entities": [
+      "incoming_call"
+    ],
+    "workizEnabled": false,
+    "workizTriggered": 44
+  },
+  {
+    "file": "voicemail-call-text.json",
+    "name": "Voicemail call Immediately / Text",
+    "entities": [
+      "incoming_call"
+    ],
+    "workizEnabled": false,
+    "workizTriggered": 0
+  },
+  {
+    "file": "one-hour-notice.json",
+    "name": "1 Hour Notice / Client Reminder",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": false,
+    "workizTriggered": 0
+  },
+  {
+    "file": "invoice-due-7-days-email.json",
+    "name": "Invoice due 7 days / Email",
+    "entities": [
+      "invoice"
+    ],
+    "workizEnabled": false,
+    "workizTriggered": 5
+  },
+  {
+    "file": "lead-follow-up.json",
+    "name": "Lead follow up",
+    "entities": [
+      "lead"
+    ],
+    "workizEnabled": false,
+    "workizTriggered": 11201
+  },
+  {
+    "file": "oil-change-visit.json",
+    "name": "Oil Change",
+    "entities": [
+      "visit"
+    ],
+    "workizEnabled": true,
+    "workizTriggered": 0
+  },
+  {
+    "file": "bronx-review-request.json",
+    "name": "NY Bronx Review request text to client",
+    "entities": [
+      "job"
+    ],
+    "workizEnabled": false,
+    "workizTriggered": 11
+  }
+]

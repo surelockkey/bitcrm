@@ -1,0 +1,311 @@
+{
+  "hidden": false,
+  "hiddenReason": null,
+  "_id": "659825d3fa3ae6a43185f012",
+  "name": "NY Bronx Review request text to client",
+  "entities": [
+    "job"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1716474405.923
+      },
+      {
+        "fact": "status",
+        "operator": "equal",
+        "value": "Done",
+        "friendly_strings": {
+          "value": "Done",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "any": [
+          {
+            "fact": "adgroup_id",
+            "entity": "job",
+            "operator": "equal",
+            "value": "166930",
+            "friendly_strings": {
+              "fact": "source",
+              "value": "SURE NY BRONX GMB"
+            },
+            "subject": "adgroup_id"
+          },
+          {
+            "fact": "adgroup_id",
+            "entity": "job",
+            "operator": "equal",
+            "value": "167702",
+            "friendly_strings": {
+              "fact": "source",
+              "value": "SURE NY BRONX YELP"
+            }
+          },
+          {
+            "fact": "adgroup_id",
+            "entity": "job",
+            "operator": "equal",
+            "value": "167703",
+            "friendly_strings": {
+              "fact": "source",
+              "value": "SURE NY BRONX FACEBOOK"
+            }
+          }
+        ]
+      },
+      {
+        "fact": "job_amount_due",
+        "entity": "job",
+        "operator": "equal",
+        "value": 0,
+        "friendly_strings": {
+          "fact": "amount due",
+          "value": "0"
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "client",
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Its time for your next maintenance appointment",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Hi! Thank you for being our customer! Would you mind leaving us a review? Here's the link: https://example.test/",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "1mkhh",
+            "text": "Thanks, we really appreciate it!",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "time_interval": {
+        "value": 0,
+        "operator": null,
+        "time_field": null,
+        "time_unit": "minutes",
+        "time_field_friendly_string": "end date"
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "08:00",
+        "to": "20:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Its time for your next maintenance appointment",
+      "message_template": "<p>Hi! Thank you for being our customer! Would you mind leaving us a review? Here's the link: https://example.test/</p>\n<p>Thanks, we really appreciate it!</p>\n"
+    }
+  ],
+  "createdAt": "2024-01-05T15:52:51.386Z",
+  "updatedAt": "2024-10-09T14:36:03.702Z",
+  "enabled": false,
+  "deleted": false,
+  "default_rule": false,
+  "paused": false,
+  "triggered": 11,
+  "category": "marketing",
+  "namespace": "2774",
+  "ruleSentence": {
+    "_id": "notification4",
+    "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5}"
+  },
+  "parameters": {
+    "p1": {
+      "text": "a job",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "Done",
+      "type": "entity_main_condition"
+    },
+    "p3": {
+      "text": "client",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "immediately",
+      "type": "time"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    }
+  },
+  "validFrom": "2024-05-24T14:26:45.923Z",
+  "notifyMedium": "sms",
+  "hash_code": "5031ab90a96f(555) 010-01006c306b8fa9",
+  "__v": 0,
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5}",
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "client",
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Its time for your next maintenance appointment",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": []
+          },
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "Hi! Thank you for being our customer! Would you mind leaving us a review? Here's the link: https://example.test/",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "1mkhh",
+                "text": "Thanks, we really appreciate it!",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": []
+          },
+          "time_interval": {
+            "value": 0,
+            "operator": null,
+            "time_field": null,
+            "time_unit": "minutes",
+            "time_field_friendly_string": "end date"
+          },
+          "working_hours": {
+            "dnd": true,
+            "from": "08:00",
+            "to": "20:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "client",
+          "message_subject_template": "Its time for your next maintenance appointment",
+          "message_template": "<p>Hi! Thank you for being our customer! Would you mind leaving us a review? Here's the link: https://example.test/</p>\n<p>Thanks, we really appreciate it!</p>\n"
+        }
+      ],
+      "parameters": {
+        "p3": {
+          "text": "client",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text message",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "immediately",
+          "type": "time"
+        },
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "sms"
+      },
+      "type": "SEND"
+    }
+  ],
+  "trigger": {
+    "sentence": "When {p1} {p2} of {p7}",
+    "parameters": {
+      "p1": {
+        "text": "a job",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "has a status",
+        "type": "type_of_main_condition"
+      },
+      "p7": {
+        "text": "Done",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": "has a status"
+  },
+  "sentence": "",
+  "fullSentence": ""
+}
