@@ -50,6 +50,22 @@ describe('AutomationScheduleRepository', () => {
     expect(sent).toHaveLength(2);
   });
 
+  it('claims a firing by deleting its row, and only the first caller wins', async () => {
+    const { dynamo, sent } = mockDynamo([{}, conditionalCheckFailed()]);
+    const repo = new AutomationScheduleRepository(dynamo);
+
+    expect(await repo.claim(firing())).toBe(true);
+    expect(sent[0]).toMatchObject({
+      name: 'DeleteCommand',
+      input: {
+        Key: { PK: 'SCHEDULE#2026-09-17T12:00', SK: 'r1#deal:d1#status:x' },
+        ConditionExpression: 'attribute_exists(PK)',
+      },
+    });
+    // The second messaging task polling the same minute gets nothing.
+    expect(await repo.claim(firing())).toBe(false);
+  });
+
   it('removes a firing by its own key', async () => {
     const { dynamo, sent } = mockDynamo();
     await new AutomationScheduleRepository(dynamo).remove(firing());

@@ -58,6 +58,8 @@ export class AutomationRuleEngine {
   private cache?: { rules: AutomationRule[]; expiresAt: number };
   /** Minute bucket the poller has already worked through (epoch ms of its start). */
   private lastMinuteMs?: number;
+  /** A sweep is running: the next interval is skipped rather than overlapped. */
+  private ticking = false;
 
   constructor(
     private readonly rules: AutomationsService,
@@ -112,7 +114,13 @@ export class AutomationRuleEngine {
     const placement = this.placement(spec, settings, new Date(decision.dueAt), decision.delayed);
 
     if (placement.kind === 'skip') {
-      return this.log(rule, event, decision.entity, decision.occurrence, 'skipped', [], { reason: placement.reason });
+      // Nothing was sent, so the rule's "Fired" count must not move — and
+      // nothing was claimed either, so a redelivery would otherwise bump it
+      // once more for the same event.
+      return this.log(rule, event, decision.entity, decision.occurrence, 'skipped', [], {
+        reason: placement.reason,
+        countsAsFiring: false,
+      });
     }
 
     // The claim is taken before anything is done or armed — one firing, one claim.
@@ -256,8 +264,26 @@ export class AutomationRuleEngine {
    * read and emptied. After a restart it catches up at most
    * `SCHEDULER_LOOKBACK_MINUTES`; the minute in progress is left alone so
    * nothing fires early.
+   *
+   * One sweep at a time. A 180-minute catch-up takes far longer than the
+   * poll interval, and a second sweep started on top of it would read the
+   * same buckets again; `fire()` would still claim each firing once, but
+   * the work would be done twice for nothing.
    */
   async tick(now: Date = new Date()): Promise<number> {
+    if (this.ticking) {
+      this.logger.warn('Automation scheduler tick skipped: the previous sweep is still running');
+      return 0;
+    }
+    this.ticking = true;
+    try {
+      return await this.sweep(now);
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async sweep(now: Date): Promise<number> {
     const currentMs = Math.floor(now.getTime() / MINUTE_MS) * MINUTE_MS;
     const earliest = currentMs - SCHEDULER_LOOKBACK_MINUTES * MINUTE_MS;
     let cursor = Math.max(this.lastMinuteMs ?? earliest, earliest);
@@ -288,14 +314,24 @@ export class AutomationRuleEngine {
     return fired;
   }
 
-  /** One armed firing whose minute has come. */
+  /**
+   * One armed firing whose minute has come.
+   *
+   * The `ONCE#` claim was spent when the timer was armed, so it cannot be
+   * the guard here: the firing is claimed again by taking its `SCHEDULE#`
+   * row off the board with a conditional delete, before anything is sent.
+   * Two tasks polling the same minute therefore send once, and a webhook —
+   * which has no `clientMessageId` to fall back on — is posted once.
+   */
   private async fire(firing: ScheduledFiring, now: Date): Promise<void> {
-    const rule = await this.rules.find(firing.ruleId);
-    const event = this.parseEvent(firing);
-    if (!rule?.enabled || !rule.spec || !event) {
-      await this.schedule.remove(firing);
+    if (!(await this.schedule.claim(firing))) {
+      this.logger.debug(`Scheduled firing ${firing.ruleId} / ${firing.occurrence} was already claimed`);
       return;
     }
+
+    const rule = await this.rules.find(firing.ruleId);
+    const event = this.parseEvent(firing);
+    if (!rule?.enabled || !rule.spec || !event) return;
 
     const facts = await this.factsFor(event);
     const settings = await this.settings.get();
@@ -303,8 +339,10 @@ export class AutomationRuleEngine {
     // Still a rule that applies? A job canceled since must not get the follow-up.
     const conditions = matchesConditions(rule.spec.conditions ?? [], facts);
     if (!conditions.matched) {
-      await this.schedule.remove(firing);
-      await this.log(rule, event, firing.entity, firing.occurrence, 'skipped', [], { reason: conditions.reason });
+      await this.log(rule, event, firing.entity, firing.occurrence, 'skipped', [], {
+        reason: conditions.reason,
+        countsAsFiring: false,
+      });
       return;
     }
 
@@ -312,9 +350,12 @@ export class AutomationRuleEngine {
     if (firing.anchorAt && facts.deal) {
       const due = dueInstant(rule.spec.trigger, facts.deal, this.timezone(settings));
       if (!due || due.anchorAt.toISOString() !== firing.anchorAt) {
-        await this.schedule.remove(firing);
+        // Nothing ran, so the occurrence goes back: a job moved away from
+        // this date and back to it again must arm its reminder afresh.
+        await this.runs.release(rule.id, firing.entity, firing.occurrence).catch(() => undefined);
         await this.log(rule, event, firing.entity, firing.occurrence, 'skipped', [], {
           reason: 'the job was rescheduled after this reminder was armed',
+          countsAsFiring: false,
         });
         return;
       }
@@ -323,18 +364,27 @@ export class AutomationRuleEngine {
     // Quiet hours are re-checked at the moment of sending, not of arming.
     const placement = this.placement(rule.spec, settings, now, false);
     if (placement.kind === 'skip') {
-      await this.schedule.remove(firing);
-      await this.log(rule, event, firing.entity, firing.occurrence, 'skipped', [], { reason: placement.reason });
+      await this.log(rule, event, firing.entity, firing.occurrence, 'skipped', [], {
+        reason: placement.reason,
+        countsAsFiring: false,
+      });
       return;
     }
     if (placement.kind === 'later') {
-      await this.schedule.remove(firing);
       await this.schedule.arm({ ...firing, dueAt: placement.dueAt, reason: placement.reason });
       return;
     }
 
-    await this.execute(rule, event, facts, firing.entity, firing.occurrence, now);
-    await this.schedule.remove(firing);
+    try {
+      await this.execute(rule, event, facts, firing.entity, firing.occurrence, now);
+    } catch (error) {
+      // The row is off the board and the occurrence is spent, so this firing
+      // will not come round again: it is recorded as failed rather than lost
+      // to a log line the Automation Center never shows.
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.log(rule, event, firing.entity, firing.occurrence, 'failed', [], { reason, countsAsFiring: false, now });
+      throw error;
+    }
   }
 
   // ----------------------------------------------------------------- running
@@ -447,7 +497,11 @@ export class AutomationRuleEngine {
     return rules;
   }
 
-  /** Drops the rule cache — called when a rule is edited. */
+  /**
+   * Drops the rule cache. Called by `PATCH /automations/:id` so a rule
+   * switched on in the Automation Center takes effect at once instead of
+   * within `RULE_CACHE_TTL_MS`.
+   */
   invalidate(): void {
     this.cache = undefined;
   }

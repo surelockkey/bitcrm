@@ -64,6 +64,7 @@ function harness(over: Record<string, any> = {}) {
   const schedule = {
     arm: jest.fn(async () => true),
     dueIn: jest.fn(async () => [] as ScheduledFiring[]),
+    claim: jest.fn(async () => true),
     remove: jest.fn(async () => undefined),
     ...(over.schedule ?? {}),
   };
@@ -130,6 +131,9 @@ describe('AutomationRuleEngine.handle', () => {
     expect(skipped).toMatchObject({ outcome: 'skipped', reason: 'inside quiet hours' });
     expect(notSent.run).not.toHaveBeenCalled();
     expect(runs.claim).not.toHaveBeenCalled(); // nothing was claimed, nothing was done
+    // …and nothing was sent, so the rule's "Fired" count does not move — a
+    // redelivery of the same event would otherwise bump it again.
+    expect(runs.bump).not.toHaveBeenCalled();
 
     const ignore = rule({ spec: spec({ timing: { quietHours: 'ignore' } }) });
     const { engine: ignoring, executor: sent } = harness({ rules: { list: jest.fn(async () => [ignore]) } });
@@ -205,14 +209,67 @@ describe('AutomationRuleEngine.tick', () => {
   it('runs what was armed for a minute that has passed and clears it', async () => {
     const item = armed();
     const { engine, schedule, executor, runs } = harness({
-      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn(), remove: jest.fn() },
+      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn() },
     });
     (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:59:00.000Z').getTime();
 
     expect(await engine.tick(NOW)).toBe(1);
     expect(executor.run).toHaveBeenCalled();
-    expect(schedule.remove).toHaveBeenCalledWith(item);
+    expect(schedule.claim).toHaveBeenCalledWith(item);
     expect(runs.claim).not.toHaveBeenCalled(); // claimed when it was armed
+  });
+
+  it('claims the row before it acts, so a second task firing the same minute sends nothing', async () => {
+    const item = armed();
+    const { engine, executor, schedule } = harness({
+      schedule: {
+        dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])),
+        arm: jest.fn(),
+        claim: jest.fn(async () => false), // the other task took it
+      },
+    });
+    (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:59:00.000Z').getTime();
+
+    await engine.tick(NOW);
+    expect(schedule.claim).toHaveBeenCalledWith(item);
+    expect(executor.run).not.toHaveBeenCalled();
+  });
+
+  it('never runs two sweeps at once — a slow catch-up is not overlapped', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const dueIn = jest.fn(async () => {
+      await gate;
+      return [] as ScheduledFiring[];
+    });
+    const { engine, schedule } = harness({ schedule: { dueIn } });
+    (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:50:00.000Z').getTime();
+
+    const first = engine.tick(NOW);
+    expect(await engine.tick(NOW)).toBe(0); // skipped while the first is in flight
+    release();
+    await first;
+    // Ten buckets, read once each: the second tick read none of them again.
+    expect(schedule.dueIn).toHaveBeenCalledTimes(10);
+  });
+
+  it('records a firing whose actions threw instead of losing it', async () => {
+    const item = armed();
+    const { engine, runs } = harness({
+      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn() },
+      executor: {
+        run: jest.fn(async () => {
+          throw new Error('renderer down');
+        }),
+      },
+    });
+    (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:59:00.000Z').getTime();
+
+    expect(await engine.tick(NOW)).toBe(0); // it did not count as fired
+    expect(runs.log).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', reason: 'renderer down' }));
+    expect(runs.bump).not.toHaveBeenCalled();
   });
 
   it('leaves the minute in progress alone', async () => {
@@ -225,31 +282,34 @@ describe('AutomationRuleEngine.tick', () => {
   it('drops a firing whose rule no longer applies', async () => {
     const item = armed();
     const canceled = rule({ spec: spec({ conditions: [{ field: 'status', op: 'in', values: ['done'] }] }) });
-    const { engine, schedule, executor } = harness({
+    const { engine, schedule, executor, runs } = harness({
       rules: { find: jest.fn(async () => canceled) },
       peers: { deal: jest.fn(async () => ({ ...DEAL, superStatus: 'canceled' })) },
-      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn(), remove: jest.fn() },
+      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn() },
     });
     (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:59:00.000Z').getTime();
 
     await engine.tick(NOW);
     expect(executor.run).not.toHaveBeenCalled();
-    expect(schedule.remove).toHaveBeenCalledWith(item);
+    expect(schedule.claim).toHaveBeenCalledWith(item);
+    expect(runs.bump).not.toHaveBeenCalled(); // a skipped firing is not a firing
   });
 
-  it('drops a reminder whose job was rescheduled after it was armed', async () => {
+  it('drops a reminder whose job was rescheduled after it was armed, and gives its claim back', async () => {
     const item = armed({ reason: 'relative', anchorAt: '2026-09-20T13:00:00.000Z' });
     const reminder = rule({ spec: spec({ trigger: { kind: 'schedule.relative', anchor: 'scheduledStart', offsetMinutes: -60 } }) });
-    const { engine, schedule, executor } = harness({
+    const { engine, schedule, executor, runs } = harness({
       rules: { find: jest.fn(async () => reminder) },
       peers: { deal: jest.fn(async () => ({ ...DEAL, scheduledDate: '2026-09-25' })) },
-      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn(), remove: jest.fn() },
+      schedule: { dueIn: jest.fn(async (m: string) => (m === '2026-09-16T14:59' ? [item] : [])), arm: jest.fn() },
     });
     (engine as unknown as { lastMinuteMs: number }).lastMinuteMs = new Date('2026-09-16T14:59:00.000Z').getTime();
 
     await engine.tick(NOW);
     expect(executor.run).not.toHaveBeenCalled();
-    expect(schedule.remove).toHaveBeenCalledWith(item);
+    expect(schedule.claim).toHaveBeenCalledWith(item);
+    // The job may be moved back to 20 Sep: the occurrence must be free to re-arm.
+    expect(runs.release).toHaveBeenCalledWith('r1', 'deal:d1', 'status:in_progress>done');
   });
 
   it('re-arms a firing that came due inside quiet hours', async () => {

@@ -85,6 +85,33 @@ export class AutomationScheduleRepository {
     return items;
   }
 
+  /**
+   * Takes one armed firing off the board and answers whether it was ours.
+   * The delete is conditional, so exactly one caller wins: two messaging
+   * tasks polling the same minute — or one sweep that overlapped the next —
+   * act on a firing once and only once. The row is removed *before* the
+   * actions run, which is the only ordering that cannot double-send.
+   */
+  async claim(firing: Pick<ScheduledFiring, 'ruleId' | 'entity' | 'occurrence' | 'dueAt'>): Promise<boolean> {
+    try {
+      await this.dynamoDb.client.send(
+        new DeleteCommand({
+          TableName: this.tableName,
+          Key: {
+            PK: schedulePk(dueMinuteOf(firing.dueAt)),
+            SK: scheduleSk(firing.ruleId, firing.entity, firing.occurrence),
+          },
+          ConditionExpression: 'attribute_exists(PK)',
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (isConditionalCheckFailed(error)) return false;
+      throw error;
+    }
+  }
+
+  /** Unconditional removal — cancelling a timer nobody is racing for. */
   async remove(firing: Pick<ScheduledFiring, 'ruleId' | 'entity' | 'occurrence' | 'dueAt'>): Promise<void> {
     await this.dynamoDb.client.send(
       new DeleteCommand({
