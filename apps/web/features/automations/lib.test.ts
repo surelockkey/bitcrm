@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { AutomationRule, AutomationRun } from "@bitcrm/types";
 import {
   OUTCOME_LABEL,
+  anchorAllowsBefore,
   canEnable,
   categoryLabel,
   filterRules,
@@ -9,14 +10,20 @@ import {
   formatEditedAt,
   formatFiredAt,
   isFiltered,
+  joinOffset,
+  messageSegments,
   outcomeTone,
   ruleCategories,
   ruleCategory,
   ruleSentence,
   ruleState,
   runSummary,
+  segmentsToBody,
   sortRules,
+  splitOffset,
+  triggerHasJob,
 } from "./lib";
+import { AUTOMATION_TEMPLATES } from "./templates";
 
 const rule = (over: Partial<AutomationRule> = {}): AutomationRule => ({
   id: "r1",
@@ -50,6 +57,66 @@ describe("ruleSentence", () => {
     expect(ruleSentence(withSpec())).toContain("its job tag is VIP");
     expect(ruleSentence(rule({ ruleSentence: { sentence: "When {p1} {p2}" } }))).toBe("When {p1} {p2}");
     expect(ruleSentence(rule())).toBe("");
+  });
+
+  it("says one channel choice per clause — a shared text and email is one thing", () => {
+    // Workiz's `notify_medium: both` is one entry in the editor and two
+    // actions in the spec; saying it twice would read as two decisions.
+    const both = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: ["done"] },
+        conditions: [],
+        actions: [
+          { type: "send_sms", to: "client", body: "All done" },
+          { type: "send_email", to: "client", body: "All done", subject: "All done" },
+        ],
+      },
+    });
+    expect(ruleSentence(both, { done: "Done" })).toBe(
+      "When a job has a status of Done, send the client a text and email immediately",
+    );
+
+    // Two messages that are not the same message stay two clauses.
+    const apart = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.created" },
+        conditions: [],
+        actions: [
+          { type: "send_sms", to: "client", body: "Booked" },
+          { type: "send_email", to: "assigned_techs", body: "New job" },
+        ],
+      },
+    });
+    expect(ruleSentence(apart)).toBe(
+      "When a job is created, send the client a text message, and send the assigned tech an email immediately",
+    );
+  });
+
+  it("names the people and roles an action notifies, when it knows what they are called", () => {
+    const toUsers = (over: Record<string, unknown>) =>
+      withSpec({
+        spec: {
+          version: 1,
+          trigger: { kind: "call.completed", callOutcome: "missed" },
+          conditions: [],
+          actions: [{ type: "send_sms", body: "Missed one", ...over }],
+        },
+      });
+
+    expect(ruleSentence(toUsers({ to: "users", userIds: ["u1", "u2"] }), { u1: "Ann Lee", u2: "Bo Diaz" })).toBe(
+      "When a call is missed, send Ann Lee or Bo Diaz a text message immediately",
+    );
+    expect(ruleSentence(toUsers({ to: "role", roleIds: ["r1"] }), { r1: "Dispatch" })).toBe(
+      "When a call is missed, send Dispatch a text message immediately",
+    );
+    // A sentence full of uuids is worse than the generic phrase, so an id the
+    // caller cannot name keeps the rule reading as Workiz wrote it.
+    expect(ruleSentence(toUsers({ to: "users", userIds: ["u1", "u2"] }), { u1: "Ann Lee" })).toContain(
+      "send selected users a text message",
+    );
+    expect(ruleSentence(toUsers({ to: "users" }))).toContain("send selected users a text message");
   });
 });
 
@@ -218,6 +285,88 @@ describe("filterRules", () => {
     const input = [...list];
     filterRules(input, { sort: "name" });
     expect(input.map((r) => r.id)).toEqual(["on", "off", "blocked"]);
+  });
+});
+
+describe("triggerHasJob", () => {
+  it("is true for everything but a call and an inbound message", () => {
+    for (const kind of ["deal.created", "deal.status_changed", "deal.updated", "schedule.relative"] as const) {
+      expect(triggerHasJob(kind)).toBe(true);
+    }
+    // The engine hands a call and a message no deal, so a recipient read off
+    // the job — the dispatcher, the assigned techs — resolves to nobody.
+    expect(triggerHasJob("call.completed")).toBe(false);
+    expect(triggerHasJob("message.received")).toBe(false);
+  });
+});
+
+describe("the relative trigger's offset", () => {
+  it("reads back in the largest whole unit, and folds back to the same minutes", () => {
+    expect(splitOffset(-60)).toEqual({ value: 1, unit: "hours", direction: "before" });
+    expect(splitOffset(4320)).toEqual({ value: 3, unit: "days", direction: "after" });
+    expect(splitOffset(90)).toEqual({ value: 90, unit: "minutes", direction: "after" });
+    expect(splitOffset(0)).toEqual({ value: 0, unit: "minutes", direction: "after" });
+    expect(splitOffset(undefined)).toEqual({ value: 0, unit: "minutes", direction: "after" });
+
+    for (const minutes of [0, 1, -1, 59, -60, 600, -1440, 4320, -43200, 43200, 137, -2879]) {
+      expect(joinOffset(splitOffset(minutes))).toBe(minutes);
+    }
+  });
+
+  it("allows an offset ahead only of a date still to come", () => {
+    expect(anchorAllowsBefore("scheduledStart")).toBe(true);
+    expect(anchorAllowsBefore("scheduledEnd")).toBe(true);
+    // Both have already happened by the time any event reaches the engine, and
+    // the scheduler arms nothing for a moment gone by.
+    expect(anchorAllowsBefore("createdAt")).toBe(false);
+    expect(anchorAllowsBefore("statusChangedAt")).toBe(false);
+  });
+});
+
+describe("messageSegments", () => {
+  it("splits a body into text and atomic short codes", () => {
+    expect(messageSegments("Hi {{first_name}}, job {{job_id}}.")).toEqual([
+      { type: "text", text: "Hi " },
+      { type: "code", code: "first_name", raw: "{{first_name}}" },
+      { type: "text", text: ", job " },
+      { type: "code", code: "job_id", raw: "{{job_id}}" },
+      { type: "text", text: "." },
+    ]);
+    expect(messageSegments("")).toEqual([]);
+    expect(messageSegments("No codes here")).toEqual([{ type: "text", text: "No codes here" }]);
+  });
+
+  it("keeps a placeholder exactly as it was written", () => {
+    // The renderer takes spaces and custom-field names too (`PLACEHOLDER`), so
+    // an editor that tidied them would be editing a message nobody touched.
+    const odd = "{{ job_date }} and {{Gate code}}";
+    expect(messageSegments(odd).map((s) => (s.type === "code" ? s.code : s.text))).toEqual([
+      "job_date",
+      " and ",
+      "Gate code",
+    ]);
+    expect(segmentsToBody(messageSegments(odd))).toBe(odd);
+  });
+
+  it("round-trips every body the recipe library ships, character for character", () => {
+    const bodies = AUTOMATION_TEMPLATES.flatMap((t) => t.draft.spec.actions.map((a) => a.body ?? ""));
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) expect(segmentsToBody(messageSegments(body))).toBe(body);
+  });
+
+  it("round-trips the shapes the imported rules put in a body", () => {
+    for (const body of [
+      "",
+      "{{job_id}}",
+      "{{job_id}}{{job_date}}",
+      "Line one\nLine two {{full_address}}\n\nLine four",
+      "Braces { alone } and {{tech_assigned}}",
+      "50% off — {{biz_name}} ({{biz_number}})",
+      "{{unclosed",
+      "}}stray{{",
+    ]) {
+      expect(segmentsToBody(messageSegments(body))).toBe(body);
+    }
   });
 });
 

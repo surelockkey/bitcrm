@@ -59,6 +59,7 @@ export function AutomationValuePicker({
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   // The picker lives inside a scrolling dialog, so the panel is positioned
   // rather than portalled; closing on an outside pointer keeps it from
@@ -72,6 +73,11 @@ export function AutomationValuePicker({
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
+  const shut = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
   const nameOf = (id: string, index = values.indexOf(id)) =>
     options.find((o) => o.id === id)?.name ?? fallback?.[id] ?? labels?.[index] ?? id;
 
@@ -80,15 +86,25 @@ export function AutomationValuePicker({
   const toggle = (id: string) => {
     if (single) {
       commit([id]);
-      setOpen(false);
+      shut();
       return;
     }
     commit(values.includes(id) ? values.filter((v) => v !== id) : [...values, id]);
   };
 
   return (
-    <div ref={box} className={cn("relative", className)}>
+    <div
+      ref={box}
+      className={cn("relative", className)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          e.stopPropagation();
+          shut();
+        }
+      }}
+    >
       <button
+        ref={trigger}
         type="button"
         aria-label={label}
         aria-expanded={open}
@@ -134,7 +150,10 @@ export function AutomationValuePicker({
       {open ? (
         <div className="absolute left-0 top-full z-30 mt-1 w-full min-w-56 overflow-hidden rounded-lg border bg-popover shadow-md">
           <Command loop>
-            {options.length > 8 ? <CommandInput autoFocus placeholder="Search…" className="h-9" /> : null}
+            {/* Always here, however short the list: it is what takes focus on
+                open, so the whole picker works from the keyboard — type to
+                narrow, arrows to move, Enter to tick. */}
+            <CommandInput autoFocus placeholder="Search…" className="h-9" />
             <CommandList className="max-h-56">
               <CommandEmpty>{emptyText}</CommandEmpty>
               <CommandGroup>

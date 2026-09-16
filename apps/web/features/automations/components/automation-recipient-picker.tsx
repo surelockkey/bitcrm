@@ -18,10 +18,13 @@ export function AutomationUserPicker({
   label,
   values,
   onChange,
+  onNames,
 }: {
   label: string;
   values: string[];
   onChange: (ids: string[]) => void;
+  /** Id → name for everyone offered, so the rule's sentence can say who. */
+  onNames?: (names: Record<string, string>) => void;
 }) {
   const { data, hasNextPage, isFetchingNextPage, fetchNextPage, isLoading } = useUsers({
     status: UserStatus.ACTIVE,
@@ -41,6 +44,7 @@ export function AutomationUserPicker({
       })),
     [data],
   );
+  useReportedNames(options, onNames);
 
   return (
     <AutomationValuePicker
@@ -54,21 +58,36 @@ export function AutomationUserPicker({
   );
 }
 
+/**
+ * Hands the names up as they load. The rule's label map is built from the job
+ * catalogs and knows nothing of people, so without this the live sentence can
+ * only say "selected users" about a rule that names two of them.
+ */
+function useReportedNames(options: PickerOption[], onNames?: (names: Record<string, string>) => void) {
+  useEffect(() => {
+    if (!onNames || !options.length) return;
+    onNames(Object.fromEntries(options.map((o) => [o.id, o.name])));
+  }, [options, onNames]);
+}
+
 /** Who a `to: 'role'` action notifies — every active user holding one of these roles. */
 export function AutomationRolePicker({
   label,
   values,
   onChange,
+  onNames,
 }: {
   label: string;
   values: string[];
   onChange: (ids: string[]) => void;
+  onNames?: (names: Record<string, string>) => void;
 }) {
   const { data, isLoading } = useRoles();
   const options = useMemo<PickerOption[]>(
     () => (data ?? []).map((r) => ({ id: r.id, name: r.name })),
     [data],
   );
+  useReportedNames(options, onNames);
 
   return (
     <AutomationValuePicker

@@ -400,18 +400,52 @@ export function automationConditionsSentence(spec: AutomationSpec, labels?: Auto
   return parts.length ? ` and ${parts.join(', and ')}` : '';
 }
 
+/**
+ * The people an action names, when the caller knows what they are called —
+ * `users` and `role` carry ids, and a sentence full of uuids is worse than
+ * the generic phrase, so this only names them when every id resolves.
+ */
+const namedOr = (ids: string[] | undefined, labels: AutomationLabelMap | undefined, fallback: string): string => {
+  const names = (ids ?? []).map((id) => labels?.[id]);
+  if (!names.length || names.some((name) => !name)) return fallback;
+  return joinNames(names as string[]);
+};
+
+/** Workiz's `{p3}` slot: who the message goes to. */
+function recipientText(action: AutomationAction, labels?: AutomationLabelMap): string {
+  switch (action.to) {
+    case 'number':
+      return action.number ?? action.email ?? 'a number';
+    case 'users':
+      return namedOr(action.userIds, labels, RECIPIENT_TEXT.users);
+    case 'role':
+      return namedOr(action.roleIds, labels, RECIPIENT_TEXT.role);
+    default:
+      return RECIPIENT_TEXT[action.to ?? 'client'];
+  }
+}
+
+/**
+ * Workiz's `notify_medium: both` — "a text and email", one choice in the
+ * editor and two actions in the spec. Said as one clause so the sentence
+ * reads back as the thing that was chosen, not as the pair it is stored as.
+ */
+function isTextAndEmail(sms: AutomationAction, email: AutomationAction): boolean {
+  return (
+    sms.type === 'send_sms' &&
+    email.type === 'send_email' &&
+    (sms.to ?? 'client') === (email.to ?? 'client') &&
+    (sms.body ?? '') === (email.body ?? '')
+  );
+}
+
 /** The ", send …" half, one clause per action (the timing is said once, at the end). */
 export function automationActionSentence(action: AutomationAction, labels?: AutomationLabelMap): string {
   switch (action.type) {
     case 'send_sms':
     case 'send_email':
-    case 'send_in_app': {
-      const to =
-        action.to === 'number'
-          ? (action.number ?? action.email ?? 'a number')
-          : RECIPIENT_TEXT[action.to ?? 'client'];
-      return `send ${to} ${MEDIUM_TEXT[action.type]}`;
-    }
+    case 'send_in_app':
+      return `send ${recipientText(action, labels)} ${MEDIUM_TEXT[action.type]}`;
     case 'webhook':
       return `post a webhook to ${action.url ?? 'a URL'}`;
     case 'add_tag':
@@ -430,9 +464,17 @@ export function automationActionSentence(action: AutomationAction, labels?: Auto
  */
 export function automationSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   const named: AutomationLabelMap = { ...automationSpecLabels(spec), ...(labels ?? {}) };
-  const actions = spec.actions.length
-    ? spec.actions.map((a) => automationActionSentence(a, named)).join(', and ')
-    : 'do nothing';
+  const clauses: string[] = [];
+  for (let i = 0; i < spec.actions.length; i += 1) {
+    const next = spec.actions[i + 1];
+    if (next && isTextAndEmail(spec.actions[i], next)) {
+      clauses.push(`send ${recipientText(spec.actions[i], named)} a text and email`);
+      i += 1;
+      continue;
+    }
+    clauses.push(automationActionSentence(spec.actions[i], named));
+  }
+  const actions = clauses.length ? clauses.join(', and ') : 'do nothing';
   const delay = automationDelayText(spec.timing?.delayMinutes);
   const tail = delay === 'immediately' ? 'immediately' : delay;
   return `${automationTriggerSentence(spec, named)}${automationConditionsSentence(spec, named)}, ${actions} ${tail}`.replace(

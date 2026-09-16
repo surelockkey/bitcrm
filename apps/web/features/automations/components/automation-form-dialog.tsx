@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import {
   JobSuperStatus,
@@ -147,6 +147,9 @@ export function AutomationFormDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  // Names for the ids only the recipient pickers know about — the page's label
+  // map is built from the job catalogs and has never heard of a user or a role.
+  const [pickedNames, setPickedNames] = useState<Record<string, string>>({});
   const editors = useRef<Record<number, MessageEditorHandle | null>>({});
   const fieldId = useId();
 
@@ -156,9 +159,15 @@ export function AutomationFormDialog({
   const { data: statuses } = useJobStatuses();
 
   const parsed = useMemo(() => automationFormSchema.safeParse(values), [values]);
+  const named = useMemo<AutomationLabelMap>(() => ({ ...labels, ...pickedNames }), [labels, pickedNames]);
   const preview = useMemo(
-    () => (parsed.success ? automationSentence(toSpec(parsed.data), labels) : ""),
-    [parsed, labels],
+    () => (parsed.success ? automationSentence(toSpec(parsed.data), named) : ""),
+    [parsed, named],
+  );
+
+  const learnNames = useCallback(
+    (names: Record<string, string>) => setPickedNames((seen) => ({ ...seen, ...names })),
+    [],
   );
 
   const set = <K extends keyof AutomationFormValues>(key: K, value: AutomationFormValues[K]) =>
@@ -281,7 +290,7 @@ export function AutomationFormDialog({
                     label="Sub-status entered"
                     options={subStatusOptions}
                     values={values.trigger.toSubStatus ?? []}
-                    fallback={labels}
+                    fallback={named}
                     placeholder="Any sub-status"
                     emptyText="No sub-statuses here"
                     onChange={(ids) => setTrigger({ toSubStatus: ids })}
@@ -341,7 +350,7 @@ export function AutomationFormDialog({
               conditions={(values.conditions ?? []) as ConditionNodeValues[]}
               onChange={(next) => set("conditions", next)}
               optionsFor={optionsFor}
-              labels={labels}
+              labels={named}
             />
           </section>
 
@@ -450,6 +459,7 @@ export function AutomationFormDialog({
                       label={`Action ${index + 1} people`}
                       values={action.userIds ?? []}
                       onChange={(ids) => setAction(index, { userIds: ids })}
+                      onNames={learnNames}
                     />
                   ) : null}
 
@@ -458,6 +468,7 @@ export function AutomationFormDialog({
                       label={`Action ${index + 1} roles`}
                       values={action.roleIds ?? []}
                       onChange={(ids) => setAction(index, { roleIds: ids })}
+                      onNames={learnNames}
                     />
                   ) : null}
 

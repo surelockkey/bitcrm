@@ -157,7 +157,23 @@ export function AutomationMessageEditor({
   useImperativeHandle(ref, () => ({
     insertCode: (code: string) => {
       const root = box.current;
-      if (root) insert(chipElement(root.ownerDocument, code, `{{${code}}}`));
+      if (!root) return;
+      insert(chipElement(root.ownerDocument, code, `{{${code}}}`));
+      // The short-code menu is a dropdown, and a dropdown hands focus back to
+      // its own trigger as it closes — after this call. Claiming it a tick
+      // later leaves the caret where the chip just landed, so a keyboard user
+      // carries on typing instead of tabbing back to the box first.
+      setTimeout(() => {
+        const after = saved.current;
+        if (!box.current || !after || !box.current.contains(after.node)) return;
+        box.current.focus();
+        const range = box.current.ownerDocument.createRange();
+        range.setStart(after.node, after.offset);
+        range.collapse(true);
+        const selection = box.current.ownerDocument.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }, 0);
     },
   }));
 
