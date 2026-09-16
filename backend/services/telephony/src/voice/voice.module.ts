@@ -9,14 +9,15 @@ import { CallsModule } from '../calls/calls.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
 import { CallGroupsModule } from '../call-groups/call-groups.module';
-import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
+import { TwilioSignatureGuard } from '@bitcrm/shared';
 import { CallerIdResolver } from './caller-id.resolver';
 import { ServiceAreaNumbersService } from '../common/service-area-numbers.service';
 import { DealReadService } from '../common/deal-read.service';
 import { ExtsModule } from '../exts/exts.module';
 
 @Module({
-  // TelephonyModule exports TELEPHONY_CONFIG (needed by the signature guard);
+  // TelephonyModule exports TELEPHONY_CONFIG (= the shared TWILIO_CONFIG the
+  // signature guard injects);
   // NumbersModule exports NumbersService (default caller-id fallback);
   // CallsModule is a forwardRef pair (its controller needs ConferenceService).
   imports: [

@@ -10,7 +10,6 @@ import {
   HealthModule,
   ConnectivityModule,
 } from '@bitcrm/shared';
-import { SearchType } from '@bitcrm/types';
 import { AppController } from './app.controller';
 import {
   OPENSEARCH_ENDPOINT,
@@ -21,64 +20,11 @@ import { OpenSearchModule } from './common/opensearch/opensearch.module';
 import { SearchModule } from './search/search.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { IndexerEventHandler } from './indexer/indexer.event-handler';
+import { CUSTOM_FIELD_EVENTS, EVENT_ROUTES } from './indexer/event-routes';
 
 const AWS_REGION = process.env.AWS_REGION || 'us-east-1';
 const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
 const QUEUE_URL = process.env.SEARCH_INDEX_QUEUE_URL;
-
-/** eventType → which index doc it touches and how. */
-interface EventRoute {
-  eventType: string;
-  type: SearchType;
-  op: 'upsert' | 'delete';
-  idField: string;
-}
-
-const EVENT_ROUTES: EventRoute[] = [
-  // deal-events
-  { eventType: 'deal.created', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.updated', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.status_changed', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.completed', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.tech_assigned', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.tech_unassigned', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.product_added', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.product_removed', type: 'deal', op: 'upsert', idField: 'dealId' },
-  { eventType: 'deal.deleted', type: 'deal', op: 'delete', idField: 'dealId' },
-  // contact-events (crm)
-  { eventType: 'contact.created', type: 'contact', op: 'upsert', idField: 'contactId' },
-  { eventType: 'contact.updated', type: 'contact', op: 'upsert', idField: 'contactId' },
-  { eventType: 'contact.deleted', type: 'contact', op: 'delete', idField: 'contactId' },
-  { eventType: 'company.created', type: 'company', op: 'upsert', idField: 'companyId' },
-  { eventType: 'company.updated', type: 'company', op: 'upsert', idField: 'companyId' },
-  { eventType: 'company.deleted', type: 'company', op: 'delete', idField: 'companyId' },
-  // user-events
-  { eventType: 'user.activated', type: 'user', op: 'upsert', idField: 'userId' },
-  { eventType: 'user.role-changed', type: 'user', op: 'upsert', idField: 'userId' },
-  { eventType: 'tech.approved', type: 'technician', op: 'upsert', idField: 'technicianId' },
-  { eventType: 'tech.updated', type: 'technician', op: 'upsert', idField: 'technicianId' },
-  // inventory-events (topic added in Phase 2 — inert until inventory publishes)
-  { eventType: 'product.created', type: 'product', op: 'upsert', idField: 'productId' },
-  { eventType: 'product.updated', type: 'product', op: 'upsert', idField: 'productId' },
-  { eventType: 'product.deleted', type: 'product', op: 'delete', idField: 'productId' },
-  { eventType: 'warehouse.created', type: 'warehouse', op: 'upsert', idField: 'warehouseId' },
-  { eventType: 'warehouse.updated', type: 'warehouse', op: 'upsert', idField: 'warehouseId' },
-  { eventType: 'container.created', type: 'container', op: 'upsert', idField: 'containerId' },
-  { eventType: 'container.updated', type: 'container', op: 'upsert', idField: 'containerId' },
-  { eventType: 'transfer.created', type: 'transfer', op: 'upsert', idField: 'transferId' },
-];
-
-/**
- * Custom-field definition events (deal-service). Not entity routes — the
- * `searchable` toggle lives on the definition, so any change invalidates the
- * cached defs and rebuilds every deal doc.
- */
-const CUSTOM_FIELD_EVENTS = [
-  'custom-field.created',
-  'custom-field.updated',
-  'custom-field.archived',
-  'custom-field.deleted',
-];
 
 @Module({
   imports: [
@@ -106,6 +52,7 @@ const CUSTOM_FIELD_EVENTS = [
         { name: 'user', url: (process.env.USER_SERVICE_URL ?? 'http://localhost:4001') + '/api/users/health' },
         { name: 'deal', url: (process.env.DEAL_SERVICE_URL ?? 'http://localhost:4003') + '/api/deals/health' },
         { name: 'inventory', url: (process.env.INVENTORY_SERVICE_URL ?? 'http://localhost:4004') + '/api/inventory/health' },
+        { name: 'messaging', url: (process.env.MESSAGING_SERVICE_URL ?? 'http://localhost:4007') + '/api/messaging/health' },
       ],
     }),
     // search has no DynamoDB of its own, but HealthModule's DynamoDbHealthIndicator

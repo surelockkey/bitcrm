@@ -13,8 +13,9 @@ export class SearchController {
   @Get()
   @ApiOperation({
     summary:
-      'Global search across all entities (deals, contacts, companies, users, technicians, inventory). ' +
-      'Results are filtered to what the caller is permitted to view.',
+      'Global search across all entities (deals, contacts, companies, users, technicians, inventory, ' +
+      'conversations). Results are filtered to what the caller is permitted to view; ' +
+      '`type=conversation` (csv with the others) narrows to inbox threads, which link to /messages/:id.',
   })
   async search(
     @CurrentUser() user: JwtUser,

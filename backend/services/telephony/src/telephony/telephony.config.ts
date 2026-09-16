@@ -1,11 +1,20 @@
+import {
+  TWILIO_CONFIG,
+  loadTwilioConfig,
+  type TwilioConfig,
+} from '@bitcrm/shared';
+
 /**
  * Twilio configuration, resolved from environment once at module init and
  * injected (rather than read via `process.env` inside services) so unit tests
  * can supply a fake config without touching the environment.
+ *
+ * The account-level part (`accountSid`, `authToken`, `publicBaseUrl`,
+ * `validateSignature`, `messagingServiceSid`) is `TwilioConfig` from
+ * `@bitcrm/shared`, which is what the shared `TwilioSignatureGuard` and
+ * `TwilioRest` read; the voice-specific fields below are telephony's own.
  */
-export interface TelephonyConfig {
-  accountSid: string;
-  authToken: string;
+export interface TelephonyConfig extends TwilioConfig {
   apiKey: string;
   apiSecret: string;
   twimlAppSid: string;
@@ -18,30 +27,26 @@ export interface TelephonyConfig {
    * line while masked calls go out on a dedicated number.
    */
   defaultAreaCallerId: string;
-  /** Public base URL Twilio can reach (ngrok in dev, ALB in prod). */
-  publicBaseUrl: string;
   /** Access-token lifetime in seconds. */
   tokenTtlSeconds: number;
-  /**
-   * Validate the `X-Twilio-Signature` on webhook requests. Default true; set
-   * `TWILIO_VALIDATE_SIGNATURE=false` to exercise webhooks locally with curl.
-   */
-  validateSignature: boolean;
 }
 
-export const TELEPHONY_CONFIG = Symbol('TELEPHONY_CONFIG');
+/**
+ * The same token as the shared `TWILIO_CONFIG`, on purpose: `TelephonyModule`
+ * provides one `TelephonyConfig` object, and because it is a superset of
+ * `TwilioConfig`, the shared guard and REST wrapper resolve it without a
+ * second provider or an alias.
+ */
+export const TELEPHONY_CONFIG = TWILIO_CONFIG;
 
 export function loadTelephonyConfig(): TelephonyConfig {
   return {
-    accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
-    authToken: process.env.TWILIO_AUTH_TOKEN ?? '',
+    ...loadTwilioConfig(),
     apiKey: process.env.TWILIO_API_KEY ?? '',
     apiSecret: process.env.TWILIO_API_SECRET ?? '',
     twimlAppSid: process.env.TWILIO_TWIML_APP_SID ?? '',
     callerId: process.env.TWILIO_CALLER_ID ?? '',
     defaultAreaCallerId: process.env.TELEPHONY_DEFAULT_AREA_CALLER_ID ?? '',
-    publicBaseUrl: process.env.PUBLIC_BASE_URL ?? '',
     tokenTtlSeconds: Number(process.env.TWILIO_TOKEN_TTL_SECONDS ?? 3600),
-    validateSignature: process.env.TWILIO_VALIDATE_SIGNATURE !== 'false',
   };
 }

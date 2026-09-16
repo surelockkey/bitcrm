@@ -24,6 +24,8 @@ import { ContactsTable } from "./contacts-table";
 import { DeleteClientDialog } from "./delete-client-dialog";
 import { FieldList } from "./field-list";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
+import { PartyChat } from "@/features/messaging/components/party-chat";
+import { TextButton } from "@/features/messaging/components/text-button";
 import { EmptyState } from "./contacts-page";
 
 export function CompanyDetailPage({ companyId }: { companyId: string }) {
@@ -62,6 +64,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
         </div>
         {company.isPlatinum ? <PlatinumBadge /> : null}
         <ClientTypeBadge type={company.clientType} />
+        {!editing ? <TextButton partyKind="company" partyId={company.id} name={company.title} /> : null}
         {!editing && can("companies", "edit") ? (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" /> Edit
@@ -86,6 +89,7 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
                 <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
                 <TabsTrigger value="contacts" className="px-2">Contacts · {roster.length}</TabsTrigger>
                 <TabsTrigger value="compliance" className="px-2">Compliance</TabsTrigger>
+                {can("messages") ? <TabsTrigger value="messages" className="px-2">Messages</TabsTrigger> : null}
               </TabsList>
             </div>
 
@@ -136,6 +140,12 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
             <TabsContent value="compliance" className="mt-0 p-6">
               <CompanyComplianceTab company={company} />
             </TabsContent>
+
+            {can("messages") ? (
+              <TabsContent value="messages" className="mt-0 p-6">
+                <PartyChat partyKind="company" partyId={company.id} className="h-[32rem] max-w-3xl" />
+              </TabsContent>
+            ) : null}
           </Tabs>
         )}
       </div>

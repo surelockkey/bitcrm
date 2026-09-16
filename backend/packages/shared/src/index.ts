@@ -17,7 +17,7 @@ export type {
 // Storage (S3 documents + KMS field encryption)
 export { StorageModule } from './storage/storage.module';
 export { S3Service } from './storage/s3.service';
-export type { PresignedUploadOptions } from './storage/s3.service';
+export type { PresignedUploadOptions, PutObjectOptions } from './storage/s3.service';
 export { KmsService } from './storage/kms.service';
 
 // Auth
@@ -112,3 +112,24 @@ export {
   normalizeExtension,
   normalizePhoneExtensions,
 } from './phone/phone-extension';
+
+// ---------- Twilio (shared by telephony and messaging) ----------
+export {
+  TWILIO_CONFIG,
+  TWILIO_ENV_VARS,
+  loadTwilioConfig,
+} from './twilio/twilio.config';
+export type { TwilioConfig } from './twilio/twilio.config';
+export { TwilioRest, toTwilioHttpException } from './twilio/twilio-rest';
+export type {
+  TwilioCredentials,
+  TwilioClientFactory,
+} from './twilio/twilio-rest';
+export {
+  TwilioSignatureGuard,
+  isValidTwilioRequest,
+} from './twilio/twilio-signature.guard';
+export type {
+  TwilioSignatureOptions,
+  TwilioSignedRequest,
+} from './twilio/twilio-signature.guard';

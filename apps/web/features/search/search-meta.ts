@@ -3,6 +3,7 @@ import {
   Boxes,
   Building2,
   Handshake,
+  MessageSquare,
   Package,
   Truck,
   User,
@@ -25,4 +26,5 @@ export const SEARCH_TYPE_META: Record<SearchType, { label: string; icon: LucideI
   container: { label: "Containers", icon: Truck },
   transfer: { label: "Transfers", icon: ArrowLeftRight },
   stock: { label: "Stock", icon: Boxes },
+  conversation: { label: "Messages", icon: MessageSquare },
 };

@@ -1,6 +1,6 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { type Twilio } from 'twilio';
-import { TwilioRest } from '../common/twilio-client';
+import { TwilioRest } from '@bitcrm/shared';
 import {
   TELEPHONY_CONFIG,
   type TelephonyConfig,
@@ -11,6 +11,18 @@ export interface OwnedNumber {
   phoneNumber: string;
   friendlyName: string;
   voiceUrl?: string | null;
+}
+
+export interface OwnedNumberCapabilities {
+  sms: boolean;
+  mms: boolean;
+  voice: boolean;
+}
+
+/** `OwnedNumber` plus what the messaging side needs to pick a sender. */
+export interface OwnedNumberDetails extends OwnedNumber {
+  smsUrl?: string | null;
+  capabilities: OwnedNumberCapabilities;
 }
 
 export interface AvailableNumber {
@@ -31,9 +43,35 @@ export interface SearchParams {
   limit?: number;
 }
 
+/** One incoming-phone-number resource as the SDK returns it. */
+type OwnedInstance = Awaited<
+  ReturnType<Twilio['incomingPhoneNumbers']['list']>
+>[number];
+
+/** The slice of the SDK's `Page` the owned-numbers walk relies on. */
+interface OwnedPage {
+  instances: OwnedInstance[];
+  /** `undefined` once there is no next page — that is how the SDK says "done". */
+  nextPage(): Promise<OwnedPage> | undefined;
+}
+
+/**
+ * Twilio caps a list page at 1000; 100 keeps each response small and the
+ * walk below follows `nextPage` regardless, so the count is not a limit.
+ */
+export const OWNED_NUMBERS_PAGE_SIZE = 100;
+
+const toOwnedNumber = (n: OwnedInstance): OwnedNumber => ({
+  sid: n.sid,
+  phoneNumber: n.phoneNumber,
+  friendlyName: n.friendlyName,
+  voiceUrl: n.voiceUrl,
+});
+
 @Injectable()
 export class NumbersService {
-  /** Shared lazy client + error-translating runner (src/common/twilio-client). */
+  private readonly logger = new Logger(NumbersService.name);
+  /** Shared lazy client + error-translating runner (`TwilioRest` from @bitcrm/shared). */
   private readonly rest: TwilioRest;
   /** Monthly local-number price per country (rarely changes → cached). */
   private priceCache = new Map<
@@ -60,16 +98,81 @@ export class NumbersService {
     return this.rest.run(fn);
   }
 
+  /**
+   * Every incoming phone number the account owns, however many. Twilio pages
+   * the list; the old `list({ limit: 100 })` silently stopped after the first
+   * hundred, which for a workspace with ~270 numbers meant caller-id
+   * selection refused market numbers, the technician line could not be
+   * designated and the lines-health panel reported numbers as not owned —
+   * for two-thirds of the account.
+   */
+  private async fetchOwned(): Promise<OwnedInstance[]> {
+    return this.run(async () => {
+      const all: OwnedInstance[] = [];
+      let page: OwnedPage | undefined =
+        await this.client.incomingPhoneNumbers.page({
+          pageSize: OWNED_NUMBERS_PAGE_SIZE,
+        });
+      while (page) {
+        all.push(...page.instances);
+        page = await page.nextPage();
+      }
+      return all;
+    });
+  }
+
   async listOwned(): Promise<OwnedNumber[]> {
-    const nums = await this.run(() =>
-      this.client.incomingPhoneNumbers.list({ limit: 100 }),
-    );
+    const nums = await this.fetchOwned();
+    return nums.map(toOwnedNumber);
+  }
+
+  /** `listOwned` with the fields the messaging service selects a sender by. */
+  async listOwnedDetailed(): Promise<OwnedNumberDetails[]> {
+    const nums = await this.fetchOwned();
     return nums.map((n) => ({
-      sid: n.sid,
-      phoneNumber: n.phoneNumber,
-      friendlyName: n.friendlyName,
-      voiceUrl: n.voiceUrl,
+      ...toOwnedNumber(n),
+      smsUrl: n.smsUrl,
+      capabilities: {
+        sms: n.capabilities?.sms === true,
+        mms: n.capabilities?.mms === true,
+        voice: n.capabilities?.voice === true,
+      },
     }));
+  }
+
+  /**
+   * Which Messaging Service each owned number is pooled in: E.164 → `MG…`.
+   *
+   * A number outside a Messaging Service cannot send to US destinations
+   * (A2P 10DLC), so this is what tells the messaging side which numbers are
+   * SMS-ready. Scoped to `TWILIO_MESSAGING_SERVICE_SID` when configured,
+   * otherwise every service on the account (first one listed wins).
+   *
+   * Best-effort: the Messaging API being unreachable must not hide the
+   * numbers themselves, so any failure yields an empty map — the caller sees
+   * "membership unknown", not an error.
+   */
+  async messagingServiceMembership(): Promise<Map<string, string>> {
+    const membership = new Map<string, string>();
+    try {
+      const messaging = this.client.messaging.v1;
+      const serviceSids = this.config.messagingServiceSid
+        ? [this.config.messagingServiceSid]
+        : (await messaging.services.list()).map((s) => s.sid);
+      for (const serviceSid of serviceSids) {
+        const members = await messaging.services(serviceSid).phoneNumbers.list();
+        for (const m of members) {
+          if (!membership.has(m.phoneNumber)) {
+            membership.set(m.phoneNumber, serviceSid);
+          }
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Could not read Messaging Service membership: ${(e as Error).message ?? e}`,
+      );
+    }
+    return membership;
   }
 
   /** Monthly price for a local number in a country (Pricing API, cached). */

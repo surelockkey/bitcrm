@@ -182,4 +182,32 @@ export const queryKeys = {
     range: (techIds: string[], from: string, to: string) =>
       ["calendar-events", "range", techIds, from, to] as const,
   },
+
+  messaging: {
+    all: () => ["messaging"] as const,
+    /** Prefix for every inbox tab — use for invalidation / cache patching. */
+    conversationLists: () => ["messaging", "conversations", "list"] as const,
+    conversationList: (filter?: unknown) =>
+      ["messaging", "conversations", "list", filter] as const,
+    conversation: (id: string) => ["messaging", "conversations", "detail", id] as const,
+    conversationByParty: (kind: string, id: string) =>
+      ["messaging", "conversations", "by-party", kind, id] as const,
+    conversationByJob: (dealId: string) =>
+      ["messaging", "conversations", "by-job", dealId] as const,
+    conversationByAddress: (address: string) =>
+      ["messaging", "conversations", "by-address", address] as const,
+    textLookups: () => ["messaging", "text-lookup"] as const,
+    textLookup: (params?: unknown) => ["messaging", "text-lookup", params] as const,
+    messages: (conversationId: string) =>
+      ["messaging", "messages", "conversation", conversationId] as const,
+    messagesByJob: (dealId: string) => ["messaging", "messages", "by-job", dealId] as const,
+    flaggedMessages: () => ["messaging", "messages", "flagged"] as const,
+    counters: () => ["messaging", "counters"] as const,
+    templates: (params?: unknown) => ["messaging", "templates", "list", params] as const,
+    templatesAll: () => ["messaging", "templates"] as const,
+    template: (id: string) => ["messaging", "templates", "detail", id] as const,
+    shortCodes: () => ["messaging", "short-codes"] as const,
+    settings: () => ["messaging", "settings"] as const,
+    optOuts: (address: string) => ["messaging", "opt-outs", address] as const,
+  },
 } as const;

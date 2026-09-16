@@ -1,48 +1,10 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
-import twilio from 'twilio';
-import { TELEPHONY_CONFIG, type TelephonyConfig } from '../telephony/telephony.config';
-
 /**
- * Validates the `X-Twilio-Signature` header so only Twilio can invoke our
- * public voice webhooks. The signature is computed over the *public* URL Twilio
- * hit, which differs from what the service sees behind nginx — so we rebuild it
- * from `PUBLIC_BASE_URL` + the original path.
- *
- * Disabled when `validateSignature` is false (local curl testing).
+ * Moved to `@bitcrm/shared`
+ * (`backend/packages/shared/src/twilio/twilio-signature.guard.ts`) so the
+ * messaging service's SMS webhooks get the same check. The guard now injects
+ * the shared `TWILIO_CONFIG` token — which `TELEPHONY_CONFIG` is an alias of —
+ * so nothing in this service had to change. This shim keeps the old import
+ * path alive; new code should import from `@bitcrm/shared` directly.
  */
-@Injectable()
-export class TwilioSignatureGuard implements CanActivate {
-  private readonly logger = new Logger(TwilioSignatureGuard.name);
-
-  constructor(
-    @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
-  ) {}
-
-  canActivate(context: ExecutionContext): boolean {
-    if (!this.config.validateSignature) return true;
-
-    const req = context.switchToHttp().getRequest();
-    const signature = req.headers['x-twilio-signature'] as string | undefined;
-    const url = `${this.config.publicBaseUrl}${req.originalUrl}`;
-
-    const valid = twilio.validateRequest(
-      this.config.authToken,
-      signature ?? '',
-      url,
-      (req.body ?? {}) as Record<string, unknown>,
-    );
-
-    if (!valid) {
-      this.logger.warn(`Rejected webhook with invalid Twilio signature: ${url}`);
-      throw new ForbiddenException('Invalid Twilio signature');
-    }
-    return true;
-  }
-}
+export { TwilioSignatureGuard, isValidTwilioRequest } from '@bitcrm/shared';
+export type { TwilioSignatureOptions, TwilioSignedRequest } from '@bitcrm/shared';

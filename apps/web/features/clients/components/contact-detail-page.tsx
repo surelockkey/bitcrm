@@ -3,11 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronLeft, Mail, MapPin, Pencil, Phone, PhoneCall, Trash2 } from "lucide-react";
+import { Building2, ChevronLeft, Mail, MapPin, MessagesSquare, Pencil, Phone, PhoneCall, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
+import { PartyChat } from "@/features/messaging/components/party-chat";
+import { TextButton } from "@/features/messaging/components/text-button";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
 import { FieldList } from "./field-list";
 import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
@@ -59,6 +61,8 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </div>
         </div>
         <ContactTypeBadge type={contact.type} />
+        {/* Text opens (or starts) their thread right here — the Workiz card's action. */}
+        {!editing ? <TextButton partyKind="contact" partyId={contact.id} name={contactName(contact)} /> : null}
         {!editing && can("contacts", "edit") ? (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" /> Edit
@@ -109,6 +113,15 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
                 </div>
                 <ClientCallsLog contactId={contact.id} />
               </div>
+
+              {can("messages") ? (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <MessagesSquare className="size-3.5" /> Messages
+                  </div>
+                  <PartyChat partyKind="contact" partyId={contact.id} className="h-[28rem]" />
+                </div>
+              ) : null}
             </div>
             <div className="border-t p-6 md:border-l md:border-t-0">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Company</div>

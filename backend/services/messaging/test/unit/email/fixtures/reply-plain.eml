@@ -1,0 +1,21 @@
+Return-Path: <jane@example.com>
+Received: from mail.example.com (mail.example.com [192.0.2.10])
+	by inbound-smtp.us-east-1.amazonaws.com with SMTP id abc123
+	for c-6f1f4d7e-0f5c-4b8e-9a6d-2c3b4a5d6e7f@reply.example.com;
+	Tue, 15 Sep 2026 10:05:01 +0000 (UTC)
+Date: Tue, 15 Sep 2026 10:05:00 +0000
+From: Jane Doe <Jane@Example.com>
+To: "Sure Lock & Key"
+	<c-6f1f4d7e-0f5c-4b8e-9a6d-2c3b4a5d6e7f@reply.example.com>
+Subject: Re: Your key
+Message-ID: <CAJane123@mail.example.com>
+In-Reply-To: <0100019-abc-def@email.amazonses.com>
+References: <0100019-abc-def@email.amazonses.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+Yes, 3pm works for me.
+
+On Tue, Sep 15, 2026 Sure Lock <office@example.com> wrote:
+> Your key is ready

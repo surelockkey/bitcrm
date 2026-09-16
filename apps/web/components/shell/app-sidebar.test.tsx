@@ -13,6 +13,13 @@ vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => permissionsMock(),
 }));
 
+// The Messages item carries an unread badge fed by the inbox counters query;
+// the shell tests run without a QueryClient, so hand it a settable value.
+const countersMock = vi.fn(() => ({ data: undefined as { unreadConversations: number } | undefined }));
+vi.mock("@/features/messaging/hooks", () => ({
+  useInboxCounters: () => countersMock(),
+}));
+
 function renderSidebar() {
   return render(
     <TooltipProvider>
@@ -136,5 +143,29 @@ describe("AppSidebar", () => {
     expect(screen.getByText("My Profile")).toBeInTheDocument();
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
     expect(screen.queryByText("Contacts")).not.toBeInTheDocument();
+  });
+
+  it("gives technicians a Messages item once they may view messages", () => {
+    permissionsMock.mockReturnValue({ can: (r: string) => r === "messages", isTechnician: true });
+    renderSidebar();
+
+    expect(screen.getByRole("link", { name: /^messages$/i })).toHaveAttribute("href", "/messages");
+  });
+
+  it("shows Messages under Communications with the unread count as a badge", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    countersMock.mockReturnValue({ data: { unreadConversations: 7 } });
+    renderSidebar();
+
+    expect(screen.getByRole("link", { name: /^messages$/i })).toHaveAttribute("href", "/messages");
+    expect(screen.getByLabelText("7 unread conversations")).toHaveTextContent("7");
+  });
+
+  it("keeps the Messages item plain when nothing is unread", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    countersMock.mockReturnValue({ data: { unreadConversations: 0 } });
+    renderSidebar();
+
+    expect(screen.queryByLabelText(/unread conversation/)).not.toBeInTheDocument();
   });
 });

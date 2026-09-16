@@ -7,6 +7,7 @@ import { PageHistoryBar } from "./page-history";
 import { CommandMenu } from "./command-menu";
 import { LocationBroadcaster } from "@/features/technicians/components/location-broadcaster";
 import { SoftphoneProvider } from "@/features/telephony/components/softphone-provider";
+import { MessagingStreamProvider } from "@/features/messaging/components/messaging-stream-provider";
 
 /** Authenticated app chrome: sidebar + header + command palette. */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Twilio softphone: drives the Device from the phone on/off toggle and
           renders the floating dialer overlay. */}
       <SoftphoneProvider />
+      {/* Inbox live updates (SSE) for the whole session; feeds the sidebar
+          badge and any open thread (renders nothing). */}
+      <MessagingStreamProvider />
     </SidebarProvider>
   );
 }

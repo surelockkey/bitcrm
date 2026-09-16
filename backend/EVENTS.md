@@ -33,8 +33,9 @@ lives on the definition, so the search indexer invalidates its cached defs and
 rebuilds all deal docs on any of these.
 
 A deal carries **many** technicians (`assignedTechIds`), so `deal.tech_assigned` /
-`deal.tech_unassigned` (`{dealId, techId, …}`) fire **once per technician** added or
-removed by a roster change. Assignment itself is stored as adjacency rows
+`deal.tech_unassigned` (`{dealId, techId, assignedBy | unassignedBy}`) fire **once per technician** added or
+removed by a roster change. Consumed by **messaging** (`deal.tech_assigned` + `deal.updated`, queue
+`deal-events-to-messaging`) for the "New job" SMS to technicians. Assignment itself is stored as adjacency rows
 (`PK=DEAL#<id>, SK=ASSIGN#<techId>`) indexed on the tech GSI, which is what
 `findByTech` — and therefore the `assigned_only` data scope — reads.
 
@@ -85,10 +86,37 @@ Live-UI updates deliberately do **not** go through SNS: the calls page streams
 them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub
 (`telephony:call-events`) so every service instance sees every webhook.
 
+## Topic: `message-events` (published by messaging-service)
+
+Contracts in `@bitcrm/types` (`events/message-events.ts`). Emitted
+fire-and-forget by messaging-service, gated on `MESSAGE_EVENTS_TOPIC_ARN`.
+Not yet emitted by code: the repositories exist (M5) and the webhook /
+outbound worker (M7, M9) are the publishers.
+
+| eventType | Payload (`@bitcrm/types`) | Published when | Consumers |
+|---|---|---|---|
+| `message.received` | `MessageReceivedEvent` `{messageId, conversationId, channel, from, to, partyKind, partyId?, dealId?, providerSid?, createdAt}` | an inbound message was stored (webhook transaction committed); also a team / group `in_app` line for its members (`partyKind` `user` / `group`, M16) | **search** (rebuilds the `conversation` document); automations, reporting, a push notifier for team chat — future |
+| `message.sent` | `MessageSentEvent` `{messageId, conversationId, channel, to, businessNumber?, sentByUserId?, automationRuleId?, dealId?, providerSid}` | the provider accepted an outbound message | **search** (`conversation` document) |
+| `message.status_changed` | `MessageStatusChangedEvent` `{messageId, conversationId, status, errorCode?}` | an outbound message reached a terminal status (delivered / undelivered / failed / canceled) | **search** (`conversation` document) |
+| `conversation.updated` | `ConversationUpdatedEvent` `{conversationId}` | any change to a conversation (new message, archive, flag, read, party change) | **search** (`conversation` document, M15) |
+| `opt_out.changed` | `OptOutChangedEvent` `{channel, address, status, source}` | STOP/START keyword, Twilio 21610, SES bounce/complaint, manual edit | — |
+
+Messages are **not** copied into the deal timeline (`TIMELINE#`); the job's
+"Messages" tab reads `GET /api/messaging/messages/by-job/:dealId` instead.
+
+Live-UI updates (new message, counters, opt-out banner) go over SSE
+(`GET /api/messaging/stream`, M12) fed by Redis pub/sub (`messaging:events`),
+same pattern as telephony. Team chat (M16) adds `team_counters.invalidated`
+on the bus (`{conversationId, memberIds}` — never written to a browser) and
+`team_counters.changed` on the stream (one member's own badge, recounted from
+their `READ#` markers); a team / group `message.upserted` carries `recipients`
+and `mentions`.
+
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
+- **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → `ContactEventsHandler` (`src/contact-events/`): a merge hands the duplicate's thread to the survivor (`CONVOF#`, `partyId`, `ADDR#` rows; when both had a thread the survivor absorbs the addresses and the duplicate's thread is archived — messages are not moved between partitions), an update re-reads the contact from CRM and reconciles `ADDR#` rows + `conversation.addresses`. Also ← `deal.tech_assigned`, `deal.updated` (queue `deal-events-to-messaging`) → `NewJobSmsService` (`src/automations/`): the settings `smsFormat` "New job" SMS to the assigned technician's personal phone, once per (job, technician, scheduledDate) via an `AUTOSENT#` marker — `deal.updated` carries no changed fields, so the job is re-read and only a changed `scheduledDate` re-sends. Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), the SES-fed `messaging-email-events` / `messaging-inbound-email` (M17–M18; raw SES JSON, read by the service's own poller rather than the shared consumer). Handlers must be idempotent — the consumer does not deduplicate.
 - **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
-- **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`) via the single `search-index` queue → `IndexerEventHandler`. Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh.
+- **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`, `message-events`) via the single `search-index` queue → `IndexerEventHandler` (routes in `services/search/src/indexer/event-routes.ts`). Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh. The `conversation` document (M15) is rebuilt from `conversation.updated` and every `message.*` event that names a conversation: the indexer reads `GET /api/messaging/conversations/internal/:id` plus `…/internal/:id/messages?limit=` (last N bodies → `body`), the party from crm / user-service (name → `title`, numbers and emails → `keywords`) and the referenced deals (number → `keywords`, roster → `ownerIds` for `assigned_only`). A contact / company / user edit and a deal roster change also rebuild the conversations that reference them.
 
 ## Topic: `inventory-events` (published by inventory-service)
 `product.created` / `product.updated` (archive/reactivate emit `product.updated`),

@@ -146,6 +146,109 @@ export type {
   CallRecordingReadyEvent,
 } from './events/call-events';
 
+// Messaging (client inbox + team chat) — enums
+export {
+  MESSAGE_CHANNELS,
+  SENDABLE_MESSAGE_CHANNELS,
+  MESSAGE_ATTACHMENT_TYPES,
+  isSmsChannel,
+} from './enums/message-channel.enum';
+export type {
+  MessageChannel,
+  SendableMessageChannel,
+  MessageAttachmentType,
+} from './enums/message-channel.enum';
+export { MESSAGE_DIRECTIONS } from './enums/message-direction.enum';
+export type { MessageDirection } from './enums/message-direction.enum';
+export {
+  MESSAGE_STATUSES,
+  MESSAGE_STATUS_RANK,
+  TERMINAL_MESSAGE_STATUSES,
+  isTerminalMessageStatus,
+  canAdvanceMessageStatus,
+} from './enums/message-status.enum';
+export type { MessageStatus } from './enums/message-status.enum';
+export {
+  CONVERSATION_KINDS,
+  CONVERSATION_STATES,
+  CONVERSATION_PARTY_KINDS,
+  CONVERSATION_POINTER_KINDS,
+  CONVERSATION_VIEWS,
+} from './enums/conversation-kind.enum';
+export type {
+  ConversationKind,
+  ConversationState,
+  ConversationPartyKind,
+  ConversationPointerKind,
+  ConversationView,
+} from './enums/conversation-kind.enum';
+export {
+  MESSAGE_ORIGINS,
+  MESSAGE_PROVIDERS,
+  SENDER_SOURCES,
+  MESSAGE_ATTACHMENT_STATUSES,
+} from './enums/message-origin.enum';
+export type {
+  MessageOrigin,
+  MessageProvider,
+  SenderSource,
+  MessageAttachmentStatus,
+} from './enums/message-origin.enum';
+export {
+  OPT_OUT_CHANNELS,
+  OPT_OUT_STATUSES,
+  OPT_OUT_SOURCES,
+  OPT_OUT_KEYWORDS,
+  OPT_IN_KEYWORDS,
+} from './enums/opt-out.enum';
+export type { OptOutChannel, OptOutStatus, OptOutSource } from './enums/opt-out.enum';
+
+// Messaging — entities
+export { CONVERSATION_MEMBER_ROLES, CONVERSATION_GROUP_MAX_MEMBERS } from './entities/conversation.entity';
+export type {
+  Conversation,
+  ConversationAddresses,
+  ConversationLeadProvider,
+  ConversationPointer,
+  ConversationAddressPointer,
+  ConversationReadMarker,
+  ConversationMember,
+  ConversationMemberRole,
+  ConversationParticipant,
+} from './entities/conversation.entity';
+export {
+  MESSAGE_ATTACHMENT_LIMIT,
+  SMS_BODY_MAX_LENGTH,
+  EMAIL_BODY_MAX_LENGTH,
+  MESSAGE_PREVIEW_LENGTH,
+} from './entities/message.entity';
+export type { Message, MessageAttachment } from './entities/message.entity';
+export { MESSAGE_TEMPLATE_CHANNELS } from './entities/message-template.entity';
+export type {
+  MessageTemplate,
+  MessageTemplateChannel,
+} from './entities/message-template.entity';
+export { OPT_OUT_HISTORY_LIMIT } from './entities/opt-out.entity';
+export type { OptOut, OptOutHistoryEntry } from './entities/opt-out.entity';
+export type {
+  MessagingSettings,
+  QuietHours,
+} from './entities/messaging-settings.entity';
+export { EMPTY_INBOX_COUNTERS, EMPTY_TEAM_CHAT_COUNTERS } from './entities/inbox-counters.entity';
+export type { InboxCounters, TeamChatCounters } from './entities/inbox-counters.entity';
+export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
+export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
+
+// Event contract (message-events topic)
+export { MESSAGE_EVENT_TOPIC, MessageEventType } from './events/message-events';
+export type {
+  MessageReceivedEvent,
+  MessageSentEvent,
+  MessageStatusChangedEvent,
+  ConversationUpdatedEvent,
+  OptOutChangedEvent,
+} from './events/message-events';
+
 // Permissions
 export {
   PermissionMatrix,

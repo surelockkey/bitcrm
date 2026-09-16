@@ -46,6 +46,15 @@ export class IndexerEventHandler {
       if (type === 'contact' || type === 'company') {
         await this.reindexClientDeals(type, entityId);
       }
+      // Conversation docs carry the party's live name and, for `assigned_only`,
+      // the roster of the jobs they reference — rebuild them when the party is
+      // edited or a referenced job changes hands.
+      if (type === 'contact' || type === 'company' || type === 'user') {
+        await this.reindexPartyConversations(type, entityId);
+      }
+      if (type === 'deal') {
+        await this.reindexDealConversations(entityId);
+      }
       timer?.();
       this.metrics?.sqsMessagesProcessed?.inc?.({
         event_type: `search.${type}`,
@@ -128,6 +137,32 @@ export class IndexerEventHandler {
     }
     if (dealIds.length > 0) {
       this.logger.debug(`Reindexed ${dealIds.length} deals for ${type}#${id}`);
+    }
+  }
+
+  /** Rebuild the conversation docs whose party is this contact / company / user. */
+  private async reindexPartyConversations(
+    type: 'contact' | 'company' | 'user',
+    id: string,
+  ): Promise<void> {
+    const ids = await this.indexer.findConversationIdsByParty(type, id);
+    await this.reindexConversations(ids, `${type}#${id}`);
+  }
+
+  /** Rebuild the conversation docs that reference this job (its roster is their `ownerIds`). */
+  private async reindexDealConversations(dealId: string): Promise<void> {
+    const ids = await this.indexer.findConversationIdsByDeal(dealId);
+    await this.reindexConversations(ids, `deal#${dealId}`);
+  }
+
+  private async reindexConversations(ids: string[], reason: string): Promise<void> {
+    for (const conversationId of ids) {
+      const conversation = await this.fetcher.fetch('conversation', conversationId);
+      if (conversation) await this.indexer.indexEntity('conversation', conversation);
+      else await this.indexer.remove('conversation', conversationId);
+    }
+    if (ids.length > 0) {
+      this.logger.debug(`Reindexed ${ids.length} conversations for ${reason}`);
     }
   }
 }

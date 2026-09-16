@@ -367,6 +367,125 @@ data "aws_iam_policy_document" "task_telephony" {
   }
 }
 
+# messaging-svc: DDB messaging + S3 messaging/* (SSE-KMS) + SNS message-events
+# publish + SQS consume/enqueue on its own queues
+data "aws_iam_policy_document" "task_messaging" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_read_dev.json]
+
+  statement {
+    sid    = "DDBMessaging"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+      # Inbound webhooks write via TransactWriteItems; the transaction is
+      # authorised per item, and ConditionCheck items need this one.
+      "dynamodb:ConditionCheckItem",
+    ]
+    resources = [
+      module.ddb["messaging"].arn,
+      "${module.ddb["messaging"].arn}/index/*",
+    ]
+  }
+
+  # MMS media, oversized email bodies and the raw-webhook fallback capture all
+  # live under messaging/ in the shared app bucket, encrypted with the
+  # documents key — the same presigned PUT/GET flow as deal attachments, so
+  # the signing role needs the object permissions itself (see task_deal).
+  statement {
+    sid       = "S3MessagingObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${module.s3_app.arn}/messaging/*"]
+  }
+
+  statement {
+    sid       = "S3MessagingList"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [module.s3_app.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["messaging/*"]
+    }
+  }
+
+  statement {
+    sid       = "KMSDocuments"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+    resources = [module.kms_documents.key_arn]
+  }
+
+  statement {
+    sid       = "PublishMessageEvents"
+    effect    = "Allow"
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
+    resources = [module.sns_sqs.topic_arns["message-events"]]
+  }
+
+  # Outbound sends and media copies are enqueued by the service itself (no SNS
+  # hop), and worked off by the same service.
+  statement {
+    sid     = "EnqueueOwnWork"
+    effect  = "Allow"
+    actions = ["sqs:SendMessage", "sqs:GetQueueUrl"]
+    resources = [
+      module.sns_sqs.queue_arns["messaging-outbound"],
+      module.sns_sqs.queue_arns["messaging-media"],
+    ]
+  }
+
+  statement {
+    sid     = "ConsumeOwnQueues"
+    effect  = "Allow"
+    actions = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [
+      module.sns_sqs.queue_arns["messaging-outbound"],
+      module.sns_sqs.queue_arns["messaging-media"],
+      module.sns_sqs.queue_arns["contact-events-to-messaging"],
+      module.sns_sqs.queue_arns["deal-events-to-messaging"],
+    ]
+  }
+
+  # Email (email.tf, M17/M18) — only when var.messaging_email_domain is set.
+  # Sending is scoped to the workspace's identity and configuration set; the
+  # inbound mail SES writes under messaging/inbound-email/ is already readable
+  # through S3MessagingObjects (messaging/*), and the two email queues are
+  # SNS-fed, so the task only consumes them.
+  dynamic "statement" {
+    for_each = local.email_enabled ? [1] : []
+    content {
+      sid       = "SESSendEmail"
+      effect    = "Allow"
+      actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+      resources = [local.email_identity_arn, local.email_config_set_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.email_enabled ? [1] : []
+    content {
+      sid     = "ConsumeEmailQueues"
+      effect  = "Allow"
+      actions = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+      resources = [
+        local.email_queue_arns["messaging-email-events"],
+        local.email_queue_arns["messaging-inbound-email"],
+      ]
+    }
+  }
+}
+
 locals {
   task_role_policies = {
     user      = data.aws_iam_policy_document.task_user.json
@@ -375,6 +494,7 @@ locals {
     inventory = data.aws_iam_policy_document.task_inventory.json
     search    = data.aws_iam_policy_document.task_search.json
     telephony = data.aws_iam_policy_document.task_telephony.json
+    messaging = data.aws_iam_policy_document.task_messaging.json
   }
 }
 

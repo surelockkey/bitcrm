@@ -87,8 +87,9 @@ import { useResolvedServiceArea } from "@/features/service-areas/hooks";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
+import { DealMessagesTab } from "@/features/messaging/components/deal-messages-tab";
 
-type Tab = "details" | "items" | "attachments";
+type Tab = "details" | "items" | "attachments" | "messages";
 
 export function DealDetailPage({ dealId }: { dealId: string }) {
   const router = useRouter();
@@ -177,7 +178,7 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b px-6">
-        {(["details", "items", "attachments"] as Tab[]).map((t) => (
+        {(["details", "items", "attachments", ...(can("messages") ? (["messages"] as Tab[]) : [])] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -211,6 +212,11 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         {tab === "attachments" ? (
           <div className="relative flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
+          </div>
+        ) : null}
+        {tab === "messages" ? (
+          <div className="relative flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-3xl"><DealMessagesTab deal={deal} /></div>
           </div>
         ) : null}
       </div>

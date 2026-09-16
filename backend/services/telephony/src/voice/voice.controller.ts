@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { type Response } from 'express';
 import { ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
-import { Public } from '@bitcrm/shared';
+import { Public, TwilioSignatureGuard } from '@bitcrm/shared';
 import {
   VoiceService,
   type InboundBody,
@@ -21,7 +21,6 @@ import { ConferenceService } from './conference.service';
 import { FlowRunnerService } from './flow-runner.service';
 import { FlowAudioService } from '../call-flows/flow-audio.service';
 import { CallsService, type TwilioStatusParams } from '../calls/calls.service';
-import { TwilioSignatureGuard } from '../common/twilio-signature.guard';
 
 /**
  * Twilio voice webhooks. These are called by Twilio (not the SPA), so they are

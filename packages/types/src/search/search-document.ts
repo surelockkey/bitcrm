@@ -1,4 +1,9 @@
 import { Resource } from '../permissions/resource-registry';
+import {
+  type ConversationKind,
+  type ConversationPartyKind,
+  type ConversationState,
+} from '../enums/conversation-kind.enum';
 
 /**
  * Every searchable entity is denormalized into this one flat shape and stored in
@@ -15,7 +20,8 @@ export type SearchType =
   | 'warehouse'
   | 'container'
   | 'transfer'
-  | 'stock';
+  | 'stock'
+  | 'conversation';
 
 export const SEARCH_TYPES: readonly SearchType[] = [
   'deal',
@@ -28,6 +34,7 @@ export const SEARCH_TYPES: readonly SearchType[] = [
   'container',
   'transfer',
   'stock',
+  'conversation',
 ] as const;
 
 /**
@@ -46,6 +53,9 @@ export const SEARCH_TYPE_TO_RESOURCE: Record<SearchType, Resource> = {
   container: 'containers',
   transfer: 'transfers',
   stock: 'products',
+  // The inbox thread (messaging design §7.4): gated by `messages.view`; under
+  // `assigned_only` the owners are the technicians on the thread's jobs.
+  conversation: 'messages',
 };
 
 /** Document lifecycle state — soft-deleted/archived docs are excluded from default results. */
@@ -71,6 +81,21 @@ export interface SearchDocument {
   contactId?: string;
   /** The deal's client company — same cascade for company edits. */
   companyId?: string;
+
+  // --- conversation docs only (messaging design §7.4) ---
+  /** Inbox category: client / unknown / team / group / external. */
+  conversationKind?: ConversationKind;
+  /** open | archived — archived threads stay findable; the inbox tab is the filter. */
+  conversationState?: ConversationState;
+  /** Who the thread is with; lets a contact / company / user edit rebuild the doc. */
+  partyKind?: ConversationPartyKind;
+  partyId?: string;
+  assignedUserId?: string;
+  flagged?: boolean;
+  /** ISO timestamp of the last message (the inbox sort key). */
+  lastMessageAt?: string;
+  /** Jobs referenced by the thread (last message + recent history). */
+  dealIds?: string[];
 
   // --- search ---
   /** Primary label ("Acme Corp", "John Smith", "Deal #1042"). Highest weight. */

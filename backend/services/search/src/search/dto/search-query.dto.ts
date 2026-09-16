@@ -1,4 +1,4 @@
-import { SearchMode, SearchType } from '@bitcrm/types';
+import { SEARCH_TYPES, SearchMode, SearchType } from '@bitcrm/types';
 
 /**
  * Raw query params. This repo does NOT run a transforming ValidationPipe on query
@@ -23,10 +23,8 @@ export interface NormalizedSearchQuery {
   size: number;
 }
 
-const VALID_TYPES = new Set<SearchType>([
-  'deal', 'contact', 'company', 'user', 'technician',
-  'product', 'warehouse', 'container', 'transfer', 'stock',
-]);
+/** Every SearchType, `conversation` included — the shared list is the contract. */
+const VALID_TYPES = new Set<SearchType>(SEARCH_TYPES);
 
 const MAX_SIZE = 50;
 const MAX_PER_TYPE = 10;
