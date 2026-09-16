@@ -63,7 +63,8 @@ export interface SentToTechDelivery {
 
 /**
  * The `ASSIGN#<techId>` adjacency row as the service reads it — the roster
- * membership plus the Workiz per-technician "sent" / "seen" stamps.
+ * membership, the Workiz per-technician "sent" / "seen" stamps, and the
+ * technician flow's own receipt confirmation.
  */
 export interface DealAssignment {
   dealId: string;
@@ -77,6 +78,11 @@ export interface DealAssignment {
   sentBy?: string;
   /** First time this technician opened the job in their app (sticky). */
   seenAt?: string;
+  /**
+   * Technician flow ("Confirmed job receipt"). Per-technician: on a two-tech
+   * job each one confirms their own receipt.
+   */
+  techConfirmedAt?: string;
   /** Per-channel outcome of the latest send, written back by messaging-service. */
   deliveries?: Partial<Record<SendToTechChannel, SentToTechDelivery>>;
 }
@@ -367,9 +373,9 @@ export class DealsRepository {
   /**
    * Re-stamp every assignment row's tech-index keys when a deal's date
    * changes. An in-place UPDATE, not a re-Put: the rows also carry the
-   * technician's "sent" / "seen" stamps, which a reschedule must not erase.
-   * `by` is kept for the call shape; the original `assignedBy` /
-   * `assignedAt` stay.
+   * technician's "sent" / "seen" stamps and their `techConfirmedAt`, and
+   * moving the job to next Tuesday must erase none of them. The original
+   * `assignedBy` / `assignedAt` stay; `by` is recorded as `restampedBy`.
    *
    * `GSI2PK` is written next to `GSI2SK` even though it never changes: the
    * re-Put this replaced also rewrote it, so a row that lost it (or an
@@ -377,7 +383,7 @@ export class DealsRepository {
    * visible to `findByTech` / the dispatch board. Keeping that repair is the
    * whole reason the SET clause is wider than it needs to be.
    */
-  async restampAssignmentDates(dealId: string, scheduledDate: string | undefined, _by: string): Promise<void> {
+  async restampAssignmentDates(dealId: string, scheduledDate: string | undefined, by: string): Promise<void> {
     const techIds = await this.listAssignmentTechIds(dealId);
     await Promise.all(
       techIds.map((techId) =>
@@ -386,11 +392,13 @@ export class DealsRepository {
             TableName: this.tableName,
             Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
             UpdateExpression: scheduledDate
-              ? 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate'
-              : 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk REMOVE scheduledDate',
+              ? 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate, restampedBy = :by, restampedAt = :now'
+              : 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, restampedBy = :by, restampedAt = :now REMOVE scheduledDate',
             ExpressionAttributeValues: {
               ':gsi2pk': `TECH#${techId}`,
               ':gsi2sk': `${scheduledDate || new Date().toISOString()}#DEAL#${dealId}`,
+              ':by': by,
+              ':now': new Date().toISOString(),
               ...(scheduledDate ? { ':scheduledDate': scheduledDate } : {}),
             },
             ConditionExpression: 'attribute_exists(PK)',
@@ -420,9 +428,13 @@ export class DealsRepository {
     }
   }
 
-  // ------------------------------------------------ assignments: sent / seen
+  // --------------------------------------- assignments: sent / seen / confirmed
 
-  /** One technician's `ASSIGN#` row, or null when they are not on the deal. */
+  /**
+   * One technician's `ASSIGN#` row, or null when they are not on the deal —
+   * the roster membership, the Workiz "sent" / "seen" stamps and the
+   * technician flow's own `techConfirmedAt`.
+   */
   async getAssignment(dealId: string, techId: string): Promise<DealAssignment | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
@@ -443,6 +455,36 @@ export class DealsRepository {
       }),
     );
     return (result.Items || []).map((i) => this.toAssignment(i));
+  }
+
+  /**
+   * Stamp "this technician has seen the job" on their own assignment row —
+   * per-technician by nature, so it belongs here and not on the shared deal
+   * metadata (which carries the first confirmation as a convenience mirror).
+   *
+   * `if_not_exists` keeps the FIRST tap: a second one is a no-op rather than a
+   * later timestamp, and the guard makes it safe to call twice. The row must
+   * already exist (the technician must be assigned), so an unassigned caller
+   * fails the condition instead of creating a phantom assignment.
+   *
+   * Answers with the stamp the row carried BEFORE this write (`ALL_OLD`), so a
+   * repeat tap — or the loser of two simultaneous ones — can be told the
+   * confirmation was already there and skip the timeline entry and the event
+   * it would otherwise write a second time. `undefined` means this call is the
+   * one that confirmed the job.
+   */
+  async confirmAssignment(dealId: string, techId: string, at: string): Promise<string | undefined> {
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+        UpdateExpression: 'SET techConfirmedAt = if_not_exists(techConfirmedAt, :at)',
+        ExpressionAttributeValues: { ':at': at },
+        ConditionExpression: 'attribute_exists(PK)',
+        ReturnValues: 'ALL_OLD',
+      }),
+    );
+    return result?.Attributes?.techConfirmedAt as string | undefined;
   }
 
   /**
@@ -543,6 +585,7 @@ export class DealsRepository {
       sentVia: item.sentVia as SendToTechChannel[] | undefined,
       sentBy: item.sentBy as string | undefined,
       seenAt: item.seenAt as string | undefined,
+      techConfirmedAt: item.techConfirmedAt as string | undefined,
       deliveries: item.deliveries as DealAssignment['deliveries'],
     };
   }
@@ -725,6 +768,13 @@ export class DealsRepository {
       sentToTechVia: item.sentToTechVia as SendToTechChannel[] | undefined,
       sentToTechBy: item.sentToTechBy as string | undefined,
       seenByTechAt: item.seenByTechAt as string | undefined,
+      // Technician flow. Absent on every row written before these fields
+      // existed, which reads exactly as "not confirmed / not arrived yet".
+      techConfirmedAt: item.techConfirmedAt as string | undefined,
+      techConfirmedBy: item.techConfirmedBy as string | undefined,
+      arrivedAt: item.arrivedAt as string | undefined,
+      arrivedBy: item.arrivedBy as string | undefined,
+      arrivedLocation: item.arrivedLocation as Deal['arrivedLocation'],
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };

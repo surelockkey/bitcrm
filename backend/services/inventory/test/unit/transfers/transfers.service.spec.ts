@@ -245,6 +245,71 @@ describe('TransfersService', () => {
     });
   });
 
+  /**
+   * 6 643 imported product-type items have Workiz `manage = 0`: the price book
+   * carries them but no stock counter exists, so a deduction would 400 with
+   * "Insufficient stock" and a restore would invent stock nobody counted.
+   */
+  describe('non-stock-managed items (manageStock: false)', () => {
+    const tracked = { productId: 'prod-1', productName: 'Deadbolt', quantity: 3 };
+    const untracked = { productId: 'prod-2', productName: 'Shop rag', quantity: 1 };
+    const dto = (items: unknown[]) => ({
+      containerId: 'container-1',
+      items,
+      dealId: 'deal-1',
+      performedBy: 'tech-1',
+      performedByName: 'tech@test.com',
+    });
+
+    beforeEach(() => {
+      stockService.deduct.mockResolvedValue(undefined);
+      stockService.receive.mockResolvedValue(undefined);
+      repository.create.mockResolvedValue(undefined);
+      productsService.partitionStockManaged.mockImplementation(
+        async (items: { productId: string }[]) => ({
+          managed: items.filter((i) => i.productId !== 'prod-2'),
+          unmanaged: items.filter((i) => i.productId === 'prod-2'),
+        }),
+      );
+    });
+
+    it('never deducts one, and keeps it out of the transfer journal', async () => {
+      await service.deductStock(dto([tracked, untracked]) as any);
+
+      expect(stockService.deduct).toHaveBeenCalledWith('CONTAINER#container-1', [tracked]);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: TransferType.DEDUCT, items: [tracked] }),
+      );
+    });
+
+    it('never restores one either — what was not deducted does not come back', async () => {
+      await service.restoreStock(dto([tracked, untracked]) as any);
+
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#container-1', [tracked]);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: TransferType.RESTORE, items: [tracked] }),
+      );
+    });
+
+    it('does nothing at all when every item is untracked', async () => {
+      await service.deductStock(dto([untracked]) as any);
+
+      expect(stockService.deduct).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('still rejects a service line before looking at manageStock', async () => {
+      productsService.assertStockable.mockRejectedValueOnce(
+        new BadRequestException('Services cannot be stocked or transferred: Rekey'),
+      );
+
+      await expect(service.deductStock(dto([untracked]) as any)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(productsService.partitionStockManaged).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findById', () => {
     it('should delegate to repository', async () => {
       const transfer = createMockTransfer();

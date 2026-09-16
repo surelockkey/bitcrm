@@ -14,7 +14,11 @@ describe('AutomationPeersClient', () => {
     );
     const client = new AutomationPeersClient(fetchImpl);
     expect(await client.deal('d1')).toEqual({
-      id: 'd1', dealNumber: '1001', contactId: 'ct1', scheduledDate: '2026-09-20', scheduledTimeSlot: '09:00-11:00', assignedTechIds: ['t1'], assignedDispatcherId: undefined, superStatus: 'in_progress',
+      id: 'd1', dealNumber: '1001', contactId: 'ct1', scheduledDate: '2026-09-20', scheduledEndDate: undefined,
+      scheduledTimeSlot: '09:00-11:00', assignedTechIds: ['t1'], assignedDispatcherId: undefined, superStatus: 'in_progress',
+      // The rule engine's condition facts: absent on this job, `tagIds` always a list.
+      subStatusId: undefined, tagIds: [], sourceId: undefined, jobTypeId: undefined, serviceAreaId: undefined,
+      priority: undefined, paymentStatus: undefined, statusChangedAt: undefined, createdAt: undefined,
     });
     await client.deal('d1');
     expect(fetchImpl).toHaveBeenCalledTimes(2);

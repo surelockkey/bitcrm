@@ -3,7 +3,11 @@ import { Badge } from "@/components/ui/badge";
 import type { Product } from "@bitcrm/types";
 import { isService, typeLabel } from "../lib";
 
-/** Type pill (Product/Service) + a serial-tracking marker when set. */
+/**
+ * Type pill (Product/Service), the original Workiz type when the item had one
+ * BitCRM has no equivalent for (`other`, `hours` — imported as services), and
+ * a serial-tracking marker when set.
+ */
 export function ProductTypeBadge({ product }: { product: Product }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
@@ -17,6 +21,11 @@ export function ProductTypeBadge({ product }: { product: Product }) {
       >
         {typeLabel(product.type)}
       </Badge>
+      {product.workizType ? (
+        <Badge variant="outline" className="font-normal text-muted-foreground">
+          {product.workizType}
+        </Badge>
+      ) : null}
       {product.serialTracking ? (
         <Badge
           variant="outline"

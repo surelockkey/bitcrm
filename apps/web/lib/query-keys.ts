@@ -21,6 +21,16 @@ export const queryKeys = {
     callFlows: () => ["telephony", "call-flows"] as const,
   },
 
+  /**
+   * The call-tag catalog. Its own root (not under `telephony`) so that the
+   * chips, the picker and the Settings page share one cache entry that a
+   * telephony-wide invalidation never sweeps out from under them.
+   */
+  callTags: {
+    all: () => ["call-tags"] as const,
+    list: () => ["call-tags", "list"] as const,
+  },
+
   calls: {
     all: () => ["calls"] as const,
     /** Prefix for every filtered list — use for invalidation. */
@@ -204,11 +214,20 @@ export const queryKeys = {
     messagesByJob: (dealId: string) => ["messaging", "messages", "by-job", dealId] as const,
     flaggedMessages: () => ["messaging", "messages", "flagged"] as const,
     counters: () => ["messaging", "counters"] as const,
+    /** The caller's own team-chat badge (`GET /team/counters`). */
+    teamCounters: () => ["messaging", "team-counters"] as const,
     templates: (params?: unknown) => ["messaging", "templates", "list", params] as const,
     templatesAll: () => ["messaging", "templates"] as const,
     template: (id: string) => ["messaging", "templates", "detail", id] as const,
     shortCodes: () => ["messaging", "short-codes"] as const,
     settings: () => ["messaging", "settings"] as const,
     optOuts: (address: string) => ["messaging", "opt-outs", address] as const,
+  },
+
+  automations: {
+    all: () => ["automations"] as const,
+    list: () => ["automations", "list"] as const,
+    detail: (id: string) => ["automations", "detail", id] as const,
+    runs: (id: string) => ["automations", "runs", id] as const,
   },
 } as const;

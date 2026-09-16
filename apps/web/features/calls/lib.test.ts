@@ -207,6 +207,11 @@ describe("filterToParams", () => {
     expect(qs.get("cursor")).toBe("cur1");
     expect(qs.get("limit")).toBe("25");
   });
+
+  it("passes one call tag through, and nothing when the filter is off", () => {
+    expect(filterToParams({ tagId: "ct-spam" }).get("tagId")).toBe("ct-spam");
+    expect(filterToParams({ tagId: undefined }).has("tagId")).toBe(false);
+  });
 });
 
 

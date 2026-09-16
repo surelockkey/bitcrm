@@ -98,6 +98,36 @@ describe('DealsRepository', () => {
       expect(result!.clientName).toEqual({ firstName: 'Janet', lastName: 'Poole' });
     });
 
+    it('reads back the technician flow stamps — and their absence on older rows', async () => {
+      // Same whitelist-mapper trap: a stamp toDeal() forgets is written and
+      // then invisible to every read path.
+      const stamped = createMockDeal({
+        techConfirmedAt: '2026-09-16T09:00:00.000Z',
+        techConfirmedBy: 'tech-1',
+        arrivedAt: '2026-09-16T09:40:00.000Z',
+        arrivedBy: 'tech-1',
+        arrivedLocation: { lat: 41.76, lng: -72.67, accuracy: 12 },
+      });
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...stamped },
+      });
+
+      const result = await repository.findById('deal-1');
+      expect(result!.techConfirmedAt).toBe('2026-09-16T09:00:00.000Z');
+      expect(result!.techConfirmedBy).toBe('tech-1');
+      expect(result!.arrivedAt).toBe('2026-09-16T09:40:00.000Z');
+      expect(result!.arrivedBy).toBe('tech-1');
+      expect(result!.arrivedLocation).toEqual({ lat: 41.76, lng: -72.67, accuracy: 12 });
+
+      // A row written before these fields existed reads as "not yet".
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal() },
+      });
+      const legacy = await repository.findById('deal-1');
+      expect(legacy!.techConfirmedAt).toBeUndefined();
+      expect(legacy!.arrivedAt).toBeUndefined();
+    });
+
     it('should map all fields correctly', async () => {
       const deal = createMockDeal({
         companyId: 'comp-1', scheduledTimeSlot: '09:00-12:00',
@@ -223,6 +253,75 @@ describe('DealsRepository', () => {
       const input = dynamoDb.client.send.mock.calls[0][0].input;
       expect(input.ExpressionAttributeValues[':pk']).toBe('DEAL#deal-1');
       expect(input.ExpressionAttributeValues[':sk']).toBe('ASSIGN#');
+    });
+
+    it('getAssignment reads one row, confirmation included', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { dealId: 'deal-1', techId: 'tech-1', assignedAt: 'a', techConfirmedAt: 'c' },
+      });
+
+      expect(await repository.getAssignment('deal-1', 'tech-1')).toEqual({
+        dealId: 'deal-1',
+        techId: 'tech-1',
+        assignedAt: 'a',
+        techConfirmedAt: 'c',
+      });
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Key).toEqual({
+        PK: 'DEAL#deal-1',
+        SK: 'ASSIGN#tech-1',
+      });
+    });
+
+    it('getAssignment answers null for a technician who is not on the job', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+      expect(await repository.getAssignment('deal-1', 'tech-9')).toBeNull();
+    });
+
+    it('confirmAssignment keeps the first stamp and needs the row to exist', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+      await repository.confirmAssignment('deal-1', 'tech-1', '2026-09-16T10:00:00.000Z');
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.Key).toEqual({ PK: 'DEAL#deal-1', SK: 'ASSIGN#tech-1' });
+      expect(input.UpdateExpression).toContain('if_not_exists(techConfirmedAt, :at)');
+      expect(input.ConditionExpression).toBe('attribute_exists(PK)');
+    });
+
+    it('confirmAssignment reports the stamp the row already had, so a repeat tap can stop', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Attributes: { techConfirmedAt: '2026-09-16T09:00:00.000Z' },
+      });
+
+      const already = await repository.confirmAssignment('deal-1', 'tech-1', '2026-09-16T10:00:00.000Z');
+
+      // ALL_OLD is what makes the write itself the arbiter of "who was first":
+      // the loser of two simultaneous taps is handed the earlier stamp.
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ReturnValues).toBe('ALL_OLD');
+      expect(already).toBe('2026-09-16T09:00:00.000Z');
+    });
+
+    it('confirmAssignment answers undefined when this call is the one that confirmed', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Attributes: { techId: 'tech-1' } });
+
+      expect(
+        await repository.confirmAssignment('deal-1', 'tech-1', '2026-09-16T10:00:00.000Z'),
+      ).toBeUndefined();
+    });
+
+    it('restamping a moved date re-sorts the row without erasing what is on it', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [{ techId: 'tech-1' }] }) // listAssignmentTechIds
+        .mockResolvedValue({});
+
+      await repository.restampAssignmentDates('deal-1', '2026-06-02', 'disp-1');
+
+      const input = dynamoDb.client.send.mock.calls[1][0].input;
+      // An UpdateCommand (targeted SET), not a Put that would drop the
+      // technician's confirmation along with the old sort key.
+      expect(input.Item).toBeUndefined();
+      expect(input.ExpressionAttributeValues[':gsi2sk']).toBe('2026-06-02#DEAL#deal-1');
+      expect(input.UpdateExpression).toContain('GSI2SK = :gsi2sk');
+      expect(input.UpdateExpression).not.toContain('techConfirmedAt');
     });
   });
 

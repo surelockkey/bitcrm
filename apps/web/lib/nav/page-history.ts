@@ -2,6 +2,7 @@ import {
   MAIN_NAV,
   OVERVIEW_ITEM,
   SETTINGS_ITEM,
+  TECHNICIAN_NAV,
 } from "@/lib/nav/nav-config";
 
 /** One entry in the recently-visited trail. */
@@ -78,11 +79,13 @@ const STATIC_LABELS: Record<string, string> = {
   ),
   "/deals/new": "New Job",
   "/profile": "My Profile",
+  ...Object.fromEntries(TECHNICIAN_NAV.map((i) => [i.href, i.label])),
 };
 
 /** Entity labels for detail pages, keyed by the collection route owning the id. */
 const DETAIL_LABELS: Record<string, string> = {
   "/deals": "Job",
+  "/my-jobs": "Job",
   "/contacts": "Contact",
   "/companies": "Company",
   "/technicians": "Technician",

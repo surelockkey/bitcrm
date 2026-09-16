@@ -1,0 +1,603 @@
+{
+  "_id": "69e8d6d553d7c823e6a1edef",
+  "name": "Canceled job & techs",
+  "entities": [
+    "job"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "tech_names",
+        "operator": "notEqual",
+        "value": ""
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1776792391.368
+      },
+      {
+        "fact": "sub_status_id",
+        "operator": "equal",
+        "value": "15037",
+        "friendly_strings": {
+          "value": "canceled check",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "tech",
+      "message_attachments": [],
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Update from {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 12,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name"
+            }
+          }
+        ]
+      },
+      "message_from": "Example Locksmith",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "CLIENT CANCELED ‼️",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "d1au4",
+            "text": "Job ID: {{uuid}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 8,
+                "length": 8,
+                "key": 0
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "79h4a",
+            "text": "{{first_name}} {{last_name}}   at {{location_key}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 0,
+                "length": 14,
+                "key": 1
+              },
+              {
+                "offset": 15,
+                "length": 13,
+                "key": 2
+              },
+              {
+                "offset": 34,
+                "length": 16,
+                "key": 3
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "7k6sn",
+            "text": "{{job_description}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 0,
+                "length": 19,
+                "key": 4
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "eqe4b",
+            "text": "",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "2rpp2",
+            "text": "",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "uuid",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "f04b8638-8c42-4dc4-90bb-98bf9cb0d445",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "first_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "395bd633-06f9-478c-bc60-ad25e2546625",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "last_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "659ed0d3-4f54-485c-aa06-a2913a6bb2ac",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "location_key",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "6423f063-8141-499b-b8c5-d7dd5ec29c1d",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "job_description",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "20984071-1f7d-44a7-86bc-2a375127c14e",
+              "forceText": null
+            }
+          }
+        ]
+      },
+      "time_interval": {
+        "value": 0,
+        "operator": null,
+        "time_field": null,
+        "time_unit": "minutes",
+        "time_field_friendly_string": null
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "08:00",
+        "to": "17:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "assigned tech",
+      "message_subject_template": "Update from {{account_business_name}} ",
+      "message_template": "<p>CLIENT CANCELED ‼️</p>\n<p>Job ID: {{uuid}}&nbsp;</p>\n<p>{{first_name}} {{last_name}}   at {{location_key}}&nbsp;</p>\n<p>{{job_description}}&nbsp;</p>\n<p></p>\n<p></p>\n"
+    }
+  ],
+  "createdAt": "2026-04-22T14:10:29.485Z",
+  "updatedAt": "2026-09-10T20:30:26.796Z",
+  "enabled": true,
+  "deleted": false,
+  "default_rule": false,
+  "hidden": false,
+  "hiddenReason": null,
+  "paused": false,
+  "triggered": 5411,
+  "category": "custom",
+  "namespace": "2774",
+  "ruleSentence": {
+    "_id": "notification4",
+    "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5}"
+  },
+  "parameters": {
+    "p1": {
+      "text": "a job",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "canceled check",
+      "type": "entity_main_condition"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    },
+    "p3": {
+      "text": "assigned tech",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "immediately",
+      "type": "time"
+    }
+  },
+  "validFrom": "2026-04-22T17:26:31.368Z",
+  "notifyMedium": "sms",
+  "trigger": {
+    "sentence": "When {p1} {p2} of {p7}",
+    "parameters": {
+      "p1": {
+        "text": "a job",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "has a status",
+        "type": "type_of_main_condition"
+      },
+      "p7": {
+        "text": "canceled check",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": "has a status"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5}",
+      "parameters": {
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        },
+        "p3": {
+          "text": "assigned tech",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text message",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "immediately",
+          "type": "time"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "sms"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "tech",
+          "message_attachments": [],
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Update from {{account_business_name}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 12,
+                    "length": 25,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "account_business_name"
+                }
+              }
+            ]
+          },
+          "message_from": "Example Locksmith",
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "CLIENT CANCELED ‼️",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "d1au4",
+                "text": "Job ID: {{uuid}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 8,
+                    "length": 8,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "79h4a",
+                "text": "{{first_name}} {{last_name}}   at {{location_key}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 0,
+                    "length": 14,
+                    "key": 1
+                  },
+                  {
+                    "offset": 15,
+                    "length": 13,
+                    "key": 2
+                  },
+                  {
+                    "offset": 34,
+                    "length": 16,
+                    "key": 3
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "7k6sn",
+                "text": "{{job_description}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 0,
+                    "length": 19,
+                    "key": 4
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "eqe4b",
+                "text": "",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "2rpp2",
+                "text": "",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "uuid",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "f04b8638-8c42-4dc4-90bb-98bf9cb0d445",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "first_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "395bd633-06f9-478c-bc60-ad25e2546625",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "last_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "659ed0d3-4f54-485c-aa06-a2913a6bb2ac",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "location_key",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "6423f063-8141-499b-b8c5-d7dd5ec29c1d",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "job_description",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "20984071-1f7d-44a7-86bc-2a375127c14e",
+                  "forceText": null
+                }
+              }
+            ]
+          },
+          "time_interval": {
+            "value": 0,
+            "operator": null,
+            "time_field": null,
+            "time_unit": "minutes",
+            "time_field_friendly_string": null
+          },
+          "working_hours": {
+            "dnd": true,
+            "from": "08:00",
+            "to": "17:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "assigned tech",
+          "message_subject_template": "Update from {{account_business_name}} ",
+          "message_template": "<p>CLIENT CANCELED ‼️</p>\n<p>Job ID: {{uuid}}&nbsp;</p>\n<p>{{first_name}} {{last_name}}   at {{location_key}}&nbsp;</p>\n<p>{{job_description}}&nbsp;</p>\n<p></p>\n<p></p>\n"
+        }
+      ],
+      "type": "SEND"
+    }
+  ],
+  "hash_code": "1a6f882d94feea936feee70d328023eb",
+  "__v": 0,
+  "sentence": "",
+  "fullSentence": ""
+}

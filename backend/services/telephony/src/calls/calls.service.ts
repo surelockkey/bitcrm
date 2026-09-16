@@ -1,14 +1,42 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { CallEventType } from '@bitcrm/types';
+import { CALL_TAG_LIMITS, CallEventType } from '@bitcrm/types';
 import {
   CallsRepository,
+  CallTagsConflictError,
   type CallRecord,
   type CallStatus,
 } from './calls.repository';
 import { CallEventsBus } from './call-events.bus';
 import { DealLinkService } from '../common/deal-link.service';
 import { NumberSettingsRepository } from '../numbers/number-settings.repository';
+import { CallTagsService } from '../call-tags/call-tags.service';
+
+/** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
+export interface CallTagsChange {
+  add?: string[];
+  remove?: string[];
+}
+
+/** Distinct, non-empty strings, in first-seen order. */
+function uniqueIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v === 'string' && v.trim() && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** How many times a tag write is retried when somebody else got there first. */
+const TAG_WRITE_ATTEMPTS = 3;
 
 /** Raw form params Twilio POSTs to the status callback (subset we use). */
 export interface TwilioStatusParams {
@@ -88,6 +116,15 @@ export class CallsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly numberSettings?: NumberSettingsRepository,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    /**
+     * Deliberately NOT @Optional: the catalog is what keeps `tagIds` a set of
+     * ids something can name. If CallTagsModule ever leaves CallsModule's
+     * imports, Nest must refuse to build this service rather than inject
+     * `undefined` and let the route write any string onto a call. The type
+     * stays optional only so unit tests can construct the service with the
+     * collaborators a case actually needs; updateTags refuses when it is.
+     */
+    private readonly callTags?: CallTagsService,
   ) {}
 
   /**
@@ -325,6 +362,105 @@ export class CallsService {
       this.bus?.publish({ type: 'call.upserted', call: after });
     }
     return after;
+  }
+
+  /**
+   * Put call tags on a call, or take them off — the Workiz "Tags" column.
+   *
+   * Ids being added are checked against the catalog (unknown → 404, archived
+   * → 400: an archived tag has left the pickers and must not creep back in
+   * through the API); ids being removed are not, so a tag that has since been
+   * archived can still come off. The write is a compare-and-set on the stored
+   * list, retried on a race. Returns the record as persisted, or null for an
+   * unknown call.
+   */
+  async updateTags(
+    callSid: string,
+    change: CallTagsChange,
+    actor: { id: string },
+  ): Promise<CallRecord | null> {
+    const add = uniqueIds(change?.add);
+    const remove = uniqueIds(change?.remove);
+    if (!add.length && !remove.length) {
+      throw new BadRequestException('Nothing to change — pass add and/or remove');
+    }
+
+    if (add.length) {
+      if (!this.callTags) {
+        // Unreachable through DI — and if it is ever reached, refusing is the
+        // only safe answer: an unvalidated id would put a tag on the call that
+        // nothing can name and no picker can take off.
+        throw new InternalServerErrorException(
+          'Call-tag catalog unavailable — cannot validate tags',
+        );
+      }
+      let catalog = await this.callTags.byId();
+      // A tag the picker created seconds ago may be missing from this task's
+      // memoised catalog: a write clears the cache only on the task that
+      // served it, and there are always at least two during a rolling deploy.
+      // Re-read once before calling an id unknown — create-then-attach is a
+      // single gesture in the UI, and a 404 there reverts the chip with no
+      // explanation the dispatcher can act on.
+      if (add.some((id) => !catalog.has(id))) {
+        catalog = await this.callTags.byId({ refresh: true });
+      }
+      for (const id of add) {
+        const tag = catalog.get(id);
+        if (!tag) throw new NotFoundException(`Call tag ${id} not found`);
+        if (!tag.active) {
+          throw new BadRequestException(
+            `"${tag.name}" is archived — restore it in Settings before tagging calls with it`,
+          );
+        }
+      }
+    }
+
+    for (let attempt = 1; ; attempt++) {
+      const before = await this.repo.getBySid(callSid);
+      if (!before) return null;
+
+      const current = before.tagIds ?? [];
+      const next = [
+        ...current.filter((id) => !remove.includes(id)),
+        ...add.filter((id) => !current.includes(id)),
+      ];
+      if (next.length > CALL_TAG_LIMITS.maxPerCall) {
+        throw new BadRequestException(
+          `A call can carry at most ${CALL_TAG_LIMITS.maxPerCall} tags`,
+        );
+      }
+      // Already in the requested state — nothing to write, nothing to announce.
+      if (next.length === current.length && next.every((id, i) => id === current[i])) {
+        return before;
+      }
+
+      try {
+        await this.repo.setTags(callSid, next, before.tagIds);
+      } catch (error) {
+        if (error instanceof CallTagsConflictError && attempt < TAG_WRITE_ATTEMPTS) {
+          continue;
+        }
+        throw error;
+      }
+
+      const after = (await this.repo.getBySid(callSid)) ?? {
+        ...before,
+        tagIds: next.length ? next : undefined,
+      };
+      if (!after.internalLegOf) {
+        this.bus?.publish({ type: 'call.upserted', call: after });
+      }
+      this.publishSns(CallEventType.CALL_UPDATED, {
+        callSid,
+        tagIds: next,
+        actorId: actor.id,
+        updatedAt: after.updatedAt,
+      });
+      this.logger.log(
+        `Call ${callSid}: tags ${next.length ? next.join(', ') : '(none)'} by ${actor.id}`,
+      );
+      return after;
+    }
   }
 
   getBySid(callSid: string) {

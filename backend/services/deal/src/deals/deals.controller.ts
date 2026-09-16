@@ -18,6 +18,7 @@ import { DealsService } from './deals.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { MoveStatusDto } from './dto/move-status.dto';
+import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
@@ -171,6 +172,50 @@ export class DealsController {
     @CurrentUser() user: JwtUser,
   ) {
     const data = await this.dealsService.moveStatus(id, dto, user);
+    return { success: true, data };
+  }
+
+  @Post(':id/tech/confirm')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Confirm receipt of the job (technician)',
+    description:
+      '**Guard:** `deals.edit`, and — for a caller whose `deals` data scope is `assigned_only` — ' +
+      'membership of this job\'s technician roster (403 otherwise); dispatch may confirm on a ' +
+      'technician\'s behalf. Mirrors the old CRM\'s "Confirmed job receipt": stamps `techConfirmedAt` ' +
+      'on the caller\'s `ASSIGN#` row (and the first one onto the job, so lists can show it) and ' +
+      'writes a `tech_confirmed` timeline entry. Idempotent per caller — a second call keeps the ' +
+      'first stamp and writes no second entry and no second event, a dispatcher with no `ASSIGN#` ' +
+      'row of their own included; a second technician on the same job still records their own ' +
+      'confirmation. 400 once the job is closed.',
+  })
+  async confirmReceipt(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.confirmReceipt(id, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
+  @Post(':id/tech/arrived')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Mark arrival at the job (technician)',
+    description:
+      '**Guard:** `deals.edit`, plus the same roster rule as confirm. Mirrors the old CRM\'s ' +
+      '"Arrived at location": stamps `arrivedAt`/`arrivedBy` (and the phone\'s GPS fix when the body ' +
+      'carries one), applies the catalog\'s In Progress arrival sub-status when the workspace has ' +
+      'one (or the `subStatusId` in the body), and writes a `tech_arrived` timeline entry. ' +
+      'Idempotent — the first arrival stands. 400 once the job is closed.',
+  })
+  async markArrived(
+    @Param('id') id: string,
+    @Body() dto: MarkArrivedDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.markArrived(id, dto, user, perms?.dataScope?.deals);
     return { success: true, data };
   }
 

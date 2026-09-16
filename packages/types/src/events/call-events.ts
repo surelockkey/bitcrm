@@ -12,6 +12,11 @@ export const CallEventType = {
   CALL_COMPLETED: 'call.completed',
   /** The conference recording finished processing and is playable. */
   CALL_RECORDING_READY: 'call.recording_ready',
+  /**
+   * A person changed a settled record — today, its call tags
+   * (`PATCH /calls/:sid/tags`). Lifecycle changes never use this.
+   */
+  CALL_UPDATED: 'call.updated',
 } as const;
 
 export type CallEventType = (typeof CallEventType)[keyof typeof CallEventType];
@@ -43,4 +48,12 @@ export interface CallRecordingReadyEvent {
   callSid: string;
   recordingSid: string;
   recordingDurationSeconds?: number;
+}
+
+export interface CallUpdatedEvent {
+  callSid: string;
+  /** The call's tag ids after the change — empty when the last tag came off. */
+  tagIds: string[];
+  actorId: string;
+  updatedAt: string;
 }

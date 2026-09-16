@@ -1,0 +1,643 @@
+{
+  "_id": "69e8d0cac92400f0860afd04",
+  "name": "Scheduled jobs",
+  "entities": [
+    "job"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "tech_names",
+        "operator": "notEqual",
+        "value": ""
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1776792246.035
+      },
+      {
+        "fact": "status",
+        "operator": "equal",
+        "value": "Submitted",
+        "friendly_strings": {
+          "value": "submitted",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "tags",
+        "entity": "job",
+        "operator": "contains",
+        "value": "718269",
+        "friendly_strings": {
+          "fact": "job tag",
+          "value": "SCHEDULED "
+        },
+        "path": "$[*].tag_id",
+        "subject": "job_tag"
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "tech",
+      "message_attachments": [],
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Update from {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 12,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name"
+            }
+          }
+        ]
+      },
+      "message_from": "Example Locksmith",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "New scheduled job at {{location_key}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 21,
+                "length": 16,
+                "key": 0
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "9dtv9",
+            "text": "Time: {{jobDate}}  from {{jobTime}} to {{jobEndTime}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 6,
+                "length": 11,
+                "key": 1
+              },
+              {
+                "offset": 24,
+                "length": 11,
+                "key": 2
+              },
+              {
+                "offset": 39,
+                "length": 14,
+                "key": 3
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "6eoor",
+            "text": "Service: {{job_description}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 9,
+                "length": 19,
+                "key": 4
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "18q5u",
+            "text": "Job id: {{uuid}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 8,
+                "length": 8,
+                "key": 5
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "edin2",
+            "text": "Please let us know if any changes should be made. ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "location_key",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "7542d34b-f40d-4f8e-8943-acbc1634b861",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "jobDate",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "d12fcb33-1b46-447e-bdcb-7a15e2add80f",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "jobTime",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "9d43e672-bec4-4b51-a58f-cd72261e9d49",
+              "forceText": "jobStartTime"
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "jobEndTime",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "28c80cab-eabd-4423-9a85-423321e0754a",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "job_description",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "b751abe5-779b-4ca9-bcd2-2326040e3c52",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "uuid",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true,
+                "task": true,
+                "dispute": true
+              },
+              "mainEntity": "Job",
+              "uuid": "8741d001-d82a-496e-a916-e(555) 010-01005",
+              "forceText": null
+            }
+          }
+        ]
+      },
+      "time_interval": {
+        "value": 0,
+        "operator": null,
+        "time_field": null,
+        "time_unit": "minutes",
+        "time_field_friendly_string": null
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "08:00",
+        "to": "18:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "assigned tech",
+      "message_subject_template": "Update from {{account_business_name}} ",
+      "message_template": "<p>New scheduled job at {{location_key}}&nbsp;</p>\n<p>Time: {{jobDate}}  from {{jobTime}} to {{jobEndTime}}&nbsp;</p>\n<p>Service: {{job_description}}&nbsp;</p>\n<p>Job id: {{uuid}}&nbsp;</p>\n<p>Please let us know if any changes should be made.&nbsp;</p>\n"
+    }
+  ],
+  "createdAt": "2026-04-22T13:44:42.860Z",
+  "updatedAt": "2026-09-10T21:28:23.189Z",
+  "enabled": true,
+  "deleted": false,
+  "default_rule": false,
+  "hidden": false,
+  "hiddenReason": null,
+  "paused": false,
+  "triggered": 2854,
+  "category": "custom",
+  "namespace": "2774",
+  "ruleSentence": {
+    "_id": "notification4",
+    "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5}"
+  },
+  "parameters": {
+    "p1": {
+      "text": "a job",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "submitted",
+      "type": "entity_main_condition"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    },
+    "p3": {
+      "text": "assigned tech",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "immediately",
+      "type": "time"
+    }
+  },
+  "validFrom": "2026-04-22T17:24:06.035Z",
+  "notifyMedium": "sms",
+  "trigger": {
+    "sentence": "When {p1} {p2} of {p7}",
+    "parameters": {
+      "p1": {
+        "text": "a job",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "has a status",
+        "type": "type_of_main_condition"
+      },
+      "p7": {
+        "text": "submitted",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": "has a status"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5}",
+      "parameters": {
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        },
+        "p3": {
+          "text": "assigned tech",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text message",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "immediately",
+          "type": "time"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "sms"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "tech",
+          "message_attachments": [],
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Update from {{account_business_name}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 12,
+                    "length": 25,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "account_business_name"
+                }
+              }
+            ]
+          },
+          "message_from": "Example Locksmith",
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "New scheduled job at {{location_key}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 21,
+                    "length": 16,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "9dtv9",
+                "text": "Time: {{jobDate}}  from {{jobTime}} to {{jobEndTime}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 6,
+                    "length": 11,
+                    "key": 1
+                  },
+                  {
+                    "offset": 24,
+                    "length": 11,
+                    "key": 2
+                  },
+                  {
+                    "offset": 39,
+                    "length": 14,
+                    "key": 3
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "6eoor",
+                "text": "Service: {{job_description}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 9,
+                    "length": 19,
+                    "key": 4
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "18q5u",
+                "text": "Job id: {{uuid}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 8,
+                    "length": 8,
+                    "key": 5
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "edin2",
+                "text": "Please let us know if any changes should be made. ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "location_key",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "7542d34b-f40d-4f8e-8943-acbc1634b861",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "jobDate",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "d12fcb33-1b46-447e-bdcb-7a15e2add80f",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "jobTime",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "9d43e672-bec4-4b51-a58f-cd72261e9d49",
+                  "forceText": "jobStartTime"
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "jobEndTime",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "28c80cab-eabd-4423-9a85-423321e0754a",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "job_description",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "b751abe5-779b-4ca9-bcd2-2326040e3c52",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "uuid",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true,
+                    "task": true,
+                    "dispute": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "8741d001-d82a-496e-a916-e(555) 010-01005",
+                  "forceText": null
+                }
+              }
+            ]
+          },
+          "time_interval": {
+            "value": 0,
+            "operator": null,
+            "time_field": null,
+            "time_unit": "minutes",
+            "time_field_friendly_string": null
+          },
+          "working_hours": {
+            "dnd": true,
+            "from": "08:00",
+            "to": "18:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "assigned tech",
+          "message_subject_template": "Update from {{account_business_name}} ",
+          "message_template": "<p>New scheduled job at {{location_key}}&nbsp;</p>\n<p>Time: {{jobDate}}  from {{jobTime}} to {{jobEndTime}}&nbsp;</p>\n<p>Service: {{job_description}}&nbsp;</p>\n<p>Job id: {{uuid}}&nbsp;</p>\n<p>Please let us know if any changes should be made.&nbsp;</p>\n"
+        }
+      ],
+      "type": "SEND"
+    }
+  ],
+  "hash_code": "5ab5f4c21038cb9c37f1e462ed57c4ce",
+  "__v": 0,
+  "sentence": "",
+  "fullSentence": ""
+}

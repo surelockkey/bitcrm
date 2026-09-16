@@ -10,6 +10,7 @@ import {
   ListChecks,
   ListPlus,
   Phone,
+  PhoneCall,
   Users,
   Workflow,
   MessagesSquare,
@@ -104,6 +105,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     resource: "settings",
   },
   {
+    label: "Call Tags",
+    href: "/settings/call-tags",
+    description: "Colored labels for calls — spam, wrong number, a tech calling in.",
+    icon: PhoneCall,
+    resource: "settings",
+  },
+  {
     label: "Phone Numbers",
     href: "/settings/phone-numbers",
     description: "Buy, list, and release the numbers you call and receive on.",
@@ -123,5 +131,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Canned texts with short codes the composer offers.",
     icon: FileText,
     resource: "message_templates",
+  },
+  {
+    label: "Automations",
+    href: "/settings/automations",
+    description: "What the system texts on its own — job status, missed calls, reminders.",
+    icon: Workflow,
+    resource: "settings",
   },
 ];

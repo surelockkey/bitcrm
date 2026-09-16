@@ -13,6 +13,7 @@ import type {
   OptOutStatus,
   PaginatedResponse,
   SendableMessageChannel,
+  TeamChatCounters,
 } from "@bitcrm/types";
 import { apiFetchPaginated, http } from "@/lib/api/http";
 import { ApiError } from "@/lib/api/errors";
@@ -185,11 +186,23 @@ export interface OptOutChangedEvent {
   status: OptOutStatus;
   conversationId?: string;
 }
+/**
+ * One member's team-chat badge (design §6) — written to that member's
+ * stream only, after anything that moves it (a new in-app line, a read
+ * marker, a membership change).
+ */
+export interface TeamCountersChangedEvent {
+  type: "team_counters.changed";
+  at: string;
+  userId: string;
+  counters: TeamChatCounters;
+}
 export type MessagingRealtimeEvent =
   | ConversationUpsertedEvent
   | MessageUpsertedEvent
   | CountersChangedEvent
-  | OptOutChangedEvent;
+  | OptOutChangedEvent
+  | TeamCountersChangedEvent;
 
 /** The SSE stream (opened with fetch so the Bearer header can be sent). */
 export const MESSAGING_EVENTS_PATH = `${BASE}/events`;
@@ -233,6 +246,10 @@ export const getConversation = (id: string): Promise<ConversationDetail> =>
 
 export const getCounters = (): Promise<InboxCounters> =>
   http.get<InboxCounters>(`${BASE}/conversations/counters`);
+
+/** The caller's own team-chat badge — their thread and groups, against their read markers. */
+export const getTeamCounters = (): Promise<TeamChatCounters> =>
+  http.get<TeamChatCounters>(`${BASE}/team/counters`);
 
 export const getConversationByParty = (
   kind: PartyLookupKind,
@@ -452,3 +469,32 @@ export const updateMessagingSettings = (
 
 export const lookupOptOuts = (address: string): Promise<OptOut[]> =>
   http.get<OptOut[]>(`${BASE}/opt-outs?address=${encodeURIComponent(address)}`);
+
+/* ----------------------------------------------------------- automations */
+
+/**
+ * The two texts a technician sends themselves (design §10 M21; Workiz
+ * `on_my_way_msg` / `late_msg`). The body is rendered server-side from the
+ * workspace's template, so nothing here composes a message — the technician
+ * taps once and the client hears from us.
+ *
+ * Both answer 202 with the queued message. 403 when the caller isn't on the
+ * job's roster, 422 when the rule is switched off or the client has opted out.
+ *
+ * `clientMessageId` is the idempotency key, and the caller should always mint
+ * one: without it the server falls back to a key made of the rule, the job,
+ * the technician and a 15-minute bucket — which does NOT include how late the
+ * technician said they were, so "late 15" at 10:02 and "late 45" at 10:07
+ * would collapse into one text and the second would be silently dropped.
+ */
+export const sendOnMyWay = (body: {
+  dealId: string;
+  etaMinutes?: number;
+  clientMessageId?: string;
+}): Promise<Message> => http.post<Message>(`${BASE}/automations/on-my-way`, body);
+
+export const sendRunningLate = (body: {
+  dealId: string;
+  minutes: number;
+  clientMessageId?: string;
+}): Promise<Message> => http.post<Message>(`${BASE}/automations/late`, body);

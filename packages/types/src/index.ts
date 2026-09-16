@@ -68,6 +68,7 @@ export {
   VoicemailNode,
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
+export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { ExternalCompany } from './entities/external-company.entity';
@@ -91,12 +92,21 @@ export {
   ZipEntry,
   DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
-export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
+export {
+  DealProduct,
+  DealProductFulfillment,
+  DealProductPriceSource,
+} from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
-export { Product } from './entities/product.entity';
+export {
+  Product,
+  ProductWithExtras,
+  WORKIZ_SERVICE_TYPES,
+  WorkizProductType,
+} from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
-export { ProductCategory } from './entities/product-category.entity';
+export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
@@ -139,16 +149,13 @@ export type {
   SensitiveAccessedEvent,
 } from './events/user-events';
 
-// Event contract (deal-events topic — the typed slice)
-export { DEAL_EVENT_TOPIC, DealEventType } from './events/deal-events';
-export type { DealSentToTechEvent } from './events/deal-events';
-
 // Event contract (call-events topic)
 export { CALL_EVENT_TOPIC, CallEventType } from './events/call-events';
 export type {
   CallStartedEvent,
   CallCompletedEvent,
   CallRecordingReadyEvent,
+  CallUpdatedEvent,
 } from './events/call-events';
 
 // Messaging (client inbox + team chat) — enums
@@ -239,10 +246,61 @@ export type {
   MessagingSettings,
   QuietHours,
 } from './entities/messaging-settings.entity';
-export { EMPTY_INBOX_COUNTERS, EMPTY_TEAM_CHAT_COUNTERS } from './entities/inbox-counters.entity';
-export type { InboxCounters, TeamChatCounters } from './entities/inbox-counters.entity';
+export {
+  EMPTY_INBOX_COUNTERS,
+  EMPTY_INBOX_TOTALS,
+  EMPTY_TEAM_CHAT_COUNTERS,
+} from './entities/inbox-counters.entity';
+export type { InboxCounters, InboxTotals, TeamChatCounters } from './entities/inbox-counters.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
+export {
+  AUTOMATION_ACTION_TYPES,
+  AUTOMATION_CONDITION_FIELDS,
+  AUTOMATION_CONDITION_OPS,
+  AUTOMATION_RECIPIENTS,
+  AUTOMATION_TRIGGER_KINDS,
+  automationActionSentence,
+  automationConditionsSentence,
+  automationDelayText,
+  automationSentence,
+  automationSpecLabels,
+  automationTriggerSentence,
+} from './entities/automation-spec';
+export type {
+  AutomationAction,
+  AutomationActionType,
+  AutomationCallOutcome,
+  AutomationCondition,
+  AutomationConditionField,
+  AutomationConditionOp,
+  AutomationLabelMap,
+  AutomationQuietHoursMode,
+  AutomationRecipient,
+  AutomationRun,
+  AutomationRunAction,
+  AutomationRunOutcome,
+  AutomationScheduleAnchor,
+  AutomationSpec,
+  AutomationSpecSource,
+  AutomationTiming,
+  AutomationTrigger,
+  AutomationTriggerKind,
+} from './entities/automation-spec';
+
+// Event contract (deal-events topic)
+export { DEAL_EVENT_TOPIC, DealEventType } from './events/deal-events';
+export type {
+  DealCreatedEvent,
+  DealDeletedEvent,
+  DealScheduleSlice,
+  DealScheduledChangedEvent,
+  DealSentToTechEvent,
+  DealStatusChangedEvent,
+  DealTechAssignedEvent,
+  DealTechUnassignedEvent,
+  DealUpdatedEvent,
+} from './events/deal-events';
 
 // Event contract (message-events topic)
 export { MESSAGE_EVENT_TOPIC, MessageEventType } from './events/message-events';

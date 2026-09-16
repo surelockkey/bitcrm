@@ -212,7 +212,8 @@ DEAL#<id>          / PRODUCT#<id>    line item; fulfillment: sourced | to_order 
 DEAL#<id>          / ATTACH#<id>
 JOB_TAG#<id>       / METADATA        GSI1 CATALOG#JOB_TAG, GSI1SK <priority>#<name>
 TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
-CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log
+CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags)
+CALLTAG#ALL        / CALLTAG#<id>    call-tag catalog — one partition, no GSI keys (never in the log); archive, don't delete
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,

@@ -118,6 +118,22 @@ export interface Deal {
    * clear it; the per-technician `seenAt` on `ASSIGN#` says who and when.
    */
   seenByTechAt?: string;
+  /**
+   * Technician flow (Workiz "Confirmed job receipt"): when an assigned
+   * technician acknowledged the job from their phone, and who. Absent until
+   * somebody taps "Confirm receipt"; dispatch reads it as "the tech has seen
+   * this". Optional — rows written before the field existed simply lack it.
+   */
+  techConfirmedAt?: string;
+  techConfirmedBy?: string;
+  /**
+   * Technician flow (Workiz "Arrived at location"): when the technician
+   * tapped "Arrived", who, and — when the phone offered one — the GPS fix
+   * at that moment. Absent until then.
+   */
+  arrivedAt?: string;
+  arrivedBy?: string;
+  arrivedLocation?: { lat: number; lng: number; accuracy?: number };
   createdAt: string;
   updatedAt: string;
 }

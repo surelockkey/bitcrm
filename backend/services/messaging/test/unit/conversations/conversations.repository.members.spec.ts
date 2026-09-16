@@ -57,7 +57,13 @@ describe('ConversationsRepository.createGroup', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].name).toBe('TransactWriteCommand');
     const items = sent[0].input.TransactItems;
-    expect(items).toHaveLength(4);
+    // pointer, header, two MEMBER# rows, and the counters ADD that puts the
+    // new group into the Team total.
+    expect(items).toHaveLength(5);
+    expect(items[4].Update).toMatchObject({
+      Key: { PK: 'INBOX#COUNTERS', SK: 'METADATA' },
+      ExpressionAttributeValues: { ':total': 1, ':totalkind_group': 1 },
+    });
     expect(items[0].Put).toMatchObject({
       ConditionExpression: 'attribute_not_exists(PK)',
       Item: { PK: 'CONVOF#group#g1', SK: 'METADATA', pointerKind: 'group', pointerId: 'g1', conversationId: 'g1', createdAt: T0 },

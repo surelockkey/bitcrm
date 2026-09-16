@@ -33,8 +33,19 @@ describe('DealsRepository — assignment sent / seen stamps', () => {
       const cmd = command(n);
       expect(cmd.constructor.name).toBe('UpdateCommand');
       expect(cmd.input.Key.PK).toBe('DEAL#deal-1');
-      expect(cmd.input.UpdateExpression).toBe('SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate');
-      expect(cmd.input.ExpressionAttributeValues).toMatchObject({ ':gsi2sk': '2026-05-02#DEAL#deal-1', ':scheduledDate': '2026-05-02' });
+      expect(cmd.input.UpdateExpression).toBe(
+        'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate, restampedBy = :by, restampedAt = :now',
+      );
+      expect(cmd.input.ExpressionAttributeValues).toMatchObject({
+        ':gsi2sk': '2026-05-02#DEAL#deal-1',
+        ':scheduledDate': '2026-05-02',
+        ':by': 'disp-1',
+      });
+      // Nothing the technician did is in the SET clause: a reschedule must
+      // not touch the sent / seen stamps or the receipt confirmation.
+      for (const attr of ['sentAt', 'sentVia', 'seenAt', 'techConfirmedAt', 'deliveries']) {
+        expect(cmd.input.UpdateExpression).not.toContain(attr);
+      }
       expect(cmd.input.ConditionExpression).toBe('attribute_exists(PK)');
     }
     expect(command(1).input.Key.SK).toBe('ASSIGN#tech-1');
@@ -60,7 +71,9 @@ describe('DealsRepository — assignment sent / seen stamps', () => {
     await repository.restampAssignmentDates('deal-1', undefined, 'disp-1');
 
     const cmd = command(1);
-    expect(cmd.input.UpdateExpression).toBe('SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk REMOVE scheduledDate');
+    expect(cmd.input.UpdateExpression).toBe(
+      'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, restampedBy = :by, restampedAt = :now REMOVE scheduledDate',
+    );
     expect(cmd.input.ExpressionAttributeValues[':gsi2sk']).toMatch(/#DEAL#deal-1$/);
     expect(cmd.input.ExpressionAttributeValues[':gsi2pk']).toBe('TECH#tech-1');
     expect(cmd.input.ExpressionAttributeValues).not.toHaveProperty(':scheduledDate');

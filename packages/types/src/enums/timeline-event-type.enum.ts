@@ -13,6 +13,14 @@ export enum TimelineEventType {
   /** A phone call was attached to this job. */
   CALL_LINKED = 'call_linked',
   CALL_UNLINKED = 'call_unlinked',
+  /**
+   * The technician flow, as the old CRM logged it: "Confirmed job receipt"
+   * (the tech acknowledged the assignment on their phone) and "Arrived at
+   * location". Written by the technician endpoints; dispatch reads them on
+   * the job's activity feed like any other event.
+   */
+  TECH_CONFIRMED = 'tech_confirmed',
+  TECH_ARRIVED = 'tech_arrived',
   /** A photo/file appeared on, was renamed on, or vanished from the job. */
   ATTACHMENT_ADDED = 'attachment_added',
   ATTACHMENT_RENAMED = 'attachment_renamed',

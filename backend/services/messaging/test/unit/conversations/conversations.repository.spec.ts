@@ -31,9 +31,11 @@ describe('ConversationsRepository.create', () => {
     const { repo, sent } = makeRepo();
     await repo.create(createMockConversation({ lastMessageAt: T1 }));
 
+    // A create always grows a category, so the Put now rides in a transaction
+    // with the counters ADD (see the next test).
     expect(sent).toHaveLength(1);
-    expect(sent[0].name).toBe('PutCommand');
-    const input = sent[0].input;
+    expect(sent[0].name).toBe('TransactWriteCommand');
+    const input = sent[0].input.TransactItems[0].Put;
     expect(input.TableName).toBe('BitCRM_Messaging');
     expect(input.ConditionExpression).toBe('attribute_not_exists(PK)');
     expect(input.Item).toMatchObject({
@@ -46,6 +48,41 @@ describe('ConversationsRepository.create', () => {
     });
     expect(input.Item.GSI2PK).toBeUndefined();
     expect(input.Item.GSI5PK).toBeUndefined();
+  });
+
+  it('counts the new conversation into the category totals in the same transaction', async () => {
+    const { repo, sent } = makeRepo();
+    await repo.create(createMockConversation({ unread: true }));
+
+    const items = sent[0].input.TransactItems;
+    expect(items).toHaveLength(2);
+    expect(items[1].Update).toMatchObject({
+      Key: { PK: 'INBOX#COUNTERS', SK: 'METADATA' },
+      ExpressionAttributeValues: {
+        ':total': 1,
+        ':totalkind_client': 1,
+        ':unread': 1,
+        ':kind_client': 1,
+      },
+    });
+    expect(items[1].Update.UpdateExpression.startsWith('ADD ')).toBe(true);
+  });
+
+  it('still reports a duplicate id as ConditionalCheckFailedException, not a cancelled transaction', async () => {
+    // The Put grew into a transaction to carry the counters ADD; the existence
+    // guard is the whole point of `create`, so the error callers see must not
+    // change shape with the number of items in the write.
+    const { repo } = makeRepo([transactionCanceled(['ConditionalCheckFailed', 'None'])]);
+    await expect(repo.create(createMockConversation())).rejects.toMatchObject({
+      name: 'ConditionalCheckFailedException',
+    });
+  });
+
+  it('rethrows a transaction cancelled for any other reason untouched', async () => {
+    const { repo } = makeRepo([transactionCanceled(['None', 'TransactionConflict'])]);
+    await expect(repo.create(createMockConversation())).rejects.toMatchObject({
+      name: 'TransactionCanceledException',
+    });
   });
 });
 
@@ -65,7 +102,13 @@ describe('ConversationsRepository.findOrCreate', () => {
     expect(sent[0].input.Key).toEqual({ PK: 'CONVOF#contact#ct1', SK: 'METADATA' });
 
     const items = sent[1].input.TransactItems;
-    expect(items).toHaveLength(3);
+    // pointer, conversation, address, and the counters ADD last — the pointer
+    // must stay at index 0 for the `conditionFailedAt(err, 0)` race check.
+    expect(items).toHaveLength(4);
+    expect(items[3].Update).toMatchObject({
+      Key: { PK: 'INBOX#COUNTERS', SK: 'METADATA' },
+      ExpressionAttributeValues: { ':total': 1, ':totalkind_client': 1 },
+    });
     expect(items[0].Put).toMatchObject({
       ConditionExpression: 'attribute_not_exists(PK)',
       Item: { PK: 'CONVOF#contact#ct1', SK: 'METADATA', pointerKind: 'contact', pointerId: 'ct1', conversationId: 'c1', createdAt: T0 },
@@ -148,21 +191,41 @@ describe('applyPatch', () => {
 });
 
 describe('ConversationsRepository.update', () => {
-  it('archives with a plain guarded UpdateItem when no counter moves', async () => {
+  it('archives with the guarded UpdateItem and the totals move in one transaction', async () => {
     const { repo, sent } = makeRepo();
     const current = createMockConversation({ lastMessageAt: T1 });
     const next = await repo.update(current, { state: 'archived' }, { actorId: 'u1', at: '2026-09-16T00:00:00.000Z' });
 
+    // An archive always moves the category totals (open -1, archived +1) even
+    // when the thread was already read, so it is always a transaction now.
     expect(next.state).toBe('archived');
     expect(sent).toHaveLength(1);
-    expect(sent[0].name).toBe('UpdateCommand');
-    const input = sent[0].input;
+    expect(sent[0].name).toBe('TransactWriteCommand');
+    const input = sent[0].input.TransactItems[0].Update;
     expect(input.Key).toEqual({ PK: 'CONV#c1', SK: 'METADATA' });
     expect(input.ConditionExpression).toBe('attribute_exists(PK) AND #updatedAt = :expectedUpdatedAt');
     expect(input.ExpressionAttributeValues[':expectedUpdatedAt']).toBe(T0);
     expect(input.ExpressionAttributeValues[':GSI1PK']).toBe('INBOX#archived#2026');
     expect(input.UpdateExpression).toContain('#state = :state');
     expect(input.UpdateExpression).toMatch(/REMOVE .*#GSI2PK, #GSI2SK, #GSI3PK, #GSI3SK/);
+
+    expect(sent[0].input.TransactItems[1].Update.ExpressionAttributeValues).toEqual({
+      ':total': -1,
+      ':archived': 1,
+      ':totalkind_client': -1,
+    });
+  });
+
+  it('still uses a plain guarded UpdateItem when nothing the counters track moves', async () => {
+    const { repo, sent } = makeRepo();
+    const current = createMockConversation();
+    await repo.update(current, { assignedUserId: 'u9' }, { actorId: 'u1', at: T1 });
+
+    // Assigning moves neither the badge nor a category size — no counters ADD,
+    // so the cheap single-item write is preserved.
+    expect(sent).toHaveLength(1);
+    expect(sent[0].name).toBe('UpdateCommand');
+    expect(sent[0].input.Key).toEqual({ PK: 'CONV#c1', SK: 'METADATA' });
   });
 
   it('moves the unread counters in the same transaction when archiving an unread thread', async () => {
@@ -176,9 +239,22 @@ describe('ConversationsRepository.update', () => {
     expect(conv.Update.ConditionExpression).toContain('#updatedAt = :expectedUpdatedAt');
     expect(counters.Update).toMatchObject({
       Key: { PK: 'INBOX#COUNTERS', SK: 'METADATA' },
-      UpdateExpression: 'ADD #unread :unread, #kind_client :kind_client',
-      ExpressionAttributeNames: { '#unread': 'unreadConversations', '#kind_client': 'unreadKind_client' },
-      ExpressionAttributeValues: { ':unread': -1, ':kind_client': -1 },
+      UpdateExpression:
+        'ADD #unread :unread, #kind_client :kind_client, #total :total, #archived :archived, #totalkind_client :totalkind_client',
+      ExpressionAttributeNames: {
+        '#unread': 'unreadConversations',
+        '#kind_client': 'unreadKind_client',
+        '#total': 'totalConversations',
+        '#archived': 'archivedConversations',
+        '#totalkind_client': 'totalKind_client',
+      },
+      ExpressionAttributeValues: {
+        ':unread': -1,
+        ':kind_client': -1,
+        ':total': -1,
+        ':archived': 1,
+        ':totalkind_client': -1,
+      },
     });
   });
 

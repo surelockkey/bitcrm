@@ -14,6 +14,11 @@ export interface PaginatedResult {
   nextCursor?: string;
 }
 
+/** Key attributes that must never leak onto an entity or be taken from one. */
+const KEY_ATTRIBUTES = new Set([
+  'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+]);
+
 @Injectable()
 export class WarehousesRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -23,9 +28,11 @@ export class WarehousesRepository {
       new PutCommand({
         TableName: INVENTORY_TABLE,
         Item: {
+          // Spread first, then override: the importer's extra attributes
+          // (`externalId`, `isPrimary`) are kept, the keys are always ours.
+          ...warehouse,
           PK: `WAREHOUSE#${warehouse.id}`,
           SK: 'METADATA',
-          ...warehouse,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
       }),
@@ -93,8 +100,18 @@ export class WarehousesRepository {
     return this.toWarehouse(result.Attributes!);
   }
 
+  /**
+   * Stored row → entity, keeping the attributes the Workiz import adds
+   * (`externalId`, `isPrimary` — 1 of the 3 warehouses is the primary STORE).
+   * Typed fields are written after the spread so they always win.
+   */
   private toWarehouse(item: Record<string, unknown>): Warehouse {
+    const extras: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(item)) {
+      if (!KEY_ATTRIBUTES.has(key)) extras[key] = value;
+    }
     return {
+      ...extras,
       id: item.id as string,
       name: item.name as string,
       address: item.address as string | undefined,

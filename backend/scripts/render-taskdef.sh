@@ -162,6 +162,12 @@ EXTRA_ENV_JSON=$(jq -n \
   + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)
   # search runs an idempotent index backfill on boot.
   + (if ($service == "search") then [{name: "ENABLE_SEARCH_BACKFILL", value: "true"}] else [] end)
+  # messaging runs the automation minute poller: without it a rule with a
+  # delay, a held quiet-hours firing and every "1 hour before the job"
+  # reminder is armed and never fires. Safe on both messaging tasks — each
+  # firing is claimed by a conditional delete of its SCHEDULE# row before it
+  # acts. AUTOMATION_SCHEDULER_INTERVAL_MS (default 60 000) can come from SSM.
+  + (if ($service == "messaging") then [{name: "ENABLE_AUTOMATION_SCHEDULER", value: "true"}] else [] end)
   ')
 
 # 3. Merge SSM + aliases + extra env

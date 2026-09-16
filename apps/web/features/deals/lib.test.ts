@@ -19,6 +19,8 @@ import {
   dealTotal,
   priceRange,
   isPriceInBand,
+  isImportedLine,
+  priceBandApplies,
   filterDeals,
   datePresetRange,
   scheduleMarker,
@@ -145,6 +147,26 @@ describe("price band (±15%)", () => {
     expect(isPriceInBand(50, 45)).toBe(true);
     expect(isPriceInBand(52, 45)).toBe(false);
     expect(isPriceInBand(38, 45)).toBe(false);
+  });
+
+  // 128 460 of the 156 612 matched historical Workiz lines differ from the
+  // catalog price and 110 865 sit outside ±15% — the band must not judge them.
+  it("does not apply to a line the importer marked", () => {
+    expect(priceBandApplies({ fulfillment: "imported" })).toBe(false);
+    expect(priceBandApplies({ fulfillment: "service", priceSource: "imported" })).toBe(false);
+    expect(isImportedLine({ fulfillment: "imported" })).toBe(true);
+    expect(isImportedLine({ priceSource: "imported" })).toBe(true);
+  });
+
+  it("still applies to every line BitCRM writes itself", () => {
+    expect(priceBandApplies({ fulfillment: "sourced" })).toBe(true);
+    expect(priceBandApplies({ fulfillment: "to_order" })).toBe(true);
+    expect(priceBandApplies({ fulfillment: "service" })).toBe(true);
+    expect(priceBandApplies({ priceSource: "override" })).toBe(true);
+    // Legacy rows carry neither marker.
+    expect(priceBandApplies({})).toBe(true);
+    expect(priceBandApplies(undefined)).toBe(true);
+    expect(isImportedLine(null)).toBe(false);
   });
 });
 

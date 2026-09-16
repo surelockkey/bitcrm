@@ -136,6 +136,29 @@ export function isPriceInBand(price: number, catalog: number): boolean {
   return price >= min - 1e-6 && price <= max + 1e-6;
 }
 
+/**
+ * A line carried over from Workiz, by either marker the importer can set:
+ * `fulfillment: "imported"` on the 47 976 product lines, `priceSource:
+ * "imported"` on the service lines (which keep `fulfillment: "service"`).
+ */
+export function isImportedLine(
+  line?: Pick<DealProduct, "fulfillment" | "priceSource"> | null,
+): boolean {
+  return line?.fulfillment === "imported" || line?.priceSource === "imported";
+}
+
+/**
+ * Whether the ±15% band should judge this line's price. 128 460 of the
+ * 156 612 matched historical lines differ from today's catalog price and
+ * 110 865 sit outside the band — flagging them would make every one of those
+ * lines unsavable, so an imported line is exempt.
+ */
+export function priceBandApplies(
+  line?: Pick<DealProduct, "fulfillment" | "priceSource"> | null,
+): boolean {
+  return !isImportedLine(line);
+}
+
 /* ------------------------------------------------------- date/time basis */
 
 /** Which timestamp the day/hour filters read: the visit or the creation. */

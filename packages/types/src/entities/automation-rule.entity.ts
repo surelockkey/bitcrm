@@ -1,9 +1,11 @@
+import { type AutomationSpec, type AutomationSpecSource } from './automation-spec';
+
 /**
  * The rules messaging-service executes itself (design §10, M21 minimum):
  * the "New job" SMS to a technician on assignment / reschedule, and the
  * technician-triggered "on my way" / "late" texts to the client. Everything
- * else under `AUTOMATION#` is imported Workiz data waiting for the rule
- * engine (a later milestone) and cannot be enabled until then.
+ * else under `AUTOMATION#` is imported Workiz data; a rule the translator
+ * (or a person) gave a `spec` to is run by the rule engine as well.
  */
 export const BUILTIN_AUTOMATION_RULE_IDS = ['new-job-sms', 'on-my-way', 'late'] as const;
 export type BuiltinAutomationRuleId = (typeof BUILTIN_AUTOMATION_RULE_IDS)[number];
@@ -45,6 +47,24 @@ export interface AutomationRule {
   source?: 'workiz' | 'bitcrm';
   /** `workiz:automation:<rule_id>` for imported rules. */
   externalId?: string;
+
+  // --- the rule engine (M21 L). Every field below is optional: a row
+  // without them is the imported data the earlier milestone stored.
+
+  /** What the engine executes. Absent → the rule is data only and cannot be enabled. */
+  spec?: AutomationSpec;
+  /** Where `spec` came from — `workiz-translator` specs are recomputed at read time until migrated. */
+  specSource?: AutomationSpecSource;
+  /** Version of the translator that produced a `workiz-translator` spec (a newer one re-translates). */
+  specVersion?: number;
+  /** `false` when the Workiz rule has no equivalent here; `notRunnableReason` says why. */
+  runnable?: boolean;
+  notRunnableReason?: string;
+  /** What the translation dropped or guessed — shown in the Automation Center. */
+  specNotes?: string[];
+  /** How often the BitCRM engine fired it (Workiz's own count stays in `workizTriggered`). */
+  firedCount?: number;
+  lastFiredAt?: string;
   createdAt: string;
   updatedAt: string;
   createdBy?: string;

@@ -1,0 +1,273 @@
+{
+  "hidden": false,
+  "hiddenReason": null,
+  "_id": "67c5bd6fdfe92ded72490f38",
+  "name": "Oil Change",
+  "entities": [
+    "visit"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "visit"
+      },
+      {
+        "fact": "converted_to_job",
+        "operator": "equal",
+        "value": false
+      },
+      {
+        "fact": "client_plan_is_canceled",
+        "operator": "equal",
+        "value": false
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1740961708.598
+      },
+      {
+        "fact": "status",
+        "operator": "equal",
+        "value": "created",
+        "friendly_strings": {
+          "value": "is scheduled",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "service_plan_id",
+        "entity": "visit",
+        "operator": "equal",
+        "value": "67c5bbe7f3cf2bde7039c0bd",
+        "friendly_strings": {
+          "fact": "service plan name",
+          "value": "OIL CHANGE"
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "role",
+      "message_attachments": [],
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Oil Change reminder",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "message_from": "Example Locksmith",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Reminder: Your vehicle is due for an oil change. Please change the oil and submit the form within next 3 days here: https://example.test/",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [
+              {
+                "offset": 0,
+                "length": 176,
+                "style": "ITALIC"
+              }
+            ],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "time_interval": {
+        "operator": "ahead",
+        "time_field": "visit_date_utc",
+        "time_field_friendly_string": "schedule date",
+        "time_unit": "days",
+        "value": "3"
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "09:00",
+        "to": "17:00"
+      },
+      "roleId": "11252",
+      "users_to": [],
+      "friendly_string": "tech",
+      "message_subject_template": "Oil Change reminder",
+      "message_template": "<p><em>Reminder: Your vehicle is due for an oil change. Please change the oil and submit the form within next 3 days here: https://example.test/</em></p>\n"
+    }
+  ],
+  "createdAt": "2025-03-03T14:32:15.687Z",
+  "updatedAt": "2025-03-03T14:32:15.687Z",
+  "enabled": true,
+  "deleted": false,
+  "default_rule": false,
+  "paused": false,
+  "triggered": 0,
+  "category": "custom",
+  "namespace": "2774",
+  "ruleSentence": {
+    "_id": "notification1",
+    "sentence": "When {p1} {p2}, send {p3} {p4} {p5} the {entity} {p6}"
+  },
+  "parameters": {
+    "p1": {
+      "text": "a service visit",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "is scheduled",
+      "type": "entity_main_condition"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    },
+    "p3": {
+      "text": "tech",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "3 days ahead of",
+      "type": "time"
+    },
+    "p6": {
+      "text": "schedule date",
+      "type": "time_field"
+    }
+  },
+  "validFrom": "2025-03-04T00:28:28.598Z",
+  "notifyMedium": "sms",
+  "trigger": {
+    "sentence": "When {p1} {p2}",
+    "parameters": {
+      "p1": {
+        "text": "a service visit",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "is scheduled",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5} the visit {p6}",
+      "parameters": {
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        },
+        "p3": {
+          "text": "tech",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text message",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "3 days ahead of",
+          "type": "time"
+        },
+        "p6": {
+          "text": "schedule date",
+          "type": "time_field"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "sms"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "role",
+          "message_attachments": [],
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Oil Change reminder",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": []
+          },
+          "message_from": "Example Locksmith",
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "Reminder: Your vehicle is due for an oil change. Please change the oil and submit the form within next 3 days here: https://example.test/",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [
+                  {
+                    "offset": 0,
+                    "length": 176,
+                    "style": "ITALIC"
+                  }
+                ],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": []
+          },
+          "time_interval": {
+            "operator": "ahead",
+            "time_field": "visit_date_utc",
+            "time_field_friendly_string": "schedule date",
+            "time_unit": "days",
+            "value": "3"
+          },
+          "working_hours": {
+            "dnd": true,
+            "from": "09:00",
+            "to": "17:00"
+          },
+          "roleId": "11252",
+          "users_to": [],
+          "friendly_string": "tech",
+          "message_subject_template": "Oil Change reminder",
+          "message_template": "<p><em>Reminder: Your vehicle is due for an oil change. Please change the oil and submit the form within next 3 days here: https://example.test/</em></p>\n"
+        }
+      ],
+      "type": "SEND"
+    }
+  ],
+  "hash_code": "3c65614970fcdf4956ec3dd00ce1232b",
+  "__v": 0,
+  "sentence": "",
+  "fullSentence": ""
+}

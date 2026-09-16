@@ -1,5 +1,5 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
-import type { InboxCounters, PaginatedResponse } from "@bitcrm/types";
+import type { InboxCounters, PaginatedResponse, TeamChatCounters } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import type {
   ConversationDetail,
@@ -71,6 +71,10 @@ export function applyCounters(qc: QueryClient, counters: InboxCounters): void {
   qc.setQueryData<InboxCounters>(queryKeys.messaging.counters(), counters);
 }
 
+export function applyTeamCounters(qc: QueryClient, counters: TeamChatCounters): void {
+  qc.setQueryData<TeamChatCounters>(queryKeys.messaging.teamCounters(), counters);
+}
+
 /** One stream frame → the query cache. */
 export function applyRealtimeEvent(
   qc: QueryClient,
@@ -87,6 +91,9 @@ export function applyRealtimeEvent(
       return;
     case "counters.changed":
       applyCounters(qc, event.counters);
+      return;
+    case "team_counters.changed":
+      applyTeamCounters(qc, event.counters);
       return;
     case "opt_out.changed":
       // The banner reads the text-lookup; let it refetch rather than guess

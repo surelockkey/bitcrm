@@ -1,0 +1,309 @@
+{
+  "hidden": false,
+  "hiddenReason": null,
+  "_id": "619585cd235c17000843d4e1",
+  "entities": [
+    "incoming_call"
+  ],
+  "enabled": false,
+  "deleted": false,
+  "triggered": 44,
+  "category": "phone",
+  "name": "Missed call Immediately / Text",
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "calls"
+      },
+      {
+        "fact": "finalized",
+        "operator": "equal",
+        "value": "1"
+      },
+      {
+        "fact": "direction_business_logic",
+        "operator": "equal",
+        "value": "inbound"
+      },
+      {
+        "fact": "voicemail_business_logic",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "blocked",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "rejected",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1727704058.903
+      },
+      {
+        "fact": "dial_call_status",
+        "operator": "in",
+        "value": [
+          "no-answer",
+          null
+        ],
+        "friendly_strings": {
+          "value": "is missed",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "client",
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Update from {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 12,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name"
+            }
+          }
+        ]
+      },
+      "message_from": "Example Locksmith",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "e7kli",
+            "text": "Hi! It's  Example Locksmith - the locksmith company. We have a missed call from you! If you still need locksmith assistance please reach us back at ((555) 010-0100. We work 24/7 and provide all types of locksmith services. Have a good one!",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "time_interval": {
+        "value": 0,
+        "operator": null,
+        "time_field": null,
+        "time_unit": "minutes",
+        "time_field_friendly_string": null
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "09:00",
+        "to": "17:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Update from {{account_business_name}} ",
+      "message_template": "<p></p>\n<p>Hi! It's  Example Locksmith - the locksmith company. We have a missed call from you! If you still need locksmith assistance please reach us back at ((555) 010-0100. We work 24/7 and provide all types of locksmith services. Have a good one!</p>\n"
+    }
+  ],
+  "createdAt": "2021-11-17T22:44:29.419Z",
+  "updatedAt": "2024-10-09T14:36:03.702Z",
+  "namespace": "2774",
+  "hash_code": "36ecac1bd845f6611fe9bd96ccc88326",
+  "__v": 0,
+  "paused": false,
+  "default_rule": false,
+  "parameters": {
+    "p1": {
+      "text": "a call",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "is missed",
+      "type": "entity_main_condition"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    },
+    "p3": {
+      "text": "client",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "immediately",
+      "type": "time"
+    }
+  },
+  "ruleSentence": {
+    "_id": "notification3",
+    "sentence": "When {p1} {p2}, send {p3} {p4} {p5}"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5}",
+      "parameters": {
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        },
+        "p3": {
+          "text": "client",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text message",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "immediately",
+          "type": "time"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "sms"
+      },
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "client",
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Update from {{account_business_name}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 12,
+                    "length": 25,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "account_business_name"
+                }
+              }
+            ]
+          },
+          "message_from": "Example Locksmith",
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "e7kli",
+                "text": "Hi! It's  Example Locksmith - the locksmith company. We have a missed call from you! If you still need locksmith assistance please reach us back at ((555) 010-0100. We work 24/7 and provide all types of locksmith services. Have a good one!",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": []
+          },
+          "time_interval": {
+            "value": 0,
+            "operator": null,
+            "time_field": null,
+            "time_unit": "minutes",
+            "time_field_friendly_string": null
+          },
+          "working_hours": {
+            "dnd": true,
+            "from": "09:00",
+            "to": "17:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "client",
+          "message_subject_template": "Update from {{account_business_name}} ",
+          "message_template": "<p></p>\n<p>Hi! It's  Example Locksmith - the locksmith company. We have a missed call from you! If you still need locksmith assistance please reach us back at ((555) 010-0100. We work 24/7 and provide all types of locksmith services. Have a good one!</p>\n"
+        }
+      ],
+      "type": "SEND"
+    }
+  ],
+  "notifyMedium": "sms",
+  "trigger": {
+    "sentence": "When {p1} {p2}",
+    "parameters": {
+      "p1": {
+        "text": "a call",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "is missed",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": [
+      "no-answer",
+      null
+    ]
+  },
+  "validFrom": "2024-09-30T13:47:38.903Z",
+  "sentence": "",
+  "fullSentence": ""
+}
