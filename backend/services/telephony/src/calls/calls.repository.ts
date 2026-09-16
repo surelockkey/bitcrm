@@ -202,6 +202,21 @@ function hydrate(item: Record<string, unknown>): CallRecord {
 /** Internal Dynamo page size while filling a filtered page. */
 const QUERY_PAGE_SIZE = 100;
 
+/**
+ * How many internal pages one `list()` may read before it stops and hands the
+ * caller a cursor instead.
+ *
+ * Every filter here is a FilterExpression over the date-ordered CALL#ALL walk:
+ * Dynamo reads the rows and then drops the ones that do not match, so a
+ * selective value (a tag nobody has used yet, a number that never called)
+ * matches nothing for page after page. Unbounded, that is one HTTP request
+ * doing ~18,000 sequential Queries across a 1.8M-row partition — well past any
+ * load-balancer idle timeout, and a dropdown click away. Bounded, the worst
+ * case is 20 round trips and ~2,000 rows scanned; the caller gets whatever was
+ * found plus `nextCursor` and decides whether to keep walking.
+ */
+const MAX_QUERY_PAGES = 20;
+
 @Injectable()
 export class CallsRepository {
   private tableName = CALLS_TABLE;
@@ -561,6 +576,10 @@ export class CallsRepository {
    * time ordering; status/direction/agent/number narrow via FilterExpression,
    * looping internal pages until `limit` items are collected — the same shape
    * as the CRM work-orders registry listing).
+   *
+   * The loop is bounded by MAX_QUERY_PAGES: a short page with a `nextCursor`
+   * means "this is what the walk found so far", not "this is all there is", so
+   * a caller that wants more asks for the next page.
    */
   async list(
     filter: ListCallsFilter,
@@ -573,7 +592,7 @@ export class CallsRepository {
     const items: CallRecord[] = [];
     let exclusiveStartKey = this.decodeCursor(cursor);
 
-    for (;;) {
+    for (let pages = 1; ; pages++) {
       const res = await this.dynamoDb.client.send(
         new QueryCommand({
           TableName: this.tableName,
@@ -603,6 +622,11 @@ export class CallsRepository {
         return { items, nextCursor: this.encodeCursor(resumeKey) };
       }
       if (!lastEvaluatedKey) return { items };
+      // Budget spent with the page unfilled: hand back the resume key rather
+      // than keep walking the log inside one request.
+      if (pages >= MAX_QUERY_PAGES) {
+        return { items, nextCursor: this.encodeCursor(lastEvaluatedKey) };
+      }
       exclusiveStartKey = lastEvaluatedKey;
     }
   }
@@ -730,9 +754,11 @@ export class CallsRepository {
       // for them (QUERY_PAGE_SIZE rows per internal page). The cost of one
       // API page is therefore how far back `limit` matches reach, not the
       // page size — a rare tag with no date range can walk months of log
-      // for 25 rows. The UI pairs this with dateFrom/dateTo; if tag lookups
-      // become routine, the upgrade is a sparse GSI keyed CALLTAG#<id>
-      // maintained by setTags, not a cheaper filter.
+      // for 25 rows, so the walk is capped at MAX_QUERY_PAGES per request and
+      // returns a cursor when it runs out of budget. The UI pairs this with
+      // dateFrom/dateTo; if tag lookups become routine, the upgrade is a
+      // sparse GSI keyed CALLTAG#<id> maintained by setTags, not a cheaper
+      // filter.
       clauses.push('contains(#tagIds, :tagId)');
       names['#tagIds'] = 'tagIds';
       values[':tagId'] = filter.tagId;

@@ -159,6 +159,25 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     expect(second.ExclusiveStartKey).toEqual({ PK: 'CALL#CA2' });
   });
 
+  it('stops walking after a bounded number of internal pages and hands back a cursor', async () => {
+    // A tag nobody has used yet matches nothing: every internal page is read
+    // and thrown away. Unbounded this is ~18,000 sequential Queries in one
+    // HTTP request over the 1.8M-row CALL#ALL partition.
+    const { repo, sent } = makeRepo([
+      { Items: [], LastEvaluatedKey: { PK: 'CALL#CAx' } },
+    ]);
+    const res = await repo.list({ tagId: 'tag-nobody-used' }, undefined, 25);
+
+    expect(sent.length).toBeLessThanOrEqual(20);
+    expect(res.items).toHaveLength(0);
+    // Empty page, more log behind it — the caller decides whether to go on.
+    expect(res.nextCursor).toBeDefined();
+    const resumed = JSON.parse(
+      Buffer.from(res.nextCursor as string, 'base64url').toString(),
+    );
+    expect(resumed).toEqual({ PK: 'CALL#CAx' });
+  });
+
   it('stops early with a synthesized cursor when the limit fills mid-page', async () => {
     const { repo } = makeRepo([
       { Items: [item('CA1'), item('CA2'), item('CA3')], LastEvaluatedKey: { PK: 'CALL#CA3' } },

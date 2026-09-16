@@ -170,10 +170,41 @@ export function CallsPage() {
       ) : calls.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
           <Phone className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No calls found</p>
-          <p className="text-sm text-muted-foreground">
-            Calls appear here as your team makes and receives them.
-          </p>
+          {/* A filtered page is filled by walking the log newest-first, and
+              the server stops after a bounded stretch rather than reading the
+              whole partition in one request. An empty page with a cursor
+              therefore means "not in the part read so far" — saying "no calls
+              found" there would be a lie, so offer to read on instead. */}
+          {query.hasNextPage ? (
+            <>
+              <p className="text-sm font-medium">
+                No calls yet in the stretch searched
+              </p>
+              <p className="text-sm text-muted-foreground">
+                The log is searched newest-first, a stretch at a time. Keep
+                searching to read further back, or narrow it with a date range.
+              </p>
+              <Button
+                variant="outline"
+                className="mt-2"
+                disabled={query.isFetchingNextPage}
+                onClick={() => query.fetchNextPage()}
+              >
+                {query.isFetchingNextPage ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  "Keep searching"
+                )}
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium">No calls found</p>
+              <p className="text-sm text-muted-foreground">
+                Calls appear here as your team makes and receives them.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <>
