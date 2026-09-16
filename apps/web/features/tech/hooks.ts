@@ -1,8 +1,15 @@
 "use client";
 
 import { useMemo } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import type { Deal } from "@bitcrm/types";
+import { queryKeys } from "@/lib/query-keys";
+import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMe } from "@/features/auth/use-me";
 import { useDeals } from "@/features/deals/hooks";
+import * as dealsApi from "@/features/deals/api";
+import * as messagingApi from "@/features/messaging/api";
 import { groupJobsByDay, localDateIso } from "./lib";
 
 /**
@@ -29,4 +36,118 @@ export function useMyJobs(todayIso: string = localDateIso()) {
     /** False until `me` resolves — the list is "still loading", not "empty". */
     ready: Boolean(techId),
   };
+}
+
+/* -------------------------------------------------------------- actions */
+
+/**
+ * Every technician action lands on the same job, so they all refresh the same
+ * three things: the job itself, the day list it came from, and its activity
+ * feed (each action writes a timeline entry dispatch reads).
+ */
+function useRefreshJob(dealId: string) {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: queryKeys.deals.all() });
+    qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
+    qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
+  };
+}
+
+/** Paint the new stamp on the cached job at once — the phone may be on one bar. */
+function stampDeal(qc: ReturnType<typeof useQueryClient>, dealId: string, patch: Partial<Deal>) {
+  const key = queryKeys.deals.detail(dealId);
+  const previous = qc.getQueryData<Deal>(key);
+  if (previous) qc.setQueryData<Deal>(key, { ...previous, ...patch });
+  return previous;
+}
+
+/** "Confirm receipt" — Workiz's *Confirmed job receipt*. */
+export function useConfirmReceipt(dealId: string) {
+  const qc = useQueryClient();
+  const refresh = useRefreshJob(dealId);
+  const { data: me } = useMe();
+  return useMutation({
+    mutationFn: () => dealsApi.confirmJobReceipt(dealId),
+    onMutate: () => ({
+      previous: stampDeal(qc, dealId, {
+        techConfirmedAt: new Date().toISOString(),
+        techConfirmedBy: me?.id,
+      }),
+    }),
+    onError: (e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(dealId), ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSuccess: () => toast.success("Job confirmed"),
+    onSettled: refresh,
+  });
+}
+
+/** "Arrived" — Workiz's *Arrived at location*, with the phone's fix when it offered one. */
+export function useMarkArrived(dealId: string) {
+  const qc = useQueryClient();
+  const refresh = useRefreshJob(dealId);
+  const { data: me } = useMe();
+  return useMutation({
+    mutationFn: (body: dealsApi.MarkArrivedBody = {}) => dealsApi.markArrived(dealId, body),
+    onMutate: () => ({
+      previous: stampDeal(qc, dealId, {
+        arrivedAt: new Date().toISOString(),
+        arrivedBy: me?.id,
+      }),
+    }),
+    onError: (e, _v, ctx) => {
+      if (ctx?.previous) qc.setQueryData(queryKeys.deals.detail(dealId), ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSuccess: () => toast.success("Arrival recorded"),
+    onSettled: refresh,
+  });
+}
+
+/**
+ * The phone's own position, if it will give one — and a quick answer either
+ * way. "Arrived" must never hang on a GPS fix that isn't coming: the timeout
+ * resolves to `undefined` and the arrival is recorded without coordinates.
+ */
+export const GEOLOCATION_TIMEOUT_MS = 8_000;
+
+export function currentPosition(): Promise<
+  { lat: number; lng: number; accuracy?: number } | undefined
+> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return Promise.resolve(undefined);
+  }
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (p) =>
+        resolve({
+          lat: p.coords.latitude,
+          lng: p.coords.longitude,
+          ...(Number.isFinite(p.coords.accuracy) ? { accuracy: p.coords.accuracy } : {}),
+        }),
+      () => resolve(undefined),
+      { enableHighAccuracy: true, timeout: GEOLOCATION_TIMEOUT_MS, maximumAge: 60_000 },
+    );
+  });
+}
+
+/** "On my way" — the workspace's own text, rendered and sent server-side. */
+export function useOnMyWay(dealId: string) {
+  return useMutation({
+    mutationFn: (etaMinutes?: number) =>
+      messagingApi.sendOnMyWay({ dealId, ...(etaMinutes ? { etaMinutes } : {}) }),
+    onSuccess: () => toast.success("Client told you're on the way"),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** "Running late" — same, with how many minutes. */
+export function useRunningLate(dealId: string) {
+  return useMutation({
+    mutationFn: (minutes: number) => messagingApi.sendRunningLate({ dealId, minutes }),
+    onSuccess: () => toast.success("Client told you're running late"),
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
 }

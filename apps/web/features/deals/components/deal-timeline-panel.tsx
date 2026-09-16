@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
+  CheckCheck,
   FilePlus2,
   FileX,
   History,
   Loader2,
+  MapPinCheck,
   MessageSquare,
   PackageMinus,
   PackageOpen,
@@ -71,6 +73,8 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.PRODUCT_REMOVED]: { icon: PackageMinus, label: "Product removed" },
   [TimelineEventType.CALL_LINKED]: { icon: PhoneCall, label: "Call linked" },
   [TimelineEventType.CALL_UNLINKED]: { icon: PhoneOff, label: "Call unlinked" },
+  [TimelineEventType.TECH_CONFIRMED]: { icon: CheckCheck, label: "Job receipt confirmed" },
+  [TimelineEventType.TECH_ARRIVED]: { icon: MapPinCheck, label: "Arrived at location" },
   [TimelineEventType.ATTACHMENT_ADDED]: { icon: Paperclip, label: "File added" },
   [TimelineEventType.ATTACHMENT_RENAMED]: { icon: Paperclip, label: "File renamed" },
   [TimelineEventType.ATTACHMENT_REMOVED]: { icon: FileX, label: "File removed" },
@@ -281,6 +285,20 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
   ) {
     // The one thing that matters here is *which* technician.
     return lk.userName(d.techId ?? d.previousTechId);
+  }
+  if (
+    entry.eventType === TimelineEventType.TECH_CONFIRMED ||
+    entry.eventType === TimelineEventType.TECH_ARRIVED
+  ) {
+    // Who said so, and — on an arrival the phone could place — that it was
+    // located. The coordinates themselves belong on the map, not in a feed.
+    const parts = [lk.userName(d.techId)].filter(Boolean) as string[];
+    if (entry.eventType === TimelineEventType.TECH_ARRIVED && d.location) {
+      parts.push("location recorded");
+    }
+    const sub = typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) : undefined;
+    if (sub) parts.push(sub);
+    return parts.length ? parts.join(" · ") : null;
   }
   if (
     entry.eventType === TimelineEventType.PRODUCT_ADDED ||

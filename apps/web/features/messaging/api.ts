@@ -469,3 +469,20 @@ export const updateMessagingSettings = (
 
 export const lookupOptOuts = (address: string): Promise<OptOut[]> =>
   http.get<OptOut[]>(`${BASE}/opt-outs?address=${encodeURIComponent(address)}`);
+
+/* ----------------------------------------------------------- automations */
+
+/**
+ * The two texts a technician sends themselves (design §10 M21; Workiz
+ * `on_my_way_msg` / `late_msg`). The body is rendered server-side from the
+ * workspace's template, so nothing here composes a message — the technician
+ * taps once and the client hears from us.
+ *
+ * Both answer 202 with the queued message. 403 when the caller isn't on the
+ * job's roster, 422 when the rule is switched off or the client has opted out.
+ */
+export const sendOnMyWay = (body: { dealId: string; etaMinutes?: number }): Promise<Message> =>
+  http.post<Message>(`${BASE}/automations/on-my-way`, body);
+
+export const sendRunningLate = (body: { dealId: string; minutes: number }): Promise<Message> =>
+  http.post<Message>(`${BASE}/automations/late`, body);

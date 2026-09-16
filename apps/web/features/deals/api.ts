@@ -93,6 +93,28 @@ export interface MoveStatusBody {
 export const moveStatus = (id: string, body: MoveStatusBody): Promise<Deal> =>
   http.put<Deal>(`/deals/${id}/status`, body);
 
+/* ------------------------------------------------------- technician flow */
+
+/**
+ * "I've got it" — the old CRM's *Confirmed job receipt*. Stamps the caller's
+ * assignment row and the job, so dispatch can see the technician has read it.
+ * Idempotent server-side: a second tap returns the first stamp.
+ */
+export const confirmJobReceipt = (id: string): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/tech/confirm`, {});
+
+export interface MarkArrivedBody {
+  lat?: number;
+  lng?: number;
+  accuracy?: number;
+  /** Catalog sub-status to apply; omitted, the server picks the arrival one. */
+  subStatusId?: string;
+}
+
+/** "I'm here" — the old CRM's *Arrived at location*, with the phone's fix when it offered one. */
+export const markArrived = (id: string, body: MarkArrivedBody = {}): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/tech/arrived`, body);
+
 /* --------------------------------------------------------------- timeline */
 
 export function getTimeline(id: string, cursor?: string): Promise<PaginatedResponse<TimelineEntry>> {
