@@ -218,9 +218,23 @@ describe('AutomationsController', () => {
       [{ any: [{ field: 'moonPhase', op: 'in' }] }], // an alternative is still a real condition
       [{ any: [{ any: [{ field: 'source', op: 'in', values: ['x'] }] }] }], // groups do not nest
       [{ values: ['x'] }], // neither a condition nor a group
+      // An alternative that narrows nothing holds for everything, which makes
+      // the whole group hold — the rule would fire for every source next to
+      // the two that are spelled out.
+      [{ any: [{ field: 'source', op: 'in', values: ['src-1'] }, { field: 'jobType', op: 'in' }] }],
+      [{ any: [{ field: 'source', op: 'in', values: ['src-1'] }, { field: 'jobType', op: 'in', values: [] }] }],
     ]) {
       expect(await validate(plainToInstance(UpdateAutomationDto, { spec: { ...spec, conditions } }))).not.toHaveLength(0);
     }
+
+    // `exists` / `not_exists` compare against nothing by design, and stay legal.
+    expect(
+      await validate(
+        plainToInstance(UpdateAutomationDto, {
+          spec: { ...spec, conditions: [{ any: [{ field: 'hasTechs', op: 'not_exists' }, { field: 'source', op: 'in', values: ['s'] }] }] },
+        }),
+      ),
+    ).toHaveLength(0);
   });
 
   it('validates an edited spec down to its trigger, conditions and actions', async () => {

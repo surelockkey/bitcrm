@@ -258,6 +258,43 @@ describe('translateWorkizRule', () => {
     expect(onCall.notRunnableReason).toMatch(/any of/i);
   });
 
+  /**
+   * A readable fact with nothing to compare against is the same widening by a
+   * quieter route: it becomes `source in []`, which the evaluator reads as "not
+   * narrowed", and one such alternative makes the whole group hold.
+   */
+  it('stops the rule on a group alternative with no value, rather than leaving a hole in it', () => {
+    const result = translateWorkizRule(
+      workizRule({
+        conditions: conditions(
+          { fact: 'status', operator: 'equal', value: 'Done', friendly_strings: { fact: 'status', value: 'Done' }, mainConditionId: true },
+          {
+            any: [
+              { fact: 'adgroup_id', operator: 'equal', value: '166930', friendly_strings: { fact: 'source', value: 'GMB' } },
+              { fact: 'adgroup_id', operator: 'equal', value: '', friendly_strings: { fact: 'source', value: '' } },
+            ],
+          },
+        ),
+        events: [notification()],
+      }),
+    );
+    expect(result.runnable).toBe(false);
+    expect(result.notRunnableReason).toMatch(/any of/i);
+    expect(result.notRunnableReason).toMatch(/adgroup_id/);
+
+    // And the same alternative alone: a group of one must not become "any source".
+    const lone = translateWorkizRule(
+      workizRule({
+        conditions: conditions({ any: [{ fact: 'adgroup_id', operator: 'equal', value: '' }] }),
+        events: [notification()],
+      }),
+    );
+    expect(lone.runnable).toBe(false);
+    expect(lone.notRunnableReason).toMatch(/any of/i);
+    // No spec at all, rather than one whose only condition matches every job.
+    expect(lone.spec).toBeUndefined();
+  });
+
   it('carries a Workiz delay onto the rule', () => {
     const result = translateWorkizRule(
       workizRule({

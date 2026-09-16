@@ -385,7 +385,15 @@ function readGroup(leaves: WorkizCondition[]): { node: AutomationConditionNode }
       const named = asString(leaf.friendly_strings?.fact) || fact || 'an unnamed fact';
       return { reason: `an "any of" condition group on "${named}", which BitCRM cannot narrow on` };
     }
-    conditions.push(catalogCondition(GROUP_LEAF_CONDITION_FIELD[namespace], namespace, leaf));
+    const condition = catalogCondition(GROUP_LEAF_CONDITION_FIELD[namespace], namespace, leaf);
+    // An alternative with nothing to compare against narrows nothing, and the
+    // evaluator reads that as holding — which makes the whole group hold and
+    // the rule fire for every source. Stopping the rule is the same answer an
+    // unreadable alternative gets, and for the same reason.
+    if (!condition.values?.length) {
+      return { reason: `an "any of" condition group with an empty "${fact}" alternative` };
+    }
+    conditions.push(condition);
   }
   if (!conditions.length) return { reason: 'an empty "any of" condition group, which would hold for nothing' };
   if (conditions.length === 1) return { node: conditions[0] };

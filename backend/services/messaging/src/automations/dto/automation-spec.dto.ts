@@ -97,6 +97,15 @@ export class AutomationTriggerDto {
   offsetMinutes?: number;
 }
 
+/**
+ * One alternative of an OR group. Held to a stricter bar than a flat
+ * condition on purpose: the evaluator reads "no values" as "this field is
+ * not narrowed", which costs nothing in an AND list but makes the *whole*
+ * group hold, throwing away every other alternative. One
+ * `{field: 'jobType', op: 'in'}` next to three real sources is a rule that
+ * fires for every job — the widening groups exist to prevent — so an
+ * alternative has to actually narrow something.
+ */
 export class AutomationConditionDto {
   @ApiPropertyOptional({ enum: AUTOMATION_CONDITION_FIELDS })
   @IsIn(AUTOMATION_CONDITION_FIELDS as unknown as string[])
@@ -107,8 +116,9 @@ export class AutomationConditionDto {
   op!: string;
 
   @ApiPropertyOptional({ type: [String] })
-  @IsOptional()
+  @ValidateIf((o: AutomationConditionDto) => o.op !== 'exists' && o.op !== 'not_exists')
   @IsArray()
+  @ArrayMinSize(1)
   @IsString({ each: true })
   @ArrayMaxSize(100)
   values?: string[];
