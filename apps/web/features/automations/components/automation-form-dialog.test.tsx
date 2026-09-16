@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -45,6 +45,11 @@ const patched: Array<{ id: string; body: PatchBody }> = [];
 const created: CreateBody[] = [];
 const tested: Array<unknown> = [];
 
+const SUB_STATUSES = [
+  { id: "sub-done", name: "Paid in full", group: "done", color: "green", priority: 1, active: true },
+  { id: "sub-cancel", name: "Canceled check", group: "canceled", color: "red", priority: 1, active: true },
+];
+
 beforeEach(() => {
   patched.length = 0;
   created.length = 0;
@@ -81,9 +86,36 @@ beforeEach(() => {
       }),
     ),
     http.get("*/deals/job-types", () => HttpResponse.json({ success: true, data: [] })),
-    http.get("*/deals/job-sources", () => HttpResponse.json({ success: true, data: [] })),
-    http.get("*/deals/job-statuses", () => HttpResponse.json({ success: true, data: [] })),
-    http.get("*/messaging/templates/short-codes", () => HttpResponse.json({ success: true, data: [] })),
+    http.get("*/deals/job-sources", () =>
+      HttpResponse.json({
+        success: true,
+        data: [
+          { id: "src-gmb", name: "GMB", active: true },
+          { id: "src-yelp", name: "Yelp", active: true },
+          { id: "src-fb", name: "Facebook", active: true },
+        ],
+      }),
+    ),
+    http.get("*/deals/job-statuses", () => HttpResponse.json({ success: true, data: SUB_STATUSES })),
+    http.get("*/messaging/templates/short-codes", () =>
+      HttpResponse.json({
+        success: true,
+        data: [{ code: "job_date", group: "job", description: "The job's date", example: "Sep 20" }],
+      }),
+    ),
+    http.get("*/users", () =>
+      HttpResponse.json({
+        success: true,
+        data: [
+          { id: "u1", firstName: "Ann", lastName: "Lee", email: "ann@example.test", status: "active" },
+          { id: "u2", firstName: "Bo", lastName: "Diaz", email: "bo@example.test", status: "active" },
+        ],
+        pagination: { count: 2 },
+      }),
+    ),
+    http.get("*/users/roles", () =>
+      HttpResponse.json({ success: true, data: [{ id: "r1", name: "Dispatch", permissions: {}, dataScope: {} }] }),
+    ),
   );
 });
 
@@ -106,6 +138,16 @@ function renderCreate(draft?: AutomationDraft, onOpenChange: (open: boolean) => 
   );
 }
 
+const messageBox = () => screen.getByRole("textbox", { name: "Message" });
+
+/** Pick `option` out of the select or chip picker named `name`. */
+async function pick(user: ReturnType<typeof userEvent.setup>, name: string, option: string) {
+  await user.click(screen.getByLabelText(name));
+  await user.click(await screen.findByRole("option", { name: option }));
+}
+
+const spec = () => patched[0]?.body.spec ?? created[0]?.spec;
+
 describe("AutomationFormDialog", () => {
   it("opens on the rule's own trigger, conditions and message", async () => {
     renderDialog();
@@ -115,7 +157,7 @@ describe("AutomationFormDialog", () => {
     expect(screen.getByLabelText("Condition 1 field")).toHaveTextContent("Job status");
     expect(screen.getByLabelText("Condition 2 field")).toHaveTextContent("Job tag");
     expect(screen.getByLabelText("Action 1 recipient")).toHaveTextContent("Assigned technicians");
-    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("New scheduled job {{job_id}}");
+    expect(messageBox().textContent).toBe("New scheduled job {{job_id}}");
   });
 
   it("previews the rule as a sentence and keeps it in step with the form", async () => {
@@ -128,8 +170,7 @@ describe("AutomationFormDialog", () => {
       ),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("Delay"));
-    await user.click(await screen.findByRole("option", { name: "After 1 day" }));
+    await pick(user, "Delay", "After 1 day");
     expect(
       await screen.findByText(
         "When a job has a status of Submitted and its job tag is SCHEDULED, send the assigned tech a text message after 1 day",
@@ -214,7 +255,7 @@ describe("AutomationFormDialog, creating", () => {
     expect(await screen.findByDisplayValue("Missed call / text the client")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create automation" })).toBeInTheDocument();
     expect(screen.getByLabelText("Trigger")).toHaveTextContent("Call ends");
-    expect(screen.getByRole("textbox", { name: "Message" })).toHaveValue("Sorry we missed you");
+    expect(messageBox().textContent).toBe("Sorry we missed you");
     // Nothing exists to dry-run yet.
     expect(screen.queryByRole("button", { name: "Test against a job" })).not.toBeInTheDocument();
   });
@@ -256,5 +297,401 @@ describe("AutomationFormDialog, creating", () => {
     expect(await screen.findByText("Name is required")).toBeInTheDocument();
     expect(created).toEqual([]);
   });
+});
 
+describe("the delivery window", () => {
+  it("shows the rule's own hours, and drops them for 24/7", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    expect(await screen.findByLabelText("Automation will be sent")).toHaveTextContent("Only between set hours");
+    expect(screen.getByLabelText("From")).toHaveValue("08:00");
+    expect(screen.getByLabelText("To")).toHaveValue("18:00");
+
+    await pick(user, "Automation will be sent", "24/7");
+    expect(screen.queryByLabelText("From")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.timing).toBeUndefined();
+  });
+
+  it("opens on 24/7 for a rule with no window, and writes one only when asked", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: { ...rule.spec!, timing: undefined } });
+
+    expect(await screen.findByLabelText("Automation will be sent")).toHaveTextContent("24/7");
+    await pick(user, "Automation will be sent", "Only between set hours");
+    await user.clear(screen.getByLabelText("To"));
+    await user.type(screen.getByLabelText("To"), "20:00");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.timing).toEqual({
+      quietHours: "hold",
+      workingHours: { from: "09:00", to: "20:00" },
+    });
+  });
+
+  it('will not put "send anyway" beside a window the engine would then ignore', async () => {
+    const user = userEvent.setup();
+    // A rule Workiz exported with DND off: no window, sends at any hour.
+    renderDialog({ spec: { ...rule.spec!, timing: { quietHours: "ignore" } } });
+
+    expect(await screen.findByLabelText("Outside those hours")).toHaveTextContent("Send anyway");
+    await pick(user, "Automation will be sent", "Only between set hours");
+
+    // Asking for a window means asking for it to be kept — "send anyway"
+    // short-circuits `placement` before it ever reads `workingHours`.
+    expect(screen.getByLabelText("Outside those hours")).toHaveTextContent("Hold until the window opens");
+    await user.click(screen.getByLabelText("Outside those hours"));
+    expect(await screen.findByRole("option", { name: /Send anyway — not with a window/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("says what happens outside the window, holding by default as Workiz does", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    expect(await screen.findByLabelText("Outside those hours")).toHaveTextContent("Hold until the window opens");
+    await pick(user, "Outside those hours", "Skip the message");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.timing).toMatchObject({ quietHours: "skip" });
+  });
+});
+
+describe("the timing anchor", () => {
+  const reminder: AutomationSpec = {
+    version: 1,
+    trigger: { kind: "schedule.relative", anchor: "scheduledStart", offsetMinutes: -60 },
+    conditions: [],
+    actions: [{ type: "send_sms", to: "client", body: "See you soon" }],
+  };
+
+  it("reads a stored offset as a sentence of four parts", async () => {
+    renderDialog({ spec: reminder });
+
+    expect(await screen.findByLabelText("Send")).toHaveValue(1);
+    expect(screen.getByLabelText("Offset unit")).toHaveTextContent("hours");
+    expect(screen.getByLabelText("Before or after")).toHaveTextContent("ahead of");
+    expect(screen.getByLabelText("Counted from")).toHaveTextContent("the job's start");
+    expect(
+      screen.getByText("When it is 1 hour before the job's start, send the client a text message immediately"),
+    ).toBeInTheDocument();
+  });
+
+  it("writes the minutes the engine reads", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: reminder });
+
+    await user.clear(await screen.findByLabelText("Send"));
+    await user.type(screen.getByLabelText("Send"), "3");
+    await pick(user, "Offset unit", "days");
+    await pick(user, "Before or after", "after");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({
+      kind: "schedule.relative",
+      anchor: "scheduledStart",
+      offsetMinutes: 4320,
+    });
+  });
+
+  it("never offers an offset ahead of a date that has already passed", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: reminder });
+
+    await pick(user, "Counted from", "when it was created");
+    // The direction had to move with the anchor: nothing can be sent ahead of
+    // a job's creation, and the scheduler would simply never arm it.
+    expect(screen.getByLabelText("Before or after")).toHaveTextContent("after");
+    await user.click(screen.getByLabelText("Before or after"));
+    expect(await screen.findByRole("option", { name: "ahead of" })).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+describe("the sub-status picker", () => {
+  const statusRule: AutomationSpec = {
+    version: 1,
+    trigger: { kind: "deal.status_changed", to: ["done"] },
+    conditions: [],
+    actions: [{ type: "send_sms", to: "client", body: "All done" }],
+  };
+
+  it("offers the sub-statuses of the chosen status and stores the ids", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: statusRule });
+
+    await user.click(await screen.findByLabelText("Sub-status entered"));
+    // Only the sub-statuses filed under Done — a sub-status of another
+    // super-status can never be entered by this trigger.
+    expect(await screen.findByRole("option", { name: "Paid in full" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Canceled check" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("option", { name: "Paid in full" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({
+      kind: "deal.status_changed",
+      to: ["done"],
+      toSubStatus: ["sub-done"],
+    });
+  });
+});
+
+describe("email actions", () => {
+  it("asks for a subject only when there is a subject line to fill", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await screen.findByLabelText("Action 1 type");
+    expect(screen.queryByLabelText("Subject")).not.toBeInTheDocument();
+
+    await pick(user, "Action 1 type", "Send email");
+    await user.type(screen.getByLabelText("Subject"), "Your job is booked");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.actions).toEqual([
+      {
+        type: "send_email",
+        to: "assigned_techs",
+        body: "New scheduled job {{job_id}}",
+        subject: "Your job is booked",
+      },
+    ]);
+  });
+
+  it("saves one \"text and email\" choice as two actions, and reads them back as one", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await pick(user, "Action 1 type", "Send text and email");
+    await user.type(await screen.findByLabelText("Subject"), "Job update");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.actions).toEqual([
+      { type: "send_sms", to: "assigned_techs", body: "New scheduled job {{job_id}}" },
+      { type: "send_email", to: "assigned_techs", body: "New scheduled job {{job_id}}", subject: "Job update" },
+    ]);
+  });
+
+  it("re-opens that pair as one row, not two to keep in step by hand", async () => {
+    renderDialog({
+      spec: {
+        ...rule.spec!,
+        actions: [
+          { type: "send_sms", to: "assigned_techs", body: "New scheduled job" },
+          { type: "send_email", to: "assigned_techs", body: "New scheduled job", subject: "Job update" },
+        ],
+      },
+    });
+
+    const types = await screen.findAllByLabelText(/^Action \d+ type$/);
+    expect(types).toHaveLength(1);
+    expect(types[0]).toHaveTextContent("Send text and email");
+    expect(screen.getByLabelText("Subject")).toHaveValue("Job update");
+  });
+});
+
+describe("recipients", () => {
+  it("names the people a rule notifies, instead of sending to nobody", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await pick(user, "Action 1 recipient", "Selected users");
+    await user.click(await screen.findByLabelText("Action 1 people"));
+    await user.click(await screen.findByRole("option", { name: "Ann Lee" }));
+    await user.click(screen.getByRole("option", { name: "Bo Diaz" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.actions?.[0]).toMatchObject({ to: "users", userIds: ["u1", "u2"] });
+  });
+
+  it("refuses to save a rule that notifies a role nobody chose", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await pick(user, "Action 1 recipient", "A role");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    expect(await screen.findByText(/at least one role/i)).toBeInTheDocument();
+    expect(patched).toHaveLength(0);
+
+    await user.click(screen.getByLabelText("Action 1 roles"));
+    await user.click(await screen.findByRole("option", { name: "Dispatch" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.actions?.[0]).toMatchObject({ to: "role", roleIds: ["r1"] });
+  });
+
+  it("does not offer the job's own people to a rule with no job", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: {
+        version: 1,
+        trigger: { kind: "call.completed", callOutcome: "missed" },
+        conditions: [],
+        actions: [{ type: "send_sms", to: "dispatcher", body: "Missed one" }],
+      },
+    });
+
+    // The rule already sends to nobody — say so rather than leave it silent.
+    expect(await screen.findByText(/would reach nobody/i)).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Action 1 recipient"));
+    expect(await screen.findByRole("option", { name: /Dispatcher — needs a job/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+});
+
+describe("conditions", () => {
+  it("puts several values in one condition, where there used to be one rule each", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: {
+        ...rule.spec!,
+        conditions: [{ field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] }],
+      },
+    });
+
+    await user.click(await screen.findByLabelText("Condition 1 value"));
+    await user.click(await screen.findByRole("option", { name: "Yelp" }));
+    await user.click(screen.getByRole("option", { name: "Facebook" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([
+      { field: "source", op: "in", values: ["src-gmb", "src-yelp", "src-fb"], labels: ["GMB", "Yelp", "Facebook"] },
+    ]);
+  });
+
+  it("shows an imported \"any of\" group instead of hiding it", async () => {
+    renderDialog({
+      spec: {
+        ...rule.spec!,
+        conditions: [
+          {
+            any: [
+              { field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] },
+              { field: "source", op: "in", values: ["src-yelp"], labels: ["Yelp"] },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText("Any one of these")).toBeInTheDocument();
+    expect(screen.getByLabelText("Condition 1 option 1 value")).toHaveTextContent("GMB");
+    expect(screen.getByLabelText("Condition 1 option 2 value")).toHaveTextContent("Yelp");
+    expect(
+      screen.getByText(/its source is one of GMB or Yelp/),
+    ).toBeInTheDocument();
+  });
+
+  it("adds an alternative to a plain condition, and drops the group with its last one", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: { ...rule.spec!, conditions: [{ field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] }] },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Add an alternative to condition 1" }));
+    await user.click(screen.getByLabelText("Condition 1 option 2 field"));
+    await user.click(await screen.findByRole("option", { name: "Source" }));
+    await user.click(screen.getByLabelText("Condition 1 option 2 value"));
+    await user.click(await screen.findByRole("option", { name: "Yelp" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([
+      {
+        any: [
+          { field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] },
+          { field: "source", op: "in", values: ["src-yelp"], labels: ["Yelp"] },
+        ],
+      },
+    ]);
+
+    // Emptying the group takes the group with it, rather than leaving an
+    // "any of nothing" the rule can never satisfy.
+    await user.click(screen.getByRole("button", { name: "Remove condition 1 option 2" }));
+    await user.click(screen.getByRole("button", { name: "Remove condition 1 option 1" }));
+    expect(screen.queryByText("Any one of these")).not.toBeInTheDocument();
+    expect(screen.getByText(/No conditions/)).toBeInTheDocument();
+  });
+
+  it("says so when a condition is emptied, instead of dropping it in silence", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: { ...rule.spec!, conditions: [{ field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] }] },
+    });
+
+    expect(await screen.findByLabelText("Condition 1 value")).toHaveTextContent("GMB");
+    expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
+
+    // Unticking the last source widens the rule from one source to every
+    // source — the engine reads an empty `in` as no narrowing at all.
+    await user.click(screen.getByLabelText("Condition 1 value"));
+    await user.click(await screen.findByRole("option", { name: "GMB" }));
+    expect(await screen.findByText(/narrows nothing/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([]);
+  });
+
+  it("adds an empty or-group from the header and saves what was filled in", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: { ...rule.spec!, conditions: [] } });
+
+    await user.click(await screen.findByRole("button", { name: /Or group/ }));
+    const group = screen.getByText("Any one of these").parentElement!;
+    expect(within(group).getAllByLabelText(/Condition 1 option \d field/)).toHaveLength(2);
+
+    await user.click(screen.getByLabelText("Condition 1 option 1 value"));
+    await user.click(await screen.findByRole("option", { name: "SCHEDULED" }));
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    // The alternative nobody filled in narrows nothing and is not stored.
+    expect(patched[0].body.spec?.conditions).toEqual([
+      { any: [{ field: "tag", op: "in", values: [TAG_ID], labels: ["SCHEDULED"] }] },
+    ]);
+  });
+});
+
+describe("the message body", () => {
+  it("draws every short code as one chip", async () => {
+    renderDialog();
+
+    const body = await screen.findByRole("textbox", { name: "Message" });
+    const chips = body.querySelectorAll("[data-short-code]");
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent("{{job_id}}");
+    expect(chips[0]).toHaveAttribute("contenteditable", "false");
+  });
+
+  it("inserts a short code from the menu and saves it as text the renderer takes", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole("button", { name: "Insert a short code" }));
+    await user.click(await screen.findByRole("menuitem", { name: /job_date/ }));
+
+    const body = screen.getByRole("textbox", { name: "Message" });
+    expect(body.querySelectorAll("[data-short-code]")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(spec()?.actions?.[0].body).toBe("New scheduled job {{job_id}}{{job_date}}");
+  });
 });
