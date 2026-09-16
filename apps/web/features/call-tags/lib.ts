@@ -17,19 +17,6 @@ export function callTagMap(tags: CallTag[] | undefined): Map<string, CallTag> {
 }
 
 /**
- * Resolve a call-tag id to its display name. Falls back to the raw id rather
- * than an empty cell, so a call referencing a tag the catalog no longer
- * carries still shows something.
- */
-export function callTagName(
-  id: string | undefined,
-  tags: CallTag[] | undefined,
-): string {
-  if (!id) return "—";
-  return callTagMap(tags).get(id)?.name ?? id;
-}
-
-/**
  * Active tags only, sorted for pickers (priority desc, then name) — archived
  * tags stay resolvable on old calls but leave every picker, which is exactly
  * what `DELETE /call-tags/:id` does on the server.

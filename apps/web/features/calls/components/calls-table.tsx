@@ -206,7 +206,11 @@ function CallJobCell({ dealId }: { dealId: string }) {
   );
 }
 
-/** The linked job's tags — a call carries none of its own. */
+/**
+ * The linked job's tags — a different question from the call's own tags in
+ * the column beside it, which is why both columns exist: the job is
+ * "Warranty", the call that booked it "SPAM CALLER".
+ */
 function CallJobTagsCell({ dealId }: { dealId: string }) {
   const { data: deal } = useDeal(dealId);
   if (!deal?.tagIds?.length) return <Dash />;

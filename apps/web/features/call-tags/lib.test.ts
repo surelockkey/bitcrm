@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { CallTag } from "@bitcrm/types";
-import { activeCallTags, callTagMap, callTagName, tagColorClasses } from "./lib";
+import { activeCallTags, callTagMap, tagColorClasses } from "./lib";
 
 const tag = (over: Partial<CallTag> = {}): CallTag => ({
   id: "ct-1",
@@ -14,25 +14,19 @@ const tag = (over: Partial<CallTag> = {}): CallTag => ({
   ...over,
 });
 
-describe("callTagName", () => {
-  it("resolves an id to its name", () => {
-    expect(callTagName("ct-1", [tag()])).toBe("SPAM CALLER");
-  });
-
-  it("falls back to the raw id rather than an empty cell", () => {
-    // 1.8M calls keep their tagIds; a tag purged out of the table still has to
-    // show something on the rows that carry it.
-    expect(callTagName("ct-gone", [tag()])).toBe("ct-gone");
-  });
-
-  it("dashes out an absent id", () => {
-    expect(callTagName(undefined, [tag()])).toBe("—");
-  });
-});
-
 describe("callTagMap", () => {
   it("is empty rather than undefined while the catalog loads", () => {
     expect(callTagMap(undefined).size).toBe(0);
+  });
+
+  it("resolves an id to its tag", () => {
+    expect(callTagMap([tag()]).get("ct-1")?.name).toBe("SPAM CALLER");
+  });
+
+  it("has nothing for an id the catalog no longer carries", () => {
+    // 1.8M calls keep their tagIds; a tag purged out of the table leaves the
+    // chip to fall back to the raw id rather than render an empty cell.
+    expect(callTagMap([tag()]).get("ct-gone")).toBeUndefined();
   });
 });
 

@@ -11,10 +11,12 @@ export interface CallTagValues {
   active?: boolean;
 }
 
+/**
+ * The whole catalog in one request — tens of rows, read by every chip in the
+ * call log. `GET /call-tags/:id` exists on the server but has no caller here:
+ * nothing in the UI wants a single tag it cannot already find in this list.
+ */
 export const listCallTags = (): Promise<CallTag[]> => http.get<CallTag[]>(BASE);
-
-export const getCallTag = (id: string): Promise<CallTag> =>
-  http.get<CallTag>(`${BASE}/${id}`);
 
 export const createCallTag = (body: CallTagValues): Promise<CallTag> =>
   http.post<CallTag>(BASE, body);

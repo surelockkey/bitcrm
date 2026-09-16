@@ -29,7 +29,6 @@ export const queryKeys = {
   callTags: {
     all: () => ["call-tags"] as const,
     list: () => ["call-tags", "list"] as const,
-    detail: (id: string) => ["call-tags", "detail", id] as const,
   },
 
   calls: {

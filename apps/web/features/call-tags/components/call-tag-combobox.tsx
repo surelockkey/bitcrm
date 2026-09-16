@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useArchiveCallTag, useCallTags } from "../hooks";
 import { activeCallTags, callTagMap, tagColorClasses } from "../lib";
+import { CallTagChips } from "./call-tag-chips";
 import { CallTagFormDialog } from "./call-tag-form-dialog";
 
 /** Sort orders offered by the picker's "Sort by" menu, as in Workiz. */
@@ -200,30 +201,34 @@ export function CallTagCombobox({
       className={cn("flex flex-wrap items-center gap-1.5", className)}
       onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
     >
-      {value.map((id) => {
-        const tag = map.get(id);
-        // Until the catalog loads, a skeleton beats flashing the raw id.
-        if (!tag && isLoading) {
+      {/* Read-only is the plain chip row — the same one the rest of the app
+          renders — so there is one answer to what a call's tags look like. */}
+      {disabled ? (
+        <CallTagChips ids={value} enabled={catalogEnabled} />
+      ) : (
+        value.map((id) => {
+          const tag = map.get(id);
+          // Until the catalog loads, a skeleton beats flashing the raw id.
+          if (!tag && isLoading) {
+            return (
+              <span
+                key={id}
+                className="inline-block h-5 w-16 animate-pulse rounded-full bg-muted"
+              />
+            );
+          }
           return (
             <span
               key={id}
-              className="inline-block h-5 w-16 animate-pulse rounded-full bg-muted"
-            />
-          );
-        }
-        return (
-          <span
-            key={id}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
-              tag
-                ? tagColorClasses(tag.color)
-                : "border-border bg-muted/60 text-muted-foreground",
-              tag && !tag.active && "opacity-60",
-            )}
-          >
-            {tag?.name ?? id}
-            {!disabled ? (
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
+                tag
+                  ? tagColorClasses(tag.color)
+                  : "border-border bg-muted/60 text-muted-foreground",
+                tag && !tag.active && "opacity-60",
+              )}
+            >
+              {tag?.name ?? id}
               <button
                 type="button"
                 onClick={() => toggle(id)}
@@ -232,10 +237,10 @@ export function CallTagCombobox({
               >
                 <X className="size-3" />
               </button>
-            ) : null}
-          </span>
-        );
-      })}
+            </span>
+          );
+        })
+      )}
 
       {disabled ? (
         value.length === 0 ? (
