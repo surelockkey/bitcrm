@@ -209,6 +209,20 @@ describe('ProductsRepository', () => {
       expect(expressionNames).not.toHaveProperty('#id');
       expect(expressionNames).not.toHaveProperty('#sku');
     });
+
+    it('REMOVEs a key handed in as an explicit undefined', async () => {
+      // The contract the CSV re-import relies on to clear a stale workizType.
+      dynamoDb.client.send.mockResolvedValue({
+        Attributes: { ...createMockProduct(), PK: 'PRODUCT#prod-1', SK: 'METADATA' },
+      });
+
+      await repository.update('prod-1', { workizType: undefined, name: 'Kept' });
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.UpdateExpression).toContain('REMOVE #workizType');
+      expect(input.UpdateExpression).toContain('#name = :name');
+      expect(input.ExpressionAttributeValues).not.toHaveProperty(':workizType');
+    });
   });
   /**
    * The Workiz importer writes attributes `Product` does not declare and, for

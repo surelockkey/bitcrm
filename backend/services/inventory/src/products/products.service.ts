@@ -325,7 +325,11 @@ export class ProductsService {
               name: row.name,
               category,
               type,
-              ...(workizType && { workizType }),
+              // Explicit `undefined` REMOVEs the attribute (see
+              // ProductsRepository.update) — re-importing an `other` row as a
+              // plain `product` must not leave the stale Workiz word behind,
+              // or the item list keeps rendering "Product · other".
+              workizType: workizType ?? undefined,
               costCompany: parseFloat(row.costCompany),
               costTech: parseFloat(row.costTech),
               priceClient: parseFloat(row.priceClient),

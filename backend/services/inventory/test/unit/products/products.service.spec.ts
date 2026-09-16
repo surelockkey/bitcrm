@@ -547,6 +547,25 @@ describe('ProductsService', () => {
       );
     });
 
+    it('clears a stale workizType when the row re-imports as a plain product', async () => {
+      // Imported once as Workiz `other` (stored workizType: 'other'), then a
+      // later export brings it back as `product`. Without an explicit
+      // `undefined` the attribute survives and the item list keeps rendering
+      // the second pill: "Product · other".
+      repository.findBySku.mockResolvedValue({
+        ...createMockProduct({ id: 'prod-9' }),
+        workizType: 'other',
+      });
+
+      const result = await service.importFromCsv(csvRow('product'));
+
+      expect(result.updated).toBe(1);
+      const attrs = repository.update.mock.calls[0][1];
+      expect(attrs.type).toBe(ProductType.PRODUCT);
+      expect('workizType' in attrs).toBe(true); // present…
+      expect(attrs.workizType).toBeUndefined(); // …as a REMOVE
+    });
+
     it('leaves workizType off an ordinary row', async () => {
       repository.findBySku.mockResolvedValue(null);
       repository.create.mockResolvedValue(undefined);
