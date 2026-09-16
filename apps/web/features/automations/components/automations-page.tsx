@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Info, Pencil, PlayCircle, Workflow } from "lucide-react";
+import { Info, Loader2, Pencil, PlayCircle, RefreshCw, Workflow } from "lucide-react";
 import type { AutomationLabelMap, AutomationRule } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,12 @@ import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
-import { useAutomations, useAutomationsAccess, useUpdateAutomation } from "../hooks";
+import {
+  useAutomations,
+  useAutomationsAccess,
+  useMigrateAutomations,
+  useUpdateAutomation,
+} from "../hooks";
 import { TRIGGER_LABEL, canEnable, firingCount, ruleSentence, sortRules } from "../lib";
 import { AutomationFormDialog } from "./automation-form-dialog";
 import { AutomationRunsDialog } from "./automation-runs-dialog";
@@ -35,6 +40,7 @@ export function AutomationsPage() {
   const { canView, canEdit } = useAutomationsAccess();
   const { data: rules, isLoading } = useAutomations(canView);
   const update = useUpdateAutomation();
+  const migrate = useMigrateAutomations();
   const [editing, setEditing] = useState<AutomationRule | undefined>();
   const [showing, setShowing] = useState<AutomationRule | undefined>();
 
@@ -72,6 +78,24 @@ export function AutomationsPage() {
             What the system sends on its own. {running} of {sorted.length} rules are on.
           </p>
         </div>
+        {canEdit ? (
+          // Writes the translation of every imported Workiz rule to its row,
+          // so the specs can be edited and stop being recomputed on read.
+          // Idempotent, and it never touches a rule somebody edited by hand.
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={migrate.isPending}
+            onClick={() => migrate.mutate(undefined)}
+          >
+            {migrate.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Re-check imported rules
+          </Button>
+        ) : null}
       </div>
 
       {isLoading ? (

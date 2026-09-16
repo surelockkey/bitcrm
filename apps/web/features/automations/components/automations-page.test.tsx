@@ -85,6 +85,12 @@ beforeEach(() => {
       const rule = rules.find((r) => r.id === String(params.id));
       return HttpResponse.json({ success: true, data: { ...rule, enabled: true } });
     }),
+    http.post("*/messaging/automations/migrate", () =>
+      HttpResponse.json({
+        success: true,
+        data: { rules: 3, runnable: 2, written: 2, coverage: [] },
+      }),
+    ),
     http.get("*/deals/job-tags", () =>
       HttpResponse.json({ success: true, data: [{ id: TAG_ID, name: "SCHEDULED", color: "blue", priority: 1, active: true }] }),
     ),
@@ -138,6 +144,24 @@ describe("AutomationsPage", () => {
     const row = await screen.findByTestId("automation-invoice");
     expect(within(row).getByRole("switch")).toBeDisabled();
     expect(within(row).getByText("Cannot run here")).toBeInTheDocument();
+  });
+
+  it("re-checks the imported rules from the page", async () => {
+    const user = userEvent.setup();
+    let migrated = 0;
+    server.use(
+      http.post("*/messaging/automations/migrate", () => {
+        migrated += 1;
+        return HttpResponse.json({
+          success: true,
+          data: { rules: 3, runnable: 2, written: 2, coverage: [] },
+        });
+      }),
+    );
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /re-check imported rules/i }));
+    await waitFor(() => expect(migrated).toBe(1));
   });
 
   it("shows the firing log for a rule", async () => {
