@@ -117,6 +117,25 @@ describe("groupJobsByDay", () => {
     expect(groups[0].deals.map((d) => d.id)).toEqual(["today-done"]);
   });
 
+  it("drops finished jobs from future days too — a canceled job is no stop on Tuesday", () => {
+    const groups = groupJobsByDay(
+      [
+        deal({
+          id: "tomorrow-canceled",
+          scheduledDate: "2026-09-17",
+          superStatus: JobSuperStatus.CANCELED,
+        }),
+        deal({ id: "later-done", scheduledDate: "2026-09-23", superStatus: JobSuperStatus.DONE }),
+        deal({ id: "later-open", scheduledDate: "2026-09-23", superStatus: JobSuperStatus.SUBMITTED }),
+      ],
+      TODAY,
+    );
+
+    // Tomorrow held nothing but a canceled job, so it gets no heading at all.
+    expect(groups.map((g) => g.key)).toEqual(["today", "day:2026-09-23"]);
+    expect(groups[1].deals.map((d) => d.id)).toEqual(["later-open"]);
+  });
+
   it("orders a day by the technician's route position, then slot start", () => {
     const groups = groupJobsByDay(
       [

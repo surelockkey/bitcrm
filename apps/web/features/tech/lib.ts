@@ -95,8 +95,9 @@ export function compareVisitOrder(a: Deal, b: Deal, techId?: string): number {
  * still open from earlier days first (it needs attention), then today, then
  * tomorrow and each later day under its own heading, and finally the jobs
  * assigned to them that have no date yet. Closed jobs (Done / Canceled)
- * survive only on today's list — yesterday's finished work is history, not
- * a to-do — and every day is in visit order.
+ * survive only on today's list — yesterday's finished work, and a job canceled
+ * for next Tuesday, are history rather than a to-do — and every day is in
+ * visit order.
  */
 export function groupJobsByDay(
   deals: Deal[],
@@ -110,12 +111,16 @@ export function groupJobsByDay(
 
   for (const d of deals) {
     const day = d.scheduledDate?.slice(0, 10);
+    // Closed work is history, not a to-do, and survives only on today's list —
+    // where "I finished that this morning" is still worth seeing. A job
+    // canceled for next Tuesday is not a stop on next Tuesday's route.
+    if (isClosedJob(d) && day !== todayIso) continue;
     if (!day) {
-      if (!isClosedJob(d)) unscheduled.push(d);
+      unscheduled.push(d);
       continue;
     }
     if (day < todayIso) {
-      if (!isClosedJob(d)) overdue.push(d);
+      overdue.push(d);
       continue;
     }
     const list = byDay.get(day) ?? [];
