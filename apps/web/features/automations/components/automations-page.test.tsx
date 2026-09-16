@@ -230,7 +230,7 @@ describe("AutomationsPage tabs", () => {
     );
 
     expect(await screen.findByRole("tab", { name: "Library", selected: true })).toBeInTheDocument();
-    expect(screen.getByText("No recipes yet")).toBeInTheDocument();
+    expect(screen.getByTestId("automation-library")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "My automations · 0" })).toHaveAttribute(
       "aria-selected",
       "false",
@@ -251,7 +251,7 @@ describe("AutomationsPage tabs", () => {
       "true",
     );
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
-    expect(screen.queryByText("No recipes yet")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("automation-library")).not.toBeInTheDocument();
 
     expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
   });
@@ -261,7 +261,7 @@ describe("AutomationsPage tabs", () => {
     renderPage();
 
     await user.click(await screen.findByRole("tab", { name: "Library" }));
-    expect(await screen.findByText("No recipes yet")).toBeInTheDocument();
+    expect(await screen.findByTestId("automation-library")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "My automations · 3" }));
     expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
