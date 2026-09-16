@@ -9,6 +9,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useMyJobs } from "../hooks";
 import { PULL_THRESHOLD_PX, usePullToRefresh } from "../use-pull-to-refresh";
+import { InstallHint } from "./install-hint";
 import { TechJobCard } from "./tech-job-card";
 import { TeamChatBadge } from "./team-chat-badge";
 
@@ -72,6 +73,8 @@ export function MyJobsPage() {
         </div>
 
         <div className="mx-auto w-full max-w-2xl space-y-6 px-4 pb-24 pt-2 sm:px-6">
+          {/* Only where installing is possible, and only until it's done. */}
+          <InstallHint />
           {loading ? (
             <div className="space-y-3">
               <Skeleton className="h-5 w-24" />
