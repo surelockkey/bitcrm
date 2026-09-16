@@ -2,6 +2,9 @@ import type { OutboxRecord, QueueRecord, UploadRecord } from '../../lib/queue/ty
 import {
   describeQueue,
   formatWait,
+  QUEUE_TICK_FAR_MS,
+  QUEUE_TICK_NEAR_MS,
+  queueTickInterval,
   summarizeQueue,
   tabBadge,
 } from './lib';
@@ -11,6 +14,7 @@ const NOW = 1_700_000_000_000;
 const action = (over: Partial<OutboxRecord> = {}): QueueRecord => ({
   queue: 'outbox',
   id: 'r1',
+  userId: 'tech-1',
   kind: 'arrived',
   dealId: 'd1',
   payload: '{}',
@@ -25,6 +29,7 @@ const action = (over: Partial<OutboxRecord> = {}): QueueRecord => ({
 const upload = (over: Partial<UploadRecord> = {}): QueueRecord => ({
   queue: 'uploads',
   id: 'u1',
+  userId: 'tech-1',
   dealId: 'd1',
   localUri: 'file:///a.jpg',
   fileName: 'job-K4T9ZW-2026-09-16.jpg',
@@ -156,21 +161,86 @@ describe('summarizeQueue', () => {
         action({ id: '4', state: 'failed' }),
         action({ id: '5', state: 'done' }),
       ]),
-    ).toEqual({ waiting: 2, sending: 1, failed: 1 });
+    ).toEqual({ waiting: 2, sending: 1, failed: 1, unknown: 0 });
   });
 });
 
 describe('tabBadge', () => {
   it('shows nothing at all when the queue is empty', () => {
     // A zero badge over "Queue" reads as a problem where there is none.
-    expect(tabBadge({ waiting: 0, sending: 0, failed: 0 })).toBeUndefined();
+    expect(tabBadge({ waiting: 0, sending: 0, failed: 0, unknown: 0 })).toBeUndefined();
   });
 
   it('counts everything outstanding', () => {
-    expect(tabBadge({ waiting: 2, sending: 1, failed: 1 })).toBe('4');
+    expect(tabBadge({ waiting: 2, sending: 1, failed: 1, unknown: 0 })).toBe('4');
   });
 
   it('stops counting past nine', () => {
-    expect(tabBadge({ waiting: 20, sending: 0, failed: 0 })).toBe('9+');
+    expect(tabBadge({ waiting: 20, sending: 0, failed: 0, unknown: 0 })).toBe('9+');
+  });
+});
+
+describe('queueTickInterval', () => {
+  it('asks for no timer when nothing is waiting', () => {
+    expect(queueTickInterval([], NOW)).toBeNull();
+    expect(queueTickInterval([action({ state: 'done' })], NOW)).toBeNull();
+    expect(queueTickInterval([action({ state: 'failed' })], NOW)).toBeNull();
+  });
+
+  it('ticks by the second when the next attempt is nearly due', () => {
+    expect(
+      queueTickInterval([action({ nextAttemptAt: NOW + 20_000 })], NOW),
+    ).toBe(QUEUE_TICK_NEAR_MS);
+  });
+
+  it('ticks slowly while the wait is long', () => {
+    expect(
+      queueTickInterval([action({ nextAttemptAt: NOW + 14 * 60_000 })], NOW),
+    ).toBe(QUEUE_TICK_FAR_MS);
+  });
+
+  it('takes its pace from the soonest row, not the last one', () => {
+    expect(
+      queueTickInterval(
+        [
+          action({ id: 'far', nextAttemptAt: NOW + 15 * 60_000 }),
+          action({ id: 'near', nextAttemptAt: NOW + 5_000 }),
+        ],
+        NOW,
+      ),
+    ).toBe(QUEUE_TICK_NEAR_MS);
+  });
+});
+
+describe('a row whose outcome nobody knows', () => {
+  it('says so, in the server-agnostic words the recovery wrote', () => {
+    const [item] = describeQueue(
+      [action({ state: 'unknown', kind: 'note', lastError: 'It may already have been sent.' })],
+      NOW,
+    );
+    expect(item!.detail).toBe('It may already have been sent.');
+  });
+
+  it('offers both ways out: send it again, or say it is already there', () => {
+    const [item] = describeQueue([action({ state: 'unknown', kind: 'note' })], NOW);
+    expect(item!.canRetry).toBe(true);
+    expect(item!.canDiscard).toBe(true);
+  });
+
+  it('sorts above everything else — it is the one that needs a decision', () => {
+    const items = describeQueue(
+      [
+        action({ id: 'failed', state: 'failed' }),
+        action({ id: 'pending', state: 'pending' }),
+        action({ id: 'unknown', state: 'unknown' }),
+      ],
+      NOW,
+    );
+    expect(items.map((i) => i.id)).toEqual(['unknown', 'failed', 'pending']);
+  });
+
+  it('counts towards the tab badge — it is outstanding work', () => {
+    expect(summarizeQueue([action({ state: 'unknown' })]).unknown).toBe(1);
+    expect(tabBadge({ waiting: 0, sending: 0, failed: 0, unknown: 1 })).toBe('1');
   });
 });

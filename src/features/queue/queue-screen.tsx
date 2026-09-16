@@ -1,10 +1,16 @@
+import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { useTheme } from '../../lib/theme/theme-provider';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { EmptyState } from '../../ui/EmptyState';
 import { Screen, ScreenHeader } from '../../ui/Screen';
-import { describeQueue, summarizeQueue, type QueueItemView } from './lib';
+import {
+  describeQueue,
+  queueTickInterval,
+  summarizeQueue,
+  type QueueItemView,
+} from './lib';
 import { useQueue } from './queue-provider';
 
 export interface QueueScreenProps {
@@ -26,9 +32,22 @@ export function QueueScreen({ onOpenJob }: QueueScreenProps) {
   const { colors, spacing, type } = useTheme();
   const { records, retry, retryAll, discard, drainNow, isDraining } = useQueue();
 
-  const items = describeQueue(records, Date.now());
+  // A countdown that does not count down is worse than no countdown: it says
+  // "trying again in 14 min" for as long as the screen stays open. `records`
+  // only changes when a drain settles something, so the clock has to be its
+  // own piece of state.
+  const [now, setNow] = useState(() => Date.now());
+  const interval = queueTickInterval(records, now);
+  useEffect(() => {
+    if (interval === null) return;
+    const timer = setInterval(() => setNow(Date.now()), interval);
+    return () => clearInterval(timer);
+  }, [interval]);
+
+  const items = describeQueue(records, now);
   const counts = summarizeQueue(records);
-  const outstanding = counts.waiting + counts.sending + counts.failed;
+  const outstanding =
+    counts.waiting + counts.sending + counts.failed + counts.unknown;
 
   if (!outstanding) {
     return (
@@ -47,11 +66,13 @@ export function QueueScreen({ onOpenJob }: QueueScreenProps) {
     <Screen testID="queue-screen">
       <ScreenHeader
         title="Queue"
-        subtitle={
-          counts.failed
-            ? `${counts.failed} not sent · ${counts.waiting + counts.sending} on the way`
-            : `${counts.waiting + counts.sending} on the way`
-        }
+        subtitle={[
+          counts.unknown ? `${counts.unknown} need checking` : null,
+          counts.failed ? `${counts.failed} not sent` : null,
+          `${counts.waiting + counts.sending} on the way`,
+        ]
+          .filter(Boolean)
+          .join(' · ')}
       />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
         <View style={{ gap: spacing.md }}>
@@ -80,7 +101,9 @@ export function QueueScreen({ onOpenJob }: QueueScreenProps) {
             onDiscard={() =>
               Alert.alert(
                 'Discard this?',
-                'It has not reached the server, and this deletes it from the phone.',
+                item.state === 'unknown'
+                  ? 'Use this once you have opened the job and seen that it did reach the server. It only deletes it from the phone.'
+                  : 'It has not reached the server, and this deletes it from the phone.',
                 [
                   { text: 'Keep it', style: 'cancel' },
                   {
@@ -117,27 +140,32 @@ function QueueRow({
 }) {
   const { colors, spacing, type } = useTheme();
   const failed = item.state === 'failed';
+  const unknown = item.state === 'unknown';
 
   return (
     <Card testID={`queue-item-${item.id}`} style={{ gap: spacing.sm }}>
       <Text style={[type.label, { color: colors.text }]}>{item.title}</Text>
       <Text
         accessibilityLiveRegion="polite"
-        style={[type.caption, { color: failed ? colors.danger : colors.textMuted }]}
+        style={[
+          type.caption,
+          { color: failed ? colors.danger : unknown ? colors.warning : colors.textMuted },
+        ]}
       >
         {item.detail}
       </Text>
 
       <View style={{ gap: spacing.md, marginTop: spacing.sm }}>
         <Button
-          label="Open the job"
-          variant="ghost"
+          label={unknown ? 'Open the job and check' : 'Open the job'}
+          variant={unknown ? 'primary' : 'ghost'}
           testID={`queue-open-${item.id}`}
           onPress={() => onOpenJob(item.dealId)}
         />
         {item.canRetry ? (
           <Button
-            label="Try again now"
+            label={unknown ? 'Send it again' : 'Try again now'}
+            hint={unknown ? 'Only if the job does not show it' : undefined}
             variant={failed ? 'primary' : 'secondary'}
             testID={`queue-retry-${item.id}`}
             onPress={onRetry}
@@ -145,7 +173,7 @@ function QueueRow({
         ) : null}
         {item.canDiscard ? (
           <Button
-            label="Discard"
+            label={unknown ? 'It is already on the job' : 'Discard'}
             variant="ghost"
             testID={`queue-discard-${item.id}`}
             onPress={onDiscard}

@@ -1,5 +1,5 @@
 import { Alert } from 'react-native';
-import { fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen } from '@testing-library/react-native';
 import { renderScreen } from '../../test/render';
 import { QueueScreen } from './queue-screen';
 import type { OutboxRecord, QueueRecord, UploadRecord } from '../../lib/queue/types';
@@ -26,6 +26,7 @@ const NOW = 1_700_000_000_000;
 const action = (over: Partial<OutboxRecord> = {}): QueueRecord => ({
   queue: 'outbox',
   id: 'r1',
+  userId: 'tech-1',
   kind: 'arrived',
   dealId: 'd1',
   payload: '{}',
@@ -40,6 +41,7 @@ const action = (over: Partial<OutboxRecord> = {}): QueueRecord => ({
 const upload = (over: Partial<UploadRecord> = {}): QueueRecord => ({
   queue: 'uploads',
   id: 'u1',
+  userId: 'tech-1',
   dealId: 'd1',
   localUri: 'file:///a.jpg',
   fileName: 'job-d1.jpg',
@@ -160,5 +162,48 @@ describe('QueueScreen', () => {
     mockRecords = [action({ state: 'sending' })];
     await renderScreen(<QueueScreen onOpenJob={onOpenJob} />);
     expect(screen.queryByTestId('queue-retry-r1')).toBeNull();
+  });
+});
+
+describe('the countdown', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('counts down instead of freezing at whatever it read on mount', async () => {
+    // `describeQueue(records, Date.now())` is evaluated at render, and records
+    // change only when a drain settles something — so without a tick this said
+    // "Trying again in 2 min" long after the attempt had happened.
+    const start = Date.now();
+    mockRecords = [action({ nextAttemptAt: start + 125_000 })];
+    await renderScreen(<QueueScreen onOpenJob={jest.fn()} />);
+
+    expect(screen.getByText('Trying again in 2 min')).toBeTruthy();
+
+    await act(async () => {
+      jest.setSystemTime(start + 65_000);
+      jest.advanceTimersByTime(30_000);
+    });
+
+    expect(screen.getByText('Trying again in 1 min')).toBeTruthy();
+  });
+
+  it('shows what an unknown row needs from the technician', async () => {
+    mockRecords = [
+      action({
+        kind: 'note',
+        state: 'unknown',
+        lastError: 'It may already have been sent.',
+      }),
+    ];
+    await renderScreen(<QueueScreen onOpenJob={jest.fn()} />);
+
+    expect(screen.getByText('It may already have been sent.')).toBeTruthy();
+    expect(screen.getByTestId('queue-retry-r1')).toBeTruthy();
+    expect(screen.getByTestId('queue-discard-r1')).toBeTruthy();
+    expect(screen.getByText('1 need checking · 0 on the way')).toBeTruthy();
   });
 });
