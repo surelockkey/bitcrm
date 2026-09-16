@@ -67,6 +67,7 @@ export {
   VoicemailNode,
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
+export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { ExternalCompany } from './entities/external-company.entity';
