@@ -17,7 +17,10 @@ function makeController() {
     ]),
   };
   const runs = { listByRule: jest.fn(async () => [{ id: 'run-1', ruleId: 'late', outcome: 'sent', actions: [] }]) };
-  const engine = { testRun: jest.fn(async () => ({ id: 'run-2', ruleId: 'late', outcome: 'dry_run', actions: [] })) };
+  const engine = {
+    testRun: jest.fn(async () => ({ id: 'run-2', ruleId: 'late', outcome: 'dry_run', actions: [] })),
+    invalidate: jest.fn(),
+  };
   return { controller: new AutomationsController(service as any, runs as any, engine as any), service, runs, engine };
 }
 
@@ -31,6 +34,15 @@ describe('AutomationsController', () => {
       data: { id: 'late', enabled: false, updatedBy: ADMIN.id },
     });
     expect(service.update).toHaveBeenCalledWith('late', { enabled: false }, ADMIN);
+  });
+
+  it('drops the engine\'s rule cache after an edit, so a switch takes effect at once', async () => {
+    const { controller, engine } = makeController();
+    await controller.update('late', { enabled: true }, ADMIN);
+    expect(engine.invalidate).toHaveBeenCalledTimes(1);
+
+    await controller.migrate(ADMIN);
+    expect(engine.invalidate).toHaveBeenCalledTimes(2);
   });
 
   it('guards the routes with settings.view / settings.edit', () => {

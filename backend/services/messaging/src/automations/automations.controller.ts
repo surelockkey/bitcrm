@@ -50,6 +50,7 @@ export class AutomationsController {
   })
   async migrate(@CurrentUser() user: JwtUser, @Query('dryRun') dryRun?: string) {
     const rows = await this.service.migrate(user, { dryRun: dryRun === 'true' });
+    this.engine.invalidate();
     return {
       success: true,
       data: {
@@ -108,6 +109,9 @@ export class AutomationsController {
   })
   async update(@Param('id') id: string, @Body() dto: UpdateAutomationDto, @CurrentUser() user: JwtUser) {
     const data = await this.service.update(id, dto, user);
+    // The engine caches the enabled rules for a few seconds; an edit made
+    // here should be live on the next event, not on the next cache miss.
+    this.engine.invalidate();
     return { success: true, data };
   }
 }
