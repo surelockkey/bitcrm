@@ -197,6 +197,39 @@ describe("AddProductDialog (imported line)", () => {
     });
   });
 
+  it("re-applies the band as soon as the price itself is edited", () => {
+    render(dialog(importedLine));
+
+    // The exemption covers the price Workiz recorded, not a new one typed on
+    // top of it — otherwise any imported line is a permanent hole in the rule.
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
+
+    expect(screen.getByText(/allowed .*±15%/i)).toBeInTheDocument();
+    expect(screen.queryByText(/the ±15% band doesn.t apply/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+  });
+
+  it("accepts an edited price that lands inside the band", async () => {
+    const u = user();
+    render(dialog(importedLine));
+
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "45" } });
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+
+    await u.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(mocks.replace.mock.calls[0][0].body).toMatchObject({ priceClient: 45 });
+  });
+
+  it("restores the exemption when the imported price is typed back", () => {
+    render(dialog(importedLine));
+
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "999" } });
+    fireEvent.change(screen.getByDisplayValue("999"), { target: { value: "5" } });
+
+    expect(screen.getByText(/the ±15% band doesn.t apply/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+
   it("re-applies the band once the item is swapped for another", async () => {
     const u = user();
     render(dialog(importedLine));

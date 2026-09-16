@@ -214,10 +214,15 @@ historical line:
 - `priceSource` is `'catalog' | 'override' | 'imported'`, optional, and absent
   on every row BitCRM has written so far — readers treat "absent" as "the band
   applies".
-- Editing an imported line through the UI turns it into an ordinary line
-  (`fulfillment` becomes `sourced` / `to_order` / `service`, `priceSource` is
-  dropped) and from then on the band applies. Swapping the item for a different
-  catalog product re-applies the band immediately.
+- The exemption covers **the price Workiz recorded, not a new one**. The
+  dialog waives the band only while the client-price field still reads the
+  stored value; type a different number and the ±15 % rule is back and Save
+  is blocked outside it. Swapping the item for a different catalog product
+  re-applies it too. (Same rule as the product editor's waived caps: a value
+  is loose only for as long as it comes back unchanged.)
+- Saving turns an imported line into an ordinary one (`fulfillment` becomes
+  `sourced` / `to_order` / `service`, `priceSource` is dropped), so the band
+  applies unconditionally from then on.
 - The line list badges an imported line "Imported"; the configure step says
   "Imported from Workiz — the ±15% band doesn't apply" and shows the catalog
   price for reference.
