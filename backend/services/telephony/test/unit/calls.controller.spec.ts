@@ -35,6 +35,7 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     setPartiesManually: jest.fn().mockResolvedValue(undefined),
     activeCallFor: jest.fn().mockResolvedValue(null),
     listByParty: jest.fn().mockResolvedValue({ items: [] }),
+    updateTags: jest.fn().mockResolvedValue(record({ tagIds: ['t-spam'] })),
     ...over,
   } as unknown as CallsService;
   const bus = { stream: () => subject.asObservable() } as unknown as CallEventsBus;
@@ -157,6 +158,72 @@ describe('CallsController.list', () => {
     const { controller, calls } = makeController();
     await controller.list();
     expect((calls.list as jest.Mock).mock.calls[0][2]).toBe(25);
+  });
+
+  it('passes a call-tag filter through, and drops a blank one', async () => {
+    const { controller, calls } = makeController();
+
+    await controller.list(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      't-spam',
+    );
+    expect(calls.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ tagId: 't-spam' }),
+      undefined,
+      25,
+    );
+
+    await controller.list(
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
+      '',
+    );
+    expect((calls.list as jest.Mock).mock.calls[1][0].tagId).toBeUndefined();
+  });
+});
+
+describe('CallsController.updateTags', () => {
+  it('hands the delta and the actor to the service and returns the named record', async () => {
+    const { controller, calls } = makeController();
+
+    const res = await controller.updateTags(
+      'CA1',
+      { add: ['t-spam'], remove: ['t-tech'] },
+      USER,
+    );
+
+    expect(calls.updateTags).toHaveBeenCalledWith(
+      'CA1',
+      { add: ['t-spam'], remove: ['t-tech'] },
+      { id: 'sup-1' },
+    );
+    expect(res.success).toBe(true);
+    expect(res.data.tagIds).toEqual(['t-spam']);
+  });
+
+  it('404s for an unknown call', async () => {
+    const { controller } = makeController({
+      updateTags: jest.fn().mockResolvedValue(null),
+    });
+    await expect(
+      controller.updateTags('CAnope', { add: ['t-spam'] }, USER),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('masks the numbers on the way out like every other read', async () => {
+    const { controller } = makeController({
+      permissions: { maySeeClientNumbers: jest.fn().mockResolvedValue(false) },
+      updateTags: jest
+        .fn()
+        .mockResolvedValue(record({ from: '+14045550100', to: '+14045551234', tagIds: ['t-spam'] })),
+    });
+
+    const res = await controller.updateTags('CA1', { add: ['t-spam'] }, USER);
+
+    expect(res.data.to).toBeUndefined();
+    expect(res.data.toMasked).toBe(true);
+    expect(res.data.tagIds).toEqual(['t-spam']);
   });
 });
 

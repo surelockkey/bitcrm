@@ -100,6 +100,7 @@ by `CallsService.applyLifecycle` (the single call-record writer), gated on
 | `call.started` | `CallStartedEvent` `{callSid, direction, from, to, agentId, answeredAt}` | both parties connected (first `answeredAt`) | — (reporting/CRM activity, future) |
 | `call.completed` | `CallCompletedEvent` `{callSid, …, status, durationSeconds, startedAt, endedAt}` | first terminal status (completed/busy/no-answer/failed/canceled) | **messaging** (queue `call-events-to-messaging`) — the automation rules that text a missed caller back |
 | `call.recording_ready` | `CallRecordingReadyEvent` `{callSid, recordingSid, recordingDurationSeconds}` | conference recording processed | — |
+| `call.updated` | `CallUpdatedEvent` `{callSid, tagIds, actorId, updatedAt}` | a person adds or removes call tags (`PATCH /calls/:sid/tags`, `CallsService.updateTags`) — never on lifecycle changes | — (reporting on SPAM/Tech Call volumes, future) |
 
 Live-UI updates deliberately do **not** go through SNS: the calls page streams
 them over SSE (`GET /api/telephony/calls/stream`), fed by Redis pub/sub

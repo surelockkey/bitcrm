@@ -89,6 +89,14 @@ export interface CallRecord {
   dealLinkedBy?: string;
   dealLinkedAt?: string;
   /**
+   * Call-tag catalog ids (CALLTAG# rows) a person put on this call — the
+   * Workiz "call tags": SPAM CALLER, Tech Call, WRONG NUMBER… Like `dealId`,
+   * NOT in the `upsert` whitelist on purpose: a lifecycle webhook must never
+   * be able to replace a list a dispatcher curated. Written only by
+   * `setTags`; absent (not `[]`) when the call carries none.
+   */
+  tagIds?: string[];
+  /**
    * Job-source catalog id the call is attributed to — resolved from the
    * tracked number it came through (see NumberSettingsRepository) and stamped
    * once, so re-assigning a number later never rewrites past calls.
@@ -150,6 +158,22 @@ export interface ListCallsFilter {
    * directly?" — which is `origin=softphone` on outbound calls.
    */
   origin?: string;
+  /**
+   * Only calls carrying this call tag. A FilterExpression inside the
+   * date-ordered partition walk — see `buildListQuery` for what that costs.
+   */
+  tagId?: string;
+}
+
+/**
+ * The stored tag list changed between the read and the conditional write —
+ * two people tagging the same call at once. The caller re-reads and retries.
+ */
+export class CallTagsConflictError extends Error {
+  constructor(callSid: string) {
+    super(`Tags on ${callSid} changed concurrently`);
+    this.name = 'CallTagsConflictError';
+  }
 }
 
 export interface ListCallsResult {
@@ -177,6 +201,21 @@ function hydrate(item: Record<string, unknown>): CallRecord {
 
 /** Internal Dynamo page size while filling a filtered page. */
 const QUERY_PAGE_SIZE = 100;
+
+/**
+ * How many internal pages one `list()` may read before it stops and hands the
+ * caller a cursor instead.
+ *
+ * Every filter here is a FilterExpression over the date-ordered CALL#ALL walk:
+ * Dynamo reads the rows and then drops the ones that do not match, so a
+ * selective value (a tag nobody has used yet, a number that never called)
+ * matches nothing for page after page. Unbounded, that is one HTTP request
+ * doing ~18,000 sequential Queries across a 1.8M-row partition — well past any
+ * load-balancer idle timeout, and a dropdown click away. Bounded, the worst
+ * case is 20 round trips and ~2,000 rows scanned; the caller gets whatever was
+ * found plus `nextCursor` and decides whether to keep walking.
+ */
+const MAX_QUERY_PAGES = 20;
 
 @Injectable()
 export class CallsRepository {
@@ -392,6 +431,64 @@ export class CallsRepository {
     );
   }
 
+  /**
+   * Replace the call's tag list — but only if it is still what the caller
+   * read (`expected`; `undefined` = the record had no tags). Two dispatchers
+   * clearing a spam queue can race on one call, and a plain overwrite would
+   * silently drop one of their tags. An empty `tagIds` removes the attribute
+   * rather than storing `[]`, so "no tags" has one shape for the filter and
+   * the importer alike. `attribute_exists(PK)` keeps this from minting a
+   * phantom record for an unknown sid.
+   */
+  async setTags(
+    callSid: string,
+    tagIds: string[],
+    expected: string[] | undefined,
+  ): Promise<void> {
+    const names: Record<string, string> = {
+      '#tagIds': 'tagIds',
+      '#updatedAt': 'updatedAt',
+    };
+    const values: Record<string, unknown> = {
+      ':now': new Date().toISOString(),
+    };
+    let update: string;
+    if (tagIds.length) {
+      update = 'SET #tagIds = :tagIds, #updatedAt = :now';
+      values[':tagIds'] = tagIds;
+    } else {
+      update = 'REMOVE #tagIds SET #updatedAt = :now';
+    }
+    let condition = 'attribute_exists(PK)';
+    if (expected === undefined) {
+      condition += ' AND attribute_not_exists(#tagIds)';
+    } else {
+      condition += ' AND #tagIds = :expected';
+      values[':expected'] = expected;
+    }
+
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { PK: callPk(callSid), SK: 'METADATA' },
+          UpdateExpression: update,
+          ConditionExpression: condition,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }),
+      );
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.name === 'ConditionalCheckFailedException'
+      ) {
+        throw new CallTagsConflictError(callSid);
+      }
+      throw error;
+    }
+  }
+
   async getBySid(callSid: string): Promise<CallRecord | null> {
     const res = await this.dynamoDb.client.send(
       new GetCommand({
@@ -479,6 +576,10 @@ export class CallsRepository {
    * time ordering; status/direction/agent/number narrow via FilterExpression,
    * looping internal pages until `limit` items are collected — the same shape
    * as the CRM work-orders registry listing).
+   *
+   * The loop is bounded by MAX_QUERY_PAGES: a short page with a `nextCursor`
+   * means "this is what the walk found so far", not "this is all there is", so
+   * a caller that wants more asks for the next page.
    */
   async list(
     filter: ListCallsFilter,
@@ -491,7 +592,7 @@ export class CallsRepository {
     const items: CallRecord[] = [];
     let exclusiveStartKey = this.decodeCursor(cursor);
 
-    for (;;) {
+    for (let pages = 1; ; pages++) {
       const res = await this.dynamoDb.client.send(
         new QueryCommand({
           TableName: this.tableName,
@@ -521,6 +622,11 @@ export class CallsRepository {
         return { items, nextCursor: this.encodeCursor(resumeKey) };
       }
       if (!lastEvaluatedKey) return { items };
+      // Budget spent with the page unfilled: hand back the resume key rather
+      // than keep walking the log inside one request.
+      if (pages >= MAX_QUERY_PAGES) {
+        return { items, nextCursor: this.encodeCursor(lastEvaluatedKey) };
+      }
       exclusiveStartKey = lastEvaluatedKey;
     }
   }
@@ -640,6 +746,22 @@ export class CallsRepository {
       clauses.push('#origin = :origin');
       names['#origin'] = 'origin';
       values[':origin'] = filter.origin;
+    }
+    if (filter.tagId) {
+      // Tags are a list attribute, so membership is `contains`, and this is a
+      // FilterExpression inside the CALL#ALL partition walk: DynamoDB reads
+      // every row in date order and drops the untagged ones AFTER charging
+      // for them (QUERY_PAGE_SIZE rows per internal page). The cost of one
+      // API page is therefore how far back `limit` matches reach, not the
+      // page size — a rare tag with no date range can walk months of log
+      // for 25 rows, so the walk is capped at MAX_QUERY_PAGES per request and
+      // returns a cursor when it runs out of budget. The UI pairs this with
+      // dateFrom/dateTo; if tag lookups become routine, the upgrade is a
+      // sparse GSI keyed CALLTAG#<id> maintained by setTags, not a cheaper
+      // filter.
+      clauses.push('contains(#tagIds, :tagId)');
+      names['#tagIds'] = 'tagIds';
+      values[':tagId'] = filter.tagId;
     }
     if (filter.number) {
       clauses.push('(contains(#from, :number) OR contains(#to, :number))');

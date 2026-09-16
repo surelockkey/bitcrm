@@ -10,6 +10,7 @@ import {
   ListChecks,
   ListPlus,
   Phone,
+  PhoneCall,
   Users,
   Workflow,
   MessagesSquare,
@@ -101,6 +102,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     href: "/settings/call-groups",
     description: "Who an incoming call rings — softphones, personal numbers, or both.",
     icon: Users,
+    resource: "settings",
+  },
+  {
+    label: "Call Tags",
+    href: "/settings/call-tags",
+    description: "Colored labels for calls — spam, wrong number, a tech calling in.",
+    icon: PhoneCall,
     resource: "settings",
   },
   {

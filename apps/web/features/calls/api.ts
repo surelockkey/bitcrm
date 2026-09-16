@@ -52,6 +52,18 @@ export const setCallDeal = (
 ): Promise<CallRecord> =>
   http.put<CallRecord>(`${BASE}/${sid}/deal`, { dealId });
 
+/**
+ * Put call tags on a call, or take them off — the Workiz "Tags" column.
+ *
+ * A delta rather than the whole list on purpose: two dispatchers can be
+ * working the same call, and the server compare-and-sets the stored list, so
+ * neither one's tag is silently dropped.
+ */
+export const setCallTags = (
+  sid: string,
+  change: { add?: string[]; remove?: string[] },
+): Promise<CallRecord> => http.patch<CallRecord>(`${BASE}/${sid}/tags`, change);
+
 /** Correct who a call was with; marks the record as set by a person. */
 export const setCallParty = (
   sid: string,

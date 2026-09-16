@@ -8,6 +8,10 @@ export const CALLS_TABLE = process.env.CALLS_TABLE || 'BitCRM_Calls';
 //     → the global time-ordered call log (calls page list + live calls).
 //   Party index (GSI3): GSI3PK=PARTY#<kind>#<id>, GSI3SK=<startedAt>#<callSid>
 //     → every call with one client or teammate, without scanning the log.
+//   Config collections in the same table, no GSI keys (never in the log):
+//     NUMSET#ALL / <E.164>          per-number settings (number-settings.repository)
+//     TELEPHONY#SETTINGS / METADATA workspace singleton (telephony-settings.service)
+//     CALLTAG#ALL / CALLTAG#<id>    call-tag catalog (call-tags/call-tags.constants)
 export const CALLS_GSI1_NAME = 'AgentIndex';
 export const CALLS_GSI2_NAME = 'AllCallsIndex';
 export const CALLS_GSI3_NAME = 'PartyIndex';

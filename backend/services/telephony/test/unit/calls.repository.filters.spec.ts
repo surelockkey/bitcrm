@@ -112,6 +112,18 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     expect(input.ExpressionAttributeNames['#to']).toBe('to');
   });
 
+  it('filters by call tag with a contains() on the list attribute', async () => {
+    const { repo, sent } = makeRepo([{ Items: [] }]);
+    await repo.list({ tagId: 'tag-spam' }, undefined, 25);
+
+    const input = sent[0].input;
+    // Still the AllCallsIndex walk — the tag narrows it, it does not index it.
+    expect(input.IndexName).toBe('AllCallsIndex');
+    expect(input.FilterExpression).toContain('contains(#tagIds, :tagId)');
+    expect(input.ExpressionAttributeNames['#tagIds']).toBe('tagIds');
+    expect(input.ExpressionAttributeValues[':tagId']).toBe('tag-spam');
+  });
+
   it('ignores an empty number list rather than matching everything', async () => {
     const { repo, sent } = makeRepo([{ Items: [] }]);
     await repo.list({ numbers: [] }, undefined, 25);
@@ -145,6 +157,25 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     await repo.list({}, first.nextCursor, 2);
     const second = sent[1].input;
     expect(second.ExclusiveStartKey).toEqual({ PK: 'CALL#CA2' });
+  });
+
+  it('stops walking after a bounded number of internal pages and hands back a cursor', async () => {
+    // A tag nobody has used yet matches nothing: every internal page is read
+    // and thrown away. Unbounded this is ~18,000 sequential Queries in one
+    // HTTP request over the 1.8M-row CALL#ALL partition.
+    const { repo, sent } = makeRepo([
+      { Items: [], LastEvaluatedKey: { PK: 'CALL#CAx' } },
+    ]);
+    const res = await repo.list({ tagId: 'tag-nobody-used' }, undefined, 25);
+
+    expect(sent.length).toBeLessThanOrEqual(20);
+    expect(res.items).toHaveLength(0);
+    // Empty page, more log behind it — the caller decides whether to go on.
+    expect(res.nextCursor).toBeDefined();
+    const resumed = JSON.parse(
+      Buffer.from(res.nextCursor as string, 'base64url').toString(),
+    );
+    expect(resumed).toEqual({ PK: 'CALL#CAx' });
   });
 
   it('stops early with a synthesized cursor when the limit fills mid-page', async () => {

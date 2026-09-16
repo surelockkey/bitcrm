@@ -16,6 +16,8 @@ import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import type { DateTimeRange } from "@/lib/date-range";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { useCallTags } from "@/features/call-tags/hooks";
+import { activeCallTags } from "@/features/call-tags/lib";
 import { useCallsList } from "../hooks";
 import { useCallStream } from "../use-call-stream";
 import { STATUS_LABEL, type CallsFilter, type CallStatus } from "../lib";
@@ -30,6 +32,7 @@ export function CallsPage() {
   const [number, setNumber] = useState("");
   const [direction, setDirection] = useState("all");
   const [status, setStatus] = useState("all");
+  const [tagId, setTagId] = useState("all");
   // Absolute instants (UTC ISO) — the picker edits them in local time.
   const [range, setRange] = useState<DateTimeRange>({});
   const debouncedNumber = useDebouncedValue(number, 300);
@@ -39,10 +42,11 @@ export function CallsPage() {
       number: debouncedNumber.replace(/[^\d+]/g, "") || undefined,
       direction: direction === "all" ? undefined : direction,
       status: status === "all" ? undefined : status,
+      tagId: tagId === "all" ? undefined : tagId,
       dateFrom: range.from,
       dateTo: range.to,
     }),
-    [debouncedNumber, direction, status, range],
+    [debouncedNumber, direction, status, tagId, range],
   );
 
   const query = useCallsList(filter);
@@ -58,6 +62,10 @@ export function CallsPage() {
   }, [query.data]);
 
   const canView = can("calls");
+  // The catalog sits behind `settings.view`; without it there is nothing to
+  // offer in the filter, so don't fire a request that is certain to 403.
+  const { data: callTags } = useCallTags(can("settings"));
+  const tagOptions = activeCallTags(callTags);
   // Real-time updates while the page is open.
   useCallStream(canView);
 
@@ -120,12 +128,37 @@ export function CallsPage() {
             ))}
           </SelectContent>
         </Select>
+        {tagOptions.length ? (
+          <Select value={tagId} onValueChange={setTagId}>
+            <SelectTrigger className="h-9 w-40" aria-label="Call tag">
+              <SelectValue placeholder="Tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All tags</SelectItem>
+              {tagOptions.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <DateTimeRangePicker
           value={range}
           onChange={setRange}
           label="Date and time range"
         />
       </div>
+
+      {/* A tag is matched while walking the log newest-first, not looked up in
+          an index — over 1.8M calls an uncommon tag can read a long way back
+          for one page. Saying so is cheaper than a slow page nobody expected. */}
+      {tagId !== "all" && !range.from && !range.to ? (
+        <p className="-mt-2 text-xs text-muted-foreground">
+          Tag search reads the log newest-first — add a date range to keep it
+          quick.
+        </p>
+      ) : null}
 
       {/* History */}
       {query.isLoading ? (
@@ -137,10 +170,41 @@ export function CallsPage() {
       ) : calls.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
           <Phone className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No calls found</p>
-          <p className="text-sm text-muted-foreground">
-            Calls appear here as your team makes and receives them.
-          </p>
+          {/* A filtered page is filled by walking the log newest-first, and
+              the server stops after a bounded stretch rather than reading the
+              whole partition in one request. An empty page with a cursor
+              therefore means "not in the part read so far" — saying "no calls
+              found" there would be a lie, so offer to read on instead. */}
+          {query.hasNextPage ? (
+            <>
+              <p className="text-sm font-medium">
+                No calls yet in the stretch searched
+              </p>
+              <p className="text-sm text-muted-foreground">
+                The log is searched newest-first, a stretch at a time. Keep
+                searching to read further back, or narrow it with a date range.
+              </p>
+              <Button
+                variant="outline"
+                className="mt-2"
+                disabled={query.isFetchingNextPage}
+                onClick={() => query.fetchNextPage()}
+              >
+                {query.isFetchingNextPage ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  "Keep searching"
+                )}
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium">No calls found</p>
+              <p className="text-sm text-muted-foreground">
+                Calls appear here as your team makes and receives them.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <>
