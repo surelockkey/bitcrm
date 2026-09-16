@@ -78,6 +78,35 @@ describe("ruleSentence", () => {
     expect(ruleSentence(imported)).toContain("a status of Job Completed");
   });
 
+  it("says a rule that names no status as the change it really fires on", () => {
+    // "a status of any" reads like a slot nobody filled in; the rule fires on
+    // every status change, and that is what it has to say.
+    const onAny = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed" },
+        conditions: [],
+        actions: [{ type: "send_sms", to: "client", body: "Hi" }],
+      },
+    });
+    expect(ruleSentence(onAny)).toBe(
+      "When a job's status changes, send the client a text message immediately",
+    );
+
+    // The status it left is still worth saying, even with no status named.
+    const fromDone = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed", from: ["done"] },
+        conditions: [],
+        actions: [{ type: "send_sms", to: "client", body: "Hi" }],
+      },
+    });
+    expect(ruleSentence(fromDone)).toBe(
+      "When a job's status changes from Done, send the client a text message immediately",
+    );
+  });
+
   it("says one channel choice per clause — a shared text and email is one thing", () => {
     // Workiz's `notify_medium: both` is one entry in the editor and two
     // actions in the spec; saying it twice would read as two decisions.

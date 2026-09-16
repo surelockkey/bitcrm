@@ -20,6 +20,36 @@ describe('automationSentence', () => {
     );
   });
 
+  it('says a status rule that names no status as the change it fires on', () => {
+    // A rule with an empty `to` fires on every status change. "a status of
+    // any" reads like a slot nobody filled in — and a rule that reads as
+    // half-written is one somebody switches off.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed' },
+          conditions: [],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe("When a job's status changes, send the client a text message immediately");
+
+    // The status it left is still worth saying, even with none named to enter.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed', from: ['done'] },
+          conditions: [],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe("When a job's status changes from Done, send the client a text message immediately");
+  });
+
   it('says a tag rule through its conditions', () => {
     const spec: AutomationSpec = {
       version: 1,

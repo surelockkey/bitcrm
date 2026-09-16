@@ -318,6 +318,10 @@ export function automationTriggerSentence(spec: AutomationSpec, labels?: Automat
     case 'deal.status_changed': {
       const entered = t.toSubStatus?.length ? t.toSubStatus : t.to;
       const from = t.from?.length ? ` from ${listOf(t.from, undefined, labels)}` : '';
+      // A rule that names no status fires on every status change. Saying it
+      // "has a status of any" reads like a slot nobody filled in, and a rule
+      // that reads as half-written is one somebody switches off.
+      if (!entered?.length) return `When a job's status changes${from}`;
       return `When a job has a status of ${listOf(entered, undefined, labels)}${from}`;
     }
     case 'deal.tech_assigned':
