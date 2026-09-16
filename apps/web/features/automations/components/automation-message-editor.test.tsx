@@ -60,6 +60,16 @@ function caretAt(node: Node, offset: number) {
   selection.addRange(range);
 }
 
+/** Highlight a stretch of the message, as a drag across it would. */
+function selectFrom(start: Node, startOffset: number, end: Node, endOffset: number) {
+  const range = document.createRange();
+  range.setStart(start, startOffset);
+  range.setEnd(end, endOffset);
+  const selection = document.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 describe("AutomationMessageEditor", () => {
   it("is a labelled multiline text field", () => {
     render(<Harness initial="Hi" />);
@@ -143,6 +153,38 @@ describe("AutomationMessageEditor", () => {
       clipboardData: { getData: (type: string) => (type === "text/plain" ? "a\nb" : "<b>a</b>") },
     });
     expect(value()).toBe("a\nb");
+  });
+
+  it("replaces the highlighted words rather than pasting beside them", () => {
+    render(<Harness initial="One two three" />);
+    selectFrom(editor().childNodes[0], 4, editor().childNodes[0], 7);
+    fireEvent.mouseUp(editor());
+    fireEvent.paste(editor(), { clipboardData: { getData: () => "TWO" } });
+
+    expect(value()).toBe("One TWO three");
+  });
+
+  it("replaces the highlighted words on Enter too", () => {
+    render(<Harness initial="One two three" />);
+    selectFrom(editor().childNodes[0], 4, editor().childNodes[0], 7);
+    fireEvent.mouseUp(editor());
+    fireEvent.keyDown(editor(), { key: "Enter" });
+
+    expect(value()).toBe("One \n three");
+  });
+
+  it("takes a half-selected variable whole, never a fragment of one", () => {
+    render(<Harness initial="Hi {{first_name}} there" />);
+    const root = editor();
+    // From inside the first text run to halfway through the chip's own text:
+    // a chip left with three of its characters gone would still serialise as
+    // the whole `{{first_name}}` and read as nonsense on screen.
+    selectFrom(root.childNodes[0], 3, root.childNodes[1].firstChild!, 5);
+    fireEvent.mouseUp(root);
+    fireEvent.paste(root, { clipboardData: { getData: () => "Bob" } });
+
+    expect(value()).toBe("Hi Bob there");
+    expect(chips()).toHaveLength(0);
   });
 
   it("repaints when the value is changed from outside", async () => {

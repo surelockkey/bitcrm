@@ -43,6 +43,12 @@ function chipElement(doc: Document, code: string, raw: string): HTMLElement {
 const isChip = (node: Node | null | undefined): node is HTMLElement =>
   !!node && node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).hasAttribute(CHIP);
 
+/** The chip `node` sits inside, if any — a chip's own text is part of the chip. */
+const chipAround = (node: Node | null, root: HTMLElement): HTMLElement | null => {
+  for (let at = node; at && at !== root; at = at.parentNode) if (isChip(at)) return at;
+  return null;
+};
+
 /**
  * How far into `node` a caret can sit — characters in a text node, children
  * in an element. The two are counted differently, and a remembered offset
@@ -146,9 +152,27 @@ export function AutomationMessageEditor({
     if (!root || disabled) return;
     const doc = root.ownerDocument;
     const selection = doc.getSelection();
+    const live = selection?.rangeCount ? selection.getRangeAt(0) : null;
     const where = saved.current;
     const range = doc.createRange();
-    if (where && root.contains(where.node)) {
+    if (live && root.contains(live.startContainer) && root.contains(live.endContainer)) {
+      // Typing over a selection replaces it, so pasting and pressing Enter
+      // have to as well — otherwise the words somebody meant to overwrite
+      // stay in the message, beside the ones that were supposed to replace
+      // them. Only the live selection can say what is highlighted; the
+      // remembered caret is a single point.
+      range.setStart(live.startContainer, live.startOffset);
+      range.setEnd(live.endContainer, live.endOffset);
+      // A variable is one thing here as it is under Backspace: a selection
+      // that stops halfway through a chip takes the whole chip, rather than
+      // leaving one whose text no longer spells the code it still carries.
+      const from = chipAround(range.startContainer, root);
+      if (from) range.setStartBefore(from);
+      const to = chipAround(range.endContainer, root);
+      if (to) range.setEndAfter(to);
+      range.deleteContents();
+      range.collapse(true);
+    } else if (where && root.contains(where.node)) {
       range.setStart(where.node, Math.min(where.offset, caretLimit(where.node)));
       range.collapse(true);
     } else {
