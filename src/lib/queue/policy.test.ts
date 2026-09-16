@@ -2,9 +2,11 @@ import { ApiError } from '../api/errors';
 import { MAX_NON_IDEMPOTENT_ATTEMPTS, RETRY_SCHEDULE_MS } from '../api/retry';
 import {
   canDiscardSilently,
+  CLIENT_VISIBLE_MAX_AGE_MS,
   isIdempotent,
   isReady,
   isSweepable,
+  isTooOldToSend,
   outcomeAfterFailure,
   retryPatch,
   selectNextBatch,
@@ -16,6 +18,7 @@ const NOW = 1_700_000_000_000;
 
 const row = (over: Partial<OutboxRecord> = {}): OutboxRecord => ({
   id: 'r1',
+  userId: 'tech-1',
   kind: 'note',
   dealId: 'd1',
   payload: '{}',
@@ -145,16 +148,34 @@ describe('outcomeAfterFailure', () => {
     }
   });
 
-  it('parks an expired session rather than hammering it', () => {
+  it('waits out an expired session instead of losing the work in it', () => {
+    // A 401 that survives the HTTP layer's one refresh means the session needs
+    // renewing. Parking the row made every queued arrival, note and photo a
+    // permanent casualty of one token blip — and the drain is gated on a
+    // signed-in session anyway, so nothing hammers anything.
     const out = outcomeAfterFailure(
-      row(),
+      row({ attempts: 2 }),
       new ApiError(401, 'expired'),
       'expired',
       NOW,
       () => 0.5,
-      true,
+      false,
     );
-    expect(out.state).toBe('failed');
+    expect(out.state).toBe('pending');
+    expect(out.attempts).toBe(3);
+    expect(out.nextAttemptAt).toBe(NOW + RETRY_SCHEDULE_MS[2]!);
+  });
+
+  it('will not park a non-idempotent row on 401 even past its attempt budget', () => {
+    const out = outcomeAfterFailure(
+      row({ kind: 'note', attempts: MAX_NON_IDEMPOTENT_ATTEMPTS + 3 }),
+      new ApiError(401, 'expired'),
+      'expired',
+      NOW,
+      () => 0.5,
+      false,
+    );
+    expect(out.state).toBe('pending');
   });
 
   it('keeps retrying an idempotent action forever', () => {
@@ -204,6 +225,30 @@ describe('retryPatch', () => {
       lastError: null,
     });
   });
+});
+
+describe('isTooOldToSend', () => {
+  it('lets a client text go stale — it is a statement about right now', () => {
+    expect(
+      isTooOldToSend({ kind: 'on_my_way', createdAt: NOW - CLIENT_VISIBLE_MAX_AGE_MS - 1 }, NOW),
+    ).toBe(true);
+    expect(
+      isTooOldToSend({ kind: 'late', createdAt: NOW - CLIENT_VISIBLE_MAX_AGE_MS - 1 }, NOW),
+    ).toBe(true);
+  });
+
+  it('holds a client text inside the window', () => {
+    expect(
+      isTooOldToSend({ kind: 'on_my_way', createdAt: NOW - CLIENT_VISIBLE_MAX_AGE_MS }, NOW),
+    ).toBe(false);
+  });
+
+  it.each(['confirm', 'arrived', 'status', 'note'] as const)(
+    'never ages out a %s — it records something that happened',
+    (kind) => {
+      expect(isTooOldToSend({ kind, createdAt: 0 }, NOW)).toBe(false);
+    },
+  );
 });
 
 describe('canDiscardSilently', () => {
