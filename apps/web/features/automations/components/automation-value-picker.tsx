@@ -83,6 +83,8 @@ export function AutomationValuePicker({
 
   const commit = (next: string[]) => onChange(next, next.map((id) => nameOf(id)));
 
+  const drop = (id: string) => commit(values.filter((v) => v !== id));
+
   const toggle = (id: string) => {
     if (single) {
       commit([id]);
@@ -91,6 +93,16 @@ export function AutomationValuePicker({
     }
     commit(values.includes(id) ? values.filter((v) => v !== id) : [...values, id]);
   };
+
+  /**
+   * Values the catalog cannot name: an archived sub-status, a bare
+   * `adgroup:` id the import carried over. They are listed too — the list is
+   * the only way into this control from a keyboard, and without them the way
+   * to drop one is the chip's `×`, which is a pointer affordance inside the
+   * trigger button. That left deleting the whole condition and building it
+   * again as the keyboard's only path.
+   */
+  const unlisted = values.filter((id) => !options.some((o) => o.id === id));
 
   return (
     <div
@@ -127,15 +139,16 @@ export function AutomationValuePicker({
               >
                 <span className="truncate">{nameOf(id, i)}</span>
                 {/* A chip's × is a span, not a button: a button inside a button
-                    is invalid, and the row is removable from the keyboard by
-                    unticking the same entry in the list. */}
+                    is invalid. It is a shortcut for the pointer only — every
+                    chip here, named by the catalog or not, is also in the list
+                    below and untickable from there. */}
                 <span
                   role="presentation"
                   aria-hidden="true"
                   className="opacity-60 hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (!disabled) commit(values.filter((v) => v !== id));
+                    if (!disabled) drop(id);
                   }}
                 >
                   <X className="size-3" />
@@ -172,6 +185,26 @@ export function AutomationValuePicker({
                   </CommandItem>
                 ))}
               </CommandGroup>
+
+              {unlisted.length ? (
+                <CommandGroup heading="Picked, but not in the catalog">
+                  {unlisted.map((id) => (
+                    // Selecting one can only mean dropping it: it is already
+                    // picked, and there is nothing left to pick it from.
+                    <CommandItem
+                      key={id}
+                      value={id}
+                      keywords={[nameOf(id)]}
+                      onSelect={() => drop(id)}
+                      className="gap-2"
+                    >
+                      <Check className="size-4" />
+                      <span className="min-w-0 flex-1 truncate">{nameOf(id)}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">no longer in the catalog</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
             </CommandList>
           </Command>
         </div>

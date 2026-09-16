@@ -634,6 +634,37 @@ describe("conditions", () => {
     ]);
   });
 
+  it("lets the keyboard drop a value the catalog cannot name", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: {
+        ...rule.spec!,
+        // What the import leaves behind: an ad-group id no catalog here holds.
+        conditions: [{ field: "source", op: "in", values: ["src-gmb", "adgroup:9912"], labels: ["GMB"] }],
+      },
+    });
+
+    const picker = await screen.findByLabelText("Condition 1 value");
+    expect(picker).toHaveTextContent("adgroup:9912");
+
+    // The chip's × is a pointer shortcut, so the list is the whole keyboard
+    // path — and it has to offer the values the catalog cannot account for.
+    await user.click(picker);
+    await user.keyboard("adgroup");
+    expect(
+      await screen.findByRole("option", { name: /adgroup:9912\s*no longer in the catalog/ }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByLabelText("Condition 1 value")).not.toHaveTextContent("adgroup:9912");
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([
+      { field: "source", op: "in", values: ["src-gmb"], labels: ["GMB"] },
+    ]);
+  });
+
   it("shows an imported \"any of\" group instead of hiding it", async () => {
     renderDialog({
       spec: {
