@@ -107,6 +107,37 @@ describe("ruleSentence", () => {
     );
   });
 
+  it("keeps the status condition of a rule whose trigger names no status", () => {
+    // The trigger's half normally says the status, so the condition saying it
+    // again is left out. A trigger that names none says nothing to leave out,
+    // and dropping the condition too would hide the one thing narrowing the
+    // rule behind a sentence that reads finished: "a job's status changes".
+    const narrowedByCondition = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed" },
+        conditions: [{ field: "status", op: "in", values: ["done"], labels: ["Done"] }],
+        actions: [{ type: "send_sms", to: "client", body: "Hi" }],
+      },
+    });
+    expect(ruleSentence(narrowedByCondition)).toBe(
+      "When a job's status changes and its status is Done, send the client a text message immediately",
+    );
+
+    // …and a trigger that does name one still says it only once.
+    const namedByTrigger = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: ["done"] },
+        conditions: [{ field: "status", op: "in", values: ["done"], labels: ["Done"] }],
+        actions: [{ type: "send_sms", to: "client", body: "Hi" }],
+      },
+    });
+    expect(ruleSentence(namedByTrigger)).toBe(
+      "When a job has a status of Done, send the client a text message immediately",
+    );
+  });
+
   it("says one channel choice per clause — a shared text and email is one thing", () => {
     // Workiz's `notify_medium: both` is one entry in the editor and two
     // actions in the spec; saying it twice would read as two decisions.

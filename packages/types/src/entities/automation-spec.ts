@@ -402,14 +402,26 @@ function groupClause(group: AutomationConditionGroup, labels: AutomationLabelMap
   return leaves.map((c) => conditionClause(c, labels)).join(' or ');
 }
 
+/** Whether the trigger's own half of the sentence already names a status. */
+function triggerNamesStatus(trigger: AutomationTrigger): boolean {
+  // `deal.updated` has no status of its own and borrows the first status
+  // condition, so it always says one; `deal.status_changed` says only the
+  // statuses it was given, and a rule given none says just that it changed.
+  if (trigger.kind === 'deal.updated') return true;
+  if (trigger.kind !== 'deal.status_changed') return false;
+  return Boolean(trigger.toSubStatus?.length || trigger.to?.length);
+}
+
 /** The ", and …" half — the conditions the trigger does not already say. */
 export function automationConditionsSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   // `isLead` is always true here (BitCRM has no separate lead entity), so it
-  // is never worth a clause; the status is already in the trigger's half.
-  const saidByTrigger =
-    spec.trigger.kind === 'deal.updated' || spec.trigger.kind === 'deal.status_changed'
-      ? new Set(['status', 'subStatus', 'isLead'])
-      : new Set(['isLead']);
+  // is never worth a clause; the status is already in the trigger's half —
+  // but only where the trigger actually says one. Dropped anywhere else, the
+  // sentence reads whole and is false: "when a job's status changes", with
+  // the status that is the rule's only narrowing nowhere in it.
+  const saidByTrigger = triggerNamesStatus(spec.trigger)
+    ? new Set(['status', 'subStatus', 'isLead'])
+    : new Set(['isLead']);
   const parts = (spec.conditions ?? [])
     .filter((c) => isAutomationConditionGroup(c) || !saidByTrigger.has(c.field))
     .map((c) => (isAutomationConditionGroup(c) ? groupClause(c, labels) : conditionClause(c, labels)));

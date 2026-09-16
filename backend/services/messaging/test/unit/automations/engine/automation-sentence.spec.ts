@@ -50,6 +50,37 @@ describe('automationSentence', () => {
     ).toBe("When a job's status changes from Done, send the client a text message immediately");
   });
 
+  it('keeps the status condition when the trigger names no status to say it for', () => {
+    // The status condition is normally left out because the trigger's half
+    // already says it. A trigger that names none says nothing to leave out,
+    // and a rule narrowed only by that condition would otherwise read as
+    // firing on every status change — finished-looking and false.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed' },
+          conditions: [{ field: 'status', op: 'in', values: ['done'] }],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe("When a job's status changes and its status is Done, send the client a text message immediately");
+
+    // A trigger that does name one goes on saying it exactly once.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed', to: ['done'] },
+          conditions: [{ field: 'status', op: 'in', values: ['done'] }],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe('When a job has a status of Done, send the client a text message immediately');
+  });
+
   it('says a tag rule through its conditions', () => {
     const spec: AutomationSpec = {
       version: 1,
