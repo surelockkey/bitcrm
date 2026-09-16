@@ -75,6 +75,11 @@ describe("AutomationRuleCard", () => {
     expect(screen.queryByText(/last fired/)).not.toBeInTheDocument();
   });
 
+  it("counts a single firing in the singular", () => {
+    renderCard({ firedCount: 1 });
+    expect(screen.getByRole("button", { name: /firing log/i })).toHaveTextContent(/^1 firing$/);
+  });
+
   it("keeps the Workiz count and the translator's note", () => {
     renderCard({ workizTriggered: 17476, specNotes: ["The email copy was dropped"] });
 
@@ -132,10 +137,11 @@ describe("AutomationRuleCard", () => {
     const remove = screen.getByRole("menuitem", { name: "Delete New job SMS" });
     expect(remove).toHaveAttribute("aria-disabled", "true");
 
-    await user.hover(remove.parentElement!);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "A built-in rule is turned off, not deleted.",
-    );
+    // In the menu, not on hover: a disabled item takes no keyboard focus,
+    // so a tooltip hung on it would never be read.
+    expect(screen.getByText("A built-in rule is turned off, not deleted.")).toBeInTheDocument();
+
+    await user.click(remove);
     expect(handlers.onDelete).not.toHaveBeenCalled();
   });
 

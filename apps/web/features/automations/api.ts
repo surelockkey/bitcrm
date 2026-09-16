@@ -62,8 +62,11 @@ export const listAutomationRunsFeed = (
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") query.set(key, String(value));
   }
-  const suffix = query.size ? `?${query}` : "";
-  return http.get<AutomationRunsFeed>(`${BASE}/runs${suffix}`);
+  // `.toString()`, not `.size`: the app ships to browsers older than
+  // URLSearchParams.size, where reading it yields undefined and every
+  // filter would be dropped from the request without a word.
+  const qs = query.toString();
+  return http.get<AutomationRunsFeed>(`${BASE}/runs${qs ? `?${qs}` : ""}`);
 };
 
 /** Evaluate the rule against one job and render what it would send. Nothing is sent. */

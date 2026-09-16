@@ -8,6 +8,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -104,7 +105,7 @@ export function AutomationRuleCard({
             onClick={onHistory}
             aria-label={`Firing log of ${rule.name}`}
           >
-            {fired.toLocaleString()} firings
+            {fired.toLocaleString()} {fired === 1 ? "firing" : "firings"}
           </button>
           {rule.workizTriggered ? (
             <>
@@ -155,20 +156,18 @@ export function AutomationRuleCard({
               <DropdownMenuSeparator />
               {rule.builtin ? (
                 // A built-in rule is part of the service; switching it off is
-                // how it stops. Say so instead of offering a dead action.
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="block">
-                      <DropdownMenuItem disabled aria-label={`Delete ${rule.name}`}>
-                        <Trash2 />
-                        Delete
-                      </DropdownMenuItem>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-sm">
+                // how it stops. Say so instead of offering a dead action —
+                // in the menu itself, because a disabled item takes no focus
+                // and a tooltip on it would never reach a keyboard.
+                <>
+                  <DropdownMenuItem disabled aria-label={`Delete ${rule.name}`}>
+                    <Trash2 />
+                    Delete
+                  </DropdownMenuItem>
+                  <DropdownMenuLabel className="font-normal whitespace-normal">
                     A built-in rule is turned off, not deleted.
-                  </TooltipContent>
-                </Tooltip>
+                  </DropdownMenuLabel>
+                </>
               ) : (
                 <DropdownMenuItem
                   variant="destructive"
