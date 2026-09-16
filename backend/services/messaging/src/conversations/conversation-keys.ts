@@ -55,6 +55,13 @@ export const conversationActivityAt = (c: Pick<Conversation, 'lastMessageAt' | '
 export const countsAsUnread = (c: Pick<Conversation, 'state' | 'unread'>) =>
   c.state === 'open' && c.unread === true;
 
+/**
+ * Whether the conversation is in the open totals — "All" and its category
+ * column number. Archiving takes it out of both and puts it in
+ * `archivedConversations`, so every conversation is counted exactly once.
+ */
+export const countsAsOpen = (c: Pick<Conversation, 'state'>) => c.state === 'open';
+
 export function conversationIndexKeys(c: Conversation): ConversationIndexKeys {
   const at = conversationActivityAt(c);
   const year = yearOf(at);
@@ -171,11 +178,41 @@ export function buildConversationUpdate(
   };
 }
 
-/** What the badge counters must move by for a conversation going `current` → `next`. */
+/**
+ * What the counters item must move by for a conversation going `current` →
+ * `next` (`current: undefined` is a create). Two independent halves:
+ *
+ *   unread* / flagged*   the badge — only a read/unread or flag transition
+ *   total* / archived*   the size of each category — a create, an archive,
+ *                        an unarchive, or a kind change
+ *
+ * A message append moves only the first half, an archive only the second, so
+ * the common paths stay exactly as cheap as they were.
+ */
 export interface InboxCountersDelta {
   unreadConversations?: number;
   flaggedConversations?: number;
   unreadByKind?: Partial<Record<ConversationKind, number>>;
+  /** Open conversations (the "All" number). */
+  totalConversations?: number;
+  /** Open conversations per category. */
+  totalByKind?: Partial<Record<ConversationKind, number>>;
+  /** Archived conversations (the "Archived" number). */
+  archivedConversations?: number;
+}
+
+/** `{ client: -1, team: +1 }` for a move, with the zeros dropped. */
+function kindMove(
+  from: ConversationKind | undefined,
+  to: ConversationKind | undefined,
+): Partial<Record<ConversationKind, number>> | undefined {
+  const byKind: Partial<Record<ConversationKind, number>> = {};
+  if (from) byKind[from] = (byKind[from] ?? 0) - 1;
+  if (to) byKind[to] = (byKind[to] ?? 0) + 1;
+  for (const [kind, n] of Object.entries(byKind)) {
+    if (n === 0) delete byKind[kind as ConversationKind];
+  }
+  return Object.keys(byKind).length ? byKind : undefined;
 }
 
 export function countersDelta(
@@ -191,16 +228,26 @@ export function countersDelta(
   const unread = Number(isUnread) - Number(wasUnread);
   if (unread !== 0) delta.unreadConversations = unread;
 
-  const byKind: Partial<Record<ConversationKind, number>> = {};
-  if (current && wasUnread) byKind[current.kind] = (byKind[current.kind] ?? 0) - 1;
-  if (isUnread) byKind[next.kind] = (byKind[next.kind] ?? 0) + 1;
-  for (const [kind, n] of Object.entries(byKind)) {
-    if (n === 0) delete byKind[kind as ConversationKind];
-  }
-  if (Object.keys(byKind).length) delta.unreadByKind = byKind;
+  const byKind = kindMove(current && wasUnread ? current.kind : undefined, isUnread ? next.kind : undefined);
+  if (byKind) delta.unreadByKind = byKind;
 
   const flagged = Number(isFlagged) - Number(wasFlagged);
   if (flagged !== 0) delta.flaggedConversations = flagged;
+
+  // Totals. A create counts the conversation in; an archive moves it from the
+  // open totals to `archivedConversations`; a kind change moves it sideways.
+  const wasOpen = current ? countsAsOpen(current) : false;
+  const isOpen = countsAsOpen(next);
+  const total = Number(isOpen) - Number(wasOpen);
+  if (total !== 0) delta.totalConversations = total;
+
+  const totalByKind = kindMove(current && wasOpen ? current.kind : undefined, isOpen ? next.kind : undefined);
+  if (totalByKind) delta.totalByKind = totalByKind;
+
+  const wasArchived = current ? !countsAsOpen(current) : false;
+  const isArchived = !isOpen;
+  const archived = Number(isArchived) - Number(wasArchived);
+  if (archived !== 0) delta.archivedConversations = archived;
 
   return Object.keys(delta).length ? delta : undefined;
 }

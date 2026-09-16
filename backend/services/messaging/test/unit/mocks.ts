@@ -40,8 +40,22 @@ export function conditionalCheckFailed(): Error {
   });
 }
 
+/**
+ * The cancellation codes DynamoDB puts in `CancellationReasons`. Not just the
+ * two the happy paths check: a transaction is also cancelled for reasons the
+ * repository must rethrow untouched rather than mistake for a failed guard.
+ */
+export type CancellationCode =
+  | 'None'
+  | 'ConditionalCheckFailed'
+  | 'ItemCollectionSizeLimitExceeded'
+  | 'TransactionConflict'
+  | 'ProvisionedThroughputExceeded'
+  | 'ThrottlingError'
+  | 'ValidationError';
+
 /** One code per TransactItems entry, in order. */
-export function transactionCanceled(codes: Array<'None' | 'ConditionalCheckFailed'>): Error {
+export function transactionCanceled(codes: CancellationCode[]): Error {
   return new TransactionCanceledException({
     $metadata: {},
     message: 'Transaction cancelled, please refer cancellation reasons for specific reasons',

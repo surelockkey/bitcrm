@@ -124,15 +124,33 @@ describe('countersDelta', () => {
     });
   });
 
-  it('uncounts an unread conversation that is archived or read', () => {
+  it('uncounts a thread that is read, leaving the category totals alone', () => {
+    // Reading changes the badge only: the conversation is still open and
+    // still in the same category, so the column number must not move.
+    const c = createMockConversation({ unread: true });
+    expect(countersDelta(c, { ...c, unread: false })).toEqual({
+      unreadConversations: -1,
+      unreadByKind: { client: -1 },
+    });
+  });
+
+  it('moves an archived thread out of the open totals and into the archived one', () => {
     const c = createMockConversation({ unread: true });
     expect(countersDelta(c, { ...c, state: 'archived' })).toEqual({
       unreadConversations: -1,
       unreadByKind: { client: -1 },
+      totalConversations: -1,
+      totalByKind: { client: -1 },
+      archivedConversations: 1,
     });
-    expect(countersDelta(c, { ...c, unread: false })).toEqual({
-      unreadConversations: -1,
-      unreadByKind: { client: -1 },
+  });
+
+  it('brings an unarchived thread back into the open totals', () => {
+    const archived = createMockConversation({ state: 'archived' });
+    expect(countersDelta(archived, { ...archived, state: 'open' })).toEqual({
+      totalConversations: 1,
+      totalByKind: { client: 1 },
+      archivedConversations: -1,
     });
   });
 
@@ -140,7 +158,32 @@ describe('countersDelta', () => {
     const c = createMockConversation({ unread: true, kind: 'unknown' });
     expect(countersDelta(c, { ...c, kind: 'client' })).toEqual({
       unreadByKind: { unknown: -1, client: 1 },
+      totalByKind: { unknown: -1, client: 1 },
     });
+  });
+
+  it('moves only the totals sideways when a READ conversation changes kind', () => {
+    const c = createMockConversation({ unread: false, kind: 'unknown' });
+    expect(countersDelta(c, { ...c, kind: 'client' })).toEqual({
+      totalByKind: { unknown: -1, client: 1 },
+    });
+  });
+
+  it('moves nothing when an ARCHIVED conversation changes kind', () => {
+    // Archived rows are not in `totalByKind` at all, so there is nothing to
+    // move sideways; `archivedConversations` is not per-kind.
+    const c = createMockConversation({ state: 'archived', kind: 'unknown' });
+    expect(countersDelta(c, { ...c, kind: 'client' })).toBeUndefined();
+  });
+
+  it('keeps every conversation in exactly one of open and archived', () => {
+    // The invariant the column depends on: an archive is a -1/+1 move, never
+    // a double count and never a drop.
+    const c = createMockConversation();
+    const archive = countersDelta(c, { ...c, state: 'archived' })!;
+    expect((archive.totalConversations ?? 0) + (archive.archivedConversations ?? 0)).toBe(0);
+    const create = countersDelta(undefined, c)!;
+    expect((create.totalConversations ?? 0) + (create.archivedConversations ?? 0)).toBe(1);
   });
 
   it('tracks the flagged counter independently', () => {
@@ -154,6 +197,23 @@ describe('countersDelta', () => {
       unreadConversations: 1,
       unreadByKind: { client: 1 },
       flaggedConversations: 1,
+      totalConversations: 1,
+      totalByKind: { client: 1 },
+    });
+  });
+
+  it('counts a brand-new READ conversation into the totals even though no badge moves', () => {
+    // This is the import-shaped case, and the reason `create()` now carries a
+    // counters Update at all: nothing is unread, but the category grew by one.
+    expect(countersDelta(undefined, createMockConversation({ unread: false }))).toEqual({
+      totalConversations: 1,
+      totalByKind: { client: 1 },
+    });
+  });
+
+  it('counts a conversation created straight into the archive as archived only', () => {
+    expect(countersDelta(undefined, createMockConversation({ state: 'archived' }))).toEqual({
+      archivedConversations: 1,
     });
   });
 });
