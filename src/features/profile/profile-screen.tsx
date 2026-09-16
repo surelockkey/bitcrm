@@ -41,10 +41,12 @@ export function ProfileScreen() {
             value={String(Constants.expoConfig?.version ?? '—')}
           />
           <CardRow label="API" value={env.apiBaseUrl} />
-          {env.usingApiOverride ? (
+          {env.usingDevGateway ? (
             <View>
               <Text style={[type.caption, { color: colors.warning }]}>
-                This build is pointed at an override, not the shared gateway.
+                {env.name === 'production'
+                  ? 'This release build is pointed at the shared DEV gateway. Jobs shown here are not real.'
+                  : 'Development build, talking to the shared dev gateway.'}
               </Text>
             </View>
           ) : null}

@@ -105,7 +105,7 @@ export function LoginScreen() {
             testID="sign-in"
           />
 
-          {env.usingApiOverride ? (
+          {env.name === 'development' || env.usingDevGateway ? (
             <View style={{ marginTop: spacing.lg }}>
               <Text style={[type.caption, styles.center, { color: colors.warning }]}>
                 Pointed at {env.apiBaseUrl}
