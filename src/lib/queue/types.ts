@@ -20,12 +20,29 @@ export type QueueState =
   | 'pending'
   /** In flight. Written BEFORE the request, so a crash mid-flight is visible. */
   | 'sending'
+  /**
+   * The app died mid-request and the server has no idempotency key for this
+   * kind, so nobody can say whether it landed. Never replayed automatically —
+   * the technician is shown it and decides (§2.3).
+   */
+  | 'unknown'
   /** Given up on. Shown to the technician with a manual retry. */
   | 'failed'
   /** Accepted by the server. Swept shortly after. */
   | 'done';
 
-export interface OutboxRecord {
+/** Columns every queued row carries, whichever queue it is in. */
+interface QueueRowBase {
+  /**
+   * Who queued it. A van's phone is handed between technicians, so every row
+   * names its author: the worker drains only the signed-in technician's rows,
+   * and the Queue screen shows only theirs. Nobody's arrival or note is ever
+   * re-sent under somebody else's credentials (§2.3).
+   */
+  userId: string;
+}
+
+export interface OutboxRecord extends QueueRowBase {
   /**
    * uuid — and the idempotency key. For the two automatic texts it is sent
    * verbatim as `clientMessageId`, so a replay after a dropped connection
@@ -44,7 +61,7 @@ export interface OutboxRecord {
   state: QueueState;
 }
 
-export interface UploadRecord {
+export interface UploadRecord extends QueueRowBase {
   id: string;
   dealId: string;
   /** A file in the app's own documents directory — not the camera cache. */

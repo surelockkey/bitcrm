@@ -23,6 +23,7 @@ PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS outbox (
   id              TEXT PRIMARY KEY NOT NULL,
+  user_id         TEXT NOT NULL DEFAULT '',
   kind            TEXT NOT NULL,
   deal_id         TEXT NOT NULL,
   payload         TEXT NOT NULL,
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS outbox (
 
 CREATE TABLE IF NOT EXISTS uploads (
   id              TEXT PRIMARY KEY NOT NULL,
+  user_id         TEXT NOT NULL DEFAULT '',
   deal_id         TEXT NOT NULL,
   local_uri       TEXT NOT NULL,
   file_name       TEXT NOT NULL,
@@ -52,9 +54,23 @@ CREATE TABLE IF NOT EXISTS uploads (
   created_at      INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS outbox_ready ON outbox (state, next_attempt_at);
-CREATE INDEX IF NOT EXISTS uploads_ready ON uploads (state, next_attempt_at);
+CREATE INDEX IF NOT EXISTS outbox_ready ON outbox (user_id, state, next_attempt_at);
+CREATE INDEX IF NOT EXISTS uploads_ready ON uploads (user_id, state, next_attempt_at);
 `;
+
+/**
+ * Kinds the server will absorb a second time without a client-visible trace,
+ * and only those. `tech/confirm` returns early on `techConfirmedAt`
+ * (deals.service.ts:1023-1041) and `tech/arrived` on `arrivedAt` (:1096), both
+ * before the timeline entry; the two automatic texts dedupe on the
+ * `clientMessageId` we send, which is the row's own id
+ * (messages.repository.ts:277-284). Kept as a SQL literal list because the
+ * recovery below runs before any of our TypeScript touches a row.
+ */
+const REPLAYABLE_KINDS = `('confirm', 'arrived', 'on_my_way', 'late')`;
+
+export const UNKNOWN_OUTCOME_MESSAGE =
+  'The app closed while this was being sent, so it may already have been sent. Open the job to check.';
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -63,20 +79,69 @@ export function openQueueDatabase(): Promise<SQLite.SQLiteDatabase> {
     dbPromise = (async () => {
       const db = await SQLite.openDatabaseAsync(DB_NAME);
       await db.execAsync(SCHEMA);
-      // A row left "sending" belongs to a process that no longer exists — the
-      // app was killed mid-request. Put it back in the queue rather than
-      // letting it sit in a state nothing will ever move it out of.
-      await db.runAsync(`UPDATE outbox SET state = 'pending' WHERE state = 'sending'`);
-      await db.runAsync(`UPDATE uploads SET state = 'pending' WHERE state = 'sending'`);
+      await recoverInFlightRows(db);
       return db;
     })();
   }
   return dbPromise;
 }
 
+/**
+ * What to do with rows left `sending` by a process that no longer exists.
+ *
+ * The old answer — put every one of them back to `pending` — re-armed exactly
+ * the rows whose outcome nobody knows, and for two kinds that is a duplicate
+ * the client can see. `POST /deals/:id/notes` appends a timeline entry
+ * unconditionally and carries no idempotency key at all
+ * (add-note.dto.ts:4-9, deals.service.ts:773-776); `PUT /deals/:id/status`
+ * writes a second `STATUS_CHANGED` entry, re-stamps `closedAt` and re-fires
+ * `deal.completed` even when the status is already the requested one
+ * (deals.service.ts:700-736). So those two are parked in `unknown` and handed
+ * to the technician, who can see the job and decide. Everything else is
+ * genuinely idempotent server-side and goes straight back in the queue.
+ *
+ * A photo is re-armed too: the PUT overwrites the same S3 key
+ * (`deals/<dealId>/attachments/<attachmentId>`), so re-sending the bytes
+ * changes nothing anybody can observe.
+ */
+async function recoverInFlightRows(
+  db: SQLite.SQLiteDatabase,
+  userId?: string,
+): Promise<void> {
+  const scope = userId ? ' AND user_id = ?' : '';
+  const owner = userId ? [userId] : [];
+  await db.runAsync(
+    `UPDATE outbox SET state = 'pending'
+      WHERE state = 'sending' AND kind IN ${REPLAYABLE_KINDS}${scope}`,
+    owner,
+  );
+  await db.runAsync(
+    `UPDATE outbox SET state = 'unknown', last_error = ?
+      WHERE state = 'sending'${scope}`,
+    [UNKNOWN_OUTCOME_MESSAGE, ...owner],
+  );
+  await db.runAsync(
+    `UPDATE uploads SET state = 'pending' WHERE state = 'sending'${scope}`,
+    owner,
+  );
+}
+
+/**
+ * The same recovery, for one technician, without a relaunch.
+ *
+ * Signing out abandons whatever was in flight — the request's outcome is as
+ * unknowable as after a crash — and signing back in on the same phone would
+ * otherwise find those rows stuck in `sending`, which nothing moves out of.
+ */
+export async function recoverQueuesForUser(userId: string): Promise<void> {
+  const db = await openQueueDatabase();
+  await recoverInFlightRows(db, userId);
+}
+
 /** Column names, so a patch can be written without an `any` in sight. */
 const OUTBOX_COLUMNS: Record<keyof OutboxRecord, string> = {
   id: 'id',
+  userId: 'user_id',
   kind: 'kind',
   dealId: 'deal_id',
   payload: 'payload',
@@ -89,6 +154,7 @@ const OUTBOX_COLUMNS: Record<keyof OutboxRecord, string> = {
 
 const UPLOAD_COLUMNS: Record<keyof UploadRecord, string> = {
   id: 'id',
+  userId: 'user_id',
   dealId: 'deal_id',
   localUri: 'local_uri',
   fileName: 'file_name',
@@ -108,9 +174,15 @@ const UPLOAD_COLUMNS: Record<keyof UploadRecord, string> = {
 
 type SqlValue = string | number | null;
 
+/**
+ * A patch is scoped by owner as well as by id. The id is a uuid, so a
+ * collision across technicians is not the risk — writing to a row this session
+ * has no business touching is, and the cheapest way not to is never to name it.
+ */
 function buildUpdate<T>(
   table: string,
   columns: Record<keyof T, string>,
+  userId: string,
   id: string,
   patch: Partial<T>,
 ): { sql: string; params: SqlValue[] } | null {
@@ -118,11 +190,15 @@ function buildUpdate<T>(
   if (!entries.length) return null;
   const sets = entries.map(([key]) => `${columns[key as keyof T]} = ?`).join(', ');
   const params = entries.map(([, value]) => value as SqlValue);
-  return { sql: `UPDATE ${table} SET ${sets} WHERE id = ?`, params: [...params, id] };
+  return {
+    sql: `UPDATE ${table} SET ${sets} WHERE id = ? AND user_id = ?`,
+    params: [...params, id, userId],
+  };
 }
 
 interface OutboxRow {
   id: string;
+  user_id: string;
   kind: string;
   deal_id: string;
   payload: string;
@@ -135,6 +211,7 @@ interface OutboxRow {
 
 interface UploadRow {
   id: string;
+  user_id: string;
   deal_id: string;
   local_uri: string;
   file_name: string;
@@ -152,15 +229,26 @@ interface UploadRow {
   created_at: number;
 }
 
-export function createSqliteOutboxStore(): OutboxStore {
+/**
+ * Both stores are bound to one technician.
+ *
+ * A van's phone is handed over mid-shift. Scoping every read, patch and delete
+ * by `user_id` means the incoming technician cannot see, retry or discard the
+ * outgoing one's rows — and cannot re-send their arrival or their note under
+ * their own credentials — while nothing the outgoing technician queued is
+ * thrown away: it is still there, waiting, when they sign back in (§2.3).
+ */
+export function createSqliteOutboxStore(userId: string): OutboxStore {
   return {
     async all() {
       const db = await openQueueDatabase();
       const rows = await db.getAllAsync<OutboxRow>(
-        'SELECT * FROM outbox ORDER BY created_at ASC',
+        'SELECT * FROM outbox WHERE user_id = ? ORDER BY created_at ASC',
+        [userId],
       );
       return rows.map((r) => ({
         id: r.id,
+        userId: r.user_id,
         kind: r.kind as OutboxRecord['kind'],
         dealId: r.deal_id,
         payload: r.payload,
@@ -175,10 +263,12 @@ export function createSqliteOutboxStore(): OutboxStore {
       const db = await openQueueDatabase();
       await db.runAsync(
         `INSERT OR REPLACE INTO outbox
-           (id, kind, deal_id, payload, created_at, attempts, next_attempt_at, last_error, state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, user_id, kind, deal_id, payload, created_at, attempts,
+            next_attempt_at, last_error, state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           record.id,
+          userId,
           record.kind,
           record.dealId,
           record.payload,
@@ -191,27 +281,29 @@ export function createSqliteOutboxStore(): OutboxStore {
       );
     },
     async update(id, patch) {
-      const statement = buildUpdate('outbox', OUTBOX_COLUMNS, id, patch);
+      const statement = buildUpdate('outbox', OUTBOX_COLUMNS, userId, id, patch);
       if (!statement) return;
       const db = await openQueueDatabase();
       await db.runAsync(statement.sql, statement.params);
     },
     async remove(id) {
       const db = await openQueueDatabase();
-      await db.runAsync('DELETE FROM outbox WHERE id = ?', [id]);
+      await db.runAsync('DELETE FROM outbox WHERE id = ? AND user_id = ?', [id, userId]);
     },
   };
 }
 
-export function createSqliteUploadStore(): UploadStore {
+export function createSqliteUploadStore(userId: string): UploadStore {
   return {
     async all() {
       const db = await openQueueDatabase();
       const rows = await db.getAllAsync<UploadRow>(
-        'SELECT * FROM uploads ORDER BY created_at ASC',
+        'SELECT * FROM uploads WHERE user_id = ? ORDER BY created_at ASC',
+        [userId],
       );
       return rows.map((r) => ({
         id: r.id,
+        userId: r.user_id,
         dealId: r.deal_id,
         localUri: r.local_uri,
         fileName: r.file_name,
@@ -233,12 +325,13 @@ export function createSqliteUploadStore(): UploadStore {
       const db = await openQueueDatabase();
       await db.runAsync(
         `INSERT OR REPLACE INTO uploads
-           (id, deal_id, local_uri, file_name, content_type, size, category,
+           (id, user_id, deal_id, local_uri, file_name, content_type, size, category,
             attachment_id, upload_url, upload_headers, progress, attempts,
             next_attempt_at, last_error, state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           record.id,
+          userId,
           record.dealId,
           record.localUri,
           record.fileName,
@@ -258,14 +351,29 @@ export function createSqliteUploadStore(): UploadStore {
       );
     },
     async update(id, patch) {
-      const statement = buildUpdate('uploads', UPLOAD_COLUMNS, id, patch);
+      const statement = buildUpdate('uploads', UPLOAD_COLUMNS, userId, id, patch);
       if (!statement) return;
       const db = await openQueueDatabase();
       await db.runAsync(statement.sql, statement.params);
     },
     async remove(id) {
       const db = await openQueueDatabase();
-      await db.runAsync('DELETE FROM uploads WHERE id = ?', [id]);
+      await db.runAsync('DELETE FROM uploads WHERE id = ? AND user_id = ?', [id, userId]);
     },
   };
+}
+
+/**
+ * Every local photo path the queue still needs, across all technicians.
+ *
+ * Unscoped on purpose: the startup sweep that deletes orphaned files must not
+ * delete a file the *other* technician on this phone is still waiting to
+ * upload (§2.4).
+ */
+export async function allQueuedLocalUris(): Promise<string[]> {
+  const db = await openQueueDatabase();
+  const rows = await db.getAllAsync<{ local_uri: string }>(
+    'SELECT local_uri FROM uploads',
+  );
+  return rows.map((r) => r.local_uri);
 }
