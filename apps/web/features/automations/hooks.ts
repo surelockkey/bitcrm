@@ -31,9 +31,56 @@ export function useAutomationRuns(id: string | undefined, enabled = true) {
   });
 }
 
+/** The workspace-wide firing feed — every rule, newest first. */
+export function useAutomationRunsFeed(params: api.AutomationRunsFeedParams = {}, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.automations.runsFeed(params),
+    queryFn: () => api.listAutomationRunsFeed(params),
+    enabled,
+  });
+}
+
 function useInvalidateAutomations() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: queryKeys.automations.all() });
+}
+
+export function useCreateAutomation() {
+  const invalidate = useInvalidateAutomations();
+  return useMutation({
+    mutationFn: (body: api.CreateAutomationBody) => api.createAutomation(body),
+    onSuccess: (rule) => {
+      invalidate();
+      toast.success(`${rule.name} created`);
+    },
+    // A spec the engine cannot run answers 422 with the reason.
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeleteAutomation() {
+  const invalidate = useInvalidateAutomations();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteAutomation(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Rule deleted");
+    },
+    // A built-in rule answers 422 RULE_BUILTIN — it is turned off, not deleted.
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDuplicateAutomation() {
+  const invalidate = useInvalidateAutomations();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name?: string }) => api.duplicateAutomation(id, name),
+    onSuccess: (rule) => {
+      invalidate();
+      toast.success(`${rule.name} created`);
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
 }
 
 export function useUpdateAutomation() {

@@ -229,5 +229,7 @@ export const queryKeys = {
     list: () => ["automations", "list"] as const,
     detail: (id: string) => ["automations", "detail", id] as const,
     runs: (id: string) => ["automations", "runs", id] as const,
+    /** Every rule's firings in one stream (`GET /automations/runs`). */
+    runsFeed: (params?: unknown) => ["automations", "runs-feed", params] as const,
   },
 } as const;
