@@ -425,17 +425,28 @@ function recipientText(action: AutomationAction, labels?: AutomationLabelMap): s
   }
 }
 
+const sameIds = (a: string[] | undefined, b: string[] | undefined): boolean =>
+  (a ?? []).length === (b ?? []).length && (a ?? []).every((id, i) => id === (b ?? [])[i]);
+
 /**
  * Workiz's `notify_medium: both` — "a text and email", one choice in the
  * editor and two actions in the spec. Said as one clause so the sentence
  * reads back as the thing that was chosen, not as the pair it is stored as.
+ *
+ * As strict as the editor's own `pairsAsBoth`, and for the same reason: two
+ * actions that differ in who they reach or what they render are two things
+ * the rule does, and one clause naming only the first recipient would say
+ * the text and the email both go to somebody only the text goes to.
  */
 function isTextAndEmail(sms: AutomationAction, email: AutomationAction): boolean {
   return (
     sms.type === 'send_sms' &&
     email.type === 'send_email' &&
     (sms.to ?? 'client') === (email.to ?? 'client') &&
-    (sms.body ?? '') === (email.body ?? '')
+    (sms.body ?? '') === (email.body ?? '') &&
+    (sms.templateId ?? '') === (email.templateId ?? '') &&
+    sameIds(sms.userIds, email.userIds) &&
+    sameIds(sms.roleIds, email.roleIds)
   );
 }
 

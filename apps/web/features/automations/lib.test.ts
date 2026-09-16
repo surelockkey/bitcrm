@@ -92,6 +92,23 @@ describe("ruleSentence", () => {
     expect(ruleSentence(apart)).toBe(
       "When a job is created, send the client a text message, and send the assigned tech an email immediately",
     );
+
+    // Same words, same recipient *kind*, different people: one clause could
+    // only name one of them, and would say the email goes where it does not.
+    const splitPeople = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.created" },
+        conditions: [],
+        actions: [
+          { type: "send_sms", to: "users", userIds: ["u1"], body: "Booked" },
+          { type: "send_email", to: "users", userIds: ["u2"], body: "Booked" },
+        ],
+      },
+    });
+    expect(ruleSentence(splitPeople, { u1: "Ann Lee", u2: "Bo Diaz" })).toBe(
+      "When a job is created, send Ann Lee a text message, and send Bo Diaz an email immediately",
+    );
   });
 
   it("names the people and roles an action notifies, when it knows what they are called", () => {
