@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, delay } from "msw";
 import type { AutomationRule, AutomationSpec } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { AutomationFormDialog, type AutomationDraft } from "./automation-form-dialog";
@@ -502,6 +502,34 @@ describe("the sub-status picker", () => {
       toSubStatus: ["sub-done"],
     });
   });
+
+  it("does not call a sub-status missing while its catalog is still loading", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/deals/job-statuses", async () => {
+        await delay(5_000);
+        return HttpResponse.json({ success: true, data: SUB_STATUSES });
+      }),
+    );
+    renderDialog({
+      spec: { ...statusRule, trigger: { ...statusRule.trigger, toSubStatus: ["sub-done"] } },
+    });
+
+    // With the catalog on the wire there is nothing to weigh the rule's own
+    // sub-status against, so the list says nothing about it rather than
+    // offering the one row that answers a press by dropping it.
+    await user.click(await screen.findByLabelText("Sub-status entered"));
+    expect(screen.queryByText("Picked, but not offered here")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({
+      kind: "deal.status_changed",
+      to: ["done"],
+      toSubStatus: ["sub-done"],
+    });
+  });
 });
 
 describe("email actions", () => {
@@ -652,7 +680,7 @@ describe("conditions", () => {
     await user.click(picker);
     await user.keyboard("adgroup");
     expect(
-      await screen.findByRole("option", { name: /adgroup:9912\s*no longer in the catalog/ }),
+      await screen.findByRole("option", { name: /adgroup:9912\s*select to drop/ }),
     ).toBeInTheDocument();
     await user.keyboard("{Enter}");
 

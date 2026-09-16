@@ -95,14 +95,20 @@ export function AutomationValuePicker({
   };
 
   /**
-   * Values the catalog cannot name: an archived sub-status, a bare
-   * `adgroup:` id the import carried over. They are listed too — the list is
-   * the only way into this control from a keyboard, and without them the way
-   * to drop one is the chip's `×`, which is a pointer affordance inside the
-   * trigger button. That left deleting the whole condition and building it
-   * again as the keyboard's only path.
+   * Picked values this list does not offer: an archived sub-status, a bare
+   * `adgroup:` id the import carried over, a sub-status filed under a status
+   * the trigger no longer names. They are listed too — the list is the only
+   * way into this control from a keyboard, and without them the way to drop
+   * one is the chip's `×`, which is a pointer affordance inside the trigger
+   * button. That left deleting the whole condition and building it again as
+   * the keyboard's only path.
+   *
+   * Only against options there are: while the catalog behind them is still
+   * on the wire `options` is empty and every picked value looks missing, and
+   * the group would call a live sub-status gone a beat before it appears —
+   * then drop it on the click that would have unticked it.
    */
-  const unlisted = values.filter((id) => !options.some((o) => o.id === id));
+  const unlisted = options.length ? values.filter((id) => !options.some((o) => o.id === id)) : [];
 
   return (
     <div
@@ -187,10 +193,16 @@ export function AutomationValuePicker({
               </CommandGroup>
 
               {unlisted.length ? (
-                <CommandGroup heading="Picked, but not in the catalog">
+                // "Not offered here", not "gone": all this control knows is
+                // that the list it was handed does not hold the value — which
+                // is as true of an archived tag as of a sub-status filed under
+                // a status this trigger stopped naming.
+                <CommandGroup heading="Picked, but not offered here">
                   {unlisted.map((id) => (
                     // Selecting one can only mean dropping it: it is already
-                    // picked, and there is nothing left to pick it from.
+                    // picked, and there is nothing left to pick it from. Said
+                    // on the row, because in single-value mode the rows above
+                    // it answer the same press by re-picking.
                     <CommandItem
                       key={id}
                       value={id}
@@ -200,7 +212,7 @@ export function AutomationValuePicker({
                     >
                       <Check className="size-4" />
                       <span className="min-w-0 flex-1 truncate">{nameOf(id)}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">no longer in the catalog</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">select to drop</span>
                     </CommandItem>
                   ))}
                 </CommandGroup>
