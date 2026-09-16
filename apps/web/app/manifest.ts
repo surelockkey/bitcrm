@@ -35,8 +35,17 @@ export default function manifest(): MetadataRoute.Manifest {
       // same artwork at the two sizes installers ask for.
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      // Android crops a maskable icon to whatever shape the launcher uses.
-      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      // Android crops a maskable icon to whatever shape the launcher wears —
+      // circle, squircle, teardrop — so it gets its own artwork: the logo on
+      // an opaque canvas at two thirds of the width, comfortably inside the
+      // 80% safe circle. Pointing this at the "any" icon, which bleeds to the
+      // edges, cost the logo its edges on every round launcher.
+      {
+        src: "/icons/icon-512-maskable.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
       { src: "/icons/icon-180.png", sizes: "180x180", type: "image/png" },
     ],
     shortcuts: [
