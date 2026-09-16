@@ -12,6 +12,7 @@ import {
   ProductType,
   InventoryStatus,
   UNCATEGORIZED_CATEGORY,
+  WORKIZ_SERVICE_TYPES,
 } from '@bitcrm/types';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
@@ -32,6 +33,30 @@ export function normalizeCategory(category: string): string {
   return category.trim().toLowerCase() === UNCATEGORIZED_CATEGORY.toLowerCase()
     ? UNCATEGORIZED_CATEGORY
     : category;
+}
+
+const KNOWN_PRODUCT_TYPES: readonly string[] = Object.values(ProductType);
+
+/**
+ * Workiz item types BitCRM has no equivalent for. Both are non-stockable, so
+ * they become `service` and the original word is kept in `workizType` — the
+ * `assertStockable` guard then treats them the way Workiz did (10 items,
+ * 771 job lines). Anything else is rejected as before.
+ */
+export function normalizeProductType(raw: string): {
+  type: ProductType;
+  workizType?: string;
+} {
+  const value = raw.trim().toLowerCase();
+  if (KNOWN_PRODUCT_TYPES.includes(value)) {
+    return { type: value as ProductType };
+  }
+  if ((WORKIZ_SERVICE_TYPES as readonly string[]).includes(value)) {
+    return { type: ProductType.SERVICE, workizType: value };
+  }
+  throw new Error(
+    `Invalid type (must be "product", "service", "other" or "hours")`,
+  );
 }
 
 export interface CsvImportResult {
@@ -250,6 +275,7 @@ export class ProductsService {
         }
 
         const existing = await this.repository.findBySku(row.sku);
+        const { type, workizType } = normalizeProductType(row.type);
         const category = dryRun
           ? normalizeCategory(row.category)
           : await this.prepareCategory(row.category);
@@ -259,7 +285,8 @@ export class ProductsService {
             await this.repository.update(existing.id, {
               name: row.name,
               category,
-              type: row.type as ProductType,
+              type,
+              ...(workizType && { workizType }),
               costCompany: parseFloat(row.costCompany),
               costTech: parseFloat(row.costTech),
               priceClient: parseFloat(row.priceClient),
@@ -280,7 +307,8 @@ export class ProductsService {
               sku: row.sku,
               name: row.name,
               category,
-              type: row.type as ProductType,
+              type,
+              ...(workizType && { workizType }),
               costCompany: parseFloat(row.costCompany),
               costTech: parseFloat(row.costTech),
               priceClient: parseFloat(row.priceClient),
@@ -316,8 +344,15 @@ export class ProductsService {
     if (!row.name) return 'Missing name';
     if (!row.sku) return 'Missing sku';
     if (!row.category) return 'Missing category';
-    if (!row.type || !['product', 'service'].includes(row.type)) {
-      return 'Invalid type (must be "product" or "service")';
+    if (!row.type) {
+      return 'Invalid type (must be "product", "service", "other" or "hours")';
+    }
+    try {
+      // `other` / `hours` are accepted and land as `service` (see
+      // normalizeProductType) so a Workiz export round-trips through the CSV.
+      normalizeProductType(row.type);
+    } catch (err) {
+      return (err as Error).message;
     }
     if (!row.costCompany || isNaN(parseFloat(row.costCompany))) {
       return 'Invalid costCompany';

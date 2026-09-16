@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
-import { ProductsService, normalizeCategory } from 'src/products/products.service';
+import {
+  ProductsService,
+  normalizeCategory,
+  normalizeProductType,
+} from 'src/products/products.service';
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
@@ -483,6 +487,84 @@ describe('ProductsService', () => {
 
       expect(s3.deleteObject).not.toHaveBeenCalled();
       expect(repository.update).toHaveBeenCalledWith('prod-1', { photoKey: undefined });
+    });
+  });
+  describe('normalizeProductType', () => {
+    it('passes the two BitCRM types through untouched', () => {
+      expect(normalizeProductType('product')).toEqual({ type: ProductType.PRODUCT });
+      expect(normalizeProductType('service')).toEqual({ type: ProductType.SERVICE });
+      expect(normalizeProductType(' SERVICE ')).toEqual({ type: ProductType.SERVICE });
+    });
+
+    it("maps Workiz 'other' and 'hours' to service and keeps the word", () => {
+      // Both are non-stockable in Workiz, so `service` keeps assertStockable
+      // on the safe side (9 `other` items, 1 `hours`).
+      expect(normalizeProductType('other')).toEqual({
+        type: ProductType.SERVICE,
+        workizType: 'other',
+      });
+      expect(normalizeProductType('Hours')).toEqual({
+        type: ProductType.SERVICE,
+        workizType: 'hours',
+      });
+    });
+
+    it('still rejects anything else', () => {
+      expect(() => normalizeProductType('widget')).toThrow(/Invalid type/);
+      expect(() => normalizeProductType('')).toThrow(/Invalid type/);
+    });
+  });
+
+  describe('importFromCsv — Workiz types', () => {
+    const csvRow = (type: string) =>
+      Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        `Trip charge,WZ-10707,Locks,${type},0,0,0,false,0`,
+      );
+
+    it("imports an 'other' row as a service carrying workizType", async () => {
+      repository.findBySku.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.importFromCsv(csvRow('other'));
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.created).toBe(1);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: ProductType.SERVICE, workizType: 'other' }),
+      );
+    });
+
+    it("carries workizType through an update matched by SKU", async () => {
+      repository.findBySku.mockResolvedValue(createMockProduct({ id: 'prod-9' }));
+
+      const result = await service.importFromCsv(csvRow('hours'));
+
+      expect(result.updated).toBe(1);
+      expect(repository.update).toHaveBeenCalledWith(
+        'prod-9',
+        expect.objectContaining({ type: ProductType.SERVICE, workizType: 'hours' }),
+      );
+    });
+
+    it('leaves workizType off an ordinary row', async () => {
+      repository.findBySku.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      await service.importFromCsv(csvRow('product'));
+
+      const written = repository.create.mock.calls[0][0];
+      expect(written.type).toBe(ProductType.PRODUCT);
+      expect('workizType' in written).toBe(false);
+    });
+
+    it('still reports an unknown type as a row error', async () => {
+      const result = await service.importFromCsv(csvRow('widget'));
+
+      expect(result.created).toBe(0);
+      expect(result.errors).toEqual([
+        { row: 2, message: expect.stringContaining('Invalid type') },
+      ]);
     });
   });
 });

@@ -149,3 +149,45 @@ historical line:
 - The line list badges an imported line "Imported"; the configure step says
   "Imported from Workiz — the ±15% band doesn't apply" and shows the catalog
   price for reference.
+
+## 4. Product type and unknown attributes
+
+### 4.1 `other` / `hours` → `service`
+
+`ProductType` is `product | service` and nothing here widens it (the enum is
+the `TypeIndex` partition key and `assertStockable` reads it). Workiz's other
+two types are both non-stockable, so:
+
+- write `type: "service"` and `GSI2PK: "TYPE#service"` for the 9 `other` items
+  and the 1 `hours` item, and keep the original word in `workizType`
+  (`"other"` / `"hours"`);
+- the 770 + 1 job lines for those items are service lines
+  (`fulfillment: "service"`, plus `priceSource: "imported"` per §3).
+
+Two safety nets, in case a row slips through raw:
+
+- `ProductsRepository.toProduct` reads any unknown `type` back as `service`
+  and fills `workizType` from the stored word — read-only, nothing is
+  rewritten. A row with **no** `type` at all stays untyped so the existing
+  `ProductsTypeBackfill` still heals it to `product` on boot.
+- The CSV importer accepts `other` / `hours` in the `type` column and applies
+  the same mapping (`normalizeProductType`), so a Workiz export round-trips.
+
+`POST /products` is unchanged: `@IsEnum(ProductType)` still rejects anything
+but `product` / `service`. The item list and editor show the Workiz word as a
+second pill next to "Service".
+
+### 4.2 Unknown attributes survive reads
+
+`ProductsRepository.toProduct` now spreads the stored row and then writes the
+typed fields over it, dropping only `PK`/`SK`/`GSI*`. So everything the
+importer adds — `externalId`, `inventoryItemId`, `workizSerial`, `categoryId`,
+`brandId`, `taxable`, `nonDiscountable`, `manageStock`, `availableInBooking`,
+`bookingPrice`, `priceBookEnabled`, `isOverride`, `reorderLevel`,
+`jobTypeIds`, `customAttributes`, `workizFileId`, `workizFilePath`,
+`workizUpdatedAt` — is returned by the API and survives an edit from the UI
+(`update` writes only the fields it is given). The same already holds for
+`ITEM_CATEGORY#` and `BRAND#` rows (§1).
+
+Read them off a product as `ProductWithExtras` (`Product & Record<string,
+unknown>`); the typed fields always win over a stray stored value.

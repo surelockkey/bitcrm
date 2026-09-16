@@ -96,7 +96,12 @@ export {
   DealProductPriceSource,
 } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
-export { Product } from './entities/product.entity';
+export {
+  Product,
+  ProductWithExtras,
+  WORKIZ_SERVICE_TYPES,
+  WorkizProductType,
+} from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
 export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
