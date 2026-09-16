@@ -121,15 +121,17 @@ export function AutomationLibrary({
                   <TemplateSentence sentence={template.sentence} />
                   <p className="text-xs text-muted-foreground">{template.blurb}</p>
                   {canEdit ? (
-                    // Shown on hover like Workiz, but never hover-only: opacity
-                    // leaves the button in the tab order and in the a11y tree,
-                    // and focusing it brings it back into view.
+                    // Revealed on hover like Workiz, but only where hovering is
+                    // a thing: on a touch screen the reveal never happens and
+                    // the library's one action would be invisible (the sidebar
+                    // does the same, `ui/sidebar.tsx`). Opacity rather than
+                    // `hidden` keeps it in the tab order and the a11y tree.
                     <div className="mt-auto pt-1">
                       <Button
                         size="sm"
                         variant="outline"
                         aria-label={`Use ${template.title}`}
-                        className="opacity-0 transition-opacity group-hover/recipe:opacity-100 group-focus-within/recipe:opacity-100 focus-visible:opacity-100"
+                        className="transition-opacity sm:opacity-0 sm:group-hover/recipe:opacity-100 sm:group-focus-within/recipe:opacity-100 sm:focus-visible:opacity-100"
                         onClick={() => onUse(template)}
                       >
                         Use
