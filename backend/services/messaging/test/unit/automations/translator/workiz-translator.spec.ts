@@ -119,6 +119,14 @@ describe('translateWorkizRule', () => {
     );
 
     expect(result.spec?.trigger).toEqual({ kind: 'deal.created' });
+    // "is created" is `status notIn [Done, Canceled]`: the exclusion is kept,
+    // so a job created straight into Done gets no marketing text.
+    expect(result.spec?.conditions).toContainEqual({
+      field: 'status',
+      op: 'not_in',
+      values: ['done', 'canceled'],
+      labels: ['Done', 'Canceled'],
+    });
     expect(result.spec?.conditions).toContainEqual({
       field: 'source',
       op: 'in',

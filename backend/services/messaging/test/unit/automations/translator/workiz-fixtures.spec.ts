@@ -117,6 +117,20 @@ describe('the translator against real exported rules', () => {
     );
   });
 
+  it('never fires more broadly than Workiz did: an "is created" rule keeps its exclusion', () => {
+    // The Workiz rule reads `status notIn [Done, Canceled]` under the
+    // friendly name "is created"; dropping that would text a job created
+    // straight into Done or Canceled.
+    const created = of('facebook-key-copy.json').spec!;
+    expect(created.trigger).toEqual({ kind: 'deal.created' });
+    expect(created.conditions).toContainEqual({
+      field: 'status',
+      op: 'not_in',
+      values: ['done', 'canceled'],
+      labels: ['Done', 'Canceled'],
+    });
+  });
+
   it('keeps the message the rule sent, with the short codes it can fill', () => {
     const canceled = of('canceled-job-and-techs.json').spec!.actions[0];
     expect(canceled.body).toContain('CLIENT CANCELED');

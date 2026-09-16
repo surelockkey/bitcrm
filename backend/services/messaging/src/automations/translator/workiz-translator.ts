@@ -204,12 +204,18 @@ function readJobConditions(all: WorkizCondition[], notes: string[]): ReadConditi
           break;
         }
         const friendly = asString(c.friendly_strings?.value).toLowerCase();
-        // "is created" is Workiz's way of saying "any open status".
+        const negated = c.operator === 'notEqual' || c.operator === 'notIn';
+        // "is created" is Workiz's way of saying "any open status": it is
+        // the creation trigger *and* the exclusion it was written with
+        // (`status notIn [Done, Canceled]`). Keeping only the trigger would
+        // text a job created straight into Done, which Workiz never did.
         if (friendly === 'is created') {
           out.createdOnly = true;
+          if (negated) out.conditions.push({ field: 'status', op: 'not_in', values, labels: asList(c.value) });
+          else out.conditions.push({ field: 'status', op: 'in', values, labels: asList(c.value) });
           break;
         }
-        if (c.operator === 'notEqual' || c.operator === 'notIn') {
+        if (negated) {
           out.conditions.push({ field: 'status', op: 'not_in', values, labels: asList(c.value) });
           break;
         }
