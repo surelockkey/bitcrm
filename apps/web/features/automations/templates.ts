@@ -1,4 +1,4 @@
-import { JobSuperStatus, type AutomationSpec } from "@bitcrm/types";
+import { JobSuperStatus, type AutomationCondition, type AutomationSpec } from "@bitcrm/types";
 
 /**
  * The recipe library (Workiz "Automation Center" → LIBRARY tab). Each card is
@@ -52,7 +52,9 @@ const sms = (body: string, to: AutomationSpec["actions"][number]["to"] = "client
   [{ type: "send_sms" as const, to, body }];
 
 /** "The job is still on" — every reminder's real precondition. One value each, because the editor's condition row edits one. */
-const stillOn = (): AutomationSpec["conditions"] => [
+// Typed as leaves, not as `AutomationSpec["conditions"]`: that list is optional
+// and may hold OR groups, neither of which a recipe spreads into.
+const stillOn = (): AutomationCondition[] => [
   { field: "status", op: "not_in", values: [JobSuperStatus.CANCELED], labels: ["Canceled"] },
   { field: "status", op: "not_in", values: [JobSuperStatus.DONE], labels: ["Done"] },
 ];

@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import { JobSuperStatus } from "@bitcrm/types";
+import {
+  JobSuperStatus,
+  type AutomationCondition,
+  type AutomationSpec,
+} from "@bitcrm/types";
 import { automationFormSchema, specToForm, toSpec } from "./schemas";
 import { AUTOMATION_TEMPLATES, AUTOMATION_TEMPLATE_SECTIONS } from "./templates";
 
@@ -36,10 +40,19 @@ const NEEDS_A_NUMBER = "missed-call-notify-office";
 const READY = AUTOMATION_TEMPLATES.filter((t) => t.id !== NEEDS_A_NUMBER);
 const officeRecipe = () => AUTOMATION_TEMPLATES.find((t) => t.id === NEEDS_A_NUMBER)!;
 
+/**
+ * Conditions as leaves. A spec's condition list is AND of nodes, and a node is
+ * either a condition or an OR group of them — no recipe ships a group today,
+ * but a question like "does this recipe read the status" is about the leaves
+ * either way, so ask it of the leaves rather than of the shape.
+ */
+const leavesOf = (spec: AutomationSpec): AutomationCondition[] =>
+  (spec.conditions ?? []).flatMap((node) => ("any" in node ? node.any : [node]));
+
 /** Every value a spec pins to something the workspace owns. */
 const idsIn = (spec: (typeof AUTOMATION_TEMPLATES)[number]["draft"]["spec"]) => [
   ...(spec.trigger.toSubStatus ?? []),
-  ...spec.conditions.flatMap((c) => c.values ?? []),
+  ...leavesOf(spec).flatMap((c) => c.values ?? []),
   ...spec.actions.flatMap((a) => [
     ...(a.userIds ?? []),
     ...(a.roleIds ?? []),
@@ -148,7 +161,7 @@ describe("automation template catalog", () => {
     // recipe pairing them would text nobody, ever.
     for (const t of AUTOMATION_TEMPLATES) {
       const needsTechs =
-        t.draft.spec.conditions.some((c) => c.field === "hasTechs") ||
+        leavesOf(t.draft.spec).some((c) => c.field === "hasTechs") ||
         t.draft.spec.actions.some((a) => a.to === "assigned_techs");
       const entersSubmitted =
         t.draft.spec.trigger.kind === "deal.status_changed" &&
@@ -161,7 +174,7 @@ describe("automation template catalog", () => {
     const reminders = AUTOMATION_TEMPLATES.filter((t) => t.draft.spec.trigger.kind === "schedule.relative");
     expect(reminders.length).toBeGreaterThan(0);
     for (const t of reminders) {
-      const status = t.draft.spec.conditions.filter((c) => c.field === "status");
+      const status = leavesOf(t.draft.spec).filter((c) => c.field === "status");
       // `in` would pin the reminder to one status, and the engine re-checks the
       // conditions when the minute comes: a dispatched job is In progress by
       // then, so such a reminder is armed and then always skipped.
@@ -218,7 +231,7 @@ describe("automation template catalog", () => {
     const outOfScope = /invoice|estimate|payment|deposit|lead|service plan|visit/i;
     for (const t of AUTOMATION_TEMPLATES) {
       expect(`${t.id} ${t.title} ${t.sentence} ${t.blurb}`).not.toMatch(outOfScope);
-      expect(t.draft.spec.conditions.map((c) => c.field)).not.toContain("paymentStatus");
+      expect(leavesOf(t.draft.spec).map((c) => c.field)).not.toContain("paymentStatus");
     }
   });
 
