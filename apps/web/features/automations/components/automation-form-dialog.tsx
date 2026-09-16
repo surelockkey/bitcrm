@@ -7,6 +7,7 @@ import {
   automationSentence,
   type AutomationLabelMap,
   type AutomationRule,
+  type AutomationSpec,
 } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +35,7 @@ import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
-import { useUpdateAutomation } from "../hooks";
+import { useCreateAutomation, useUpdateAutomation } from "../hooks";
 import { TRIGGER_LABEL } from "../lib";
 import {
   automationFormSchema,
@@ -92,25 +93,39 @@ const DELAY_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 10080, label: "After 7 days" },
 ];
 
+/** What a new rule starts from — a library recipe, or nothing at all. */
+export interface AutomationDraft {
+  name: string;
+  spec: AutomationSpec;
+  category?: string;
+}
+
 /**
  * The rule editor (Workiz "Automation Center" → a rule): the trigger, the
  * conditions, what it sends and when. The sentence at the top is the same
  * one the list shows, rebuilt as the form changes, so a dispatcher can
- * read the rule back in English before saving it.
+ * read the rule back in English before saving it. Without a `rule` it
+ * creates one instead, prefilled from `draft` when a recipe supplied it.
  */
 export function AutomationFormDialog({
   rule,
+  draft,
   open,
   labels,
   onOpenChange,
 }: {
-  rule: AutomationRule;
+  rule?: AutomationRule;
+  draft?: AutomationDraft;
   open: boolean;
   labels?: AutomationLabelMap;
   onOpenChange: (open: boolean) => void;
 }) {
   const update = useUpdateAutomation();
-  const [values, setValues] = useState<AutomationFormValues>(() => specToForm(rule.name, rule.spec));
+  const create = useCreateAutomation();
+  const base = rule?.spec ?? draft?.spec;
+  const [values, setValues] = useState<AutomationFormValues>(() =>
+    specToForm(rule?.name ?? draft?.name ?? "", base),
+  );
   const [error, setError] = useState<string | null>(null);
   const [caret, setCaret] = useState<Record<number, number>>({});
   const [testing, setTesting] = useState(false);
@@ -122,8 +137,8 @@ export function AutomationFormDialog({
 
   const parsed = useMemo(() => automationFormSchema.safeParse(values), [values]);
   const preview = useMemo(
-    () => (parsed.success ? automationSentence(toSpec(parsed.data, rule.spec), labels) : ""),
-    [parsed, rule.spec, labels],
+    () => (parsed.success ? automationSentence(toSpec(parsed.data, base), labels) : ""),
+    [parsed, base, labels],
   );
 
   const set = <K extends keyof AutomationFormValues>(key: K, value: AutomationFormValues[K]) =>
@@ -152,19 +167,21 @@ export function AutomationFormDialog({
       setError(parsed.error.issues[0]?.message ?? "Check the form");
       return;
     }
-    update.mutate(
-      { id: rule.id, body: { name: parsed.data.name, spec: toSpec(parsed.data, rule.spec) } },
-      { onSuccess: () => onOpenChange(false) },
-    );
+    const body = { name: parsed.data.name, spec: toSpec(parsed.data, base) };
+    const close = { onSuccess: () => onOpenChange(false) };
+    if (rule) update.mutate({ id: rule.id, body }, close);
+    // A new rule always lands off, so it can be read back before it runs.
+    else create.mutate({ ...body, category: draft?.category }, close);
   };
 
   const kind = values.trigger.kind;
+  const saving = rule ? update.isPending : create.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit automation</DialogTitle>
+          <DialogTitle>{rule ? "Edit automation" : "Create automation"}</DialogTitle>
           <DialogDescription>
             {preview || "Choose a trigger and what to send."}
           </DialogDescription>
@@ -543,20 +560,26 @@ export function AutomationFormDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
-          <Button variant="outline" onClick={() => setTesting(true)}>
-            Test against a job
-          </Button>
+          {/* A dry run needs a saved rule to run — offer it once there is one. */}
+          {rule ? (
+            <Button variant="outline" onClick={() => setTesting(true)}>
+              Test against a job
+            </Button>
+          ) : (
+            <span />
+          )}
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button variant="brand" onClick={submit} disabled={update.isPending}>
-              {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Save rule
+            <Button variant="brand" onClick={submit} disabled={saving}>
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}{" "}
+              {rule ? "Save rule" : "Create automation"}
             </Button>
           </div>
         </DialogFooter>
 
-        {testing ? (
+        {testing && rule ? (
           <AutomationTestDialog rule={rule} open onOpenChange={(open) => !open && setTesting(false)} />
         ) : null}
       </DialogContent>
