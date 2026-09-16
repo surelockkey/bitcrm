@@ -412,6 +412,14 @@ describe('translateWorkizRule', () => {
       workizRule({ conditions: conditions({ fact: 'status', operator: 'equal', value: 'Done' }), events: [notification()] }),
     );
     expect(result.notes.join(' ')).toContain('account plumbing');
-    expect(TRANSLATOR_VERSION).toBe(1);
+  });
+
+  /**
+   * The version is what tells an already-migrated row its stored spec is out
+   * of date; a translation change without a bump never reaches those rows.
+   * Reading OR groups was such a change, so this is 2, not 1.
+   */
+  it('carries a version that moves whenever the translation does', () => {
+    expect(TRANSLATOR_VERSION).toBe(2);
   });
 });

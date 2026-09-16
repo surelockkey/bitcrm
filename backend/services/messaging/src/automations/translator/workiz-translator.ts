@@ -37,7 +37,20 @@ import { rewriteShortCodes } from './workiz-short-codes';
  * the table by `POST /automations/migrate`, so re-running a better
  * translator needs no data migration.
  */
-export const TRANSLATOR_VERSION = 1;
+
+/**
+ * Bump this whenever the translation of the same Workiz rule changes.
+ * A row `migrate()` has already written carries the version it was written
+ * at, and both `withSpec()` and `migrate()` treat "written at the current
+ * version" as done — so a fix that is not accompanied by a bump reaches
+ * un-migrated rules only and leaves the migrated ones on the old, wrong
+ * spec for good.
+ *
+ *   2  reads Workiz's `{any: [...]}` condition groups (25 rules kept their
+ *      three sources in one, and a rule read without its group fires for
+ *      every source).
+ */
+export const TRANSLATOR_VERSION = 2;
 
 export interface TranslationResult {
   spec?: AutomationSpec;

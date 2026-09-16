@@ -6,6 +6,7 @@ import {
   RuleNotRunnableException,
 } from '../../../src/automations/automations.service';
 import { BUILTIN_RULES, BUILTIN_RULES_SINCE } from '../../../src/automations/builtin-rules';
+import { TRANSLATOR_VERSION } from '../../../src/automations/translator/workiz-translator';
 import { T0 } from '../mocks';
 
 const workizRule = (overrides: Partial<AutomationRule> = {}): AutomationRule => ({
@@ -386,6 +387,35 @@ describe('AutomationsService', () => {
     const again = await service.migrate(caller);
     expect(again.every((r) => !r.written)).toBe(true);
     expect(repo.put).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The bug this guards: reading OR groups changed what the translator makes
+   * of 25 rules, but a row `migrate()` had already written is stamped with the
+   * version it was written at, and both the read path and `migrate()` read
+   * that as "done". Without a version bump the fix reaches only the rules
+   * nobody had migrated yet; the migrated ones keep the wider spec for good.
+   */
+  it('re-translates and rewrites a row migrated by an older translator', async () => {
+    const stale: AutomationRule = {
+      ...translatable(),
+      specSource: 'workiz-translator',
+      specVersion: TRANSLATOR_VERSION - 1,
+      runnable: true,
+      spec: { version: 1, trigger: { kind: 'deal.created' }, conditions: [], actions: [] },
+    };
+    const { service, repo, rows } = makeService([stale]);
+
+    // The read path does not trust a spec written by an older translator.
+    const read = await service.get('w3');
+    expect(read.specVersion).toBe(TRANSLATOR_VERSION);
+    expect(read.spec).not.toEqual(stale.spec);
+    expect(read.spec?.trigger.kind).toBe('deal.status_changed');
+
+    const table = await service.migrate(caller);
+    expect(table.map((r) => r.written)).toEqual([true]);
+    expect(repo.put).toHaveBeenCalled();
+    expect(rows.get('w3')!.specVersion).toBe(TRANSLATOR_VERSION);
   });
 
   it('migrate leaves a hand-edited rule alone and can report without writing', async () => {
