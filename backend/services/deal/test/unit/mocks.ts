@@ -208,7 +208,9 @@ export function createMockDealsRepository() {
     // Technician flow: an assignment row nobody has confirmed yet, unless a
     // test says otherwise.
     getAssignment: jest.fn().mockResolvedValue(null),
-    confirmAssignment: jest.fn(),
+    // Answers with the stamp the row already had; undefined = this call is the
+    // one that confirmed it.
+    confirmAssignment: jest.fn().mockResolvedValue(undefined),
   };
 }
 

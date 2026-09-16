@@ -182,8 +182,10 @@ export class DealsController {
       'membership of this job\'s technician roster (403 otherwise); dispatch may confirm on a ' +
       'technician\'s behalf. Mirrors the old CRM\'s "Confirmed job receipt": stamps `techConfirmedAt` ' +
       'on the caller\'s `ASSIGN#` row (and the first one onto the job, so lists can show it) and ' +
-      'writes a `tech_confirmed` timeline entry. Idempotent — a second call keeps the first stamp. ' +
-      '400 once the job is closed.',
+      'writes a `tech_confirmed` timeline entry. Idempotent per caller — a second call keeps the ' +
+      'first stamp and writes no second entry and no second event, a dispatcher with no `ASSIGN#` ' +
+      'row of their own included; a second technician on the same job still records their own ' +
+      'confirmation. 400 once the job is closed.',
   })
   async confirmReceipt(
     @Param('id') id: string,

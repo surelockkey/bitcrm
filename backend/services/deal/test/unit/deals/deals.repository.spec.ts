@@ -287,6 +287,27 @@ describe('DealsRepository', () => {
       expect(input.ConditionExpression).toBe('attribute_exists(PK)');
     });
 
+    it('confirmAssignment reports the stamp the row already had, so a repeat tap can stop', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Attributes: { techConfirmedAt: '2026-09-16T09:00:00.000Z' },
+      });
+
+      const already = await repository.confirmAssignment('deal-1', 'tech-1', '2026-09-16T10:00:00.000Z');
+
+      // ALL_OLD is what makes the write itself the arbiter of "who was first":
+      // the loser of two simultaneous taps is handed the earlier stamp.
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ReturnValues).toBe('ALL_OLD');
+      expect(already).toBe('2026-09-16T09:00:00.000Z');
+    });
+
+    it('confirmAssignment answers undefined when this call is the one that confirmed', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Attributes: { techId: 'tech-1' } });
+
+      expect(
+        await repository.confirmAssignment('deal-1', 'tech-1', '2026-09-16T10:00:00.000Z'),
+      ).toBeUndefined();
+    });
+
     it('restamping a moved date re-sorts the row without erasing what is on it', async () => {
       dynamoDb.client.send
         .mockResolvedValueOnce({ Items: [{ techId: 'tech-1' }] }) // listAssignmentTechIds

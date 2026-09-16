@@ -373,17 +373,25 @@ export class DealsRepository {
    * later timestamp, and the guard makes it safe to call twice. The row must
    * already exist (the technician must be assigned), so an unassigned caller
    * fails the condition instead of creating a phantom assignment.
+   *
+   * Answers with the stamp the row carried BEFORE this write (`ALL_OLD`), so a
+   * repeat tap — or the loser of two simultaneous ones — can be told the
+   * confirmation was already there and skip the timeline entry and the event
+   * it would otherwise write a second time. `undefined` means this call is the
+   * one that confirmed the job.
    */
-  async confirmAssignment(dealId: string, techId: string, at: string): Promise<void> {
-    await this.dynamoDb.client.send(
+  async confirmAssignment(dealId: string, techId: string, at: string): Promise<string | undefined> {
+    const result = await this.dynamoDb.client.send(
       new UpdateCommand({
         TableName: this.tableName,
         Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
         UpdateExpression: 'SET techConfirmedAt = if_not_exists(techConfirmedAt, :at)',
         ExpressionAttributeValues: { ':at': at },
         ConditionExpression: 'attribute_exists(PK)',
+        ReturnValues: 'ALL_OLD',
       }),
     );
+    return result?.Attributes?.techConfirmedAt as string | undefined;
   }
 
   /**

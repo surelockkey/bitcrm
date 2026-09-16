@@ -1009,7 +1009,11 @@ export class DealsService {
    * dispatch board, "My jobs" — can show it without reading a row per job.
    *
    * Idempotent: a second tap keeps the first timestamp and writes no second
-   * timeline entry.
+   * timeline entry. "A second tap" is per technician — each technician on a
+   * two-tech job confirms their own row and so gets their own entry — while a
+   * caller who is NOT on the roster (dispatch acting for somebody) has no row
+   * of their own and rides the deal-level mirror instead: once the job carries
+   * a confirmation, their repeat taps do nothing at all.
    */
   async confirmReceipt(id: string, caller: JwtUser, dealScope?: string): Promise<Deal> {
     const deal = await this.findById(id);
@@ -1019,11 +1023,21 @@ export class DealsService {
     const existing = await this.repository.getAssignment(id, caller.id);
     if (existing?.techConfirmedAt) return deal;
 
+    const onRoster = deal.assignedTechIds.includes(caller.id);
+    // Off the roster there is no `ASSIGN#` row to remember the tap, so the
+    // deal-level mirror is the only stamp there is: without this, every retry
+    // of a dispatcher's Confirm wrote another feed entry and another event.
+    if (!onRoster && deal.techConfirmedAt) return deal;
+
     const at = new Date().toISOString();
     // Only an assigned technician has a row to stamp; dispatch confirming on
     // somebody's behalf records the deal-level mirror and the timeline entry.
-    if (deal.assignedTechIds.includes(caller.id)) {
-      await this.repository.confirmAssignment(id, caller.id, at);
+    // That write is conditional (`if_not_exists`) and answers with whatever was
+    // already there, so two taps that both race past the read above still leave
+    // one entry: the loser stops here.
+    if (onRoster) {
+      const alreadyConfirmedAt = await this.repository.confirmAssignment(id, caller.id, at);
+      if (alreadyConfirmedAt) return deal;
     }
 
     const result = deal.techConfirmedAt

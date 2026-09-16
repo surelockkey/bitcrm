@@ -41,6 +41,7 @@ describe('DealsService — technician flow', () => {
   let service: DealsService;
   let repo: ReturnType<typeof createMockDealsRepository>;
   let timeline: ReturnType<typeof createMockTimelineRepository>;
+  let sns: ReturnType<typeof createMockSnsPublisherService>;
   let jobStatuses: { findById: jest.Mock; list: jest.Mock };
 
   /** The technician on the job. */
@@ -58,6 +59,7 @@ describe('DealsService — technician flow', () => {
   beforeEach(async () => {
     repo = createMockDealsRepository();
     timeline = createMockTimelineRepository();
+    sns = createMockSnsPublisherService();
     jobStatuses = { findById: jest.fn(), list: jest.fn().mockResolvedValue([]) };
 
     const module = await Test.createTestingModule({
@@ -67,7 +69,7 @@ describe('DealsService — technician flow', () => {
         { provide: DealsCacheService, useValue: createMockDealsCacheService() },
         { provide: TimelineRepository, useValue: timeline },
         { provide: DealProductsRepository, useValue: createMockDealProductsRepository() },
-        { provide: SnsPublisherService, useValue: createMockSnsPublisherService() },
+        { provide: SnsPublisherService, useValue: sns },
         { provide: InternalHttpService, useValue: createMockInternalHttpService() },
         { provide: GeocodingService, useValue: createMockGeocodingService() },
         { provide: ServiceAreasService, useValue: { resolvePoint: jest.fn().mockResolvedValue(null) } },
@@ -128,6 +130,50 @@ describe('DealsService — technician flow', () => {
       expect(repo.confirmAssignment).not.toHaveBeenCalled();
       expect(repo.update).toHaveBeenCalled();
       expect(entryOf(TimelineEventType.TECH_CONFIRMED).actorId).toBe('dispatcher-1');
+    });
+
+    it('is a no-op when dispatch taps Confirm again — they have no row of their own', async () => {
+      // The first tap: nothing confirmed yet, dispatch is off the roster.
+      const deal = assigned();
+      repo.findById.mockResolvedValue(deal);
+      repo.update.mockResolvedValue({ ...deal, techConfirmedAt: 'now', techConfirmedBy: 'dispatcher-1' });
+
+      await service.confirmReceipt('deal-1', dispatcher, DataScope.ALL);
+      expect(timeline.addEntry).toHaveBeenCalledTimes(1);
+
+      // The second tap — a retried request, or a thumb that hit it twice. The
+      // job already carries the mirror, and `getAssignment` will never answer
+      // for a caller who is not on the roster.
+      repo.findById.mockResolvedValue({
+        ...deal,
+        techConfirmedAt: '2026-09-16T09:00:00.000Z',
+        techConfirmedBy: 'dispatcher-1',
+      });
+
+      await service.confirmReceipt('deal-1', dispatcher, DataScope.ALL);
+
+      expect(timeline.addEntry).toHaveBeenCalledTimes(1);
+      expect(
+        sns.publish.mock.calls.filter(([, type]: [string, string]) => type === 'deal.tech_confirmed'),
+      ).toHaveLength(1);
+      expect(repo.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes one entry when two taps from the same technician race the read', async () => {
+      const deal = assigned();
+      repo.findById.mockResolvedValue(deal);
+      repo.update.mockResolvedValue(deal);
+      // Both taps read an unconfirmed row; the row write is what decides — the
+      // loser is handed the stamp that was already there.
+      repo.getAssignment.mockResolvedValue({ dealId: 'deal-1', techId: 'tech-1' });
+      repo.confirmAssignment.mockResolvedValue('2026-09-16T09:00:00.000Z');
+
+      await service.confirmReceipt('deal-1', tech, DataScope.ASSIGNED_ONLY);
+
+      expect(repo.confirmAssignment).toHaveBeenCalled();
+      expect(repo.update).not.toHaveBeenCalled();
+      expect(timeline.addEntry).not.toHaveBeenCalled();
+      expect(sns.publish).not.toHaveBeenCalled();
     });
 
     it('is a no-op the second time — the first stamp is the one that counts', async () => {
