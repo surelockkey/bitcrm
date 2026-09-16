@@ -191,3 +191,48 @@ importer adds — `externalId`, `inventoryItemId`, `workizSerial`, `categoryId`,
 
 Read them off a product as `ProductWithExtras` (`Product & Record<string,
 unknown>`); the typed fields always win over a stray stored value.
+
+## 5. Stock and locations
+
+### 5.1 `manageStock` — never deduct an untracked item
+
+Workiz decides stock tracking per item (`manage`); BitCRM decides it per type
+(`assertStockable` rejects services and nothing else). 4 266 items have
+`manage = 1`, but 6 643 **product**-type items have `manage = 0` — deducting
+one would 400 with "Insufficient stock" (there is no counter) and restoring it
+would invent stock nobody ever counted.
+
+- Write `manageStock: <bool>` on every product.
+- `POST /transfers/deduct` and `POST /transfers/restore` now drop the items
+  whose product says `manageStock: false` before touching stock, and leave them
+  out of the transfer journal; if nothing is left, no stock call and no journal
+  row happen at all. Services are still rejected first, as before.
+- **Absent means managed** — every product BitCRM has written carries no such
+  attribute, so nothing about existing data changes.
+- The 35 243 historical job lines with `container_id` and `manage = 1` are
+  already inside the 2026-09-11 snapshot: write them as `PRODUCT#<lineId>` rows
+  with `fulfillment: "imported"` (§3) and do **not** call deduct/restore.
+
+### 5.2 Locations — extra attributes survive an edit
+
+`toContainer` / `toWarehouse` now spread the stored row and then write the
+typed fields over it (key attributes excluded), and `create` spreads the entity
+first so the repository's own `PK`/`SK`/`GSI3` always win. So these importer
+attributes survive a rename, a department change or a technician reassignment
+from the UI:
+
+| Item | Extra attributes to write |
+|---|---|
+| `WAREHOUSE#` (3 locations) | `externalId`, `isPrimary` (1 primary: "(1) STORE") |
+| `CONTAINER#` (86 locations) | `externalId`, `isPrimary`, `userLimited`, `accessUserIds[]` |
+
+- `technicianId` is the BitCRM `User.id` and drives the sparse GSI3
+  (`GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>`) — write both
+  keys whenever the container has a technician, and neither when it does not.
+- **One technician, one container.** The API enforces it
+  (`assertTechnicianFree`) and `findByTechnicianId` takes `Limit: 1`; a direct
+  import bypasses the check, so the importer must not give two containers the
+  same `technicianId`. The 8 secondary users in 7 containers (all inactive)
+  go in `accessUserIds`, never in `technicianId`.
+- Stock rows are `PK = WAREHOUSE#<id> | CONTAINER#<id>`, `SK = STOCK#<productId>`
+  — write only the 13 298 non-zero rows, not all 275 722.

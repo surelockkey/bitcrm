@@ -567,4 +567,58 @@ describe('ProductsService', () => {
       ]);
     });
   });
+  /**
+   * Workiz tracks stock per item (`manage`); 6 643 product-type items have
+   * manage=0. Those must never move a stock counter.
+   */
+  describe('isStockManaged / partitionStockManaged', () => {
+    it('treats a product with no manageStock attribute as managed', async () => {
+      repository.findById.mockResolvedValue(createMockProduct());
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(true);
+    });
+
+    it('treats manageStock: false as not managed', async () => {
+      repository.findById.mockResolvedValue({
+        ...createMockProduct(),
+        manageStock: false,
+      });
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(false);
+    });
+
+    it('treats manageStock: true as managed', async () => {
+      repository.findById.mockResolvedValue({
+        ...createMockProduct(),
+        manageStock: true,
+      });
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(true);
+    });
+
+    it('treats an unknown product as managed (the stock call decides)', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.isStockManaged('ghost')).resolves.toBe(true);
+    });
+
+    it('splits a mixed list and looks each product up once', async () => {
+      repository.findById.mockImplementation(async (id: string) =>
+        id === 'prod-2'
+          ? { ...createMockProduct({ id: 'prod-2' }), manageStock: false }
+          : createMockProduct({ id }),
+      );
+      const items = [
+        { productId: 'prod-1', productName: 'Deadbolt', quantity: 1 },
+        { productId: 'prod-2', productName: 'Shop rag', quantity: 2 },
+        { productId: 'prod-2', productName: 'Shop rag', quantity: 3 },
+      ];
+
+      const { managed, unmanaged } = await service.partitionStockManaged(items);
+
+      expect(managed).toEqual([items[0]]);
+      expect(unmanaged).toEqual([items[1], items[2]]);
+      expect(repository.findById).toHaveBeenCalledTimes(2);
+    });
+  });
 });

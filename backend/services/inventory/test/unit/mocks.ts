@@ -95,6 +95,14 @@ export function createMockProductsService() {
     create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(),
     findAll: jest.fn(), list: jest.fn(), update: jest.fn(), archive: jest.fn(),
     reactivate: jest.fn(), assertStockable: jest.fn().mockResolvedValue(undefined),
+    isStockManaged: jest.fn().mockResolvedValue(true),
+    // Default: every item is stock-managed, as it is for products BitCRM wrote.
+    partitionStockManaged: jest.fn(
+      async (items: { productId: string }[]) => ({
+        managed: items,
+        unmanaged: [] as { productId: string }[],
+      }),
+    ),
   };
 }
 

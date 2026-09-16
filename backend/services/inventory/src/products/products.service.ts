@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { parse } from 'csv-parse/sync';
 import {
   type Product,
+  type ProductWithExtras,
   ProductType,
   InventoryStatus,
   UNCATEGORIZED_CATEGORY,
@@ -151,6 +152,44 @@ export class ProductsService {
         `Services cannot be stocked or transferred: ${serviceNames.join(', ')}`,
       );
     }
+  }
+
+  /**
+   * Workiz decides stock tracking per item (`manage`), BitCRM per type: 6 643
+   * product-type items have `manage = 0`, and deducting one would either fail
+   * with "Insufficient stock" or invent a negative-looking row for stock the
+   * business never counted.
+   *
+   * A product is stock-managed unless its stored row says `manageStock` is
+   * exactly `false`. Everything BitCRM has written carries no such attribute,
+   * so this changes nothing for existing data.
+   */
+  async isStockManaged(productId: string): Promise<boolean> {
+    const product = (await this.repository.findById(productId)) as
+      | ProductWithExtras
+      | null;
+    return product?.manageStock !== false;
+  }
+
+  /**
+   * Split stock-movement items into the ones that move a counter and the ones
+   * the price book says are not tracked. Each product is looked up once.
+   */
+  async partitionStockManaged<T extends { productId: string }>(
+    items: T[],
+  ): Promise<{ managed: T[]; unmanaged: T[] }> {
+    const decided = new Map<string, boolean>();
+    const managed: T[] = [];
+    const unmanaged: T[] = [];
+    for (const item of items) {
+      let isManaged = decided.get(item.productId);
+      if (isManaged === undefined) {
+        isManaged = await this.isStockManaged(item.productId);
+        decided.set(item.productId, isManaged);
+      }
+      (isManaged ? managed : unmanaged).push(item);
+    }
+    return { managed, unmanaged };
   }
 
   async findBySku(sku: string): Promise<Product> {
