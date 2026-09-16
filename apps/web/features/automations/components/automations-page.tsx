@@ -1,21 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Info, Loader2, Pencil, PlayCircle, RefreshCw, Workflow } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Search, Workflow } from "lucide-react";
 import type { AutomationLabelMap, AutomationRule } from "@bitcrm/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -23,26 +21,59 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import {
   useAutomations,
   useAutomationsAccess,
+  useDuplicateAutomation,
   useMigrateAutomations,
   useUpdateAutomation,
 } from "../hooks";
-import { TRIGGER_LABEL, canEnable, firingCount, ruleSentence, sortRules } from "../lib";
-import { AutomationFormDialog } from "./automation-form-dialog";
+import {
+  SORT_LABEL,
+  STATE_LABEL,
+  TRIGGER_LABEL,
+  type AutomationFilter,
+  type AutomationSort,
+  type AutomationState,
+  categoryLabel,
+  filterRules,
+  isFiltered,
+  ruleCategories,
+} from "../lib";
+import type { AutomationTemplate } from "../templates";
+import { AutomationDeleteDialog } from "./automation-delete-dialog";
+import { AutomationFormDialog, type AutomationDraft } from "./automation-form-dialog";
+import { AutomationLibrary } from "./automation-library";
+import { AutomationRuleCard } from "./automation-rule-card";
 import { AutomationRunsDialog } from "./automation-runs-dialog";
 
+const STATES: AutomationState[] = ["on", "off", "blocked"];
+const ALL = "all";
+
 /**
- * Settings → Automations (Workiz "Automation Center"). Every rule the
- * workspace has — the ones this service runs, the ones translated from the
- * Workiz export, and the ones that could not be — with the Workiz sentence
- * under each name, how often it has fired, and a switch.
+ * The Automation Center (Workiz's own module, §4.2): a library of recipes to
+ * start from and the rules this workspace owns. Every rule the service runs,
+ * the ones translated from the Workiz export and the ones that could not be —
+ * with the Workiz sentence under each name, how often it has fired, and a switch.
  */
 export function AutomationsPage() {
   const { canView, canEdit } = useAutomationsAccess();
   const { data: rules, isLoading } = useAutomations(canView);
   const update = useUpdateAutomation();
+  const duplicate = useDuplicateAutomation();
   const migrate = useMigrateAutomations();
+
+  const [search, setSearch] = useState("");
+  const [states, setStates] = useState<AutomationState[]>([]);
+  const [trigger, setTrigger] = useState<string>(ALL);
+  const [category, setCategory] = useState<string>(ALL);
+  const [sort, setSort] = useState<AutomationSort>("used");
+  // Left unset until the reader picks a tab, so the default can follow the
+  // data: a workspace with rules opens on them, an empty one on the library.
+  const [tab, setTab] = useState<string | undefined>();
+
   const [editing, setEditing] = useState<AutomationRule | undefined>();
+  const [draft, setDraft] = useState<AutomationDraft | undefined>();
+  const [creating, setCreating] = useState(false);
   const [showing, setShowing] = useState<AutomationRule | undefined>();
+  const [deleting, setDeleting] = useState<AutomationRule | undefined>();
 
   // Ids in a rule read as uuids; the catalogs turn them back into names.
   const { data: tags } = useJobTags();
@@ -57,6 +88,36 @@ export function AutomationsPage() {
     return map;
   }, [tags, types, sources, statuses]);
 
+  const all = useMemo(() => rules ?? [], [rules]);
+  const filter: AutomationFilter = useMemo(
+    () => ({
+      search,
+      states,
+      trigger: trigger === ALL ? undefined : (trigger as AutomationFilter["trigger"]),
+      category: category === ALL ? undefined : category,
+      sort,
+    }),
+    [search, states, trigger, category, sort],
+  );
+  const visible = useMemo(() => filterRules(all, filter, labels), [all, filter, labels]);
+  const categories = useMemo(() => ruleCategories(all), [all]);
+
+  const running = all.filter((r) => r.enabled).length;
+  const narrowed = isFiltered(filter);
+  const activeTab = tab ?? (all.length ? "mine" : "library");
+
+  const clearFilters = () => {
+    setSearch("");
+    setStates([]);
+    setTrigger(ALL);
+    setCategory(ALL);
+  };
+
+  const openCreate = (from?: AutomationDraft) => {
+    setDraft(from);
+    setCreating(true);
+  };
+
   if (!canView) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -66,147 +127,178 @@ export function AutomationsPage() {
     );
   }
 
-  const sorted = sortRules(rules ?? []);
-  const running = sorted.filter((r) => r.enabled).length;
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-1 flex-col gap-4 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Automations</h2>
+          <h1 className="text-lg font-semibold tracking-tight">Automations</h1>
           <p className="text-sm text-muted-foreground">
-            What the system sends on its own. {running} of {sorted.length} rules are on.
+            What the system sends on its own. {running} of {all.length} rules are on.
           </p>
         </div>
-        {canEdit ? (
-          // Writes the translation of every imported Workiz rule to its row,
-          // so the specs can be edited and stop being recomputed on read.
-          // Idempotent, and it never touches a rule somebody edited by hand.
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={migrate.isPending}
-            onClick={() => migrate.mutate(undefined)}
-          >
-            {migrate.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            Re-check imported rules
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search automations…"
+              aria-label="Search automations"
+              className="h-9 w-56 pl-8"
+            />
+          </div>
+          {canEdit ? (
+            // Writes the translation of every imported Workiz rule to its row,
+            // so the specs can be edited and stop being recomputed on read.
+            // Idempotent, and it never touches a rule somebody edited by hand.
+            <Button
+              variant="outline"
+              size="lg"
+              disabled={migrate.isPending}
+              onClick={() => migrate.mutate(undefined)}
+            >
+              {migrate.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Re-check imported rules
+            </Button>
+          ) : null}
+          {canEdit ? (
+            <Button variant="brand" size="lg" onClick={() => openCreate()}>
+              <Plus className="size-4" />
+              Create automation
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      ) : sorted.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
-          <Workflow className="size-6 text-muted-foreground" />
-          <p className="text-sm font-medium">No automation rules</p>
-          <p className="text-sm text-muted-foreground">Imported Workiz rules appear here once the history is loaded.</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">On</TableHead>
-                <TableHead>Rule</TableHead>
-                <TableHead className="w-40">Trigger</TableHead>
-                <TableHead className="w-24 text-right">Fired</TableHead>
-                <TableHead className="w-28 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sorted.map((rule) => {
-                const enable = canEnable(rule);
-                const fired = firingCount(rule);
-                return (
-                  <TableRow key={rule.id} data-testid={`automation-${rule.id}`}>
-                    <TableCell>
-                      <Switch
-                        checked={rule.enabled}
-                        disabled={!canEdit || (!enable && !rule.enabled) || update.isPending}
-                        aria-label={`${rule.enabled ? "Disable" : "Enable"} ${rule.name}`}
-                        onCheckedChange={(enabled) => update.mutate({ id: rule.id, body: { enabled } })}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{rule.name}</span>
-                        {rule.builtin ? <Badge variant="secondary">Built in</Badge> : null}
-                        {!enable ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge variant="outline" className="gap-1 text-muted-foreground">
-                                <Info className="size-3" /> Cannot run here
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-sm">
-                              {rule.notRunnableReason ?? "This rule has nothing the engine can run."}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : null}
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {ruleSentence(rule, labels) || rule.description || "—"}
-                      </p>
-                      {rule.specNotes?.length ? (
-                        <p className="mt-0.5 text-xs text-muted-foreground/80">{rule.specNotes[0]}</p>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {rule.spec ? TRIGGER_LABEL[rule.spec.trigger.kind] : "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-sm tabular-nums">
-                      <button
-                        type="button"
-                        className="hover:underline"
-                        onClick={() => setShowing(rule)}
-                        aria-label={`Firings of ${rule.name}`}
-                      >
-                        {fired ?? 0}
-                      </button>
-                      {rule.workizTriggered ? (
-                        <span className="block text-[11px] text-muted-foreground">
-                          {rule.workizTriggered.toLocaleString()} in Workiz
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Firing log of ${rule.name}`}
-                          onClick={() => setShowing(rule)}
-                        >
-                          <PlayCircle className="size-4" />
-                        </Button>
-                        {canEdit ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Edit ${rule.name}`}
-                            onClick={() => setEditing(rule)}
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <Tabs value={activeTab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="library">Library</TabsTrigger>
+          <TabsTrigger value="mine">My automations · {all.length}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="library">
+          <AutomationLibrary
+            canEdit={canEdit}
+            search={search}
+            onUse={(template: AutomationTemplate) => openCreate(template.draft)}
+          />
+        </TabsContent>
+
+        <TabsContent value="mine" className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {STATES.map((state) => (
+              <Button
+                key={state}
+                size="sm"
+                variant={states.includes(state) ? "secondary" : "outline"}
+                aria-pressed={states.includes(state)}
+                onClick={() =>
+                  setStates((current) =>
+                    current.includes(state)
+                      ? current.filter((s) => s !== state)
+                      : [...current, state],
+                  )
+                }
+              >
+                {STATE_LABEL[state]}
+              </Button>
+            ))}
+            <Select value={trigger} onValueChange={setTrigger}>
+              <SelectTrigger className="h-9 w-48" aria-label="Trigger">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All triggers</SelectItem>
+                {Object.entries(TRIGGER_LABEL).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger className="h-9 w-44" aria-label="Category">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All categories</SelectItem>
+                {categories.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {categoryLabel(value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={sort} onValueChange={(v) => setSort(v as AutomationSort)}>
+              <SelectTrigger className="h-9 w-44" aria-label="Sort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(SORT_LABEL).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>
+              {narrowed ? `${visible.length} of ${all.length} rules` : `${all.length} rules`}
+            </span>
+            {narrowed ? (
+              <Button variant="link" size="sm" className="h-auto p-0" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          ) : all.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
+              <Workflow className="size-6 text-muted-foreground" />
+              <p className="text-sm font-medium">No automation rules</p>
+              <p className="text-sm text-muted-foreground">
+                Start from a recipe in the Library, or create one of your own.
+              </p>
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
+              <p className="text-sm font-medium">No rule matches these filters</p>
+              <Button variant="outline" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {visible.map((rule) => (
+                <AutomationRuleCard
+                  key={rule.id}
+                  rule={rule}
+                  labels={labels}
+                  canEdit={canEdit}
+                  busy={update.isPending}
+                  onToggle={(enabled) => update.mutate({ id: rule.id, body: { enabled } })}
+                  onEdit={() => setEditing(rule)}
+                  onDuplicate={() => duplicate.mutate({ id: rule.id })}
+                  onHistory={() => setShowing(rule)}
+                  onDelete={() => setDeleting(rule)}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {editing ? (
         <AutomationFormDialog
@@ -216,8 +308,23 @@ export function AutomationsPage() {
           onOpenChange={(open) => !open && setEditing(undefined)}
         />
       ) : null}
+      {creating ? (
+        <AutomationFormDialog
+          draft={draft}
+          open
+          labels={labels}
+          onOpenChange={(open) => !open && setCreating(false)}
+        />
+      ) : null}
       {showing ? (
         <AutomationRunsDialog rule={showing} open onOpenChange={(open) => !open && setShowing(undefined)} />
+      ) : null}
+      {deleting ? (
+        <AutomationDeleteDialog
+          rule={deleting}
+          open
+          onOpenChange={(open) => !open && setDeleting(undefined)}
+        />
       ) : null}
     </div>
   );
