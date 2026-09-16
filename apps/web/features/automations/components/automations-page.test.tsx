@@ -192,6 +192,15 @@ describe("AutomationsPage", () => {
     await waitFor(() => expect(migrated).toBe(1));
   });
 
+  it("offers the account-wide firing feed", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: /activity/i })).toHaveAttribute(
+      "href",
+      "/automations/activity",
+    );
+  });
+
   it("shows the firing log for a rule", async () => {
     const user = userEvent.setup();
     renderPage();
