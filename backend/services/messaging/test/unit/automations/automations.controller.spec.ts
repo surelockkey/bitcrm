@@ -16,7 +16,9 @@ function makeController() {
       { id: 'w2', name: 'Invoice due', runnable: false, reason: 'invoices are not an automation entity', actions: [], written: false },
     ]),
   };
-  return { controller: new AutomationsController(service as any), service };
+  const runs = { listByRule: jest.fn(async () => [{ id: 'run-1', ruleId: 'late', outcome: 'sent', actions: [] }]) };
+  const engine = { testRun: jest.fn(async () => ({ id: 'run-2', ruleId: 'late', outcome: 'dry_run', actions: [] })) };
+  return { controller: new AutomationsController(service as any, runs as any, engine as any), service, runs, engine };
 }
 
 describe('AutomationsController', () => {
@@ -37,6 +39,27 @@ describe('AutomationsController', () => {
     expect(perm('get')).toEqual({ resource: 'settings', action: 'view' });
     expect(perm('update')).toEqual({ resource: 'settings', action: 'edit' });
     expect(perm('migrate')).toEqual({ resource: 'settings', action: 'edit' });
+    expect(perm('listRuns')).toEqual({ resource: 'settings', action: 'view' });
+    expect(perm('test')).toEqual({ resource: 'settings', action: 'edit' });
+  });
+
+  it('reads the firing log with a clamped limit', async () => {
+    const { controller, runs } = makeController();
+    expect(await controller.listRuns('late')).toEqual({ success: true, data: expect.any(Array) });
+    expect(runs.listByRule).toHaveBeenCalledWith('late', 20);
+    await controller.listRuns('late', '5');
+    expect(runs.listByRule).toHaveBeenLastCalledWith('late', 5);
+    await controller.listRuns('late', '5000');
+    expect(runs.listByRule).toHaveBeenLastCalledWith('late', 50);
+    await controller.listRuns('late', 'lots');
+    expect(runs.listByRule).toHaveBeenLastCalledWith('late', 20);
+  });
+
+  it('runs a rule against a job without sending', async () => {
+    const { controller, engine } = makeController();
+    const result = await controller.test('late', { dealId: 'd1' });
+    expect(result.data.outcome).toBe('dry_run');
+    expect(engine.testRun).toHaveBeenCalledWith('late', 'd1');
   });
 
   it('answers the coverage table on migrate, and writes nothing on a dry run', async () => {

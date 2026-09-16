@@ -4,6 +4,9 @@ import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { AutomationsService } from './automations.service';
 import { UpdateAutomationDto } from './dto/update-automation.dto';
+import { TestAutomationDto } from './dto/test-automation.dto';
+import { AutomationRunsRepository } from './engine/automation-runs.repository';
+import { AutomationRuleEngine } from './engine/rule-engine.service';
 
 /**
  * `/api/messaging/automations` — the Automation Center (design §7.1, §10 M21),
@@ -15,7 +18,11 @@ import { UpdateAutomationDto } from './dto/update-automation.dto';
 @ApiBearerAuth()
 @Controller('automations')
 export class AutomationsController {
-  constructor(private readonly service: AutomationsService) {}
+  constructor(
+    private readonly service: AutomationsService,
+    private readonly runs: AutomationRunsRepository,
+    private readonly engine: AutomationRuleEngine,
+  ) {}
 
   @Get()
   @RequirePermission('settings', 'view')
@@ -59,6 +66,33 @@ export class AutomationsController {
   @ApiOperation({ summary: 'One automation rule', description: '**Guard:** `settings.view`.' })
   async get(@Param('id') id: string) {
     const data = await this.service.get(id);
+    return { success: true, data };
+  }
+
+  @Get(':id/runs')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: "One rule's last firings",
+    description:
+      '**Guard:** `settings.view`. Newest first, at most 50: when it fired, for which job, what each action did ' +
+      'and — for a firing that did nothing — why. Kept for 30 days.',
+  })
+  async listRuns(@Param('id') id: string, @Query('limit') limit?: string) {
+    const parsed = Number.parseInt(limit ?? '', 10);
+    const data = await this.runs.listByRule(id, Math.min(Number.isFinite(parsed) && parsed > 0 ? parsed : 20, 50));
+    return { success: true, data };
+  }
+
+  @Post(':id/test')
+  @RequirePermission('settings', 'edit')
+  @ApiOperation({
+    summary: 'Try a rule against one job without sending anything',
+    description:
+      '**Guard:** `settings.edit`. Evaluates the rule against the job as it is now and renders every message it ' +
+      'would send (`outcome: dry_run`), or answers why it would not fire. Nothing is sent, nothing is logged.',
+  })
+  async test(@Param('id') id: string, @Body() dto: TestAutomationDto) {
+    const data = await this.engine.testRun(id, dto.dealId);
     return { success: true, data };
   }
 
