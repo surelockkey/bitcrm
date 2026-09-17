@@ -1,7 +1,16 @@
 # BitCRM Field (mobile)
 
-Technician mobile app for the BitCRM / SLK field-service platform. Built as a
-**standalone Expo project**, separate from the `bitcrm` web monorepo.
+Technician mobile app for the BitCRM / SLK field-service platform. It lives in
+the `bitcrm` monorepo at `apps/mobile`, and shares the backend's entity types
+through `@bitcrm/types`.
+
+It is **not** one of the root npm workspaces, and must not become one. AWS
+Amplify builds `apps/web` by running an install at the repository root; a
+workspace entry here would put the whole Expo SDK 57 / React Native 0.86
+toolchain into that install, where any peer conflict with Next.js breaks a web
+deploy that has nothing to do with the phone. The app therefore keeps its own
+`package.json`, its own `package-lock.json` and its own `node_modules`, and
+reaches the shared package over a `file:` link.
 
 **Current scope: authentication only.** This is the foundation for the GPS
 location-tracking feature (PRD story 4.03), which lands next.
@@ -15,10 +24,21 @@ location-tracking feature (PRD story 4.03), which lands next.
 
 ## Getting started
 
+Two installs, in this order. The root one is not optional: `@bitcrm/types`
+declares the TypeScript it is compiled with, and that compiler is hoisted to the
+root `node_modules`.
+
 ```bash
-npm install
-npm run ios       # or: npm run android  /  npm run start
+npm install --prefix ../..          # repo root: web, services, shared types
+cd apps/mobile && npm install       # this app: Expo, React Native, jest
+npm run ios                         # or: npm run android / npm run start
 ```
+
+Every `npm run` here that reads the shared package — `start`, `ios`, `android`,
+`web`, `typecheck` — rebuilds it first (`npm run types:build`, which delegates to
+`packages/types`' own `build`). The jest suite does the same from a `globalSetup`
+hook, so `npx jest` gets the guarantee too. Nothing is committed: `packages/types`
+ships `dist/`, and `dist/` is gitignored.
 
 Point the app at a backend by copying `.env.example` to `.env`:
 
@@ -52,8 +72,34 @@ covered by unit tests and was written red→green. Native/GPS integration is
 validated on-device (it can't run under Jest).
 
 ```bash
-npx tsc --noEmit   # type-check
+npm run typecheck   # or: npx tsc --noEmit
 ```
+
+`.github/workflows/mobile.yml` runs both on every push and pull request that
+touches `apps/mobile/**` or `packages/types/**`. It builds nothing on Expo/EAS
+and touches no AWS.
+
+## Shared types
+
+`src/features/jobs/types.ts` imports `Deal`, `Address`, `Contact`,
+`TimelineEntry`, `DealAttachmentMeta` and `JobSuperStatus` from `@bitcrm/types` —
+the same package the services and the web app compile against. It used to keep a
+hand-written copy of them, and the copy had drifted.
+
+Only two shapes are still declared locally, at the bottom of that file:
+`AttachmentUploadTicket` and `StartedBridge`, which are controller response
+envelopes rather than entities and so have nothing to import.
+
+`Deal` is narrowed rather than re-exported: the phone treats several fields the
+server always sends as optional, because a job can reach a screen out of the
+persisted react-query cache that an older build wrote. The narrowing is a named
+set in that file, derived from the server's own `Deal`, so a renamed field is a
+compile error instead of a silent `undefined`.
+
+`metro.config.js` is what makes this work at runtime — it adds the repo root to
+`watchFolders` and both `node_modules` trees to `resolver.nodeModulesPaths`, with
+`disableHierarchicalLookup` on so a package present in both is never taken from
+the wrong one.
 
 ## Project structure
 

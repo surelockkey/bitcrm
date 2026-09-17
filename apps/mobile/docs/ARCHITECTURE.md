@@ -6,12 +6,22 @@ React 19.2 / TypeScript) для техніків BitCRM: реальний кон
 доступності, місце для майбутніх платежів (Stripe Tap to Pay) і поетапний план.
 
 Усе, що стосується бекенду, перевірено читанням коду. Посилання даються у форматі
-`шлях:рядок` відносно кореня відповідного репозиторію:
+`шлях:рядок`.
 
-| Позначка | Репозиторій | Гілка |
+**Застосунок переїхав у монорепозиторій `bitcrm` (`apps/mobile`).** Бекенд тепер
+лежить поруч — у `backend/` того самого дерева, — тож обидві позначки нижче
+розв'язуються локально: `BE/backend/gateway/nginx.conf:228` читається як
+`backend/gateway/nginx.conf:228` від кореня репозиторію. Позначки залишені, бо
+номери рядків звірялися саме з тими двома робочими копіями на 2026-09-16.
+
+| Позначка | Де було на момент звірки | Де тепер |
 | --- | --- | --- |
-| **BE** | `/Users/a1/Desktop/prj/bitcrm-messaging` | `main` |
-| **TECH** | `/Users/a1/Desktop/prj/bitcrm-f-tech` | `feat/tech-0916` (11 комітів поверх `origin/main`) |
+| **BE** | `/Users/a1/Desktop/prj/bitcrm-messaging` (`main`) | `backend/` цього репозиторію |
+| **TECH** | `/Users/a1/Desktop/prj/bitcrm-f-tech` (`feat/tech-0916`) | `backend/` цього репозиторію |
+
+Типи сутностей більше не переписуються від руки: `src/features/jobs/types.ts`
+імпортує `Deal`, `Address`, `Contact`, `TimelineEntry`, `DealAttachmentMeta` і
+`JobSuperStatus` з `@bitcrm/types` — того самого пакета, що компілюють сервіси.
 
 **Суміжний документ:** `docs/STACK.md` — перевірка нативного стека (версії
 Stripe Terminal SDK, сумісність RN/Expo, `minSdkVersion`, що саме змушує перейти
