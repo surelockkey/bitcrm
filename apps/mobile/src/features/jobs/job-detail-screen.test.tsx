@@ -1,5 +1,5 @@
 import { Alert, Linking, Share } from 'react-native';
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { renderScreen } from '../../test/render';
 import { JobDetailScreen } from './job-detail-screen';
 import { localDateIso, shiftDateIso } from './lib';
@@ -25,6 +25,8 @@ let mockDeal: Deal | undefined;
 let mockContact: Contact | undefined;
 let mockRecords: QueueRecord[] = [];
 let mockClockState: ClockState = { status: 'off' };
+/** Clock rows the outbox gave up on. `PrimaryActions` reads only the count. */
+let mockClockFailed: unknown[] = [];
 
 jest.mock('./hooks', () => ({
   useJob: () => ({
@@ -54,7 +56,7 @@ jest.mock('../timeclock/components/JobClockCard', () => ({
 jest.mock('../timeclock/hooks', () => ({
   useClockState: () => ({
     state: mockClockState,
-    failed: [],
+    failed: mockClockFailed,
     isLoading: false,
     refetch: jest.fn(),
   }),
@@ -89,6 +91,7 @@ describe('JobDetailScreen', () => {
     mockContact = undefined;
     mockRecords = [];
     mockClockState = { status: 'off' };
+    mockClockFailed = [];
     Object.values(mockActions).forEach((fn) => fn.mockClear());
     mockCall.mockReset();
     mockClockIn.mockClear();
@@ -206,6 +209,46 @@ describe('JobDetailScreen', () => {
     expect(mockClockIn).not.toHaveBeenCalled();
     // Sent to the clock, which is what explains the other job and offers the
     // only move that helps — clocking out there.
+    expect(screen.getByTestId('clock-sheet')).toBeTruthy();
+  });
+
+  it('sends one clock-in however many times a gloved thumb lands on Start', async () => {
+    // The guard `ClockCard` has always had, on the button that replaced it in
+    // the row: a second row on the same shift is the one wrong answer in this
+    // app that costs somebody money (`timeclock/lib.ts`).
+    let settle: () => void = () => {};
+    mockClockIn.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { settle = resolve; }),
+    );
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+
+    await fireEvent.press(screen.getByTestId('action-clock'));
+    await fireEvent.press(screen.getByTestId('action-clock'));
+    expect(mockClockIn).toHaveBeenCalledTimes(1);
+
+    // And the guard lifts once the row is on the outbox — a Start that stays
+    // busy is a technician who cannot clock in at all.
+    settle();
+    await waitFor(() =>
+      expect(screen.getByTestId('action-clock').props.accessibilityState.busy)
+        .toBe(false),
+    );
+  });
+
+  it('says on the button that hours are unrecorded, and will not queue more', async () => {
+    // A clock row the outbox gave up on leaves the derived state at `off`
+    // (`deriveClockState`): the button would read "Start" and a tap would
+    // stack a second entry behind hours nobody has been paid for. The banner
+    // that says so lives in `ClockCard`, so this tap goes there instead.
+    mockClockFailed = [{ id: 'r1' }];
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+
+    // Visible without tapping anything: the technician has no reason to open
+    // a clock they believe is not running.
+    expect(screen.getByText('Hours not recorded')).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('action-clock'));
+    expect(mockClockIn).not.toHaveBeenCalled();
     expect(screen.getByTestId('clock-sheet')).toBeTruthy();
   });
 
@@ -393,6 +436,7 @@ describe('JobDetailScreen — rescheduling', () => {
     mockContact = undefined;
     mockRecords = [];
     mockClockState = { status: 'off' };
+    mockClockFailed = [];
     Object.values(mockActions).forEach((fn) => fn.mockClear());
     mockCall.mockReset();
     mockClockIn.mockClear();
@@ -524,6 +568,7 @@ describe('JobDetailScreen — the Workiz job card', () => {
     mockContact = undefined;
     mockRecords = [];
     mockClockState = { status: 'off' };
+    mockClockFailed = [];
     Object.values(mockActions).forEach((fn) => fn.mockClear());
     mockCall.mockReset();
     mockClockIn.mockClear();
@@ -662,6 +707,7 @@ describe('JobDetailScreen — Finance and Pay are mocked', () => {
     mockContact = undefined;
     mockRecords = [];
     mockClockState = { status: 'off' };
+    mockClockFailed = [];
     mockCall.mockReset();
     mockClockIn.mockClear();
   });

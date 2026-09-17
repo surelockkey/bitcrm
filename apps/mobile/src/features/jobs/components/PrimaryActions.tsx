@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTheme } from '../../../lib/theme/theme-provider';
 import { Button } from '../../../ui/Button';
@@ -38,8 +39,9 @@ export function PrimaryActions({
   canNotify,
 }: PrimaryActionsProps) {
   const { spacing } = useTheme();
-  const { state, isLoading } = useClockState();
+  const { state, failed, isLoading } = useClockState();
   const { clockIn } = useClockActions();
+  const [starting, setStarting] = useState(false);
 
   const running = isOnTheClock(state);
   const onThisJob = running && clockDealId(state) === dealId;
@@ -47,6 +49,14 @@ export function PrimaryActions({
   // Minute resolution: a seconds counter three buttons wide would flicker, and
   // nobody reads the seconds off a row they are about to tap.
   const elapsed = useElapsed(onThisJob ? startedAt : null, HALF_MINUTE_MS);
+  /*
+    A clock row the outbox gave up on leaves `deriveClockState` at `off`: the
+    button would read "Start" and the hours behind that row are unpaid with
+    nothing on the screen saying so. `ClockCard` owns the banner that says it,
+    so the button carries the short version and the tap goes to the sheet
+    instead of stacking a second entry on top of the first.
+  */
+  const unrecorded = failed.length > 0;
 
   return (
     <View style={[styles.row, { gap: spacing.md }]}>
@@ -62,25 +72,33 @@ export function PrimaryActions({
         testID="action-clock"
         size="hero"
         style={styles.cell}
-        busy={isLoading}
+        busy={isLoading || starting}
         hint={
           onThisJob
             ? formatElapsedShort(elapsed)
-            : running
-              ? 'On another job'
-              : undefined
+            : unrecorded
+              ? 'Hours not recorded'
+              : running
+                ? 'On another job'
+                : undefined
         }
         accessibilityHint={
           onThisJob
             ? 'Your clock is running on this job. Opens the time clock.'
-            : 'Starts your clock on this job'
+            : unrecorded
+              ? 'A clock entry has not reached the office. Opens the time clock.'
+              : 'Starts your clock on this job'
         }
         onPress={() => {
-          if (running || state.status === 'stopping') {
+          if (running || state.status === 'stopping' || unrecorded) {
             onOpenClock();
             return;
           }
-          void clockIn(dealId);
+          // Held until the tap has reached the outbox, the way `ClockCard`
+          // holds it: the row that says the clock is starting arrives a beat
+          // later, and a second tap inside that beat is a second shift.
+          setStarting(true);
+          void clockIn(dealId).finally(() => setStarting(false));
         }}
       />
       {/*
