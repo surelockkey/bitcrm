@@ -191,6 +191,26 @@ describe('ScheduleScreen', () => {
     expect(mockAsked.at(-1)).toEqual([TODAY, '2026-09-18']);
   });
 
+  /**
+   * One date for the whole screen — header, rail, grid and the list inside it.
+   *
+   * The embedded list used to read the phone's own clock instead of taking the
+   * day from Schedule, which agreed only by coincidence: on the night the date
+   * rolls over with the app left running, the Timeline would group against
+   * yesterday while the rail above it said today. It also made three of the
+   * assertions in this file quietly depend on the machine's calendar reading
+   * 17 September 2026.
+   */
+  it('anchors the embedded list to the same today it uses itself', async () => {
+    const pinned = '2026-03-04';
+    await render({ todayIso: pinned });
+
+    // Both the screen and the list it embeds asked, and both asked about the
+    // same day.
+    expect(mockAsked.length).toBeGreaterThan(1);
+    for (const [today] of mockAsked) expect(today).toBe(pinned);
+  });
+
   it('goes back to today from the header', async () => {
     await render();
     await fireEvent.press(screen.getByTestId('rail-next'));

@@ -48,6 +48,16 @@ export interface JobsScreenProps {
   embedded?: boolean;
   /** Drawn as Back when this is a screen pushed off the menu rather than a tab. */
   onBack?: () => void;
+  /**
+   * Which day counts as today.
+   *
+   * Schedule owns it while the list is embedded: its header, its date rail and
+   * its hour grid all anchor to one date, and a list quietly anchored to a
+   * *different* one is how the two halves of that tab come to disagree about
+   * what "Today" means the night the date rolls over. Defaults to this phone's
+   * own day, which is what the standalone Jobs screen uses.
+   */
+  todayIso?: string;
 }
 
 /**
@@ -73,9 +83,9 @@ export function JobsScreen({
   match,
   embedded = false,
   onBack,
+  todayIso = localDateIso(),
 }: JobsScreenProps) {
   const { colors, spacing, type } = useTheme();
-  const todayIso = localDateIso();
   const [ownIso, setOwnIso] = useState(todayIso);
   const selectedIso = day ? day.selectedIso : ownIso;
   const [picking, setPicking] = useState(false);

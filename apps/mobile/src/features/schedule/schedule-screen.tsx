@@ -201,6 +201,11 @@ export function ScheduleScreen({
           <View style={styles.flex}>
             <JobsScreen
               embedded
+              // The same "today" the header, the rail and the grid use. Left to
+              // its own clock the list would group against a different date the
+              // moment this screen's own rolls over, and one half of the tab
+              // would be a day behind the other.
+              todayIso={todayIso}
               onOpenJob={onOpenJob}
               // Only when something is actually narrowed: it is also how the
               // list knows which kind of empty an empty day is.
