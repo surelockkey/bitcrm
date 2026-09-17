@@ -153,8 +153,15 @@ export function useJob(id: string) {
  *
  * Long `staleTime` and no refetch on focus: a client's number does not change
  * while a technician is on their doorstep, and this is one more request on a
- * van's connection. It answers from the persisted cache underground, which is
- * where the number is worth most.
+ * van's connection.
+ *
+ * It does **not** survive a restart. `shouldPersistQuery` keeps the day's list,
+ * the jobs on it, the office thread, the van's stock and the running clock;
+ * contacts are deliberately not on that list (`lib/query/persist.ts`), so on a
+ * phone opened underground there is nothing here at all. The Client block says
+ * exactly that rather than "No phone number on file", which would be a fact
+ * this phone does not have. Adding contacts to the persisted set is a change to
+ * the offline contract and belongs with whoever owns that rule.
  */
 export function useJobContact(contactId: string | undefined) {
   return useQuery<Contact>({

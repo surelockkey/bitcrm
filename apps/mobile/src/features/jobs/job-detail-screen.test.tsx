@@ -662,8 +662,24 @@ describe('JobDetailScreen — the Workiz job card', () => {
   });
 
   it('says there is no number rather than showing a blank where one goes', async () => {
+    mockContact = { id: 'c1', phones: [] } as unknown as Contact;
     await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
     expect(screen.getByText('No phone number on file')).toBeTruthy();
+  });
+
+  it('will not call a client with no number "a client with no number"', async () => {
+    /*
+     * The contact record is not one of the queries written to disk
+     * (`lib/query/persist.ts`), so in a basement on a cold start it never
+     * arrives — and the block used to answer that with "No phone number on
+     * file", which is a fact the phone does not have. A technician reads that
+     * and stops looking; the number was on the work order all along.
+     */
+    mockContact = undefined;
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+
+    expect(screen.queryByText('No phone number on file')).toBeNull();
+    expect(screen.getByText('Number not on this phone yet')).toBeTruthy();
   });
 
   it('shows what the office wrote as the description, apart from the notes box', async () => {

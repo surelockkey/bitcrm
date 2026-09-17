@@ -364,6 +364,17 @@ export function formatPhone(raw: string): string {
 }
 
 export interface ClientPhone {
+  /**
+   * Whether the contact record reached this phone at all.
+   *
+   * Contacts are not among the queries written to disk
+   * (`lib/query/persist.ts`), so in a basement on a cold start there is
+   * nothing to read — and "no number on file" would then be the phone
+   * asserting something it was never told. A client who gave no number and a
+   * record that has not arrived are different answers, and a technician does
+   * something different about each.
+   */
+  known: boolean;
   /** Formatted for reading. Null when the client has no number on file. */
   display: string | null;
   /**
@@ -384,6 +395,7 @@ export function clientPhone(
   const phones = contact?.phones ?? [];
   const first = phones[0];
   return {
+    known: contact !== undefined,
     display: first ? formatPhone(first) : null,
     hidden: phones.length ? 0 : (contact?.phoneCount ?? 0),
     extra: Math.max(0, phones.length - 1),

@@ -49,13 +49,20 @@ export function ClientCard({
         <Text style={[type.body, { color: colors.textMuted }]}>{address}</Text>
       ) : null}
 
+      {/* Three different absences, said three different ways. "No phone number
+          on file" is a fact about the client, so it is printed only once the
+          record is actually here — offline on a cold start it is not, and a
+          technician who reads it there stops looking for a number that exists
+          (`lib.ts`, `ClientPhone.known`). */}
       <Text testID="client-phone" style={[type.body, { color: colors.text }]}>
         {phone.display ??
-          (phone.hidden
-            ? phone.hidden === 1
-              ? '1 number, hidden'
-              : `${phone.hidden} numbers, hidden`
-            : 'No phone number on file')}
+          (!phone.known
+            ? 'Number not on this phone yet'
+            : phone.hidden
+              ? phone.hidden === 1
+                ? '1 number, hidden'
+                : `${phone.hidden} numbers, hidden`
+              : 'No phone number on file')}
       </Text>
       {phone.extra ? (
         <Text style={[type.caption, { color: colors.textMuted }]}>

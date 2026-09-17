@@ -457,6 +457,7 @@ describe('the client’s phone', () => {
       display: '(860) 555-1234',
       hidden: 0,
       extra: 1,
+      known: true,
     });
   });
 
@@ -468,13 +469,23 @@ describe('the client’s phone', () => {
       display: null,
       hidden: 0,
       extra: 0,
+      known: true,
     });
     expect(clientPhone({ phones: [], phoneCount: 2 })).toEqual({
       display: null,
       hidden: 2,
       extra: 0,
+      known: true,
     });
     expect(clientPhone(undefined).display).toBeNull();
+  });
+
+  it('tells a contact that has not arrived apart from one with no number', () => {
+    // The contact record is not written to disk (`lib/query/persist.ts`), so
+    // underground on a cold start this is `undefined` — which is the phone
+    // having been told nothing, not the client having given nothing.
+    expect(clientPhone(undefined).known).toBe(false);
+    expect(clientPhone({ phones: [] }).known).toBe(true);
   });
 });
 
