@@ -1,14 +1,17 @@
 import { ApiError } from '../../lib/api/errors';
 import { http } from '../../lib/api/http';
 import {
+  getConversation,
+  getInboxCounters,
   getJobClientThread,
+  listConversations,
   lookupClientText,
   sendClientText,
   type ClientThread,
 } from './api';
 
 jest.mock('../../lib/api/http', () => ({
-  http: { get: jest.fn(), post: jest.fn() },
+  http: { get: jest.fn(), post: jest.fn(), paginated: jest.fn() },
 }));
 
 const mockHttp = http as jest.Mocked<typeof http>;
@@ -74,5 +77,56 @@ describe('the client thread', () => {
       body: 'I am outside',
       channel: 'sms',
     });
+  });
+});
+
+/**
+ * The inbox routes behind the Messages list. Their shapes are pinned because
+ * each carries a decision: the list asks for no `kind` (it is filtered on the
+ * phone, so the chips are instant and work with no signal), and the counters
+ * are the ones scoped to the caller rather than the company's.
+ */
+describe('the conversation list', () => {
+  beforeEach(() => {
+    mockHttp.get.mockReset();
+    (mockHttp.paginated as jest.Mock).mockReset();
+  });
+
+  it('asks for the whole inbox and filters the chips on the phone', async () => {
+    (mockHttp.paginated as jest.Mock).mockResolvedValue({ data: [], pagination: {} });
+
+    await listConversations();
+    // No `kind=`: under `assigned_only` the server materialises the whole
+    // assigned set either way, and "Team" is two kinds the parameter cannot
+    // express.
+    expect(mockHttp.paginated).toHaveBeenCalledWith('/messaging/conversations?view=all&limit=50');
+  });
+
+  it('carries a cursor for an inbox that does not fit in one page', async () => {
+    (mockHttp.paginated as jest.Mock).mockResolvedValue({ data: [], pagination: {} });
+
+    await listConversations('CUR-2', 25);
+    expect(mockHttp.paginated).toHaveBeenCalledWith(
+      '/messaging/conversations?view=all&limit=25&cursor=CUR-2',
+    );
+  });
+
+  it('reads the counters the caller is scoped to', async () => {
+    mockHttp.get.mockResolvedValue({ unreadConversations: 0, unreadByKind: {} });
+
+    await getInboxCounters();
+    expect(mockHttp.get).toHaveBeenCalledWith('/messaging/conversations/counters');
+  });
+
+  it('can name one thread, for a link opened before the list has loaded', async () => {
+    mockHttp.get.mockResolvedValue({ id: 'conv-1' });
+
+    await getConversation('conv-1');
+    expect(mockHttp.get).toHaveBeenCalledWith('/messaging/conversations/conv-1');
+  });
+
+  it('lets a refusal through as a refusal', async () => {
+    (mockHttp.paginated as jest.Mock).mockRejectedValue(new ApiError(403, 'outside your scope'));
+    await expect(listConversations()).rejects.toMatchObject({ status: 403 });
   });
 });

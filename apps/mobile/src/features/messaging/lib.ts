@@ -200,12 +200,20 @@ export interface PendingFilter {
   /** `chat` for the office thread, `client_sms` for the client's. */
   kind: OutboxKind;
   /**
-   * Only rows about this job. The client thread uses it; the office thread
-   * does not, and must not — a technician has **one** thread with the office,
-   * so a line written from another job still belongs in it, while a text to a
-   * client is drawn on the job it was sent from.
+   * Only rows about this job. The job's client thread uses it; the office
+   * thread does not, and must not — a technician has **one** thread with the
+   * office, so a line written from another job still belongs in it, while a
+   * text sent from a job is drawn on that job.
    */
   dealId?: string;
+  /**
+   * Only rows addressed to this contact. What the same client's thread
+   * opened from the **inbox list** filters on: that screen is not standing on
+   * a job, and a text queued from one job of a client belongs in the one
+   * conversation they have — a technician who sends from a job and then opens
+   * the thread from the list must not watch their own words disappear.
+   */
+  contactId?: string;
 }
 
 /**
@@ -231,8 +239,9 @@ export function pendingLines(
     if (filter.dealId !== undefined && record.dealId !== filter.dealId) continue;
     if (record.state === 'done') continue;
     try {
-      const payload = JSON.parse(record.payload) as ChatPayload;
+      const payload = JSON.parse(record.payload) as ChatPayload & { contactId?: string };
       if (!payload?.body) continue;
+      if (filter.contactId !== undefined && payload.contactId !== filter.contactId) continue;
       lines.push({
         id: record.id,
         body: payload.body,

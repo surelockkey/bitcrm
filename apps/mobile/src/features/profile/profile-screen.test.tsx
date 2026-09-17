@@ -87,4 +87,42 @@ describe('ProfileScreen', () => {
       screen.getByTestId('location-toggle-state', { includeHiddenElements: true }),
     ).toHaveTextContent('Off');
   });
+  /**
+   * The menu has both a Settings row and a Profile row, and they are not the
+   * same screen: Settings is what Workiz keeps under that word — the controls
+   * a technician owns — with no identity card to scroll past and no Sign out
+   * button a finger's width from the menu's own Log out row.
+   */
+  describe('as Settings', () => {
+    it('is the controls, under Workiz’s own heading', async () => {
+      await renderScreen(
+        <ProfileScreen variant="settings" onOpenTimesheet={jest.fn()} />,
+      );
+      expect(screen.getByText('Settings')).toBeTruthy();
+      expect(screen.getByTestId('location-toggle')).toBeTruthy();
+      expect(screen.getByTestId('open-timesheet')).toBeTruthy();
+    });
+
+    it('leaves the identity card and Sign out to the Profile screen', async () => {
+      await renderScreen(<ProfileScreen variant="settings" />);
+      expect(screen.queryByText('Dana Reyes')).toBeNull();
+      expect(screen.queryByTestId('sign-out')).toBeNull();
+    });
+  });
+
+  /**
+   * Pushed over the tabs now rather than being one, so it needs a way out that
+   * is not the phone's own gesture.
+   */
+  it('offers a way back when it was opened from the menu', async () => {
+    const onBack = jest.fn();
+    await renderScreen(<ProfileScreen onBack={onBack} />);
+    await fireEvent.press(screen.getByTestId('screen-back'));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws no Back at all when there is nowhere to go back to', async () => {
+    await renderScreen(<ProfileScreen />);
+    expect(screen.queryByTestId('screen-back')).toBeNull();
+  });
 });

@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 import type {
   Conversation,
   ConversationReadMarker,
+  InboxCounters,
   Message,
   OptOut,
   TeamChatCounters,
@@ -93,6 +94,73 @@ export const listTeamThreads = (limit = 20): Promise<Page<TeamThread>> =>
 /** The caller's own badge: `{ unreadConversations, unreadByKind: { team, group } }`. */
 export const getTeamChatCounters = (): Promise<TeamChatCounters> =>
   http.get<TeamChatCounters>('/messaging/team/counters');
+
+/* ------------------------------------------------------------- the inbox */
+
+/**
+ * One row of the conversation list. The same shape the web Inbox reads
+ * (`apps/web/features/messaging/api.ts`), masking included: a viewer without
+ * `contacts.view_numbers` gets the party's digits withheld rather than
+ * refused, and `phonesMasked` says so.
+ */
+export type InboxConversation = Conversation & { phonesMasked?: true };
+
+/**
+ * The inbox, newest activity first.
+ *
+ * No `kind=` filter is sent, deliberately. Under `assigned_only` — which is
+ * every technician — the server materialises the whole assigned set on every
+ * request and pages it in memory (`conversation-scope.service.ts:113-137`,
+ * `conversations.service.ts:251-264`), so asking for one kind costs exactly
+ * the same work as asking for all of them. Filtering on the phone instead
+ * makes the chips instant, keeps them working from cache with no signal, and
+ * lets "Team" mean `team` **and** `group` — two kinds the single `kind=`
+ * parameter cannot express.
+ *
+ * `messages.view` is required. A technician whose role does not carry it gets
+ * a 403 here while their office thread still loads from the team routes,
+ * which is a refusal the screen has to say out loud rather than draw as an
+ * empty list.
+ */
+export const listConversations = (
+  cursor?: string,
+  limit = 50,
+): Promise<Page<InboxConversation>> => {
+  const q = new URLSearchParams({ view: 'all', limit: String(limit) });
+  if (cursor) q.set('cursor', cursor);
+  return http.paginated<InboxConversation>(`/messaging/conversations?${q.toString()}`);
+};
+
+/**
+ * The inbox counters for this caller: `unreadConversations`,
+ * `unreadByKind` and the category totals.
+ *
+ * Scoped like the list it counts — an `assigned_only` caller's numbers are
+ * counted over their own threads, not the company's, and the scoped branch
+ * always stamps `totalsRecountedAt`, so a technician's totals are exact
+ * (`counters.service.ts:30-56`).
+ *
+ * Its `unread` is the **team-wide** flag the office clears, not the caller's
+ * own read marker — see `chipUnread` in `./inbox-lib` for which half of these
+ * numbers may be believed for whom.
+ */
+export const getInboxCounters = (): Promise<InboxCounters> =>
+  http.get<InboxCounters>('/messaging/conversations/counters');
+
+/**
+ * One conversation, with the caller's own read marker.
+ *
+ * Only for the thread a link points at when the list is not in the cache — a
+ * push notification tapped on a cold phone. Opened from the list it is already
+ * known, and a second read could only disagree with what is on screen. 403
+ * outside the caller's scope, which `describeReadError` turns into a sentence.
+ */
+export const getConversation = (
+  id: string,
+): Promise<InboxConversation & { readMarker?: ConversationReadMarker }> =>
+  http.get<InboxConversation & { readMarker?: ConversationReadMarker }>(
+    `/messaging/conversations/${id}`,
+  );
 
 /** The feed, newest first. `cursor` loads older. */
 export const listMessages = (

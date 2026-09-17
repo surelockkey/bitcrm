@@ -1,32 +1,38 @@
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ApiError } from '../../lib/api/errors';
-import { openExternalUrl } from '../../lib/linking';
 import { useTheme } from '../../lib/theme/theme-provider';
 import { Button } from '../../ui/Button';
 import { Card, CardRow } from '../../ui/Card';
 import { EmptyState } from '../../ui/EmptyState';
 import { Screen } from '../../ui/Screen';
 import { Splash } from '../../ui/Splash';
+import { FinanceTab } from '../finance/components/FinanceTab';
+import { PaySheet } from '../finance/components/PaySheet';
 import { useQueue } from '../queue/queue-provider';
 import { QueueSummary } from '../queue/components/QueueBadge';
 import { useMaskedCall } from '../telephony/use-masked-call';
-import { JobClockCard } from '../timeclock/components/JobClockCard';
-import { MinutesSheet } from './components/MinutesSheet';
+import { ClientCard } from './components/ClientCard';
+import { EtaSheet } from './components/EtaSheet';
+import { JobMapCard } from './components/JobMapCard';
+import { JobTabs, type JobTab } from './components/JobTabs';
 import { JobStamps } from './components/JobStamps';
+import { PrimaryActions } from './components/PrimaryActions';
 import { RescheduleSheet } from './components/RescheduleSheet';
 import { StatusPill } from './components/StatusPill';
-import { useJob, useMarkSeenOnOpen, useMe } from './hooks';
+import { TimeClockSheet } from './components/TimeClockSheet';
+import { useJob, useJobContact, useMarkSeenOnOpen, useMe } from './hooks';
 import {
   addressLine,
   clientDisplayName,
   formatDayHeading,
   formatSlot,
   localDateIso,
-  navigationUrl,
+  teamSummary,
   techActionState,
 } from './lib';
 import { RescheduleRefused } from './reschedule';
+import { shareJob } from './share';
 import { useJobActions } from './use-job-actions';
 
 export interface JobDetailScreenProps {
@@ -39,18 +45,50 @@ export interface JobDetailScreenProps {
   onOpenClientThread: (dealId: string) => void;
 }
 
-type Sheet = 'none' | 'onMyWay' | 'late' | 'reschedule';
+type Sheet = 'none' | 'clock' | 'eta' | 'pay' | 'onMyWay' | 'late' | 'reschedule';
 
 /**
  * One job, and everything a technician does to it.
  *
- * Every action is queued and optimistic, so the screen answers instantly
- * whether or not there is a signal, and the queue line under the header says
- * plainly what has not reached the server yet. Only "Done" asks for
- * confirmation — it is the one move that is awkward to undo. "Arrived" does
- * not: it is idempotent server-side, so a mis-tap costs nothing, and a
- * confirmation dialog between a technician and a doorstep is friction for its
- * own sake (docs/ARCHITECTURE.md §2.9).
+ * The owner's rule is UX theirs, UI ours: the users are technicians who have
+ * spent years in the Workiz app, and nothing about their day should have to be
+ * relearned. So the structure and the words are Workiz's where there is a
+ * reading of Workiz to copy —
+ *
+ *   header `Job #<number>` · back · share
+ *   tabs   `Details` | `Finance`
+ *   row    `Start` · `ETA` · `Pay`
+ *   details: map, description, status, client, schedule, team
+ *
+ * — and everything visual is ours: our palette, our type scale, our touch
+ * floors, our components.
+ *
+ * **What is sourced, and what is not.** `WORKIZ_MOBILE_APP.md` §1.4 records the
+ * quick-action panel (`Start`, `ETA`, `Pay`, `Add note`, `Attach`), the address
+ * tapped for directions, the client's number read off the card, the status
+ * moved from the Details tab, and a Finance tab. The header wording came from
+ * the brief. **The order of the Details blocks is ours** — the live-capture
+ * pass never reached a job card at all, because the account it was read from
+ * has no assigned work (`WORKIZ_APP_SCREENS_LIVE.md`, line 11), so there is no
+ * reading of that screen to copy. Assign any job to Bohdan TECH, photograph
+ * this screen in their app, and correct the order against it; until then this
+ * is a considered arrangement and not a parity claim.
+ *
+ * Every action still goes through the durable queue and is optimistic, so the
+ * screen answers instantly whether or not there is a signal, and the queue line
+ * under the header says plainly what has not reached the server yet. Only
+ * "Done" asks for confirmation — it is the one move that is awkward to undo.
+ * "Arrived" does not: it is idempotent server-side, so a mis-tap costs nothing,
+ * and a confirmation dialog between a technician and a doorstep is friction for
+ * its own sake (docs/ARCHITECTURE.md §2.9).
+ *
+ * **What is mocked, and what was left out.** Finance and Pay read from nothing
+ * this wave and say so on their face (`features/finance/mock.ts`). Six of
+ * Workiz's Details sections are absent rather than drawn dead — Job name, Job
+ * type, Job tags, Checklists, Equipment, Tasks — because the phone has either
+ * no field behind them at all or only a catalog id it cannot turn into a word,
+ * and a row that shows a technician a uuid, or that they tap twice a day for
+ * nothing, is worse than a row that is not there.
  */
 export function JobDetailScreen({
   dealId,
@@ -65,9 +103,11 @@ export function JobDetailScreen({
   // Above every early return, because opening the job is the event — whether
   // or not the fresh copy has landed yet.
   useMarkSeenOnOpen(deal, me?.id);
+  const { data: contact } = useJobContact(deal?.contactId);
   const actions = useJobActions(dealId);
   const call = useMaskedCall();
   const { records } = useQueue();
+  const [tab, setTab] = useState<JobTab>('Details');
   const [sheet, setSheet] = useState<Sheet>('none');
   const [note, setNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -81,7 +121,7 @@ export function JobDetailScreen({
   if (!deal && isPending) {
     return (
       <Screen testID="job-screen">
-        <Header onBack={onBack} title="Job" />
+        <Header title="Job" onBack={onBack} />
         <Splash />
       </Screen>
     );
@@ -91,7 +131,7 @@ export function JobDetailScreen({
     const offline = error instanceof ApiError && error.status === 0;
     return (
       <Screen testID="job-screen">
-        <Header onBack={onBack} title="Job" />
+        <Header title="Job" onBack={onBack} />
         <EmptyState
           testID="job-error"
           tone="error"
@@ -113,250 +153,254 @@ export function JobDetailScreen({
   const can = techActionState(deal);
   const client = clientDisplayName(deal);
   const address = addressLine(deal.address);
-  const mapUrl = navigationUrl(deal.address);
 
   return (
     <Screen testID="job-screen">
-      <Header onBack={onBack} title={`Job ${deal.dealNumber}`} />
+      <Header
+        title={`Job #${deal.dealNumber}`}
+        onBack={onBack}
+        onShare={() => void shareJob(deal)}
+      />
 
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}>
+        {/* Above the tabs: what has not reached the server is about the whole
+            job, not about whichever tab happens to be open. */}
         <QueueSummary waiting={waiting} failed={failed} label="this job" />
 
-        <Card>
-          <View style={styles.topRow}>
-            <Text style={[type.title, styles.shrink, { color: colors.text }]}>
-              {formatSlot(deal.scheduledTimeSlot, deal.allDay)}
-            </Text>
-            <StatusPill status={deal.superStatus} />
-          </View>
-          {client ? <CardRow label="Client" value={client} /> : null}
-          {address ? <CardRow label="Address" value={address} /> : null}
-          {deal.scheduledDate ? (
-            <CardRow
-              label="Date"
-              value={formatDayHeading(deal.scheduledDate.slice(0, 10))}
-            />
-          ) : null}
-          <View style={{ marginTop: spacing.sm }}>
-            <JobStamps deal={deal} />
-          </View>
-        </Card>
+        <JobTabs value={tab} onChange={setTab} />
 
-        <View style={{ gap: spacing.md }}>
-          <Button
-            label="Navigate"
-            variant="secondary"
-            disabled={!mapUrl}
-            onPress={() => {
-              void openExternalUrl(mapUrl).then((opened) => {
-                if (!opened) {
-                  Alert.alert(
-                    'Could not open maps',
-                    'No maps app answered. The address is above, ready to copy.',
-                  );
-                }
-              });
-            }}
-          />
-          <Button
-            label="Call client"
-            variant="secondary"
-            busy={call.isPending}
-            accessibilityHint="Rings your phone, then connects you to the client"
-            onPress={() => call.mutate({ dealId, contactId: deal.contactId })}
-          />
-          {/* The two client-facing buttons together, the office one under
-              them: the grouping is the first thing that says which of the two
-              threads a technician is about to open, before any wording does. */}
-          <Button
-            label={client ? `Text ${client}` : 'Text the client'}
-            testID="action-text-client"
-            variant="secondary"
-            hint="Their own text thread — they see it, the office does not"
-            disabled={!deal.contactId}
-            onPress={() => onOpenClientThread(dealId)}
-          />
-          {/* One tap from the job to the office, with the job carried along —
-              the technician does not have to say which job they mean. */}
-          <Button
-            label="Message the office"
-            testID="action-message-office"
-            variant="secondary"
-            hint="Asks dispatch about this job — the client does not see it"
-            onPress={() => onOpenChat(dealId)}
-          />
-        </View>
+        <PrimaryActions
+          dealId={dealId}
+          canNotify={can.canNotify}
+          onOpenClock={() => setSheet('clock')}
+          onOpenEta={() => setSheet('eta')}
+          onOpenPay={() => setSheet('pay')}
+        />
 
-        {/* Workiz's quick-action panel leads with Start, which starts a clock
-            on this job (`WORKIZ_MOBILE_APP.md` §1.4), so the clock comes before
-            the rest of the actions here too. */}
-        <Section title="Time clock">
-          <JobClockCard dealId={dealId} />
-        </Section>
+        {tab === 'Finance' ? (
+          <FinanceTab />
+        ) : (
+          <View testID="details-tab" style={{ gap: spacing.lg }}>
+            {/* 1. The map with the address — Workiz's first element. */}
+            <JobMapCard address={deal.address} />
 
-        <Section title="Actions">
-          {can.canConfirm ? (
-            <Button
-              label="Confirm receipt"
-              testID="action-confirm"
-              hint="Tells dispatch you have the job"
-              onPress={() => void actions.confirm()}
-            />
-          ) : null}
-          {can.canNotify ? (
-            <>
+            {/* 2. Description: what the office wrote on the job. Read-only, and
+                   separate from the Notes box further down, which is where the
+                   technician writes — `deal.notes` and `POST /notes` are two
+                   different things and were sharing one heading before. */}
+            {deal.notes ? (
+              <Section title="Description">
+                <Card testID="job-description">
+                  <Text style={[type.body, { color: colors.text }]}>
+                    {deal.notes}
+                  </Text>
+                </Card>
+              </Section>
+            ) : null}
+
+            {/* 3. Status — and, as in Workiz, the status moves are made here on
+                   Details rather than from the quick-action row. */}
+            <Section title="Status">
+              <Card>
+                <StatusPill status={deal.superStatus} />
+                <View style={{ marginTop: spacing.sm }}>
+                  <JobStamps deal={deal} />
+                </View>
+              </Card>
+              {can.canConfirm ? (
+                <Button
+                  label="Confirm receipt"
+                  testID="action-confirm"
+                  hint="Tells dispatch you have the job"
+                  onPress={() => void actions.confirm()}
+                />
+              ) : null}
+              {can.canArrive ? (
+                <Button
+                  label="Arrived"
+                  testID="action-arrived"
+                  size="hero"
+                  hint="Sends your location if the phone offers one"
+                  onPress={() => void actions.arrive()}
+                />
+              ) : null}
+              {/* "Start work" is the status move Submitted → In progress, not
+                  the clock: the clock is `Start` in the row above, which is the
+                  word Workiz spends there. Two buttons beginning with "Start"
+                  is the one thing a technician of twenty years' standing should
+                  not have to puzzle over, so this one keeps the longer name. */}
+              {can.canStart ? (
+                <Button
+                  label="Start work"
+                  testID="action-start"
+                  onPress={() => void actions.start()}
+                />
+              ) : null}
+              {can.canFinish ? (
+                <Button
+                  label="Done"
+                  testID="action-done"
+                  size="hero"
+                  onPress={() =>
+                    Alert.alert('Finish this job?', 'Dispatch will see it as done.', [
+                      { text: 'Not yet', style: 'cancel' },
+                      { text: 'Done', onPress: () => void actions.finish() },
+                    ])
+                  }
+                />
+              ) : null}
+              {!can.canConfirm && !can.canArrive && !can.canStart && !can.canFinish ? (
+                <Text style={[type.body, { color: colors.textMuted }]}>
+                  This job is closed. You can still call the client.
+                </Text>
+              ) : null}
+            </Section>
+
+            {/* 4. Client: name, address, phone, call, message. */}
+            <Section title="Client">
+              <ClientCard
+                name={client}
+                address={address}
+                contact={contact}
+                onCall={() => call.mutate({ dealId, contactId: deal.contactId })}
+                callBusy={call.isPending}
+                canText={Boolean(deal.contactId)}
+                onText={() => onOpenClientThread(dealId)}
+              />
+            </Section>
+
+            {/* 5. Schedule — when the visit is, and the one control that moves
+                   it. Its own section, well away from the hero actions: a
+                   mis-tap here opens a sheet, but a mis-tap on "Done" would
+                   not be so cheap. */}
+            <Section title="Schedule">
+              <Card>
+                {deal.scheduledDate ? (
+                  <CardRow
+                    label="Date"
+                    value={formatDayHeading(deal.scheduledDate.slice(0, 10))}
+                  />
+                ) : null}
+                <CardRow
+                  label="Window"
+                  value={formatSlot(deal.scheduledTimeSlot, deal.allDay)}
+                />
+                {deal.serviceArea ? (
+                  <CardRow label="Area" value={deal.serviceArea} />
+                ) : null}
+              </Card>
               <Button
-                label="On my way"
-                testID="action-on-my-way"
+                label="Reschedule"
+                testID="action-reschedule"
                 variant="secondary"
-                hint="Texts the client"
-                onPress={() => setSheet('onMyWay')}
+                hint="Move this visit to another day or window"
+                disabled={!can.canReschedule}
+                onPress={() => setSheet('reschedule')}
+              />
+              {!can.canReschedule ? (
+                <Text style={[type.caption, { color: colors.textMuted }]}>
+                  A closed job cannot be moved. Ask the office to reopen it.
+                </Text>
+              ) : null}
+            </Section>
+
+            {/* 6. Team — who else is on this job, and the way to reach the
+                   office about it. */}
+            <Section title="Team">
+              <Card testID="job-team">
+                <Text style={[type.body, { color: colors.text }]}>
+                  {teamSummary(deal, me?.id)}
+                </Text>
+              </Card>
+              {/* One tap from the job to the office, with the job carried along
+                  — the technician does not have to say which job they mean. */}
+              <Button
+                label="Message the office"
+                testID="action-message-office"
+                variant="secondary"
+                hint="Asks dispatch about this job — the client does not see it"
+                onPress={() => onOpenChat(dealId)}
+              />
+            </Section>
+
+            {/* Workiz's two remaining quick actions, Attach and Add note, at
+                the foot of Details where the things they write to live. */}
+            <Section title="Photos">
+              <Button
+                label="Photos"
+                testID="action-photos"
+                variant="secondary"
+                hint="Take a photo or see what is queued"
+                onPress={() => onOpenPhotos(dealId)}
+              />
+            </Section>
+
+            <Section title="Notes">
+              <TextInput
+                testID="note-input"
+                accessibilityLabel="New note"
+                multiline
+                placeholder="Add a note for this job"
+                placeholderTextColor={colors.textMuted}
+                value={note}
+                onChangeText={setNote}
+                style={[
+                  type.body,
+                  {
+                    minHeight: touch.min * 2,
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    borderWidth: 2,
+                    borderRadius: radius.md,
+                    color: colors.text,
+                    padding: spacing.lg,
+                    textAlignVertical: 'top',
+                  },
+                ]}
               />
               <Button
-                label="Running late"
-                testID="action-late"
-                variant="secondary"
-                hint="Texts the client how long"
-                onPress={() => setSheet('late')}
+                label="Save note"
+                testID="action-save-note"
+                disabled={note.trim().length === 0}
+                busy={savingNote}
+                onPress={() => {
+                  setSavingNote(true);
+                  void actions
+                    .addNote(note.trim())
+                    .then(() => setNote(''))
+                    .finally(() => setSavingNote(false));
+                }}
               />
-            </>
-          ) : null}
-          {can.canArrive ? (
-            <Button
-              label="Arrived"
-              testID="action-arrived"
-              size="hero"
-              hint="Sends your location if the phone offers one"
-              onPress={() => void actions.arrive()}
-            />
-          ) : null}
-          {can.canStart ? (
-            <Button
-              label="Start work"
-              testID="action-start"
-              onPress={() => void actions.start()}
-            />
-          ) : null}
-          {can.canFinish ? (
-            <Button
-              label="Done"
-              testID="action-done"
-              size="hero"
-              onPress={() =>
-                Alert.alert(
-                  'Finish this job?',
-                  'Dispatch will see it as done.',
-                  [
-                    { text: 'Not yet', style: 'cancel' },
-                    { text: 'Done', onPress: () => void actions.finish() },
-                  ],
-                )
-              }
-            />
-          ) : null}
-          {!can.canConfirm && !can.canNotify && !can.canArrive && !can.canStart && !can.canFinish ? (
-            <Text style={[type.body, { color: colors.textMuted }]}>
-              This job is closed. You can still call the client.
-            </Text>
-          ) : null}
-        </Section>
-
-        {/* Its own section, well away from the hero actions: a mis-tap here
-            opens a sheet, but a mis-tap on "Done" beside it would not. */}
-        <Section title="Visit">
-          <Button
-            label="Reschedule"
-            testID="action-reschedule"
-            variant="secondary"
-            hint="Move this visit to another day or window"
-            disabled={!can.canReschedule}
-            onPress={() => setSheet('reschedule')}
-          />
-          {!can.canReschedule ? (
-            <Text style={[type.caption, { color: colors.textMuted }]}>
-              A closed job cannot be moved. Ask the office to reopen it.
-            </Text>
-          ) : null}
-        </Section>
-
-        <Section title="Photos">
-          <Button
-            label="Photos"
-            testID="action-photos"
-            variant="secondary"
-            hint="Take a photo or see what is queued"
-            onPress={() => onOpenPhotos(dealId)}
-          />
-        </Section>
-
-        <Section title="Notes">
-          {deal.notes ? (
-            <Card>
-              <Text style={[type.body, { color: colors.text }]}>{deal.notes}</Text>
-            </Card>
-          ) : null}
-          <TextInput
-            testID="note-input"
-            accessibilityLabel="New note"
-            multiline
-            placeholder="Add a note for this job"
-            placeholderTextColor={colors.textMuted}
-            value={note}
-            onChangeText={setNote}
-            style={[
-              type.body,
-              {
-                minHeight: touch.min * 2,
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                borderWidth: 2,
-                borderRadius: radius.md,
-                color: colors.text,
-                padding: spacing.lg,
-                textAlignVertical: 'top',
-              },
-            ]}
-          />
-          <Button
-            label="Save note"
-            testID="action-save-note"
-            disabled={note.trim().length === 0}
-            busy={savingNote}
-            onPress={() => {
-              setSavingNote(true);
-              void actions
-                .addNote(note.trim())
-                .then(() => setNote(''))
-                .finally(() => setSavingNote(false));
-            }}
-          />
-        </Section>
+            </Section>
+          </View>
+        )}
 
         <View style={{ height: spacing.xl }} />
       </ScrollView>
 
-      <MinutesSheet
-        visible={sheet === 'onMyWay'}
-        title="On my way"
-        body="The client gets your workspace's own message. Pick how long you expect to be."
-        confirmPrefix="I'll be there in"
+      <TimeClockSheet
+        visible={sheet === 'clock'}
+        dealId={dealId}
+        onClose={() => setSheet('none')}
+      />
+      {/* One sheet for the whole ETA flow — the notice and the minutes — so
+          that choosing a notice never raises a second modal over the first
+          (`components/EtaSheet.tsx`, `components/DayPicker.tsx`). */}
+      <EtaSheet
+        visible={sheet === 'eta' || sheet === 'onMyWay' || sheet === 'late'}
+        step={sheet === 'onMyWay' ? 'onMyWay' : sheet === 'late' ? 'late' : 'pick'}
+        clientName={client}
         onCancel={() => setSheet('none')}
-        onSelect={(minutes) => {
+        onOnMyWay={() => setSheet('onMyWay')}
+        onRunningLate={() => setSheet('late')}
+        onSelectMinutes={(minutes) => {
+          const notice = sheet;
           setSheet('none');
-          void actions.onMyWay(minutes);
+          if (notice === 'onMyWay') void actions.onMyWay(minutes);
+          else if (notice === 'late') void actions.runningLate(minutes);
         }}
       />
-      <MinutesSheet
-        visible={sheet === 'late'}
-        title="Running late"
-        body="The client is told how much longer. Each message is sent on its own — a second, longer delay is never swallowed as a duplicate."
-        confirmPrefix="I'll be"
-        onCancel={() => setSheet('none')}
-        onSelect={(minutes) => {
-          setSheet('none');
-          void actions.runningLate(minutes);
-        }}
-      />
+      <PaySheet visible={sheet === 'pay'} onClose={() => setSheet('none')} />
       <RescheduleSheet
         visible={sheet === 'reschedule'}
         dealNumber={deal.dealNumber}
@@ -384,7 +428,21 @@ export function JobDetailScreen({
   );
 }
 
-function Header({ onBack, title }: { onBack: () => void; title: string }) {
+/**
+ * `Job #<number>`, back, and the share action — Workiz's job header, in its
+ * order (§1.4). Share hands the phone's own share sheet the job's details;
+ * there is no send-to-tech endpoint in the app, and this is the half of that
+ * action which needs no server.
+ */
+function Header({
+  title,
+  onBack,
+  onShare,
+}: {
+  title: string;
+  onBack: () => void;
+  onShare?: () => void;
+}) {
   const { colors, spacing, type } = useTheme();
   return (
     <View
@@ -396,10 +454,19 @@ function Header({ onBack, title }: { onBack: () => void; title: string }) {
       <Button label="Back" variant="ghost" onPress={onBack} testID="job-back" />
       <Text
         accessibilityRole="header"
-        style={[type.heading, styles.shrink, { color: colors.text }]}
+        style={[type.heading, styles.grow, { color: colors.text }]}
       >
         {title}
       </Text>
+      {onShare ? (
+        <Button
+          label="Share"
+          variant="ghost"
+          testID="job-share"
+          accessibilityHint="Sends this job's details through your phone's share sheet"
+          onPress={onShare}
+        />
+      ) : null}
     </View>
   );
 }
@@ -418,11 +485,5 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center' },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  shrink: { flexShrink: 1 },
+  grow: { flexShrink: 1, flexGrow: 1 },
 });

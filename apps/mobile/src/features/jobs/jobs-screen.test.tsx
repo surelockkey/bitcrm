@@ -70,6 +70,7 @@ function result(over: Partial<UseMyJobsResult> = {}): UseMyJobsResult {
     isRefetching: false,
     error: null,
     refetch: mockRefetch,
+    updatedAt: 0,
     marks: dayMarks(deals, '2026-09-16'),
     selectedVisits: visitsOn(deals, '2026-09-16'),
     ...over,
@@ -358,3 +359,101 @@ describe('JobsScreen — moving between days', () => {
     expect(screen.getByTestId('month-label').props.children).toBe(start);
   });
 });
+
+/**
+ * The same list, used as the Timeline half of the Schedule tab
+ * (`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §4). One list, so Schedule and the
+ * Jobs screen can never disagree about what a day holds.
+ */
+describe('JobsScreen, embedded in Schedule', () => {
+  beforeEach(() => {
+    mockAsked = [];
+    mockToday = BASE_TODAY;
+    mockJobs = result({ deals: [deal()] });
+    mockAnswer = () => mockJobs;
+  });
+
+  it('drops its own page furniture, which Schedule supplies', async () => {
+    await renderScreen(<JobsScreen embedded onOpenJob={jest.fn()} />);
+    expect(screen.getByTestId('jobs-list')).toBeTruthy();
+    expect(screen.queryByTestId('day-bar')).toBeNull();
+    expect(screen.queryByText('My jobs')).toBeNull();
+  });
+
+  it('keeps the same empty and failed states it has on its own', async () => {
+    mockJobs = result({
+      deals: [],
+      error: new ApiError(0, 'offline'),
+    });
+    await renderScreen(<JobsScreen embedded onOpenJob={jest.fn()} />);
+    expect(screen.getByTestId('jobs-error')).toBeTruthy();
+    expect(screen.getByText('No signal')).toBeTruthy();
+  });
+
+  it('takes the day from above rather than keeping its own', async () => {
+    const onSelect = jest.fn();
+    const tomorrow = shiftDateIso(BASE_TODAY, 1);
+    await renderScreen(
+      <JobsScreen
+        embedded
+        onOpenJob={jest.fn()}
+        day={{ selectedIso: tomorrow, onSelect }}
+      />,
+    );
+    expect(mockAsked.at(-1)).toEqual([BASE_TODAY, tomorrow]);
+  });
+
+  it('is still wrapped in the swipe responder that changes the day', async () => {
+    await renderScreen(<JobsScreen embedded onOpenJob={jest.fn()} />);
+    const swipe = screen.getByTestId('jobs-swipe');
+    expect(typeof swipe.props.onMoveShouldSetResponder).toBe('function');
+    expect(typeof swipe.props.onResponderRelease).toBe('function');
+  });
+
+  /**
+   * Stepping a day is wired up once, at mount, and lives for the life of the
+   * screen — the swipe responder holds it. A day captured there would have it
+   * stepping from the wrong date forever once Schedule moved the day
+   * underneath, so the step reads the day at the moment it is taken. Driven
+   * here through the day bar, which is the same `step`, because a `PanResponder`
+   * cannot be given a gesture from a test.
+   */
+  it('steps from the day it is on now, not the day it mounted on', async () => {
+    const onSelect = jest.fn();
+    const tomorrow = shiftDateIso(BASE_TODAY, 1);
+    const controlled = (selectedIso: string) => (
+      <JobsScreen onOpenJob={jest.fn()} day={{ selectedIso, onSelect }} />
+    );
+
+    const { rerender } = await renderScreen(controlled(BASE_TODAY));
+    await rerender(controlled(tomorrow));
+
+    await fireEvent.press(screen.getByTestId('day-next'));
+    expect(onSelect).toHaveBeenCalledWith(shiftDateIso(BASE_TODAY, 2));
+  });
+
+  it('never keeps a day of its own once something above owns it', async () => {
+    const onSelect = jest.fn();
+    await renderScreen(
+      <JobsScreen onOpenJob={jest.fn()} day={{ selectedIso: BASE_TODAY, onSelect }} />,
+    );
+    await fireEvent.press(screen.getByTestId('day-next'));
+
+    // It asked to move, and stayed where it was told to be: the day above it
+    // did not change, so neither did the list.
+    expect(onSelect).toHaveBeenCalledWith(shiftDateIso(BASE_TODAY, 1));
+    expect(mockAsked.at(-1)).toEqual([BASE_TODAY, BASE_TODAY]);
+  });
+
+  it('narrows the list to what Schedule’s filter left standing', async () => {
+    mockJobs = result({
+      deals: [deal({ id: 'keep' }), deal({ id: 'drop', dealNumber: 'ZZZ' })],
+    });
+    await renderScreen(
+      <JobsScreen embedded onOpenJob={jest.fn()} match={(d) => d.id === 'keep'} />,
+    );
+    expect(screen.getByTestId('job-card-keep')).toBeTruthy();
+    expect(screen.queryByTestId('job-card-drop')).toBeNull();
+  });
+});
+

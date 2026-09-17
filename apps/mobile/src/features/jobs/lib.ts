@@ -346,6 +346,92 @@ export function clientDisplayName(deal: Pick<Deal, 'clientName'>): string {
   return [n.firstName, n.lastName].filter(Boolean).join(' ').trim();
 }
 
+/* ---------------------------------------------------------------- client */
+
+/**
+ * A number a technician can read back down a radio: "(404) 555-1234".
+ *
+ * Only NANP numbers are reshaped, because that is the only shape this account
+ * has and a wrong guess at grouping is worse than none. Anything else is handed
+ * back exactly as it was stored — never truncated, never "corrected".
+ */
+export function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  const local =
+    digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+  if (local.length !== 10) return raw.trim();
+  return `(${local.slice(0, 3)}) ${local.slice(3, 6)}-${local.slice(6)}`;
+}
+
+export interface ClientPhone {
+  /**
+   * Whether the contact record reached this phone at all.
+   *
+   * Contacts are not among the queries written to disk
+   * (`lib/query/persist.ts`), so in a basement on a cold start there is
+   * nothing to read — and "no number on file" would then be the phone
+   * asserting something it was never told. A client who gave no number and a
+   * record that has not arrived are different answers, and a technician does
+   * something different about each.
+   */
+  known: boolean;
+  /** Formatted for reading. Null when the client has no number on file. */
+  display: string | null;
+  /**
+   * How many numbers the viewer was not allowed to see. A technician's role
+   * carries `contacts.view_numbers` (`features/contacts/api.ts`), so this
+   * should stay 0 — but a workspace that narrows the role has to read
+   * "1 number, hidden" rather than the dash that means the client has none.
+   */
+  hidden: number;
+  /** Second and third numbers exist — say so rather than implying one. */
+  extra: number;
+}
+
+/** What the Client block shows for a phone, from the contact record. */
+export function clientPhone(
+  contact: { phones?: string[]; phoneCount?: number } | undefined,
+): ClientPhone {
+  const phones = contact?.phones ?? [];
+  const first = phones[0];
+  return {
+    known: contact !== undefined,
+    display: first ? formatPhone(first) : null,
+    hidden: phones.length ? 0 : (contact?.phoneCount ?? 0),
+    extra: Math.max(0, phones.length - 1),
+  };
+}
+
+/* ------------------------------------------------------------------ team */
+
+/**
+ * Who else is on this job.
+ *
+ * Workiz's job card carries a Team block. We have the roster
+ * (`assignedTechIds`) but no way to turn ids into names on the phone — the app
+ * calls no user-directory endpoint — so this answers the question the roster
+ * can actually answer, which is also the one asked at a door: am I on my own
+ * here, or is somebody else coming?
+ */
+export function teamSummary(
+  deal: Pick<Deal, 'assignedTechIds'>,
+  meId: string | undefined,
+): string {
+  const ids = deal.assignedTechIds ?? [];
+  if (ids.length === 0) return 'Nobody is assigned to this job yet.';
+  const mine = Boolean(meId && ids.includes(meId));
+  const others = mine ? ids.length - 1 : ids.length;
+  if (mine && others === 0) return 'Just you on this job.';
+  if (mine) {
+    return others === 1
+      ? 'You and one other technician.'
+      : `You and ${others} other technicians.`;
+  }
+  return ids.length === 1
+    ? 'One technician is assigned — not you.'
+    : `${ids.length} technicians are assigned — not you.`;
+}
+
 /**
  * A wall-clock stamp, not "12 minutes ago": a technician reading this back to a
  * dispatcher on the phone needs the same number the dispatcher is looking at.

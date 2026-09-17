@@ -414,6 +414,42 @@ v2 додав `(app)/(tabs)/chat.tsx` — вкладку «Messages» з тре�
 зайвий тап (`WORKIZ_MOBILE_APP.md` §1.5: 99,5 % in-app тредів — «офіс ↔ технік»).
 v3 — `(app)/stock.tsx`; v4 — `(app)/jobs/[id]/payment.tsx`.
 
+**v5 — форма застосунку зведена до Workiz.** Власник поставив справжній Workiz
+for Android 4.281 в емулятор, і виявилося, що там **рівно три нижні вкладки**:
+`Home` · `Schedule` · `Messages`, а решта — у бічному меню за бургером
+(`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §1–§2). У нас було п'ять вкладок.
+Техніки — літні люди, які роками тиснуть третю вкладку, очікуючи Messages, тому
+панель стала їхньою трійкою:
+
+```
+app/(app)/(tabs)/index.tsx      # Home — дашборд, а не список (§3)
+app/(app)/(tabs)/schedule.tsx   # Schedule — Timeline / Day (§4)
+app/(app)/(tabs)/chat.tsx       # Messages — підпис змінився, маршрут /chat ні
+app/(app)/jobs/index.tsx        # меню → Jobs (той самий денний список)
+app/(app)/stock.tsx             # меню → My stock        (було вкладкою)
+app/(app)/queue.tsx             # меню → Waiting to send (було вкладкою)
+app/(app)/settings.tsx          # меню → Settings
+app/(app)/profile.tsx           # меню → Profile         (було вкладкою)
+app/(app)/timesheet/index.tsx   # меню → Timesheets
+```
+
+Маршрут `/chat` навмисно не перейменовано на `/messages`: на нього вже
+посилаються пуш-сповіщення (`features/notifications/routing.ts`) і картка
+роботи, а виграшу, який технік побачив би, немає.
+
+Меню — `Modal`, а не drawer-навігатор: для нього потрібні Reanimated і Gesture
+Handler, яких у застосунку немає, і меню, що відкривається кілька разів на день,
+не варте двох нативних залежностей. Ціна — немає свайпу від краю; лишається все
+інше, включно з Escape й апаратним «Назад» через `onRequestClose`. Лічильник
+невідправленого, який раніше висів на вкладці Queue, став крапкою на бургері —
+інакше він зник би з очей разом із вкладкою.
+
+`Price book` і `Expenses` з їхнього меню ми **не** додали: за ними в нас немає ні
+ендпоінта, ні екрана, ні рядка даних, а пункт меню, який нічого не відкриває,
+вчить техніка, що меню бреше. У фільтрі Schedule з їхніх `Status / Tags / Type`
+лишився тільки `Status` — з тієї самої причини (у `Deal` немає тегів, а
+`jobTypeId` — це id без назви, яку телефон міг би показати).
+
 ---
 
 ### 2.2 Дані й стан — **@tanstack/react-query**

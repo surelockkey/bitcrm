@@ -1,12 +1,14 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
 import { queryKeys } from '../../lib/api/query-keys';
 import { createTestQueryClient, withQuery } from '../../test/query';
-import { findDealById, useMarkSeenOnOpen, useMyJobs } from './hooks';
+import { findDealById, useJobContact, useMarkSeenOnOpen, useMyJobs } from './hooks';
 import * as api from './api';
+import * as contactsApi from '../contacts/api';
 import { JobSuperStatus, type Deal } from './types';
 import type { AuthState } from '../auth/auth-reducer';
 
 jest.mock('./api');
+jest.mock('../contacts/api');
 
 let mockAuthState: AuthState = {
   status: 'signedIn',
@@ -23,6 +25,7 @@ jest.mock('../auth/auth-context', () => ({
 }));
 
 const mockApi = api as jest.Mocked<typeof api>;
+const mockContactsApi = contactsApi as jest.Mocked<typeof contactsApi>;
 
 const deal = (over: Partial<Deal> = {}): Deal => ({
   id: 'd1',
@@ -206,5 +209,35 @@ describe('useMarkSeenOnOpen', () => {
 
     await waitFor(() => expect(mockApi.markDealSeen).toHaveBeenCalled());
     expect(result.current).toBeUndefined();
+  });
+});
+
+/** The Client block's number — the one thing on the card the job does not carry. */
+describe('useJobContact', () => {
+  beforeEach(() => {
+    mockContactsApi.getContact.mockReset();
+  });
+
+  it('fetches the contact the job points at', async () => {
+    mockContactsApi.getContact.mockResolvedValue({
+      id: 'c1',
+      phones: ['+18605551234'],
+    } as never);
+
+    const { result } = await renderHook(() => useJobContact('c1'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(mockContactsApi.getContact).toHaveBeenCalledWith('c1');
+  });
+
+  it('asks for nothing at all on a job with no client on it', async () => {
+    // A job dispatch wrote before it had a client. One fewer request on a
+    // van's connection, and no 404 in the log to chase later.
+    await renderHook(() => useJobContact(undefined), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+    expect(mockContactsApi.getContact).not.toHaveBeenCalled();
   });
 });
