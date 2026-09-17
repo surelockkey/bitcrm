@@ -51,6 +51,12 @@ function titleFor(record: QueueRecord): string {
       return 'Text: running late';
     case 'chat':
       return 'Message to the office';
+    // A clock row is the one kind whose failure costs money, so it is named as
+    // plainly as possible: a technician scanning this list has to spot it.
+    case 'timeclock_in':
+      return record.dealId ? 'Clocked in on a job' : 'Clocked in';
+    case 'timeclock_out':
+      return 'Clocked out';
     case 'status': {
       try {
         const payload = JSON.parse(record.payload) as StatusPayload;

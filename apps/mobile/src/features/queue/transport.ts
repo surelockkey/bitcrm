@@ -22,6 +22,12 @@ import {
   sendRunningLate,
   type FeedMessage,
 } from '../messaging/api';
+import { startClock, stopClock } from '../timeclock/api';
+import type {
+  ClockInPayload,
+  ClockOutPayload,
+  TimeClockEntry,
+} from '../timeclock/types';
 
 /** The JSON each queued action carries. */
 export type ArrivedPayload = MarkArrivedBody;
@@ -61,7 +67,7 @@ export interface ChatPayload {
  */
 export async function performOutboxAction(
   record: OutboxRecord,
-): Promise<Deal | FeedMessage | undefined> {
+): Promise<Deal | FeedMessage | TimeClockEntry | undefined> {
   const payload: unknown = JSON.parse(record.payload);
 
   switch (record.kind) {
@@ -88,6 +94,28 @@ export async function performOutboxAction(
         clientMessageId: record.id,
       });
       return undefined;
+    /**
+     * The clock, both halves.
+     *
+     * The job's id travels on the **record**, not in the payload, the way the
+     * chat row's does: it is what the queue orders and labels rows by, and one
+     * source for it is one fewer to disagree with itself.
+     *
+     * `clientStartedAt` / `clientEndedAt` go out with the body even though the
+     * agreed contract has no room for them. User-service validates with
+     * `whitelist: true` and no `forbidNonWhitelisted` (`main.ts`), so the field
+     * is stripped rather than rejected — it cannot break the call today, and it
+     * is the moment the technician actually tapped, which is what a row that
+     * spent an hour in a basement needs in order to be worth anything. The day
+     * the backend accepts it, phones already in vans start sending the truth.
+     */
+    case 'timeclock_in':
+      return startClock({
+        ...(payload as ClockInPayload),
+        ...(record.dealId ? { dealId: record.dealId } : {}),
+      });
+    case 'timeclock_out':
+      return stopClock(payload as ClockOutPayload);
     case 'chat': {
       const chat = payload as ChatPayload;
       // The thread is resolved here rather than at the tap. A technician who

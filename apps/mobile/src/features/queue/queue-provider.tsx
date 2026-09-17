@@ -30,6 +30,7 @@ import { applyPatchToList } from '../jobs/optimistic';
 import type { Deal } from '../jobs/types';
 import type { FeedMessage } from '../messaging/api';
 import { feedWithLandedLine, type FeedPages } from '../messaging/lib';
+import type { TimeClockEntry } from '../timeclock/types';
 import {
   deleteLocalPhoto,
   discardAttachment,
@@ -105,6 +106,29 @@ function asFeedMessage(result: unknown): FeedMessage | undefined {
     typeof (result as FeedMessage).id === 'string' &&
     typeof (result as FeedMessage).conversationId === 'string'
     ? (result as FeedMessage)
+    : undefined;
+}
+
+/**
+ * The clock's two kinds, which answer with a `TimeClockEntry`.
+ *
+ * They have to be recognised *before* `asDeal` gets a look at the result: an
+ * entry has an `id` too, so a clock-in started from a job would otherwise be
+ * written into the cache as that job, and the technician would come back to a
+ * job screen rendering a time entry.
+ */
+const TIMECLOCK_KINDS: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'timeclock_in',
+  'timeclock_out',
+]);
+
+/** Does this look like the entry the clock endpoints answer with? */
+function asTimeClockEntry(result: unknown): TimeClockEntry | undefined {
+  return result &&
+    typeof result === 'object' &&
+    typeof (result as TimeClockEntry).id === 'string' &&
+    typeof (result as TimeClockEntry).startedAt === 'string'
+    ? (result as TimeClockEntry)
     : undefined;
 }
 
@@ -191,6 +215,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     const landed: FeedMessage[] = [];
     /** A line reached the office — the thread has to show the real message. */
     let chatLanded = false;
+    /** A clock-in or clock-out settled — the timesheet has to be re-read. */
+    let clockSettled = false;
+    /** The entry the server wrote, straight from the response. */
+    let clockLanded: TimeClockEntry | undefined;
     let sent = 0;
     let failed = 0;
     const note = (
@@ -198,6 +226,17 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       settledAs: 'done' | 'failed' | 'pending',
       result?: unknown,
     ) => {
+      // Whichever way it went. A clock row that *failed* matters as much as one
+      // that landed: the screen has to stop showing a clock that is not running.
+      if (record.kind && TIMECLOCK_KINDS.has(record.kind)) {
+        clockSettled = true;
+        if (settledAs === 'done') {
+          sent += 1;
+          clockLanded = asTimeClockEntry(result);
+        }
+        if (settledAs === 'failed') failed += 1;
+        return;
+      }
       if (settledAs === 'done') {
         sent += 1;
         // A chat line is about no job of its own: what changed is the thread.
@@ -286,6 +325,24 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     // badge. The feed is invalidated with them so anything the office wrote
     // while this phone was underground arrives too.
     if (chatLanded) void qc.invalidateQueries({ queryKey: queryKeys.messaging.all() });
+    // The server's own entry goes straight in, the way a settled job's does.
+    //
+    // Not a nicety: the optimistic clock runs off the queue row, and the row is
+    // `done` the instant the request returns. Left to a refetch, there is a
+    // round trip in which the row no longer counts and the answer has not
+    // arrived — the card reads "Not on the clock" and offers "Clock in" to
+    // somebody who just clocked in, and a second tap there is a second entry.
+    // An entry that carries `endedAt` is a finished one, so the running entry
+    // is now nothing.
+    if (clockLanded) {
+      qc.setQueryData<TimeClockEntry | null>(
+        queryKeys.timeclock.current(),
+        clockLanded.endedAt ? null : clockLanded,
+      );
+    }
+    // Then the ranges: a clock-out changes today's total as well as the "am I
+    // on the clock" answer, and both are read from the server, not guessed.
+    if (clockSettled) void qc.invalidateQueries({ queryKey: queryKeys.timeclock.all() });
     if (sent) hapticSuccess();
     if (failed) hapticError();
     return sent;

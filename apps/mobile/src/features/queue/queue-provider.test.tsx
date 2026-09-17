@@ -327,6 +327,113 @@ describe('what a settled row does to the cache', () => {
       mockPerformOutboxAction.mock.calls.map(([r]) => (r as { id: string }).id),
     ).toEqual(['line-1', 'line-2']);
   });
+
+  it('never mistakes a time entry for the job it was started on', async () => {
+    /*
+     * A `TimeClockEntry` has an `id`, which is all `asDeal` looks for. Without
+     * a check for the clock's own kinds first, clocking in from a job would
+     * write the time entry into the cache *as* that job, and the technician
+     * would come back to a job screen rendering a clock entry.
+     */
+    await seedRow('tech-a', { kind: 'timeclock_in', dealId: 'd1' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue({
+      id: 'entry-1',
+      userId: 'tech-a',
+      startedAt: '2026-09-17T09:00:00.000Z',
+      source: 'mobile',
+      createdAt: '2026-09-17T09:00:00.000Z',
+      updatedAt: '2026-09-17T09:00:00.000Z',
+    });
+
+    const qc = testClient();
+    qc.setQueryData(queryKeys.deals.detail('d1'), deal());
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+
+    await mount(qc);
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalled());
+
+    expect(qc.getQueryData(queryKeys.deals.detail('d1'))).toEqual(deal());
+    // What it does refresh is the clock: the running entry and every range on
+    // screen, so the server's own stamp replaces the phone's guess.
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.timeclock.all()));
+    });
+  });
+
+  it('leaves no gap between the queued clock and the server’s own entry', async () => {
+    /*
+     * The optimistic clock runs off the queue row, and the row is `done` the
+     * instant the request returns. Left to a refetch there is a round trip in
+     * which the row no longer counts and the answer has not arrived — the card
+     * reads "Not on the clock" and offers "Clock in" to somebody who has just
+     * clocked in. A second tap there is a second entry.
+     */
+    await seedRow('tech-a', { kind: 'timeclock_in', dealId: '' });
+    mockAuth = signedIn('tech-a');
+    const started = {
+      id: 'entry-1',
+      userId: 'tech-a',
+      startedAt: '2026-09-17T09:00:00.000Z',
+      source: 'mobile',
+      createdAt: '2026-09-17T09:00:00.000Z',
+      updatedAt: '2026-09-17T09:00:00.000Z',
+    };
+    mockPerformOutboxAction.mockResolvedValue(started);
+
+    const qc = testClient();
+    await mount(qc);
+
+    await waitFor(() =>
+      expect(qc.getQueryData(queryKeys.timeclock.current())).toEqual(started),
+    );
+  });
+
+  it('empties the running entry when the clock-out lands', async () => {
+    await seedRow('tech-a', { kind: 'timeclock_out', dealId: '' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue({
+      id: 'entry-1',
+      userId: 'tech-a',
+      startedAt: '2026-09-17T09:00:00.000Z',
+      // A finished entry is not the running one, whichever call returned it.
+      endedAt: '2026-09-17T17:00:00.000Z',
+      minutes: 480,
+      source: 'mobile',
+      createdAt: '2026-09-17T09:00:00.000Z',
+      updatedAt: '2026-09-17T17:00:00.000Z',
+    });
+
+    const qc = testClient();
+    qc.setQueryData(queryKeys.timeclock.current(), {
+      id: 'entry-1',
+      startedAt: '2026-09-17T09:00:00.000Z',
+    });
+    await mount(qc);
+
+    await waitFor(() =>
+      expect(qc.getQueryData(queryKeys.timeclock.current())).toBeNull(),
+    );
+  });
+
+  it('re-reads the clock even when the clock row failed', async () => {
+    // The screen has to stop showing a clock that is not running.
+    await seedRow('tech-a', { kind: 'timeclock_out', dealId: '' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockRejectedValue(new ApiError(400, 'No clock running'));
+
+    const qc = testClient();
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+
+    await mount(qc);
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalled());
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.timeclock.all()));
+    });
+  });
 });
 
 describe('patching a queued payload', () => {

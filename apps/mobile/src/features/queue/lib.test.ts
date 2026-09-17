@@ -69,6 +69,9 @@ describe('describeQueue', () => {
         action({ id: 'e', kind: 'late' }),
         action({ id: 'f', kind: 'status', payload: '{"superStatus":"in_progress"}' }),
         action({ id: 'g', kind: 'chat', dealId: '', payload: '{"body":"door is locked"}' }),
+        action({ id: 'g2', kind: 'timeclock_in', dealId: '' }),
+        action({ id: 'g3', kind: 'timeclock_in', dealId: 'd1' }),
+        action({ id: 'g4', kind: 'timeclock_out', dealId: '' }),
         upload({ id: 'h' }),
       ],
       NOW,
@@ -82,6 +85,11 @@ describe('describeQueue', () => {
       'Text: running late',
       'Status: In progress',
       'Message to the office',
+      // A clock row is the one kind whose failure costs money, so it is named
+      // as plainly as possible: a technician scanning this list has to spot it.
+      'Clocked in',
+      'Clocked in on a job',
+      'Clocked out',
       'Photo — job-K4T9ZW-2026-09-16.jpg',
     ]);
   });
