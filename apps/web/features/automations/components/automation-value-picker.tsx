@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
-import { Check, ChevronsUpDown, X } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronsUpDown, X } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -15,7 +15,25 @@ import { cn } from "@/lib/utils";
 export interface PickerOption {
   id: string;
   name: string;
+  /** Drawn before the name — the builder's entity rows (a job, a call, a message). */
+  icon?: ReactNode;
+  /** A second line under the name, for a row that needs a word of explanation. */
+  hint?: string;
+  /**
+   * Offered but not choosable, with `hint` saying why. A row that vanishes
+   * teaches nothing; "Dispatcher — needs a job" teaches what to fix.
+   */
+  disabled?: boolean;
 }
+
+/**
+ * How the closed control draws itself.
+ * - `field` — a bordered box of chips, the shape a form row wants.
+ * - `slot` — one underlined word inside a sentence ("When **a job** **is
+ *   created**"), the shape the node builder wants. Underlined because in the
+ *   builder underlined means pressable and nothing else is underlined.
+ */
+export type ValuePickerVariant = "field" | "slot";
 
 /**
  * "One of these" as chips (Workiz's multi-value condition, §1.5.4). It is
@@ -35,6 +53,8 @@ export function AutomationValuePicker({
   labels,
   onChange,
   single,
+  clearable = true,
+  variant = "field",
   placeholder = "Pick one",
   emptyText = "Nothing to pick",
   fallback,
@@ -50,6 +70,14 @@ export function AutomationValuePicker({
   onChange: (values: string[], labels: string[]) => void;
   /** Picking replaces rather than adds (`eq` / `ne` read the first value only). */
   single?: boolean;
+  /**
+   * Whether the last value can be taken back out (`single` only — a
+   * multi-value list is always emptied by unticking). A slot inside a
+   * sentence has no empty state to fall back to: "When a job …" with the
+   * entity gone is not a rule, it is a hole, so those slots say `false`.
+   */
+  clearable?: boolean;
+  variant?: ValuePickerVariant;
   placeholder?: string;
   emptyText?: string;
   /** Names for ids from elsewhere — the rule's own label map. */
@@ -96,10 +124,16 @@ export function AutomationValuePicker({
    * span inside the trigger button, which no keyboard ever reaches — and
    * emptying one is how a rule is widened back to every value.
    */
-  const clears = (id: string) => single && values.includes(id);
+  const clears = (id: string) => single && clearable && values.includes(id);
 
   const toggle = (id: string) => {
     if (single) {
+      // Re-picking the one value a non-clearable slot already holds answers
+      // the question with the answer it already had: close, write nothing.
+      if (!clearable && values[0] === id) {
+        shut();
+        return;
+      }
       commit(clears(id) ? [] : [id]);
       // Either way the question is answered, so the panel closes on the same
       // press it always has and focus goes back to the trigger, which now
@@ -139,10 +173,13 @@ export function AutomationValuePicker({
    */
   const picked = values.length ? values.map((id, i) => nameOf(id, i)).join(", ") : placeholder;
 
+  /** The icon of the one value a slot holds — the row's own, so the closed slot reads as the row did. */
+  const pickedIcon = values.length === 1 ? options.find((o) => o.id === values[0])?.icon : undefined;
+
   return (
     <div
       ref={box}
-      className={cn("relative", className)}
+      className={cn("relative", variant === "slot" ? "inline-block" : undefined, className)}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
@@ -161,7 +198,9 @@ export function AutomationValuePicker({
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex min-h-9 w-full items-center gap-1.5 rounded-md border bg-transparent px-3 py-1.5 text-left text-sm",
+          variant === "slot"
+            ? "inline-flex max-w-full items-center gap-1 rounded-sm px-0.5 text-left text-sm font-medium underline decoration-dotted decoration-1 underline-offset-4 hover:decoration-solid"
+            : "flex min-h-9 w-full items-center gap-1.5 rounded-md border bg-transparent px-3 py-1.5 text-left text-sm",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
         )}
       >
@@ -171,41 +210,59 @@ export function AutomationValuePicker({
         <span id={pickedId} className="sr-only">
           {picked}
         </span>
-        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-          {values.length === 0 ? (
-            <span className="text-muted-foreground">{placeholder}</span>
-          ) : (
-            values.map((id, i) => (
-              <span
-                key={id}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/60 px-2 py-0.5 text-xs"
-              >
-                <span className="truncate">{nameOf(id, i)}</span>
-                {/* A chip's × is a span, not a button: a button inside a button
-                    is invalid. It is a shortcut for the pointer only — every
-                    chip here, named by the catalog or not, is also in the list
-                    below and droppable from there, in single-value mode as
-                    well as multi. */}
-                <span
-                  role="presentation"
-                  aria-hidden="true"
-                  className="opacity-60 hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!disabled) drop(id);
-                  }}
-                >
-                  <X className="size-3" />
-                </span>
-              </span>
-            ))
-          )}
-        </span>
-        <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+        {variant === "slot" ? (
+          <>
+            {pickedIcon ? <span className="shrink-0 opacity-70">{pickedIcon}</span> : null}
+            <span className={cn("truncate", values.length ? undefined : "text-muted-foreground")}>
+              {picked}
+            </span>
+            <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+          </>
+        ) : (
+          <>
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+              {values.length === 0 ? (
+                <span className="text-muted-foreground">{placeholder}</span>
+              ) : (
+                values.map((id, i) => (
+                  <span
+                    key={id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/60 px-2 py-0.5 text-xs"
+                  >
+                    <span className="truncate">{nameOf(id, i)}</span>
+                    {/* A chip's × is a span, not a button: a button inside a
+                        button is invalid. It is a shortcut for the pointer
+                        only — every chip here, named by the catalog or not, is
+                        also in the list below and droppable from there, in
+                        single-value mode as well as multi. */}
+                    <span
+                      role="presentation"
+                      aria-hidden="true"
+                      className="opacity-60 hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!disabled) drop(id);
+                      }}
+                    >
+                      <X className="size-3" />
+                    </span>
+                  </span>
+                ))
+              )}
+            </span>
+            <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
+          </>
+        )}
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-full z-30 mt-1 w-full min-w-56 overflow-hidden rounded-lg border bg-popover shadow-md">
+        <div
+          className={cn(
+            "absolute left-0 top-full z-30 mt-1 min-w-56 overflow-hidden rounded-lg border bg-popover shadow-md",
+            // A slot is as wide as its own word; its list is not.
+            variant === "slot" ? "w-72" : "w-full",
+          )}
+        >
           <Command loop>
             {/* Always here, however short the list: it is what takes focus on
                 open, so the whole picker works from the keyboard — type to
@@ -221,11 +278,22 @@ export function AutomationValuePicker({
                     key={o.id}
                     value={o.id}
                     keywords={[o.name]}
-                    onSelect={() => toggle(o.id)}
+                    disabled={o.disabled}
+                    onSelect={() => {
+                      if (!o.disabled) toggle(o.id);
+                    }}
                     className="gap-2"
                   >
                     <Check className={cn("size-4", values.includes(o.id) ? "opacity-100" : "opacity-0")} />
-                    <span className="min-w-0 flex-1 truncate">{o.name}</span>
+                    {o.icon ? <span className="shrink-0 opacity-70">{o.icon}</span> : null}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{o.name}</span>
+                      {/* The second line carries the reason a row is offered but
+                          greyed out, so a choice nobody can make still says why. */}
+                      {o.hint ? (
+                        <span className="block truncate text-[11px] text-muted-foreground">{o.hint}</span>
+                      ) : null}
+                    </span>
                     {/* The same words the escape group below uses, because it
                         is the same offer: select it and it is no longer held. */}
                     {clears(o.id) ? (
