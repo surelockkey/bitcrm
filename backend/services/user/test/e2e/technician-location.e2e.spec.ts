@@ -24,6 +24,14 @@ jest.mock('../../src/technicians/constants/dynamo.constants', () => ({
   jobTypeStatusGsiPk: (s: string) => `JOBTYPE_STATUS#${s}`,
   serviceAreaStatusGsiPk: (s: string) => `AREA_STATUS#${s}`,
   COMMISSION_SK_PREFIX: 'COMMISSION#',
+  // Reporting a position now asks the time clock whether to keep a breadcrumb,
+  // so those keys have to point at the test table too.
+  CLOCK_SK_PREFIX: 'CLOCK#',
+  clockSk: (startedAt: string, id: string) => `CLOCK#${startedAt}#${id}`,
+  CLOCK_OPEN_SK: 'CLOCK_OPEN',
+  trackPk: (userId: string) => `TRACK#${userId}`,
+  TRACK_TTL_ATTRIBUTE: 'expiresAt',
+  TRACK_TTL_DAYS: 30,
 }));
 
 const BASE = '/api/users/technicians';

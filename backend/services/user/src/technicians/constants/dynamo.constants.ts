@@ -37,6 +37,31 @@ export const calSk = (startDate: string, id: string) =>
   `${CAL_SK_PREFIX}${startDate}#${id}`;
 export const MAX_EVENT_DAYS = 60;
 
+// Time-clock entries under PK=USER#<id>.
+//   SK = CLOCK#<startedAt ISO>#<id>   (ISO instants sort lexically == chronologically)
+// A timesheet for [from,to] is therefore one BETWEEN Query on the user's own
+// partition — no index, the same trick the calendar uses. Unlike the calendar
+// there is no widening: an entry cannot start before `from` and still belong to
+// the range, because a shift is looked up by when it STARTED.
+export const CLOCK_SK_PREFIX = 'CLOCK#';
+export const clockSk = (startedAt: string, id: string) =>
+  `${CLOCK_SK_PREFIX}${startedAt}#${id}`;
+
+// The one running clock, if any: a single item per user, so "at most one open
+// entry" is a key constraint rather than a read-then-write race. It carries the
+// whole open entry, so `GET /timeclock/current` is one GetItem.
+export const CLOCK_OPEN_SK = 'CLOCK_OPEN';
+
+// Location track (breadcrumbs while on the clock): PK = TRACK#<userId>,
+// SK = <recordedAt ISO>. Its own partition on purpose — this is the only
+// high-cardinality, append-only, expiring data about a person, and mixing
+// thousands of GPS rows into USER#<id> would make every other read of that
+// partition page past them. `expiresAt` is a DynamoDB TTL attribute (epoch
+// seconds), the same name messaging-service already uses.
+export const trackPk = (userId: string) => `TRACK#${userId}`;
+export const TRACK_TTL_ATTRIBUTE = 'expiresAt';
+export const TRACK_TTL_DAYS = 30;
+
 // Sensitive document metadata: SK = DOC#<docType> under PK=USER#<id>.
 export const DOC_SK_PREFIX = 'DOC#';
 

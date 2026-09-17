@@ -5,12 +5,20 @@ locals {
   ddb_tables = {
     # users table also holds role items (ROLES_TABLE == USERS_TABLE) and
     # technician profile items (indexed by TechnicianIndex / GSI3).
-    users = { gsis = [
-      { name = "RoleIndex", n = 1 },
-      { name = "DepartmentIndex", n = 2 },
-      { name = "TechnicianIndex", n = 3 },
-      { name = "SkillStatusIndex", n = 4 },
-    ] }
+    users = {
+      gsis = [
+        { name = "RoleIndex", n = 1 },
+        { name = "DepartmentIndex", n = 2 },
+        { name = "TechnicianIndex", n = 3 },
+        { name = "SkillStatusIndex", n = 4 },
+      ]
+      # Location breadcrumbs of a clocked-in technician (`TRACK#`) are the only
+      # rows here that expire. The service promises 30 days and filters its
+      # reads to it, but without this the rows stay in the table for ever.
+      # Time-clock entries themselves carry no TTL: they are a record of paid
+      # hours, and payroll outlives a month.
+      ttl_attribute = "expiresAt"
+    }
     companies = { gsis = [
       { name = "ClientTypeIndex", n = 1 },
     ] }

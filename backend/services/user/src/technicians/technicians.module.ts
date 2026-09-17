@@ -17,6 +17,10 @@ import { SensitiveRepository } from './documents/sensitive.repository';
 import { AuditRepository } from './documents/audit.repository';
 import { TechnicianLocationController } from './location/technician-location.controller';
 import { TechnicianLocationService } from './location/technician-location.service';
+import { TechnicianLocationRepository } from './location/technician-location.repository';
+import { TimeClockController } from './timeclock/timeclock.controller';
+import { TimeClockService } from './timeclock/timeclock.service';
+import { TimeClockRepository } from './timeclock/timeclock.repository';
 import { CalendarController } from './calendar/calendar.controller';
 import { CalendarService } from './calendar/calendar.service';
 import { CalendarRepository } from './calendar/calendar.repository';
@@ -30,6 +34,9 @@ import { UsersModule } from '../users/users.module';
     CommissionController,
     DocumentsController,
     TechnicianLocationController,
+    // Declared here, not in UsersModule: this module is scanned first, so
+    // `/api/users/timeclock` is registered before `/api/users/:id` can swallow it.
+    TimeClockController,
     CalendarController,
     TechniciansController,
   ],
@@ -47,6 +54,9 @@ import { UsersModule } from '../users/users.module';
     SensitiveRepository,
     AuditRepository,
     TechnicianLocationService,
+    TechnicianLocationRepository,
+    TimeClockService,
+    TimeClockRepository,
     CalendarService,
     CalendarRepository,
   ],
