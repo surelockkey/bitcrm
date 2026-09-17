@@ -13,7 +13,7 @@ Publishers and consumers import these so the wire format can't drift; the
 | `user.activated` | `UserActivatedEvent` | user created / reactivated | — (containers are created manually and technicians assigned to them; no auto-provisioning) |
 | `user.role-changed` | `UserRoleChangedEvent` | role assigned | — |
 | `user.invite-resent` | `UserInviteResentEvent` | invite re-sent | — (audit) |
-| `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change | deal (eligibility), reporting |
+| `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change, **role change, (de)activation** | deal (eligibility), reporting |
 | `tech.approved` | `TechApprovedEvent` `{technicianId, jobTypeIds, serviceAreaIds}` | technician first becomes assignable | **deal (eligibility projection)** |
 | `commission.updated` | `CommissionUpdatedEvent` | commission set | reporting, payment |
 | `document.uploaded` / `document.accessed` / `document.deleted` | `DocumentEvent` | sensitive document op | — (compliance/audit) |
@@ -210,11 +210,32 @@ the search indexer (`search-index` queue). Internal stock deduct/restore transfe
 are not emitted individually — the search backfill reconciles them.
 
 ## Eligibility projection (deal-service)
-`tech.approved` / `tech.updated` (the latter only when `changedFields` includes
-`assignments`) build a `TECH_ELIGIBILITY#<id>` read-model in `BitCRM_Deals`
-(`TechnicianEligibilityRepository`). Existing approved technicians are backfilled on
-boot via `GET /api/users/internal/technicians/assignable`
-(`TechnicianEligibilityBackfill`, idempotent, upsert-only).
+`tech.approved` / `tech.updated` (the latter when `changedFields` carries any
+`TechChangedField` — `assignments`, `role`, `status`) build a
+`TECH_ELIGIBILITY#<id>` read-model in `BitCRM_Deals`
+(`TechnicianEligibilityRepository`). Every event re-reads the authoritative
+answer from `GET /api/users/internal/technicians/:id/eligibility` and either
+upserts the row or removes it; a failed read throws so SQS redelivers, because
+"user-service did not answer" must never be acted on as "not a technician".
+
+On boot `TechnicianEligibilityReconciler` makes the projection equal the roster
+from `GET /api/users/internal/technicians/assignable`, **in both directions** —
+rows missing from that roster are deleted. It was upsert-only before, which is
+why rows that should never have been there (a seed script writing straight to
+the table, an approval granted to a non-technician, a technician since demoted)
+stayed in the assignment dialog for good. A null answer (call failed) or an
+empty roster is skipped entirely: both are indistinguishable from a user-service
+outage, and a reconcile against one would empty dispatch.
+
+Who counts as assignable is `isAssignableTechnician` in `@bitcrm/types` and
+nothing else — technician role AND ≥1 approved job type AND ≥1 approved service
+area AND not deactivated. Both user-service paths (the roster and the per-user
+answer) call it, because they used to disagree: the per-user one never checked
+the role.
+
+The projection is derived state, never authored: seed test technicians through
+user-service (create the user with `role-technician`, approve a job type and a
+service area), or the next boot reconcile will remove them.
 
 This projection is what `GET /deals/:id/qualified-techs` reads. It carries the
 technician's approved **catalog ids** plus their name/department/home coordinates,

@@ -81,6 +81,16 @@ export class InternalHttpService {
     }
   }
 
+  /**
+   * A user's eligibility as user-service sees it, or a thrown error.
+   *
+   * It used to answer "not assignable" for a failed call too, which the
+   * projection acts on by DELETING the row — one user-service hiccup and a
+   * working technician silently left the assignment dialog until the next
+   * boot. "User-service says no" (including a 404: no such user) and
+   * "user-service did not answer" are now different outcomes, and the caller
+   * lets SQS retry the second.
+   */
   async getTechnicianEligibility(technicianId: string): Promise<TechnicianEligibilityInfo> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'getTechnicianEligibility' });
     try {
@@ -92,13 +102,21 @@ export class InternalHttpService {
     } catch (error: any) {
       timer?.();
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'getTechnicianEligibility' });
+      if (error.response?.status === 404) {
+        return { technicianId, assignable: false, jobTypeIds: [], serviceAreaIds: [] };
+      }
       this.logger.warn(`Failed to get eligibility for ${technicianId}: ${error.message}`);
-      // Treat unknown as not assignable.
-      return { technicianId, assignable: false, jobTypeIds: [], serviceAreaIds: [] };
+      throw this.toHttpError(error, 'Technician eligibility lookup');
     }
   }
 
-  async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[]> {
+  /**
+   * The full roster of assignable technicians, or `null` when user-service
+   * could not answer. Null and empty are deliberately different: the reconcile
+   * removes projection rows that are missing from this list, and "the list is
+   * empty because the call failed" would take out every technician at once.
+   */
+  async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[] | null> {
     const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'user', operation: 'listAssignableTechnicians' });
     try {
       const response = await this.userClient.get('/api/users/internal/technicians/assignable');
@@ -108,7 +126,7 @@ export class InternalHttpService {
       timer?.();
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'user', operation: 'listAssignableTechnicians' });
       this.logger.warn(`Failed to list assignable technicians: ${error.message}`);
-      return [];
+      return null;
     }
   }
 

@@ -70,10 +70,59 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
       expect(repo.upsert).not.toHaveBeenCalled();
     });
 
-    it('ignores changes that do not touch assignments (no fetch)', async () => {
+    it('ignores changes that do not touch eligibility (no fetch)', async () => {
       await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['commission'] });
 
       expect(http.getTechnicianEligibility).not.toHaveBeenCalled();
+      expect(repo.upsert).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Approvals were the only marker acted on, so the two other ways of
+     * ceasing to be an assignable technician — losing the role, having the
+     * account switched off — left the row in the assignment dialog until
+     * deal-service happened to restart.
+     */
+    it('re-reads eligibility when the user’s role changed', async () => {
+      http.getTechnicianEligibility.mockResolvedValue({
+        technicianId: 'tech-1',
+        assignable: false,
+        jobTypeIds: [],
+        serviceAreaIds: [],
+      });
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['role'] });
+
+      expect(http.getTechnicianEligibility).toHaveBeenCalledWith('tech-1');
+      expect(repo.remove).toHaveBeenCalledWith('tech-1');
+    });
+
+    it('re-reads eligibility when the account was deactivated', async () => {
+      http.getTechnicianEligibility.mockResolvedValue({
+        technicianId: 'tech-1',
+        assignable: false,
+        jobTypeIds: [],
+        serviceAreaIds: [],
+      });
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['status'] });
+
+      expect(repo.remove).toHaveBeenCalledWith('tech-1');
+    });
+
+    /**
+     * A failed lookup must not read as "not assignable" — that would delete a
+     * working technician's row on a user-service hiccup. Throwing hands the
+     * message back to SQS for redelivery.
+     */
+    it('touches nothing and rethrows when the eligibility lookup fails', async () => {
+      http.getTechnicianEligibility.mockRejectedValue(new Error('502 Bad Gateway'));
+
+      await expect(
+        handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['assignments'] }),
+      ).rejects.toThrow('502 Bad Gateway');
+
+      expect(repo.remove).not.toHaveBeenCalled();
       expect(repo.upsert).not.toHaveBeenCalled();
     });
   });

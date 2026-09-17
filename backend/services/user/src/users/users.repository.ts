@@ -236,17 +236,36 @@ export class UsersRepository {
     return this.toUser(result.Attributes!);
   }
 
+  /**
+   * Every user holding a role — paged to exhaustion, not to DynamoDB's 1MB.
+   *
+   * A truncated answer here is not a short list, it is a wrong one, and the
+   * two callers that matter both read absence as a fact: deal-service
+   * reconciles its dispatch projection against this roster and deletes the
+   * technicians missing from it, and the last-Super-Admin guard refuses a
+   * demotion when it finds no other active Super Admin. The sibling calls in
+   * the same fan-out (`listAllApproved`, `listAllTechnicianProfiles`) already
+   * page; this one did not.
+   */
   async findByRoleId(roleId: string): Promise<User[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: USERS_TABLE,
-        IndexName: GSI1_NAME,
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': `ROLE_USER#${roleId}` },
-      }),
-    );
+    const users: User[] = [];
+    let lastKey: Record<string, unknown> | undefined;
 
-    return (result.Items || []).map(this.toUser);
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: USERS_TABLE,
+          IndexName: GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          ExpressionAttributeValues: { ':pk': `ROLE_USER#${roleId}` },
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      users.push(...(result.Items || []).map(this.toUser));
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return users;
   }
 
   private toUser(item: Record<string, unknown>): User {
