@@ -4,10 +4,22 @@ import { ApiError } from '../../lib/api/errors';
 import { queryKeys } from '../../lib/api/query-keys';
 import { getContainerStock, getMyContainer } from './api';
 import { sortStock, summarizeStock, toStockRows, type StockSummary } from './lib';
-import type { MyContainer, StockRow } from './types';
+import type { MyContainer, StockItem, StockRow } from './types';
 
 /** How long the van's contents are treated as fresh. */
 const STOCK_STALE_MS = 60_000;
+
+/**
+ * Hoisted, not inlined at the call site: react-query memoizes `select` on the
+ * identity of the function as well as the data. An arrow written inline is a
+ * new function every render, so the join would re-run and hand `FlatList` a
+ * new array each time — re-rendering every row of a full van on every keypress
+ * in the search box.
+ */
+const toRows = (items: StockItem[]): StockRow[] => sortStock(toStockRows(items));
+
+/** One shared empty list, so "nothing yet" keeps a stable identity too. */
+const NO_ROWS: StockRow[] = [];
 
 /**
  * The technician's own van, or `null` when the office has not given them one.
@@ -83,10 +95,10 @@ export function useMyStock(): UseMyStockResult {
     queryFn: () => getContainerStock(containerId!),
     enabled: Boolean(containerId),
     staleTime: STOCK_STALE_MS,
-    select: (items) => sortStock(toStockRows(items)),
+    select: toRows,
   });
 
-  const rows = stockQuery.data ?? [];
+  const rows = stockQuery.data ?? NO_ROWS;
   const summary = useMemo(() => summarizeStock(rows), [rows]);
 
   return {

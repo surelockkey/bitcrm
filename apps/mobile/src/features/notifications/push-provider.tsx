@@ -28,7 +28,9 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
    * what decides whether a banner would be covering the thing it announces.
    */
   const pathRef = useRef(pathname);
-  pathRef.current = pathname;
+  useEffect(() => {
+    pathRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     Notifications.setNotificationHandler({
