@@ -19,12 +19,14 @@ export function AutomationUserPicker({
   values,
   onChange,
   onNames,
+  disabled,
 }: {
   label: string;
   values: string[];
   onChange: (ids: string[]) => void;
   /** Id → name for everyone offered, so the rule's sentence can say who. */
   onNames?: (names: Record<string, string>) => void;
+  disabled?: boolean;
 }) {
   const { data, hasNextPage, isFetchingNextPage, fetchNextPage, isLoading } = useUsers({
     status: UserStatus.ACTIVE,
@@ -54,6 +56,7 @@ export function AutomationUserPicker({
       onChange={(ids) => onChange(ids)}
       placeholder="Pick who to notify"
       emptyText={isLoading ? "Loading…" : "No active users"}
+      disabled={disabled}
     />
   );
 }
@@ -76,11 +79,13 @@ export function AutomationRolePicker({
   values,
   onChange,
   onNames,
+  disabled,
 }: {
   label: string;
   values: string[];
   onChange: (ids: string[]) => void;
   onNames?: (names: Record<string, string>) => void;
+  disabled?: boolean;
 }) {
   const { data, isLoading } = useRoles();
   const options = useMemo<PickerOption[]>(
@@ -97,6 +102,7 @@ export function AutomationRolePicker({
       onChange={(ids) => onChange(ids)}
       placeholder="Pick a role"
       emptyText={isLoading ? "Loading…" : "No roles"}
+      disabled={disabled}
     />
   );
 }

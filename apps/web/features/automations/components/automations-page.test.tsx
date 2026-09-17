@@ -358,7 +358,7 @@ describe("AutomationsPage filters", () => {
 });
 
 describe("AutomationsPage rule actions", () => {
-  it("creates a rule from the Create automation button", async () => {
+  it("opens the builder from the Create automation button, on the steps a rule starts with", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Canceled job & techs");
@@ -370,15 +370,35 @@ describe("AutomationsPage rule actions", () => {
     expect(within(dialog).queryByRole("button", { name: /test against a job/i })).not.toBeInTheDocument();
 
     await user.type(within(dialog).getByLabelText("Name"), "Late tech");
-    await user.type(within(dialog).getByLabelText("Message"), "Running late");
+
+    // The message is written in the step's own settings panel now, so what the
+    // page answers for is that the builder opened on a chain — and that a rule
+    // with nothing to send is not created from it.
+    expect(within(dialog).getByRole("button", { name: /^Step 1, Trigger/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /^Step 2, Send/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Create automation" })).toBeDisabled();
+    expect(created).toEqual([]);
+  });
+
+  it("creates a rule from a library recipe", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("tab", { name: "Library" }));
+    const missed = await screen.findByTestId("automation-template-missed-call-text-client");
+    await user.click(within(missed).getByLabelText("Use Missed call / Immediate text client"));
+
+    const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Create automation" }));
 
     await waitFor(() => expect(created).toHaveLength(1));
     expect(created[0]).toMatchObject({
-      name: "Late tech",
+      name: "Missed call / Immediate text client",
       // Off, and said so: a rule created by accident must not start texting.
       enabled: false,
-      spec: { actions: [{ type: "send_sms", to: "client", body: "Running late" }] },
+      category: "phone",
+      spec: { trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" } },
     });
   });
 
@@ -458,8 +478,9 @@ describe("AutomationsPage rule actions", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Name")).toHaveValue("Completed call / Text client"),
     );
-    expect(screen.getByRole("textbox", { name: "Message" }).textContent).toContain(
-      "Thank you for calling",
+    // The chain is the second recipe's, not the first one's with a new name.
+    expect(screen.getByRole("button", { name: /^Step 1, Trigger/ })).toHaveAccessibleName(
+      "Step 1, Trigger: When a call is answered",
     );
   });
 
@@ -470,9 +491,11 @@ describe("AutomationsPage rule actions", () => {
 
     await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
-    expect((await screen.findByRole("textbox", { name: "Message" })).textContent).toBe("CLIENT CANCELED");
+    expect(await screen.findByRole("button", { name: /^Step 1, Trigger/ })).toHaveAccessibleName(
+      "Step 1, Trigger: When a job has a status of Canceled",
+    );
 
-    // The editor reads its rule into form state once, as it mounts. An open
+    // The editor reads its rule into chain state once, as it mounts. An open
     // dialog hides the list from the pointer and from the accessibility tree,
     // so the swap is driven at the card itself — the shape of the path that
     // would hand the editor a second rule without unmounting it first.
@@ -480,9 +503,9 @@ describe("AutomationsPage rule actions", () => {
     fireEvent.pointerDown(within(card).getByLabelText("Actions for Scheduled jobs"), { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Message" }).textContent).toBe("New scheduled job"),
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Scheduled jobs"));
+    expect(screen.getByRole("button", { name: /^Step 1, Trigger/ })).toHaveAccessibleName(
+      "Step 1, Trigger: When a job changes",
     );
-    expect(screen.getByLabelText("Name")).toHaveValue("Scheduled jobs");
   });
 });
