@@ -10,6 +10,7 @@ import {
   displayName,
   drawerSections,
   menuBadge,
+  menuBadgeTone,
   type MenuItem,
 } from './app-nav';
 
@@ -39,7 +40,12 @@ export function AppMenu({ onNavigate }: AppMenuProps) {
   const clock = useClockBadge();
 
   const user = state.status === 'signedIn' ? state.user : null;
-  const badges = { clock, outbox: tabBadge(summarizeQueue(records)) };
+  const outbox = summarizeQueue(records);
+  const badges = {
+    clock,
+    outbox: tabBadge(outbox),
+    outboxFailed: outbox.failed > 0,
+  };
   const sections = drawerSections(badges);
 
   const press = (item: MenuItem) => {
@@ -80,6 +86,7 @@ export function AppMenu({ onNavigate }: AppMenuProps) {
               label={item.label}
               hint={item.hint}
               badge={menuBadge(item, badges)}
+              badgeTone={menuBadgeTone(item, badges)}
               tone={item.tone}
               onPress={() => press(item)}
             />

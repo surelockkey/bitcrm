@@ -13,6 +13,9 @@
  * ours where Workiz has no equivalent.
  */
 
+import type { MenuMark } from '../../ui/Drawer';
+import { tabBadge, type QueueSummaryCounts } from '../queue/lib';
+
 export interface TabItem {
   /** The expo-router file this tab is. */
   name: string;
@@ -72,6 +75,31 @@ export interface MenuBadges {
   clock?: string;
   /** How much this phone has not managed to send yet. */
   outbox?: string;
+  /**
+   * Some of it has stopped trying on its own.
+   *
+   * Not the same thing as `outbox` being set, and the difference is the whole
+   * point of saying it: waiting means the phone will send it the moment there
+   * is a signal and the technician can walk away; failed means it will sit
+   * there until somebody opens the screen and presses the button.
+   */
+  outboxFailed?: boolean;
+}
+
+/**
+ * What the burger carries, read straight off the outbox.
+ *
+ * The Queue tab it replaced had two states — a red badge for something that
+ * had stopped trying, a plain one for something merely waiting for signal
+ * (`app/(app)/(tabs)/_layout.tsx`, before the bar was cut to three). One dot
+ * for both would tell a technician holding a failed "Arrived" that the phone
+ * was handling it.
+ */
+export function outboxMark(counts: QueueSummaryCounts): MenuMark | undefined {
+  if (!tabBadge(counts)) return undefined;
+  return counts.failed > 0
+    ? { label: 'Menu, something could not be sent', tone: 'danger' }
+    : { label: 'Menu, something is waiting to send', tone: 'notice' };
 }
 
 /**
@@ -98,7 +126,11 @@ export interface MenuBadges {
  * Log out carries no `href`: it is an action, and it is last, where it is in
  * Workiz and where a mis-tap is least likely.
  */
-export function drawerSections({ clock, outbox }: MenuBadges = {}): MenuSection[] {
+export function drawerSections({
+  clock,
+  outbox,
+  outboxFailed,
+}: MenuBadges = {}): MenuSection[] {
   return [
     {
       key: 'time',
@@ -131,9 +163,11 @@ export function drawerSections({ clock, outbox }: MenuBadges = {}): MenuSection[
         {
           key: 'queue',
           label: 'Waiting to send',
-          hint: outbox
-            ? `${outbox} still to reach the office from this phone`
-            : 'Anything this phone has not managed to send yet',
+          hint: !outbox
+            ? 'Anything this phone has not managed to send yet'
+            : outboxFailed
+              ? `${outbox} still to reach the office, and some of it has stopped trying. Open it and send again`
+              : `${outbox} still to reach the office from this phone`,
           href: '/queue',
         },
       ],
@@ -169,6 +203,14 @@ export function menuBadge(item: MenuItem, badges: MenuBadges): string | undefine
   if (item.key === 'timesheets') return badges.clock;
   if (item.key === 'queue') return badges.outbox;
   return undefined;
+}
+
+/** Red on the count, the way the Queue tab's own badge went red. */
+export function menuBadgeTone(
+  item: MenuItem,
+  badges: MenuBadges,
+): 'default' | 'danger' {
+  return item.key === 'queue' && badges.outboxFailed ? 'danger' : 'default';
 }
 
 /**

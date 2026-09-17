@@ -10,7 +10,8 @@ import { DayPicker } from '../jobs/components/DayPicker';
 import { useMyJobs } from '../jobs/hooks';
 import { JobsScreen } from '../jobs/jobs-screen';
 import { localDateIso, shiftDateIso } from '../jobs/lib';
-import { summarizeQueue, tabBadge } from '../queue/lib';
+import { outboxMark } from '../profile/app-nav';
+import { summarizeQueue } from '../queue/lib';
 import { useQueue } from '../queue/queue-provider';
 import { DateRail } from './components/DateRail';
 import { FilterSheet } from './components/FilterSheet';
@@ -104,7 +105,7 @@ export function ScheduleScreen({
     <Screen testID="schedule-screen">
       <AppHeader
         title={monthTitle(selectedIso)}
-        left={<MenuButton marked={Boolean(tabBadge(summarizeQueue(records)))} />}
+        left={<MenuButton mark={outboxMark(summarizeQueue(records))} />}
         right={
           <>
             <HeaderAction
@@ -128,10 +129,11 @@ export function ScheduleScreen({
               onPress={() => {
                 // Closing the field clears what it found: a filter a technician
                 // cannot see is a list that is wrong for no visible reason.
-                setSearching((open) => {
-                  if (open) setQuery('');
-                  return !open;
-                });
+                // Decided out here rather than inside the updater — React is
+                // allowed to run an updater more than once for one call, and
+                // setting other state is not something that may happen twice.
+                if (searching) setQuery('');
+                setSearching(!searching);
               }}
             />
           </>

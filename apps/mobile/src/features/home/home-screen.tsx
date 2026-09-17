@@ -8,10 +8,10 @@ import { Splash } from '../../ui/Splash';
 import { useMe, useMyJobs } from '../jobs/hooks';
 import { JobCard } from '../jobs/components/JobCard';
 import { localDateIso } from '../jobs/lib';
-import { summarizeQueue, tabBadge } from '../queue/lib';
+import { summarizeQueue } from '../queue/lib';
 import { useQueue } from '../queue/queue-provider';
 import { HALF_MINUTE_MS, useNow } from '../timeclock/use-elapsed';
-import { accountLine } from '../profile/app-nav';
+import { accountLine, outboxMark } from '../profile/app-nav';
 import { Widget } from './components/Widget';
 import { greeting, nextJob, statusCounts, totalOf, updatedAgoLabel } from './lib';
 
@@ -64,13 +64,14 @@ export function HomeScreen({
   const total = totalOf(counts);
   const account = accountLine(me) || 'BitCRM';
   // The dot the Queue tab's badge became: unsent work, visible without opening
-  // anything, from the screen the app starts on.
-  const unsent = Boolean(tabBadge(summarizeQueue(records)));
+  // anything, from the screen the app starts on — and red, as that badge was,
+  // when something has stopped trying by itself.
+  const unsent = outboxMark(summarizeQueue(records));
 
   if (!ready || (isLoading && deals.length === 0)) {
     return (
       <Screen testID="home-screen">
-        <AppHeader title={account} left={<MenuButton marked={unsent} />} />
+        <AppHeader title={account} left={<MenuButton mark={unsent} />} />
         <Splash />
       </Screen>
     );
@@ -78,7 +79,7 @@ export function HomeScreen({
 
   return (
     <Screen testID="home-screen">
-      <AppHeader title={account} left={<MenuButton marked={unsent} />} />
+      <AppHeader title={account} left={<MenuButton mark={unsent} />} />
       <ScrollView
         testID="home-scroll"
         contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}

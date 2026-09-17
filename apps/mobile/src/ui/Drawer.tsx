@@ -112,19 +112,34 @@ export function DrawerHost({ menu, label = 'Menu', children }: DrawerHostProps) 
 }
 
 /**
+ * What the burger is carrying, when it is carrying anything.
+ *
+ * Two tones rather than one, because the old Queue tab had two: its badge went
+ * red when something had stopped trying and stayed blue while the phone was
+ * simply waiting for a signal. Losing that distinction would turn "the phone
+ * will send this for me" and "this is going nowhere until you open it" into
+ * the same dot.
+ */
+export interface MenuMark {
+  /** What the whole button is called while the mark is on it. */
+  label: string;
+  tone: 'notice' | 'danger';
+}
+
+/**
  * The burger.
  *
- * `marked` puts a dot on it — the one thing the menu holds that a technician
+ * `mark` puts a dot on it — the one thing the menu holds that a technician
  * must not have to go looking for: work this phone has not managed to send.
  * The old tab bar carried that count on a Queue tab; the dot is what replaces
  * it now that the queue lives behind the menu, and the number itself is on the
  * row inside.
  */
 export function MenuButton({
-  marked = false,
+  mark,
   testID = 'open-menu',
 }: {
-  marked?: boolean;
+  mark?: MenuMark;
   testID?: string;
 }) {
   const { colors, radius, touch } = useTheme();
@@ -134,7 +149,7 @@ export function MenuButton({
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityLabel={marked ? 'Menu, something is waiting to send' : 'Menu'}
+      accessibilityLabel={mark ? mark.label : 'Menu'}
       accessibilityHint="Opens Timesheets, Jobs, My stock and Settings"
       onPress={open}
       style={({ pressed }) => [
@@ -153,10 +168,16 @@ export function MenuButton({
           <View key={i} style={[styles.bar, { backgroundColor: colors.text }]} />
         ))}
       </View>
-      {marked ? (
+      {mark ? (
         <View
           testID="menu-dot"
-          style={[styles.dot, { backgroundColor: colors.warning }]}
+          style={[
+            styles.dot,
+            {
+              backgroundColor:
+                mark.tone === 'danger' ? colors.danger : colors.warning,
+            },
+          ]}
         />
       ) : null}
     </Pressable>
@@ -168,6 +189,7 @@ export function DrawerRow({
   label,
   hint,
   badge,
+  badgeTone = 'default',
   tone = 'default',
   onPress,
   testID,
@@ -175,12 +197,15 @@ export function DrawerRow({
   label: string;
   hint?: string;
   badge?: string;
+  /** Red on the count itself, the way the old Queue tab's badge went red. */
+  badgeTone?: 'default' | 'danger';
   tone?: 'default' | 'danger';
   onPress: () => void;
   testID?: string;
 }) {
   const { colors, radius, spacing, touch, type } = useTheme();
   const ink = tone === 'danger' ? colors.danger : colors.text;
+  const alarmed = badgeTone === 'danger';
 
   return (
     <Pressable
@@ -208,8 +233,8 @@ export function DrawerRow({
             type.caption,
             styles.badge,
             {
-              backgroundColor: colors.primarySoft,
-              color: colors.text,
+              backgroundColor: alarmed ? colors.danger : colors.primarySoft,
+              color: alarmed ? colors.onAccent : colors.text,
               borderRadius: radius.pill,
               paddingHorizontal: spacing.sm,
               paddingVertical: 2,

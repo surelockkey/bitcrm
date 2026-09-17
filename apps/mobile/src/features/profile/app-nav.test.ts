@@ -1,10 +1,31 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   TAB_ITEMS,
   accountLine,
   displayName,
   drawerSections,
   menuBadge,
+  menuBadgeTone,
+  outboxMark,
 } from './app-nav';
+import { summarizeQueue } from '../queue/lib';
+import type { OutboxRecord, QueueRecord } from '../../lib/queue/types';
+
+const queued = (over: Partial<OutboxRecord> = {}): QueueRecord => ({
+  queue: 'outbox',
+  id: 'q1',
+  userId: 'tech-1',
+  kind: 'arrived',
+  dealId: 'd1',
+  payload: '{}',
+  createdAt: 0,
+  attempts: 0,
+  nextAttemptAt: 0,
+  lastError: null,
+  state: 'pending',
+  ...over,
+});
 
 describe('TAB_ITEMS', () => {
   /**
@@ -31,6 +52,24 @@ describe('TAB_ITEMS', () => {
    */
   it('keeps the Messages tab on the /chat route the rest of the app links to', () => {
     expect(TAB_ITEMS.find((t) => t.title === 'Messages')?.name).toBe('chat');
+  });
+
+  /**
+   * `TAB_ITEMS` orders the bar; it does not decide what is on it. expo-router
+   * takes the declared children in order and then **appends every remaining
+   * route in the directory** (`expo-router/build/useScreens.js`,
+   * `getSortedChildren`), so a file dropped into `app/(app)/(tabs)/` becomes a
+   * fourth tab with the assertion above still green. The directory is the
+   * other half of the rule, so it is checked here too.
+   */
+  it('has exactly one file in the tabs directory per tab, and no more', () => {
+    const dir = join(__dirname, '..', '..', '..', 'app', '(app)', '(tabs)');
+    const routes = readdirSync(dir)
+      .filter((name) => name.endsWith('.tsx') && name !== '_layout.tsx')
+      .map((name) => name.replace(/\.tsx$/, ''))
+      .sort();
+
+    expect(routes).toEqual([...TAB_ITEMS.map((t) => t.name)].sort());
   });
 });
 
@@ -110,6 +149,54 @@ describe('drawerSections', () => {
   it('badges nothing when there is nothing to say', () => {
     const items = drawerSections().flatMap((s) => s.items);
     expect(menuBadge(items[0], {})).toBeUndefined();
+  });
+
+  /**
+   * The Queue tab went red when something had stopped trying and stayed plain
+   * while the phone was only waiting for signal
+   * (`app/(app)/(tabs)/_layout.tsx`, before the bar was cut to three). A
+   * technician who reads "3" and assumes the phone is handling it walks away
+   * from work that is going nowhere, so the row keeps both states.
+   */
+  it('tells a count of failures apart from a count of things merely waiting', () => {
+    const queue = drawerSections()
+      .flatMap((s) => s.items)
+      .find((i) => i.key === 'queue')!;
+
+    expect(menuBadgeTone(queue, { outbox: '2' })).toBe('default');
+    expect(menuBadgeTone(queue, { outbox: '2', outboxFailed: true })).toBe('danger');
+    // Only the queue row: nothing else on this menu is about the outbox.
+    const jobs = drawerSections()
+      .flatMap((s) => s.items)
+      .find((i) => i.key === 'jobs')!;
+    expect(menuBadgeTone(jobs, { outbox: '2', outboxFailed: true })).toBe('default');
+
+    const failed = drawerSections({ outbox: '2', outboxFailed: true })
+      .flatMap((s) => s.items)
+      .find((i) => i.key === 'queue')!;
+    expect(failed.hint).toContain('stopped trying');
+  });
+});
+
+describe('outboxMark', () => {
+  it('says nothing at all with an empty outbox', () => {
+    expect(outboxMark(summarizeQueue([]))).toBeUndefined();
+  });
+
+  it('is a plain notice while the phone is only waiting for signal', () => {
+    expect(outboxMark(summarizeQueue([queued()]))).toEqual({
+      label: 'Menu, something is waiting to send',
+      tone: 'notice',
+    });
+  });
+
+  it('turns danger the moment something has stopped trying', () => {
+    expect(
+      outboxMark(summarizeQueue([queued(), queued({ id: 'q2', state: 'failed' })])),
+    ).toEqual({
+      label: 'Menu, something could not be sent',
+      tone: 'danger',
+    });
   });
 });
 

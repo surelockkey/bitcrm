@@ -1,7 +1,7 @@
 import { Text } from 'react-native';
 import { fireEvent, screen } from '@testing-library/react-native';
 import { renderScreen } from '../test/render';
-import { DrawerHost, DrawerRow, MenuButton, useDrawer } from './Drawer';
+import { DrawerHost, DrawerRow, MenuButton, useDrawer, type MenuMark } from './Drawer';
 
 function Menu() {
   const { close } = useDrawer();
@@ -13,14 +13,23 @@ function Menu() {
   );
 }
 
-function Shell({ marked = false }: { marked?: boolean } = {}) {
+function Shell({ mark }: { mark?: MenuMark } = {}) {
   return (
     <DrawerHost menu={<Menu />}>
-      <MenuButton marked={marked} />
+      <MenuButton mark={mark} />
       <Text>Behind the menu</Text>
     </DrawerHost>
   );
 }
+
+const waiting: MenuMark = {
+  label: 'Menu, something is waiting to send',
+  tone: 'notice',
+};
+const failed: MenuMark = {
+  label: 'Menu, something could not be sent',
+  tone: 'danger',
+};
 
 const open = async () => fireEvent.press(screen.getByTestId('open-menu'));
 
@@ -80,10 +89,25 @@ describe('DrawerHost', () => {
    * holding work it had not sent. The tab is gone; the dot is what replaces it.
    */
   it('marks the burger when something is waiting to send', async () => {
-    await renderScreen(<Shell marked />);
+    await renderScreen(<Shell mark={waiting} />);
     expect(screen.getByTestId('menu-dot')).toBeTruthy();
     // The dot is a shape; the label is what a screen reader has.
     expect(screen.getByLabelText('Menu, something is waiting to send')).toBeTruthy();
+  });
+
+  /**
+   * The Queue tab's badge turned red when something had stopped trying and
+   * stayed plain while the phone was only waiting for signal. One dot for both
+   * would tell a technician holding a failed "Arrived" that the phone had it
+   * in hand.
+   */
+  it('says, and shows, when something has stopped trying rather than waiting', async () => {
+    await renderScreen(<Shell mark={failed} />);
+    const alarmed = screen.getByTestId('menu-dot').props.style;
+    expect(screen.getByLabelText('Menu, something could not be sent')).toBeTruthy();
+
+    await renderScreen(<Shell mark={waiting} />);
+    expect(screen.getByTestId('menu-dot').props.style).not.toEqual(alarmed);
   });
 
   it('says only "Menu" when there is nothing waiting', async () => {
@@ -110,5 +134,23 @@ describe('DrawerRow', () => {
       <DrawerRow label="Waiting to send" badge="3" hint="Not sent yet" onPress={jest.fn()} />,
     );
     expect(screen.getByLabelText('Waiting to send, 3')).toBeTruthy();
+  });
+
+  it('paints the count itself red when it is a count of failures', async () => {
+    await renderScreen(
+      <DrawerRow
+        testID="row"
+        label="Waiting to send"
+        badge="3"
+        badgeTone="danger"
+        onPress={jest.fn()}
+      />,
+    );
+    const alarmed = screen.getByTestId('row-badge').props.style;
+
+    await renderScreen(
+      <DrawerRow testID="row" label="Waiting to send" badge="3" onPress={jest.fn()} />,
+    );
+    expect(screen.getByTestId('row-badge').props.style).not.toEqual(alarmed);
   });
 });
