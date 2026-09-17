@@ -283,6 +283,14 @@ export function feedRows(
 ): FeedRow[] {
   const rows: FeedRow[] = [];
   const stamps: string[] = [];
+  /**
+   * The newest thing the office has. A queued line is drawn below it whatever
+   * it is stamped, so a line typed at 23:50 and still unsent at 00:10 would
+   * otherwise put a "Yesterday" chip *under* a "Today" one — the thread
+   * reading backwards in time as you scroll down it. Its placement decides
+   * which day it is filed under; the clock on it still says when it was typed.
+   */
+  const newest = messages[0] ? Date.parse(messages[0].createdAt) : NaN;
 
   for (let i = pending.length - 1; i >= 0; i--) {
     const line = pending[i]!;
@@ -297,7 +305,11 @@ export function feedRows(
       failed: line.state === 'failed' || line.state === 'unknown',
       queueId: line.id,
     });
-    stamps.push(iso);
+    stamps.push(
+      Number.isNaN(newest) || line.createdAt >= newest
+        ? iso
+        : new Date(newest).toISOString(),
+    );
   }
 
   for (const message of messages) {

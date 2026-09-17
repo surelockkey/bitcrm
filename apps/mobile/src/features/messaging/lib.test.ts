@@ -294,6 +294,26 @@ describe('feedRows', () => {
     expect(rows[1]).toMatchObject({ mine: false, name: 'Dana' });
   });
 
+  it('never puts Yesterday under Today for a line queued across midnight', () => {
+    // The queued line is drawn below the office's, whatever it is stamped. A
+    // chip of its own typing day would then read backwards down the thread.
+    const midnight = new Date(2026, 8, 17, 9, 0);
+    const rows = feedRows(
+      [message({ id: 'after-midnight', createdAt: at(2026, 9, 17, 0, 10) })],
+      pendingLines([
+        chatRow({ id: 'q1', createdAt: new Date(at(2026, 9, 16, 23, 50)).getTime() }),
+      ]),
+      'tech-1',
+      midnight,
+    );
+
+    expect(rows.map((r) => r.key)).toEqual(['pending:q1', 'after-midnight']);
+    expect(rows[0]!.dayLabel).toBeUndefined();
+    expect(rows[1]!.dayLabel).toBe('Today');
+    // The clock on it still says when it was actually typed.
+    expect(rows[0]!.time).toBe('11:50 PM');
+  });
+
   it('carries the job a line names, so it can be opened from the line', () => {
     const rows = feedRows(
       [
