@@ -244,8 +244,10 @@ export function AutomationValuePicker({
                   {unlisted.map((id) => (
                     // Selecting one can only mean dropping it: it is already
                     // picked, and there is nothing left to pick it from. Said
-                    // on the row, because in single-value mode the rows above
-                    // it answer the same press by re-picking.
+                    // on the row, because the rows above it are a choice and
+                    // this one is not — in multi-value mode, where a picked
+                    // row is unticked and an unpicked one added, nothing else
+                    // distinguishes them.
                     <CommandItem
                       key={id}
                       value={id}
