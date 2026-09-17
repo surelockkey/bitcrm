@@ -97,9 +97,17 @@ set in that file, derived from the server's own `Deal`, so a renamed field is a
 compile error instead of a silent `undefined`.
 
 `metro.config.js` is what makes this work at runtime — it adds the repo root to
-`watchFolders` and both `node_modules` trees to `resolver.nodeModulesPaths`, with
-`disableHierarchicalLookup` on so a package present in both is never taken from
-the wrong one.
+`watchFolders`, without which Metro never sees an edit to `packages/types`, and
+lists both `node_modules` trees in `resolver.nodeModulesPaths` as a fallback.
+
+It deliberately leaves `disableHierarchicalLookup` **off**. The app's own
+dependencies are never at risk from the root tree — the walk-up from any file
+under `apps/mobile` reaches `apps/mobile/node_modules` first — while turning the
+flag on hides the 73 packages npm could not hoist, the ones nested under
+`node_modules/<pkg>/node_modules` exactly because their version conflicts with
+the top level. Measured on a dev bundle, with the flag on Metro silently takes
+`pretty-format` 30.5.1 where React Native asked for 29.7.0, `react-is` 19.3.0
+for 18.3.1, and `ansi-styles` 4.3.0 where `pretty-format` requires `^5.2.0`.
 
 ## Project structure
 
