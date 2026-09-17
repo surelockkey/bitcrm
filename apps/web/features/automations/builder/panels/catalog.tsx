@@ -7,6 +7,7 @@ import { useJobSources } from "@/features/job-sources/hooks";
 import { useJobStatuses } from "@/features/job-statuses/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
+import { useServiceAreas } from "@/features/service-areas/hooks";
 import { SUPER_STATUS_LABEL } from "../../lib";
 import type { PickerOption } from "../../components/automation-value-picker";
 
@@ -115,6 +116,10 @@ export function useConditionCatalog(): ConditionCatalog {
   const { data: types } = useJobTypes();
   const { data: sources } = useJobSources();
   const { data: statuses } = useJobStatuses();
+  // Offered as a condition field, so it needs the catalog behind it: without
+  // this, picking "Service area" opened an empty list and the rule could only
+  // be narrowed by the fields that happened to be wired.
+  const { data: areas } = useServiceAreas();
 
   const tagOptions = useMemo<PickerOption[]>(
     () => (tags ?? []).map((t) => ({ id: t.id, name: t.name })),
@@ -126,10 +131,11 @@ export function useConditionCatalog(): ConditionCatalog {
       if (field === "jobType") return (types ?? []).map((t) => ({ id: t.id, name: t.name }));
       if (field === "source") return (sources ?? []).map((s) => ({ id: s.id, name: s.name }));
       if (field === "subStatus") return (statuses ?? []).map((s) => ({ id: s.id, name: s.name }));
+      if (field === "serviceArea") return (areas ?? []).map((a) => ({ id: a.id, name: a.name }));
       if (field === "status") return SUPER_STATUS_OPTIONS;
       return [];
     },
-    [tagOptions, types, sources, statuses],
+    [tagOptions, types, sources, statuses, areas],
   );
 
   const subStatusesUnder = useCallback(
