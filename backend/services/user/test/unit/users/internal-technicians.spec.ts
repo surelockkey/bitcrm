@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { CognitoAdminService, PermissionCacheReader } from '@bitcrm/shared';
+import { UserStatus } from '@bitcrm/types';
 import { UsersService } from '../../../src/users/users.service';
 import { UsersRepository } from '../../../src/users/users.repository';
 import { UsersCacheService } from '../../../src/users/users-cache.service';
@@ -129,5 +130,78 @@ describe('UsersService — assignable technicians (dispatch)', () => {
 
     const result = await service.listAssignableTechnicians();
     expect(result.map((t) => t.technicianId)).toEqual(['tech-1']);
+  });
+
+  /**
+   * The bug this pins: these two paths both write deal-service's eligibility
+   * projection — the roster on boot, the single answer on `tech.approved` /
+   * `tech.updated` — and they used to apply different rules. The single answer
+   * never looked at the role, so a dispatcher with an approved job type and
+   * service area was projected as an assignable technician and offered in the
+   * job's technician picker. Every case below therefore runs through BOTH.
+   */
+  describe('one definition of assignable, whichever path answers', () => {
+    const inRoster = async (userId: string) =>
+      (await service.listAssignableTechnicians()).some((t) => t.technicianId === userId);
+
+    const askedDirectly = async (userId: string) =>
+      (await service.getTechnicianEligibility(userId)).assignable;
+
+    /** `ada` holds an approved job type and service area throughout. */
+    const setUser = (user: ReturnType<typeof createMockUser>) => {
+      usersRepo.findByRoleId.mockResolvedValue(
+        user.roleId === 'role-technician' ? [user] : [],
+      );
+      usersRepo.findById.mockResolvedValue(user);
+      assignmentsRepo.listByUser.mockResolvedValue([
+        { userId: user.id, kind: 'job_type', catalogId: 'jt-lockout', status: 'approved' },
+        { userId: user.id, kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+      ]);
+    };
+
+    it('accepts an active technician with both approvals', async () => {
+      setUser(ada);
+      expect(await inRoster('tech-1')).toBe(true);
+      expect(await askedDirectly('tech-1')).toBe(true);
+    });
+
+    it('rejects a user who is not a technician, however well approved', async () => {
+      const dispatcher = createMockUser({ id: 'tech-1', roleId: 'role-dispatcher' });
+      setUser(dispatcher);
+
+      expect(await inRoster('tech-1')).toBe(false);
+      expect(await askedDirectly('tech-1')).toBe(false);
+    });
+
+    it('rejects a deactivated technician — not available for tomorrow’s work', async () => {
+      setUser(createMockUser({ id: 'tech-1', roleId: 'role-technician', status: UserStatus.INACTIVE }));
+
+      expect(await inRoster('tech-1')).toBe(false);
+      expect(await askedDirectly('tech-1')).toBe(false);
+    });
+
+    it('rejects an id with no user record behind it', async () => {
+      usersRepo.findByRoleId.mockResolvedValue([]);
+      usersRepo.findById.mockResolvedValue(null);
+      assignmentsRepo.listByUser.mockResolvedValue([
+        { userId: 'ghost', kind: 'job_type', catalogId: 'jt-lockout', status: 'approved' },
+        { userId: 'ghost', kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+      ]);
+
+      expect(await inRoster('ghost')).toBe(false);
+      expect(await askedDirectly('ghost')).toBe(false);
+    });
+
+    it('rejects a technician whose approvals are still pending', async () => {
+      setUser(ada);
+      assignmentsRepo.listAllApproved.mockResolvedValue([]);
+      assignmentsRepo.listByUser.mockResolvedValue([
+        { userId: 'tech-1', kind: 'job_type', catalogId: 'jt-lockout', status: 'pending' },
+        { userId: 'tech-1', kind: 'service_area', catalogId: 'sa-atl', status: 'approved' },
+      ]);
+
+      expect(await inRoster('tech-1')).toBe(false);
+      expect(await askedDirectly('tech-1')).toBe(false);
+    });
   });
 });
