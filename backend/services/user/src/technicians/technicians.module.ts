@@ -17,6 +17,7 @@ import { SensitiveRepository } from './documents/sensitive.repository';
 import { AuditRepository } from './documents/audit.repository';
 import { TechnicianLocationController } from './location/technician-location.controller';
 import { TechnicianLocationService } from './location/technician-location.service';
+import { TechnicianLocationRepository } from './location/technician-location.repository';
 import { TimeClockController } from './timeclock/timeclock.controller';
 import { TimeClockService } from './timeclock/timeclock.service';
 import { TimeClockRepository } from './timeclock/timeclock.repository';
@@ -53,6 +54,7 @@ import { UsersModule } from '../users/users.module';
     SensitiveRepository,
     AuditRepository,
     TechnicianLocationService,
+    TechnicianLocationRepository,
     TimeClockService,
     TimeClockRepository,
     CalendarService,
