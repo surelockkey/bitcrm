@@ -29,6 +29,19 @@ export const CONDITION_FIELD_LABEL: Record<string, string> = {
   isLead: "Is a job",
 };
 
+/**
+ * What to call a field the menu above does not offer. Eight of the spec's
+ * seventeen condition fields are offerable here; the rest exist in stored
+ * rules (an imported `callStatus`, a `priority`) and a row showing one has
+ * to be able to name it rather than render blank.
+ */
+export function conditionFieldLabel(field: string): string {
+  const known = CONDITION_FIELD_LABEL[field];
+  if (known) return known;
+  const words = field.replace(/([a-z\d])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : field;
+}
+
 const OP_LABEL: Record<string, string> = {
   in: "is one of",
   not_in: "is not one of",
@@ -41,8 +54,12 @@ const OP_LABEL: Record<string, string> = {
 const EMPTY_ROW: ConditionValues = { field: "tag", op: "in", values: [] };
 
 /** `eq` / `ne` compare one value — the engine reads `values[0]` and ignores the rest. */
-const isSingle = (op: string) => op === "eq" || op === "ne";
-const hasValues = (op: string) => op !== "exists" && op !== "not_exists";
+export const isSingleValueOp = (op: string) => op === "eq" || op === "ne";
+/** `exists` / `not_exists` narrow with no value at all, so they are asked about the operator. */
+export const opTakesValues = (op: string) => op !== "exists" && op !== "not_exists";
+
+const isSingle = isSingleValueOp;
+const hasValues = opTakesValues;
 
 /**
  * A line with nothing picked narrows nothing, so `toSpec` does not store it —
@@ -51,7 +68,7 @@ const hasValues = (op: string) => op !== "exists" && op !== "not_exists";
  * value at all, which is why they are asked about the operator and not the
  * chips.
  */
-const narrowsNothing = (c: ConditionValues) => hasValues(c.op) && c.values.length === 0;
+export const narrowsNothing = (c: ConditionValues) => hasValues(c.op) && c.values.length === 0;
 
 /**
  * "And only if" — the AND list, where a row may itself be an "any of" group
