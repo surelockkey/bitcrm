@@ -311,6 +311,29 @@ describe('JobDetailScreen', () => {
     expect(mockActions.runningLate).toHaveBeenCalledWith(30);
   });
 
+  it('picks the notice and the minutes in one sheet, never a sheet over a sheet', async () => {
+    /*
+     * `DayPicker.tsx` already records why: "nesting one `Modal` inside another
+     * is unreliable on iOS", and a sibling modal presenting in the same commit
+     * as this one dismisses is the same collision — iOS presents onto a view
+     * controller that is on its way out and the second sheet never appears.
+     * The reschedule sheet draws its calendar inline for exactly this reason,
+     * so the ETA flow keeps one modal and swaps what is inside it. Jest's
+     * `Modal` is plain JS and cannot fail the way the device does, so what is
+     * asserted is the structure: one modal, and the same one throughout.
+     */
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-eta'));
+    expect(screen.getByTestId('eta-sheet')).toBeTruthy();
+    expect(screen.queryByTestId('minutes-sheet')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('action-on-my-way'));
+    // The same sheet is still the one on screen — the minutes appear inside it
+    // rather than in a second sheet raised over the first.
+    expect(screen.getByTestId('eta-sheet')).toBeTruthy();
+    expect(screen.getByTestId('minutes-sheet')).toBeTruthy();
+  });
+
   it('lets the technician back out of the minutes sheet', async () => {
     await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
     await fireEvent.press(screen.getByTestId('action-eta'));

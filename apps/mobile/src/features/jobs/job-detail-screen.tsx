@@ -16,7 +16,6 @@ import { ClientCard } from './components/ClientCard';
 import { EtaSheet } from './components/EtaSheet';
 import { JobMapCard } from './components/JobMapCard';
 import { JobTabs, type JobTab } from './components/JobTabs';
-import { MinutesSheet } from './components/MinutesSheet';
 import { JobStamps } from './components/JobStamps';
 import { PrimaryActions } from './components/PrimaryActions';
 import { RescheduleSheet } from './components/RescheduleSheet';
@@ -373,36 +372,24 @@ export function JobDetailScreen({
         dealId={dealId}
         onClose={() => setSheet('none')}
       />
+      {/* One sheet for the whole ETA flow — the notice and the minutes — so
+          that choosing a notice never raises a second modal over the first
+          (`components/EtaSheet.tsx`, `components/DayPicker.tsx`). */}
       <EtaSheet
-        visible={sheet === 'eta'}
+        visible={sheet === 'eta' || sheet === 'onMyWay' || sheet === 'late'}
+        step={sheet === 'onMyWay' ? 'onMyWay' : sheet === 'late' ? 'late' : 'pick'}
         clientName={client}
         onCancel={() => setSheet('none')}
         onOnMyWay={() => setSheet('onMyWay')}
         onRunningLate={() => setSheet('late')}
+        onSelectMinutes={(minutes) => {
+          const notice = sheet;
+          setSheet('none');
+          if (notice === 'onMyWay') void actions.onMyWay(minutes);
+          else if (notice === 'late') void actions.runningLate(minutes);
+        }}
       />
       <PaySheet visible={sheet === 'pay'} onClose={() => setSheet('none')} />
-      <MinutesSheet
-        visible={sheet === 'onMyWay'}
-        title="On my way"
-        body="The client gets your workspace's own message. Pick how long you expect to be."
-        confirmPrefix="I'll be there in"
-        onCancel={() => setSheet('none')}
-        onSelect={(minutes) => {
-          setSheet('none');
-          void actions.onMyWay(minutes);
-        }}
-      />
-      <MinutesSheet
-        visible={sheet === 'late'}
-        title="Running late"
-        body="The client is told how much longer. Each message is sent on its own — a second, longer delay is never swallowed as a duplicate."
-        confirmPrefix="I'll be"
-        onCancel={() => setSheet('none')}
-        onSelect={(minutes) => {
-          setSheet('none');
-          void actions.runningLate(minutes);
-        }}
-      />
       <RescheduleSheet
         visible={sheet === 'reschedule'}
         dealNumber={deal.dealNumber}
