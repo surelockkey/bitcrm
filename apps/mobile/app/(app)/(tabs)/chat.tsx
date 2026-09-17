@@ -1,21 +1,15 @@
-import { router, useIsFocused } from 'expo-router';
-import { ChatScreen } from '../../../src/features/messaging/chat-screen';
-
 /**
- * The Messages tab — the technician's thread with the office.
+ * The Messages tab.
  *
- * Focus is passed down rather than read inside the screen: it is what decides
- * whether the thread is polled, and a tab that stays mounted behind "My jobs"
- * must not keep asking the server for a conversation nobody is reading.
+ * One list with four filters — `All` · `Requests` · `Clients` · `Team`, where
+ * Team *is* the office — the way Workiz's own app does it on a phone
+ * (`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §5). It replaces the single thread
+ * with the office that used to be this tab; that thread is now the top row of
+ * the list, and every other way into it — a job's way in at
+ * `/chat/<dealId>`, a tapped notification — still opens the screen it always
+ * did.
+ *
+ * What the tab *is* lives in the feature folder, so the tab bar and the screen
+ * can be changed apart.
  */
-export default function ChatTab() {
-  return (
-    <ChatScreen
-      live={useIsFocused()}
-      // Workiz's "View Job" from a message (§1.5): dispatch writes about a job
-      // and the technician reaches it from the line itself, not by going back
-      // to the day list to look for it.
-      onOpenJob={(dealId) => router.push(`/jobs/${dealId}`)}
-    />
-  );
-}
+export { MessagesTab as default } from '../../../src/features/messaging/messages-tab';
