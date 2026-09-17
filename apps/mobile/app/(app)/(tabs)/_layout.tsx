@@ -4,6 +4,7 @@ import { useTeamChatBadge } from '../../../src/features/messaging/hooks';
 import { unreadBadge } from '../../../src/features/messaging/lib';
 import { summarizeQueue, tabBadge } from '../../../src/features/queue/lib';
 import { useQueue } from '../../../src/features/queue/queue-provider';
+import { useClockBadge } from '../../../src/features/timeclock/hooks';
 import { useTheme } from '../../../src/lib/theme/theme-provider';
 
 /** A tab marker drawn from Views — no icon font, nothing extra to ship. */
@@ -23,6 +24,7 @@ export default function TabsLayout() {
   const { records } = useQueue();
   const counts = summarizeQueue(records);
   const chat = useTeamChatBadge();
+  const clock = useClockBadge();
 
   return (
     <Tabs
@@ -76,7 +78,24 @@ export default function TabsLayout() {
           },
         }}
       />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      {/*
+       * Profile is this app's Settings — the menu Workiz hangs Location
+       * Tracking, Timesheets and Log out off (`WORKIZ_MOBILE_APP.md` §1.12) —
+       * so the running clock is badged here, where the way into the timesheet
+       * is. It reads `1:24`, and it is the answer to "am I still on the clock?"
+       * from every screen with a tab bar, without opening anything.
+       */}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarBadge: clock,
+          tabBarBadgeStyle: {
+            backgroundColor: colors.success,
+            color: colors.onAccent,
+          },
+        }}
+      />
     </Tabs>
   );
 }

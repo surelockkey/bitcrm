@@ -11,6 +11,7 @@ import { Splash } from '../../ui/Splash';
 import { useQueue } from '../queue/queue-provider';
 import { QueueSummary } from '../queue/components/QueueBadge';
 import { useMaskedCall } from '../telephony/use-masked-call';
+import { JobClockCard } from '../timeclock/components/JobClockCard';
 import { MinutesSheet } from './components/MinutesSheet';
 import { JobStamps } from './components/JobStamps';
 import { StatusPill } from './components/StatusPill';
@@ -164,6 +165,13 @@ export function JobDetailScreen({
             onPress={() => onOpenChat(dealId)}
           />
         </View>
+
+        {/* Workiz's quick-action panel leads with Start, which starts a clock
+            on this job (`WORKIZ_MOBILE_APP.md` §1.4), so the clock comes before
+            the rest of the actions here too. */}
+        <Section title="Time clock">
+          <JobClockCard dealId={dealId} />
+        </Section>
 
         <Section title="Actions">
           {can.canConfirm ? (

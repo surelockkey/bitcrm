@@ -36,6 +36,12 @@ jest.mock('../telephony/use-masked-call', () => ({
 jest.mock('../queue/queue-provider', () => ({
   useQueue: () => ({ records: mockRecords }),
 }));
+// The clock on a job is a feature of its own — it reads the outbox and the
+// query cache, and has its own suite (`features/timeclock`). This file is about
+// the job screen, so what it asserts is that the section is there at all.
+jest.mock('../timeclock/components/JobClockCard', () => ({
+  JobClockCard: () => null,
+}));
 
 const deal = (over: Partial<Deal> = {}): Deal => ({
   id: 'd1',
@@ -91,6 +97,14 @@ describe('JobDetailScreen', () => {
     expect(screen.getByTestId('action-arrived')).toBeTruthy();
     expect(screen.getByTestId('action-start')).toBeTruthy();
     expect(screen.queryByTestId('action-done')).toBeNull();
+  });
+
+  it('carries the time clock, the way Workiz leads its quick actions with Start', async () => {
+    // §1.4: the first thing in Workiz's quick-action panel is Start, which
+    // "launches a running clock" on this job. Ours sits in its own section
+    // above the rest of the actions for the same reason.
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    expect(screen.getByText('Time clock')).toBeTruthy();
   });
 
   it('confirms receipt on a tap, with no dialog in the way', async () => {

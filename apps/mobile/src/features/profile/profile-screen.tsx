@@ -6,11 +6,27 @@ import { useTheme } from '../../lib/theme/theme-provider';
 import { Button } from '../../ui/Button';
 import { Card, CardRow } from '../../ui/Card';
 import { Screen, ScreenHeader } from '../../ui/Screen';
+import { LocationSettingRow } from '../location/components/LocationSettingRow';
+import { useClockBadge } from '../timeclock/hooks';
 
-/** Who am I signed in as, what build is this, and the way out. */
-export function ProfileScreen() {
+export interface ProfileScreenProps {
+  /** Workiz's Menu → Timesheets (`WORKIZ_MOBILE_APP.md` §1.12). */
+  onOpenTimesheet?: () => void;
+}
+
+/**
+ * Who am I signed in as, what build is this, and the way out — plus the two
+ * settings Workiz keeps in the same menu.
+ *
+ * Workiz's Settings screen is App language, **Location Tracking**,
+ * **Timesheets**, Log out (§1.12). This app has no language switch (English
+ * only for now), so the order below is the rest of that list, unchanged: a
+ * technician who has used Workiz for years finds both where they left them.
+ */
+export function ProfileScreen({ onOpenTimesheet }: ProfileScreenProps = {}) {
   const { state, signOut } = useAuth();
   const { colors, spacing, type } = useTheme();
+  const clock = useClockBadge();
 
   const user = state.status === 'signedIn' ? state.user : null;
   const name = user
@@ -33,6 +49,32 @@ export function ProfileScreen() {
             {user.phone ? <CardRow label="Phone" value={String(user.phone)} /> : null}
           </Card>
         ) : null}
+
+        <View style={{ gap: spacing.md }}>
+          <Text
+            accessibilityRole="header"
+            style={[type.heading, { color: colors.textMuted }]}
+          >
+            Settings
+          </Text>
+          <LocationSettingRow />
+          {onOpenTimesheet ? (
+            <Button
+              label="Timesheet"
+              testID="open-timesheet"
+              variant="secondary"
+              // The running clock said in words, for a technician who would not
+              // read a number on a tab. Nothing when off the clock — a hint
+              // that is always there stops being read.
+              hint={
+                clock
+                  ? `On the clock — ${clock}`
+                  : 'Clock in and out, and your hours this week'
+              }
+              onPress={onOpenTimesheet}
+            />
+          ) : null}
+        </View>
 
         <Card>
           <Text style={[type.label, { color: colors.textMuted }]}>Build</Text>
