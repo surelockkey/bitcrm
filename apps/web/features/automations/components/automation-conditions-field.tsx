@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import type { AutomationLabelMap } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import {
   type ConditionNodeValues,
   type ConditionValues,
 } from "../schemas";
+import { AutomationEmptyNote } from "./automation-empty-note";
 import { AutomationValuePicker, type PickerOption } from "./automation-value-picker";
 
 export const CONDITION_FIELD_LABEL: Record<string, string> = {
@@ -46,19 +47,11 @@ const hasValues = (op: string) => op !== "exists" && op !== "not_exists";
 /**
  * A line with nothing picked narrows nothing, so `toSpec` does not store it —
  * the evaluator reads an empty `in` as "this field is not narrowed" and the
- * rule would fire for everything. Emptying a condition is therefore a way to
- * widen a rule, and it has to say so where the chips are: the live sentence
- * at the top of the dialog is usually scrolled out of sight by the time
- * anybody is unticking sources.
+ * rule would fire for everything. `exists` / `not_exists` narrow with no
+ * value at all, which is why they are asked about the operator and not the
+ * chips.
  */
 const narrowsNothing = (c: ConditionValues) => hasValues(c.op) && c.values.length === 0;
-
-const EmptyNote = () => (
-  <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
-    <TriangleAlert className="size-3.5 shrink-0" />
-    Nothing picked, so this line narrows nothing and is not saved with the rule.
-  </p>
-);
 
 /**
  * "And only if" — the AND list, where a row may itself be an "any of" group
@@ -177,7 +170,7 @@ export function AutomationConditionsField({
                   <Trash2 className="size-4" />
                 </Button>
               </div>
-              {narrowsNothing(node) ? <EmptyNote /> : null}
+              {narrowsNothing(node) ? <AutomationEmptyNote /> : null}
             </div>
           );
         }
@@ -210,7 +203,7 @@ export function AutomationConditionsField({
                     <Trash2 className="size-4" />
                   </Button>
                 </div>
-                {narrowsNothing(option) ? <EmptyNote /> : null}
+                {narrowsNothing(option) ? <AutomationEmptyNote /> : null}
               </div>
             ))}
             <Button

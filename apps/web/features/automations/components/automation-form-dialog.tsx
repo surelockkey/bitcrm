@@ -52,6 +52,7 @@ import {
   type ConditionNodeValues,
 } from "../schemas";
 import { AutomationConditionsField, EMPTY_CONDITION } from "./automation-conditions-field";
+import { AutomationEmptyNote } from "./automation-empty-note";
 import { AutomationMessageEditor, type MessageEditorHandle } from "./automation-message-editor";
 import { AutomationRolePicker, AutomationUserPicker } from "./automation-recipient-picker";
 import { AutomationTestDialog } from "./automation-test-dialog";
@@ -291,6 +292,10 @@ export function AutomationFormDialog({
                     placeholder="Any status"
                     onChange={(ids) => setTrigger({ to: ids, toSubStatus: subStatusesUnder(ids) })}
                   />
+                  {/* Emptying this widens the rule from one status to every
+                      status change, exactly as emptying a condition widens it
+                      to every value — the same thing, so the same note. */}
+                  {entered?.length ? null : <AutomationEmptyNote />}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Sub-status</Label>

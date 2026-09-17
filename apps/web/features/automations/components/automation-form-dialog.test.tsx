@@ -452,6 +452,26 @@ describe("the status trigger", () => {
     });
   });
 
+  it("says so when the last status is unticked, instead of widening in silence", async () => {
+    const user = userEvent.setup();
+    renderDialog({ spec: onOne });
+
+    expect(await screen.findByLabelText("Status entered")).toHaveTextContent("Done");
+    expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
+
+    // A status trigger naming no status fires on every status change. That is
+    // legal — Workiz allowed it — so this is the conditions list's note in the
+    // conditions list's words, not a refusal to save.
+    await user.click(screen.getByLabelText("Status entered"));
+    await user.click(await screen.findByRole("option", { name: "Done" }));
+    expect(await screen.findByText(/narrows nothing/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Status entered")).toHaveTextContent("Any status");
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({ kind: "deal.status_changed" });
+  });
+
   it("keeps a sub-status that still fits, and drops one that cannot be entered any more", async () => {
     const user = userEvent.setup();
     renderDialog({
