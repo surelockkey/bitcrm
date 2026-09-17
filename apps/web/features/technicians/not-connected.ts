@@ -36,30 +36,12 @@ export interface NotConnectedField {
 export const NOT_CONNECTED_BANNER =
   "Workiz settings we have no data for. They are drawn where Workiz puts them so the page reads the same; nothing in this section is live and nothing here saves.";
 
-/** Left column — the person. Keyed, because they are placed in Workiz's order. */
-export const PERSON_NOT_CONNECTED = {
-  userType: {
-    key: "user-type",
-    label: "User type",
-    note: "We hold the role only — there is no second type beside it.",
-    kind: "select",
-  },
-  additionalPhones: {
-    key: "additional-phones",
-    label: "Additional phone numbers",
-    note: "One number per person here: the one telephony rings and the call log matches.",
-    kind: "text",
-  },
-} as const satisfies Record<string, NotConnectedField>;
-
-/** Right column — the work. */
+/**
+ * Right column — the work. The person column has nothing dead left in it:
+ * user type, additional numbers, the photo and the field-team switch all went
+ * live on 2026-09-17.
+ */
 export const WORK_NOT_CONNECTED = {
-  fieldTeamMember: {
-    key: "field-team-member",
-    label: "Field team member",
-    note: "Who goes out on jobs comes from the role today, not from a flag of its own.",
-    kind: "switch",
-  },
   twoFactor: {
     key: "two-factor",
     label: "Two-factor authentication",
@@ -138,7 +120,6 @@ export const SETTINGS_NOT_CONNECTED: NotConnectedField[] = [
 /** Every dead field on the card, for tests that must hold across all of them. */
 export function allNotConnected(): NotConnectedField[] {
   return [
-    ...Object.values(PERSON_NOT_CONNECTED),
     ...Object.values(WORK_NOT_CONNECTED),
     AVAILABILITY_NOT_CONNECTED,
     ...SETTINGS_NOT_CONNECTED,

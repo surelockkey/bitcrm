@@ -23,10 +23,10 @@ import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON_LABEL: Record<IneligibilityReason, string> = {
   // Not "not yet assignable": the row is here because the projection still
-  // holds it, and the commonest cause is that the person is not a technician
-  // — someone whose role changed, or who never had it. Reading that as "still
-  // onboarding" is what let a dispatcher assign them.
-  not_assignable: "Not a technician",
+  // holds it, and since the field-team flag it means exactly one thing — the
+  // switch is off for this person, whatever their role. Reading that as
+  // "still onboarding" is what let a dispatcher assign them.
+  not_assignable: "Not a field team member",
   missing_job_type: "Missing job type",
   outside_area: "Outside service area",
 };
@@ -68,8 +68,8 @@ export function AssignTechDialog({
 
   const eligible = filtered.filter((t) => t.eligible);
   // Three groups, not two. "Other technicians" used to swallow anyone the
-  // backend couldn't vouch for as a technician at all, which is how people who
-  // aren't technicians came to be offered here as if they were.
+  // backend couldn't vouch for as on the field team at all, which is how
+  // people who aren't came to be offered here as if they were.
   const others = filtered.filter(
     (t) => !t.eligible && !t.reasons.includes("not_assignable"),
   );
@@ -93,8 +93,8 @@ export function AssignTechDialog({
       onToggle={() => toggle(t.id)}
       open={open}
       // A dispatcher may override "wrong job type" or "wrong area" — those are
-      // judgement calls about a technician. "Not a technician" is not, so the
-      // row is only unlocked to take someone already on the job back off it.
+      // judgement calls about a technician. "Off the field team" is not, so
+      // the row is only unlocked to take someone already on the job back off it.
       // Keyed to who is on the job, not to the tick: keyed to the tick, the box
       // disabled itself the instant it was cleared, so a mis-click could only
       // be undone by closing the dialog.
@@ -149,12 +149,11 @@ export function AssignTechDialog({
               {notTechs.length > 0 ? (
                 <div className="space-y-2 border-t pt-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Not technicians
+                    Not on the field team
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Listed here because dispatch still holds a record for them. They can&apos;t be
-                    assigned — give them the technician role and approve a job type and service
-                    area first.
+                    assigned — switch Field team member on for them first.
                   </p>
                   {notTechs.map(row)}
                 </div>

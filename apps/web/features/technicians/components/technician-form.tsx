@@ -1,10 +1,9 @@
 "use client";
 
-import { useId } from "react";
-import Link from "next/link";
+import { useId, useRef } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowUpRight, Loader2 } from "lucide-react";
+import { Loader2, Plus, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -19,22 +18,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { TechnicianProfile, TechnicianProfileStatus, User } from "@bitcrm/types";
+import type {
+  TechnicianProfile,
+  TechnicianProfileStatus,
+  TechnicianType,
+  UpdateUserRequest,
+  User,
+} from "@bitcrm/types";
+import { isFieldTeamMember } from "@bitcrm/types";
 import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
-import { usePermissions } from "@/features/auth/use-permissions";
 import { initials } from "@/features/users/lib";
-import { useProfile, useUpdateProfile } from "../hooks";
+import { useUpdateUser } from "@/features/users/hooks";
+import { useDeletePhoto, useProfile, useUpdateProfile, useUploadPhoto } from "../hooks";
 import type { UpdateProfileBody } from "../api";
 import { profileSchema, type ProfileValues } from "../schemas";
 import { useSetClientNumberVisibility } from "../masking-hooks";
 import type { TechnicianEditRights } from "../lib";
-import { PERSON_NOT_CONNECTED, WORK_NOT_CONNECTED } from "../not-connected";
+import { WORK_NOT_CONNECTED } from "../not-connected";
 import { NotConnectedField } from "./not-connected-field";
 import { ScheduleColorField } from "./schedule-color-field";
 
 /** Said under a live control the viewer may read but not set. */
 const MANAGER_ONLY = "A manager sets this.";
-const NOT_YOURS = "You can read this technician's details but not change them.";
+const NOT_YOURS = "You can read this technician\'s details but not change them.";
+/** The name and the field-team switch: the user record\'s, behind `users.edit`. */
+const ON_USER_RECORD = "Set on the user record, by someone who may edit users.";
+const MAX_ADDITIONAL_PHONES = 5;
 
 /**
  * The technician card: one form in two columns — the person on the left, the
@@ -48,23 +57,23 @@ const NOT_YOURS = "You can read this technician's details but not change them.";
  * this person do, and where" — the two halves of one question.
  *
  * Fields Workiz has and we hold no data for are drawn dead, in their place,
- * from `not-connected.ts`. Fields we have and Workiz doesn't (status, mobile
+ * from `not-connected.ts`. Fields we have and Workiz doesn\'t (status, mobile
  * app) sit at the foot of the work column under a heading that says they are
  * ours, rather than being slipped into their order.
  *
- * Editing follows the API's own split rather than one permission: contact
- * details are the technician's own, operational fields are a manager's — see
- * `technicianEditRights`.
+ * Editing follows the API\'s own split rather than one permission: contact
+ * details are the technician\'s own, operational fields are a manager\'s, and
+ * the name and the field-team switch are the user record\'s — see
+ * `technicianEditRights`. One Save writes both records, each with only what
+ * its viewer may set and, for the user record, only what changed.
  */
 export function TechnicianForm({
   technicianId,
   user,
-  roleLabel,
   rights,
 }: {
   technicianId: string;
   user?: User;
-  roleLabel: string;
   rights: TechnicianEditRights;
 }) {
   const { data: profile, isLoading } = useProfile(technicianId);
@@ -82,7 +91,6 @@ export function TechnicianForm({
       technicianId={technicianId}
       profile={profile}
       user={user}
-      roleLabel={roleLabel}
       rights={rights}
     />
   );
@@ -92,30 +100,36 @@ function Form({
   technicianId,
   profile,
   user,
-  roleLabel,
   rights,
 }: {
   technicianId: string;
   profile: TechnicianProfile;
   user?: User;
-  roleLabel: string;
   rights: TechnicianEditRights;
 }) {
-  const { can } = usePermissions();
   const update = useUpdateProfile();
+  const updateUser = useUpdateUser();
   const fieldId = useId();
   const id = (name: string) => `${fieldId}-${name}`;
   const a = profile.homeAddress;
+  // Unset on a record from before the switch: a technician is on the field
+  // team until switched off, and nobody else is until switched on.
+  const onFieldTeam = user ? isFieldTeamMember(user) : true;
   const form = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? "",
+      fieldTeamMember: onFieldTeam,
+      technicianType: profile.technicianType ?? "regular",
       phone: profile.phone ?? "",
+      additionalPhones: profile.additionalPhones ?? [],
       line1: a?.line1 ?? "",
       line2: a?.line2 ?? "",
       city: a?.city ?? "",
       state: a?.state ?? "",
       zip: a?.zip ?? "",
-      // Carried through so a save that doesn't touch the address keeps the
+      // Carried through so a save that doesn\'t touch the address keeps the
       // technician on the dispatch map.
       lat: a?.lat,
       lng: a?.lng,
@@ -130,91 +144,132 @@ function Form({
   const setMasking = useSetClientNumberVisibility();
   const maskingPending = setMasking.isPending;
   const status = useWatch({ control, name: "status" });
+  const technicianType = useWatch({ control, name: "technicianType" });
+  const fieldTeamMember = useWatch({ control, name: "fieldTeamMember" });
   const callMasking = useWatch({ control, name: "callMaskingEnabled" });
   const gps = useWatch({ control, name: "gpsTrackingEnabled" });
   const mobile = useWatch({ control, name: "mobileAppInstalled" });
   const phone = useWatch({ control, name: "phone" }) ?? "";
+  const additionalPhones = useWatch({ control, name: "additionalPhones" }) ?? [];
   const line1 = useWatch({ control, name: "line1" }) ?? "";
 
-  const canSave = rights.contact || rights.operational;
+  const canSave = rights.contact || rights.operational || rights.identity;
   const contactHint = rights.contact ? undefined : NOT_YOURS;
   const workHint = rights.operational ? undefined : MANAGER_ONLY;
+  const identityHint = rights.identity ? undefined : ON_USER_RECORD;
+
+  const setAdditionalPhones = (next: string[]) =>
+    setValue("additionalPhones", next, { shouldDirty: true });
 
   /**
-   * Only what this viewer may set goes into the body. The API refuses the WHOLE
-   * update when an operational field is present and the caller is not a
-   * manager, so a technician saving their own address must not carry their
-   * (unchanged) labor cost along with it.
+   * Only what this viewer may set goes into each body. The API refuses the
+   * WHOLE profile update when an operational field is present and the caller
+   * is not a manager, so a technician saving their own address must not carry
+   * their (unchanged) labor cost along with it. The user record gets only
+   * what changed: it is a different record, and an untouched one stays so.
    */
   const onSubmit = (v: ProfileValues) => {
     const body: UpdateProfileBody = {};
     if (rights.contact) {
       body.phone = v.phone || undefined;
+      body.additionalPhones = v.additionalPhones.map((p) => p.trim()).filter(Boolean);
       body.homeAddress =
         v.line1 && v.city && v.state && v.zip
           ? { line1: v.line1, line2: v.line2 || undefined, city: v.city, state: v.state, zip: v.zip, lat: v.lat, lng: v.lng }
           : undefined;
     }
     if (rights.operational) {
+      body.technicianType = v.technicianType;
       body.laborCostPerHour = v.laborCostPerHour;
       body.callMaskingEnabled = v.callMaskingEnabled;
       body.gpsTrackingEnabled = v.gpsTrackingEnabled;
       body.mobileAppInstalled = v.mobileAppInstalled;
       body.status = v.status;
     }
-    update.mutate({ id: technicianId, body });
+    if (rights.contact || rights.operational) update.mutate({ id: technicianId, body });
+
+    if (rights.identity && user) {
+      const person: UpdateUserRequest = {};
+      const first = v.firstName.trim();
+      const last = v.lastName.trim();
+      if (first && first !== user.firstName) person.firstName = first;
+      if (last && last !== user.lastName) person.lastName = last;
+      if (v.fieldTeamMember !== isFieldTeamMember(user)) person.fieldTeamMember = v.fieldTeamMember;
+      if (Object.keys(person).length > 0) updateUser.mutate({ id: technicianId, body: person });
+    }
   };
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-1 flex-col overflow-hidden" noValidate>
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-5xl space-y-6">
+        <div className="max-w-5xl space-y-6">
       <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
         {/* ---------------- The person ---------------- */}
         <div className="space-y-5" data-testid="person-column">
           <ColumnHeading>Person</ColumnHeading>
 
+          <ProfilePhotoField
+            technicianId={technicianId}
+            profile={profile}
+            user={user}
+            editable={rights.contact}
+          />
+
+          {/* Under the photo, where the owner asked for it. Workiz\'s words,
+              on their page and in their app. Ours read "GPS tracking" — the
+              same switch under a name nobody in the field uses. */}
+          <Toggle
+            label="Track location"
+            hint={workHint ?? "Their position during shifts, on the dispatch map."}
+            checked={gps}
+            disabled={!rights.operational}
+            onChange={(c) => setValue("gpsTrackingEnabled", c, { shouldDirty: true })}
+          />
+
+          {/* Workiz\'s "User type". A subcontractor is paid and insured
+              differently from an employee, and more will hang off this as
+              those differences are built — so it is the manager\'s to set. */}
           <Field
-            label="Profile picture"
-            hint={
-              // The photo is one of the technician's documents, uploaded there
-              // by the person themselves — so the pointer is only true for a
-              // viewer who can see that block.
-              can("documents", "view")
-                ? "Uploaded with their documents, further down this page."
-                : "Set from the technician's own documents."
-            }
+            label="User type"
+            htmlFor={id("user-type")}
+            hint={workHint ?? "A subcontractor is paid and insured differently from an employee."}
+            hintId={id("user-type-hint")}
           >
-            <Avatar size="lg" className="size-16">
-              {profile.profilePhotoUrl ? <AvatarImage src={profile.profilePhotoUrl} alt="" /> : null}
-              <AvatarFallback className="text-lg">{initials(user?.firstName, user?.lastName)}</AvatarFallback>
-            </Avatar>
+            <Select
+              value={technicianType}
+              disabled={!rights.operational}
+              onValueChange={(v) => setValue("technicianType", v as TechnicianType, { shouldDirty: true })}
+            >
+              <SelectTrigger id={id("user-type")} className="h-10 w-full" aria-describedby={id("user-type-hint")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="regular">Regular</SelectItem>
+                <SelectItem value="subcontractor">Subcontractor</SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
 
-          <NotConnectedField field={PERSON_NOT_CONNECTED.userType} />
-
-          {/* All three are disabled for the same reason, said once under the
-              last of them — so all three point at that one line rather than
-              leaving the first two disabled with no reason given. */}
+          {/* The name is the user record\'s. Whoever may edit users changes it
+              here and it is written there; everyone else reads it, and the
+              one line under the email says why. */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="First name" htmlFor={id("first")}>
               <Input
                 id={id("first")}
                 className="h-10"
-                value={user?.firstName ?? ""}
-                readOnly
-                disabled
-                aria-describedby={id("user-record")}
+                disabled={!rights.identity}
+                aria-describedby={rights.identity ? undefined : id("user-record")}
+                {...register("firstName")}
               />
             </Field>
             <Field label="Last name" htmlFor={id("last")}>
               <Input
                 id={id("last")}
                 className="h-10"
-                value={user?.lastName ?? ""}
-                readOnly
-                disabled
-                aria-describedby={id("user-record")}
+                disabled={!rights.identity}
+                aria-describedby={rights.identity ? undefined : id("user-record")}
+                {...register("lastName")}
               />
             </Field>
           </div>
@@ -229,15 +284,9 @@ function Form({
               aria-describedby={id("user-record")}
             />
             <p id={id("user-record")} className="text-xs text-muted-foreground">
-              Name and email live on the user record.
-              {can("users", "view") ? (
-                <>
-                  {" "}
-                  <Link href="/admin/users" className="inline-flex items-center gap-0.5 text-primary hover:underline">
-                    Open Users <ArrowUpRight className="size-3" />
-                  </Link>
-                </>
-              ) : null}
+              {rights.identity
+                ? "The email is the sign-in and can\'t be changed."
+                : "Name and email live on the user record; the email is the sign-in and can\'t be changed."}
             </p>
           </Field>
 
@@ -261,7 +310,54 @@ function Form({
             />
           </Field>
 
-          <NotConnectedField field={PERSON_NOT_CONNECTED.additionalPhones} />
+          {/* Workiz\'s "Additional phone numbers": a list, with an add. They
+              live on the technician record; the user record holds exactly one
+              number, the one telephony rings and the call log matches. */}
+          <div className="space-y-1.5" role="group" aria-labelledby={id("additional-label")}>
+            <Label id={id("additional-label")}>Additional phone numbers</Label>
+            {additionalPhones.map((value, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Label htmlFor={id(`additional-${i}`)} className="sr-only">
+                  Additional phone {i + 1}
+                </Label>
+                <div className="min-w-0 flex-1">
+                  <PhoneInput
+                    id={id(`additional-${i}`)}
+                    disabled={!rights.contact}
+                    value={value}
+                    onChange={(v) =>
+                      setAdditionalPhones(additionalPhones.map((p, j) => (j === i ? v : p)))
+                    }
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 flex-none text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove additional phone ${i + 1}`}
+                  disabled={!rights.contact}
+                  onClick={() => setAdditionalPhones(additionalPhones.filter((_, j) => j !== i))}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={!rights.contact || additionalPhones.length >= MAX_ADDITIONAL_PHONES}
+              onClick={() => setAdditionalPhones([...additionalPhones, ""])}
+            >
+              <Plus className="size-3.5" />
+              Add number
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              {contactHint ?? "Other numbers to reach them on. Calls still ring the one above."}
+            </p>
+          </div>
 
           {/* Our address is line1/line2/city/state/zip; Workiz shows one
               "Home address". The pieces stay — the dispatch map geocodes them —
@@ -269,7 +365,7 @@ function Form({
           <div className="space-y-1.5" role="group" aria-labelledby={id("address-label")}>
             <Label id={id("address-label")}>Home address</Label>
             {rights.contact ? (
-              /* Named, not just placeheld: the group's label names the block,
+              /* Named, not just placeheld: the group\'s label names the block,
                  and a combobox with only a placeholder is announced unnamed —
                  the disabled twin below has carried this name all along. */
               <AddressAutocomplete
@@ -314,39 +410,24 @@ function Form({
               {contactHint ?? "Used to route jobs near them."}
             </p>
           </div>
-
-          {/* Workiz's words, on their page and in their app. Ours read "GPS
-              tracking" — the same switch under a name nobody in the field
-              uses. */}
-          <Toggle
-            label="Track location"
-            hint={workHint ?? "Their position during shifts, on the dispatch map."}
-            checked={gps}
-            disabled={!rights.operational}
-            onChange={(c) => setValue("gpsTrackingEnabled", c, { shouldDirty: true })}
-          />
         </div>
 
         {/* ---------------- The work ---------------- */}
         <div className="space-y-5" data-testid="work-column">
           <ColumnHeading>Work</ColumnHeading>
 
-          <Field label="Role">
-            <div className="flex h-10 items-center rounded-md border bg-muted/40 px-3 text-sm">{roleLabel}</div>
-            {can("roles", "view") ? (
-              <p className="text-xs">
-                <Link href="/admin/roles" className="inline-flex items-center gap-0.5 text-primary hover:underline">
-                  Customize roles and permissions here <ArrowUpRight className="size-3" />
-                </Link>
-              </p>
-            ) : null}
-            <p className="text-xs text-muted-foreground">
-              The role itself is assigned on the user record, where the change
-              is confirmed and this person&apos;s overrides are reset.
-            </p>
-          </Field>
-
-          <NotConnectedField field={WORK_NOT_CONNECTED.fieldTeamMember} />
+          {/* Workiz\'s "Field team member", and the one switch that decides who
+              may be put on a job — whatever the role. It is the user record\'s,
+              so it saves there, and only someone who may edit users sets it.
+              The role itself is not on this card: it is assigned on the user
+              record, where the change is confirmed and overrides are reset. */}
+          <Toggle
+            label="Field team member"
+            hint={identityHint ?? "Goes out on jobs, and can be put on one."}
+            checked={fieldTeamMember}
+            disabled={!rights.identity}
+            onChange={(c) => setValue("fieldTeamMember", c, { shouldDirty: true })}
+          />
 
           <Field
             label="Labor cost per hour"
@@ -374,12 +455,12 @@ function Form({
               has always had them. Workiz puts them in this column; a tab the
               reader already knows beats a column that matches a screenshot.
 
-              Workiz's "User skills" is not here at all: skills are a separate
+              Workiz\'s "User skills" is not here at all: skills are a separate
               catalog there and we hold job types only, so a dead row would
               promise a second catalog we have no plans for. */}
           <ScheduleColorField disabled={!rights.operational} />
 
-          {/* The label used to read "Hide the tech's number on calls", which is
+          {/* The label used to read "Hide the tech\'s number on calls", which is
               what a manager WANTS but not what the switch does. It hides CLIENT
               numbers from the technician; their own number is hidden from
               clients by every masked call, always, and is not optional. Workiz
@@ -391,7 +472,7 @@ function Form({
               how a privacy setting ends up wrong. */}
           <Toggle
             label="Hide client numbers"
-            hint={workHint ?? "They see the client's name and call through the system, never the number"}
+            hint={workHint ?? "They see the client\'s name and call through the system, never the number"}
             checked={callMasking}
             disabled={!rights.operational || maskingPending}
             onChange={(c) => {
@@ -404,7 +485,7 @@ function Form({
           <NotConnectedField field={WORK_NOT_CONNECTED.notes} />
 
           <div className="space-y-5 border-t pt-5">
-            {/* Ours, not Workiz's — kept together and labelled, rather than
+            {/* Ours, not Workiz\'s — kept together and labelled, rather than
                 slipped into their order where it would read as parity. */}
             <ColumnHeading>Not on the Workiz card — ours</ColumnHeading>
             <Field label="Status" htmlFor={id("status")} hint={workHint} hintId={id("status-hint")}>
@@ -446,8 +527,13 @@ function Form({
         // own the scroll, this bar never moves, and it sits under the middle
         // because it saves both columns, not the one it would hug in a corner.
         <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
-          <Button type="submit" variant="brand" disabled={update.isPending} className="gap-1.5">
-            {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+          <Button
+            type="submit"
+            variant="brand"
+            disabled={update.isPending || updateUser.isPending}
+            className="gap-1.5"
+          >
+            {update.isPending || updateUser.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
             Save changes
           </Button>
         </div>
@@ -457,6 +543,77 @@ function Form({
         </div>
       )}
     </form>
+  );
+}
+
+/**
+ * The photo, put up from here — by the technician on their own card, or by a
+ * manager. It is the `profile_photo` document underneath, so the Documents tab
+ * lists it too; the buttons are drawn only for a viewer who may edit the card,
+ * because a file input that answers with a 403 is worse than none.
+ */
+function ProfilePhotoField({
+  technicianId,
+  profile,
+  user,
+  editable,
+}: {
+  technicianId: string;
+  profile: TechnicianProfile;
+  user?: User;
+  editable: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const upload = useUploadPhoto();
+  const remove = useDeletePhoto();
+  const busy = upload.isPending || remove.isPending;
+  return (
+    <div className="space-y-1.5">
+      <Label>Profile picture</Label>
+      <div className="flex items-center gap-4">
+        <Avatar size="lg" className="size-16">
+          {profile.profilePhotoUrl ? <AvatarImage src={profile.profilePhotoUrl} alt="" /> : null}
+          <AvatarFallback className="text-lg">{initials(user?.firstName, user?.lastName)}</AvatarFallback>
+        </Avatar>
+        {editable ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) upload.mutate({ id: technicianId, file });
+                e.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={busy}
+              onClick={() => inputRef.current?.click()}
+            >
+              {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+              {profile.profilePhotoUrl ? "Change photo" : "Upload photo"}
+            </Button>
+            {profile.profilePhotoUrl ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => remove.mutate({ id: technicianId })}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -472,7 +629,7 @@ function ColumnHeading({ children }: { children: React.ReactNode }) {
  * A labelled field. `htmlFor` ties the label to the control it belongs to —
  * without it a label is only text sitting above a box, and a screen reader
  * announces the box unnamed. Fields that hold several inputs (the address)
- * name each input themselves and use the label as the group's heading.
+ * name each input themselves and use the label as the group\'s heading.
  */
 function Field({
   label,

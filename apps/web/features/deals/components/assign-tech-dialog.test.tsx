@@ -62,14 +62,16 @@ describe("AssignTechDialog — a row that is not a technician", () => {
     show();
 
     expect(screen.getByText("Other technicians")).toBeInTheDocument();
-    expect(screen.getByText("Not technicians")).toBeInTheDocument();
+    expect(screen.getByText("Not on the field team")).toBeInTheDocument();
   });
 
-  it("says why, in words that do not imply they are a technician", () => {
+  it("says why, in words that do not imply they are still onboarding", () => {
     qualified.data = [tech({ id: "ghost", eligible: false, reasons: ["not_assignable"] })];
     show();
 
-    expect(screen.getByText("Not a technician")).toBeInTheDocument();
+    // Since the field-team flag, "not assignable" means exactly one thing:
+    // the switch is off for them — whatever their role.
+    expect(screen.getByText("Not a field team member")).toBeInTheDocument();
   });
 
   it("cannot be ticked onto the job", () => {

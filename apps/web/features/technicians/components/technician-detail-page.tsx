@@ -3,13 +3,11 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@bitcrm/types";
-import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { initials, roleName } from "@/features/users/lib";
+import { initials } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useRoles } from "@/features/roles/hooks";
 import { TextButton } from "@/features/messaging/components/text-button";
 import { WorkingHoursEditor } from "@/features/schedule/components/working-hours-editor";
 import { useProfile, useUserMap } from "../hooks";
@@ -47,12 +45,12 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
   const { can, me, isTechnician } = usePermissions();
   const query = useProfile(technicianId);
   const { data: userMap } = useUserMap();
-  // Only to name the role in the work column; technicians hold no `roles.view`.
-  const { data: roles } = useRoles(can("roles", "view"));
 
   const rights = technicianEditRights({
     canEdit: can("technicians", "edit"),
     isTechnician,
+    // The name and the field-team switch are the user record's.
+    canEditUser: can("users", "edit"),
   });
 
   if (!can("technicians", "view")) {
@@ -82,11 +80,9 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
 
   return (
     <div className="flex flex-1 flex-col">
+      {/* No way back up here: the sidebar is the way back, and the owner
+          struck the button that duplicated it. */}
       <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => router.push("/technicians")}>
-          <ArrowLeft className="size-4" />
-          Technicians
-        </Button>
         <Avatar className="size-8">
           {profile.profilePhotoUrl ? <AvatarImage src={profile.profilePhotoUrl} alt="" /> : null}
           <AvatarFallback className="text-xs">{initials(u?.firstName, u?.lastName)}</AvatarFallback>
@@ -106,8 +102,11 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
           navigation he already knows to be taken away — so the two columns are
           theirs, and the tabs stay ours. */}
       <Tabs defaultValue="profile" className="flex flex-1 flex-col overflow-hidden">
+        {/* Left-aligned, not centred — the owner reads the card from the
+            left edge, as the rest of the app is laid out. The max width stays
+            so a line does not run across a wide screen. */}
         <div className="border-b px-6">
-          <div className="mx-auto max-w-5xl">
+          <div className="max-w-5xl">
             <TabsList variant="line" className="h-11">
               <TabsTrigger value="profile" className="px-2">Profile</TabsTrigger>
               {can("job_types", "view") || can("service_areas", "view") ? (
@@ -127,16 +126,11 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
         {/* Profile keeps its own scroll region so the Save bar can sit in a
             footer that never moves, the way the job card does it. */}
         <TabsContent value="profile" className="mt-0 flex flex-1 flex-col overflow-hidden">
-          <TechnicianForm
-            technicianId={technicianId}
-            user={u}
-            roleLabel={u ? roleName(u.roleId, roles) : "—"}
-            rights={rights}
-          />
+          <TechnicianForm technicianId={technicianId} user={u} rights={rights} />
         </TabsContent>
 
         <TabsContent value="assignments" className="mt-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-5xl space-y-8 px-6 py-6">
+          <div className="max-w-5xl space-y-8 px-6 py-6">
             {can("job_types", "view") ? (
               <AssignmentsSection technicianId={technicianId} kind="job_type" />
             ) : null}
@@ -147,7 +141,7 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
         </TabsContent>
 
         <TabsContent value="overview" className="mt-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-5xl space-y-8 px-6 py-6">
+          <div className="max-w-5xl space-y-8 px-6 py-6">
             <OnboardingSection technicianId={technicianId} />
 
             <Block title="User availability">
@@ -169,7 +163,7 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
 
         {can("commission", "view") ? (
           <TabsContent value="commission" className="mt-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-5xl px-6 py-6">
+            <div className="max-w-5xl px-6 py-6">
               <CommissionTab technicianId={technicianId} />
             </div>
           </TabsContent>
@@ -177,7 +171,7 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
 
         {can("documents", "view") ? (
           <TabsContent value="documents" className="mt-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-5xl px-6 py-6">
+            <div className="max-w-5xl px-6 py-6">
               <DocumentsTab technicianId={technicianId} />
             </div>
           </TabsContent>
@@ -211,11 +205,10 @@ function DetailSkeleton() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center gap-3 border-b px-6 py-4">
-        <Skeleton className="h-8 w-28" />
         <Skeleton className="size-8 rounded-full" />
         <Skeleton className="h-5 w-40" />
       </div>
-      <div className="mx-auto grid w-full max-w-5xl gap-x-10 gap-y-6 p-6 md:grid-cols-2">
+      <div className="grid w-full max-w-5xl gap-x-10 gap-y-6 p-6 md:grid-cols-2">
         <Skeleton className="h-96 w-full" />
         <Skeleton className="h-96 w-full" />
       </div>

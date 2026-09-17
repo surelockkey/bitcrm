@@ -76,10 +76,16 @@ export function auditActorLabel(
 /* ---- Who may edit what on the card ---- */
 
 export interface TechnicianEditRights {
-  /** Phone, home address, photo — the technician's own details. */
+  /** Phone, additional numbers, home address, photo — the technician's own details. */
   contact: boolean;
-  /** Labor cost, status, masking, GPS, mobile app, working hours. */
+  /** User type, labor cost, status, masking, GPS, mobile app, working hours. */
   operational: boolean;
+  /**
+   * The name and the field-team switch. Those live on the user record behind
+   * `users.edit`, which the Technician role does not hold and a manager with
+   * technicians.edit alone may not either.
+   */
+  identity: boolean;
 }
 
 /**
@@ -96,11 +102,15 @@ export interface TechnicianEditRights {
 export function technicianEditRights({
   canEdit,
   isTechnician,
+  canEditUser,
 }: {
   canEdit: boolean;
   isTechnician: boolean;
+  canEditUser: boolean;
 }): TechnicianEditRights {
-  return { contact: canEdit, operational: canEdit && !isTechnician };
+  // The name and the switch are editable HERE only for someone who may edit
+  // the card at all: `users.edit` alone opens the user sheet, not this page.
+  return { contact: canEdit, operational: canEdit && !isTechnician, identity: canEdit && canEditUser };
 }
 
 /* ---- Assignments ---- */

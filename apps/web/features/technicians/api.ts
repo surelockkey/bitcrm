@@ -1,6 +1,7 @@
 import type {
   TechnicianProfile,
   TechnicianProfileStatus,
+  TechnicianType,
   TechnicianHomeAddress,
   TechnicianLocation,
   OnboardingStatus,
@@ -39,8 +40,10 @@ export interface AuditRecord {
 }
 export interface UpdateProfileBody {
   phone?: string;
+  additionalPhones?: string[];
   homeAddress?: TechnicianHomeAddress;
   profilePhotoUrl?: string;
+  technicianType?: TechnicianType;
   laborCostPerHour?: number;
   callMaskingEnabled?: boolean;
   gpsTrackingEnabled?: boolean;
@@ -192,6 +195,26 @@ export function getDocumentUploadUrl(
 
 export function deleteDocument(id: string, docType: DocumentType): Promise<null> {
   return http.delete<null>(`${BASE}/${id}/documents/${docType}`);
+}
+
+/* ---- The card's photo ----
+ * Stored as the `profile_photo` document, but reachable to whoever may edit
+ * the card — a manager as well as the technician — where the documents route
+ * is the technician's alone. The profile then serves a short-lived link to it.
+ */
+
+export function requestPhotoUpload(
+  id: string,
+  contentType: string,
+): Promise<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }> {
+  return http.post<{ uploadUrl: string; s3Key: string; headers?: Record<string, string> }>(
+    `${BASE}/${id}/photo`,
+    { contentType },
+  );
+}
+
+export function deletePhoto(id: string): Promise<null> {
+  return http.delete<null>(`${BASE}/${id}/photo`);
 }
 
 export async function uploadDocumentBytes(

@@ -24,15 +24,21 @@ const state = vi.hoisted(() => ({
   canViewJobTypes: true,
   canViewServiceAreas: true,
   canViewRoles: true,
+  canEditUsers: true,
   meId: "mgr-1",
 }));
 
 const fx = vi.hoisted(() => ({
   update: vi.fn(),
+  updateUser: vi.fn(),
+  uploadPhoto: vi.fn(),
+  deletePhoto: vi.fn(),
   rolesEnabled: [] as boolean[],
   profile: {
     userId: "t1",
     phone: "+14045551234",
+    additionalPhones: ["+14045550100"],
+    technicianType: "regular" as const,
     homeAddress: { line1: "12 Oak St", city: "Phoenix", state: "AZ", zip: "85001" },
     laborCostPerHour: 45,
     callMaskingEnabled: false,
@@ -63,7 +69,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
         case "service_areas":
           return action === "view" && state.canViewServiceAreas;
         case "users":
-          return true;
+          return state.canEditUsers;
         case "roles":
           return state.canViewRoles;
         default:
@@ -94,11 +100,19 @@ vi.mock("../hooks", () => ({
   }),
   useAssignments: () => ({ data: { jobTypes: [], serviceAreas: [] }, isLoading: false }),
   useUpdateProfile: () => ({ mutate: fx.update, isPending: false }),
+  useUploadPhoto: () => ({ mutate: fx.uploadPhoto, isPending: false }),
+  useDeletePhoto: () => ({ mutate: fx.deletePhoto, isPending: false }),
   useApproveAssignment: () => ({ mutate: vi.fn(), isPending: false }),
   useRejectAssignment: () => ({ mutate: vi.fn(), isPending: false }),
   useRevokeAssignment: () => ({ mutate: vi.fn(), isPending: false }),
   useProposeAssignments: () => ({ mutate: vi.fn(), isPending: false }),
   useAssignDirect: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+// The name and the field-team flag live on the user record and save through
+// the users feature; only that the card reaches for it matters here.
+vi.mock("@/features/users/hooks", () => ({
+  useUpdateUser: () => ({ mutate: fx.updateUser, isPending: false }),
 }));
 
 vi.mock("../masking-hooks", () => ({
@@ -157,8 +171,12 @@ beforeEach(() => {
   state.canViewJobTypes = true;
   state.canViewServiceAreas = true;
   state.canViewRoles = true;
+  state.canEditUsers = true;
   state.meId = "mgr-1";
   fx.update.mockReset();
+  fx.updateUser.mockReset();
+  fx.uploadPhoto.mockReset();
+  fx.deletePhoto.mockReset();
   fx.rolesEnabled.length = 0;
 });
 
@@ -194,15 +212,16 @@ describe("TechnicianDetailPage — one page, two columns", () => {
   it("draws the person column in Workiz's order", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     const col = screen.getByTestId("person-column");
+    // Track location sits under the photo, where the owner asked for it.
     const order = [
       "Profile picture",
+      "Track location",
       "User type",
       "First name",
       "Email",
       "Phone",
       "Additional phone numbers",
       "Home address",
-      "Track location",
     ].map((label) => at(col, label));
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
@@ -211,7 +230,6 @@ describe("TechnicianDetailPage — one page, two columns", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     const col = screen.getByTestId("work-column");
     const order = [
-      "Role",
       "Field team member",
       "Labor cost per hour",
       "Schedule color",
@@ -224,29 +242,14 @@ describe("TechnicianDetailPage — one page, two columns", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
-  it("names the role without asking for the roles list a technician can't have", () => {
-    state.canViewRoles = false;
-    state.isTechnician = true;
-    state.meId = "t1";
-    render(<TechnicianDetailPage technicianId="t1" />);
-
-    // Never asked: the list needs `roles.view`, and asking anyway buys a 403
-    // and a failed query on a page that only wanted to name one role.
-    expect(fx.rolesEnabled.every((enabled) => enabled === false)).toBe(true);
-    // Still named, from the system-role mirror.
-    expect(within(screen.getByTestId("work-column")).getByText("Technician")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: /customize roles and permissions here/i }),
-    ).toBeNull();
-  });
-
-  it("keeps the role read-only, with the link to where roles are changed", () => {
+  it("carries no Role field, and never asks for the roles list", () => {
+    // The role is set on the user record, with its confirmation and its reset
+    // of overrides; the owner struck the read-only copy from this card.
     render(<TechnicianDetailPage technicianId="t1" />);
     const col = screen.getByTestId("work-column");
-    expect(within(col).getByText("Technician")).toBeInTheDocument();
-    expect(
-      within(col).getByRole("link", { name: /customize roles and permissions here/i }),
-    ).toHaveAttribute("href", "/admin/roles");
+    expect(within(col).queryByText("Role")).toBeNull();
+    expect(screen.queryByRole("link", { name: /customize roles and permissions here/i })).toBeNull();
+    expect(fx.rolesEnabled).toEqual([]);
   });
 
   it("carries the live values we hold into the form", () => {
@@ -310,6 +313,7 @@ describe("TechnicianDetailPage — what is drawn but dead", () => {
 
   it("ties the live controls that are disabled to their reason too", () => {
     state.isTechnician = true;
+    state.canEditUsers = false;
     state.meId = "t1";
     render(<TechnicianDetailPage technicianId="t1" />);
 
@@ -414,7 +418,7 @@ describe("TechnicianDetailPage — guards", () => {
     await waitFor(() => expect(fx.update).toHaveBeenCalled());
 
     const { body } = fx.update.mock.calls[0][0];
-    expect(Object.keys(body).sort()).toEqual(["homeAddress", "phone"]);
+    expect(Object.keys(body).sort()).toEqual(["additionalPhones", "homeAddress", "phone"]);
   });
 
   it("sends the operational fields when a manager saves", async () => {
@@ -426,6 +430,126 @@ describe("TechnicianDetailPage — guards", () => {
     const { body } = fx.update.mock.calls[0][0];
     expect(body.laborCostPerHour).toBe(45);
     expect(body.status).toBe("active");
+    expect(body.technicianType).toBe("regular");
     expect(body.homeAddress).toMatchObject({ city: "Phoenix" });
+  });
+});
+
+/**
+ * The fields the owner asked for on 2026-09-17, each live where Workiz has it:
+ * no way back in the header, the photo on the card, a real user type, real
+ * additional numbers, and the two that belong to the user record — the name
+ * and the field-team switch — saved there.
+ */
+describe("TechnicianDetailPage — the card's own fields", () => {
+  it("has no way back in the header — the sidebar is the way back", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByRole("button", { name: /technicians/i })).toBeNull();
+  });
+
+  it("shows the user type, and keeps it with the manager", () => {
+    const { unmount } = render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByLabelText("User type")).toHaveTextContent("Regular");
+    expect(screen.getByLabelText("User type")).toBeEnabled();
+    unmount();
+
+    state.isTechnician = true;
+    state.canEditUsers = false;
+    state.meId = "t1";
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const select = screen.getByLabelText("User type");
+    expect(select).toBeDisabled();
+    expect(document.getElementById(select.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "A manager sets this.",
+    );
+  });
+
+  it("lets a manager put a photo on the card, and says nothing about documents", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByText(/uploaded with their documents/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /upload photo/i })).toBeEnabled();
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.accept).toBe("image/png,image/jpeg,image/webp");
+    const file = new File(["x"], "riley.png", { type: "image/png" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(fx.uploadPhoto).toHaveBeenCalledWith({ id: "t1", file });
+  });
+
+  it("offers no photo controls to a viewer who may not edit the card", () => {
+    state.canEditTechs = false;
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.queryByRole("button", { name: /upload photo/i })).toBeNull();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it("draws the numbers beside the one telephony rings, and saves the list", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByLabelText("Additional phone 1")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove additional phone 1" }));
+    expect(screen.queryByLabelText("Additional phone 1")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /add number/i }));
+    expect(screen.getByLabelText("Additional phone 1")).toHaveValue("");
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove additional phone 1" }));
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(fx.update).toHaveBeenCalled());
+    expect(fx.update.mock.calls[0][0].body.additionalPhones).toEqual([]);
+  });
+
+  it("saves the field-team switch to the user record, not the technician one", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const flag = screen.getByRole("switch", { name: "Field team member" });
+    // Unset on the record: a technician is on the field team until switched off.
+    expect(flag).toBeChecked();
+
+    await userEvent.click(flag);
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(fx.updateUser).toHaveBeenCalled());
+    expect(fx.updateUser).toHaveBeenCalledWith({ id: "t1", body: { fieldTeamMember: false } });
+    expect(fx.update.mock.calls[0][0].body.fieldTeamMember).toBeUndefined();
+  });
+
+  it("lets a manager change the name here, and sends only what changed to the user record", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const first = screen.getByLabelText("First name");
+    expect(first).toBeEnabled();
+    await userEvent.clear(first);
+    await userEvent.type(first, "Riley-Ann");
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(fx.updateUser).toHaveBeenCalled());
+    expect(fx.updateUser).toHaveBeenCalledWith({ id: "t1", body: { firstName: "Riley-Ann" } });
+  });
+
+  it("leaves the user record alone when nothing on it changed", async () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(fx.update).toHaveBeenCalled());
+    expect(fx.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("keeps the email read-only and says why", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const email = screen.getByLabelText("Email");
+    expect(email).toBeDisabled();
+    expect(document.getElementById(email.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
+      /sign-in/,
+    );
+  });
+
+  it("locks the name and the switch for a manager without users.edit, and says where they live", () => {
+    state.canEditUsers = false;
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByLabelText("First name")).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Field team member" })).toBeDisabled();
+    const reason = document.getElementById(
+      screen.getByLabelText("First name").getAttribute("aria-describedby") ?? "",
+    )?.textContent;
+    expect(reason).toMatch(/live on the user record/);
   });
 });
