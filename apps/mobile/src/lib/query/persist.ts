@@ -20,6 +20,11 @@ export function shouldPersistQuery(query: {
   const [root, scope] = query.queryKey;
   if (root === 'me') return true;
   if (root === 'deals') return scope === 'list' || scope === 'detail';
+  // What the office said is worth as much underground as the job it was about:
+  // "the gate code is 4021" cannot be re-read over a connection that is not
+  // there. The badge counter is deliberately not kept — a restored unread
+  // count with nothing behind it is a number that lies.
+  if (root === 'messaging') return scope === 'team-thread' || scope === 'messages';
   return false;
 }
 
