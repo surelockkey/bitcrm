@@ -17,6 +17,12 @@ import type { OutboxKind, OutboxRecord, QueueState, UploadRecord } from './types
  * after an ambiguous failure would add a second note or re-announce a status,
  * so they get a bounded number of tries and then become visible
  * (docs/ARCHITECTURE.md §2.3).
+ *
+ * A reschedule is not here either, and not because the request is unsafe to
+ * repeat — `PUT /deals/:id` with the same body is the same write. It is
+ * because of *what else may have happened*: a row retried for hours would
+ * eventually land on a job dispatch has since moved somewhere else, and
+ * silently undo them. Five tries, then the technician is shown it.
  */
 const IDEMPOTENT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'confirm',

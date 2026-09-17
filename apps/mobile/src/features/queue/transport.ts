@@ -11,8 +11,10 @@ import {
   markArrived,
   moveStatus,
   requestAttachmentUpload,
+  rescheduleDeal,
   type MarkArrivedBody,
   type MoveStatusBody,
+  type RescheduleDealBody,
 } from '../jobs/api';
 import type { Deal } from '../jobs/types';
 import {
@@ -26,6 +28,7 @@ import {
 /** The JSON each queued action carries. */
 export type ArrivedPayload = MarkArrivedBody;
 export type StatusPayload = MoveStatusBody;
+export type ReschedulePayload = RescheduleDealBody;
 export interface NotePayload {
   note: string;
 }
@@ -71,6 +74,8 @@ export async function performOutboxAction(
       return markArrived(record.dealId, payload as ArrivedPayload);
     case 'status':
       return moveStatus(record.dealId, payload as StatusPayload);
+    case 'reschedule':
+      return rescheduleDeal(record.dealId, payload as ReschedulePayload);
     case 'note':
       await addNote(record.dealId, (payload as NotePayload).note);
       return undefined;

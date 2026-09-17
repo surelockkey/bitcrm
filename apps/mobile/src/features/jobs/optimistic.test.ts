@@ -50,6 +50,39 @@ describe('optimisticPatch', () => {
     expect(optimisticPatch('on_my_way', { etaMinutes: 15 }, NOW)).toEqual({});
     expect(optimisticPatch('late', { minutes: 30 }, NOW)).toEqual({});
   });
+
+  it('moves the visit the moment it is confirmed', () => {
+    expect(
+      optimisticPatch(
+        'reschedule',
+        { scheduledDate: '2026-09-18', scheduledTimeSlot: '14:00-16:00', allDay: false },
+        NOW,
+      ),
+    ).toEqual({
+      scheduledDate: '2026-09-18',
+      scheduledTimeSlot: '14:00-16:00',
+      allDay: false,
+    });
+  });
+
+  // Both fields, both ways round — a card left reading "All day" over the 2
+  // o'clock the technician just picked is a card they will not trust again.
+  it('clears the window for an all-day move, and all-day for a window', () => {
+    expect(
+      optimisticPatch('reschedule', { scheduledDate: '2026-09-18', allDay: true }, NOW),
+    ).toEqual({
+      scheduledDate: '2026-09-18',
+      scheduledTimeSlot: undefined,
+      allDay: true,
+    });
+    expect(
+      optimisticPatch(
+        'reschedule',
+        { scheduledDate: '2026-09-18', scheduledTimeSlot: '09:00-11:00' },
+        NOW,
+      ).allDay,
+    ).toBe(false);
+  });
 });
 
 describe('applyPatchToList', () => {

@@ -2,6 +2,8 @@ import { Alert } from 'react-native';
 import { fireEvent, screen } from '@testing-library/react-native';
 import { renderScreen } from '../../test/render';
 import { JobDetailScreen } from './job-detail-screen';
+import { localDateIso, shiftDateIso } from './lib';
+import { RescheduleRefused, describeRefusal } from './reschedule';
 import { JobSuperStatus, type Deal } from './types';
 import type { QueueRecord } from '../../lib/queue/types';
 
@@ -13,6 +15,7 @@ const mockActions = {
   start: jest.fn().mockResolvedValue(undefined),
   finish: jest.fn().mockResolvedValue(undefined),
   addNote: jest.fn().mockResolvedValue(undefined),
+  reschedule: jest.fn().mockResolvedValue(undefined),
 };
 const mockCall = jest.fn();
 const mockMarkSeenOnOpen = jest.fn();
@@ -221,5 +224,120 @@ describe('JobDetailScreen', () => {
     await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
     await fireEvent.press(screen.getByTestId('action-photos'));
     expect(props.onOpenPhotos).toHaveBeenCalledWith('d1');
+  });
+});
+
+/** Moving the visit from the phone — 15 956 of them in this account (§1.3). */
+describe('JobDetailScreen — rescheduling', () => {
+  const props = { onBack: jest.fn(), onOpenPhotos: jest.fn(), onOpenChat: jest.fn() };
+  const today = localDateIso();
+  const tomorrow = shiftDateIso(today, 1);
+
+  beforeEach(() => {
+    mockDeal = deal({ scheduledDate: today, scheduledTimeSlot: '09:00-12:00' });
+    mockRecords = [];
+    Object.values(mockActions).forEach((fn) => fn.mockClear());
+    mockCall.mockReset();
+    mockMarkSeenOnOpen.mockClear();
+  });
+
+  it('opens the sheet on the day the job is booked for', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-reschedule'));
+
+    expect(screen.getByTestId('reschedule-sheet')).toBeTruthy();
+    expect(screen.getByText(/Booked for/)).toBeTruthy();
+  });
+
+  it('queues the day and the window the technician picked', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-reschedule'));
+
+    await fireEvent.press(screen.getByTestId(`day-${tomorrow}`));
+    await fireEvent.press(screen.getByTestId('slot-14:00-16:00'));
+    await fireEvent.press(screen.getByTestId('reschedule-confirm'));
+
+    expect(mockActions.reschedule).toHaveBeenCalledWith({
+      scheduledDate: tomorrow,
+      scheduledTimeSlot: '14:00-16:00',
+      allDay: false,
+    });
+    // The sheet closes behind it — the move is in the outbox, not in a dialog.
+    expect(screen.queryByTestId('reschedule-sheet')).toBeNull();
+  });
+
+  it('sends no window at all for an all-day move', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-reschedule'));
+
+    await fireEvent.press(screen.getByTestId(`day-${tomorrow}`));
+    await fireEvent.press(screen.getByTestId('slot-all-day'));
+    await fireEvent.press(screen.getByTestId('reschedule-confirm'));
+
+    expect(mockActions.reschedule).toHaveBeenCalledWith({
+      scheduledDate: tomorrow,
+      allDay: true,
+    });
+  });
+
+  // The rule the whole feature turns on: a visit never moves backwards. A job
+  // dated yesterday falls into "still open from earlier", where it reads as
+  // work somebody forgot.
+  it('will not let a day already gone be chosen', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-reschedule'));
+
+    const yesterday = screen.queryByTestId(`day-${shiftDateIso(today, -1)}`);
+    // Either off this month's grid entirely, or drawn dead.
+    if (yesterday) {
+      expect(yesterday.props.accessibilityState.disabled).toBe(true);
+      await fireEvent.press(yesterday);
+    }
+
+    await fireEvent.press(screen.getByTestId('reschedule-confirm'));
+    expect(mockActions.reschedule).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduledDate: today }),
+    );
+  });
+
+  it('keeps the job’s own odd window on offer, so only the day moves', async () => {
+    mockDeal = deal({ scheduledDate: today, scheduledTimeSlot: '09:30-11:30' });
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-reschedule'));
+
+    expect(screen.getByTestId('slot-09:30-11:30')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId(`day-${tomorrow}`));
+    await fireEvent.press(screen.getByTestId('reschedule-confirm'));
+
+    expect(mockActions.reschedule).toHaveBeenCalledWith({
+      scheduledDate: tomorrow,
+      scheduledTimeSlot: '09:30-11:30',
+      allDay: false,
+    });
+  });
+
+  it('tells the technician when a move was refused, rather than failing quietly', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockActions.reschedule.mockRejectedValueOnce(
+      new RescheduleRefused('past_slot'),
+    );
+
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-reschedule'));
+    await fireEvent.press(screen.getByTestId(`day-${tomorrow}`));
+    await fireEvent.press(screen.getByTestId('reschedule-confirm'));
+
+    expect(alert).toHaveBeenCalledWith('Not moved', describeRefusal('past_slot'));
+    alert.mockRestore();
+  });
+
+  it('does not offer to move a job that is already closed', async () => {
+    mockDeal = deal({ superStatus: JobSuperStatus.DONE });
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+
+    expect(
+      screen.getByTestId('action-reschedule').props.accessibilityState.disabled,
+    ).toBe(true);
+    expect(screen.getByText(/closed job cannot be moved/)).toBeTruthy();
   });
 });

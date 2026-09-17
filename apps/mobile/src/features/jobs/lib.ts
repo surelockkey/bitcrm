@@ -281,6 +281,8 @@ export interface TechActionState {
   canStart: boolean;
   /** "Done" — In Progress (or Pending) → Done. */
   canFinish: boolean;
+  /** "Reschedule" — moving the visit, while the job is still open (§1.3). */
+  canReschedule: boolean;
 }
 
 export function techActionState(
@@ -295,6 +297,9 @@ export function techActionState(
     canFinish:
       deal.superStatus === JobSuperStatus.IN_PROGRESS ||
       deal.superStatus === JobSuperStatus.PENDING,
+    // A job that is done or cancelled has no visit left to move, and the one
+    // thing worse than not being able to reschedule it is appearing to.
+    canReschedule: !closed,
   };
 }
 

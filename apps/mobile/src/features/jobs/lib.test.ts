@@ -290,6 +290,7 @@ describe('techActionState', () => {
       canArrive: true,
       canStart: true,
       canFinish: false,
+      canReschedule: true,
     });
   });
 
@@ -306,6 +307,7 @@ describe('techActionState', () => {
       canArrive: false,
       canStart: false,
       canFinish: true,
+      canReschedule: true,
     });
   });
 
@@ -316,6 +318,7 @@ describe('techActionState', () => {
       canArrive: false,
       canStart: false,
       canFinish: false,
+      canReschedule: false,
     });
   });
 

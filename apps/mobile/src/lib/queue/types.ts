@@ -15,7 +15,9 @@ export type OutboxKind =
   | 'on_my_way'
   | 'late'
   /** A line the technician wrote to the office in the team thread (§1.4). */
-  | 'chat';
+  | 'chat'
+  /** Moving the visit to another day or window — `PUT /deals/:id` (§1.3). */
+  | 'reschedule';
 
 export type QueueState =
   /** Waiting to be sent. Possibly waiting out a backoff — see nextAttemptAt. */

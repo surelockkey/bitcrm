@@ -13,15 +13,19 @@ import { QueueSummary } from '../queue/components/QueueBadge';
 import { useMaskedCall } from '../telephony/use-masked-call';
 import { MinutesSheet } from './components/MinutesSheet';
 import { JobStamps } from './components/JobStamps';
+import { RescheduleSheet } from './components/RescheduleSheet';
 import { StatusPill } from './components/StatusPill';
 import { useJob, useMarkSeenOnOpen, useMe } from './hooks';
 import {
   addressLine,
   clientDisplayName,
+  formatDayHeading,
   formatSlot,
+  localDateIso,
   navigationUrl,
   techActionState,
 } from './lib';
+import { RescheduleRefused } from './reschedule';
 import { useJobActions } from './use-job-actions';
 
 export interface JobDetailScreenProps {
@@ -32,7 +36,7 @@ export interface JobDetailScreenProps {
   onOpenChat: (dealId: string) => void;
 }
 
-type Sheet = 'none' | 'onMyWay' | 'late';
+type Sheet = 'none' | 'onMyWay' | 'late' | 'reschedule';
 
 /**
  * One job, and everything a technician does to it.
@@ -124,7 +128,10 @@ export function JobDetailScreen({
           {client ? <CardRow label="Client" value={client} /> : null}
           {address ? <CardRow label="Address" value={address} /> : null}
           {deal.scheduledDate ? (
-            <CardRow label="Date" value={deal.scheduledDate} />
+            <CardRow
+              label="Date"
+              value={formatDayHeading(deal.scheduledDate.slice(0, 10))}
+            />
           ) : null}
           <View style={{ marginTop: spacing.sm }}>
             <JobStamps deal={deal} />
@@ -232,6 +239,24 @@ export function JobDetailScreen({
           ) : null}
         </Section>
 
+        {/* Its own section, well away from the hero actions: a mis-tap here
+            opens a sheet, but a mis-tap on "Done" beside it would not. */}
+        <Section title="Visit">
+          <Button
+            label="Reschedule"
+            testID="action-reschedule"
+            variant="secondary"
+            hint="Move this visit to another day or window"
+            disabled={!can.canReschedule}
+            onPress={() => setSheet('reschedule')}
+          />
+          {!can.canReschedule ? (
+            <Text style={[type.caption, { color: colors.textMuted }]}>
+              A closed job cannot be moved. Ask the office to reopen it.
+            </Text>
+          ) : null}
+        </Section>
+
         <Section title="Photos">
           <Button
             label="Photos"
@@ -308,6 +333,29 @@ export function JobDetailScreen({
         onSelect={(minutes) => {
           setSheet('none');
           void actions.runningLate(minutes);
+        }}
+      />
+      <RescheduleSheet
+        visible={sheet === 'reschedule'}
+        dealNumber={deal.dealNumber}
+        scheduledDate={deal.scheduledDate}
+        scheduledTimeSlot={deal.scheduledTimeSlot}
+        allDay={deal.allDay}
+        todayIso={localDateIso()}
+        onCancel={() => setSheet('none')}
+        onConfirm={(next) => {
+          setSheet('none');
+          void actions.reschedule(next).catch((error: unknown) => {
+            // The only way here is a sheet that sat open across midnight or
+            // across the end of a window: the day it was offering stopped
+            // being offerable while the technician was looking at it.
+            Alert.alert(
+              'Not moved',
+              error instanceof RescheduleRefused
+                ? error.message
+                : 'The phone could not save the change. Try again.',
+            );
+          });
         }}
       />
     </Screen>

@@ -12,8 +12,7 @@ import {
   type DayMark,
 } from '../calendar';
 
-export interface DayPickerProps {
-  visible: boolean;
+export interface MonthGridProps {
   /** The day the calendar opens on, and the one drawn as chosen. */
   selectedIso: string;
   todayIso: string;
@@ -22,8 +21,6 @@ export interface DayPickerProps {
   /** Days before this one are not offered. Absent, every day is. */
   minDateIso?: string;
   onSelect: (dateIso: string) => void;
-  onCancel: () => void;
-  title?: string;
 }
 
 /**
@@ -38,18 +35,20 @@ export interface DayPickerProps {
  * Every cell clears the 56 dp touch floor and carries its count in the
  * accessibility label, because the dot itself is unreadable to a screen reader
  * and colour is never the only carrier (docs/ARCHITECTURE.md §2.9).
+ *
+ * The grid is separate from the sheet below so the reschedule sheet can draw
+ * it inline: nesting one `Modal` inside another is unreliable on iOS, and two
+ * calendars that drift apart is exactly the kind of thing that teaches a
+ * technician to distrust one of them.
  */
-export function DayPicker({
-  visible,
+export function MonthGrid({
   selectedIso,
   todayIso,
   marks,
   minDateIso,
   onSelect,
-  onCancel,
-  title = 'Pick a day',
-}: DayPickerProps) {
-  const { colors, radius, spacing, touch, type } = useTheme();
+}: MonthGridProps) {
+  const { colors, spacing, type } = useTheme();
   const [month, setMonth] = useState(() => monthOf(selectedIso));
   // The month follows the day the technician is on. Without this, paging to
   // December, closing the sheet and reopening it a week later would still open
@@ -62,6 +61,79 @@ export function DayPicker({
     setMonth(monthOf(selectedIso));
   }
   const rows = monthMatrix(month);
+
+  return (
+    <View testID="month-grid" style={{ gap: spacing.md }}>
+      <View style={[styles.monthRow, { gap: spacing.md }]}>
+        <Button
+          label="‹"
+          testID="month-prev"
+          variant="secondary"
+          accessibilityHint="Previous month"
+          style={styles.arrow}
+          onPress={() => setMonth(shiftMonthIso(month, -1))}
+        />
+        <Text
+          accessibilityRole="header"
+          testID="month-label"
+          style={[type.heading, styles.monthLabel, { color: colors.text }]}
+        >
+          {monthLabel(month)}
+        </Text>
+        <Button
+          label="›"
+          testID="month-next"
+          variant="secondary"
+          accessibilityHint="Next month"
+          style={styles.arrow}
+          onPress={() => setMonth(shiftMonthIso(month, 1))}
+        />
+      </View>
+
+      <View style={styles.week}>
+        {WEEKDAY_LABELS.map((label) => (
+          <Text
+            key={label}
+            style={[type.caption, styles.cellText, { color: colors.textMuted }]}
+          >
+            {label}
+          </Text>
+        ))}
+      </View>
+
+      {rows.map((row, index) => (
+        <View key={`${month}-row-${index}`} style={styles.week}>
+          {row.map((dateIso, column) => (
+            <Cell
+              key={dateIso ?? `pad-${column}`}
+              dateIso={dateIso}
+              selected={dateIso === selectedIso}
+              today={dateIso === todayIso}
+              mark={dateIso ? marks?.get(dateIso) : undefined}
+              disabled={Boolean(dateIso && minDateIso && dateIso < minDateIso)}
+              onSelect={onSelect}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+export interface DayPickerProps extends MonthGridProps {
+  visible: boolean;
+  onCancel: () => void;
+  title?: string;
+}
+
+/** The grid as a sheet over the day list. */
+export function DayPicker({
+  visible,
+  onCancel,
+  title = 'Pick a day',
+  ...grid
+}: DayPickerProps) {
+  const { colors, radius, spacing, touch, type } = useTheme();
 
   return (
     <Modal
@@ -85,58 +157,7 @@ export function DayPicker({
             {title}
           </Text>
 
-          <View style={[styles.monthRow, { gap: spacing.md }]}>
-            <Button
-              label="‹"
-              testID="month-prev"
-              variant="secondary"
-              accessibilityHint="Previous month"
-              style={styles.arrow}
-              onPress={() => setMonth(shiftMonthIso(month, -1))}
-            />
-            <Text
-              accessibilityRole="header"
-              testID="month-label"
-              style={[type.heading, styles.monthLabel, { color: colors.text }]}
-            >
-              {monthLabel(month)}
-            </Text>
-            <Button
-              label="›"
-              testID="month-next"
-              variant="secondary"
-              accessibilityHint="Next month"
-              style={styles.arrow}
-              onPress={() => setMonth(shiftMonthIso(month, 1))}
-            />
-          </View>
-
-          <View style={styles.week}>
-            {WEEKDAY_LABELS.map((label) => (
-              <Text
-                key={label}
-                style={[type.caption, styles.cellText, { color: colors.textMuted }]}
-              >
-                {label}
-              </Text>
-            ))}
-          </View>
-
-          {rows.map((row, index) => (
-            <View key={`${month}-row-${index}`} style={styles.week}>
-              {row.map((dateIso, column) => (
-                <Cell
-                  key={dateIso ?? `pad-${column}`}
-                  dateIso={dateIso}
-                  selected={dateIso === selectedIso}
-                  today={dateIso === todayIso}
-                  mark={dateIso ? marks?.get(dateIso) : undefined}
-                  disabled={Boolean(dateIso && minDateIso && dateIso < minDateIso)}
-                  onSelect={onSelect}
-                />
-              ))}
-            </View>
-          ))}
+          <MonthGrid {...grid} />
 
           <View style={{ height: spacing.sm }} />
           <Button
