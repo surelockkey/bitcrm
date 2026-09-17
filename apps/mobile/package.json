@@ -40,15 +40,23 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "types:build": "npm --prefix ../../packages/types run build",
+    "prestart": "npm run types:build",
     "start": "expo start",
+    "preandroid": "npm run types:build",
     "android": "expo start --android",
+    "preios": "npm run types:build",
     "ios": "expo start --ios",
+    "preweb": "npm run types:build",
     "web": "expo start --web",
+    "pretypecheck": "npm run types:build",
+    "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch"
   },
   "jest": {
     "preset": "jest-expo",
+    "globalSetup": "<rootDir>/jest.global-setup.js",
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.ts"
     ],
