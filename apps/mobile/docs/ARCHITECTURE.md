@@ -407,7 +407,11 @@ app/
   +not-found.tsx
 ```
 
-v2 додає `(app)/chat/index.tsx`, `(app)/chat/[conversationId].tsx`;
+v2 додав `(app)/(tabs)/chat.tsx` — вкладку «Messages» з тредом офісу — і
+`(app)/chat/[dealId].tsx`: той самий тред, відкритий із роботи, лягає **над**
+табами, тому «Назад» веде на роботу, а рядок іде з `dealId`. Окремого
+`[conversationId]` немає: у техніка один тред, і список із одного рядка — це
+зайвий тап (`WORKIZ_MOBILE_APP.md` §1.5: 99,5 % in-app тредів — «офіс ↔ технік»).
 v3 — `(app)/stock.tsx`; v4 — `(app)/jobs/[id]/payment.tsx`.
 
 ---
