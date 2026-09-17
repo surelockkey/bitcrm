@@ -172,7 +172,17 @@ function Form({
         <div className="space-y-5" data-testid="person-column">
           <ColumnHeading>Person</ColumnHeading>
 
-          <Field label="Profile picture" hint="Uploaded with their documents, further down this page.">
+          <Field
+            label="Profile picture"
+            hint={
+              // The photo is one of the technician's documents, uploaded there
+              // by the person themselves — so the pointer is only true for a
+              // viewer who can see that block.
+              can("documents", "view")
+                ? "Uploaded with their documents, further down this page."
+                : "Set from the technician's own documents."
+            }
+          >
             <Avatar size="lg" className="size-16">
               {profile.profilePhotoUrl ? <AvatarImage src={profile.profilePhotoUrl} alt="" /> : null}
               <AvatarFallback className="text-lg">{initials(user?.firstName, user?.lastName)}</AvatarFallback>
