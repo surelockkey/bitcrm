@@ -17,6 +17,12 @@ import type { OutboxKind, OutboxRecord, QueueState, UploadRecord } from './types
  * after an ambiguous failure would add a second note or re-announce a status,
  * so they get a bounded number of tries and then become visible
  * (docs/ARCHITECTURE.md §2.3).
+ *
+ * A reschedule is not here either, and not because the request is unsafe to
+ * repeat — `PUT /deals/:id` with the same body is the same write. It is
+ * because of *what else may have happened*: a row retried for hours would
+ * eventually land on a job dispatch has since moved somewhere else, and
+ * silently undo them. Five tries, then the technician is shown it.
  */
 const IDEMPOTENT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'confirm',
@@ -24,10 +30,48 @@ const IDEMPOTENT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'on_my_way',
   'late',
   'chat',
+  'client_sms',
 ]);
 
 export function isIdempotent(kind: OutboxKind): boolean {
   return IDEMPOTENT.has(kind);
+}
+
+/**
+ * Rows whose result is a **message in a thread** rather than a change to a job.
+ *
+ * What lands is the stored line, so the thread takes it straight into the feed
+ * and nothing about the job needs re-reading. The two threads are separate
+ * screens and separate kinds on purpose — a row can be one or the other, never
+ * both — and this is the one place that knows they behave alike.
+ */
+const THREAD_KINDS: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'chat',
+  'client_sms',
+]);
+
+export function isThreadKind(kind: OutboxKind | undefined): boolean {
+  return kind !== undefined && THREAD_KINDS.has(kind);
+}
+
+/**
+ * Rows whose optimistic patch moves the job to **another day**.
+ *
+ * Every queued action patches the job the instant it is tapped, and a failed
+ * one leaves that guess behind. For most of them the guess is a chip on a card
+ * the technician is looking at — wrong, and visibly wrong beside the "Not
+ * sent" row on the queue screen. A reschedule is not that: it files the visit
+ * under a different date, which on a one-day-at-a-time list means the job is
+ * no longer where the technician left it and today's list is missing a stop.
+ * So when one of these never reaches the server, the server's own copy has to
+ * be fetched back over the guess rather than merely marked stale.
+ */
+const MOVES_THE_VISIT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'reschedule',
+]);
+
+export function movesTheVisit(kind: OutboxKind | undefined): boolean {
+  return kind !== undefined && MOVES_THE_VISIT.has(kind);
 }
 
 /**
@@ -44,6 +88,16 @@ export function isIdempotent(kind: OutboxKind): boolean {
  * A chat line is deliberately **not** here: it is addressed to a colleague in
  * the office, and "the gate code did not work" is still worth reading an hour
  * after it was written in a basement.
+ *
+ * Nor is a `client_sms`, which is the harder call — it does reach a client.
+ * The difference is authorship and visibility. These two are templates the
+ * server renders and sends in the company's voice, chosen from a menu of
+ * minutes, and a technician who taps one has no reason to think about it
+ * again. A typed text is the technician's own sentence, it sits in the thread
+ * saying "Waiting for a signal" until it goes, and it is as likely to be "the
+ * part is ordered, we'll be back Tuesday" as "I'm outside". Silently throwing
+ * away somebody's own words half an hour later is the worse failure of the
+ * two: they believe it was sent, and nothing on the screen says otherwise.
  */
 const CLIENT_VISIBLE: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'on_my_way',

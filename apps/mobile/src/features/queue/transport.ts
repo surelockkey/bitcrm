@@ -11,13 +11,16 @@ import {
   markArrived,
   moveStatus,
   requestAttachmentUpload,
+  rescheduleDeal,
   type MarkArrivedBody,
   type MoveStatusBody,
+  type RescheduleDealBody,
 } from '../jobs/api';
 import type { Deal } from '../jobs/types';
 import {
   openOfficeThread,
   sendChatMessage,
+  sendClientText,
   sendOnMyWay,
   sendRunningLate,
   type FeedMessage,
@@ -32,6 +35,7 @@ import type {
 /** The JSON each queued action carries. */
 export type ArrivedPayload = MarkArrivedBody;
 export type StatusPayload = MoveStatusBody;
+export type ReschedulePayload = RescheduleDealBody;
 export interface NotePayload {
   note: string;
 }
@@ -47,6 +51,15 @@ export interface ChatPayload {
    * phone that has never seen it — resolved at send time below.
    */
   conversationId?: string;
+  body: string;
+}
+/**
+ * A text to the client. Carries the **contact**, never a phone number: the
+ * number is resolved on the server, so it is one more place a technician's
+ * phone cannot leak a client's line (§1.6).
+ */
+export interface ClientSmsPayload {
+  contactId: string;
   body: string;
 }
 
@@ -77,6 +90,8 @@ export async function performOutboxAction(
       return markArrived(record.dealId, payload as ArrivedPayload);
     case 'status':
       return moveStatus(record.dealId, payload as StatusPayload);
+    case 'reschedule':
+      return rescheduleDeal(record.dealId, payload as ReschedulePayload);
     case 'note':
       await addNote(record.dealId, (payload as NotePayload).note);
       return undefined;
@@ -116,6 +131,19 @@ export async function performOutboxAction(
       });
     case 'timeclock_out':
       return stopClock(payload as ClockOutPayload);
+    case 'client_sms': {
+      const sms = payload as ClientSmsPayload;
+      // One request that opens the thread if there is not one yet, so a first
+      // text works from a phone that has never seen it. The row's own id is
+      // the idempotency key, so a replay after a dropped connection returns
+      // the first message rather than texting the client twice.
+      return sendClientText({
+        clientMessageId: record.id,
+        contactId: sms.contactId,
+        dealId: record.dealId,
+        body: sms.body,
+      });
+    }
     case 'chat': {
       const chat = payload as ChatPayload;
       // The thread is resolved here rather than at the tap. A technician who

@@ -8,6 +8,7 @@ import {
   formatSlot,
   formatStampTime,
   groupJobsByDay,
+  groupJobsForDay,
   isClosedJob,
   jobStamps,
   localDateIso,
@@ -176,6 +177,88 @@ describe('groupJobsByDay', () => {
   });
 });
 
+describe('groupJobsForDay', () => {
+  const YESTERDAY = '2026-09-15';
+  const TOMORROW = '2026-09-17';
+  const LATER = '2026-09-23';
+
+  it('is the day list itself when the technician is on today', () => {
+    const deals = [
+      deal({ id: 'old', scheduledDate: YESTERDAY }),
+      deal({ id: 'now', scheduledDate: TODAY }),
+      deal({ id: 'none', scheduledDate: undefined }),
+    ];
+    expect(groupJobsForDay(deals, TODAY, TODAY, 't1')).toEqual(
+      groupJobsByDay(deals, TODAY, 't1'),
+    );
+  });
+
+  it('shows one day, and only that day, once the technician moves off today', () => {
+    const groups = groupJobsForDay(
+      [
+        deal({ id: 'old', scheduledDate: YESTERDAY }),
+        deal({ id: 'now', scheduledDate: TODAY }),
+        deal({ id: 'then', scheduledDate: LATER }),
+        deal({ id: 'none', scheduledDate: undefined }),
+      ],
+      LATER,
+      TODAY,
+      't1',
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.label).toBe('Wed, Sep 23');
+    expect(groups[0]!.deals.map((d) => d.id)).toEqual(['then']);
+  });
+
+  it('names tomorrow rather than dating it', () => {
+    const [group] = groupJobsForDay([], TOMORROW, TODAY, 't1');
+    expect(group!.label).toBe('Tomorrow');
+    expect(group!.key).toBe('tomorrow');
+  });
+
+  it('keeps the day even when nothing is booked on it', () => {
+    const groups = groupJobsForDay([deal({ scheduledDate: TODAY })], LATER, TODAY, 't1');
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.deals).toEqual([]);
+  });
+
+  // A day already past is only ever opened deliberately, and "what did I do on
+  // Tuesday" is the question that takes a technician there — the finished work
+  // is the answer, so it is not dropped the way today's list drops it.
+  it('keeps a past day’s finished work, which the day list hides', () => {
+    const done = deal({
+      id: 'done',
+      scheduledDate: YESTERDAY,
+      superStatus: JobSuperStatus.DONE,
+    });
+    expect(groupJobsForDay([done], YESTERDAY, TODAY, 't1')[0]!.deals).toEqual([done]);
+    expect(groupJobsByDay([done], TODAY, 't1').flatMap((g) => g.deals)).toEqual([]);
+  });
+
+  it('puts a chosen day in visit order, like every other day', () => {
+    const groups = groupJobsForDay(
+      [
+        deal({ id: 'b', dealNumber: 'B', scheduledDate: LATER, scheduledTimeSlot: '14:00-16:00' }),
+        deal({ id: 'a', dealNumber: 'A', scheduledDate: LATER, scheduledTimeSlot: '09:00-11:00' }),
+      ],
+      LATER,
+      TODAY,
+      't1',
+    );
+    expect(groups[0]!.deals.map((d) => d.id)).toEqual(['a', 'b']);
+  });
+
+  it('reads a full timestamp as the day it falls on', () => {
+    const groups = groupJobsForDay(
+      [deal({ id: 'then', scheduledDate: `${LATER}T13:00:00.000Z` })],
+      LATER,
+      TODAY,
+      't1',
+    );
+    expect(groups[0]!.deals.map((d) => d.id)).toEqual(['then']);
+  });
+});
+
 describe('address', () => {
   it('renders one line, skipping empty parts', () => {
     expect(
@@ -207,6 +290,7 @@ describe('techActionState', () => {
       canArrive: true,
       canStart: true,
       canFinish: false,
+      canReschedule: true,
     });
   });
 
@@ -223,6 +307,7 @@ describe('techActionState', () => {
       canArrive: false,
       canStart: false,
       canFinish: true,
+      canReschedule: true,
     });
   });
 
@@ -233,6 +318,7 @@ describe('techActionState', () => {
       canArrive: false,
       canStart: false,
       canFinish: false,
+      canReschedule: false,
     });
   });
 

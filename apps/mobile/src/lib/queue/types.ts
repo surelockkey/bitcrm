@@ -26,7 +26,14 @@ export type OutboxKind =
    * and a status move take (policy.ts).
    */
   | 'timeclock_in'
-  | 'timeclock_out';
+  | 'timeclock_out'
+  /**
+   * A text the technician wrote to the **client** — their own words, not one
+   * of the two templated notices. The biggest channel this account has (§1.5).
+   */
+  | 'client_sms'
+  /** Moving the visit to another day or window — `PUT /deals/:id` (§1.3). */
+  | 'reschedule';
 
 export type QueueState =
   /** Waiting to be sent. Possibly waiting out a backoff — see nextAttemptAt. */

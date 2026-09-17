@@ -72,6 +72,16 @@ describe('describeQueue', () => {
         action({ id: 'g2', kind: 'timeclock_in', dealId: '' }),
         action({ id: 'g3', kind: 'timeclock_in', dealId: 'd1' }),
         action({ id: 'g4', kind: 'timeclock_out', dealId: '' }),
+        action({
+          id: 'i',
+          kind: 'client_sms',
+          payload: '{"contactId":"c1","body":"I am outside"}',
+        }),
+        action({
+          id: 'j',
+          kind: 'reschedule',
+          payload: '{"scheduledDate":"2026-09-18","scheduledTimeSlot":"14:00-16:00"}',
+        }),
         upload({ id: 'h' }),
       ],
       NOW,
@@ -84,6 +94,8 @@ describe('describeQueue', () => {
       'Text: on my way',
       'Text: running late',
       'Status: In progress',
+      // The two threads are never named the same way on this screen, because
+      // this is where a technician goes to work out what has not gone out.
       'Message to the office',
       // A clock row is the one kind whose failure costs money, so it is named
       // as plainly as possible: a technician scanning this list has to spot it.
@@ -91,7 +103,16 @@ describe('describeQueue', () => {
       'Clocked in on a job',
       'Clocked out',
       'Photo — job-K4T9ZW-2026-09-16.jpg',
+      'Text to the client',
+      // Named with its destination: three moves in a morning are three rows
+      // that have to be tellable apart.
+      'Reschedule: Fri, Sep 18 · 2:00 PM – 4:00 PM',
     ]);
+  });
+
+  it('still names a reschedule whose payload cannot be read', () => {
+    const [item] = describeQueue([action({ kind: 'reschedule', payload: 'not json' })], NOW);
+    expect(item!.title).toBe('Reschedule');
   });
 
   it('survives a payload it cannot read rather than rendering nothing', () => {

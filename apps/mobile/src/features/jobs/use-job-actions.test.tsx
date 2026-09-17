@@ -2,6 +2,8 @@ import { act, renderHook } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import { queryKeys } from '../../lib/api/query-keys';
+import { localDateIso, shiftDateIso } from './lib';
+import { RescheduleRefused } from './reschedule';
 import { useJobActions } from './use-job-actions';
 import { JobSuperStatus, type Deal } from './types';
 
@@ -141,5 +143,67 @@ describe('the rest of the actions', () => {
       ['on_my_way', { etaMinutes: 20 }],
       ['late', { minutes: 15 }],
     ]);
+  });
+});
+
+describe('reschedule', () => {
+  const tomorrow = shiftDateIso(localDateIso(), 1);
+  const yesterday = shiftDateIso(localDateIso(), -1);
+
+  it('queues the move and shows it on the job at once', async () => {
+    const { result, qc } = await mount();
+
+    await act(async () => {
+      await result.current.reschedule({
+        scheduledDate: tomorrow,
+        scheduledTimeSlot: '14:00-16:00',
+        allDay: false,
+      });
+    });
+
+    expect(mockEnqueueAction).toHaveBeenCalledWith({
+      kind: 'reschedule',
+      dealId: 'd1',
+      payload: {
+        scheduledDate: tomorrow,
+        scheduledTimeSlot: '14:00-16:00',
+        allDay: false,
+      },
+    });
+    const cached = qc.getQueryData<Deal>(queryKeys.deals.detail('d1'));
+    expect(cached?.scheduledDate).toBe(tomorrow);
+    expect(cached?.scheduledTimeSlot).toBe('14:00-16:00');
+  });
+
+  // The sheet can sit open in a pocket across midnight. The last word on
+  // whether a move is allowed belongs here, not to whatever the sheet was
+  // showing when it was opened.
+  it('refuses a move into a day that has gone, and queues nothing', async () => {
+    const { result, qc } = await mount();
+
+    await act(async () => {
+      await expect(
+        result.current.reschedule({
+          scheduledDate: yesterday,
+          scheduledTimeSlot: '10:00-12:00',
+        }),
+      ).rejects.toBeInstanceOf(RescheduleRefused);
+    });
+
+    expect(mockEnqueueAction).not.toHaveBeenCalled();
+    // And the job on screen is untouched — there is no optimistic patch to undo.
+    expect(
+      qc.getQueryData<Deal>(queryKeys.deals.detail('d1'))?.scheduledDate,
+    ).toBeUndefined();
+  });
+
+  it('says why it refused, in words a technician can act on', async () => {
+    const { result } = await mount();
+
+    await act(async () => {
+      await expect(
+        result.current.reschedule({ scheduledDate: tomorrow }),
+      ).rejects.toThrow(/Pick a time window/);
+    });
   });
 });

@@ -9,10 +9,14 @@ import { queryKeys } from '../../lib/api/query-keys';
 import type { Page } from '../../lib/api/http';
 import { useQueue } from '../queue/queue-provider';
 import {
+  getJobClientThread,
   getTeamChatCounters,
   listMessages,
   listTeamThreads,
+  lookupClientText,
   markThreadRead,
+  type ClientTextLookup,
+  type ClientThread,
   type FeedMessage,
   type TeamThread,
 } from './api';
@@ -153,4 +157,78 @@ export function useSendToOffice(
   );
 
   return { send };
+}
+
+/* ------------------------------------------------ the thread with the client */
+
+/**
+ * The job's client thread.
+ *
+ * `null` — not an error — until somebody has written to that client: a job
+ * booked this morning has no thread, and the screen's job is then to offer the
+ * first line rather than to apologise.
+ */
+export function useJobClientThread(dealId: string | undefined) {
+  return useQuery<ClientThread | null>({
+    queryKey: queryKeys.messaging.clientThread(dealId ?? ''),
+    queryFn: () => getJobClientThread(dealId as string),
+    enabled: Boolean(dealId),
+  });
+}
+
+/**
+ * Whether this client can be texted at all, and whether they have said STOP.
+ *
+ * Kept apart from the thread because it answers a different question and fails
+ * differently: a lookup this phone could not make is not a reason to stop a
+ * technician writing. The screen treats "no answer" as "go ahead" — the server
+ * refuses an opted-out recipient with a 422 of its own, and a queued row that
+ * comes back refused says so in the thread.
+ */
+export function useClientTextLookup(contactId: string | undefined) {
+  return useQuery<ClientTextLookup>({
+    queryKey: queryKeys.messaging.clientTextLookup(contactId ?? ''),
+    queryFn: () => lookupClientText(contactId as string),
+    enabled: Boolean(contactId),
+    staleTime: 60_000,
+  });
+}
+
+export interface SendToClient {
+  /** Queues the text. Resolves once it is on disk — never once it has been sent. */
+  send: (text: string) => Promise<void>;
+  /** False when there is nobody to text — a job with no client on it. */
+  canSend: boolean;
+}
+
+/**
+ * Writing to the client.
+ *
+ * The same outbox as everything else, and a **different kind** from the line
+ * to the office: what a row is addressed to is decided at the tap, written to
+ * disk, and never inferred again. The conversation id is deliberately not part
+ * of it — `POST /messages` finds or opens the thread from the contact, so the
+ * first text a technician ever sends to a client works underground, where
+ * there is no thread id to have looked up.
+ */
+export function useSendToClient(
+  dealId: string,
+  contactId: string | undefined,
+): SendToClient {
+  const { enqueueAction } = useQueue();
+
+  const send = useCallback(
+    async (text: string) => {
+      const body = text.trim();
+      if (!body || !contactId) return;
+      await enqueueAction({
+        kind: 'client_sms',
+        dealId,
+        payload: { contactId, body },
+      });
+    },
+    [contactId, dealId, enqueueAction],
+  );
+
+  return { send, canSend: Boolean(contactId) };
 }

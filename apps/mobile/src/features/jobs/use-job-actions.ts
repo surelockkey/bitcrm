@@ -4,9 +4,12 @@ import { queryKeys } from '../../lib/api/query-keys';
 import { hapticSuccess } from '../../lib/haptics';
 import type { OutboxKind } from '../../lib/queue/types';
 import { useQueue } from '../queue/queue-provider';
+import type { RescheduleDealBody } from './api';
 import { useMe } from './hooks';
+import { localDateIso } from './lib';
 import { currentPosition } from './location';
 import { applyPatchToList, optimisticPatch } from './optimistic';
+import { RescheduleRefused, minutesOfDay, refuseReason } from './reschedule';
 import { JobSuperStatus, type Deal } from './types';
 
 export interface JobActions {
@@ -20,6 +23,8 @@ export interface JobActions {
   start: () => Promise<void>;
   finish: () => Promise<void>;
   addNote: (note: string) => Promise<void>;
+  /** Moves the visit. Rejects rather than queueing a move into the past. */
+  reschedule: (next: RescheduleDealBody) => Promise<void>;
 }
 
 /**
@@ -102,6 +107,20 @@ export function useJobActions(dealId: string): JobActions {
       finish: () =>
         run('status', { superStatus: JobSuperStatus.DONE }).then(() => undefined),
       addNote: (note) => run('note', { note }).then(() => undefined),
+      /**
+       * The same rule the sheet drew the choices by, applied again at the tap.
+       *
+       * The sheet can sit open in a pocket while the day turns over or a
+       * window ends, and a move into the past is not something to discover
+       * from the day list two hours later — an overdue job reads as work
+       * somebody forgot. Checked here rather than only in the screen so no
+       * later caller can queue one by a route the sheet does not own.
+       */
+      reschedule: async (next) => {
+        const refusal = refuseReason(next, localDateIso(), minutesOfDay());
+        if (refusal) throw new RescheduleRefused(refusal);
+        await run('reschedule', next);
+      },
     }),
     [patchActionPayload, patchCache, run],
   );
