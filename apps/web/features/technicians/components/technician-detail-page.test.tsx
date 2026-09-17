@@ -214,7 +214,6 @@ describe("TechnicianDetailPage — one page, two columns", () => {
       "Role",
       "Field team member",
       "Labor cost per hour",
-      "User skills",
       "Schedule color",
       "Hide client numbers",
       "Two-factor authentication",

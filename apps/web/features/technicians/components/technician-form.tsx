@@ -30,6 +30,7 @@ import { useSetClientNumberVisibility } from "../masking-hooks";
 import type { TechnicianEditRights } from "../lib";
 import { PERSON_NOT_CONNECTED, WORK_NOT_CONNECTED } from "../not-connected";
 import { NotConnectedField } from "./not-connected-field";
+import { ScheduleColorField } from "./schedule-color-field";
 
 /** Said under a live control the viewer may read but not set. */
 const MANAGER_ONLY = "A manager sets this.";
@@ -371,10 +372,12 @@ function Form({
 
           {/* Job types and service areas keep their own tab, where this card
               has always had them. Workiz puts them in this column; a tab the
-              reader already knows beats a column that matches a screenshot. */}
-          <NotConnectedField field={WORK_NOT_CONNECTED.userSkills} />
+              reader already knows beats a column that matches a screenshot.
 
-          <NotConnectedField field={WORK_NOT_CONNECTED.scheduleColor} />
+              Workiz's "User skills" is not here at all: skills are a separate
+              catalog there and we hold job types only, so a dead row would
+              promise a second catalog we have no plans for. */}
+          <ScheduleColorField disabled={!rights.operational} />
 
           {/* The label used to read "Hide the tech's number on calls", which is
               what a manager WANTS but not what the switch does. It hides CLIENT

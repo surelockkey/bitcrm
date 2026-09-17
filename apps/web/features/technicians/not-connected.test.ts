@@ -10,9 +10,11 @@ import {
 
 describe("the Workiz fields we draw dead", () => {
   it("covers every field the parity doc lists as theirs and not ours", () => {
-    // WORKIZ_USER_PAGE_PARITY.md §1, minus the two it records as covered:
-    // the phone country code (our phone control carries it) and the working
-    // hours toggle's partner, the hours themselves, which are live.
+    // WORKIZ_USER_PAGE_PARITY.md §1, minus four: the phone country code (our
+    // phone control carries it), the working hours themselves (live), user
+    // skills (a second catalog we hold nothing for and are not building — the
+    // owner struck it), and the schedule colour, which is now a real picker
+    // that simply saves nothing yet.
     expect(allNotConnected().map((f) => f.key).sort()).toEqual(
       [
         "additional-phones",
@@ -23,11 +25,9 @@ describe("the Workiz fields we draw dead", () => {
         "notify-incoming-messages",
         "notify-outgoing-messages",
         "notify-sms-all-numbers",
-        "schedule-color",
         "sync-email",
         "two-factor",
         "user-signature",
-        "user-skills",
         "user-type",
       ].sort(),
     );
@@ -76,7 +76,5 @@ describe("the Workiz fields we draw dead", () => {
   it("keeps Workiz's own labels for the fields the owner will look for", () => {
     expect(PERSON_NOT_CONNECTED.userType.label).toBe("User type");
     expect(WORK_NOT_CONNECTED.fieldTeamMember.label).toBe("Field team member");
-    expect(WORK_NOT_CONNECTED.userSkills.label).toBe("User skills");
-    expect(WORK_NOT_CONNECTED.scheduleColor.label).toBe("Schedule color");
   });
 });
