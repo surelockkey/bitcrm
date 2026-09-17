@@ -72,6 +72,13 @@ export interface UserName {
 /** One request may not sweep a generated id space. */
 const MAX_NAME_LOOKUP = 200;
 
+/** The keys a request actually carried — see `update`. */
+function withoutUndefined<T extends object>(o: T): T {
+  return Object.fromEntries(
+    Object.entries(o).filter(([, v]) => v !== undefined),
+  ) as T;
+}
+
 @Injectable()
 export class UsersService implements OnModuleInit {
   private readonly logger = new Logger(UsersService.name);
@@ -563,7 +570,13 @@ export class UsersService implements OnModuleInit {
   ): Promise<User> {
     const existingUser = await this.findById(id);
 
-    const attrs: Partial<User> & UpdateUserDto = { ...dto };
+    // What ValidationPipe hands over is a class instance, and an ES2022 class
+    // field that was never sent is still an own property — holding undefined.
+    // The repository reads an explicit undefined as "remove this attribute",
+    // which is right for the cleared phone below and wrong for everything a
+    // partial update simply did not mention: spread as-is, one
+    // `PUT { fieldTeamMember }` wiped a person's name, department and phone.
+    const attrs: Partial<User> & UpdateUserDto = withoutUndefined(dto);
     if (dto.phone !== undefined) {
       attrs.phone = await this.applyPhoneChange(
         id,
