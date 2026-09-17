@@ -1,97 +1,84 @@
 /**
- * The slice of the BitCRM domain a technician's phone needs, mirrored from the
- * backend's `@bitcrm/types` package. Only the fields this app reads are listed;
- * anything else the server sends is carried through untouched.
+ * The slice of the BitCRM domain a technician's phone works with.
  *
- * Source: `packages/types/src/entities/deal.entity.ts` and
- * `enums/deal-stage.enum.ts` on the `bitcrm-f-tech` branch.
+ * Every shape here is the backend's own: `@bitcrm/types` is a `file:` dependency
+ * of this app, so a field the server renames or retypes breaks this build rather
+ * than reaching a technician as `undefined`. Until the app moved into the
+ * monorepo these declarations were hand-copied, and the copy had already drifted
+ * — `priority` had decayed from a two-value enum to `string`, and `TimelineEntry`
+ * disagreed with the server about whether `details` can be missing.
+ *
+ * What stays local is at the bottom: two response envelopes that no service
+ * declares as an entity.
  */
 
-export interface Address {
-  street: string;
-  unit?: string;
-  city: string;
-  state: string;
-  zip: string;
-  lat?: number;
-  lng?: number;
-}
+import type { Deal as CrmDeal } from '@bitcrm/types';
+
+export { JobSuperStatus } from '@bitcrm/types';
+
+/* ------------------------------------------------- shared, used unchanged */
+
+export type {
+  Address,
+  Contact,
+  DealAttachmentMeta,
+  TimelineEntry,
+} from '@bitcrm/types';
+
+/* ------------------------------------------------------ shared, narrowed */
 
 /**
- * The closed set of job statuses. Dispatchers add coloured *sub*-statuses under
- * these but can neither add nor remove the super-statuses themselves.
+ * What a job is, before anything has happened to it. The list screen cannot
+ * draw a card without these, and every endpoint the app calls returns them.
  */
-export const JobSuperStatus = {
-  SUBMITTED: 'submitted',
-  IN_PROGRESS: 'in_progress',
-  DONE: 'done',
-  PENDING: 'pending',
-  DONE_PENDING_APPROVAL: 'done_pending_approval',
-  CANCELED: 'canceled',
-} as const;
+type JobIdentity = 'id' | 'dealNumber' | 'contactId' | 'address' | 'superStatus';
 
-export type JobSuperStatus =
-  (typeof JobSuperStatus)[keyof typeof JobSuperStatus];
+/**
+ * Fields that are genuinely absent on a real job: dispatch has not dated it
+ * yet, nobody has arrived, the workspace uses no sub-statuses.
+ */
+type JobWhenSet =
+  | 'companyId'
+  | 'scheduledDate'
+  | 'scheduledTimeSlot'
+  | 'allDay'
+  | 'sequences'
+  | 'notes'
+  | 'subStatusId'
+  | 'clientName'
+  | 'techConfirmedAt'
+  | 'techConfirmedBy'
+  | 'arrivedAt'
+  | 'arrivedBy'
+  | 'arrivedLocation'
+  | 'closedAt'
+  | 'statusChangedAt';
 
-export interface Deal {
-  id: string;
-  /** Human-facing Job ID, e.g. "K4T9ZW". */
-  dealNumber: string;
-  contactId: string;
-  companyId?: string;
-  /** YYYY-MM-DD. Absent on a job dispatch has not dated yet. */
-  scheduledDate?: string;
-  /** "HH:MM-HH:MM". Absent when `allDay`. */
-  scheduledTimeSlot?: string;
-  allDay?: boolean;
-  serviceArea?: string;
-  address: Address;
-  superStatus: JobSuperStatus;
-  assignedTechIds?: string[];
-  /** Per-technician visit order for the day: `techId → position`. */
-  sequences?: Record<string, number>;
-  priority?: string;
-  notes?: string;
-  subStatusId?: string;
-  /** Per-job override of the client's display name. */
-  clientName?: { firstName: string; lastName: string };
-  /** When an assigned technician acknowledged the job from their phone. */
-  techConfirmedAt?: string;
-  techConfirmedBy?: string;
-  /** When the technician tapped "Arrived", and the fix the phone offered. */
-  arrivedAt?: string;
-  arrivedBy?: string;
-  arrivedLocation?: { lat: number; lng: number; accuracy?: number };
-  closedAt?: string;
-  statusChangedAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
+/**
+ * Fields `deals.repository.ts#toDeal` always sends (several with a `|| []`
+ * default), which the phone still reads as optional. A job reaches a screen
+ * from three directions — a fresh fetch, the persisted react-query cache that
+ * a build one release older wrote, and an optimistic patch — and only the first
+ * carries the server's guarantee. Requiring them here would make an older
+ * cached row a type error at call sites that only ever read them.
+ */
+type JobServerFilled =
+  | 'serviceArea'
+  | 'assignedTechIds'
+  | 'priority'
+  | 'createdAt'
+  | 'updatedAt';
 
-export interface TimelineEntry {
-  id: string;
-  dealId: string;
-  eventType: string;
-  actorId: string;
-  actorName: string;
-  timestamp: string;
-  details?: Record<string, unknown>;
-  note?: string;
-}
+export type Deal = Pick<CrmDeal, JobIdentity> &
+  Partial<Pick<CrmDeal, JobWhenSet | JobServerFilled>>;
 
-/** Attachment metadata as returned to clients — never the S3 key. */
-export interface DealAttachmentMeta {
-  id: string;
-  fileName: string;
-  contentType: string;
-  size?: number;
-  category?: string;
-  description?: string;
-  uploadedBy: string;
-  uploadedAt: string;
-}
+/* ----------------------------------------------------------- phone-only */
 
-/** What `POST /deals/:id/attachments` hands back. */
+/**
+ * What `POST /deals/:id/attachments` hands back. A response envelope rather
+ * than an entity: no service stores one, so `@bitcrm/types` has nothing to
+ * import here.
+ */
 export interface AttachmentUploadTicket {
   id: string;
   uploadUrl: string;
@@ -102,19 +89,6 @@ export interface AttachmentUploadTicket {
    * (deal-attachments.service.ts:65-70).
    */
   headers: Record<string, string>;
-}
-
-export interface Contact {
-  id: string;
-  firstName: string;
-  lastName: string;
-  phones: string[];
-  /** Set when the viewer lacks `contacts.view_numbers` — a technician has it. */
-  phoneCount?: number;
-  phonesMasked?: true;
-  phoneExtensions?: Record<string, string>;
-  emails?: string[];
-  addresses?: Address[];
 }
 
 /** What the server hands back after preparing a masked call. */
