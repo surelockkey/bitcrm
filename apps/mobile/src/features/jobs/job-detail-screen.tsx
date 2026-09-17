@@ -14,7 +14,7 @@ import { useMaskedCall } from '../telephony/use-masked-call';
 import { MinutesSheet } from './components/MinutesSheet';
 import { JobStamps } from './components/JobStamps';
 import { StatusPill } from './components/StatusPill';
-import { useJob } from './hooks';
+import { useJob, useMarkSeenOnOpen, useMe } from './hooks';
 import {
   addressLine,
   clientDisplayName,
@@ -53,6 +53,10 @@ export function JobDetailScreen({
 }: JobDetailScreenProps) {
   const { colors, radius, spacing, touch, type } = useTheme();
   const { data: deal, isPending, error, refetch } = useJob(dealId);
+  const { data: me } = useMe();
+  // Above every early return, because opening the job is the event — whether
+  // or not the fresh copy has landed yet.
+  useMarkSeenOnOpen(deal, me?.id);
   const actions = useJobActions(dealId);
   const call = useMaskedCall();
   const { records } = useQueue();

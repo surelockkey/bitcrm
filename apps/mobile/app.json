@@ -55,7 +55,8 @@
           "cameraPermission": "BitCRM uses the camera so you can attach photos of the work to a job.",
           "photosPermission": "BitCRM can attach a photo you already took to a job."
         }
-      ]
+      ],
+      "expo-notifications"
     ]
   }
 }

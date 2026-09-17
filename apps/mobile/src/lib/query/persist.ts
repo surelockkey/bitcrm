@@ -25,6 +25,11 @@ export function shouldPersistQuery(query: {
   // there. The badge counter is deliberately not kept — a restored unread
   // count with nothing behind it is a number that lies.
   if (root === 'messaging') return scope === 'team-thread' || scope === 'messages';
+  // The van and its contents. Its whole question — "have I got one on board?"
+  // — gets asked in the places with the worst signal there are: a basement, an
+  // underground car park, the back of a building. Quantities drift while the
+  // phone is offline, so the screen says when what it shows came off the disk.
+  if (root === 'inventory') return scope === 'containers';
   return false;
 }
 

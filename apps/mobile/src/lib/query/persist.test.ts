@@ -14,6 +14,9 @@ describe('shouldPersistQuery', () => {
     // What the office said is unreadable underground unless it is on the phone.
     expect(shouldPersistQuery(q(queryKeys.messaging.teamThread()))).toBe(true);
     expect(shouldPersistQuery(q(queryKeys.messaging.messages('conv-1')))).toBe(true);
+    // "Have I got one on board?" is asked in basements.
+    expect(shouldPersistQuery(q(queryKeys.inventory.containers.mine()))).toBe(true);
+    expect(shouldPersistQuery(q(queryKeys.inventory.containers.stock('c1')))).toBe(true);
   });
 
   it('drops things that would be stale or useless on restore', () => {

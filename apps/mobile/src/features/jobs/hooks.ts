@@ -1,12 +1,13 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../lib/api/query-keys';
 import { useAuth } from '../auth/auth-context';
 import { getMe } from '../auth/api';
 import { saveProfile } from '../auth/profile-store';
 import type { AuthUser } from '../auth/types';
-import { fetchAllDeals, getDeal } from './api';
+import { fetchAllDeals, getDeal, markDealSeen } from './api';
 import { groupJobsByDay, localDateIso } from './lib';
+import { applyPatchToList } from './optimistic';
 import type { Deal } from './types';
 
 /**
@@ -118,4 +119,56 @@ export function useJob(id: string) {
     initialData: () => seedFromLists(qc, id),
     initialDataUpdatedAt: 0,
   });
+}
+
+/**
+ * Tell the server the technician has opened this job — Workiz's "Viewed job in
+ * app", the web's `useMarkSeenOnOpen` (`apps/web/features/deals/hooks.ts:387`).
+ *
+ * This is the half of the Sent/Seen pair that has to come from the phone.
+ * "Seen" reads `seenByTechAt`, which only `POST /deals/:id/seen` writes, and
+ * only an assigned technician's app is in a position to call it — so with
+ * nothing calling it, the Seen step could never complete: every card in the
+ * day list showed "Seen —" for a job the technician was looking at, and
+ * dispatch's own Seen column stayed empty for everyone who works off the
+ * phone. Which is the same lie the old stamp told, just in the other
+ * direction.
+ *
+ * Once per mounted job, and only for a technician actually on the roster: the
+ * endpoint ignores anyone else, so this is about not spending a request. The
+ * answer carries the stamp, so the two cached copies are patched rather than
+ * refetched — a full day list is 50 pages at worst, and the technician is
+ * standing in front of the job. Silent on failure: nobody opening a job should
+ * be shown an error about a receipt they did not ask for.
+ */
+export function useMarkSeenOnOpen(
+  deal: Deal | undefined,
+  viewerId: string | undefined,
+): void {
+  const qc = useQueryClient();
+  const marked = useRef<string | null>(null);
+  const dealId = deal?.id;
+  const assigned = Boolean(
+    viewerId && deal?.assignedTechIds?.includes(viewerId),
+  );
+
+  useEffect(() => {
+    if (!assigned || !dealId || marked.current === dealId) return;
+    // Latched before the request, not after: a re-render while it is in flight
+    // must not send a second one.
+    marked.current = dealId;
+    markDealSeen(dealId)
+      .then(({ first, seenAt }) => {
+        // Only the open that actually stamped the job changes anything.
+        if (!first || !seenAt) return;
+        const patch: Partial<Deal> = { seenByTechAt: seenAt };
+        qc.setQueryData<Deal>(queryKeys.deals.detail(dealId), (prev) =>
+          prev ? { ...prev, ...patch } : prev,
+        );
+        qc.setQueriesData<Deal[]>({ queryKey: queryKeys.deals.lists() }, (list) =>
+          applyPatchToList(list, dealId, patch),
+        );
+      })
+      .catch(() => undefined);
+  }, [assigned, dealId, qc]);
 }

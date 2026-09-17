@@ -15,6 +15,7 @@ const mockActions = {
   addNote: jest.fn().mockResolvedValue(undefined),
 };
 const mockCall = jest.fn();
+const mockMarkSeenOnOpen = jest.fn();
 let mockDeal: Deal | undefined;
 let mockRecords: QueueRecord[] = [];
 
@@ -25,6 +26,8 @@ jest.mock('./hooks', () => ({
     error: null,
     refetch: jest.fn(),
   }),
+  useMe: () => ({ data: { id: 't1', email: 'tech@slk-s.com' } }),
+  useMarkSeenOnOpen: (...args: unknown[]) => mockMarkSeenOnOpen(...args),
 }));
 jest.mock('./use-job-actions', () => ({ useJobActions: () => mockActions }));
 jest.mock('../telephony/use-masked-call', () => ({
@@ -55,6 +58,7 @@ describe('JobDetailScreen', () => {
     mockRecords = [];
     Object.values(mockActions).forEach((fn) => fn.mockClear());
     mockCall.mockReset();
+    mockMarkSeenOnOpen.mockClear();
     props.onBack.mockReset();
     props.onOpenPhotos.mockReset();
     props.onOpenChat.mockReset();
@@ -72,6 +76,13 @@ describe('JobDetailScreen', () => {
     expect(screen.getByText('Job K4T9ZW')).toBeTruthy();
     expect(screen.getByText('Ada Byron')).toBeTruthy();
     expect(screen.getByText('9:00 AM – 12:00 PM')).toBeTruthy();
+  });
+
+  it('tells the server the job has been opened, with the job and who opened it', async () => {
+    // What fills the Seen stamp this screen draws, and dispatch's own Seen
+    // column. Nothing else in the app writes it.
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    expect(mockMarkSeenOnOpen).toHaveBeenCalledWith(mockDeal, 't1');
   });
 
   it('offers the whole flow on a fresh Submitted job', async () => {

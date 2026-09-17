@@ -55,6 +55,14 @@ export default function TabsLayout() {
           },
         }}
       />
+      {/*
+       * The van sits at the top level, as it does in the web's technician nav
+       * (`apps/web/lib/nav/nav-config.ts` TECHNICIAN_NAV). Workiz has no van
+       * screen in its app at all, so there is no Workiz tab order to match —
+       * and a technician standing at the back doors needs it in one thumb,
+       * not three taps down inside a menu.
+       */}
+      <Tabs.Screen name="stock" options={{ title: 'My stock' }} />
       <Tabs.Screen
         name="queue"
         options={{

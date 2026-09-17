@@ -283,8 +283,8 @@ describe('client name and stamps', () => {
 describe('jobStamps', () => {
   it('walks sent → seen → arrived, marking only what has happened', () => {
     const stamps = jobStamps({
-      createdAt: '2026-09-16T12:00:00.000Z',
-      techConfirmedAt: '2026-09-16T13:04:00.000Z',
+      sentToTechAt: '2026-09-16T12:00:00.000Z',
+      seenByTechAt: '2026-09-16T13:04:00.000Z',
     });
     expect(stamps.map((s) => [s.key, s.done])).toEqual([
       ['sent', true],
@@ -300,7 +300,47 @@ describe('jobStamps', () => {
   });
 
   it('counts a step whose timestamp it cannot read — it still happened', () => {
-    const [sent] = jobStamps({ createdAt: 'nonsense' });
+    const [sent] = jobStamps({ sentToTechAt: 'nonsense' });
     expect(sent).toEqual({ key: 'sent', label: 'Sent', time: null, done: true });
+  });
+
+  /*
+   * The regression this trio locks down. Every one of these passed before the
+   * fix while showing a technician a time that meant something else, which is
+   * the only kind of bug a stamp can have: it is never obviously wrong on
+   * screen, it is just a different number from the one dispatch is reading.
+   */
+  it('shows when dispatch pressed Send, not when the job was written down', () => {
+    // A job booked on the Monday for the Thursday, and sent on the Thursday.
+    const [sent] = jobStamps(
+      deal({
+        createdAt: '2026-09-14T09:12:00.000Z',
+        sentToTechAt: '2026-09-17T07:40:00.000Z',
+      }),
+    );
+    expect(sent!.time).toBe(formatStampTime('2026-09-17T07:40:00.000Z'));
+    expect(sent!.time).not.toBe(formatStampTime('2026-09-14T09:12:00.000Z'));
+  });
+
+  it('leaves Sent blank on a job dispatch has written but not sent', () => {
+    const [sent] = jobStamps(deal({ createdAt: '2026-09-14T09:12:00.000Z' }));
+    expect(sent).toEqual({ key: 'sent', label: 'Sent', time: null, done: false });
+  });
+
+  it('does not report a confirmed job as seen, nor a seen job as unseen', () => {
+    // "Confirm receipt" is a button a technician presses; "seen" is the app
+    // reporting an open. Separate stamps, and each answers only for itself.
+    const confirmedNotOpened = jobStamps(
+      deal({ techConfirmedAt: '2026-09-17T08:00:00.000Z' }),
+    );
+    expect(confirmedNotOpened[1]).toEqual({
+      key: 'seen',
+      label: 'Seen',
+      time: null,
+      done: false,
+    });
+
+    const openedNotConfirmed = jobStamps(deal({ seenByTechAt: '2026-09-17T08:05:00.000Z' }));
+    expect(openedNotConfirmed[1]!.done).toBe(true);
   });
 });
