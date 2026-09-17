@@ -122,8 +122,13 @@ export {
   TechnicianJobType,
   TechnicianServiceArea,
   AssignmentStatus,
+  AssignableTechnicianSubject,
 } from './entities/technician-assignment.entity';
-export { isAssignable } from './entities/technician-assignment.entity';
+export {
+  isAssignable,
+  isAssignableTechnician,
+  TECHNICIAN_ROLE_ID,
+} from './entities/technician-assignment.entity';
 export {
   CommissionConfig,
   CommissionBreakdown,
@@ -137,6 +142,8 @@ export {
 export {
   USER_EVENT_TOPIC,
   UserEventType,
+  TechChangedField,
+  affectsEligibility,
 } from './events/user-events';
 export type {
   UserActivatedEvent,
