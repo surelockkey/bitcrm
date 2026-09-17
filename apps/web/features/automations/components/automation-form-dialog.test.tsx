@@ -821,8 +821,8 @@ describe("conditions", () => {
     expect(picker).toHaveTextContent("GMB");
     expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
 
-    // "is" takes one value, so the list answers a press by re-picking; the
-    // chip's × is the way out, and it widens the rule from one source to all.
+    // The chip's × is the pointer's shortcut to the same thing, and it widens
+    // the rule from one source to all.
     await user.click(within(picker).getByRole("presentation", { hidden: true }));
     expect(picker).not.toHaveTextContent("GMB");
     expect(await screen.findByText(/narrows nothing/i)).toBeInTheDocument();
@@ -833,6 +833,61 @@ describe("conditions", () => {
     // the other line is stored exactly as it was and the emptied one is gone.
     expect(patched[0].body.spec?.conditions).toEqual([
       { field: "tag", op: "in", values: [TAG_ID], labels: ["SCHEDULED"] },
+    ]);
+  });
+
+  it("empties an \"is\" condition from the keyboard, not only from the chip's ×", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: {
+        ...rule.spec!,
+        conditions: [
+          { field: "source", op: "eq", values: ["src-gmb"], labels: ["GMB"] },
+          { field: "tag", op: "in", values: [TAG_ID], labels: ["SCHEDULED"] },
+        ],
+      },
+    });
+
+    const picker = await screen.findByLabelText("Condition 1 value");
+    expect(picker).toHaveTextContent("GMB");
+
+    // "is" takes one value, so a press on the one already picked can only mean
+    // dropping it — and the row says so, in the words the "not offered here"
+    // rows use. Without it the chip's × was the only way out, and that is a
+    // `role="presentation"` span no keyboard ever reaches.
+    await user.click(picker);
+    await user.keyboard("GMB");
+    expect(await screen.findByRole("option", { name: /GMB\s*select to drop/ })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByLabelText("Condition 1 value")).not.toHaveTextContent("GMB");
+    expect(await screen.findByText(/narrows nothing/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([
+      { field: "tag", op: "in", values: [TAG_ID], labels: ["SCHEDULED"] },
+    ]);
+  });
+
+  it("goes on offering the other values of an \"is\" condition as a straight swap", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: { ...rule.spec!, conditions: [{ field: "source", op: "eq", values: ["src-gmb"], labels: ["GMB"] }] },
+    });
+
+    await user.click(await screen.findByLabelText("Condition 1 value"));
+    // Only the picked row answers a press by dropping; the rest replace it.
+    expect(screen.getByRole("option", { name: "Yelp" })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Yelp" }));
+
+    expect(screen.getByLabelText("Condition 1 value")).toHaveTextContent("Yelp");
+    expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.conditions).toEqual([
+      { field: "source", op: "eq", values: ["src-yelp"], labels: ["Yelp"] },
     ]);
   });
 

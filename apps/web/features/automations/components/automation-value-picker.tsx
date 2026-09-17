@@ -88,9 +88,22 @@ export function AutomationValuePicker({
 
   const drop = (id: string) => commit(values.filter((v) => v !== id));
 
+  /**
+   * In single-value mode a press on the value already picked is the only one
+   * that can mean anything but "pick this": re-picking it changes nothing.
+   * So it drops it, and the row says so. Before, an `is` / `is not` condition
+   * could only be emptied through the chip's `×` — a `role="presentation"`
+   * span inside the trigger button, which no keyboard ever reaches — and
+   * emptying one is how a rule is widened back to every value.
+   */
+  const clears = (id: string) => single && values.includes(id);
+
   const toggle = (id: string) => {
     if (single) {
-      commit([id]);
+      commit(clears(id) ? [] : [id]);
+      // Either way the question is answered, so the panel closes on the same
+      // press it always has and focus goes back to the trigger, which now
+      // reads out what the condition holds.
       shut();
       return;
     }
@@ -105,6 +118,9 @@ export function AutomationValuePicker({
    * one is the chip's `×`, which is a pointer affordance inside the trigger
    * button. That left deleting the whole condition and building it again as
    * the keyboard's only path.
+   *
+   * Only ever values the options do not hold: one the options *do* hold is
+   * dropped from its own row up there, so it is never offered twice.
    *
    * Only against options there are: while the catalog behind them is still
    * on the wire `options` is empty and every picked value looks missing, and
@@ -168,7 +184,8 @@ export function AutomationValuePicker({
                 {/* A chip's × is a span, not a button: a button inside a button
                     is invalid. It is a shortcut for the pointer only — every
                     chip here, named by the catalog or not, is also in the list
-                    below and untickable from there. */}
+                    below and droppable from there, in single-value mode as
+                    well as multi. */}
                 <span
                   role="presentation"
                   aria-hidden="true"
@@ -209,6 +226,11 @@ export function AutomationValuePicker({
                   >
                     <Check className={cn("size-4", values.includes(o.id) ? "opacity-100" : "opacity-0")} />
                     <span className="min-w-0 flex-1 truncate">{o.name}</span>
+                    {/* The same words the escape group below uses, because it
+                        is the same offer: select it and it is no longer held. */}
+                    {clears(o.id) ? (
+                      <span className="shrink-0 text-xs text-muted-foreground">select to drop</span>
+                    ) : null}
                   </CommandItem>
                 ))}
               </CommandGroup>
