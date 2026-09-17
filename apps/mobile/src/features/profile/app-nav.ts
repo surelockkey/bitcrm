@@ -33,9 +33,11 @@ export interface TabItem {
  * a technician who reaches for the third tab expecting Messages must find
  * Messages there.
  *
- * `chat` keeps its file name (and so its `/chat` route): push notifications
- * and the job screen both already deep-link to it, and renaming the route to
- * match the label would break those for no gain the technician can see.
+ * `chat` keeps its file name (and so its `/chat` route): a push notification
+ * lands there (`features/notifications/routing.ts`) and so does a client
+ * thread opened with no job to fall back to (`app/(app)/chat/[dealId].tsx`).
+ * Renaming the route to match the label would break both for no gain the
+ * technician can see.
  */
 export const TAB_ITEMS: readonly TabItem[] = [
   {

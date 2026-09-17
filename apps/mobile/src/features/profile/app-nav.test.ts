@@ -46,9 +46,10 @@ describe('TAB_ITEMS', () => {
   });
 
   /**
-   * Push notifications and the job screen both deep-link to `/chat`
-   * (`features/notifications/routing.ts`, `app/(app)/jobs/[id]/index.tsx`).
-   * The label changed; the route must not.
+   * A push notification lands on `/chat`
+   * (`features/notifications/routing.ts`), and so does a client thread backed
+   * out of with no job to return to (`app/(app)/chat/[dealId].tsx`). The label
+   * changed; the route must not.
    */
   it('keeps the Messages tab on the /chat route the rest of the app links to', () => {
     expect(TAB_ITEMS.find((t) => t.title === 'Messages')?.name).toBe('chat');
