@@ -2,10 +2,12 @@ import { JobSuperStatus, type Deal } from './types';
 import {
   addressLine,
   clientDisplayName,
+  clientPhone,
   compareVisitOrder,
   formatClock,
   formatDayHeading,
   formatSlot,
+  formatPhone,
   formatStampTime,
   groupJobsByDay,
   groupJobsForDay,
@@ -16,6 +18,7 @@ import {
   shiftDateIso,
   statusLabel,
   statusTone,
+  teamSummary,
   techActionState,
 } from './lib';
 
@@ -428,5 +431,88 @@ describe('jobStamps', () => {
 
     const openedNotConfirmed = jobStamps(deal({ seenByTechAt: '2026-09-17T08:05:00.000Z' }));
     expect(openedNotConfirmed[1]!.done).toBe(true);
+  });
+});
+
+/**
+ * The Client block on the job card (§1.4). The number is shown for reading and
+ * writing down; dialling still goes through the masked bridge.
+ */
+describe('the client’s phone', () => {
+  it('groups a NANP number the way a technician reads it aloud', () => {
+    expect(formatPhone('+18605551234')).toBe('(860) 555-1234');
+    expect(formatPhone('8605551234')).toBe('(860) 555-1234');
+    expect(formatPhone('860-555-1234')).toBe('(860) 555-1234');
+  });
+
+  it('hands anything else back exactly as it was stored', () => {
+    // A guess at grouping an international number is worse than none, and a
+    // number a technician cannot dial back is worse than either.
+    expect(formatPhone('+442071234567')).toBe('+442071234567');
+    expect(formatPhone('  x1234  ')).toBe('x1234');
+  });
+
+  it('shows the first number and says how many more there are', () => {
+    expect(clientPhone({ phones: ['+18605551234', '+18605559999'] })).toEqual({
+      display: '(860) 555-1234',
+      hidden: 0,
+      extra: 1,
+    });
+  });
+
+  it('tells "none on file" apart from "you may not see them"', () => {
+    // A technician's role carries `contacts.view_numbers`, so the masked case
+    // should not arise — but a dash where a withheld number goes reads as a
+    // client who never gave one, and that is a call nobody makes.
+    expect(clientPhone({ phones: [] })).toEqual({
+      display: null,
+      hidden: 0,
+      extra: 0,
+    });
+    expect(clientPhone({ phones: [], phoneCount: 2 })).toEqual({
+      display: null,
+      hidden: 2,
+      extra: 0,
+    });
+    expect(clientPhone(undefined).display).toBeNull();
+  });
+});
+
+/**
+ * The Team block. The phone cannot turn technician ids into names — there is
+ * no directory endpoint in the app — so it answers the question the roster can
+ * answer: am I on my own at this door?
+ */
+describe('teamSummary', () => {
+  it('says when the job is the technician’s alone', () => {
+    expect(teamSummary(deal({ assignedTechIds: ['t1'] }), 't1')).toBe(
+      'Just you on this job.',
+    );
+  });
+
+  it('counts the others without pretending to name them', () => {
+    expect(teamSummary(deal({ assignedTechIds: ['t1', 't2'] }), 't1')).toBe(
+      'You and one other technician.',
+    );
+    expect(teamSummary(deal({ assignedTechIds: ['t1', 't2', 't3'] }), 't1')).toBe(
+      'You and 2 other technicians.',
+    );
+  });
+
+  it('is plain about a job somebody else is assigned to', () => {
+    // Reachable: a job opened from a push after dispatch reassigned it.
+    expect(teamSummary(deal({ assignedTechIds: ['t9'] }), 't1')).toBe(
+      'One technician is assigned — not you.',
+    );
+    expect(teamSummary(deal({ assignedTechIds: ['t8', 't9'] }), 't1')).toBe(
+      '2 technicians are assigned — not you.',
+    );
+  });
+
+  it('does not claim a roster for an unassigned job', () => {
+    expect(teamSummary(deal({ assignedTechIds: [] }), 't1')).toBe(
+      'Nobody is assigned to this job yet.',
+    );
+    expect(teamSummary({}, 't1')).toBe('Nobody is assigned to this job yet.');
   });
 });

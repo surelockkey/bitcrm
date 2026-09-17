@@ -5,11 +5,12 @@ import { useAuth } from '../auth/auth-context';
 import { getMe } from '../auth/api';
 import { saveProfile } from '../auth/profile-store';
 import type { AuthUser } from '../auth/types';
+import { getContact } from '../contacts/api';
 import { fetchAllDeals, getDeal, markDealSeen } from './api';
 import { dayMarks, visitsOn, type DayMark } from './calendar';
 import { groupJobsForDay, localDateIso } from './lib';
 import { applyPatchToList } from './optimistic';
-import type { Deal } from './types';
+import type { Contact, Deal } from './types';
 
 /**
  * The signed-in technician.
@@ -137,6 +138,30 @@ export function useJob(id: string) {
     queryFn: () => getDeal(id),
     initialData: () => seedFromLists(qc, id),
     initialDataUpdatedAt: 0,
+  });
+}
+
+/**
+ * The job's client record.
+ *
+ * The job carries the client's *name* and the service address; the number
+ * lives on the contact, and the Client block on the card shows it because a
+ * technician standing at a door reads it out, writes it on a work order, or
+ * dials it from their own handset when the bridge cannot be reached. Calling
+ * still goes through the masked bridge — this is what to look at, not what to
+ * dial.
+ *
+ * Long `staleTime` and no refetch on focus: a client's number does not change
+ * while a technician is on their doorstep, and this is one more request on a
+ * van's connection. It answers from the persisted cache underground, which is
+ * where the number is worth most.
+ */
+export function useJobContact(contactId: string | undefined) {
+  return useQuery<Contact>({
+    queryKey: queryKeys.contacts.detail(contactId ?? ''),
+    queryFn: () => getContact(contactId!),
+    enabled: Boolean(contactId),
+    staleTime: 10 * 60_000,
   });
 }
 
