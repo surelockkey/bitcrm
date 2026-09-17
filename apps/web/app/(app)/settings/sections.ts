@@ -15,6 +15,8 @@ import {
   Workflow,
   MessagesSquare,
   FileText,
+  Building,
+  FileStack,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -37,9 +39,23 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     label: "Service Areas",
     href: "/settings/service-areas",
-    description: "Territories that auto-assign jobs and match technicians.",
+    description: "Territories that auto-assign jobs, match technicians and set sales tax.",
     icon: MapPin,
     resource: "service_areas",
+  },
+  {
+    label: "Companies",
+    href: "/settings/companies",
+    description: "Your business companies — names, logos and details used on jobs, invoices and estimates.",
+    icon: Building,
+    resource: "settings",
+  },
+  {
+    label: "Documents",
+    href: "/settings/documents",
+    description: "Invoice and estimate PDF templates.",
+    icon: FileStack,
+    resource: "document_templates",
   },
   {
     label: "Job Types",

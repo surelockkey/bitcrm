@@ -29,4 +29,17 @@ export enum TimelineEventType {
   SENT_TO_TECH = 'sent_to_tech',
   /** Workiz "Viewed job in app": an assigned technician opened the job. */
   SEEN_BY_TECH = 'seen_by_tech',
+  /** Job tax rate / discount / line taxable flag changed. */
+  TAX_CHANGED = 'tax_changed',
+  DISCOUNT_CHANGED = 'discount_changed',
+  /** Billing documents (written by the billing service via deal's internal timeline endpoint). */
+  INVOICE_CREATED = 'invoice_created',
+  INVOICE_UPDATED = 'invoice_updated',
+  INVOICE_SENT = 'invoice_sent',
+  INVOICE_DELETED = 'invoice_deleted',
+  ESTIMATE_CREATED = 'estimate_created',
+  ESTIMATE_STATUS_CHANGED = 'estimate_status_changed',
+  ESTIMATE_SENT = 'estimate_sent',
+  ESTIMATE_SYNCED = 'estimate_synced',
+  ESTIMATE_DELETED = 'estimate_deleted',
 }

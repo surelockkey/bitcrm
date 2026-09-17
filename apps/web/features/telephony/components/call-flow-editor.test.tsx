@@ -38,6 +38,26 @@ vi.mock("../call-groups-hooks", () => ({
 vi.mock("../numbers-hooks", () => ({
   useNumbers: () => ({ data: mocks.numbers, isLoading: false }),
 }));
+vi.mock("@/features/business-profiles/components/business-profile-select", () => ({
+  BusinessProfileSelect: ({
+    id,
+    value,
+    onChange,
+  }: {
+    id?: string;
+    value?: string | null;
+    onChange: (v: string | null) => void;
+  }) => (
+    <span id={id}>
+      <button type="button" onClick={() => onChange("bp-2")}>
+        company:{value ?? "none"}
+      </button>
+      <button type="button" onClick={() => onChange(null)}>
+        clear company
+      </button>
+    </span>
+  ),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a href={href}>{children}</a>
@@ -427,5 +447,42 @@ describe("CallFlowEditor", () => {
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zoom out" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /fit the flow/i })).toBeInTheDocument();
+  });
+
+  describe("company", () => {
+    it("sets the flow's company from Basic info and saves it", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={flow} open onClose={vi.fn()} />);
+
+      await openBasicInfo(u);
+      expect(
+        screen.getByText("Jobs created from calls on this flow's numbers are pre-filled with this company"),
+      ).toBeInTheDocument();
+      await u.click(screen.getByRole("button", { name: "company:none" }));
+      await u.click(screen.getByRole("button", { name: "Save" }));
+      await u.click(screen.getByRole("button", { name: /save call flow/i }));
+
+      expect(saved()).toMatchObject({ businessProfileId: "bp-2" });
+    });
+
+    it("clears it with null", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={{ ...flow, businessProfileId: "bp-9" }} open onClose={vi.fn()} />);
+
+      await openBasicInfo(u);
+      expect(screen.getByRole("button", { name: "company:bp-9" })).toBeInTheDocument();
+      await u.click(screen.getByRole("button", { name: "clear company" }));
+      await u.click(screen.getByRole("button", { name: "Save" }));
+      await u.click(screen.getByRole("button", { name: /save call flow/i }));
+
+      expect(saved()).toMatchObject({ businessProfileId: null });
+    });
+
+    it("keeps an untouched company on save", async () => {
+      const u = userEvent.setup();
+      render(<CallFlowEditor flow={{ ...flow, businessProfileId: "bp-9" }} open onClose={vi.fn()} />);
+      await u.click(screen.getByRole("button", { name: /save call flow/i }));
+      expect(saved()).toMatchObject({ businessProfileId: "bp-9" });
+    });
   });
 });

@@ -487,6 +487,73 @@ data "aws_iam_policy_document" "task_messaging" {
   }
 }
 
+# billing-svc: DDB billing + S3 billing/* (SSE-KMS: rendered PDFs + template
+# images) + SNS billing-events publish + SQS consume billing-deal-events
+data "aws_iam_policy_document" "task_billing" {
+  source_policy_documents = [data.aws_iam_policy_document.ssm_read_dev.json]
+
+  statement {
+    sid    = "DDBBilling"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:ConditionCheckItem",
+    ]
+    resources = [
+      module.ddb["billing"].arn,
+      "${module.ddb["billing"].arn}/index/*",
+    ]
+  }
+
+  statement {
+    sid       = "S3BillingObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${module.s3_app.arn}/billing/*"]
+  }
+
+  statement {
+    sid       = "S3BillingList"
+    effect    = "Allow"
+    actions   = ["s3:ListBucket"]
+    resources = [module.s3_app.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["billing/*"]
+    }
+  }
+
+  statement {
+    sid       = "KMSDocuments"
+    effect    = "Allow"
+    actions   = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+    resources = [module.kms_documents.key_arn]
+  }
+
+  statement {
+    sid       = "PublishBillingEvents"
+    effect    = "Allow"
+    actions   = ["sns:Publish", "sns:GetTopicAttributes"]
+    resources = [module.sns_sqs.topic_arns["billing-events"]]
+  }
+
+  statement {
+    sid       = "ConsumeDealEvents"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+    resources = [module.sns_sqs.queue_arns["billing-deal-events"]]
+  }
+}
+
 locals {
   task_role_policies = {
     user      = data.aws_iam_policy_document.task_user.json
@@ -496,6 +563,7 @@ locals {
     search    = data.aws_iam_policy_document.task_search.json
     telephony = data.aws_iam_policy_document.task_telephony.json
     messaging = data.aws_iam_policy_document.task_messaging.json
+    billing   = data.aws_iam_policy_document.task_billing.json
   }
 }
 

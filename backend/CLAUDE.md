@@ -1,6 +1,6 @@
 # BitCRM Backend
 
-Locksmith business-management platform. Seven NestJS 11 microservices behind an
+Locksmith business-management platform. Eight NestJS 11 microservices behind an
 nginx gateway, DynamoDB single-table storage, SNS/SQS events, an OpenSearch
 read model, Cognito auth. This file is the map; `EVENTS.md` is the event
 contract and `monitoring/README.md` the observability detail.
@@ -11,9 +11,9 @@ contract and `monitoring/README.md` the observability detail.
 
 ```
 backend/
-  services/{user,crm,deal,inventory,search,telephony,messaging}/   one NestJS app each
+  services/{user,crm,deal,inventory,search,telephony,messaging,billing}/   one NestJS app each
   packages/shared/            @bitcrm/shared — every cross-cutting concern
-  gateway/nginx.conf          :4000 → the seven services
+  gateway/nginx.conf          :4000 → the eight services
   infra/                      Terraform (bootstrap, dev, modules/*)
   monitoring/                 prometheus, grafana, tempo, loki, promtail, blackbox
   scripts/                    test.sh, setup-aws.sh, verify-monitoring.mjs, render-taskdef.sh
@@ -39,11 +39,12 @@ documented surface; keep it in sync when you add a variable.
 | --------- | ---- | ---------------- | ---- |
 | user      | 4001 | `api/users`      | users, roles/permissions, technicians (assignments, commission, documents, calendar, location) |
 | crm       | 4002 | `api/crm`        | contacts, companies, company documents, work orders |
-| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas, custom fields, external companies) and the technician-eligibility projection |
+| deal      | 4003 | `api/deals`      | deals/jobs, line items, timeline, attachments + the catalogs (job types/sources/tags/statuses, service areas — each with its own sales `tax` and default company —, custom fields, external companies), the read-only tax rates derived from the areas, and the technician-eligibility projection |
 | inventory | 4004 | `api/inventory`  | products, brands, item categories, warehouses, containers, stock, transfers |
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
 | messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
+| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client portal (`/public/portal/:token`, `@Public` + Redis rate limit) |
 
 ---
 
@@ -53,8 +54,8 @@ documented surface; keep it in sync when you add a variable.
 npm install                # from the REPO ROOT (workspaces)
 npm run docker:up          # dynamodb :8000, redis :6379, opensearch :9200, localstack :4566, gateway :4000
 npm run setup:aws          # per-service DynamoDB tables + SNS topics/SQS queues in LocalStack
-npm run dev                # all seven services via turbo
-npm run dev:deal           # or one (dev:user, dev:crm, dev:inventory, dev:search, dev:telephony, dev:messaging)
+npm run dev                # all eight services via turbo
+npm run dev:deal           # or one (dev:user, dev:crm, dev:inventory, dev:search, dev:telephony, dev:messaging, dev:billing)
 
 npm run docker:monitoring  # + prometheus/grafana/tempo/loki/exporters (Grafana :3001, admin/admin)
 npm run check:monitoring   # fails if a service exists that nothing scrapes or probes
@@ -200,6 +201,7 @@ display names per table.
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
 | `BitCRM_Messaging` (conversations, messages, pointers, opt-outs, templates, settings, counters) | `MESSAGING_TABLE` | InboxIndex | UnreadIndex | CategoryIndex | JobIndex (+ GSI5 FlagIndex, GSI6 AccountCategoryIndex; TTL on `expiresAt`) |
+| `BitCRM_Billing` (invoices, estimates + lines, templates, companies (business profiles), assets, portal tokens, per-job counters) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | |
 
 Item shapes are prefix-encoded, e.g.
 
@@ -218,6 +220,11 @@ EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for ide
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
+INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed)
+ESTIMATE#<id>      / METADATA | ITEM#<lineId>   GSI1 ESTIMATES, GSI2 CONTACT#…, GSI3 DEAL#<dealId>; DEAL#<id>/COUNTERS estimateSeq
+PORTAL#<sha256>    / METADATA        portal token → contactId; CONTACT#<id>/PORTAL_LINK holds the link metadata
+BUSINESS_PROFILE#<id> / METADATA     a company; GSI1 BUSINESS_PROFILES. The legacy SETTINGS/BUSINESS_PROFILE
+                                     singleton is migrated lazily into BUSINESS_PROFILE#bp-default on first read
 CONV#<id>          / MSG#<createdAt>#<msgId>   the feed, paged in the partition; GSI4 JOB#<dealId> when job-linked
 CONVOF#<kind>#<id> / ADDR#<e164|email> / PSID#<sid> / CLIENTMSG#<uuid>   pointers: find-or-create, inbound routing,
                                      webhook dedup, double-submit guard (the last one carries the TTL)
@@ -261,7 +268,7 @@ payload interfaces plus `UserEventType` constants, with `event-contract.spec.ts`
 locking the string values. Publishers and consumers both import them.
 
 Topics: `user-events`, `deal-events`, `contact-events`, `inventory-events`,
-`call-events`, `message-events`. Consumers: deal-service (`payment.received`,
+`call-events`, `message-events`, `billing-events`. Consumers: deal-service (`payment.received`,
 `contact.merged`, `tech.approved`, `tech.updated`), messaging-service
 (`contact.merged`, `contact.updated` — handlers land with the inbound webhook)
 and search-service (every topic, one `search-index` queue). DLQ
@@ -374,6 +381,14 @@ Harness conventions:
   makes a network call.
 - e2e specs assert authorization explicitly: a read-only role gets 403, no
   header gets 401. Do that for every new resource.
+- **billing's e2e is cross-service** (`services/billing/test/e2e/`): it boots the
+  real crm, inventory, deal and billing `AppModule`s on 4002/4004/4003/4008 in
+  one Jest process, swapping only `AuthModule` (bearer → super admin or an
+  `assigned_only` technician; the real `PermissionGuard` reads Redis DB 15).
+  Needs `dynamodb-local` :8000, LocalStack and `npm run setup:aws`; it clones the
+  dev tables' schemas into `*_E2E` tables and drops them afterwards. Not part of
+  `scripts/test.sh`. `npm run test:e2e -w billing-service` (`E2E_SLOW_MS=300`
+  logs slow calls).
 - Unit tests construct services with `new Service(mockRepo as any, ...)` — that
   is why collaborators are `@Optional()`.
 
@@ -449,5 +464,16 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
 - **The search index is derived.** Never treat it as a source of truth; fix data
   in the owning service and let the indexer or backfill catch up.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
+- **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
+  (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
+  the area id (`GET /api/deals/tax-rates`). Job resolution is exempt client → the
+  job's area tax → none. Jobs, estimates and invoices snapshot name + percent, so
+  never "fix" a job by editing its area. Old `TAX_RATE#` rows / `defaultTaxRateId`
+  pointers are converted by `npm run backfill:area-taxes -w backend/services/deal`.
+- **Companies are billing's.** A job's `businessProfileId` is validated against
+  billing's internal list (cached 60s in deal, non-fatal when billing is down) and
+  its name snapshotted; documents and the portal render the job's company (fallback:
+  the default). Telephony stamps `CallRecord.businessProfileId` next to `sourceId`
+  (number setting → the flow answering the number).
 - Plan documents belong in the gitignored `claude-plans/` at the repo root, not
   in `project-info/`.

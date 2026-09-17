@@ -82,6 +82,17 @@ export class UpdateDealDto {
   sourceId?: string;
 
   @ApiPropertyOptional({
+    example: 'bp-default',
+    nullable: true,
+    description:
+      'Company (billing business profile). A new id must be an active company; ' +
+      'null clears it. The name is snapshotted on the job.',
+  })
+  @IsOptional()
+  @IsString()
+  businessProfileId?: string | null;
+
+  @ApiPropertyOptional({
     example: 'c7d2e9f1-3b4a-4c8d-9e2f-6a1b5c0d7e34',
     nullable: true,
     description:

@@ -186,6 +186,10 @@ describe("filterDeals", () => {
     expect(filterDeals(list, { superStatus: JobSuperStatus.SUBMITTED }, contacts).map((d) => d.id)).toEqual(["a"]);
     expect(filterDeals(list, { priority: DealPriority.URGENT }, contacts).map((d) => d.id)).toEqual(["a"]);
   });
+  it("filters by company", () => {
+    const withCompany = [deal({ id: "x", businessProfileId: "bp-2" }), ...list];
+    expect(filterDeals(withCompany, { businessProfileId: "bp-2" }, contacts).map((d) => d.id)).toEqual(["x"]);
+  });
   it("searches by deal number and client name", () => {
     expect(filterDeals(list, { search: "1040" }, contacts).map((d) => d.id)).toEqual(["b"]);
     expect(filterDeals(list, { search: "jane" }, contacts).map((d) => d.id)).toEqual(["a"]);
@@ -474,6 +478,15 @@ describe("buildDealPatch", () => {
     expect(Object.keys(cleared!)).toEqual(["externalCompanyId"]);
     expect(cleared!.externalCompanyId).toBeNull();
     expect(JSON.parse(JSON.stringify(cleared))).toEqual({ externalCompanyId: null });
+  });
+
+  it("sends a changed company as businessProfileId (null when cleared)", () => {
+    const d = deal({ businessProfileId: "bp-default", businessProfileName: "SureLock" });
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+    const set = buildDealPatch(d, { ...dealDraftFromDeal(d), businessProfileId: "bp-2" });
+    expect(set).toEqual({ businessProfileId: "bp-2" });
+    const cleared = buildDealPatch(d, { ...dealDraftFromDeal(d), businessProfileId: "" });
+    expect(cleared).toEqual({ businessProfileId: null });
   });
 
   it("returns only the changed key", () => {

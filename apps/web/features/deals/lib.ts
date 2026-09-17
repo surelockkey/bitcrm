@@ -412,6 +412,8 @@ export interface DealDraft {
   serviceArea: string;
   jobTypeId: string;
   sourceId: string;
+  /** The job's company (business profile id); "" = none/default. */
+  businessProfileId: string;
   externalCompanyId: string;
   priority: DealPriority;
   poNumber: string;
@@ -450,6 +452,7 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
     serviceArea: d.serviceArea ?? "",
     jobTypeId: d.jobTypeId,
     sourceId: d.sourceId ?? "",
+    businessProfileId: d.businessProfileId ?? "",
     externalCompanyId: d.externalCompanyId ?? "",
     priority: d.priority,
     poNumber: d.poNumber ?? "",
@@ -526,7 +529,7 @@ const sameCustomFields = (
 
 /** Optional string fields where an emptied draft value means "clear it". */
 const OPTIONAL_DEAL_FIELDS = [
-  "sourceId", "externalCompanyId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
+  "sourceId", "businessProfileId", "externalCompanyId", "poNumber", "workOrderId", "scheduledDate", "scheduledEndDate", "scheduledTimeSlot",
 ] as const;
 
 /**
@@ -535,7 +538,7 @@ const OPTIONAL_DEAL_FIELDS = [
  * `undefined`, which JSON.stringify drops — a long-standing quirk that means
  * they can be set but not cleared; widening it is a separate change.
  */
-const NULLABLE_DEAL_FIELDS = new Set<string>(["externalCompanyId"]);
+const NULLABLE_DEAL_FIELDS = new Set<string>(["externalCompanyId", "businessProfileId"]);
 
 /**
  * Diff a draft against the server deal → the PUT patch with only the changed
@@ -645,6 +648,8 @@ export interface DealFilter {
   priority?: DealPriority;
   jobTypeId?: string;
   sourceId?: string;
+  /** Company (business profile) id. */
+  businessProfileId?: string;
   serviceArea?: string;
   /** Keep only deals in one of these super-statuses (empty/undefined = all). */
   statusGroups?: JobSuperStatus[];
@@ -712,6 +717,7 @@ export function filterDeals(
     if (filter.priority && d.priority !== filter.priority) return false;
     if (filter.jobTypeId && d.jobTypeId !== filter.jobTypeId) return false;
     if (filter.sourceId && d.sourceId !== filter.sourceId) return false;
+    if (filter.businessProfileId && d.businessProfileId !== filter.businessProfileId) return false;
     if (filter.serviceArea && d.serviceArea !== filter.serviceArea) return false;
     if (filter.statusGroups?.length && !filter.statusGroups.includes(d.superStatus))
       return false;

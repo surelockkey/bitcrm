@@ -111,10 +111,11 @@ describe("CallQuickView", () => {
     expect(screen.getByText("SURE CT GOOGLE ADS")).toBeInTheDocument();
   });
 
-  it("offers Create job with the client, source and call prewired", () => {
+  it("offers Create job with the client, source, company and call prewired", () => {
     detail.mockReturnValue({
       data: call({
         sourceId: "src-1",
+        businessProfileId: "bp-2",
         fromParty: { kind: "contact", id: "c9", name: "Jane Roe" },
       }),
       isLoading: false,
@@ -127,6 +128,7 @@ describe("CallQuickView", () => {
     expect(href).toContain("callSid=CA1");
     expect(href).toContain("contactId=c9");
     expect(href).toContain("sourceId=src-1");
+    expect(href).toContain("companyId=bp-2");
   });
 
   it("passes the caller's number when they aren't a client yet", () => {

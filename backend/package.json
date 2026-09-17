@@ -19,6 +19,7 @@
     "dev:search": "turbo run dev --filter=search-service",
     "dev:telephony": "turbo run dev --filter=telephony-service",
     "dev:messaging": "turbo run dev --filter=messaging-service",
+    "dev:billing": "turbo run dev --filter=billing-service",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "bash scripts/test.sh unit",

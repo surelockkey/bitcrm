@@ -41,6 +41,9 @@ export const contactFormSchema = z.object({
   source: z.nativeEnum(ContactSource),
   title: z.string().trim().optional(),
   notes: z.string().trim().optional(),
+  /** Tax-exempt client: new jobs/estimates carry no tax. */
+  taxExempt: z.boolean().default(false),
+  taxExemptReason: z.string().trim().max(200, "Keep the reason under 200 characters").optional(),
 });
 export type ContactFormValues = z.infer<typeof contactFormSchema>;
 
@@ -74,7 +77,11 @@ export type CompanyFormValues = z.infer<typeof companyFormSchema>;
  * the parallel `phoneExts` rows arrive keyed by their number instead.
  */
 export type PhoneExtensionsPayload = { phoneExtensions?: Record<string, string> };
-export type CreateContactValues = Omit<ContactFormValues, "phoneExts"> & PhoneExtensionsPayload;
+/** Tax fields are optional on the wire — omitting them leaves the record as is. */
+type TaxExemptionPayload = Partial<Pick<ContactFormValues, "taxExempt" | "taxExemptReason">>;
+export type CreateContactValues = Omit<ContactFormValues, "phoneExts" | "taxExempt" | "taxExemptReason"> &
+  PhoneExtensionsPayload &
+  TaxExemptionPayload;
 export type UpdateContactValues = Omit<CreateContactValues, "source">;
 export type CreateCompanyValues = Omit<CompanyFormValues, "phoneExts"> & PhoneExtensionsPayload;
 export type UpdateCompanyValues = CreateCompanyValues;

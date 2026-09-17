@@ -21,8 +21,9 @@ Publishers and consumers import these so the wire format can't drift; the
 
 ## Topic: `deal-events` (published by deal-service)
 `deal.created`, `deal.updated`, `deal.status_changed`, `deal.completed`, `deal.deleted`,
-`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_removed`,
-`deal.tech_confirmed`, `deal.tech_arrived`, `deal.sent_to_tech`.
+`deal.tech_assigned`, `deal.tech_unassigned`, `deal.product_added`, `deal.product_updated`,
+`deal.product_removed`, `deal.products_replaced`, `deal.tech_confirmed`, `deal.tech_arrived`,
+`deal.sent_to_tech`.
 
 ### `deal.sent_to_tech` — Workiz "Send to tech" (typed: `DealSentToTechEvent` in `@bitcrm/types`)
 
@@ -84,8 +85,9 @@ A roster entry with no `ASSIGN#` row costs that technician their per-channel lin
 their place on the tech index; it no longer breaks the send itself, and a reschedule rewrites `GSI2PK`
 so a row that lost it heals on the next date change.
 
-`deal.updated` (`{dealId, updatedBy?}`) fires on any field edit (update, client
-reassignment, payment status) so the search index stays fresh; `deal.deleted`
+`deal.updated` (`{dealId, updatedBy?, businessProfileId?}`) fires on any field edit (update, client
+reassignment, payment status) so the search index stays fresh; `businessProfileId` is present
+only when that edit changed the job's company (`null` when it was cleared); `deal.deleted`
 (`{dealId, deletedBy}`) fires on soft delete so the doc leaves the index.
 
 Custom-field catalog: `custom-field.created` / `.updated` / `.archived` / `.deleted`
@@ -128,7 +130,9 @@ internal deduct/restore. Service-type inventory products may only be added as `s
 lines; inventory rejects them from all stock operations (receive/transfer/deduct).
 
 Service-area catalog: `service-area.created`, `service-area.updated`, `service-area.deleted`
-(`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD.
+(`{serviceAreaId, name}`) — emitted by `ServiceAreasService` on catalog CRUD. An area carries
+its own sales tax (`tax: {name, ratePercent}`) and default company (`defaultBusinessProfileId`);
+editing either rides `service-area.updated` and re-prices / re-brands no existing job.
 
 Job-type catalog: `job-type.created`, `job-type.updated`, `job-type.archived`,
 `job-type.deleted` (`{jobTypeId, name}`) — emitted by `JobTypesService`. Deals and
@@ -143,6 +147,53 @@ Job-tag catalog: `job-tag.created` / `.updated` / `.archived` / `.deleted`
 (`{jobTagId, name}`) — emitted by `JobTagsService`. Deals store `tagIds` (many);
 the search indexer resolves them to names via `CatalogNamesService` and
 invalidates that cache on these events.
+
+Tax rates (Revision 2): there is **no** tax-rate catalog any more and the
+`tax-rate.created` / `.updated` / `.deleted` events are **removed**. `GET /tax-rates`
+and `GET internal/tax-rates` are read-only and derived from service areas (one
+`TaxRate` per area with a `tax`, `id` = area id). Legacy `TAX_RATE#` rows are
+converted by `npm run backfill:area-taxes -w backend/services/deal`
+(`--dry-run`, `--delete-catalog`); deals keep their `taxRateName`/`taxRatePercent`
+snapshot, so neither an area edit nor the backfill re-prices a job.
+
+Job company (business profile, owned by billing): a deal carries
+`businessProfileId` + snapshot `businessProfileName`. On create it is the requested
+company → the service area's `defaultBusinessProfileId` → billing's default company
+(read from `GET /api/billing/business-profiles/internal`, cached 60s; billing being
+down never blocks a job). A change logs `field_updated`
+(`{field: 'businessProfileId', oldValue, newValue, oldLabel, newLabel}`) and publishes
+`deal.updated` with `businessProfileId`. A renamed company is NOT re-snapshotted on jobs.
+
+Job billing (tax / discount / items):
+- `deal.updated` also fires on `PATCH /:id/tax`, `POST /:id/tax/auto`,
+  `PATCH /:id/discount`, `PATCH internal/:id/invoice-link` and an estimate sync.
+  Tax is re-resolved (exempt contact/company → the service area's own `tax` →
+  none; there is no account default) on create and when the service area or client changes,
+  unless `taxSource === 'manual'`; that write rides the same `deal.updated`.
+- `deal.product_updated` (`{dealId, productId, taxable}`) on
+  `PATCH /:id/products/:productId/taxable` (the existing line-edit payload is unchanged).
+- `deal.products_replaced` (`{dealId, itemCount, estimateNumber, replacedBy}`) after
+  `PUT internal/:id/products/replace-all` (estimate → job sync), alongside `deal.updated`.
+- Line rows carry `taxable` (absent ⇒ true) and `description`; the deal carries
+  `itemCount` (backfill: `npm run backfill:deal-item-count -w backend/services/deal`)
+  and `invoiceId` (set by billing), which drive `GET /deals?needsInvoice=true`.
+- Timeline: `tax_changed` (`{from, to, reason}` with `{taxSource, taxRateId,
+  taxRateName, taxRatePercent}` snapshots, or `{productId, productName, from:
+  {taxable}, to: {taxable}}` for a line), `discount_changed` (`{from, to}`),
+  `estimate_synced` (`{estimateNumber, itemCount}`); billing writes the
+  `invoice_*` / `estimate_*` entries through `POST internal/:id/timeline`.
+
+Internal endpoints for billing-service (`x-internal-secret`, under `api/deals`):
+`GET internal/tax-rates` (also `GET tax-rates/internal`),
+`GET internal/:id/billing-view` → `{deal, items, totals, jobTypeName?, technicianNames?, businessProfileId?, businessProfileName?}`,
+`PUT internal/:id/products/replace-all` → `{items, deal}` (body may carry the estimate's
+`taxRateName`/`taxRatePercent`, used only when its `taxRateId` no longer resolves),
+`PATCH internal/:id/invoice-link` `{invoiceId|null}` → 204,
+`POST internal/:id/timeline` `{type, actorId, actorName?, metadata?}` → 204,
+`GET internal/by-contact/:contactId` → `{id, dealNumber, superStatus, businessProfileId?, businessProfileName?}[]`
+(the portal brands itself with the company of the client's most recently sent document).
+Deal reads contacts/companies (tax exemption) via crm's existing
+`GET /api/crm/contacts/internal/:id` and `GET /api/crm/companies/internal/:id`.
 
 ## Topic: `contact-events` / `crm` (published by crm-service)
 `contact.created`, `contact.updated`, `company.created`, `company.updated`, `contact.merged`.
@@ -192,8 +243,28 @@ on the bus (`{conversationId, memberIds}` — never written to a browser) and
 their `READ#` markers); a team / group `message.upserted` carries `recipients`
 and `mentions`.
 
+## Topic: `billing-events` (published by billing-service)
+
+Contracts in `@bitcrm/types` (`events/billing-events.ts`). Fire-and-forget,
+gated on `BILLING_EVENTS_TOPIC_ARN`. No consumers yet.
+
+| eventType | Payload (`@bitcrm/types`) | Published when |
+|---|---|---|
+| `invoice.created` | `InvoiceEvent` `{invoiceId, dealId, contactId, number, status, total}` | a job's invoice is created |
+| `invoice.updated` | `InvoiceEvent` | fields edited, marked sent/unsent, totals/status refreshed from the job, overdue sweep |
+| `invoice.deleted` | `InvoiceEvent` | invoice deleted (by a user, or because its job was deleted) |
+| `estimate.created` | `EstimateEvent` `{estimateId, dealId, contactId, number, status, total}` | estimate created or duplicated |
+| `estimate.updated` | `EstimateEvent` | fields / lines / status / sent changed, archived on job cancel |
+| `estimate.deleted` | `EstimateEvent` | estimate deleted (by a user, or with its job) |
+| `estimate.synced` | `EstimateEvent` | the estimate's lines replaced the job's (`sync-to-job`) |
+
+Job-history entries for billing actions (`invoice_*`, `estimate_*` timeline
+types) are written through deal-service's `POST /deals/internal/:id/timeline`,
+not via SNS.
+
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
 - **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → `ContactEventsHandler` (`src/contact-events/`): a merge hands the duplicate's thread to the survivor (`CONVOF#`, `partyId`, `ADDR#` rows; when both had a thread the survivor absorbs the addresses and the duplicate's thread is archived — messages are not moved between partitions), an update re-reads the contact from CRM and reconciles `ADDR#` rows + `conversation.addresses`. Also ← **every** deal event (queue `deal-events-to-messaging`, subscribed to the whole topic) → `AutomationDealEventsHandler` (`src/automations/engine/`), which fans each one out to `NewJobSmsService` (the settings `smsFormat` "New job" SMS to the assigned technician's personal phone, once per (job, technician, scheduledDate) via an `AUTOSENT#` marker — `deal.updated` carries no changed fields, so the job is re-read and only a changed `scheduledDate` re-sends) and then to the **rule engine** (`AutomationRuleEngine`): every enabled rule with a runnable `spec` is evaluated against the job, and what fires is claimed once (`AUTORUN#<ruleId>` / `ONCE#<entity>#<occurrence>`), acted on and logged (`RUN#<firedAt>#<id>`). Anything that has to wait — a rule's own delay, a send held by quiet hours, a "1 hour before the job" reminder — is written to `SCHEDULE#<YYYY-MM-DDTHH:MM>` and run by a minute poller (`ENABLE_AUTOMATION_SCHEDULER=true`, one instance; `AUTOMATION_SCHEDULER_INTERVAL_MS`, default 60 s, catching up at most 3 h after a restart). A minute bucket rather than SQS delay hops: a one-day delay is far past SQS's 15-minute maximum, and what is pending stays listable. Also ← `call.completed` (queue `call-events-to-messaging`) → the same engine. Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), the SES-fed `messaging-email-events` / `messaging-inbound-email` (M17–M18; raw SES JSON, read by the service's own poller rather than the shared consumer). Handlers must be idempotent — the consumer does not deduplicate.
+- **billing-service** ← `deal.product_added`, `deal.product_updated`, `deal.product_removed`, `deal.products_replaced`, `deal.updated`, `deal.status_changed`, `deal.deleted` (queue `billing-deal-events`) → `DealEventsHandler` (`src/deal-events/`): line / tax / discount / payment changes re-snapshot the job invoice's totals + derived status (no version bump — `version` guards user edits only); `deal.updated` also re-points the job's estimates when the job moved to another client (the invoice follows in the same refresh); a status change to `canceled` archives the job's estimates that aren't won; `deal.deleted` deletes the job's invoice and estimates. Idempotent.
 - **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
 - **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`, `message-events`) via the single `search-index` queue → `IndexerEventHandler` (routes in `services/search/src/indexer/event-routes.ts`). Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh. The `conversation` document (M15) is rebuilt from `conversation.updated` and every `message.*` event that names a conversation: the indexer reads `GET /api/messaging/conversations/internal/:id` plus `…/internal/:id/messages?limit=` (last N bodies → `body`), the party from crm / user-service (name → `title`, numbers and emails → `keywords`) and the referenced deals (number → `keywords`, roster → `ownerIds` for `assigned_only`). A contact / company / user edit and a deal roster change also rebuild the conversations that reference them.

@@ -90,6 +90,7 @@ export {
   CoverageShape,
   GeoPoint,
   ZipEntry,
+  ServiceAreaTax,
   DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
 export {
@@ -325,6 +326,70 @@ export type {
   ConversationUpdatedEvent,
   OptOutChangedEvent,
 } from './events/message-events';
+
+// Billing (taxes, invoices, estimates, document templates, client portal)
+export {
+  calculateDocumentTotals,
+  effectiveTaxRatePercent,
+  lineAmount,
+} from './billing/totals';
+export type {
+  DocumentDiscount,
+  DocumentTaxSource,
+  DocumentTotals,
+  TotalsInput,
+  TotalsLine,
+} from './billing/totals';
+export type { TaxRate } from './entities/tax-rate.entity';
+export { INVOICE_STATUSES } from './entities/invoice.entity';
+export type { Invoice, InvoiceStatus, InvoiceView, BillingLine } from './entities/invoice.entity';
+export { ESTIMATE_STATUSES } from './entities/estimate.entity';
+export type {
+  Estimate,
+  EstimateItem,
+  EstimateStatus,
+  EstimateWithItems,
+} from './entities/estimate.entity';
+export { DEFAULT_BUSINESS_PROFILE, DEFAULT_BUSINESS_PROFILE_ID } from './entities/business-profile.entity';
+export type { BusinessProfile, BusinessProfileView, BillingAsset } from './entities/business-profile.entity';
+export type { PortalLink, PortalDocumentSummary, PortalView } from './entities/portal.entity';
+export {
+  DOCUMENT_TEMPLATE_KINDS,
+  DOCUMENT_BLOCK_TYPES,
+  ITEMS_TABLE_COLUMNS,
+  DEFAULT_DOCUMENT_VISIBILITY,
+} from './entities/document-template.entity';
+export type {
+  DocumentTemplateKind,
+  DocumentBlockType,
+  TextAlign,
+  BlockStyle,
+  RichTextNode,
+  TextBlock,
+  ImageBlock,
+  LogoBlock,
+  DividerBlock,
+  SpacerBlock,
+  TableBlock,
+  FieldBlock,
+  ItemsTableColumn,
+  ItemsTableBlock,
+  TotalsBlock,
+  SignatureBlock,
+  NotesBlock,
+  PageBreakBlock,
+  DocumentBlock,
+  DocumentColumn,
+  DocumentRow,
+  DocumentPageSettings,
+  DocumentVisibility,
+  DocumentTemplateContent,
+  DocumentTemplate,
+  DocumentTemplateSummary,
+  DocumentRenderContext,
+} from './entities/document-template.entity';
+export { BILLING_EVENT_TOPIC, BillingEventType } from './events/billing-events';
+export type { InvoiceEvent, EstimateEvent } from './events/billing-events';
 
 // Permissions
 export {

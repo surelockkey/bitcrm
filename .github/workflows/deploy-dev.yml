@@ -17,7 +17,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, user, crm, deal, inventory, search, telephony, messaging]
+        options: [all, user, crm, deal, inventory, search, telephony, messaging, billing]
         default: all
 
 env:
@@ -61,6 +61,8 @@ jobs:
               - 'backend/services/telephony/**'
             messaging:
               - 'backend/services/messaging/**'
+            billing:
+              - 'backend/services/billing/**'
 
       - name: Decide service matrix
         id: set
@@ -74,6 +76,7 @@ jobs:
           SEARCH:    ${{ steps.filter.outputs.search }}
           TELEPHONY: ${{ steps.filter.outputs.telephony }}
           MESSAGING: ${{ steps.filter.outputs.messaging }}
+          BILLING:   ${{ steps.filter.outputs.billing }}
         run: |
           set -euo pipefail
           # "all" means every service that has a taskdef in this checkout. The
@@ -81,7 +84,7 @@ jobs:
           # shared-path change must not then spawn a build job for code that
           # is not there yet.
           all=()
-          for svc in user crm deal inventory search telephony messaging; do
+          for svc in user crm deal inventory search telephony messaging billing; do
             [[ -f "backend/services/${svc}/taskdef.json" ]] && all+=("$svc")
           done
           ALL=$(printf '%s\n' "${all[@]}" | jq -R . | jq -s -c .)
@@ -111,6 +114,7 @@ jobs:
           [[ "$SEARCH"    == "true" ]] && changed+=("search")
           [[ "$TELEPHONY" == "true" ]] && changed+=("telephony")
           [[ "$MESSAGING" == "true" ]] && changed+=("messaging")
+          [[ "$BILLING"   == "true" ]] && changed+=("billing")
 
           if [[ ${#changed[@]} -eq 0 ]]; then
             echo "services=[]" >> "$GITHUB_OUTPUT"

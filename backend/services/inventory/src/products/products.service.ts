@@ -104,6 +104,7 @@ export class ProductsService {
       id: randomUUID(),
       ...dto,
       category: await this.prepareCategory(dto.category),
+      taxable: dto.taxable ?? true,
       status: InventoryStatus.ACTIVE,
       createdAt: now,
       updatedAt: now,
@@ -353,6 +354,7 @@ export class ProductsService {
         const category = dryRun
           ? normalizeCategory(row.category)
           : await this.prepareCategory(row.category);
+        const taxable = this.parseCsvBoolean(row.taxable);
 
         if (existing) {
           if (!dryRun) {
@@ -370,6 +372,8 @@ export class ProductsService {
               priceClient: parseFloat(row.priceClient),
               serialTracking: row.serialTracking === 'true',
               minimumStockLevel: parseInt(row.minimumStockLevel, 10),
+              // A blank cell leaves the stored flag alone.
+              ...(taxable !== undefined && { taxable }),
               ...(row.supplier && { supplier: row.supplier }),
               ...(row.barcode && { barcode: row.barcode }),
               ...(row.description && { description: row.description }),
@@ -392,6 +396,7 @@ export class ProductsService {
               priceClient: parseFloat(row.priceClient),
               serialTracking: row.serialTracking === 'true',
               minimumStockLevel: parseInt(row.minimumStockLevel, 10),
+              taxable: taxable ?? true,
               supplier: row.supplier || undefined,
               barcode: row.barcode || undefined,
               description: row.description || undefined,
@@ -441,6 +446,17 @@ export class ProductsService {
     if (!row.priceClient || isNaN(parseFloat(row.priceClient))) {
       return 'Invalid priceClient';
     }
+    if (row.taxable && this.parseCsvBoolean(row.taxable) === undefined) {
+      return 'Invalid taxable (use true/false, yes/no or 1/0)';
+    }
     return null;
+  }
+
+  /** Optional CSV boolean cell: blank/absent → undefined (also for junk; validated above). */
+  private parseCsvBoolean(value: string | undefined): boolean | undefined {
+    const v = value?.trim().toLowerCase();
+    if (v === 'true' || v === 'yes' || v === '1') return true;
+    if (v === 'false' || v === 'no' || v === '0') return false;
+    return undefined;
   }
 }

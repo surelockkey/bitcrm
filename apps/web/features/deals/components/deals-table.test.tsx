@@ -221,6 +221,20 @@ describe("DealsTable", () => {
     expect(screen.getByText("Allied Dispatch Solutions")).toBeInTheDocument();
   });
 
+  it("can show the job's company (hidden by default)", () => {
+    const props = {
+      deals: [deal({ businessProfileId: "bp-2", businessProfileName: "KeyPro" })],
+      contactMap,
+      userMap,
+      onOpen: vi.fn(),
+    };
+    const { rerender } = render(<DealsTable {...props} visibleFields={DEFAULT_VISIBLE} />);
+    expect(screen.queryByRole("columnheader", { name: "Company" })).not.toBeInTheDocument();
+    rerender(<DealsTable {...props} visibleFields={{ ...DEFAULT_VISIBLE, company: true }} />);
+    expect(screen.getByRole("columnheader", { name: "Company" })).toBeInTheDocument();
+    expect(screen.getByText("KeyPro")).toBeInTheDocument();
+  });
+
   it("renders an enabled custom field as a column with the deal's answer", () => {
     render(
       <DealsTable

@@ -61,6 +61,41 @@ export class DealProductsRepository {
     return (result.Items || []).map((i) => this.toProduct(i));
   }
 
+  /** Number of line items on a deal (drives `Deal.itemCount`). */
+  async countByDeal(dealId: string): Promise<number> {
+    let count = 0;
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+          ExpressionAttributeValues: { ':pk': `DEAL#${dealId}`, ':sk': 'PRODUCT#' },
+          Select: 'COUNT',
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      count += result.Count ?? 0;
+      lastKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (lastKey);
+    return count;
+  }
+
+  /** Toggle whether the job's tax applies to a line; 404-style failure if the line is gone. */
+  async setTaxable(dealId: string, productId: string, taxable: boolean): Promise<DealProduct> {
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `PRODUCT#${productId}` },
+        UpdateExpression: 'SET taxable = :t',
+        ExpressionAttributeValues: { ':t': taxable },
+        ConditionExpression: 'attribute_exists(PK)',
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return this.toProduct(result.Attributes!);
+  }
+
   /** Mark a to-order line as ordered (or clear it when `orderedAt` is null). */
   async setOrderedAt(
     dealId: string,
@@ -161,6 +196,9 @@ export class DealProductsRepository {
       // catalog/override flow wrote this line" and the ±15% band applies.
       priceSource: item.priceSource as DealProductPriceSource | undefined,
       orderedAt: item.orderedAt as string | undefined,
+      // Legacy lines predate billing: an absent flag means taxable (Workiz default).
+      taxable: item.taxable !== false,
+      description: item.description as string | undefined,
       addedBy: item.addedBy as string,
       addedAt: item.addedAt as string,
       updatedBy: item.updatedBy as string | undefined,

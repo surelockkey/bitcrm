@@ -28,6 +28,7 @@ import {
   sortJobs,
   type JobSort,
 } from "../lib";
+import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
 import { useJobTags } from "@/features/job-tags/hooks";
@@ -64,6 +65,8 @@ export function DealsPage() {
   const [jobTypeId, setJobTypeId] = useState(ALL);
   const [serviceArea, setServiceArea] = useState(ALL);
   const [tagId, setTagId] = useState(ALL);
+  const [companyId, setCompanyId] = useState(ALL);
+  const { data: companies } = useBusinessProfiles();
   const [sortSel, setSortSel] = useState("none");
   // Range filters: one calendar range for the days, plus a time-of-day window.
   const [dayRange, setDayRange] = useState<DateTimeRange>({});
@@ -107,8 +110,9 @@ export function DealsPage() {
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
       serviceArea: serviceArea === ALL ? undefined : serviceArea,
       tagId: tagId === ALL ? undefined : tagId,
+      businessProfileId: companyId === ALL ? undefined : companyId,
     }),
-    [search, techId, jobTypeId, serviceArea, tagId, dateFrom, dateTo, hourFrom, hourTo],
+    [search, techId, jobTypeId, serviceArea, tagId, companyId, dateFrom, dateTo, hourFrom, hourTo],
   );
 
   // Searchable custom-field definitions let free-text search match their answers.
@@ -159,6 +163,10 @@ export function DealsPage() {
         <FilterSelect value={jobTypeId} onChange={setJobTypeId} allLabel="All job types" options={activeJobTypes(jobTypesQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={160} />
         <FilterSelect value={serviceArea} onChange={setServiceArea} allLabel="All areas" options={areaOptions} width={150} />
         <FilterSelect value={tagId} onChange={setTagId} allLabel="Any tag" options={activeJobTags(jobTagsQuery.data).map((t) => ({ value: t.id, label: t.name }))} width={130} />
+        {/* Only worth a control once there's more than one company. */}
+        {(companies?.length ?? 0) > 1 ? (
+          <FilterSelect value={companyId} onChange={setCompanyId} allLabel="All companies" ariaLabel="Company filter" options={(companies ?? []).map((c) => ({ value: c.id, label: c.active ? c.name : `${c.name} (archived)` }))} width={150} />
+        ) : null}
         <select
           aria-label="Sort jobs"
           className="h-9 rounded-md border bg-transparent px-2 text-sm"
@@ -264,16 +272,18 @@ function FilterSelect({
   allLabel,
   options,
   width,
+  ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   allLabel: string;
   options: { value: string; label: string }[];
   width: number;
+  ariaLabel?: string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-9" style={{ width }}><SelectValue /></SelectTrigger>
+      <SelectTrigger className="h-9" style={{ width }} aria-label={ariaLabel}><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value={ALL}>{allLabel}</SelectItem>
         {options.map((o) => (

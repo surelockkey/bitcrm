@@ -5,7 +5,7 @@ import {
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ServiceAreaType } from '@bitcrm/types';
-import { ZipEntryDto, GeoPointDto } from './create-service-area.dto';
+import { ZipEntryDto, GeoPointDto, ServiceAreaTaxDto } from './create-service-area.dto';
 
 /**
  * All fields optional. Geometry (`coverage`) is only recomputed when `type`
@@ -22,6 +22,29 @@ export class UpdateServiceAreaDto {
   @IsOptional()
   @IsString()
   callerId?: string | null;
+
+  @ApiPropertyOptional({
+    type: () => ServiceAreaTaxDto,
+    nullable: true,
+    description:
+      "The area's sales tax, applied automatically to jobs in this area. " +
+      'Null clears it (jobs in the area then carry no tax).',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ServiceAreaTaxDto)
+  tax?: ServiceAreaTaxDto | null;
+
+  @ApiPropertyOptional({
+    example: 'bp-default',
+    nullable: true,
+    description:
+      'Company (billing business profile) new jobs in this area default to. ' +
+      'Must be an active company. Null or empty clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  defaultBusinessProfileId?: string | null;
 
   @ApiPropertyOptional({ example: 'Atlanta Metro' })
   @IsOptional()

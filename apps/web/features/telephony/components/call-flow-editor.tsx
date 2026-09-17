@@ -30,6 +30,7 @@ import type { CallFlow, CallFlowNode, CallFlowNodeType } from "@bitcrm/types";
 import { useCallGroups } from "../call-groups-hooks";
 import { useCallFlows, useSaveCallFlow } from "../call-flows-hooks";
 import { useNumbers } from "../numbers-hooks";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
 import { blankStep, STEP_LABEL } from "../flow-graph";
 import {
   deleteStep,
@@ -95,6 +96,9 @@ export function CallFlowEditor({
   const [name, setName] = useState(flow?.name ?? "");
   const [numbers, setNumbers] = useState<string[]>(flow?.numbers ?? []);
   const [active, setActive] = useState(flow?.active ?? true);
+  const [businessProfileId, setBusinessProfileId] = useState<string | null>(
+    flow?.businessProfileId ?? null,
+  );
   const [steps, setSteps] = useState<FlowStep[]>(() =>
     flow ? toTree(flow) : starter(),
   );
@@ -117,7 +121,14 @@ export function CallFlowEditor({
   const submit = async () => {
     if (!name.trim()) return;
     const { entryNodeId, nodes } = toGraph(steps);
-    await save.mutateAsync({ name: name.trim(), numbers, entryNodeId, nodes, active });
+    await save.mutateAsync({
+      name: name.trim(),
+      numbers,
+      entryNodeId,
+      nodes,
+      active,
+      businessProfileId,
+    });
     onClose();
   };
 
@@ -191,11 +202,13 @@ export function CallFlowEditor({
               name={name}
               numbers={numbers}
               active={active}
+              businessProfileId={businessProfileId}
               currentFlowId={flow?.id}
               onApply={(next) => {
                 setName(next.name);
                 setNumbers(next.numbers);
                 setActive(next.active);
+                setBusinessProfileId(next.businessProfileId);
                 setPanel(undefined);
               }}
               onClose={() => setPanel(undefined)}
@@ -252,6 +265,7 @@ function BasicInfoPanel({
   name,
   numbers,
   active,
+  businessProfileId,
   currentFlowId,
   onApply,
   onClose,
@@ -259,13 +273,20 @@ function BasicInfoPanel({
   name: string;
   numbers: string[];
   active: boolean;
+  businessProfileId: string | null;
   currentFlowId?: string;
-  onApply: (next: { name: string; numbers: string[]; active: boolean }) => void;
+  onApply: (next: {
+    name: string;
+    numbers: string[];
+    active: boolean;
+    businessProfileId: string | null;
+  }) => void;
   onClose: () => void;
 }) {
   const [draftName, setDraftName] = useState(name);
   const [draftNumbers, setDraftNumbers] = useState(numbers);
   const [draftActive, setDraftActive] = useState(active);
+  const [draftCompany, setDraftCompany] = useState(businessProfileId);
 
   return (
     <FlowPanel
@@ -281,6 +302,7 @@ function BasicInfoPanel({
               name: draftName,
               numbers: draftNumbers,
               active: draftActive,
+              businessProfileId: draftCompany,
             })
           }
         />
@@ -304,6 +326,23 @@ function BasicInfoPanel({
           currentFlowId={currentFlowId}
           onChange={setDraftNumbers}
         />
+
+        <div className="space-y-1.5">
+          <label htmlFor="cf-company" className="block text-sm font-medium">
+            Company
+          </label>
+          <BusinessProfileSelect
+            id="cf-company"
+            value={draftCompany}
+            onChange={setDraftCompany}
+            allowNone
+            noneLabel="Default company"
+            placeholder="Default company"
+          />
+          <p className="text-xs text-muted-foreground">
+            Jobs created from calls on this flow&apos;s numbers are pre-filled with this company
+          </p>
+        </div>
 
         <div className="flex items-start gap-3">
           <Switch

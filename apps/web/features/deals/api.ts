@@ -1,6 +1,8 @@
 import type {
   Deal,
   DealProduct,
+  DocumentDiscount,
+  DocumentTotals,
   JobSuperStatus,
   SendToTechChannel,
   TimelineEntry,
@@ -268,3 +270,29 @@ export const markDealProductOrdered = (
     `/deals/${id}/products/${productId}/ordered`,
     { ordered },
   );
+
+/* ------------------------------------------------------------ tax/totals */
+
+/** Server-computed totals (subtotal → discount → tax → total) for a job. */
+export const getDealTotals = (id: string): Promise<DocumentTotals> =>
+  http.get<DocumentTotals>(`/deals/${id}/totals`);
+
+/** Pick the job's tax rate by hand (`null` = no tax); taxSource → `manual`. */
+export const setDealTax = (id: string, taxRateId: string | null): Promise<Deal> =>
+  http.patch<Deal>(`/deals/${id}/tax`, { taxRateId });
+
+/** Re-resolve the tax automatically: exempt → service area → default → none. */
+export const resetDealTaxAuto = (id: string): Promise<Deal> =>
+  http.post<Deal>(`/deals/${id}/tax/auto`);
+
+/** Set (or clear with `null`) the job-level discount. */
+export const setDealDiscount = (id: string, discount: DocumentDiscount | null): Promise<Deal> =>
+  http.patch<Deal>(`/deals/${id}/discount`, { discount });
+
+/** Toggle whether the job's tax applies to one line. */
+export const setDealProductTaxable = (
+  id: string,
+  productId: string,
+  taxable: boolean,
+): Promise<DealProduct> =>
+  http.patch<DealProduct>(`/deals/${id}/products/${productId}/taxable`, { taxable });

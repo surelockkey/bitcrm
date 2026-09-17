@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   // Per-resource so a deals-editor without contacts.edit can be simulated.
   perms: { deals: false, contacts: false },
   attachments: [] as { id: string }[],
+  invoice: null as { status: string } | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -68,6 +69,11 @@ vi.mock("@/features/job-sources/components/job-source-select", () => ({
 vi.mock("@/features/external-companies/components/external-company-select", () => ({
   ExternalCompanySelect: ({ onChange }: { onChange: (v: string) => void }) => (
     <button type="button" onClick={() => onChange("ec-1")}>pick external company</button>
+  ),
+}));
+vi.mock("@/features/business-profiles/components/business-profile-select", () => ({
+  BusinessProfileSelect: ({ onChange }: { onChange: (v: string) => void }) => (
+    <button type="button" onClick={() => onChange("bp-2")}>pick company</button>
   ),
 }));
 vi.mock("./scheduled-block", () => ({
@@ -201,6 +207,20 @@ vi.mock("@/features/clients/hooks", () => ({
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
 }));
 
+// Billing tabs fetch through react-query; their own tests cover them. The
+// header's invoice badge reads the by-deal invoice.
+vi.mock("@/features/invoices/hooks", () => ({
+  useInvoiceByDeal: () => ({ data: mocks.invoice }),
+}));
+vi.mock("@/features/invoices/components/deal-invoice-tab", () => ({
+  DealInvoiceTab: () => <div data-testid="invoice-tab" />,
+}));
+vi.mock("@/features/estimates/components/deal-estimates-tab", () => ({
+  DealEstimatesTab: ({ estimateId }: { estimateId: string | null }) => (
+    <div data-testid="estimates-tab" data-estimate={estimateId ?? ""} />
+  ),
+}));
+
 // The attachments catalog feeds the tab-bar count; mutable so tests vary it.
 vi.mock("../attachments-hooks", () => ({
   useAttachments: () => ({ data: mocks.attachments, isLoading: false }),
@@ -216,6 +236,7 @@ beforeEach(() => {
   mocks.perms.contacts = false;
   dealState = deal;
   mocks.attachments = [];
+  mocks.invoice = null;
   mocks.push.mockClear();
   mocks.updateDeal.mockClear();
   mocks.updateContact.mockClear();
@@ -257,6 +278,12 @@ describe("DealDetailPage (read only)", () => {
       "data-variant",
       "prominent",
     );
+  });
+
+  it("shows the job's company in the header", () => {
+    dealState = { ...deal, businessProfileId: "bp-2", businessProfileName: "KeyPro" };
+    render(<DealDetailPage dealId="d1" />);
+    expect(screen.getByTitle("Company")).toHaveTextContent("KeyPro");
   });
 
   it("upgrades the visit-history label to the job number", () => {
@@ -389,6 +416,17 @@ describe("DealDetailPage (editable, single save)", () => {
 
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ externalCompanyId: "ec-1" });
+  });
+
+  it("saves the company picked on the job", async () => {
+    const u = user();
+    render(<DealDetailPage dealId="d1" />);
+
+    await u.click(screen.getByRole("button", { name: /pick company/i }));
+    await u.click(saveButton());
+
+    expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
+    expect(mocks.updateDeal.mock.calls[0][0]).toEqual({ businessProfileId: "bp-2" });
   });
 
   it("locks the number the job was created with — no editing, no removing it", () => {
@@ -595,5 +633,36 @@ describe("DealDetailPage (editable, single save)", () => {
 
     await u.type(poInput(), "PO-2");
     expect(fireBeforeUnload().defaultPrevented).toBe(true);
+  });
+});
+
+describe("DealDetailPage — billing tabs and deep links", () => {
+  it("opens the tab named in the URL and keeps the URL in sync", async () => {
+    mocks.perms.deals = true;
+    window.history.replaceState(null, "", "/deals/d1?tab=estimates&estimate=e1");
+    render(<DealDetailPage dealId="d1" initialTab="estimates" initialEstimateId="e1" />);
+
+    expect(screen.getByTestId("estimates-tab")).toHaveAttribute("data-estimate", "e1");
+
+    await user().click(screen.getByRole("button", { name: /^invoice$/i }));
+    expect(screen.getByTestId("invoice-tab")).toBeInTheDocument();
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1?tab=invoice");
+
+    await user().click(screen.getByRole("button", { name: /^details$/i }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/deals/d1");
+  });
+
+  it("falls back to Details when the linked tab isn't permitted", () => {
+    mocks.perms.deals = false;
+    render(<DealDetailPage dealId="d1" initialTab="invoice" />);
+    expect(screen.queryByRole("button", { name: /^invoice$/i })).toBeNull();
+    expect(screen.queryByTestId("invoice-tab")).toBeNull();
+  });
+
+  it("shows the invoice status in the header", () => {
+    mocks.perms.deals = true;
+    mocks.invoice = { status: "overdue" };
+    render(<DealDetailPage dealId="d1" />);
+    expect(screen.getByRole("button", { name: /invoice overdue/i })).toHaveTextContent("Overdue");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound, Loader2, Phone, Plus, Trash2 } from "lucide-react";
+import { Info, KeyRound, Loader2, Phone, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -25,6 +25,7 @@ import {
 import { formatPhone } from "@/lib/phone";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
 import {
   useNumbers,
   useNumberSettings,
@@ -47,8 +48,8 @@ export function PhoneNumbersPage() {
   const [deleting, setDeleting] = useState<OwnedNumber | undefined>();
 
   const canManage = can("settings", "edit");
-  const sourceOf = (phoneNumber: string) =>
-    numberSettings?.find((s) => s.phoneNumber === phoneNumber)?.sourceId;
+  const settingsOf = (phoneNumber: string) =>
+    numberSettings?.find((s) => s.phoneNumber === phoneNumber);
 
   if (!can("settings")) {
     return (
@@ -105,6 +106,14 @@ export function PhoneNumbersPage() {
                 <TableHead>Number</TableHead>
                 <TableHead>Label</TableHead>
                 <TableHead>Job source</TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center gap-1">
+                    Company
+                    <span title="Overrides the call flow's company" className="inline-flex">
+                      <Info className="size-3.5 text-muted-foreground" aria-hidden />
+                    </span>
+                  </span>
+                </TableHead>
                 {canManage ? (
                   <TableHead className="w-24 text-right">Actions</TableHead>
                 ) : null}
@@ -131,11 +140,29 @@ export function PhoneNumbersPage() {
                       carries it automatically. */}
                   <TableCell>
                     <JobSourceSelect
-                      value={sourceOf(n.phoneNumber)}
+                      value={settingsOf(n.phoneNumber)?.sourceId}
                       onChange={(sourceId) =>
                         updateSettings.mutate({
                           phoneNumber: n.phoneNumber,
                           sourceId: sourceId ?? null,
+                        })
+                      }
+                      disabled={!canManage}
+                    />
+                  </TableCell>
+                  {/* Jobs created from calls on this number start with this
+                      company; empty falls back to the call flow's. */}
+                  <TableCell>
+                    <BusinessProfileSelect
+                      className="h-9"
+                      aria-label={`Company for ${formatPhone(n.phoneNumber)}`}
+                      value={settingsOf(n.phoneNumber)?.businessProfileId ?? null}
+                      allowNone
+                      noneLabel="Call flow's company"
+                      onChange={(businessProfileId) =>
+                        updateSettings.mutate({
+                          phoneNumber: n.phoneNumber,
+                          businessProfileId,
                         })
                       }
                       disabled={!canManage}

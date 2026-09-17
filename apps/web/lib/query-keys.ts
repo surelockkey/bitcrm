@@ -232,4 +232,48 @@ export const queryKeys = {
     /** Every rule's firings in one stream (`GET /automations/runs`). */
     runsFeed: (params?: unknown) => ["automations", "runs-feed", params] as const,
   },
+
+  taxRates: {
+    all: () => ["tax-rates"] as const,
+    list: () => ["tax-rates", "list"] as const,
+  },
+
+  dealTotals: (dealId: string) => ["deals", dealId, "totals"] as const,
+
+  invoices: {
+    all: () => ["invoices"] as const,
+    list: (params?: unknown) => ["invoices", "list", params] as const,
+    detail: (id: string) => ["invoices", "detail", id] as const,
+    byDeal: (dealId: string) => ["invoices", "by-deal", dealId] as const,
+    byContact: (contactId: string) => ["invoices", "by-contact", contactId] as const,
+    summary: () => ["invoices", "summary"] as const,
+    needingInvoice: () => ["invoices", "needing-invoice"] as const,
+  },
+
+  estimates: {
+    all: () => ["estimates"] as const,
+    list: (params?: unknown) => ["estimates", "list", params] as const,
+    detail: (id: string) => ["estimates", "detail", id] as const,
+    byDeal: (dealId: string) => ["estimates", "by-deal", dealId] as const,
+    byContact: (contactId: string) => ["estimates", "by-contact", contactId] as const,
+    summary: () => ["estimates", "summary"] as const,
+  },
+
+  documentTemplates: {
+    all: () => ["document-templates"] as const,
+    list: () => ["document-templates", "list"] as const,
+    detail: (id: string) => ["document-templates", "detail", id] as const,
+  },
+
+  /** Companies (business profiles). The old singleton key is gone — read the default company from this list. */
+  businessProfiles: {
+    all: () => ["business-profiles"] as const,
+    list: () => ["business-profiles", "list"] as const,
+    detail: (id: string) => ["business-profiles", "detail", id] as const,
+  },
+
+  portal: {
+    link: (contactId: string) => ["portal", "link", contactId] as const,
+    view: (token: string) => ["portal", "view", token] as const,
+  },
 } as const;

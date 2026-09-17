@@ -63,6 +63,16 @@ describe('ProductsRepository', () => {
       expect(result!.id).toBe('prod-1');
     });
 
+    it('maps taxable, treating a missing flag as true', async () => {
+      const product = createMockProduct();
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: { ...product, PK: 'PRODUCT#prod-1', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Item: { ...product, taxable: false, PK: 'PRODUCT#prod-1', SK: 'METADATA' } });
+
+      expect((await repository.findById('prod-1'))!.taxable).toBe(true);
+      expect((await repository.findById('prod-1'))!.taxable).toBe(false);
+    });
+
     it('should return null when not found', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: undefined });
 
@@ -293,15 +303,21 @@ describe('ProductsRepository', () => {
      * consumer would see a value `ProductType` has no member for.
      */
     it('lets the typed fields win over the colliding stored value', async () => {
-      const product = await read({ type: 'other', taxable: 'yes-from-workiz' });
+      const product = await read({
+        type: 'other',
+        taxable: 'yes-from-workiz',
+        nonDiscountable: 'yes-from-workiz',
+      });
 
       // Typed field beats the stored one it collides with…
       expect(product.type).toBe('service');
       expect(product.type).not.toBe('other');
       // …while an attribute with no typed counterpart is still carried through
       // (so the fix is the order, not dropping the spread).
-      expect(product.taxable).toBe('yes-from-workiz');
+      expect(product.nonDiscountable).toBe('yes-from-workiz');
       expect(product.workizType).toBe('other');
+      // `taxable` is typed since billing: anything but an explicit false reads as taxable.
+      expect(product.taxable).toBe(true);
     });
 
     it("maps a Workiz 'other' type to service and keeps the word", async () => {

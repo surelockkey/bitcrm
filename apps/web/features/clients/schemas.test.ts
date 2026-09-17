@@ -48,3 +48,28 @@ describe("client schemas — phone rows must be complete numbers", () => {
     }
   });
 });
+
+describe("contact tax exemption", () => {
+  it("defaults to not exempt", () => {
+    const r = contactFormSchema.parse(contact(["+14045551234"]));
+    expect(r.taxExempt).toBe(false);
+  });
+
+  it("accepts an exempt contact with a reason", () => {
+    const r = contactFormSchema.parse({
+      ...contact(["+14045551234"]),
+      taxExempt: true,
+      taxExemptReason: "Non-profit",
+    });
+    expect(r).toMatchObject({ taxExempt: true, taxExemptReason: "Non-profit" });
+  });
+
+  it("caps the reason length", () => {
+    const r = contactFormSchema.safeParse({
+      ...contact(["+14045551234"]),
+      taxExempt: true,
+      taxExemptReason: "x".repeat(201),
+    });
+    expect(r.success).toBe(false);
+  });
+});

@@ -17,6 +17,7 @@ import {
 import { CallEventsBus } from './call-events.bus';
 import { DealLinkService } from '../common/deal-link.service';
 import { NumberSettingsRepository } from '../numbers/number-settings.repository';
+import { CallFlowsService } from '../call-flows/call-flows.service';
 import { CallTagsService } from '../call-tags/call-tags.service';
 
 /** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
@@ -125,20 +126,22 @@ export class CallsService {
      * collaborators a case actually needs; updateTags refuses when it is.
      */
     private readonly callTags?: CallTagsService,
+    @Optional() private readonly callFlows?: CallFlowsService,
   ) {}
 
   /**
-   * Call-tracking attribution: the tracked number a call came through decides
-   * its job source (inbound → the number dialed, outbound → our caller id).
-   * Resolved only while the record has no source yet — a number reassigned to
-   * another campaign later must not rewrite settled history — and a lookup
-   * failure never fails the call write.
+   * Call-tracking attribution: the tracked number a call came through
+   * (inbound → the number dialed, outbound → our caller id) decides its job
+   * source and its company. Company precedence: the number's own setting →
+   * the flow that answers that number → none. Each field is resolved only
+   * while the record lacks it — a number reassigned later must not rewrite
+   * settled history — and a lookup failure never fails the call write.
    */
-  private async resolveSource(
+  private async resolveAttribution(
     update: LifecycleUpdate,
     existing: CallRecord | null,
-  ): Promise<string | undefined> {
-    if (existing?.sourceId || !this.numberSettings) return undefined;
+    want: { source: boolean; company: boolean },
+  ): Promise<{ sourceId?: string; businessProfileId?: string }> {
     const direction = update.direction ?? existing?.direction;
     const tracked =
       direction === 'inbound'
@@ -146,15 +149,34 @@ export class CallsService {
         : direction === 'outbound'
           ? (update.from ?? existing?.from)
           : undefined;
-    if (!tracked) return undefined;
-    try {
-      return (await this.numberSettings.get(tracked))?.sourceId;
-    } catch (err) {
-      this.logger.warn(
-        `Source lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
-      );
-      return undefined;
+    if (!tracked) return {};
+
+    let settings: { sourceId?: string; businessProfileId?: string } | null = null;
+    if (this.numberSettings) {
+      try {
+        settings = await this.numberSettings.get(tracked);
+      } catch (err) {
+        this.logger.warn(
+          `Number settings lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
+
+    let businessProfileId = want.company ? settings?.businessProfileId : undefined;
+    if (want.company && !businessProfileId && this.callFlows) {
+      try {
+        businessProfileId = (await this.callFlows.findByNumber(tracked))?.businessProfileId;
+      } catch (err) {
+        this.logger.warn(
+          `Flow lookup for ${tracked} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
+    return {
+      sourceId: want.source ? settings?.sourceId : undefined,
+      businessProfileId: businessProfileId || undefined,
+    };
   }
 
   /** Fire-and-forget SNS publish — event failures never fail a call write. */
@@ -201,18 +223,28 @@ export class CallsService {
       );
     }
 
-    // Guarded before the await: without a settings repo (or with the source
-    // already settled) the write path keeps its exact microtask profile —
+    // Guarded before the await: without a settings repo / flows (or with the
+    // source and company already settled) the write path keeps its exact microtask profile —
     // fire-and-forget callers (the stale-live heal) rely on it landing fast.
     const needSource =
       !update.sourceId && !existing?.sourceId && !!this.numberSettings;
+    const needCompany =
+      !update.businessProfileId &&
+      !existing?.businessProfileId &&
+      (!!this.numberSettings || !!this.callFlows);
+    const attribution =
+      needSource || needCompany
+        ? await this.resolveAttribution(update, existing, {
+            source: needSource,
+            company: needCompany,
+          })
+        : {};
     const record: CallRecord = {
       ...update,
       status,
       durationSeconds,
-      sourceId:
-        update.sourceId ??
-        (needSource ? await this.resolveSource(update, existing) : undefined),
+      sourceId: update.sourceId ?? attribution.sourceId,
+      businessProfileId: update.businessProfileId ?? attribution.businessProfileId,
       startedAt: update.startedAt ?? existing?.startedAt ?? now,
       updatedAt: now,
     };

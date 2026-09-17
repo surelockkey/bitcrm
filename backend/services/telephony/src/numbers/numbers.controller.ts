@@ -43,6 +43,22 @@ class UpdateNumberSettingsDto {
   @ValidateIf((_, v) => v !== null)
   @IsString()
   sourceId?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Company (billing business profile) id; null clears it. Omit to leave it unchanged.',
+    example: 'bp-default',
+    nullable: true,
+  })
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  businessProfileId?: string | null;
+}
+
+/** No ValidationPipe here: keep only a string or an explicit null; anything else = "not sent". */
+function settingValue(raw: unknown): string | null | undefined {
+  if (raw === null) return null;
+  return typeof raw === 'string' ? raw : undefined;
 }
 
 @ApiTags('Telephony')
@@ -177,7 +193,7 @@ export class NumbersController {
   @Get('settings')
   @RequirePermission('settings', 'view')
   @ApiOperation({
-    summary: 'Per-number settings (job source assignments)',
+    summary: 'Per-number settings (job source + company assignments)',
     description:
       '**Guard:** `settings.view`. Every number with settings; numbers ' +
       'without an entry have none.',
@@ -190,10 +206,11 @@ export class NumbersController {
   @Put(':phoneNumber/settings')
   @RequirePermission('settings', 'edit')
   @ApiOperation({
-    summary: "Assign the number's job source",
+    summary: "Assign the number's job source and/or company",
     description:
-      '**Guard:** `settings.edit`. Calls through the number are attributed ' +
-      'to this job source from now on; `sourceId: null` clears it.',
+      '**Guard:** `settings.edit`. Partial: `{sourceId?, businessProfileId?}` — an omitted ' +
+      'field is left as is, `null` clears it. Calls through the number are attributed to ' +
+      'this source/company from now on (past calls keep theirs). Returns both.',
   })
   async updateSettings(
     @Param('phoneNumber') phoneNumber: string,
@@ -202,7 +219,10 @@ export class NumbersController {
   ) {
     const data = await this.numberSettings.put(
       phoneNumber,
-      { sourceId: dto.sourceId },
+      {
+        sourceId: settingValue(dto?.sourceId),
+        businessProfileId: settingValue(dto?.businessProfileId),
+      },
       user.id,
     );
     return { success: true, data };

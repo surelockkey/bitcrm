@@ -83,7 +83,7 @@ export function useSetTechnicianLine() {
 /** Local key until the catalogs branch lands its query-keys reshuffle. */
 const NUMBER_SETTINGS_KEY = ["telephony", "number-settings"] as const;
 
-/** Per-number job-source assignments (call tracking). */
+/** Per-number job-source and company assignments (call tracking). */
 export function useNumberSettings(enabled = true) {
   return useQuery({
     queryKey: NUMBER_SETTINGS_KEY,
@@ -98,14 +98,14 @@ export function useUpdateNumberSettings() {
   return useMutation({
     mutationFn: ({
       phoneNumber,
-      sourceId,
-    }: {
-      phoneNumber: string;
-      sourceId: string | null;
-    }) => api.updateNumberSettings(phoneNumber, sourceId),
-    onSuccess: () => {
+      ...patch
+    }: { phoneNumber: string } & api.NumberSettingsPatch) =>
+      api.updateNumberSettings(phoneNumber, patch),
+    onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: NUMBER_SETTINGS_KEY });
-      toast.success("Number source updated");
+      toast.success(
+        "businessProfileId" in vars ? "Number company updated" : "Number source updated",
+      );
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

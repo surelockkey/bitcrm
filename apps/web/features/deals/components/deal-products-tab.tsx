@@ -1,13 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2, Plus, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, Loader2, Plus, ShieldCheck, X } from "lucide-react";
+import { calculateDocumentTotals } from "@bitcrm/types";
 import type { Deal, DealProduct } from "@bitcrm/types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useDealProducts, useRemoveProduct, useMarkProductOrdered } from "../hooks";
-import { dealTotal, formatMoney } from "../lib";
+import { useContact } from "@/features/clients/hooks";
+import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
+import {
+  useDealProducts,
+  useDealTotals,
+  useMarkProductOrdered,
+  useRemoveProduct,
+  useResetDealTax,
+  useSetDealDiscount,
+  useSetDealTax,
+  useSetProductTaxable,
+} from "../hooks";
+import { formatMoney } from "../lib";
 import { AddProductDialog } from "./add-product-dialog";
 
 function FulfillmentBadge({ product }: { product: DealProduct }) {
@@ -42,34 +56,71 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
   return null; // `sourced` is the default — no badge needed.
 }
 
-export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
+export function DealProductsTab({
+  deal,
+  canEdit,
+  showPayments = false,
+}: {
+  deal: Deal;
+  canEdit: boolean;
+  /** Add Paid / Balance due to the summary (the Invoice tab reuses this view). */
+  showPayments?: boolean;
+}) {
   const { data: products, isLoading } = useDealProducts(deal.id);
+  const totalsQuery = useDealTotals(deal.id);
   const remove = useRemoveProduct(deal.id);
   const markOrdered = useMarkProductOrdered(deal.id);
+  const setTaxable = useSetProductTaxable(deal.id);
+  const setTax = useSetDealTax(deal.id);
+  const resetTax = useResetDealTax(deal.id);
+  const setDiscount = useSetDealDiscount(deal.id);
+  const exempt = deal.taxSource === "exempt";
+  const { data: contact } = useContact(exempt ? deal.contactId : "");
   const [adding, setAdding] = useState(false);
   // Clicking a row edits that line in the same dialog (change qty/price or
   // swap the item for another catalog product).
   const [editing, setEditing] = useState<DealProduct | null>(null);
 
+  const items = useMemo(() => products ?? [], [products]);
+  // Server totals are authoritative; until they arrive (or while a line edit
+  // is refetching) the same shared formula runs on the local items.
+  const localTotals = useMemo(
+    () =>
+      calculateDocumentTotals({
+        lines: items,
+        taxRatePercent: deal.taxRatePercent,
+        discount: deal.discount,
+      }),
+    [items, deal.taxRatePercent, deal.discount],
+  );
+  const totals = totalsQuery.data && !totalsQuery.isFetching ? totalsQuery.data : localTotals;
+
   if (isLoading) return <Skeleton className="h-40 w-full" />;
-  const items = products ?? [];
-  const total = dealTotal(items);
 
   return (
     <div className="space-y-3">
+      {exempt ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="gap-1 border-emerald-500/40 font-normal text-emerald-700 dark:text-emerald-400">
+            <ShieldCheck /> Tax exempt
+          </Badge>
+          {contact?.taxExemptReason ? <span>{contact.taxExemptReason}</span> : null}
+        </div>
+      ) : null}
       {items.length === 0 ? (
         <div className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
           No products on this job yet.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full min-w-[28rem] text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-2 text-left font-semibold">Item</th>
                 <th className="px-3 py-2 text-right font-semibold">Qty</th>
                 <th className="px-3 py-2 text-right font-semibold">Client</th>
                 <th className="px-3 py-2 text-right font-semibold">Line</th>
+                <th className="px-2 py-2 text-center font-semibold">Taxable</th>
                 {canEdit ? <th className="w-8" /> : null}
               </tr>
             </thead>
@@ -96,6 +147,9 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
                       )}
                       <FulfillmentBadge product={p} />
                     </div>
+                    {p.description ? (
+                      <p className="mt-0.5 line-clamp-2 text-xs whitespace-pre-line text-muted-foreground">{p.description}</p>
+                    ) : null}
                     <div className="font-mono text-[11px] text-muted-foreground">{p.sku} · tech {formatMoney(p.costForTech)}</div>
                     {canEdit && (p.fulfillment ?? "sourced") === "to_order" ? (
                       <button
@@ -118,6 +172,16 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
                   <td className="px-3 py-2 text-right tabular-nums">{p.quantity}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(p.priceClient)}</td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(p.priceClient * p.quantity)}</td>
+                  <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={p.taxable !== false}
+                      disabled={!canEdit}
+                      onCheckedChange={(v) =>
+                        setTaxable.mutate({ productId: p.productId, taxable: v === true })
+                      }
+                      aria-label={`${p.name} is taxable`}
+                    />
+                  </td>
                   {canEdit ? (
                     <td className="px-2 py-2 text-right">
                       <button
@@ -138,7 +202,7 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         {canEdit ? (
           <div className="flex flex-col items-start gap-1">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAdding(true)}>
@@ -146,7 +210,20 @@ export function DealProductsTab({ deal, canEdit }: { deal: Deal; canEdit: boolea
             </Button>
           </div>
         ) : <span />}
-        <span className="font-mono text-sm font-semibold tabular-nums">Total {formatMoney(total)}</span>
+        <DocumentSummaryPanel
+          totals={totals}
+          taxRateId={deal.taxRateId}
+          taxRateName={deal.taxRateName}
+          taxSource={deal.taxSource}
+          discount={deal.discount}
+          canEdit={canEdit}
+          pending={setTax.isPending || resetTax.isPending || setDiscount.isPending}
+          onTaxChange={(taxRateId) => setTax.mutate(taxRateId)}
+          onResetTaxAuto={() => resetTax.mutate()}
+          onDiscountChange={(d) => setDiscount.mutate(d)}
+          exemptLabel={contact?.taxExemptReason}
+          showPayments={showPayments}
+        />
       </div>
 
       <AddProductDialog

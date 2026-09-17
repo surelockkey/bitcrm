@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsInt, IsIn, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { JobSuperStatus, DealPriority, DealStatus, ClientType } from '@bitcrm/types';
@@ -34,6 +34,11 @@ export class ListDealsQueryDto {
   @IsString()
   sourceId?: string;
 
+  @ApiPropertyOptional({ description: 'Company (billing business profile) id.' })
+  @IsOptional()
+  @IsString()
+  businessProfileId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -63,6 +68,14 @@ export class ListDealsQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: 'Billing: only jobs with at least one line item and no invoice yet.',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false', true, false])
+  needsInvoice?: string | boolean;
 
   @ApiPropertyOptional({ default: 20 })
   @IsOptional()

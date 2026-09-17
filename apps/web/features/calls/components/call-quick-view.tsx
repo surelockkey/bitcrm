@@ -23,7 +23,7 @@ import {
   formatCallTime,
   formatDuration,
   formatEndpoint,
-  type CallRecord,
+  newJobHref,
 } from "../lib";
 import { CallAssociations } from "./call-associations";
 import { CallPartyCell } from "./call-party-cell";
@@ -76,23 +76,6 @@ function Row({
       {children}
     </div>
   );
-}
-
-/**
- * Prewire the New Job page with everything the call already knows: the call
- * itself (it gets linked to the created job), the client — or at least their
- * number — and the job source the tracked number attributed the call to.
- */
-function createJobHref(call: CallRecord): string {
-  const counterpart = counterparty(call);
-  const params = new URLSearchParams({ callSid: call.callSid });
-  if (counterpart.kind === "contact" && counterpart.id) {
-    params.set("contactId", counterpart.id);
-  } else if (counterpart.number) {
-    params.set("phone", counterpart.number);
-  }
-  if (call.sourceId) params.set("sourceId", call.sourceId);
-  return `/deals/new?${params.toString()}`;
 }
 
 function QuickViewBody({ callSid }: { callSid: string }) {
@@ -178,7 +161,7 @@ function QuickViewBody({ callSid }: { callSid: string }) {
             is linked to the job on create. Hidden once a job is linked. */}
         {!call.dealId ? (
           <Button asChild variant="brand" className="w-full gap-1.5">
-            <Link href={createJobHref(call)}>
+            <Link href={newJobHref(call)}>
               <Plus className="size-4" /> Create job
             </Link>
           </Button>

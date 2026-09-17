@@ -17,6 +17,8 @@ const baseFields = {
   priceClient: money,
   supplier: z.string().trim().max(120).optional(),
   serialTracking: z.boolean(),
+  /** Default `taxable` flag copied onto job/estimate lines (absent ⇒ true). */
+  taxable: z.boolean().default(true),
   minimumStockLevel: z.coerce
     .number({ message: "Enter a number" })
     .int("Whole number")

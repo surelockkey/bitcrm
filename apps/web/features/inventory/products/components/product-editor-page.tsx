@@ -81,6 +81,7 @@ export function ProductEditorPage({ productId }: { productId: string }) {
     priceClient: product.priceClient,
     supplier: product.supplier ?? "",
     serialTracking: product.serialTracking,
+    taxable: product.taxable !== false,
     minimumStockLevel: product.minimumStockLevel,
   };
 
@@ -192,6 +193,7 @@ export function ProductEditorPage({ productId }: { productId: string }) {
                         <Row label="Company cost" value={formatMoney(product.costCompany)} />
                       ) : null}
                       <Row label="Tech cost" value={formatMoney(product.costTech)} />
+                      <Row label="Taxable" value={product.taxable === false ? "No" : "Yes"} />
                       {canEdit ? (
                         <Row
                           label="Company margin"

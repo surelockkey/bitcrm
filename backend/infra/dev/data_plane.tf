@@ -64,6 +64,19 @@ locals {
       # 2.3M imported messages with no other copy once the Workiz account closes.
       enable_pitr = true
     }
+    # Billing (billing-service): invoices INVOICE#<dealId>, estimates
+    # ESTIMATE#<id> (+ ITEM#<lineId> rows), document templates, business
+    # profile, template image assets, portal tokens (PORTAL#<sha256>) and
+    # per-deal estimate counters. GSI3 is sparse (estimates only).
+    billing = {
+      gsis = [
+        { name = "ListIndex", n = 1 },    # INVOICES | ESTIMATES | TEMPLATES / <createdAt>
+        { name = "ContactIndex", n = 2 }, # CONTACT#<contactId> / INVOICE#<createdAt> | ESTIMATE#<createdAt>
+        { name = "DealIndex", n = 3 },    # DEAL#<dealId> / ESTIMATE#<createdAt>
+      ]
+      # Invoices and estimates are client-facing financial records.
+      enable_pitr = true
+    }
   }
 
   data_plane_tags = {
@@ -212,6 +225,8 @@ module "sns_sqs" {
     # conversation.updated / opt_out.changed from messaging-service. Search
     # consumes conversation.updated; the inbox UI itself is fed by SSE.
     message-events = {}
+    # invoice.* / estimate.* from billing-service. No consumers yet.
+    billing-events = {}
   }
 
   queues = {
@@ -272,6 +287,14 @@ module "sns_sqs" {
     # automations consume this.
     call-events-to-messaging = {
       topic_subscriptions = ["call-events"]
+    }
+
+    # ---- billing-service ----
+    # deal.product_* / deal.updated refresh an invoice's totals snapshot,
+    # deal.status_changed (canceled) archives open estimates, deal.deleted
+    # removes the job's invoice and estimates.
+    billing-deal-events = {
+      topic_subscriptions = ["deal-events"]
     }
   }
 }

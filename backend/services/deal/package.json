@@ -15,6 +15,8 @@
     "backfill:geo": "ts-node src/scripts/backfill-geo.ts",
     "backfill:service-areas": "ts-node src/scripts/backfill-service-areas.ts",
     "backfill:deal-product-fulfillment": "ts-node src/scripts/backfill-deal-product-fulfillment.ts",
+    "backfill:deal-item-count": "ts-node src/scripts/backfill-deal-item-count.ts",
+    "backfill:area-taxes": "ts-node src/scripts/backfill-area-taxes.ts",
     "seed:job-types": "ts-node src/scripts/seed-job-types.ts",
     "seed:external-companies": "ts-node src/scripts/seed-external-companies.ts",
     "migrate:deal-job-types": "ts-node src/scripts/migrate-deal-job-types.ts",

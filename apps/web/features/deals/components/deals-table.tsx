@@ -189,6 +189,9 @@ export function DealsTable({
         return <span className="text-sm">{sourceName(d.sourceId)}</span>;
       case "externalCompany":
         return <span className="text-sm">{externalCompanyName(d.externalCompanyId)}</span>;
+      case "company":
+        // The name is snapshotted on the job, so no catalog lookup is needed.
+        return <span className="text-sm">{d.businessProfileName ?? "—"}</span>;
       case "poNumber":
         return <span className="text-sm">{d.poNumber || "—"}</span>;
       case "total":

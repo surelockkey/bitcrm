@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
+import { Building, ChevronLeft, ExternalLink, Loader2, Lock, Trash2, UserCog, X } from "lucide-react";
 import { DealPriority, type Contact, type Deal } from "@bitcrm/types";
 import type { UpdateDealValues } from "../schemas";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ import {
 import { PhoneInput } from "@/components/ui/phone-input";
 import { isValidPhone, MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagCombobox } from "@/features/job-tags/components/job-tag-combobox";
@@ -90,17 +91,58 @@ import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
 import { DealMessagesTab } from "@/features/messaging/components/deal-messages-tab";
+import { DealEstimatesTab } from "@/features/estimates/components/deal-estimates-tab";
+import { DealInvoiceTab } from "@/features/invoices/components/deal-invoice-tab";
+import { InvoiceStatusBadge } from "@/features/invoices/components/invoice-status-badge";
+import { useInvoiceByDeal } from "@/features/invoices/hooks";
+import { dealTabHref, visibleDealTabs, type DealTab } from "../deal-tabs";
 
-type Tab = "details" | "items" | "attachments" | "messages";
+type Tab = DealTab;
 
-export function DealDetailPage({ dealId }: { dealId: string }) {
+export function DealDetailPage({
+  dealId,
+  initialTab = null,
+  initialEstimateId = null,
+}: {
+  dealId: string;
+  /** From `?tab=` — the tab to open first. */
+  initialTab?: DealTab | null;
+  /** From `?estimate=` — the estimate to open on the Estimates tab. */
+  initialEstimateId?: string | null;
+}) {
   const router = useRouter();
   const { can, me } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
   const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
-  const [tab, setTab] = useState<Tab>("details");
+  const [selectedTab, setSelectedTab] = useState<Tab>(initialTab ?? "details");
+  const [estimateId, setEstimateId] = useState<string | null>(initialEstimateId);
+  const canInvoices = can("invoices");
+  const { data: invoice } = useInvoiceByDeal(dealId, canInvoices);
+  const tabs = visibleDealTabs({
+    estimates: can("estimates"),
+    invoices: canInvoices,
+    messages: can("messages"),
+  });
+  // A deep link to a tab the viewer can't see lands on Details.
+  const tab: Tab = tabs.includes(selectedTab) ? selectedTab : "details";
+
+  // Keep the URL shareable without a server round-trip: the App Router picks
+  // up native history updates (shallow, no refetch of the page).
+  const syncUrl = (nextTab: Tab, nextEstimate: string | null) => {
+    if (typeof window === "undefined") return;
+    const href = dealTabHref(`${window.location.pathname}${window.location.search}`, nextTab, nextEstimate);
+    window.history.replaceState(window.history.state, "", href);
+  };
+  const setTab = (next: Tab) => {
+    setSelectedTab(next);
+    syncUrl(next, estimateId);
+  };
+  const openEstimate = (id: string | null) => {
+    setEstimateId(id);
+    syncUrl("estimates", id);
+  };
   const { data: attachments } = useAttachments(dealId);
   const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
@@ -126,6 +168,25 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         <span className="font-mono text-base font-semibold">#{deal.dealNumber}</span>
         <StageBadge status={deal.superStatus} />
         {isUrgent(deal) ? <PriorityFlag /> : null}
+        {deal.businessProfileName ? (
+          <span
+            title="Company"
+            className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground"
+          >
+            <Building className="size-3" />
+            {deal.businessProfileName}
+          </span>
+        ) : null}
+        {canInvoices && invoice ? (
+          <button
+            type="button"
+            onClick={() => setTab("invoice")}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            aria-label={`Invoice ${invoice.status.replace("_", " ")} — open invoice`}
+          >
+            Invoice <InvoiceStatusBadge status={invoice.status} />
+          </button>
+        ) : null}
         <span className="flex-1" />
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           {canEdit ? <UserCog className="size-3.5" /> : <Lock className="size-3.5" />}
@@ -182,13 +243,13 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b px-6">
-        {(["details", "items", "attachments", ...(can("messages") ? (["messages"] as Tab[]) : [])] as Tab[]).map((t) => (
+      <div className="flex gap-1 overflow-x-auto border-b px-6">
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
+              "flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap capitalize transition-colors",
               t === tab ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >
@@ -212,6 +273,18 @@ export function DealDetailPage({ dealId }: { dealId: string }) {
         {tab === "items" ? (
           <div className="relative flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
+          </div>
+        ) : null}
+        {tab === "estimates" ? (
+          <div className="relative flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-4xl">
+              <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} />
+            </div>
+          </div>
+        ) : null}
+        {tab === "invoice" ? (
+          <div className="relative flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-4xl"><DealInvoiceTab deal={deal} canEditItems={canEdit} /></div>
           </div>
         ) : null}
         {tab === "attachments" ? (
@@ -439,9 +512,21 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
       {/* Job */}
       <Section title="Job">
-        <Field label="Job type">
-          <JobTypeSelect value={dealDraft.jobTypeId} onChange={(val) => setDeal({ jobTypeId: val })} disabled={!canEdit} />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Job type">
+            <JobTypeSelect value={dealDraft.jobTypeId} onChange={(val) => setDeal({ jobTypeId: val })} disabled={!canEdit} />
+          </Field>
+          <Field label="Company">
+            <BusinessProfileSelect
+              className="h-9"
+              value={dealDraft.businessProfileId}
+              fallbackName={deal.businessProfileName}
+              placeholder="Default company"
+              onChange={(val) => setDeal({ businessProfileId: val ?? "" })}
+              disabled={!canEdit}
+            />
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Source">
             <JobSourceSelect value={dealDraft.sourceId} onChange={(val) => setDeal({ sourceId: val })} disabled={!canEdit} />

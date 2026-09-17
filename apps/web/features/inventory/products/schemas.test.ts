@@ -46,6 +46,17 @@ describe("updateProductSchema", () => {
   });
 });
 
+describe("taxable flag", () => {
+  it("defaults to taxable when omitted", () => {
+    const parsed = createProductSchema.parse(base);
+    expect(parsed.taxable).toBe(true);
+  });
+  it("keeps an explicit non-taxable choice on create and update", () => {
+    expect(createProductSchema.parse({ ...base, taxable: false }).taxable).toBe(false);
+    expect(updateProductSchema.parse({ ...base, taxable: false }).taxable).toBe(false);
+  });
+});
+
 describe("updateProductSchemaFor (imported items)", () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { sku: _sku, ...editable } = base;

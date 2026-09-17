@@ -172,6 +172,47 @@ describe('DealProductsRepository', () => {
     });
   });
 
+  describe('billing fields', () => {
+    it('maps taxable (absent ⇒ true) and description', async () => {
+      const base = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct() };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: base })
+        .mockResolvedValueOnce({ Item: { ...base, taxable: false, description: 'Rekey 2 locks' } });
+
+      const legacy = await repository.findProduct('deal-1', 'product-1');
+      const flagged = await repository.findProduct('deal-1', 'product-1');
+
+      expect(legacy!.taxable).toBe(true);
+      expect(flagged!.taxable).toBe(false);
+      expect(flagged!.description).toBe('Rekey 2 locks');
+    });
+
+    it('setTaxable updates the flag on an existing line and returns it', async () => {
+      const item = { PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1', ...createMockDealProduct(), taxable: false };
+      dynamoDb.client.send.mockResolvedValue({ Attributes: item });
+
+      const line = await repository.setTaxable('deal-1', 'product-1', false);
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.Key).toEqual({ PK: 'DEAL#deal-1', SK: 'PRODUCT#product-1' });
+      expect(input.UpdateExpression).toContain('taxable = :t');
+      expect(input.ExpressionAttributeValues[':t']).toBe(false);
+      expect(input.ConditionExpression).toBe('attribute_exists(PK)');
+      expect(line.taxable).toBe(false);
+    });
+
+    it('countByDeal counts PRODUCT# rows across pages', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Count: 2, LastEvaluatedKey: { PK: 'x' } })
+        .mockResolvedValueOnce({ Count: 1 });
+
+      expect(await repository.countByDeal('deal-1')).toBe(3);
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input.Select).toBe('COUNT');
+      expect(input.ExpressionAttributeValues[':sk']).toBe('PRODUCT#');
+    });
+  });
+
   describe('setOrderedAt', () => {
     it('sets orderedAt with a value', async () => {
       dynamoDb.client.send.mockResolvedValue({});

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import { BusinessMetricsService } from '@bitcrm/shared';
-import { type Product } from '@bitcrm/types';
+import { type Company, type Contact, type Product } from '@bitcrm/types';
 import {
   CRM_SERVICE_URL,
   USER_SERVICE_URL,
@@ -78,6 +78,30 @@ export class InternalHttpService {
       this.businessMetrics?.internalHttpErrors.inc({ target_service: 'crm', operation: 'validateContact' });
       this.logger.warn(`Failed to validate contact ${contactId}: ${error.message}`);
       throw error;
+    }
+  }
+
+  /** Full contact (tax exemption, names, addresses). Null when it doesn't exist. */
+  async getContact(contactId: string): Promise<Contact | null> {
+    return this.getCrmEntity<Contact>(`/api/crm/contacts/internal/${contactId}`, 'getContact');
+  }
+
+  /** Full company (tax exemption, title). Null when it doesn't exist. */
+  async getCompany(companyId: string): Promise<Company | null> {
+    return this.getCrmEntity<Company>(`/api/crm/companies/internal/${companyId}`, 'getCompany');
+  }
+
+  private async getCrmEntity<T>(path: string, operation: string): Promise<T | null> {
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'crm', operation });
+    try {
+      const response = await this.crmClient.get(path);
+      timer?.();
+      return (response.data?.data ?? null) as T | null;
+    } catch (error: any) {
+      timer?.();
+      if (error?.response?.status === 404) return null;
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'crm', operation });
+      throw this.toHttpError(error, `CRM ${operation}`);
     }
   }
 

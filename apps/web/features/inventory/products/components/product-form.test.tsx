@@ -20,6 +20,7 @@ const imported: ProductFormValues = {
   costCompany: 0,
   costTech: 0,
   priceClient: -35,
+  taxable: true,
   supplier: "",
   serialTracking: false,
   minimumStockLevel: 0,

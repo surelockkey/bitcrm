@@ -3,7 +3,7 @@ import {
   ServiceAreaType,
   type Deal, type DealProduct, type TimelineEntry, type JwtUser, type Address,
   type ServiceArea, type JobType, type JobSource, type JobTag, type ExternalCompany,
-  type CustomFieldDefinition,
+  type CustomFieldDefinition, type TaxRate,
 } from '@bitcrm/types';
 
 // ---------------------------------------------------------------------------
@@ -172,6 +172,22 @@ export function createMockCustomField(
   };
 }
 
+export function createMockTaxRate(overrides?: Partial<TaxRate>): TaxRate {
+  return {
+    id: 'tax-1',
+    name: 'GA Sales Tax',
+    ratePercent: 7,
+    isDefault: false,
+    active: true,
+    isGroup: false,
+    componentIds: [],
+    createdBy: 'admin-1',
+    createdAt: '2026-04-16T10:00:00.000Z',
+    updatedAt: '2026-04-16T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export function createMockJwtUser(overrides?: Partial<JwtUser>): JwtUser {
   return {
     id: 'admin-1',
@@ -237,6 +253,8 @@ export function createMockDealProductsRepository() {
     findByDeal: jest.fn(),
     findProduct: jest.fn(),
     setOrderedAt: jest.fn(),
+    setTaxable: jest.fn(),
+    countByDeal: jest.fn().mockResolvedValue(0),
   };
 }
 
@@ -261,6 +279,8 @@ export function createMockInternalHttpService() {
       .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
     deductStock: jest.fn().mockResolvedValue(undefined),
     restoreStock: jest.fn().mockResolvedValue(undefined),
+    getContact: jest.fn().mockResolvedValue(null),
+    getCompany: jest.fn().mockResolvedValue(null),
     // Default: the referenced product exists and is a stockable product-type.
     getProduct: jest.fn().mockResolvedValue({
       id: 'product-1',
@@ -282,6 +302,26 @@ export function createMockServiceAreasRepository() {
     get: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
+  };
+}
+
+/** The derived (service-area backed) tax-rate reader. */
+export function createMockTaxRatesService() {
+  return {
+    list: jest.fn().mockResolvedValue([]),
+    listAll: jest.fn().mockResolvedValue([]),
+    findById: jest.fn(),
+    findOptional: jest.fn().mockResolvedValue(null),
+  };
+}
+
+/** The deal-side client of billing's company list. */
+export function createMockBusinessProfilesClient() {
+  return {
+    list: jest.fn().mockResolvedValue([]),
+    findDefault: jest.fn().mockResolvedValue(null),
+    resolve: jest.fn(async (id: string): Promise<{ id: string; name?: string }> => ({ id, name: `Company ${id}` })),
+    clearCache: jest.fn(),
   };
 }
 

@@ -4,6 +4,7 @@ import { type DealStage, type JobSuperStatus } from '../enums/deal-stage.enum';
 import { type DealPriority } from '../enums/deal-priority.enum';
 import { type DealStatus } from '../enums/deal-status.enum';
 import { type CustomFieldValue } from './custom-field.entity';
+import { type DocumentDiscount, type DocumentTaxSource } from '../billing/totals';
 
 /**
  * How a job is handed to a technician (Workiz "Send to tech": SMS / Email /
@@ -60,6 +61,13 @@ export interface Deal {
    */
   sequences?: Record<string, number>;
   priority: DealPriority;
+  /**
+   * The business company (brand) this job is done under — drives the
+   * invoice/estimate letterhead, payment terms and portal branding. Absent ⇒
+   * the default company. Name is denormalized for lists.
+   */
+  businessProfileId?: string;
+  businessProfileName?: string;
   /** Catalog job-source id (where the deal came from). Optional. */
   sourceId?: string;
   /** Catalog external-company id (the partner that referred this job). Optional. */
@@ -74,6 +82,22 @@ export interface Deal {
    * Optional and independent of `stage` — a display/reporting label only.
    */
   subStatusId?: string;
+  /**
+   * The job's single tax rate (Workiz model: one rate per job/invoice, lines
+   * only carry a `taxable` flag). Name + percent are snapshotted so editing the
+   * catalog rate never silently re-prices an existing job.
+   */
+  taxRateId?: string;
+  taxRateName?: string;
+  taxRatePercent?: number;
+  /** Where the current tax came from; `manual` blocks service-area re-resolution. */
+  taxSource?: DocumentTaxSource;
+  /** Job-level discount (shared with the job's invoice). */
+  discount?: DocumentDiscount;
+  /** Number of line items on the job (kept by the deal service; drives "needs invoice"). */
+  itemCount?: number;
+  /** Set by the billing service when the job's invoice exists (=== dealId). */
+  invoiceId?: string;
   estimatedTotal?: number;
   actualTotal?: number;
   paymentStatus?: string;

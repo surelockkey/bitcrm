@@ -16,10 +16,14 @@ import {
   PackagePlus,
   Paperclip,
   Pencil,
+  Percent,
+  Receipt,
+  FileCheck2,
+  FileText,
+  Send,
   PhoneCall,
   PhoneOff,
   Search,
-  Send,
   Sparkles,
   Trash2,
   UserMinus,
@@ -83,6 +87,17 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   // Workiz "Sent to tech by SMS / In App / Email" and "Viewed job in app".
   [TimelineEventType.SENT_TO_TECH]: { icon: Send, label: "Sent to tech" },
   [TimelineEventType.SEEN_BY_TECH]: { icon: Eye, label: "Viewed job in app" },
+  [TimelineEventType.TAX_CHANGED]: { icon: Percent, label: "Tax changed" },
+  [TimelineEventType.DISCOUNT_CHANGED]: { icon: Percent, label: "Discount changed" },
+  [TimelineEventType.INVOICE_CREATED]: { icon: Receipt, label: "Invoice created" },
+  [TimelineEventType.INVOICE_UPDATED]: { icon: Receipt, label: "Invoice updated" },
+  [TimelineEventType.INVOICE_SENT]: { icon: Send, label: "Invoice sent" },
+  [TimelineEventType.INVOICE_DELETED]: { icon: FileX, label: "Invoice deleted" },
+  [TimelineEventType.ESTIMATE_CREATED]: { icon: FileText, label: "Estimate created" },
+  [TimelineEventType.ESTIMATE_STATUS_CHANGED]: { icon: FileText, label: "Estimate status changed" },
+  [TimelineEventType.ESTIMATE_SENT]: { icon: Send, label: "Estimate sent" },
+  [TimelineEventType.ESTIMATE_SYNCED]: { icon: FileCheck2, label: "Estimate synced to job" },
+  [TimelineEventType.ESTIMATE_DELETED]: { icon: FileX, label: "Estimate deleted" },
 };
 
 const FIELD_LABEL: Record<string, string> = {

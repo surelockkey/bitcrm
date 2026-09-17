@@ -8,7 +8,14 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, Deal, JobSuperStatus, User } from "@bitcrm/types";
+import type {
+  Contact,
+  Deal,
+  DealProduct,
+  DocumentDiscount,
+  JobSuperStatus,
+  User,
+} from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
 import { fetchAllContacts } from "@/features/clients/api";
@@ -50,6 +57,15 @@ export function useDealProducts(id: string) {
   return useQuery({
     queryKey: queryKeys.deals.products(id),
     queryFn: () => api.getDealProducts(id),
+  });
+}
+
+/** Server totals for the job's items (discount + tax applied). */
+export function useDealTotals(id: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.dealTotals(id),
+    queryFn: () => api.getDealTotals(id),
+    enabled: enabled && !!id,
   });
 }
 
@@ -198,6 +214,20 @@ function useInvalidateDeal(id?: string) {
       qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.assignments(id) });
     }
+  };
+}
+
+/**
+ * Anything that changes what a job charges: the deal (tax snapshot, discount,
+ * itemCount), its items, its totals and the invoice mirrored from it.
+ */
+function useInvalidateDealBilling(id: string) {
+  const qc = useQueryClient();
+  const invalidateDeal = useInvalidateDeal(id);
+  return () => {
+    invalidateDeal();
+    qc.invalidateQueries({ queryKey: queryKeys.dealTotals(id) });
+    qc.invalidateQueries({ queryKey: queryKeys.invoices.byDeal(id) });
   };
 }
 
@@ -454,7 +484,7 @@ export function useDeleteNote(id: string) {
 }
 
 export function useAddProduct(id: string) {
-  const invalidate = useInvalidateDeal(id);
+  const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: (body: AddProductValues) => api.addDealProduct(id, body),
     onSuccess: () => {
@@ -466,7 +496,7 @@ export function useAddProduct(id: string) {
 }
 
 export function useReplaceProduct(id: string) {
-  const invalidate = useInvalidateDeal(id);
+  const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: ({ productId, body }: { productId: string; body: AddProductValues }) =>
       api.replaceDealProduct(id, productId, body),
@@ -479,7 +509,7 @@ export function useReplaceProduct(id: string) {
 }
 
 export function useRemoveProduct(id: string) {
-  const invalidate = useInvalidateDeal(id);
+  const invalidate = useInvalidateDealBilling(id);
   return useMutation({
     mutationFn: (productId: string) => api.removeDealProduct(id, productId),
     onSuccess: () => {
@@ -500,5 +530,67 @@ export function useMarkProductOrdered(id: string) {
       toast.success(ordered ? "Marked as ordered" : "Marked as not ordered");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/* ------------------------------------------------------ tax / discount */
+
+export function useSetDealTax(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: (taxRateId: string | null) => api.setDealTax(id, taxRateId),
+    onSuccess: (deal) => {
+      invalidate();
+      toast.success(deal.taxRateId ? `Tax set to ${deal.taxRateName ?? "rate"}` : "Tax removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useResetDealTax(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: () => api.resetDealTaxAuto(id),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Tax reset to automatic");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useSetDealDiscount(id: string) {
+  const invalidate = useInvalidateDealBilling(id);
+  return useMutation({
+    mutationFn: (discount: DocumentDiscount | null) => api.setDealDiscount(id, discount),
+    onSuccess: (_deal, discount) => {
+      invalidate();
+      toast.success(discount ? "Discount applied" : "Discount removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** Flip a line's `taxable` flag; the checkbox updates before the server answers. */
+export function useSetProductTaxable(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDealBilling(id);
+  const key = queryKeys.deals.products(id);
+  return useMutation({
+    mutationFn: ({ productId, taxable }: { productId: string; taxable: boolean }) =>
+      api.setDealProductTaxable(id, productId, taxable),
+    onMutate: async ({ productId, taxable }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<DealProduct[]>(key);
+      qc.setQueryData<DealProduct[]>(key, (old) =>
+        old?.map((p) => (p.productId === productId ? { ...p, taxable } : p)),
+      );
+      return { previous };
+    },
+    onError: (e, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+      toast.error(getApiErrorMessage(e));
+    },
+    onSettled: () => invalidate(),
   });
 }

@@ -13,6 +13,8 @@ export interface CallFlowValues {
   entryNodeId?: string;
   nodes?: Record<string, CallFlowNode>;
   active?: boolean;
+  /** Company jobs from this flow's calls start with; null clears it. */
+  businessProfileId?: string | null;
 }
 
 /**

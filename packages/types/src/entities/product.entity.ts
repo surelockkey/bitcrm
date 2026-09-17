@@ -27,6 +27,8 @@ export interface Product {
   costCompany: number;
   costTech: number;
   priceClient: number;
+  /** Default `taxable` flag copied onto job/estimate lines. Absent ⇒ `true`. */
+  taxable?: boolean;
   supplier?: string;
   photoKey?: string;
   serialTracking: boolean;

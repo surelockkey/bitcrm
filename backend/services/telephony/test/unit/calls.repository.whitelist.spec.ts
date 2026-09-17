@@ -40,6 +40,7 @@ describe('CallsRepository upsert — the optional attribute whitelist', () => {
     origin: 'bridge',
     callerIdSource: 'area',
     sourceId: 'src-google-ads',
+    businessProfileId: 'bp-2',
   };
 
   const BASE = {

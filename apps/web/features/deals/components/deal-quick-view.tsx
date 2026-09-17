@@ -170,6 +170,12 @@ function QuickViewBody({ dealId }: { dealId: string }) {
           <div>{jobTypeName(deal.jobTypeId)}</div>
         </Row>
 
+        {deal.businessProfileName ? (
+          <Row label="Company">
+            <div>{deal.businessProfileName}</div>
+          </Row>
+        ) : null}
+
         <Row label="Tags">
           {canEdit ? (
             <JobTagCombobox
