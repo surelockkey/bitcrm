@@ -5,6 +5,7 @@ import {
   getUserPermissions,
   setUserPermissions,
 } from "@/features/users/api";
+import { queryKeys } from "@/lib/query-keys";
 
 /**
  * Turn client-number masking on or off for one user.
@@ -47,9 +48,13 @@ export function useSetClientNumberVisibility() {
         },
       });
     },
+    // Through `queryKeys`, because the two keys spelled out by hand here
+    // ("user-permissions", "technician-profile") match nothing this app ever
+    // stores: the write landed and every screen showing the old answer kept
+    // showing it until something else happened to refetch.
     onSuccess: (_data, { userId }) => {
-      void qc.invalidateQueries({ queryKey: ["user-permissions", userId] });
-      void qc.invalidateQueries({ queryKey: ["technician-profile", userId] });
+      void qc.invalidateQueries({ queryKey: queryKeys.users.permissions(userId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.technicians.profile(userId) });
     },
   });
 }
