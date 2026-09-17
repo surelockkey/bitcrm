@@ -11,6 +11,9 @@ describe('shouldPersistQuery', () => {
     expect(shouldPersistQuery(q(queryKeys.me()))).toBe(true);
     expect(shouldPersistQuery(q(queryKeys.deals.list({ techId: 'u1' })))).toBe(true);
     expect(shouldPersistQuery(q(queryKeys.deals.detail('d1')))).toBe(true);
+    // "Have I got one on board?" is asked in basements.
+    expect(shouldPersistQuery(q(queryKeys.inventory.containers.mine()))).toBe(true);
+    expect(shouldPersistQuery(q(queryKeys.inventory.containers.stock('c1')))).toBe(true);
   });
 
   it('drops things that would be stale or useless on restore', () => {

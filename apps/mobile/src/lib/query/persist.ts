@@ -20,6 +20,11 @@ export function shouldPersistQuery(query: {
   const [root, scope] = query.queryKey;
   if (root === 'me') return true;
   if (root === 'deals') return scope === 'list' || scope === 'detail';
+  // The van and its contents. Its whole question — "have I got one on board?"
+  // — gets asked in the places with the worst signal there are: a basement, an
+  // underground car park, the back of a building. Quantities drift while the
+  // phone is offline, so the screen says when what it shows came off the disk.
+  if (root === 'inventory') return scope === 'containers';
   return false;
 }
 

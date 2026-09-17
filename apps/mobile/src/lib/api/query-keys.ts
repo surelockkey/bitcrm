@@ -22,6 +22,14 @@ export const queryKeys = {
     detail: (id: string) => ['contacts', 'detail', id] as const,
   },
 
+  inventory: {
+    containers: {
+      /** The signed-in technician's own van. */
+      mine: () => ['inventory', 'containers', 'mine'] as const,
+      stock: (id: string) => ['inventory', 'containers', id, 'stock'] as const,
+    },
+  },
+
   /** The technician's own outbox — read from SQLite, not the network. */
   outbox: {
     all: () => ['outbox'] as const,
