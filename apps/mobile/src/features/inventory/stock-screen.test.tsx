@@ -58,7 +58,15 @@ describe('StockScreen', () => {
     mockStock = state({ rows: [row({ quantity: 3 })], summary: { skuCount: 1, totalUnits: 3 } });
     await renderScreen(<StockScreen />);
 
-    expect(screen.getByLabelText('Kwikset deadbolt, 3 on the van')).toBeTruthy();
+    const line = screen.getByLabelText('Kwikset deadbolt, 3 on the van');
+    /*
+     * The label alone is not the test. This renderer finds an
+     * `accessibilityLabel` on any element; VoiceOver only reads one on an
+     * element that is *accessible*, and the row's quantity is hidden from it
+     * by hand — so a row that is not an accessibility element announces the
+     * part's name and never the number.
+     */
+    expect(line.props.accessible).toBe(true);
   });
 
   it('narrows the list as the technician types, and offers a way back', async () => {
@@ -88,6 +96,20 @@ describe('StockScreen', () => {
     expect(screen.getByText(/Ask the office/)).toBeTruthy();
     // Nothing here for them to retry — retrying would fail the same way.
     expect(screen.queryByText('Try again')).toBeNull();
+  });
+
+  it('lets them look again once the office has put them on a van', async () => {
+    /*
+     * The only empty state on this screen that the server changes while the
+     * technician is looking at it. The tab stays mounted and nothing refetches
+     * on a tab tap, so without a control here "No van assigned to you yet"
+     * outlives the assignment — until the app is killed.
+     */
+    mockStock = state({ container: undefined, unassigned: true });
+    await renderScreen(<StockScreen />);
+
+    await fireEvent.press(screen.getByText('Check again'));
+    expect(mockRefetch).toHaveBeenCalled();
   });
 
   it('distinguishes an empty van from a van it could not read', async () => {

@@ -96,6 +96,44 @@ describe('useMyStock', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
   });
 
+  it('does not ask for the stock of a van that does not exist', async () => {
+    /*
+     * `enabled` gates automatic fetching only — react-query runs `queryFn` on
+     * an explicit `refetch()` regardless. So "Try again" / "Check again" on a
+     * technician with no container used to send
+     * `GET /inventory/containers/undefined/stock`.
+     */
+    mockApi.getMyContainer.mockRejectedValue(new ApiError(404, 'Not found'));
+
+    const { result } = await renderHook(() => useMyStock(), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+    await waitFor(() => expect(result.current.unassigned).toBe(true));
+
+    result.current.refetch();
+    await waitFor(() => expect(mockApi.getMyContainer).toHaveBeenCalledTimes(2));
+    expect(mockApi.getContainerStock).not.toHaveBeenCalled();
+  });
+
+  it('admits the rows are the phone’s own copy when the van itself would not load', async () => {
+    // Whichever of the two requests failed, the quantities on screen are
+    // equally old, and the banner is the only thing that says so.
+    mockApi.getMyContainer.mockResolvedValueOnce(container);
+    mockApi.getContainerStock.mockResolvedValue([item()]);
+
+    const { result } = await renderHook(() => useMyStock(), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+    await waitFor(() => expect(result.current.rows).toHaveLength(1));
+    expect(result.current.stale).toBe(false);
+
+    mockApi.getMyContainer.mockRejectedValue(new ApiError(0, 'Unable to reach the server.'));
+    result.current.refetch();
+
+    await waitFor(() => expect(result.current.stale).toBe(true));
+    expect(result.current.rows).toHaveLength(1);
+  });
+
   it('sorts and drops zero rows on the way through', async () => {
     mockApi.getMyContainer.mockResolvedValue(container);
     mockApi.getContainerStock.mockResolvedValue([

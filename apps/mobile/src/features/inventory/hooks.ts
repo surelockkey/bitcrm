@@ -111,10 +111,20 @@ export function useMyStock(): UseMyStockResult {
     isLoading: containerLoading || (Boolean(containerId) && stockQuery.isPending),
     isRefetching: stockQuery.isRefetching,
     error: containerError ?? stockQuery.error ?? undefined,
-    stale: Boolean(stockQuery.error) && rows.length > 0,
+    // Either request failing is a reason to admit the rows are the phone's own
+    // copy: when it is the container's turn that failed, react-query keeps
+    // serving the cached van and the cached stock under it, and the quantities
+    // are exactly as old as in the other case.
+    stale: Boolean(containerError ?? stockQuery.error) && rows.length > 0,
     refetch: () => {
       refetchContainer();
-      void stockQuery.refetch();
+      // `enabled` only gates *automatic* fetching: react-query runs `queryFn`
+      // on an explicit refetch whatever it says (`queryObserver.refetch` →
+      // `query.fetch`, no `enabled` guard). Unguarded, "Try again" on a
+      // technician with no van — or with a container request that failed —
+      // sends `GET /inventory/containers/undefined/stock`, a URL the server
+      // never agreed to serve, on a connection that is already the problem.
+      if (containerId) void stockQuery.refetch();
     },
   };
 }

@@ -63,9 +63,14 @@ export function StockScreen() {
     );
   }
 
-  // No van is not a failure and there is nothing the technician can do about
-  // it from here, so it says who can — and offers no "Try again" that would
-  // only fail the same way.
+  // No van is not a failure, so it says who can fix it rather than offering a
+  // "Try again" that would blame the network. It does offer to look again:
+  // this is the one empty state the *server* changes while the technician
+  // watches — the office puts them on a container mid-shift — and without a
+  // control here nothing would ask it. The tab stays mounted, the query is
+  // only refetched on mount or on a reconnect, and neither happens while a
+  // technician stands there; the screen would keep saying "no van" until the
+  // app was killed.
   if (unassigned) {
     return (
       <Screen testID="stock-screen">
@@ -74,6 +79,8 @@ export function StockScreen() {
           testID="stock-unassigned"
           title="No van assigned to you yet"
           body="Ask the office to put you on a container. Everything in it shows up here as soon as they do."
+          actionLabel="Check again"
+          onAction={refetch}
         />
       </Screen>
     );
@@ -209,6 +216,15 @@ function StockLine({ row }: { row: StockRow }) {
   return (
     <View
       testID="stock-row"
+      /*
+       * `accessible` is what makes the label below actually get read. A View is
+       * not an accessibility element by default, and a label on one that isn't
+       * is simply ignored on iOS — VoiceOver walks into the children instead.
+       * Here the quantity child is deliberately hidden from it, so without
+       * this the one number the screen exists to say would be the one thing
+       * never announced: "Kwikset deadbolt", and nothing about how many.
+       */
+      accessible
       accessibilityLabel={`${row.name}, ${row.quantity} on the van`}
       style={[
         styles.row,
