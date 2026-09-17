@@ -10,7 +10,7 @@ import {
 } from "@bitcrm/types";
 import { SUPER_STATUS_LABEL, triggerHasJob } from "../lib";
 import { actionSchema } from "../schemas";
-import type { ChainNode, ChainNodeKind } from "./types";
+import { isActionNode, type ChainNode, type ChainNodeKind } from "./types";
 
 /** The small line above a card: what kind of step this is (§3). */
 export const KIND_LABEL: Record<ChainNodeKind, string> = {
@@ -91,7 +91,11 @@ export function chainNodeSummary(node: ChainNode, labels?: AutomationLabelMap): 
     case "wait": {
       const minutes = node.waitMinutes ?? 0;
       if (minutes <= 0) return PLACEHOLDER.wait;
-      return `Wait ${automationDelayText(minutes).replace(/^after /, "")} before the steps below`;
+      // Not "before the steps below": the engine holds one delay for the whole
+      // rule and counts it from the trigger, so a wait dropped between two
+      // sends holds them both. A card that promised otherwise would draw a
+      // rule that is not the rule being saved.
+      return `Wait ${automationDelayText(minutes).replace(/^after /, "")} before this rule does anything`;
     }
     default:
       return node.action ? capitalise(automationActionSentence(node.action, named)) : PLACEHOLDER[node.kind];
@@ -135,7 +139,11 @@ export function nodeIssue(node: ChainNode, chain: ChainNode[]): NodeIssue | unde
     if (
       trigger.kind === "deal.status_changed" &&
       !trigger.to?.length &&
-      !trigger.toSubStatus?.length
+      !trigger.toSubStatus?.length &&
+      // `from` is a narrowing too, and one no card shows: a rule watching jobs
+      // that leave In progress is not a rule that fires on every change, and
+      // telling its author it is invites them to "fix" it into one.
+      !trigger.from?.length
     ) {
       // The same widening the conditions list warns about, in the same words:
       // a status trigger naming no status fires on every status change.
@@ -153,9 +161,23 @@ export function nodeIssue(node: ChainNode, chain: ChainNode[]): NodeIssue | unde
   }
 
   if (node.kind === "wait") {
-    return (node.waitMinutes ?? 0) > 0
-      ? undefined
-      : { level: "warns", text: "No wait set, so the steps below run straight away." };
+    if ((node.waitMinutes ?? 0) <= 0) {
+      return { level: "warns", text: "No wait set, so the rule acts straight away." };
+    }
+    // `chainToSpec` writes every wait into the rule's single `delayMinutes`,
+    // which the engine counts from the trigger. Dropped below a step that does
+    // something, the card sits after what it in fact delays — and on the next
+    // open it is read back in front of them. Said here rather than left for a
+    // dispatcher to discover from a text that arrived an hour late.
+    const firstAction = chain.findIndex(isActionNode);
+    const here = chain.findIndex((n) => n.id === node.id);
+    if (firstAction >= 0 && here > firstAction) {
+      return {
+        level: "warns",
+        text: "A rule has one delay and it counts from the trigger, so this holds the steps above it too.",
+      };
+    }
+    return undefined;
   }
 
   const action = node.action;

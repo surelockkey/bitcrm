@@ -112,6 +112,9 @@ export function AutomationNodeCard({
             card its hit area without nesting a button inside a button. */}
         <button
           type="button"
+          // How the chain finds this card again after the list has changed
+          // under it — see the focus handling in `automation-builder`.
+          data-step-card={node.id}
           aria-label={`Step ${index}, ${kind}: ${summary}`}
           aria-expanded={selected}
           aria-controls={panelId}

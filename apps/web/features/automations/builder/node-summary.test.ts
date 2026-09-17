@@ -57,12 +57,14 @@ describe("chainNodeSummary", () => {
     );
   });
 
-  it("says how long a wait holds the steps below it", () => {
+  it("says how long a wait holds the rule, whatever the card sits between", () => {
+    // The engine holds one delay per rule and counts it from the trigger, so a
+    // wait never holds only "the steps below" it.
     expect(chainNodeSummary(node({ kind: "wait", waitMinutes: 60 }))).toBe(
-      "Wait 1 hour before the steps below",
+      "Wait 1 hour before this rule does anything",
     );
     expect(chainNodeSummary(node({ kind: "wait", waitMinutes: 1440 }))).toBe(
-      "Wait 1 day before the steps below",
+      "Wait 1 day before this rule does anything",
     );
   });
 
@@ -143,5 +145,25 @@ describe("nodeIssue", () => {
   it("warns about a wait of nothing", () => {
     expect(nodeIssue(node({ kind: "wait", waitMinutes: 0 }), chain)?.level).toBe("warns");
     expect(nodeIssue(node({ kind: "wait", waitMinutes: 15 }), chain)).toBeUndefined();
+  });
+
+  it("warns when a wait sits below a step it in fact delays", () => {
+    const wait = node({ id: "w", kind: "wait", waitMinutes: 60 });
+    const send = node({ id: "s", action: { type: "send_sms", to: "client", body: "Hi" } });
+
+    // In front of everything the rule does, which is where a saved rule always
+    // reads back, there is nothing to say.
+    expect(nodeIssue(wait, [chain[0], wait, send])).toBeUndefined();
+    // Dropped below it, the delay still holds that step — one delay per rule,
+    // counted from the trigger.
+    expect(nodeIssue(wait, [chain[0], send, wait])).toEqual({
+      level: "warns",
+      text: "A rule has one delay and it counts from the trigger, so this holds the steps above it too.",
+    });
+  });
+
+  it("does not call a status trigger narrowed by `from` a rule that fires on everything", () => {
+    const leaving = node({ kind: "trigger", trigger: { kind: "deal.status_changed", from: ["in_progress"] } });
+    expect(nodeIssue(leaving, [leaving])).toBeUndefined();
   });
 });

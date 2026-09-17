@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronLeft, History, Info, Loader2, MoreVertical, Pencil, X } from "lucide-react";
 import type { AutomationLabelMap, AutomationRule, AutomationSpec } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -112,6 +112,22 @@ export function AutomationBuilderDialog({
   const [testing, setTesting] = useState(false);
   const [showingRuns, setShowingRuns] = useState(false);
   const panelId = useId();
+  const chainRef = useRef<HTMLOListElement>(null);
+  /** A step whose card should take focus once the chain has been redrawn. */
+  const focusAfterRedraw = useRef<string>(undefined);
+
+  // Deleting a step unmounts the menu that deleted it, and that menu hands
+  // focus back to a trigger which is no longer in the document — so focus
+  // lands on the body and a keyboard reader loses their place in the chain.
+  // The card that took the deleted one's place is focused instead. Held in a
+  // ref rather than state: it is a one-shot instruction to the DOM, not
+  // something the chain is drawn from.
+  useEffect(() => {
+    const id = focusAfterRedraw.current;
+    if (!id) return;
+    focusAfterRedraw.current = undefined;
+    chainRef.current?.querySelector<HTMLElement>(`[data-step-card="${id}"]`)?.focus();
+  });
 
   /**
    * Everything the chain does not hold, for `chainToSpec` to carry through:
@@ -155,8 +171,12 @@ export function AutomationBuilderDialog({
   };
 
   const remove = (id: string) => {
+    const at = nodes.findIndex((n) => n.id === id);
     setNodes((current) => current.filter((n) => n.id !== id));
     setSelectedId((current) => (current === id ? undefined : current));
+    // The step that slides up into this one's place, or the one above it when
+    // the last step went — where a reader's eye and the caret both end up.
+    focusAfterRedraw.current = nodes[at + 1]?.id ?? nodes[at - 1]?.id;
   };
 
   const submit = () => {
@@ -226,7 +246,7 @@ export function AutomationBuilderDialog({
                 </p>
               ) : null}
 
-              <ol className="flex flex-col">
+              <ol className="flex flex-col" ref={chainRef}>
                 {nodes.map((node, i) => (
                   <li key={node.id}>
                     <AutomationNodeCard
@@ -293,6 +313,12 @@ export function AutomationBuilderDialog({
                   </Button>
                 </div>
                 <NodePanel
+                  // Keyed by the step, so choosing another card builds the
+                  // panel again rather than reusing this one: a panel that
+                  // survives the switch keeps its own state, and the half-typed
+                  // message of step 2 would appear under step 3 — and be saved
+                  // onto it.
+                  key={selected.id}
                   node={selected}
                   labels={named}
                   chain={nodes}

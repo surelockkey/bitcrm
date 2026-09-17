@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AutomationSpec } from "@bitcrm/types";
 import { AUTOMATION_TEMPLATES } from "../templates";
+import { specToForm, toSpec, type AutomationFormOutput } from "../schemas";
 import {
   actionNodeKind,
   chainToSpec,
@@ -273,6 +274,152 @@ describe("chainToSpec and the fields no node holds", () => {
     const nodes = [...specToChain(base)];
     nodes.splice(1, 0, newChainNode("condition"));
     expect(chainToSpec(nodes, base).conditions).toEqual([]);
+  });
+});
+
+/**
+ * The same rules through the editor that is being replaced and through the one
+ * replacing it, compared field by field. `toEqual` above reads a missing key
+ * and a key set to `undefined` as the same thing, and the narrowings at stake
+ * here are exactly the keys that go missing — so these are `toStrictEqual`,
+ * and they are against the old editor's own output rather than against a
+ * hand-written expectation, which is the only baseline that can prove nothing
+ * moved.
+ */
+describe("the chain saves what the form editor saved", () => {
+  const throughTheForm = (spec: AutomationSpec): AutomationSpec =>
+    toSpec(specToForm("x", spec) as unknown as AutomationFormOutput);
+
+  const handBuilt: Array<[string, AutomationSpec]> = [
+    [
+      "an OR group between two plain conditions, on a trigger narrowed by `from` and `onCreate`",
+      {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: ["done"], from: ["in_progress"], onCreate: false },
+        conditions: [
+          { field: "tag", op: "in", values: ["t1"], labels: ["VIP"] },
+          { any: [{ field: "source", op: "in", values: ["a"] }, { field: "source", op: "in", values: ["b"] }] },
+          { field: "status", op: "ne", values: ["canceled"] },
+        ],
+        actions: [{ type: "send_sms", to: "client", body: "hi" }],
+      },
+    ],
+    [
+      "a webhook with its method, headers and payload, inside a delivery window",
+      {
+        version: 1,
+        trigger: { kind: "deal.created" },
+        conditions: [],
+        actions: [
+          {
+            type: "webhook",
+            url: "https://x.test/h",
+            method: "PUT",
+            headers: { "X-Auth": "s", "Content-Type": "application/json" },
+            payload: '{"a":1}',
+          },
+        ],
+        timing: { quietHours: "skip", workingHours: { from: "08:00", to: "18:00" } },
+      },
+    ],
+    [
+      "a template with no body of its own, to two named users",
+      {
+        version: 1,
+        trigger: { kind: "message.received", messageChannel: "sms", messagePartyKind: "contact" },
+        conditions: [],
+        actions: [{ type: "send_email", to: "users", userIds: ["u1", "u2"], templateId: "tpl", subject: "S" }],
+      },
+    ],
+    [
+      "an inbound-only missed call texting a bare number",
+      {
+        version: 1,
+        trigger: { kind: "call.completed", callOutcome: "missed", callDirection: "inbound" },
+        conditions: [],
+        actions: [{ type: "send_sms", to: "number", number: "+14045551234", body: "b" }],
+      },
+    ],
+    [
+      "five actions, a delay and a sub-status trigger",
+      {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: ["done"], toSubStatus: ["s1"] },
+        conditions: [],
+        actions: [
+          { type: "send_sms", to: "assigned_techs", body: "a" },
+          { type: "add_tag", tagId: "t2" },
+          { type: "send_email", to: "role", roleIds: ["r1"], body: "a", subject: "S" },
+          { type: "change_sub_status", superStatus: "done", subStatusId: "s9" },
+          { type: "send_sms", to: "client", body: "z" },
+        ],
+        timing: { delayMinutes: 90, quietHours: "hold" },
+      },
+    ],
+    [
+      'a "text and email" pair, which the save path collapses and expands again',
+      {
+        version: 1,
+        trigger: { kind: "deal.created" },
+        conditions: [],
+        actions: [
+          { type: "send_sms", to: "client", body: "B" },
+          { type: "send_email", to: "client", body: "B", subject: "Your job" },
+        ],
+      },
+    ],
+    [
+      "a rule stored with no conditions key at all",
+      { version: 1, trigger: { kind: "deal.created" }, actions: [{ type: "send_sms", to: "client", body: "x" }] },
+    ],
+    [
+      "an in-app notice to the dispatcher on any job change",
+      {
+        version: 1,
+        trigger: { kind: "deal.updated" },
+        conditions: [{ field: "isLead", op: "exists" }],
+        actions: [{ type: "send_in_app", to: "dispatcher", body: "x" }],
+      },
+    ],
+    [
+      'a reminder counted after the job ends, sending anyway outside quiet hours',
+      {
+        version: 1,
+        trigger: { kind: "schedule.relative", anchor: "scheduledEnd", offsetMinutes: 2880 },
+        conditions: [],
+        actions: [{ type: "send_sms", to: "client", body: "x" }],
+        timing: { delayMinutes: 5, quietHours: "ignore" },
+      },
+    ],
+  ];
+
+  const cases: Array<[string, AutomationSpec]> = [
+    ...AUTOMATION_TEMPLATES.map((t) => [`the ${t.id} recipe`, t.draft.spec] as [string, AutomationSpec]),
+    ...handBuilt,
+  ];
+
+  it.each(cases)("%s goes through the chain exactly as it went through the form", (_name, spec) => {
+    expect(roundTrip(spec)).toStrictEqual(throughTheForm(spec));
+  });
+
+  it.each(cases)("%s comes back from the chain as it was stored", (_name, spec) => {
+    // `conditions` is optional on the spec and both editors write it, so the
+    // one rule stored without it gains an empty list — as it always has.
+    expect(roundTrip(spec)).toStrictEqual({ conditions: [], ...spec });
+  });
+
+  it("drops a stored condition that matched everything, rather than keeping it", () => {
+    // An `in` with no values narrows nothing: the evaluator reads it as "this
+    // field is not narrowed", so storing it back would be a rule that fires
+    // for every job wearing a condition that says otherwise.
+    const wide: AutomationSpec = {
+      version: 1,
+      trigger: { kind: "deal.created" },
+      conditions: [{ field: "tag", op: "in", values: [] }],
+      actions: [{ type: "send_sms", to: "client", body: "x" }],
+    };
+    expect(roundTrip(wide).conditions).toStrictEqual([]);
+    expect(roundTrip(wide)).toStrictEqual(throughTheForm(wide));
   });
 });
 

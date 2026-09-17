@@ -187,6 +187,28 @@ describe("the chain", () => {
     expect(screen.getByLabelText("Step settings")).toHaveTextContent(/Pick a step/);
   });
 
+  it("keeps a keyboard's place in the chain when a step is deleted", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+
+    // The menu that deletes a step goes away with the step, and hands focus
+    // back to a trigger that is no longer in the document — so without help
+    // focus lands on the body and the chain has to be tabbed into again.
+    await user.click(await screen.findByRole("button", { name: "Actions for step 3" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Step 3, Send/ })),
+    );
+
+    // The last step deleted, focus goes to the one above rather than nowhere.
+    await user.click(screen.getByRole("button", { name: "Actions for step 3" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Step 2, Only if/ })),
+    );
+  });
+
   it("shows why a rule the engine cannot run is stuck", async () => {
     renderBuilder({ runnable: false, notRunnableReason: "Workiz sent this to a lead, and there are no leads here" });
     expect(await screen.findByText(/there are no leads here/)).toBeInTheDocument();
@@ -335,7 +357,7 @@ describe("the + between steps", () => {
 
     await screen.findByDisplayValue("Scheduled jobs");
     await addStep(user, "Add a step after step 1, Trigger", "Wait");
-    expect(chain()[1]).toBe("Step 2, Wait: Wait 1 hour before the steps below");
+    expect(chain()[1]).toBe("Step 2, Wait: Wait 1 hour before this rule does anything");
 
     await user.click(screen.getByRole("button", { name: "Add a step at the end" }));
     const wait = await screen.findByRole("option", { name: /Wait/i });
@@ -360,6 +382,25 @@ describe("the + between steps", () => {
 
     await waitFor(() => expect(patched).toHaveLength(2));
     expect(patched[1].body.spec?.timing?.delayMinutes).toBeUndefined();
+  });
+
+  it("says so when a wait is dropped below a step it in fact delays", async () => {
+    const user = userEvent.setup();
+    renderBuilder();
+
+    await screen.findByDisplayValue("Scheduled jobs");
+    // The last "+" is below the one thing this rule does, so the wait lands
+    // after it — and the engine's single delay still holds that step.
+    await addStep(user, "Add a step at the end", "Wait");
+
+    expect(chain()[4]).toBe("Step 5, Wait: Wait 1 hour before this rule does anything");
+    expect(
+      screen.getByText("A rule has one delay and it counts from the trigger, so this holds the steps above it too."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.timing).toMatchObject({ delayMinutes: 60 });
   });
 });
 
