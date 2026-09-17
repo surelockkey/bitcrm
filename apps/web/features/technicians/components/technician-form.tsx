@@ -440,7 +440,10 @@ function Form({
       </div>
 
       {canSave ? (
-        <div className="flex justify-end border-t pt-4">
+        // Centred under both columns. The form is two columns wide, and a
+        // button in the right-hand corner reads as belonging to the right
+        // column — which is not what it saves.
+        <div className="flex justify-center border-t pt-4">
           <Button type="submit" variant="brand" disabled={update.isPending} className="gap-1.5">
             {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
             Save changes
