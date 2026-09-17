@@ -1,4 +1,6 @@
+import type { InfiniteData } from '@tanstack/react-query';
 import { ApiError } from '../../lib/api/errors';
+import type { Page } from '../../lib/api/http';
 import type { QueueRecord, QueueState } from '../../lib/queue/types';
 import type { ChatPayload } from '../queue/transport';
 import type { FeedMessage, TeamThread } from './api';
@@ -192,6 +194,40 @@ export function flattenFeed(pages: readonly { data: FeedMessage[] }[] | undefine
     }
   }
   return out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+}
+
+/** The shape react-query keeps an infinite feed in. */
+export type FeedPages = InfiniteData<Page<FeedMessage>, string | undefined>;
+
+/**
+ * The feed with a line that has just reached the office folded into it.
+ *
+ * The queue row is dropped from the thread the moment it is `done` — showing
+ * both it and the server's copy would read as a message sent twice — so
+ * something has to take its place in the same render, or the technician
+ * watches their own words disappear for as long as a refetch takes, and for
+ * good if the signal drops in between. A phone that has never loaded the feed
+ * gets a one-page one: `hasNextPage` is then false until the refetch behind
+ * this answers, which is better than an empty thread.
+ */
+export function feedWithLandedLine(
+  previous: FeedPages | undefined,
+  message: FeedMessage,
+): FeedPages {
+  if (!previous?.pages.length) {
+    return {
+      pages: [{ data: [message], pagination: {} }],
+      pageParams: [undefined],
+    };
+  }
+  const known = previous.pages.some((page) => page.data.some((m) => m.id === message.id));
+  if (known) return previous;
+  const [newest, ...older] = previous.pages;
+  return {
+    ...previous,
+    // Newest first, as the API hands the page over; `flattenFeed` sorts anyway.
+    pages: [{ ...newest!, data: [message, ...newest!.data] }, ...older],
+  };
 }
 
 /** One line as the screen draws it. */

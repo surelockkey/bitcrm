@@ -62,7 +62,13 @@ describe('performOutboxAction — a line to the office', () => {
     );
   });
 
-  it('answers with nothing — a message changes no job the screen is showing', async () => {
-    await expect(performOutboxAction(row())).resolves.toBeUndefined();
+  it('answers with the line the office stored, so the thread never goes blank', async () => {
+    // The pending bubble disappears the moment the row is `done`. Without the
+    // server's own copy in hand, nothing stands in its place until a refetch
+    // answers — and nothing at all if the signal drops in between.
+    const stored = { id: 'm-9', conversationId: 'conv-1', body: 'door is locked' };
+    mockMessaging.sendChatMessage.mockResolvedValue(stored as never);
+
+    await expect(performOutboxAction(row())).resolves.toEqual(stored);
   });
 });

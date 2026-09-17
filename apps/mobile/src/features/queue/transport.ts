@@ -20,6 +20,7 @@ import {
   sendChatMessage,
   sendOnMyWay,
   sendRunningLate,
+  type FeedMessage,
 } from '../messaging/api';
 
 /** The JSON each queued action carries. */
@@ -60,7 +61,7 @@ export interface ChatPayload {
  */
 export async function performOutboxAction(
   record: OutboxRecord,
-): Promise<Deal | undefined> {
+): Promise<Deal | FeedMessage | undefined> {
   const payload: unknown = JSON.parse(record.payload);
 
   switch (record.kind) {
@@ -96,7 +97,12 @@ export async function performOutboxAction(
       // instead would mean no message could be written underground at all.
       const conversationId =
         chat.conversationId ?? (await openOfficeThread(record.userId)).conversation.id;
-      await sendChatMessage(conversationId, {
+      // Answers with the stored line (`send.service.ts:198` → `Message`, and a
+      // replay on the same key returns the FIRST one). That copy is handed back
+      // so the thread can show the office's own version the instant the queue
+      // row is swept — a refetch is a network round trip, and for the seconds
+      // it takes the technician's message would be on neither list.
+      return sendChatMessage(conversationId, {
         // The queue row's id IS the idempotency key: a replay after a dropped
         // connection returns the first message rather than writing a second.
         clientMessageId: record.id,
@@ -104,7 +110,6 @@ export async function performOutboxAction(
         body: chat.body,
         ...(record.dealId ? { dealId: record.dealId } : {}),
       });
-      return undefined;
     }
   }
 }

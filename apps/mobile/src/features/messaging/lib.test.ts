@@ -5,6 +5,7 @@ import {
   bodyOf,
   describeReadError,
   feedRows,
+  feedWithLandedLine,
   flattenFeed,
   formatDayChip,
   formatMessageTime,
@@ -216,6 +217,35 @@ describe('flattenFeed', () => {
       'recent',
       'old',
     ]);
+  });
+});
+
+describe('feedWithLandedLine', () => {
+  it('puts the office’s own copy where the pending bubble was', () => {
+    const older = message({ id: 'older', createdAt: at(2026, 9, 16, 11) });
+    const landed = message({ id: 'landed', createdAt: at(2026, 9, 16, 13) });
+    const next = feedWithLandedLine(
+      { pages: [{ data: [older], pagination: { nextCursor: 'c2' } }], pageParams: [undefined] },
+      landed,
+    );
+
+    expect(next.pages[0]!.data.map((m) => m.id)).toEqual(['landed', 'older']);
+    // Whatever "load older" was pointing at still is.
+    expect(next.pages[0]!.pagination.nextCursor).toBe('c2');
+  });
+
+  it('gives a phone that has never loaded the feed a thread with the line in it', () => {
+    const landed = message({ id: 'first-ever' });
+    expect(feedWithLandedLine(undefined, landed).pages[0]!.data).toEqual([landed]);
+  });
+
+  it('does not add a line the feed already carries', () => {
+    const landed = message({ id: 'landed' });
+    const previous = {
+      pages: [{ data: [landed], pagination: {} }],
+      pageParams: [undefined],
+    };
+    expect(feedWithLandedLine(previous, landed)).toBe(previous);
   });
 });
 
