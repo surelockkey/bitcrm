@@ -30,7 +30,7 @@ import { useSetClientNumberVisibility } from "../masking-hooks";
 import type { TechnicianEditRights } from "../lib";
 import { PERSON_NOT_CONNECTED, WORK_NOT_CONNECTED } from "../not-connected";
 import { NotConnectedField } from "./not-connected-field";
-import { AssignmentsSection } from "./assignments-section";
+import { ScheduleColorField } from "./schedule-color-field";
 
 /** Said under a live control the viewer may read but not set. */
 const MANAGER_ONLY = "A manager sets this.";
@@ -166,7 +166,9 @@ function Form({
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
+    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-1 flex-col overflow-hidden" noValidate>
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="mx-auto max-w-5xl space-y-6">
       <div className="grid gap-x-10 gap-y-7 md:grid-cols-2">
         {/* ---------------- The person ---------------- */}
         <div className="space-y-5" data-testid="person-column">
@@ -368,17 +370,14 @@ function Form({
             </div>
           </Field>
 
-          {can("job_types", "view") ? (
-            <AssignmentsSection technicianId={technicianId} kind="job_type" />
-          ) : null}
+          {/* Job types and service areas keep their own tab, where this card
+              has always had them. Workiz puts them in this column; a tab the
+              reader already knows beats a column that matches a screenshot.
 
-          <NotConnectedField field={WORK_NOT_CONNECTED.userSkills} />
-
-          {can("service_areas", "view") ? (
-            <AssignmentsSection technicianId={technicianId} kind="service_area" />
-          ) : null}
-
-          <NotConnectedField field={WORK_NOT_CONNECTED.scheduleColor} />
+              Workiz's "User skills" is not here at all: skills are a separate
+              catalog there and we hold job types only, so a dead row would
+              promise a second catalog we have no plans for. */}
+          <ScheduleColorField disabled={!rights.operational} />
 
           {/* The label used to read "Hide the tech's number on calls", which is
               what a manager WANTS but not what the switch does. It hides CLIENT
@@ -439,20 +438,23 @@ function Form({
         </div>
       </div>
 
+        </div>
+      </div>
+
       {canSave ? (
-        // Centred under both columns. The form is two columns wide, and a
-        // button in the right-hand corner reads as belonging to the right
-        // column — which is not what it saves.
-        <div className="flex justify-center border-t pt-4">
+        // Pinned, centred, exactly as the job card does it: the fields above
+        // own the scroll, this bar never moves, and it sits under the middle
+        // because it saves both columns, not the one it would hug in a corner.
+        <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
           <Button type="submit" variant="brand" disabled={update.isPending} className="gap-1.5">
             {update.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
             Save changes
           </Button>
         </div>
       ) : (
-        <p className="border-t pt-4 text-xs text-muted-foreground">
+        <div className="border-t bg-background px-6 py-4 text-center text-xs text-muted-foreground">
           You can read this card but not change it.
-        </p>
+        </div>
       )}
     </form>
   );

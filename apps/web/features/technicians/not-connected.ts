@@ -60,18 +60,6 @@ export const WORK_NOT_CONNECTED = {
     note: "Who goes out on jobs comes from the role today, not from a flag of its own.",
     kind: "switch",
   },
-  userSkills: {
-    key: "user-skills",
-    label: "User skills",
-    note: "Skills are separate from job types in Workiz. We hold job types only.",
-    kind: "static",
-  },
-  scheduleColor: {
-    key: "schedule-color",
-    label: "Schedule color",
-    note: "The schedule colours a job by its status, not by the person on it.",
-    kind: "static",
-  },
   twoFactor: {
     key: "two-factor",
     label: "Two-factor authentication",
