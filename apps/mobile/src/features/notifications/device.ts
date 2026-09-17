@@ -135,6 +135,39 @@ export async function registerPushDevice(): Promise<RegistrationOutcome> {
 }
 
 /**
+ * How long signing out may wait for the server to acknowledge the release.
+ *
+ * `http.ts` puts no deadline on a fetch, and the failure that matters here is
+ * not "no signal" — that rejects in milliseconds — but the one-bar case a
+ * technician actually meets: a request that neither answers nor fails, on a
+ * site hoarding or behind a hotel's captive portal. Without a deadline, `await
+ * releasePushDevice()` holds `signOut` open for as long as that socket does,
+ * and the technician who tapped "Sign out" is left inside the session staring
+ * at a button that did nothing.
+ */
+export const RELEASE_DEADLINE_MS = 3_000;
+
+/**
+ * Run `work`, but give up waiting after `ms`.
+ *
+ * `Promise.race` has already attached handlers to `work`, so a rejection that
+ * arrives after the deadline is consumed rather than surfacing as an unhandled
+ * rejection, and the timer is always cleared — a pending one would keep the
+ * event loop (and Jest) alive past the last thing that cared.
+ */
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('deadline')), ms);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/**
  * Take this phone off the list.
  *
  * Called on the way out of a session, **before** the tokens are cleared —
@@ -143,18 +176,20 @@ export async function registerPushDevice(): Promise<RegistrationOutcome> {
  * over; the next technician must not get the last one's jobs on the lock
  * screen.
  *
- * Resolves either way and never throws. A technician who taps "Sign out" in a
- * basement is signed out; the stale token is the server's to prune when a push
- * to it bounces.
+ * Resolves either way, never throws, and never waits longer than
+ * {@link RELEASE_DEADLINE_MS}. A technician who taps "Sign out" in a basement
+ * is signed out; the stale token is the server's to prune when a push to it
+ * bounces.
  */
 export async function releasePushDevice(): Promise<void> {
   const { token } = await loadPushState();
   if (!token) return;
   try {
-    await unregisterDevice(token);
+    await withDeadline(unregisterDevice(token), RELEASE_DEADLINE_MS);
   } catch {
-    // Offline, or a token the server has already forgotten. Either way the
-    // local record goes: this phone no longer claims to be registered.
+    // Offline, a token the server has already forgotten, or a request that
+    // never came back. Either way the local record goes: this phone no longer
+    // claims to be registered, and signing out is not held up by it.
   }
   await savePushState({ token: undefined });
 }

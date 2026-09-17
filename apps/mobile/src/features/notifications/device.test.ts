@@ -1,6 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as api from './api';
-import { registerPushDevice, releasePushDevice } from './device';
+import { RELEASE_DEADLINE_MS, registerPushDevice, releasePushDevice } from './device';
 import { loadPushState, savePushState } from './store';
 
 jest.mock('./api');
@@ -223,5 +223,28 @@ describe('releasePushDevice', () => {
 
     await expect(releasePushDevice()).resolves.toBeUndefined();
     await expect(loadPushState()).resolves.not.toHaveProperty('token');
+  });
+
+  it('gives up on a request that neither answers nor fails', async () => {
+    /*
+     * The worst network a technician has is not the absent one — that rejects
+     * in milliseconds — it is the one bar on a site hoarding, where a socket
+     * opens and nothing comes back. Nothing in `http.ts` puts a deadline on a
+     * fetch, so without one here `signOut` awaits this forever and the person
+     * who tapped "Sign out" stays inside the session.
+     */
+    jest.useFakeTimers();
+    try {
+      await savePushState({ token: 'ExponentPushToken[abc]' });
+      mockApi.unregisterDevice.mockReturnValue(new Promise(() => {}));
+
+      const released = releasePushDevice();
+      await jest.advanceTimersByTimeAsync(RELEASE_DEADLINE_MS);
+
+      await expect(released).resolves.toBeUndefined();
+      await expect(loadPushState()).resolves.not.toHaveProperty('token');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
