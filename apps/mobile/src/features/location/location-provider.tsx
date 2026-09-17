@@ -21,7 +21,7 @@ import {
 } from './permission';
 import { toLocationPoint, WATCH_DISTANCE_M, WATCH_TIME_INTERVAL_MS } from './policy';
 import { loadSharingPreference, saveSharingPreference } from './settings';
-import { createLocationSender } from './tracker';
+import { createLocationSender, type LocationSender } from './tracker';
 
 /**
  * Location sharing, for exactly as long as the technician is on the clock.
@@ -146,6 +146,27 @@ export function LocationSharingProvider({ children }: { children: React.ReactNod
   );
 
   /**
+   * One sender per technician, outliving the watcher rather than owned by it.
+   *
+   * Everything this provider puts on the wire goes through it — the fixes and
+   * the delete that takes the pin down — and it keeps them in order. Created
+   * inside the watcher's effect instead, the delete would race the fix that was
+   * still in flight when the technician clocked out, and could land first: the
+   * pin would go down and then be put straight back up, where it would stay,
+   * because the stored fix has no expiry.
+   */
+  const sender = useMemo<LocationSender | null>(
+    () =>
+      userId
+        ? createLocationSender({
+            send: (point) => reportLocation(userId, point),
+            clear: () => clearReportedLocation(userId),
+          })
+        : null,
+    [userId],
+  );
+
+  /**
    * Whether the watcher has ever run for this technician.
    *
    * Only a phone that actually reported a position needs to tell the server it
@@ -155,23 +176,25 @@ export function LocationSharingProvider({ children }: { children: React.ReactNod
   const reported = useRef(false);
 
   useEffect(() => {
-    if (!active || !userId) {
+    if (!active || !sender) {
       if (reported.current) {
         reported.current = false;
         setIsSharing(false);
         // Stopping means the pin goes, not that it freezes: the stored fix has
         // no expiry, so a technician who clocked out would otherwise stay on
         // the dispatch map exactly where they finished.
-        void clearReportedLocation(userId ?? '').catch(() => {});
+        //
+        // Except when the session itself is what ended. Signing out is not
+        // clocking out — the shift is still running as far as the office is
+        // concerned — and the tokens are already gone by the time this runs, so
+        // the request could only be a 401 that signs the app out a second time.
+        if (sender) void sender.clear();
       }
       return;
     }
 
     let cancelled = false;
     let subscription: Location.LocationSubscription | null = null;
-    const sender = createLocationSender({
-      send: (point) => reportLocation(userId, point),
-    });
 
     void (async () => {
       try {
@@ -209,7 +232,7 @@ export function LocationSharingProvider({ children }: { children: React.ReactNod
       subscription?.remove();
       setIsSharing(false);
     };
-  }, [active, userId]);
+  }, [active, sender]);
 
   /**
    * The explainer, owned here rather than by each screen that could trigger it.

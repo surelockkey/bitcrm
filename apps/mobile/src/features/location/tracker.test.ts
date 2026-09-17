@@ -7,10 +7,11 @@ const north = (metres: number) => ({
   lng: hartford.lng,
 });
 
-function sender(send: jest.Mock, clock = { now: 0 }) {
+function sender(send: jest.Mock, clock = { now: 0 }, clear: jest.Mock = jest.fn().mockResolvedValue(undefined)) {
   return {
     clock,
-    sender: createLocationSender({ send, now: () => clock.now }),
+    clear,
+    sender: createLocationSender({ send, clear, now: () => clock.now }),
   };
 }
 
@@ -71,5 +72,84 @@ describe('createLocationSender', () => {
 
     expect(await s.offer(hartford)).toBe(true);
     expect(send).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('taking the pin down', () => {
+  /** A request that hangs until the test lets it land. */
+  const deferred = () => {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  };
+
+  it('waits for a fix that is still in the air, so it cannot put the pin back', async () => {
+    /*
+     * The reading was taken while the technician was still on the clock but
+     * lands whenever the network allows, and they can clock out in between.
+     * Arriving after the delete, it writes the position back — and the server
+     * keeps it with no expiry at all, so the office would see a technician
+     * parked at their last job for the rest of the week.
+     */
+    const landed: string[] = [];
+    const fix = deferred();
+    const send = jest.fn().mockImplementation(async () => {
+      await fix.promise;
+      landed.push('fix');
+    });
+    const clear = jest.fn().mockImplementation(async () => {
+      landed.push('clear');
+    });
+    const { sender: s } = sender(send, { now: 0 }, clear);
+
+    const offered = s.offer(hartford);
+    const cleared = s.clear();
+
+    expect(clear).not.toHaveBeenCalled();
+    fix.release();
+    await Promise.all([offered, cleared]);
+
+    expect(landed).toEqual(['fix', 'clear']);
+  });
+
+  it('sends no fix while the delete itself is on the wire', async () => {
+    // The other order is just as wrong: a position written after the delete
+    // survives, and the technician is on the map having stopped sharing.
+    const gone = deferred();
+    const send = jest.fn().mockResolvedValue({});
+    const clear = jest.fn().mockImplementation(() => gone.promise);
+    const { sender: s, clock } = sender(send, { now: 0 }, clear);
+
+    const cleared = s.clear();
+    clock.now = HEARTBEAT_MS;
+    expect(await s.offer(hartford)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+
+    gone.release();
+    await cleared;
+  });
+
+  it('forgets what it sent, so the next shift reports at once', async () => {
+    // Otherwise the technician is missing from the map until a heartbeat five
+    // minutes into the next job.
+    const send = jest.fn().mockResolvedValue({});
+    const { sender: s, clock } = sender(send);
+
+    await s.offer(hartford);
+    await s.clear();
+    clock.now = 1;
+
+    expect(await s.offer(hartford)).toBe(true);
+    expect(s.lastSentAt()).toBe(1);
+  });
+
+  it('does not throw when the delete fails — nobody is interrupted for a pin', async () => {
+    const send = jest.fn().mockResolvedValue({});
+    const clear = jest.fn().mockRejectedValue(new Error('offline'));
+    const { sender: s } = sender(send, { now: 0 }, clear);
+
+    await expect(s.clear()).resolves.toBeUndefined();
   });
 });

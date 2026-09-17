@@ -43,12 +43,13 @@ jest.mock('../timeclock/hooks', () => ({
   }),
 }));
 
+/** Whoever is holding the phone — `null` once they have signed out. */
+let mockUserId: string | null = 'tech-1';
 jest.mock('../auth/auth-context', () => ({
   useAuth: () => ({
-    state: {
-      status: 'signedIn',
-      user: { id: 'tech-1', email: 'tech@slk-s.com' },
-    },
+    state: mockUserId
+      ? { status: 'signedIn', user: { id: mockUserId, email: 'tech@slk-s.com' } }
+      : { status: 'signedOut' },
     submitting: false,
     signIn: jest.fn(),
     signOut: jest.fn(),
@@ -119,6 +120,7 @@ const refused = { granted: false, canAskAgain: false, status: 'denied' };
 const unasked = { granted: false, canAskAgain: true, status: 'undetermined' };
 
 beforeEach(() => {
+  mockUserId = 'tech-1';
   mockClock = { status: 'off' };
   mockReading = undefined;
   mockRemove.mockReset();
@@ -225,6 +227,60 @@ describe('on the clock, with permission and the switch on', () => {
     await waitFor(() =>
       expect(mockApi.clearReportedLocation).toHaveBeenCalledWith('tech-1'),
     );
+  });
+
+  it('never lets a fix already in the air put the pin back after a clock-out', async () => {
+    // The reading was taken on the clock but lands whenever the network allows.
+    // Arriving after the delete it writes the position straight back, and the
+    // server keeps that fix with no expiry — the technician would sit on the
+    // dispatch map at their last job until somebody else moved them.
+    let landFix: (() => void) | undefined;
+    const order: string[] = [];
+    mockApi.reportLocation.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          landFix = () => {
+            order.push('fix');
+            resolve({ userId: 'tech-1', lat: 0, lng: 0, updatedAt: '' });
+          };
+        }),
+    );
+    mockApi.clearReportedLocation.mockImplementation(async () => {
+      order.push('clear');
+    });
+
+    const view = await render();
+    await waitFor(() => expect(mockLocation.watchPositionAsync).toHaveBeenCalled());
+    await act(async () => {
+      mockReading?.({ coords: { latitude: 41.7637, longitude: -72.6851, accuracy: 9 } });
+    });
+
+    mockClock = { status: 'off' };
+    await act(async () => {
+      view.rerender(tree());
+    });
+    expect(mockApi.clearReportedLocation).not.toHaveBeenCalled();
+
+    await act(async () => {
+      landFix?.();
+    });
+    await waitFor(() => expect(order).toEqual(['fix', 'clear']));
+  });
+
+  it('asks the server to forget nobody when the session is what ended', async () => {
+    // Signing out is not clocking out: the shift is still running as far as the
+    // office is concerned, and the tokens are gone by now — a delete here could
+    // only be a 401 against an empty user id.
+    const view = await render();
+    await waitFor(() => expect(mockLocation.watchPositionAsync).toHaveBeenCalled());
+
+    mockUserId = null;
+    await act(async () => {
+      view.rerender(tree());
+    });
+
+    await waitFor(() => expect(mockRemove).toHaveBeenCalled());
+    expect(mockApi.clearReportedLocation).not.toHaveBeenCalled();
   });
 
   it('stops when the app leaves the screen, rather than reporting from the background', async () => {
