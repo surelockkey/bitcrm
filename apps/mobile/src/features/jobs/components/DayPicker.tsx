@@ -11,6 +11,7 @@ import {
   visitCountLabel,
   type DayMark,
 } from '../calendar';
+import { formatDayHeading } from '../lib';
 
 export interface MonthGridProps {
   /** The day the calendar opens on, and the one drawn as chosen. */
@@ -204,7 +205,10 @@ function Cell({
       testID={`day-${dateIso}`}
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
-      accessibilityLabel={`${dateIso}, ${visitCountLabel(visits)}${
+      // The date spoken as a date, and the dot spoken as what it means:
+      // neither a screen reader nor a colour-blind technician can read a
+      // six-pixel circle (docs/ARCHITECTURE.md §2.9).
+      accessibilityLabel={`${formatDayHeading(dateIso)}, ${visitCountLabel(visits)}${
         mark?.hasOpenPast ? ', still open' : ''
       }`}
       disabled={disabled}
