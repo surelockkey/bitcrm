@@ -191,18 +191,42 @@ function Form({
 
           <NotConnectedField field={PERSON_NOT_CONNECTED.userType} />
 
+          {/* All three are disabled for the same reason, said once under the
+              last of them — so all three point at that one line rather than
+              leaving the first two disabled with no reason given. */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="First name" htmlFor={id("first")}>
-              <Input id={id("first")} className="h-10" value={user?.firstName ?? ""} readOnly disabled />
+              <Input
+                id={id("first")}
+                className="h-10"
+                value={user?.firstName ?? ""}
+                readOnly
+                disabled
+                aria-describedby={id("user-record")}
+              />
             </Field>
             <Field label="Last name" htmlFor={id("last")}>
-              <Input id={id("last")} className="h-10" value={user?.lastName ?? ""} readOnly disabled />
+              <Input
+                id={id("last")}
+                className="h-10"
+                value={user?.lastName ?? ""}
+                readOnly
+                disabled
+                aria-describedby={id("user-record")}
+              />
             </Field>
           </div>
 
           <Field label="Email" htmlFor={id("email")}>
-            <Input id={id("email")} className="h-10" value={user?.email ?? ""} readOnly disabled />
-            <p className="text-xs text-muted-foreground">
+            <Input
+              id={id("email")}
+              className="h-10"
+              value={user?.email ?? ""}
+              readOnly
+              disabled
+              aria-describedby={id("user-record")}
+            />
+            <p id={id("user-record")} className="text-xs text-muted-foreground">
               Name and email live on the user record.
               {can("users", "view") ? (
                 <>
@@ -243,7 +267,12 @@ function Form({
           <div className="space-y-1.5" role="group" aria-labelledby={id("address-label")}>
             <Label id={id("address-label")}>Home address</Label>
             {rights.contact ? (
+              /* Named, not just placeheld: the group's label names the block,
+                 and a combobox with only a placeholder is announced unnamed —
+                 the disabled twin below has carried this name all along. */
               <AddressAutocomplete
+                id={id("line1")}
+                ariaLabel="Street address"
                 placeholder="Street address"
                 value={line1}
                 onChange={(v) => setValue("line1", v, { shouldDirty: true })}
@@ -257,21 +286,29 @@ function Form({
                 }}
               />
             ) : (
-              <Input className="h-10" aria-label="Street address" disabled {...register("line1")} />
+              <Input
+                id={id("line1")}
+                className="h-10"
+                aria-label="Street address"
+                aria-describedby={id("address-hint")}
+                disabled
+                {...register("line1")}
+              />
             )}
             <Input
               className="h-10"
               aria-label="Apartment or suite"
+              aria-describedby={id("address-hint")}
               placeholder="Apt, suite (optional)"
               disabled={!rights.contact}
               {...register("line2")}
             />
             <div className="grid grid-cols-3 gap-3">
-              <Input className="h-10" aria-label="City" placeholder="City" disabled={!rights.contact} {...register("city")} />
-              <Input className="h-10" aria-label="State" placeholder="State" disabled={!rights.contact} {...register("state")} />
-              <Input className="h-10" aria-label="ZIP" placeholder="ZIP" disabled={!rights.contact} {...register("zip")} />
+              <Input className="h-10" aria-label="City" aria-describedby={id("address-hint")} placeholder="City" disabled={!rights.contact} {...register("city")} />
+              <Input className="h-10" aria-label="State" aria-describedby={id("address-hint")} placeholder="State" disabled={!rights.contact} {...register("state")} />
+              <Input className="h-10" aria-label="ZIP" aria-describedby={id("address-hint")} placeholder="ZIP" disabled={!rights.contact} {...register("zip")} />
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p id={id("address-hint")} className="text-xs text-muted-foreground">
               {contactHint ?? "Used to route jobs near them."}
             </p>
           </div>
@@ -313,6 +350,7 @@ function Form({
             label="Labor cost per hour"
             htmlFor={id("labor-cost")}
             hint={workHint}
+            hintId={id("labor-cost-hint")}
             error={form.formState.errors.laborCostPerHour?.message}
           >
             <div className="relative">
@@ -324,6 +362,7 @@ function Form({
                 min="0"
                 className="h-10 pl-7 tabular-nums"
                 disabled={!rights.operational}
+                aria-describedby={workHint ? id("labor-cost-hint") : undefined}
                 {...register("laborCostPerHour")}
               />
             </div>
@@ -369,13 +408,19 @@ function Form({
             {/* Ours, not Workiz's — kept together and labelled, rather than
                 slipped into their order where it would read as parity. */}
             <ColumnHeading>Not on the Workiz card — ours</ColumnHeading>
-            <Field label="Status" htmlFor={id("status")} hint={workHint}>
+            <Field label="Status" htmlFor={id("status")} hint={workHint} hintId={id("status-hint")}>
               <Select
                 value={status}
                 disabled={!rights.operational}
                 onValueChange={(v) => setValue("status", v as TechnicianProfileStatus, { shouldDirty: true })}
               >
-                <SelectTrigger id={id("status")} className="h-10 w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger
+                  id={id("status")}
+                  className="h-10 w-full"
+                  aria-describedby={workHint ? id("status-hint") : undefined}
+                >
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
@@ -428,12 +473,17 @@ function Field({
   label,
   htmlFor,
   hint,
+  hintId,
   error,
   children,
 }: {
   label: string;
   htmlFor?: string;
   hint?: string;
+  /** Set where the hint is the reason a control is disabled, so the control
+   *  can point at it: a greyed box with its explanation floating free beside it
+   *  is, to anyone hearing the page, a greyed box with no explanation. */
+  hintId?: string;
   error?: string;
   children: React.ReactNode;
 }) {
@@ -441,7 +491,7 @@ function Field({
     <div className="space-y-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
-      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      {hint ? <p id={hintId} className="text-xs text-muted-foreground">{hint}</p> : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   );

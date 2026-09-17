@@ -114,10 +114,20 @@ vi.mock("@/features/schedule/components/working-hours-editor", () => ({
     <div data-testid="working-hours" data-readonly={readOnly ? "yes" : "no"} />
   ),
 }));
+// Forwards what the card gives it and invents nothing: a mock that hardcoded
+// `aria-label` would prove the mock has a name, not the field.
 vi.mock("@/features/deals/components/address-autocomplete", () => ({
-  AddressAutocomplete: ({ value }: { value: string }) => (
-    <input aria-label="Street address" defaultValue={value} />
-  ),
+  AddressAutocomplete: ({
+    value,
+    id,
+    ariaLabel,
+    placeholder,
+  }: {
+    value: string;
+    id?: string;
+    ariaLabel?: string;
+    placeholder?: string;
+  }) => <input id={id} aria-label={ariaLabel} placeholder={placeholder} defaultValue={value} />,
 }));
 vi.mock("./commission-tab", () => ({
   CommissionTab: () => <div data-testid="commission-panel" />,
@@ -202,6 +212,17 @@ describe("TechnicianDetailPage — one page, two columns", () => {
     expect(screen.getByLabelText("City")).toHaveValue("Phoenix");
     expect(screen.getByRole("switch", { name: "Track location" })).toBeChecked();
   });
+
+  it("names the street field itself, editable or not — the group label names the block", () => {
+    const { unmount } = render(<TechnicianDetailPage technicianId="t1" />);
+    // Editable: the autocomplete. A placeholder is not a name.
+    expect(screen.getByLabelText("Street address")).toHaveValue("12 Oak St");
+    unmount();
+
+    state.canEditTechs = false;
+    render(<TechnicianDetailPage technicianId="t1" />);
+    expect(screen.getByLabelText("Street address")).toBeDisabled();
+  });
 });
 
 describe("TechnicianDetailPage — what is drawn but dead", () => {
@@ -233,6 +254,32 @@ describe("TechnicianDetailPage — what is drawn but dead", () => {
         expect(control).not.toBeChecked();
       }
     }
+  });
+
+  it("ties the live controls that are disabled to their reason too", () => {
+    state.isTechnician = true;
+    state.meId = "t1";
+    render(<TechnicianDetailPage technicianId="t1" />);
+
+    // Why it is greyed has to reach whoever can't see that it is greyed.
+    const reason = (el: HTMLElement) =>
+      document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent;
+    expect(reason(screen.getByLabelText("Labor cost per hour"))).toBe("A manager sets this.");
+    expect(reason(screen.getByLabelText("Status"))).toBe("A manager sets this.");
+    // Read-only by role, not by permission: the name and email are the user
+    // record's, and the one line that says so answers for all three.
+    expect(reason(screen.getByLabelText("First name"))).toMatch(/live on the user record/);
+    expect(reason(screen.getByLabelText("Email"))).toMatch(/live on the user record/);
+  });
+
+  it("gives the locked-out viewer's address fields the reason they are locked", () => {
+    state.canEditTechs = false;
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const city = screen.getByLabelText("City");
+    expect(city).toBeDisabled();
+    expect(
+      document.getElementById(city.getAttribute("aria-describedby") ?? "")?.textContent,
+    ).toBe("You can read this technician's details but not change them.");
   });
 
   it("ties each dead control to its own explanation for a screen reader", () => {
