@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { automationSentence, type AutomationRule } from '@bitcrm/types';
 import { translateWorkizRule } from '../../../../src/automations/translator/workiz-translator';
+import { matchesConditions } from '../../../../src/automations/engine/evaluator';
 
 /**
  * The translator against real exported rules.
@@ -117,6 +118,30 @@ describe('the translator against real exported rules', () => {
     );
   });
 
+  /**
+   * The sentence leaves out the condition the trigger already said — and only
+   * that one. This rule is the shape that makes the difference visible: the
+   * export carries a `status notEqual Canceled` beside the `sub_status_id`
+   * that is the trigger, with no `friendly_strings`, because Workiz writes it
+   * itself and never shows it. It is four of the 83 exported rules (two of
+   * them runnable) and the only place two status-family conditions meet.
+   *
+   * It stays in the spec, because the engine must go on narrowing on it; it
+   * stays out of the sentence, because a sub-status is filed under exactly one
+   * super-status and "has a status of no answer" has already fixed it.
+   */
+  it('keeps the super-status exclusion Workiz hid, and does not read it back twice', () => {
+    const spec = of('facebook-key-copy-followup.json').spec!;
+    expect(spec.trigger.toSubStatus).toHaveLength(1);
+    expect(spec.conditions).toContainEqual({
+      field: 'status',
+      op: 'not_in',
+      values: ['canceled'],
+      labels: ['Canceled'],
+    });
+    expect(automationSentence(spec)).not.toContain('Canceled');
+  });
+
   it('never fires more broadly than Workiz did: an "is created" rule keeps its exclusion', () => {
     // The Workiz rule reads `status notIn [Done, Canceled]` under the
     // friendly name "is created"; dropping that would text a job created
@@ -173,6 +198,38 @@ describe('the translator against real exported rules', () => {
     const webhook = of('zelli-job-completed.json').spec!.actions[0];
     expect(webhook).toEqual({ type: 'webhook', url: 'https://example.test/api/webhook', method: 'POST' });
     expect(JSON.stringify(webhook)).not.toContain('auth');
+  });
+
+  /**
+   * `NY Bronx Review request text to client` is one of the 25 rules that
+   * keep their sources in a `{any: […]}` group. The whole rule stays not
+   * runnable for its balance condition (`job_amount_due`), so this drops
+   * that one condition to show what the rest of the real row becomes: the
+   * group is read, not skipped. Skipping it is what made the rule fire for
+   * every source instead of the three it names.
+   */
+  it('reads the OR group of a real imported rule instead of widening it', () => {
+    const stored = asStoredRule('bronx-review-request.json');
+    const all = (stored.conditions as { all: Record<string, any>[] }).all;
+    expect(all.some((c) => Array.isArray(c.any))).toBe(true);
+
+    const result = translateWorkizRule({
+      ...stored,
+      conditions: { all: all.filter((c) => c.fact !== 'job_amount_due') },
+    });
+
+    expect(result.runnable).toBe(true);
+    const sources = (result.spec?.conditions ?? []).find((c) => !('any' in c) && c.field === 'source') as
+      | { values: string[] }
+      | undefined;
+    expect(sources?.values).toHaveLength(3);
+    expect(automationSentence(result.spec!)).toContain('its source is SURE NY BRONX GMB, SURE NY BRONX YELP or');
+
+    // Exactly those three sources, and nothing else.
+    const matches = (sourceId: string) =>
+      matchesConditions(result.spec?.conditions, { deal: { id: 'd1', superStatus: 'done', sourceId } }).matched;
+    expect(matches(sources!.values[2])).toBe(true);
+    expect(matches('some-other-source')).toBe(false);
   });
 
   it('every fixture is masked — no real phone, email, host or key', () => {

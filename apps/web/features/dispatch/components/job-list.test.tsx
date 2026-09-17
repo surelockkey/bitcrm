@@ -37,7 +37,14 @@ function deal(over: Partial<Deal> = {}): Deal {
   };
 }
 
-const at = (h: number, m: number) => new Date(2026, 8, 16, h, m).toISOString();
+// Today at that clock time. The stamp a dispatcher reads is the time alone
+// only while it happened today (`formatStamp`), so a fixture pinned to a
+// calendar date stops matching the day after it was written.
+const at = (h: number, m: number) => {
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toISOString();
+};
 
 const renderList = (d: Deal) =>
   render(

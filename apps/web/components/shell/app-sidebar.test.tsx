@@ -169,6 +169,16 @@ describe("AppSidebar", () => {
     expect(screen.getByLabelText("7 unread conversations")).toHaveTextContent("7");
   });
 
+  it("shows Automations under Communications", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    expect(screen.getByRole("link", { name: /^automations$/i })).toHaveAttribute(
+      "href",
+      "/automations",
+    );
+  });
+
   it("keeps the Messages item plain when nothing is unread", () => {
     permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
     countersMock.mockReturnValue({ data: { unreadConversations: 0 } });

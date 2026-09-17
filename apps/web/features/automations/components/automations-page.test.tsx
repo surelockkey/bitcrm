@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { http, HttpResponse, delay } from "msw";
 import { server } from "@/test/msw/server";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AutomationsPage } from "./automations-page";
@@ -50,6 +50,7 @@ const rules = [
     name: "Invoice due 7 days",
     enabled: false,
     runnable: false,
+    category: "followUps",
     notRunnableReason: "Workiz invoice rules have no BitCRM equivalent",
     workizTriggered: 5,
     createdAt: "2026-09-15T10:00:00.000Z",
@@ -58,9 +59,15 @@ const rules = [
 ];
 
 const patched: Array<{ id: string; body: unknown }> = [];
+const created: unknown[] = [];
+const duplicated: Array<{ id: string; body: unknown }> = [];
+const deleted: string[] = [];
 
 beforeEach(() => {
   patched.length = 0;
+  created.length = 0;
+  duplicated.length = 0;
+  deleted.length = 0;
   server.use(
     http.get("*/messaging/automations", () => HttpResponse.json({ success: true, data: rules })),
     http.get("*/messaging/automations/:id/runs", () =>
@@ -80,6 +87,18 @@ beforeEach(() => {
         ],
       }),
     ),
+    http.post("*/messaging/automations", async ({ request }) => {
+      created.push(await request.json());
+      return HttpResponse.json({ success: true, data: { ...rules[0], id: "new-1", name: "Late tech" } });
+    }),
+    http.post("*/messaging/automations/:id/duplicate", async ({ params, request }) => {
+      duplicated.push({ id: String(params.id), body: await request.json() });
+      return HttpResponse.json({ success: true, data: { ...rules[0], id: "copy", name: "Copy" } });
+    }),
+    http.delete("*/messaging/automations/:id", ({ params }) => {
+      deleted.push(String(params.id));
+      return HttpResponse.json({ success: true, data: { id: String(params.id) } });
+    }),
     http.patch("*/messaging/automations/:id", async ({ params, request }) => {
       patched.push({ id: String(params.id), body: await request.json() });
       const rule = rules.find((r) => r.id === String(params.id));
@@ -111,17 +130,28 @@ function renderPage() {
   );
 }
 
+/** The names on the cards, in the order the list shows them. */
+function listed() {
+  return screen
+    .getAllByTestId(/^automation-/)
+    .map((card) => within(card).getByRole("switch").getAttribute("aria-label")?.replace(/^(Enable|Disable) /, ""));
+}
+
 describe("AutomationsPage", () => {
   it("lists the rules with the Workiz sentence and the firing counts", async () => {
     renderPage();
 
     expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
+    // The status reads as the editor writes it — "Canceled", not the
+    // `canceled` the trigger stores — on the card as well as in the editor.
     expect(
       screen.getByText(
-        "When a job has a status of canceled and it has a technician, send the assigned tech a text message immediately",
+        "When a job has a status of Canceled and it has a technician, send the assigned tech a text message immediately",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Firing log of Canceled job & techs" })).toHaveTextContent(
+      "12 firings",
+    );
     expect(screen.getByText("5,411 in Workiz")).toBeInTheDocument();
     expect(screen.getByText(/1 of 3 rules are on\./)).toBeInTheDocument();
   });
@@ -141,9 +171,9 @@ describe("AutomationsPage", () => {
 
   it("cannot switch on a rule the engine cannot run, and says why", async () => {
     renderPage();
-    const row = await screen.findByTestId("automation-invoice");
-    expect(within(row).getByRole("switch")).toBeDisabled();
-    expect(within(row).getByText("Cannot run here")).toBeInTheDocument();
+    const card = await screen.findByTestId("automation-invoice");
+    expect(within(card).getByRole("switch")).toBeDisabled();
+    expect(within(card).getByText("Cannot run here")).toBeInTheDocument();
   });
 
   it("re-checks the imported rules from the page", async () => {
@@ -164,13 +194,295 @@ describe("AutomationsPage", () => {
     await waitFor(() => expect(migrated).toBe(1));
   });
 
+  it("offers the account-wide firing feed", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("link", { name: /activity/i })).toHaveAttribute(
+      "href",
+      "/automations/activity",
+    );
+  });
+
   it("shows the firing log for a rule", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(await screen.findByRole("button", { name: "Firing log of Canceled job & techs" }));
     const runs = await screen.findByTestId("automation-runs");
-    expect(within(runs).getByText("deal:d1 · 1 sent")).toBeInTheDocument();
-    expect(within(runs).getByText("Sent")).toBeInTheDocument();
+    // The log names what it did, not the key it is filed under (§4.6 item 1).
+    expect(within(runs).getByRole("link", { name: "Open job d1" })).toHaveAttribute(
+      "href",
+      "/deals/d1",
+    );
+    expect(within(runs).getByText(/1 sent/)).toBeInTheDocument();
+    expect(within(runs).getByText(/to tech Ann/)).toBeInTheDocument();
+    // The outcome of the firing itself, and of the one action it took.
+    expect(within(runs).getAllByText("Sent")).toHaveLength(2);
+  });
+});
+
+describe("AutomationsPage tabs", () => {
+  it("opens on the rules the workspace already has, and counts them on the tab", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("tab", { name: "My automations · 3" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "Library" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("opens on the library when there is nothing to list yet", async () => {
+    server.use(
+      http.get("*/messaging/automations", async () => {
+        await delay(20);
+        return HttpResponse.json({ success: true, data: [] });
+      }),
+    );
+    renderPage();
+
+    // Not while it loads: an empty workspace is a fact about the answer.
+    expect(screen.getByRole("tab", { name: /My automations/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    expect(await screen.findByRole("tab", { name: "Library", selected: true })).toBeInTheDocument();
+    expect(screen.getByTestId("automation-library")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "My automations · 0" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+  });
+
+  it("waits on the rules with their skeleton, not with the library", async () => {
+    server.use(
+      http.get("*/messaging/automations", async () => {
+        await delay(20);
+        return HttpResponse.json({ success: true, data: rules });
+      }),
+    );
+    renderPage();
+
+    expect(screen.getByRole("tab", { name: /My automations/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("automation-library")).not.toBeInTheDocument();
+
+    expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
+  });
+
+  it("lets the reader cross to the library and back", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("tab", { name: "Library" }));
+    expect(await screen.findByTestId("automation-library")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "My automations · 3" }));
+    expect(await screen.findByText("Canceled job & techs")).toBeInTheDocument();
+  });
+});
+
+describe("AutomationsPage filters", () => {
+  it("searches the name and the sentence", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.type(screen.getByLabelText("Search automations"), "scheduled");
+    // "SCHEDULED" is the job tag inside the second rule's sentence.
+    await waitFor(() => expect(listed()).toEqual(["Scheduled jobs"]));
+    expect(screen.getByText("1 of 3 rules")).toBeInTheDocument();
+  });
+
+  it("narrows to one state with the chips", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Cannot run" }));
+    await waitFor(() => expect(listed()).toEqual(["Invoice due 7 days"]));
+  });
+
+  it("clears every filter at once", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "On" }));
+    await waitFor(() => expect(listed()).toEqual(["Canceled job & techs"]));
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(listed()).toHaveLength(3));
+    expect(screen.getByText("3 rules")).toBeInTheDocument();
+  });
+
+  it("says when nothing matches instead of showing an empty list", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.type(screen.getByLabelText("Search automations"), "nothing like this");
+    expect(await screen.findByText("No rule matches these filters")).toBeInTheDocument();
+    expect(screen.getByText("0 of 3 rules")).toBeInTheDocument();
+  });
+
+  it("sorts by name", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByLabelText("Sort"));
+    await user.click(await screen.findByRole("option", { name: "Name" }));
+    await waitFor(() =>
+      expect(listed()).toEqual(["Canceled job & techs", "Invoice due 7 days", "Scheduled jobs"]),
+    );
+  });
+
+  it("offers only the categories the rules actually use", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByLabelText("Category"));
+    expect(await screen.findByRole("option", { name: "Follow-ups" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Custom" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Marketing" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("option", { name: "Follow-ups" }));
+    await waitFor(() => expect(listed()).toEqual(["Invoice due 7 days"]));
+  });
+});
+
+describe("AutomationsPage rule actions", () => {
+  it("creates a rule from the Create automation button", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Create automation" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Create automation" })).toBeInTheDocument();
+    // Nothing to dry-run until the rule exists.
+    expect(within(dialog).queryByRole("button", { name: /test against a job/i })).not.toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText("Name"), "Late tech");
+    await user.type(within(dialog).getByLabelText("Message"), "Running late");
+    await user.click(within(dialog).getByRole("button", { name: "Create automation" }));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({
+      name: "Late tech",
+      // Off, and said so: a rule created by accident must not start texting.
+      enabled: false,
+      spec: { actions: [{ type: "send_sms", to: "client", body: "Running late" }] },
+    });
+  });
+
+  it("duplicates a rule from its menu, under a name that tells the two apart", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Duplicate" }));
+    await waitFor(() =>
+      expect(duplicated).toEqual([
+        { id: "canceled", body: { name: "Canceled job & techs (copy)" } },
+      ]),
+    );
+  });
+
+  it("deletes a rule only after the confirm names it", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete Canceled job & techs" }));
+
+    const confirm = await screen.findByRole("alertdialog");
+    expect(within(confirm).getByText("Delete “Canceled job & techs”?")).toBeInTheDocument();
+    expect(within(confirm).getByText(/can't be undone/)).toBeInTheDocument();
+    expect(deleted).toEqual([]);
+
+    await user.click(within(confirm).getByRole("button", { name: "Delete rule" }));
+    await waitFor(() => expect(deleted).toEqual(["canceled"]));
+  });
+
+  it("walks away from the confirm without deleting", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete Canceled job & techs" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(deleted).toEqual([]);
+  });
+
+  it("edits a rule from its menu", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    expect(
+      within(await screen.findByRole("dialog")).getByRole("heading", { name: "Edit automation" }),
+    ).toBeInTheDocument();
+  });
+
+  it("reads the new recipe in when one draft is swapped for another", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("tab", { name: "Library" }));
+    const missed = await screen.findByTestId("automation-template-missed-call-text-client");
+    await user.click(within(missed).getByLabelText("Use Missed call / Immediate text client"));
+    expect(await screen.findByLabelText("Name")).toHaveValue("Missed call / Immediate text client");
+
+    // The editor reads its draft into form state once, as it mounts. The open
+    // dialog hides the library from the pointer and from the accessibility
+    // tree, so the second recipe is taken at its own card — the shape of the
+    // path that would hand the editor a second draft without unmounting it.
+    const answered = screen.getByTestId("automation-template-completed-call-text-client");
+    fireEvent.click(within(answered).getByLabelText("Use Completed call / Text client"));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name")).toHaveValue("Completed call / Text client"),
+    );
+    expect(screen.getByRole("textbox", { name: "Message" }).textContent).toContain(
+      "Thank you for calling",
+    );
+  });
+
+  it("reads the new rule in when the edited one is swapped for another", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Canceled job & techs");
+
+    await user.click(screen.getByRole("button", { name: "Actions for Canceled job & techs" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    expect((await screen.findByRole("textbox", { name: "Message" })).textContent).toBe("CLIENT CANCELED");
+
+    // The editor reads its rule into form state once, as it mounts. An open
+    // dialog hides the list from the pointer and from the accessibility tree,
+    // so the swap is driven at the card itself — the shape of the path that
+    // would hand the editor a second rule without unmounting it first.
+    const card = screen.getByTestId("automation-scheduled");
+    fireEvent.pointerDown(within(card).getByLabelText("Actions for Scheduled jobs"), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Message" }).textContent).toBe("New scheduled job"),
+    );
+    expect(screen.getByLabelText("Name")).toHaveValue("Scheduled jobs");
   });
 });

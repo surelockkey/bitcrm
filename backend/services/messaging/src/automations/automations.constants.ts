@@ -14,6 +14,9 @@
  */
 export const AUTOMATION_CATALOG_GSI3PK = 'CATALOG#AUTOMATION';
 
+/** How long a rule's name may be — what the DTOs enforce and what "(copy 2)" has to fit inside. */
+export const AUTOMATION_NAME_MAX_LENGTH = 120;
+
 /** `<name lower>#<id>` — alphabetical, unique per rule. */
 export const automationCatalogSk = (name: string, ruleId: string) =>
   `${name.trim().toLowerCase()}#${ruleId}`;
@@ -66,6 +69,66 @@ export const autoOnceSk = (entity: string, occurrence: string) =>
 export const AUTO_RUN_TTL_SECONDS = 30 * 24 * 60 * 60;
 /** Longer than the log: re-firing a rule for a job is worse than losing its history. */
 export const AUTO_ONCE_TTL_SECONDS = 90 * 24 * 60 * 60;
+
+// ---------------------------------------------------------------------------
+// The account-wide firing feed (the Activity page).
+//
+// A run lives in its rule's partition, which answers "what did THIS rule do"
+// in one Query and "what did ANY rule do" not at all. Rather than add a
+// seventh index — a new GSI is a terraform apply, and nobody may run one
+// here — every logged run also lands in the GSI3 catalog the rules
+// themselves are listed through, under a month partition:
+//
+//   GSI3PK = AUTORUN#<YYYY-MM>   GSI3SK = <firedAt>#<runId>
+//
+// A month of firings is small (Workiz's whole four years came to 66 632, and
+// the busiest single rule to 17 476), and the feed reads newest-first
+// straight down the partition with no filter.
+// ---------------------------------------------------------------------------
+
+/** `AUTORUN#<YYYY-MM>` — every rule's firings of one month, on GSI3. */
+export const autoRunFeedGsi3Pk = (month: string) => `AUTORUN#${month}`;
+/** `<firedAt>#<runId>` — time-ordered inside the month partition. */
+export const autoRunFeedGsi3Sk = (firedAt: string, runId: string) => `${firedAt}#${runId}`;
+/** ISO instant → the month partition it belongs to (`2026-09`). */
+export const runMonthOf = (iso: string) => iso.slice(0, 7);
+
+/**
+ * DynamoDB sweeps expired TTL rows "typically within a few days", not on the
+ * second. The feed looks two days further back than the TTL so a run the
+ * table still holds is not hidden behind a partition nobody reads.
+ */
+export const AUTO_RUN_TTL_GRACE_SECONDS = 2 * 24 * 60 * 60;
+
+/** How many Queries one feed page may cost before it returns short with a cursor. */
+export const AUTO_RUN_FEED_MAX_QUERIES = 8;
+
+/**
+ * The month partitions the feed must read, newest first.
+ *
+ * Runs expire after `AUTO_RUN_TTL_SECONDS` (30 days), so everything that can
+ * still exist fired inside that window — which is why this is two Queries
+ * and not a scan. Two, *almost* always: 30 days before 1 March is 30
+ * January, two months back, because February is shorter than the window. So
+ * the months are derived from the window instead of assumed, and the walk is
+ * at most three partitions. `since` only ever shortens it.
+ */
+export function autoRunFeedMonths(now: Date, since?: string): string[] {
+  const horizon = now.getTime() - (AUTO_RUN_TTL_SECONDS + AUTO_RUN_TTL_GRACE_SECONDS) * 1000;
+  const asked = since ? Date.parse(since) : Number.NaN;
+  const oldest = runMonthOf(new Date(Number.isNaN(asked) ? horizon : Math.max(horizon, asked)).toISOString());
+
+  const months: string[] = [];
+  let month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  // The clamp above keeps this at two or three; the bound is a stop, not a policy.
+  while (months.length < 12) {
+    const key = runMonthOf(month.toISOString());
+    months.push(key);
+    if (key <= oldest) break;
+    month = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - 1, 1));
+  }
+  return months;
+}
 
 /** `SCHEDULE#<YYYY-MM-DDTHH:MM>` — every firing due in that UTC minute. */
 export const schedulePk = (dueMinute: string) => `SCHEDULE#${dueMinute}`;
