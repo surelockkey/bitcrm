@@ -188,6 +188,32 @@ describe("when it goes out", () => {
     expect(when().getByText(/set on the Wait step above/)).toBeInTheDocument();
   });
 
+  it("counts a Wait written below it — the rule has one delay, not one per step", async () => {
+    const node = send({ type: "send_sms", to: "client" });
+    const wait: ChainNode = { id: "w", kind: "wait", waitMinutes: 240 };
+    renderNodePanel(node, { chain: [jobTrigger, node, wait] });
+    await settle();
+
+    // `AutomationTiming.delayMinutes` is one number for the whole rule, counted
+    // from the trigger, so a Wait under this step holds this step back too.
+    // Saying "immediately" here would be the panel telling the reader the
+    // opposite of what the rule does.
+    expect(when().queryByText("immediately")).toBeNull();
+    expect(when().getByText("4 hours after the trigger")).toBeInTheDocument();
+    expect(when().getByText(/set on the Wait step below/)).toBeInTheDocument();
+  });
+
+  it("adds two Waits together rather than reading whichever is nearest", async () => {
+    const node = send({ type: "send_sms", to: "client" });
+    const first: ChainNode = { id: "w1", kind: "wait", waitMinutes: 60 };
+    const second: ChainNode = { id: "w2", kind: "wait", waitMinutes: 30 };
+    renderNodePanel(node, { chain: [jobTrigger, first, second, node] });
+    await settle();
+
+    expect(when().getByText("90 minutes after the trigger")).toBeInTheDocument();
+    expect(when().getByText(/set on the Wait steps in this chain/)).toBeInTheDocument();
+  });
+
   it("reads a relative trigger as Workiz words it", async () => {
     const node = send({ type: "send_sms", to: "client" });
     const trigger: ChainNode = {

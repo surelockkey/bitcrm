@@ -58,24 +58,38 @@ function relativeText(trigger: AutomationTrigger): string {
   return `${parts.value} ${unit} ${parts.direction === "before" ? "ahead of" : "after"} ${anchor}`;
 }
 
+const waitedMinutes = (node: ChainNode): number =>
+  node.kind === "wait" ? Math.abs(Math.round(node.waitMinutes ?? 0)) : 0;
+
 /**
  * When this step actually runs, read off the chain rather than off the step.
  *
- * Neither half of it lives on the action: a delay is a `Wait` node before it
- * (§6 — a wait becomes `timing.delayMinutes`) and a reminder's offset is on
- * the trigger. So the slot says what the chain says and names the step that
+ * Neither half of it lives on the action: a delay is a `Wait` node (§6 — a
+ * wait becomes `timing.delayMinutes`) and a reminder's offset is on the
+ * trigger. So the slot says what the chain says and names the step that
  * decides it, instead of offering a second place to set the same number and
  * leaving the reader to guess which one won.
+ *
+ * Every Wait in the chain counts, not just the ones above this step: the
+ * engine holds **one** delay for the whole rule (`AutomationTiming.delayMinutes`,
+ * counted from the trigger), so a Wait written below this step holds this step
+ * back just the same, and two of them are their sum. Reading only backwards
+ * had a message the rule delays by an hour say "immediately".
  */
 export function sendTiming(node: ChainNode, chain: ChainNode[]): { text: string; from?: string } {
-  const at = chain.findIndex((n) => n.id === node.id);
-  for (let i = (at === -1 ? chain.length : at) - 1; i >= 0; i -= 1) {
-    if (chain[i].kind !== "wait") continue;
-    const minutes = chain[i].waitMinutes ?? 0;
-    if (!minutes) break;
+  const waits = chain.filter((n) => waitedMinutes(n) > 0);
+  const minutes = waits.reduce((total, n) => total + waitedMinutes(n), 0);
+  if (minutes) {
     const parts = splitOffset(minutes);
     const unit = parts.value === 1 ? parts.unit.slice(0, -1) : parts.unit;
-    return { text: `${parts.value} ${unit} after the trigger`, from: "the Wait step above" };
+    const at = chain.findIndex((n) => n.id === node.id);
+    const from =
+      waits.length > 1
+        ? "the Wait steps in this chain"
+        : chain.indexOf(waits[0]) < (at === -1 ? chain.length : at)
+          ? "the Wait step above this one"
+          : "the Wait step below this one";
+    return { text: `${parts.value} ${unit} after the trigger`, from };
   }
   const trigger = chain.find((n) => n.kind === "trigger")?.trigger;
   if (trigger?.kind === "schedule.relative") {
