@@ -226,6 +226,23 @@ describe('Workiz’s one-minute rule (§1.7)', () => {
     expect(canClockOut(started, started + 60_000)).toBe(true);
     expect(secondsUntilCanClockOut(started, started + 60_000)).toBe(0);
   });
+
+  it('never traps a technician behind a stamp it cannot read', () => {
+    // Every comparison against NaN is false, which reads as "not a minute yet"
+    // for the rest of the day: the button disabled, and `NaN s to go` under it.
+    // The rule is there to stop a zero-minute entry, not to hold a shift open.
+    expect(canClockOut(Date.parse('not a date'), started)).toBe(true);
+    expect(secondsUntilCanClockOut(Date.parse('not a date'), started)).toBe(0);
+  });
+
+  it('gives way when the phone and the server disagree about the time', () => {
+    // A start in the phone's own future can only be the server's stamp — a
+    // queued row carries `Date.now()`, which cannot be. The server's clock is
+    // the one that will do this subtraction for payroll, so the phone's
+    // arithmetic must not be what keeps somebody on the clock.
+    expect(canClockOut(started, started - 10 * 60_000)).toBe(true);
+    expect(secondsUntilCanClockOut(started, started - 10 * 60_000)).toBe(0);
+  });
 });
 
 describe('deriveClockState — the server and the outbox together', () => {

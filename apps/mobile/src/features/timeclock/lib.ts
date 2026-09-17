@@ -239,12 +239,32 @@ export function weekRange(dateIso: string): InstantRange {
  */
 export const MIN_CLOCK_SEPARATION_MS = 60_000;
 
+/**
+ * Two ways a start stamp can make this arithmetic meaningless, and in both the
+ * answer is to let the technician out.
+ *
+ * The rule exists to stop a zero-minute entry somebody in the office has to
+ * find and delete. It is not worth a shift that cannot be closed:
+ *
+ *  - a stamp the phone cannot read leaves every comparison `false`, which reads
+ *    as "not a minute yet" forever — the button would be disabled for the rest
+ *    of the day, with `NaN s to go` under it;
+ *  - a stamp in the phone's own *future* can only have come from the server (a
+ *    queued row carries `Date.now()`, which cannot be), so the two clocks
+ *    disagree — and it is the server's, the one payroll uses, that will do the
+ *    subtraction in the end.
+ */
+const unusable = (startedAtMs: number, now: number): boolean =>
+  !Number.isFinite(startedAtMs) || now < startedAtMs;
+
 export function canClockOut(startedAtMs: number, now: number): boolean {
+  if (unusable(startedAtMs, now)) return true;
   return now - startedAtMs >= MIN_CLOCK_SEPARATION_MS;
 }
 
 /** How much longer the technician has to wait, in whole seconds. */
 export function secondsUntilCanClockOut(startedAtMs: number, now: number): number {
+  if (unusable(startedAtMs, now)) return 0;
   return Math.max(0, Math.ceil((MIN_CLOCK_SEPARATION_MS - (now - startedAtMs)) / 1000));
 }
 
