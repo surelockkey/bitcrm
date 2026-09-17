@@ -168,6 +168,51 @@ describe("'has a status of'", () => {
 });
 
 describe("the narrowings the old editor never showed", () => {
+  /**
+   * None of these five reaches the card's sentence, so a shut disclosure over
+   * one of them is a rule that reads as "when a call is missed" while it only
+   * ever fires on inbound calls — three of the eight library recipes ship
+   * exactly that. The webhook panel's headers already work this way.
+   */
+  it("opens itself on a trigger that is already narrowed by one of them", async () => {
+    // One panel at a time: cleanup runs between tests, not between renders.
+    const from = renderNodePanel(
+      triggerNode({ kind: "deal.status_changed", to: ["done"], from: ["submitted"] }),
+    );
+    await settle();
+    expect(screen.getByLabelText("Status left")).toHaveTextContent("Submitted");
+    from.unmount();
+
+    const direction = renderNodePanel(
+      triggerNode({ kind: "call.completed", callDirection: "inbound" }),
+    );
+    await settle();
+    expect(screen.getByLabelText("Call direction")).toHaveTextContent("coming in");
+    direction.unmount();
+
+    const onCreate = renderNodePanel(
+      triggerNode({ kind: "deal.status_changed", to: ["done"], onCreate: false }),
+    );
+    await settle();
+    expect(
+      screen.getByRole("checkbox", { name: "A job created straight into this status counts too" }),
+    ).not.toBeChecked();
+    onCreate.unmount();
+  });
+
+  it("stays shut on a trigger that is not narrowed", async () => {
+    renderNodePanel(triggerNode({ kind: "deal.status_changed", to: ["done"] }));
+    await settle();
+
+    // Shut is the right default for a rule with nothing hidden: the sentence
+    // is the first thing to read, and five empty fields under it are noise.
+    expect(screen.queryByLabelText("Status left")).toBeNull();
+    expect(screen.getByRole("button", { name: "Narrow it further" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
   it("writes the status a job comes from", async () => {
     const user = userEvent.setup();
     const panel = renderNodePanel(triggerNode({ kind: "deal.status_changed", to: ["done"] }));

@@ -72,6 +72,25 @@ function freshTrigger(kind: AutomationTriggerKind): AutomationTrigger {
 }
 
 /**
+ * Whether this trigger is already narrowed by something only "Narrow it
+ * further" shows. None of these five reaches the sentence on the card —
+ * `automationTriggerSentence` says the status a job comes from and nothing
+ * else — so a shut disclosure over any of them is a rule that reads as "when
+ * a call is missed" while it only ever fires on inbound calls. Three of the
+ * eight library recipes ship exactly that (`callDirection: 'inbound'`).
+ */
+function isNarrowed(trigger: AutomationTrigger): boolean {
+  const set = (value: string | undefined) => Boolean(value) && value !== "any";
+  return (
+    Boolean(trigger.from?.length) ||
+    trigger.onCreate === false ||
+    set(trigger.callDirection) ||
+    set(trigger.messageChannel) ||
+    set(trigger.messagePartyKind)
+  );
+}
+
+/**
  * The trigger node: `When <a job> <is created>`, each slot a popover, as in
  * Workiz (§5.1). "has a status of" opens the status and sub-status pickers
  * under the sentence; "is coming up" opens the `<4> <hours> <ahead of> <the
@@ -98,7 +117,11 @@ export function TriggerPanel({
   const trigger = node.trigger;
   const entity: TriggerEntity | undefined = trigger ? entityOfKind(trigger.kind) : undefined;
   const eventId = trigger ? eventIdOfTrigger(trigger) : undefined;
-  const [narrowing, setNarrowing] = useState(false);
+  // Open on a trigger that is already narrowed, shut on one that is not — the
+  // same rule the webhook panel's headers follow, for the same reason: a rule
+  // narrowed to inbound calls must never look like one that takes them all.
+  // Seeded once per node, and the panel is remounted per node (`NodePanel`).
+  const [narrowing, setNarrowing] = useState(() => Boolean(trigger && isNarrowed(trigger)));
 
   const emit = (next: AutomationTrigger) => onChange({ ...node, trigger: next });
 
