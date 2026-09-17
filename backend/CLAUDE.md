@@ -244,6 +244,12 @@ Rules:
   filling new attributes, `migrate-*` for reshaping keys, `seed-*` for catalog
   data — wired as an npm script in that service's `package.json`. Backfills must
   be idempotent and upsert-only.
+- A **derived projection** is the exception, and it reconciles rather than
+  backfills: rows the source of truth no longer lists must be removed, or a row
+  that got in wrongly can never leave (see `TechnicianEligibilityReconciler`).
+  Never author its rows with a `seed-*` script — the reconcile deletes them.
+  Safety comes from refusing to act on an answer that could mean "the source is
+  down": a failed call and an empty list both change nothing.
 
 ---
 
