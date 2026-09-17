@@ -70,10 +70,12 @@ export function newChainNode(kind: ChainNodeKind): ChainNode {
     case "trigger":
       return { id, kind, trigger: { ...NEW_TRIGGER } };
     case "condition":
-      // A row with nothing picked yet. It narrows nothing, so the card says so
-      // and `toSpec` drops it — an unfinished condition is never stored as one
-      // the rule can never satisfy.
-      return { id, kind, condition: { field: "tag", op: "in", values: [] } };
+      // Nothing picked at all, not even the field. Workiz opens its "Only if…"
+      // on "Select property", and picking a field for somebody reads back on
+      // the card as "its job tag is any" — a sentence saying the rule checks
+      // something it does not check, which is the exact widening this editor
+      // exists to prevent. The panel already renders an empty row for this.
+      return { id, kind };
     case "wait":
       return { id, kind, waitMinutes: 60 };
     case "send":

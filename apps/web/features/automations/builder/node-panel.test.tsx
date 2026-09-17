@@ -39,7 +39,7 @@ describe("nodeSummary", () => {
   it("invites a step nobody has filled in yet", () => {
     expect(nodeSummary({ id: "1", kind: "trigger" }, {})).toBe("Choose a trigger");
     expect(nodeSummary({ id: "2", kind: "condition" }, {})).toBe("Choose what to check");
-    expect(nodeSummary({ id: "3", kind: "send" }, {})).toBe("Choose what to do");
+    expect(nodeSummary({ id: "3", kind: "send" }, {})).toBe("Choose what to send");
     expect(nodeSummary({ id: "4", kind: "wait" }, {})).toBe("Choose how long to wait");
     // The sentence builder would answer "add the tag" / "post a webhook to a
     // URL" for these; a card wants to be told what is missing instead.
@@ -107,9 +107,15 @@ describe("nodeSummary", () => {
     ).toBe("Post a webhook to https://x.test/h");
   });
 
-  it("says a wait as the delay it is", () => {
-    expect(nodeSummary({ id: "w", kind: "wait", waitMinutes: 240 }, {})).toBe("After 4 hours");
-    expect(nodeSummary({ id: "w", kind: "wait", waitMinutes: 1440 }, {})).toBe("After 1 day");
+  it("says a wait as the delay it is, and where the engine counts it from", () => {
+    // Not "before the steps below": the engine holds one delay per rule and
+    // counts it from the trigger, so a wait between two sends holds them both.
+    expect(nodeSummary({ id: "w", kind: "wait", waitMinutes: 240 }, {})).toBe(
+      "Wait 4 hours before this rule does anything",
+    );
+    expect(nodeSummary({ id: "w", kind: "wait", waitMinutes: 1440 }, {})).toBe(
+      "Wait 1 day before this rule does anything",
+    );
     expect(nodeSummary({ id: "w", kind: "wait", waitMinutes: 0 }, {})).toBe("Choose how long to wait");
   });
 });

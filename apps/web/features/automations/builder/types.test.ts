@@ -447,7 +447,10 @@ describe("the chain saves what the form editor saved", () => {
 describe("newChainNode", () => {
   it("starts each kind on what its panel will fill in", () => {
     expect(newChainNode("send").action).toEqual({ type: "send_sms", to: "client", body: "" });
-    expect(newChainNode("condition").condition).toEqual({ field: "tag", op: "in", values: [] });
+    // Nothing is picked for a new condition, not even the field: a field
+    // chosen for somebody reads back on the card as "its job tag is any" —
+    // a rule checking something nobody asked it to check.
+    expect(newChainNode("condition").condition).toBeUndefined();
     expect(newChainNode("webhook").action).toEqual({ type: "webhook" });
     expect(newChainNode("add_tag").action).toEqual({ type: "add_tag" });
     expect(newChainNode("change_sub_status").action).toEqual({ type: "change_sub_status" });

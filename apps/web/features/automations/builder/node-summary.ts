@@ -97,8 +97,20 @@ export function chainNodeSummary(node: ChainNode, labels?: AutomationLabelMap): 
       // rule that is not the rule being saved.
       return `Wait ${automationDelayText(minutes).replace(/^after /, "")} before this rule does anything`;
     }
-    default:
-      return node.action ? capitalise(automationActionSentence(node.action, named)) : PLACEHOLDER[node.kind];
+    default: {
+      const action = node.action;
+      if (!action) return PLACEHOLDER[node.kind];
+      // The sentence builder answers for a half-written action too ("add the
+      // tag", "post a webhook to a URL"). On a card that reads as a step
+      // somebody finished, so an action still missing the one thing it acts
+      // on keeps its invitation instead.
+      if (node.kind === "add_tag" && !action.tagId) return PLACEHOLDER.add_tag;
+      if (node.kind === "change_sub_status" && !action.subStatusId && !action.superStatus) {
+        return PLACEHOLDER.change_sub_status;
+      }
+      if (node.kind === "webhook" && !action.url) return PLACEHOLDER.webhook;
+      return capitalise(automationActionSentence(action, named));
+    }
   }
 }
 
