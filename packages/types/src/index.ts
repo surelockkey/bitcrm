@@ -117,6 +117,17 @@ export {
   OnboardingStatus,
 } from './entities/technician-profile.entity';
 export { TechnicianLocation } from './entities/technician-location.entity';
+export { TechnicianLocationPoint } from './entities/technician-location-point.entity';
+export {
+  TimeClockEntry,
+  TimeClockLocation,
+  TimeClockSummary,
+  TimeClockSource,
+} from './entities/time-clock-entry.entity';
+export {
+  TIME_CLOCK_SOURCES,
+  TIME_CLOCK_MIN_MINUTES,
+} from './entities/time-clock-entry.entity';
 export { CalendarEvent } from './entities/calendar-event.entity';
 export {
   TechnicianJobType,
