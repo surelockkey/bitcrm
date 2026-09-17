@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { QualifiedTech } from "../api";
 
 const { qualified, assign } = vi.hoisted(() => ({
@@ -83,6 +84,26 @@ describe("AssignTechDialog — a row that is not a technician", () => {
     show(["ghost"]);
 
     expect(screen.getByLabelText("Assign Alex Rivera")).not.toBeDisabled();
+  });
+
+  /**
+   * Unticking is how a bad assignment is undone, and the tick is not saved
+   * until Apply — so clearing it must not be what locks the row. It did, while
+   * the lock keyed off the tick rather than off who is on the job: one stray
+   * click and the only way back was to close the dialog.
+   */
+  it("can be ticked back on after a mis-click, while still on the job", async () => {
+    qualified.data = [tech({ id: "ghost", eligible: false, reasons: ["not_assignable"] })];
+    show(["ghost"]);
+
+    const box = screen.getByLabelText("Assign Alex Rivera");
+    await userEvent.click(box);
+
+    expect(box).not.toBeChecked();
+    expect(box).not.toBeDisabled();
+
+    await userEvent.click(box);
+    expect(box).toBeChecked();
   });
 
   it("leaves a real technician who can't take this job selectable", () => {

@@ -95,7 +95,10 @@ export function AssignTechDialog({
       // A dispatcher may override "wrong job type" or "wrong area" — those are
       // judgement calls about a technician. "Not a technician" is not, so the
       // row is only unlocked to take someone already on the job back off it.
-      locked={t.reasons.includes("not_assignable") && !selected.includes(t.id)}
+      // Keyed to who is on the job, not to the tick: keyed to the tick, the box
+      // disabled itself the instant it was cleared, so a mis-click could only
+      // be undone by closing the dialog.
+      locked={t.reasons.includes("not_assignable") && !assignedTechIds.includes(t.id)}
     />
   );
 
