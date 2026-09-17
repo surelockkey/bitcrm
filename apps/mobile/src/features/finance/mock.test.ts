@@ -22,7 +22,11 @@ describe('the Finance tab is mocked, and says so', () => {
     expect(EMPTY).not.toMatch(/[0-9$]/);
   });
 
-  it('keeps Workiz’s three figures in Workiz’s order', () => {
+  it('keeps the summary line in the order it was built in', () => {
+    // Ours, not theirs. Nothing in the sources records a summary row at the top
+    // of Workiz's Finance tab, and the job card was never captured from the
+    // live app (`WORKIZ_APP_SCREENS_LIVE.md`, line 11). Pinned so it cannot
+    // drift — not claimed as parity.
     expect(financeFigures().map((f) => f.key)).toEqual([
       'invoiceNumber',
       'total',
@@ -35,15 +39,20 @@ describe('the Finance tab is mocked, and says so', () => {
     ]);
   });
 
-  it('keeps Workiz’s sections in Workiz’s order, with their words', () => {
-    // The point of building the skeleton before the API: wiring it later is a
-    // data change, not a redesign. This is the shape that must not drift.
+  it('keeps Workiz’s sections in the order the source actually records', () => {
+    // `WORKIZ_MOBILE_APP.md` §1.4: "Finance-вкладка: Job items, Estimates,
+    // Invoices, Payments, Documents". That sentence is the whole of the
+    // evidence for this tab — the card screen was never captured — and the
+    // parity requirement's standard is a source per claim. So the order and
+    // the words are that sentence's, and a section the sources never name is
+    // not drawn at all: the point of the skeleton is that wiring the API later
+    // is a data change, not a redesign, and a skeleton in the wrong order is
+    // worse than none.
     expect(financeSections().map((s) => s.label)).toEqual([
-      'View invoice',
-      'Items',
-      'Payments',
-      'Payment schedule',
+      'Job items',
       'Estimates',
+      'Invoices',
+      'Payments',
       'Documents',
     ]);
   });

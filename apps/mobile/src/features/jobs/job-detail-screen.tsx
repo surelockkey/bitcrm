@@ -48,12 +48,12 @@ export interface JobDetailScreenProps {
 type Sheet = 'none' | 'clock' | 'eta' | 'pay' | 'onMyWay' | 'late' | 'reschedule';
 
 /**
- * One job, and everything a technician does to it — laid out as Workiz lays it
- * out (`WORKIZ_MOBILE_APP.md` §1.4, `WORKIZ_APP_SCREENS_LIVE.md`).
+ * One job, and everything a technician does to it.
  *
  * The owner's rule is UX theirs, UI ours: the users are technicians who have
  * spent years in the Workiz app, and nothing about their day should have to be
- * relearned. So the structure and the words are Workiz's, down to the order —
+ * relearned. So the structure and the words are Workiz's where there is a
+ * reading of Workiz to copy —
  *
  *   header `Job #<number>` · back · share
  *   tabs   `Details` | `Finance`
@@ -62,6 +62,17 @@ type Sheet = 'none' | 'clock' | 'eta' | 'pay' | 'onMyWay' | 'late' | 'reschedule
  *
  * — and everything visual is ours: our palette, our type scale, our touch
  * floors, our components.
+ *
+ * **What is sourced, and what is not.** `WORKIZ_MOBILE_APP.md` §1.4 records the
+ * quick-action panel (`Start`, `ETA`, `Pay`, `Add note`, `Attach`), the address
+ * tapped for directions, the client's number read off the card, the status
+ * moved from the Details tab, and a Finance tab. The header wording came from
+ * the brief. **The order of the Details blocks is ours** — the live-capture
+ * pass never reached a job card at all, because the account it was read from
+ * has no assigned work (`WORKIZ_APP_SCREENS_LIVE.md`, line 11), so there is no
+ * reading of that screen to copy. Assign any job to Bohdan TECH, photograph
+ * this screen in their app, and correct the order against it; until then this
+ * is a considered arrangement and not a parity claim.
  *
  * Every action still goes through the durable queue and is optimistic, so the
  * screen answers instantly whether or not there is a signal, and the queue line
@@ -72,7 +83,7 @@ type Sheet = 'none' | 'clock' | 'eta' | 'pay' | 'onMyWay' | 'late' | 'reschedule
  * its own sake (docs/ARCHITECTURE.md §2.9).
  *
  * **What is mocked, and what was left out.** Finance and Pay read from nothing
- * this wave and say so on their face (`features/finance/mock.ts`). Four of
+ * this wave and say so on their face (`features/finance/mock.ts`). Six of
  * Workiz's Details sections are absent rather than drawn dead — Job name, Job
  * type, Job tags, Checklists, Equipment, Tasks — because the phone has either
  * no field behind them at all or only a catalog id it cannot turn into a word,

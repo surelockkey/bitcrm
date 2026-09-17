@@ -4,9 +4,11 @@
  * The owner's instruction for this wave: «інвойси і оплату поки замокай, вона
  * буде пізніше» — mock invoices and payment, they come later. So the Finance
  * tab and the Pay action exist, in Workiz's order and with Workiz's words
- * (`WORKIZ_MOBILE_APP.md` §1.8–§1.9), and they read from nothing at all.
+ * (`WORKIZ_MOBILE_APP.md` §1.4 for the sections, §1.8–§1.9 for what each of
+ * them does), and they read from nothing at all.
  *
- * Two rules this file exists to enforce, in one place where they can be tested:
+ * Three rules this file exists to enforce, in one place where they can be
+ * tested:
  *
  *  1. **No number is ever invented.** Every figure is `EMPTY`. There is no
  *     sample total, no plausible balance, no seeded line item. A technician who
@@ -14,6 +16,11 @@
  *     amount to a client; a dash cannot be misquoted.
  *  2. **Every mocked surface says so.** `NOT_CONNECTED` is one short line, at
  *     the top of the tab and again on the Pay sheet, in plain words.
+ *  3. **Nothing is attributed to Workiz without a source.** The owner paused
+ *     three pull requests over parity, so a row we invented and labelled as
+ *     theirs is worse than a missing one: it is learned, defended, and wrong.
+ *     Each list below says which line of the sources it came from, or says
+ *     plainly that it is ours.
  *
  * When the invoice and payment APIs land, what changes here is where the values
  * come from. The order of the rows, their labels and the layout stay — that is
@@ -39,8 +46,16 @@ export interface FinanceFigure {
 }
 
 /**
- * The three figures at the top of Workiz's Finance tab, in its order: the
- * invoice's number, what the job comes to, what is still owed.
+ * The summary line: the invoice's number, what the job comes to, what is still
+ * owed.
+ *
+ * Ours, not Workiz's. No source in this repo records a summary row on their
+ * Finance tab, and the live-capture pass never reached a job card at all — the
+ * account it was read from has no assigned work
+ * (`WORKIZ_APP_SCREENS_LIVE.md`, line 11). Kept because it is the first thing
+ * a technician is asked at a door, and marked as ours because
+ * `_MOBILE_UI_PARITY_REQUIREMENT.md` asks for a source behind every claim about
+ * their app and there is none behind this one.
  */
 export function financeFigures(): FinanceFigure[] {
   return [
@@ -51,21 +66,22 @@ export function financeFigures(): FinanceFigure[] {
 }
 
 export interface FinanceSection {
-  key:
-    | 'viewInvoice'
-    | 'items'
-    | 'payments'
-    | 'paymentSchedule'
-    | 'estimates'
-    | 'documents';
-  /** Workiz's own word for the section. */
+  key: 'jobItems' | 'estimates' | 'invoices' | 'payments' | 'documents';
+  /** Workiz's own word for the section (§1.4). */
   label: string;
   /** What sits under the label while there is nothing behind it. */
   empty: string;
 }
 
 /**
- * The sections of Workiz's Finance tab, in its order.
+ * The sections of Workiz's Finance tab, in the order the source records.
+ *
+ * `WORKIZ_MOBILE_APP.md` §1.4, verbatim: «Finance-вкладка: Job items,
+ * Estimates, Invoices, Payments, Documents». That sentence is the whole of the
+ * evidence for this tab, so the order and the words are its own, and nothing is
+ * added to it. A "Payment schedule" row would be a guess at their screen drawn
+ * as though it were a reading of one — and it would still be a guess after a
+ * technician had learned where it sits.
  *
  * Every one is drawn, none is tappable. A row that opens nothing is worse than
  * a row that says it opens nothing — so these state their emptiness instead of
@@ -73,15 +89,10 @@ export interface FinanceSection {
  */
 export function financeSections(): FinanceSection[] {
   return [
-    { key: 'viewInvoice', label: 'View invoice', empty: 'No invoice on this job' },
-    { key: 'items', label: 'Items', empty: 'No items' },
-    { key: 'payments', label: 'Payments', empty: 'No payments' },
-    {
-      key: 'paymentSchedule',
-      label: 'Payment schedule',
-      empty: 'No schedule',
-    },
+    { key: 'jobItems', label: 'Job items', empty: 'No items on this job' },
     { key: 'estimates', label: 'Estimates', empty: 'No estimates' },
+    { key: 'invoices', label: 'Invoices', empty: 'No invoice on this job' },
+    { key: 'payments', label: 'Payments', empty: 'No payments' },
     { key: 'documents', label: 'Documents', empty: 'No documents' },
   ];
 }
