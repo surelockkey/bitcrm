@@ -355,7 +355,40 @@ describe('JobDetailScreen — rescheduling', () => {
   const today = localDateIso();
   const tomorrow = shiftDateIso(today, 1);
 
+  /**
+   * The hour of day is pinned, and only the hour.
+   *
+   * These cases turn on windows that have **not** ended yet — the sheet offers
+   * a window on today only while it is still running (`reschedule.ts`), so a
+   * job booked 09:00–12:00 on today is offerable in the morning and gone by
+   * lunchtime. Left on the wall clock, two of them passed all morning and
+   * failed every afternoon, which is the worst kind of red: it looks like
+   * whatever landed last broke them.
+   *
+   * Only `Date` is faked. The timers are left real because the screen's own
+   * clock, the queue and `@testing-library`'s async waits all run on them, and
+   * a suite that has to remember to advance timers to make a button work is a
+   * suite that stops being run.
+   */
   beforeEach(() => {
+    const morning = new Date(`${today}T08:00:00`);
+    jest.useFakeTimers({
+      doNotFake: [
+        'setTimeout',
+        'clearTimeout',
+        'setInterval',
+        'clearInterval',
+        'setImmediate',
+        'clearImmediate',
+        'nextTick',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'performance',
+      ],
+      now: morning,
+    });
+
     mockDeal = deal({ scheduledDate: today, scheduledTimeSlot: '09:00-12:00' });
     mockContact = undefined;
     mockRecords = [];
@@ -364,6 +397,10 @@ describe('JobDetailScreen — rescheduling', () => {
     mockCall.mockReset();
     mockClockIn.mockClear();
     mockMarkSeenOnOpen.mockClear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   it('opens the sheet on the day the job is booked for', async () => {
