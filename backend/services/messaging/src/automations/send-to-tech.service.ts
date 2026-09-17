@@ -186,7 +186,7 @@ export class SendToTechService {
       result[channel] = outcome;
       this.logger.log(`Send to tech ${deal.id} → ${techId} (${channel}): ${outcome}`);
     }
-    await this.pushJob(deal, techId, result);
+    this.pushJob(deal, techId, result);
     return result;
   }
 
@@ -202,23 +202,38 @@ export class SendToTechService {
    * also pushed — their phone has already buzzed — while one ticked for both
    * gets both, exactly as they do today. Only a fresh `sent` pushes:
    * `duplicate` is an SQS redelivery of a click whose push already went.
+   *
+   * **Not awaited**, exactly like the in-app line's own push in
+   * `SendService.acceptInApp`. This runs inside the
+   * `deal-events-to-messaging` handler, which takes messages ten at a time
+   * and processes them one after another under that queue's 30 s visibility
+   * timeout; one unreachable Expo costs `PUSH_MAX_ATTEMPTS × PUSH_TIMEOUT_MS`
+   * plus backoff — over 30 s on the defaults, per technician. Waiting for it
+   * would let SQS redeliver the click mid-handler and hold every other deal
+   * event (the "New job" SMS included) queued behind a courtesy
+   * notification. The delivery rows the dispatcher watches are already
+   * written by the time we get here.
    */
-  private async pushJob(
+  private pushJob(
     deal: AutomationDeal,
     techId: string,
     result: Partial<Record<SendToTechChannel, SendToTechOutcome>>,
-  ): Promise<void> {
+  ): void {
     if (!this.push || result.in_app !== 'sent') return;
-    await this.push.notifyJobSentToTech({
-      dealId: deal.id,
-      techId,
-      deal: {
-        dealNumber: deal.dealNumber,
-        scheduledDate: deal.scheduledDate,
-        scheduledTimeSlot: deal.scheduledTimeSlot,
-        address: deal.address,
-      },
-    });
+    void this.push
+      .notifyJobSentToTech({
+        dealId: deal.id,
+        techId,
+        deal: {
+          dealNumber: deal.dealNumber,
+          scheduledDate: deal.scheduledDate,
+          scheduledTimeSlot: deal.scheduledTimeSlot,
+          address: deal.address,
+        },
+      })
+      .catch((error) =>
+        this.logger.warn(`Job push for ${deal.id} → ${techId} failed: ${error instanceof Error ? error.message : error}`),
+      );
   }
 
   private async deliverChannel(

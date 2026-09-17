@@ -405,6 +405,38 @@ describe('SendToTechService — the push that goes with the in-app channel', () 
     await service.onSentToTech(event({ techIds: ['t1', 't2'], channels: ['in_app'] }));
     expect(push.notifyJobSentToTech.mock.calls.map((c: any[]) => c[0].techId)).toEqual(['t1', 't2']);
   });
+
+  it('does not wait for Expo — a hung push must not hold the SQS message open', async () => {
+    // `deal-events-to-messaging` has a 30 s visibility timeout and handles
+    // its batch one message at a time, while an unreachable Expo costs
+    // PUSH_MAX_ATTEMPTS × PUSH_TIMEOUT_MS + backoff per technician. Awaiting
+    // the push would let SQS redeliver the dispatcher's click mid-handler and
+    // hold every other deal event — the "New job" SMS included — behind a
+    // courtesy notification.
+    const { service, push } = makeService();
+    push.notifyJobSentToTech.mockImplementation(() => new Promise<never>(() => undefined));
+
+    const outcome = await Promise.race([
+      service.onSentToTech(event({ channels: ['in_app'] })),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting on the push'), 50)),
+    ]);
+
+    expect(outcome).toEqual({ t1: { in_app: 'sent' } });
+    expect(push.notifyJobSentToTech).toHaveBeenCalled();
+  });
+
+  it('logs, rather than crashing the consumer, when the notifier itself throws', async () => {
+    // Nothing awaits that promise any more, so an unhandled rejection here
+    // would take the whole process down under Node's default policy.
+    const { service, push } = makeService();
+    push.notifyJobSentToTech.mockRejectedValue(new Error('registry is throttling'));
+    const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+    await service.onSentToTech(event({ channels: ['in_app'] }));
+    await Promise.resolve();
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('registry is throttling'));
+  });
 });
 
 describe('send-to-tech keys', () => {
