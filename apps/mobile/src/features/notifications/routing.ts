@@ -1,3 +1,4 @@
+import { queryKeys } from '../../lib/api/query-keys';
 import type { PushPayload } from './types';
 
 /**
@@ -75,4 +76,28 @@ export function routeForPush(payload: PushPayload): string {
 export function routeForPushData(data: unknown): string | null {
   const payload = parsePushPayload(data);
   return payload ? routeForPush(payload) : null;
+}
+
+/**
+ * What the arrival of this notification has just made out of date.
+ *
+ * A push is news, and the app is very often already showing the thing the news
+ * is about: the day list, or that very job. Deciding whether to put a banner up
+ * is only half an answer — a banner reading "your 2 o'clock moved to 4" over a
+ * card that still says 2 o'clock is worse than no banner, and the quiet case
+ * (the screen the technician is already on, where the banner is deliberately
+ * suppressed) would otherwise tell them nothing at all.
+ *
+ * So arriving marks the affected queries stale. It still never navigates and
+ * never takes the screen: the list under their thumb simply becomes right.
+ *
+ * A conversation has nothing to invalidate yet — no chat query exists on the
+ * phone. Its keys belong here when the messaging stream's screen lands.
+ */
+export function staleKeysForPushData(data: unknown): readonly (readonly unknown[])[] {
+  const payload = parsePushPayload(data);
+  if (payload?.kind !== 'job') return [];
+  // The card in the day list carries the same times and stamps as the job
+  // itself, so both, or going back one screen undoes the correction.
+  return [queryKeys.deals.lists(), queryKeys.deals.detail(payload.dealId)];
 }

@@ -1,7 +1,10 @@
 import { Text } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { screen, waitFor } from '@testing-library/react-native';
+import { queryKeys } from '../../lib/api/query-keys';
+import { createTestQueryClient } from '../../test/query';
 import { renderScreen } from '../../test/render';
 import { PushProvider } from './push-provider';
 import * as device from './device';
@@ -18,6 +21,7 @@ jest.mock('expo-router', () => ({
 
 const mockRemove = jest.fn();
 let mockResponseListener: ((r: unknown) => void) | undefined;
+let mockArrivalListener: ((n: unknown) => void) | undefined;
 let mockLastResponse: unknown = null;
 let mockHandler: Notifications.NotificationHandler | null = null;
 
@@ -27,6 +31,10 @@ jest.mock('expo-notifications', () => ({
   }),
   addNotificationResponseReceivedListener: jest.fn((listener) => {
     mockResponseListener = listener;
+    return { remove: mockRemove };
+  }),
+  addNotificationReceivedListener: jest.fn((listener) => {
+    mockArrivalListener = listener;
     return { remove: mockRemove };
   }),
   getLastNotificationResponse: jest.fn(() => mockLastResponse),
@@ -40,23 +48,40 @@ const response = (data: unknown, identifier = 'n1') => ({
   notification: { request: { identifier, content: { data } } },
 });
 
+/** One arriving while the app is in the foreground. */
+const arrival = (data: unknown) => ({ request: { content: { data } } });
+
+let client: QueryClient;
+
 beforeEach(() => {
   mockPush.mockReset();
   mockRemove.mockReset();
   mockPathname = '/';
   mockResponseListener = undefined;
+  mockArrivalListener = undefined;
   mockLastResponse = null;
   mockHandler = null;
+  client = createTestQueryClient();
   mockDevice.registerPushDevice.mockResolvedValue({ status: 'not-yet' });
   mockDevice.ensureAndroidChannel.mockResolvedValue(undefined);
 });
 
-const mount = () =>
-  renderScreen(
-    <PushProvider>
-      <Text>the app</Text>
-    </PushProvider>,
+/**
+ * The provider under a query client, as it is in the app — `QueryProvider`
+ * sits above the router. A component rather than an inline tree so `rerender`
+ * puts the client back too.
+ */
+function Harness() {
+  return (
+    <QueryClientProvider client={client}>
+      <PushProvider>
+        <Text>the app</Text>
+      </PushProvider>
+    </QueryClientProvider>
   );
+}
+
+const mount = () => renderScreen(<Harness />);
 
 describe('PushProvider', () => {
   it('renders the app it wraps and nothing of its own', async () => {
@@ -160,6 +185,38 @@ describe('PushProvider', () => {
       ).resolves.toMatchObject({ shouldShowBanner: false });
     });
 
+    it('makes the job it is about reload, so the card stops showing the old time', async () => {
+      /*
+       * The point of the quiet cases. Dispatch moves the 2 o'clock to 4 and
+       * the phone is open on the day list: a banner over a card that still
+       * says 2 o'clock is worse than none, and on the job's own screen no
+       * banner goes up at all — so without this the technician is told
+       * nothing and shown the old time.
+       */
+      const seen: unknown[][] = [];
+      client.invalidateQueries = jest.fn((filters?: { queryKey?: unknown[] }) => {
+        seen.push(filters?.queryKey ?? []);
+        return Promise.resolve();
+      }) as unknown as typeof client.invalidateQueries;
+
+      await mount();
+      mockArrivalListener?.(arrival({ kind: 'job', dealId: 'd1' }));
+
+      expect(seen).toEqual([queryKeys.deals.lists(), queryKeys.deals.detail('d1')]);
+      // Arriving still never moves the technician anywhere.
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it('reloads nothing for a payload it cannot read', async () => {
+      const invalidate = jest.fn(() => Promise.resolve());
+      client.invalidateQueries = invalidate as unknown as typeof client.invalidateQueries;
+
+      await mount();
+      mockArrivalListener?.(arrival({ kind: 'invoice', invoiceId: 'i1' }));
+
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
     it('follows the technician as they move between screens', async () => {
       // The handler is registered once and outlives any one screen, so it has
       // to read where they are now, not where they were when it was set up.
@@ -167,11 +224,7 @@ describe('PushProvider', () => {
       const view = await mount();
 
       mockPathname = '/chat';
-      await view.rerender(
-        <PushProvider>
-          <Text>the app</Text>
-        </PushProvider>,
-      );
+      await view.rerender(<Harness />);
 
       await expect(
         mockHandler!.handleNotification({

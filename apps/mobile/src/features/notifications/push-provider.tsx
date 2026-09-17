@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { router, usePathname } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { ensureAndroidChannel, registerPushDevice } from './device';
 import { foregroundBehavior } from './policy';
-import { routeForPushData } from './routing';
+import { routeForPushData, staleKeysForPushData } from './routing';
 
 /**
  * Push, wired to the app.
@@ -20,6 +21,7 @@ import { routeForPushData } from './routing';
  */
 export function PushProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const qc = useQueryClient();
 
   /*
    * The foreground handler is registered once and lives as long as the app, so
@@ -46,6 +48,27 @@ export function PushProvider({ children }: { children: React.ReactNode }) {
     // description of what happened rather than throwing.
     void registerPushDevice();
   }, []);
+
+  /*
+   * One arriving is news about data the app is very likely already showing.
+   * Whether or not a banner goes up — and on the screen it is about, one
+   * deliberately does not — the day list and that job are now out of date, and
+   * a card still reading the old time is the lie the notification came to
+   * correct. Marking them stale refetches only what is on screen; nothing
+   * moves, nothing is taken over.
+   */
+  useEffect(() => {
+    const subscription = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        for (const queryKey of staleKeysForPushData(
+          notification.request.content.data,
+        )) {
+          void qc.invalidateQueries({ queryKey });
+        }
+      },
+    );
+    return () => subscription.remove();
+  }, [qc]);
 
   /*
    * A tap opens the thing the notification is about.

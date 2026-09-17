@@ -1,4 +1,10 @@
-import { parsePushPayload, routeForPush, routeForPushData } from './routing';
+import { queryKeys } from '../../lib/api/query-keys';
+import {
+  parsePushPayload,
+  routeForPush,
+  routeForPushData,
+  staleKeysForPushData,
+} from './routing';
 
 describe('parsePushPayload', () => {
   it('reads the two shapes the backend agreed to send', () => {
@@ -55,5 +61,29 @@ describe('routeForPushData', () => {
   it('has nowhere to send an unreadable payload', () => {
     expect(routeForPushData({ kind: 'nonsense' })).toBeNull();
     expect(routeForPushData(undefined)).toBeNull();
+  });
+});
+
+describe('staleKeysForPushData', () => {
+  it('marks the job and the day list out of date', () => {
+    // A push about a job is news about what the list already shows. Without
+    // this, the banner announces a new time over a card still showing the old
+    // one — and on the job's own screen no banner goes up at all.
+    expect(staleKeysForPushData({ kind: 'job', dealId: 'd9' })).toEqual([
+      queryKeys.deals.lists(),
+      queryKeys.deals.detail('d9'),
+    ]);
+  });
+
+  it('has nothing to reload for a conversation yet', () => {
+    // No chat query exists on the phone; its keys land with that screen.
+    expect(
+      staleKeysForPushData({ kind: 'conversation', conversationId: 'c1', messageId: 'm1' }),
+    ).toEqual([]);
+  });
+
+  it('reloads nothing at all on a payload it cannot read', () => {
+    expect(staleKeysForPushData({ kind: 'invoice', invoiceId: 'i1' })).toEqual([]);
+    expect(staleKeysForPushData(undefined)).toEqual([]);
   });
 });
