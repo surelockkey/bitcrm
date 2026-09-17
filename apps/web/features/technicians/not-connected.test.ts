@@ -3,24 +3,23 @@ import {
   allNotConnected,
   AVAILABILITY_NOT_CONNECTED,
   NOT_CONNECTED_BANNER,
-  PERSON_NOT_CONNECTED,
   SETTINGS_NOT_CONNECTED,
   WORK_NOT_CONNECTED,
 } from "./not-connected";
 
 describe("the Workiz fields we draw dead", () => {
   it("covers every field the parity doc lists as theirs and not ours", () => {
-    // WORKIZ_USER_PAGE_PARITY.md §1, minus four: the phone country code (our
-    // phone control carries it), the working hours themselves (live), user
-    // skills (a second catalog we hold nothing for and are not building — the
-    // owner struck it), and the schedule colour, which is now a real picker
-    // that simply saves nothing yet.
+    // WORKIZ_USER_PAGE_PARITY.md §1, minus what has since gone live — user
+    // type, additional phone numbers, field team member, the photo — and minus
+    // four that never belonged here: the phone country code (our phone control
+    // carries it), the working hours themselves (live), user skills (a second
+    // catalog we hold nothing for and are not building — the owner struck it),
+    // and the schedule colour, which is a real picker that simply saves
+    // nothing yet.
     expect(allNotConnected().map((f) => f.key).sort()).toEqual(
       [
-        "additional-phones",
         "allowed-ips",
         "availability-same-as-business",
-        "field-team-member",
         "notes",
         "notify-incoming-messages",
         "notify-outgoing-messages",
@@ -28,7 +27,6 @@ describe("the Workiz fields we draw dead", () => {
         "sync-email",
         "two-factor",
         "user-signature",
-        "user-type",
       ].sort(),
     );
   });
@@ -74,7 +72,7 @@ describe("the Workiz fields we draw dead", () => {
   });
 
   it("keeps Workiz's own labels for the fields the owner will look for", () => {
-    expect(PERSON_NOT_CONNECTED.userType.label).toBe("User type");
-    expect(WORK_NOT_CONNECTED.fieldTeamMember.label).toBe("Field team member");
+    expect(WORK_NOT_CONNECTED.twoFactor.label).toBe("Two-factor authentication");
+    expect(WORK_NOT_CONNECTED.notes.label).toBe("Notes");
   });
 });

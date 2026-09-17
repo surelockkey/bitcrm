@@ -8,9 +8,9 @@ import { useSuggestedTechs } from "../hooks";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON: Record<IneligibilityReason, string> = {
-  // Dispatch holds a row for them but user-service doesn't call them a
-  // technician — say that, rather than implying they are one mid-onboarding.
-  not_assignable: "not a technician",
+  // Dispatch holds a row for them but user-service says they are off the
+  // field team — say that, rather than implying they are mid-onboarding.
+  not_assignable: "not on the field team",
   missing_job_type: "can't do this job type",
   outside_area: "outside this service area",
 };

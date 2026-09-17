@@ -313,6 +313,38 @@ export function useDeleteDocument() {
   });
 }
 
+/**
+ * The photo on the card. One invalidation for the whole technicians cache:
+ * the link is minted with the profile, and the header, the list and the
+ * Documents tab all draw it.
+ */
+export function useUploadPhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const { uploadUrl, headers } = await api.requestPhotoUpload(id, file.type);
+      await api.uploadDocumentBytes(uploadUrl, file, headers);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.technicians.all() });
+      toast.success("Photo updated");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+export function useDeletePhoto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) => api.deletePhoto(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.technicians.all() });
+      toast.success("Photo removed");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
 export function useSetSensitive() {
   const qc = useQueryClient();
   return useMutation({
