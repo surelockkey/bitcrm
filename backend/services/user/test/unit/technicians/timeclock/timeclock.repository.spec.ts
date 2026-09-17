@@ -1,5 +1,6 @@
 import { type TimeClockEntry } from '@bitcrm/types';
 import {
+  ClockAlreadyClosedError,
   ClockAlreadyOpenError,
   TimeClockRepository,
 } from '../../../../src/technicians/timeclock/timeclock.repository';
@@ -122,6 +123,28 @@ describe('TimeClockRepository (unit)', () => {
       expect(update.UpdateExpression).toContain('endLocation = :loc');
       expect(update.UpdateExpression).not.toContain('startLocation');
       expect(closed.startLocation).toEqual({ lat: 33.749, lng: -84.388, accuracy: 10 });
+    });
+
+    // The slot has already been released by whoever won, so the conditional
+    // Delete fails and DynamoDB cancels the whole transaction. That is a second
+    // tap on a doorstep, not a server fault, and the caller has to be able to
+    // tell the two apart.
+    it('names the loser of a stop race instead of leaking the cancellation', async () => {
+      client.send.mockRejectedValue(transactionConflict());
+
+      await expect(
+        repo.close(entry(), { endedAt: '2026-09-17T16:00:00.000Z', minutes: 480 }),
+      ).rejects.toBeInstanceOf(ClockAlreadyClosedError);
+    });
+
+    it('lets an unrelated failure through untouched', async () => {
+      client.send.mockRejectedValue(
+        Object.assign(new Error('boom'), { name: 'ProvisionedThroughputExceededException' }),
+      );
+
+      await expect(
+        repo.close(entry(), { endedAt: '2026-09-17T16:00:00.000Z', minutes: 480 }),
+      ).rejects.toThrow('boom');
     });
 
     it('omits the end location entirely when the technician shared none', async () => {

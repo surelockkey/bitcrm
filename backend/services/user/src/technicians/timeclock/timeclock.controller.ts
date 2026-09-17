@@ -31,9 +31,11 @@ export class TimeClockController {
     summary: 'Clock in',
     description:
       '**Guard:** `technicians.edit`; always the caller’s own clock. Starting one ' +
-      'while another is running answers **409** with the running entry in the body ' +
-      '(`{ message, entry }`) — never a second open shift. Coordinates are optional: ' +
-      'a refused location permission must not stop anyone from working.',
+      'while another is running answers **409** — never a second open shift. Every ' +
+      'error in this service leaves as `{ success: false, error: { code, message } }` ' +
+      'and carries nothing else, so on a 409 the app reads the running shift back ' +
+      'from `GET /timeclock/current`. Coordinates are optional: a refused location ' +
+      'permission must not stop anyone from working.',
   })
   async start(@Body() dto: StartTimeClockDto, @CurrentUser() user: JwtUser) {
     const data = await this.service.start(user, dto);
@@ -47,8 +49,10 @@ export class TimeClockController {
     summary: 'Clock out',
     description:
       '**Guard:** `technicians.edit`; always the caller’s own clock. **409** when no ' +
-      'clock is running, **400** when less than a minute has passed since clocking in ' +
-      '(Workiz’s own rule). `minutes` is computed from the server’s two stamps.',
+      'clock is running — including a second stop for the same shift, so a double ' +
+      'tap or an outbox retry is told "not clocked in" rather than handed a 500. ' +
+      '**400** when less than a minute has passed since clocking in (Workiz’s own ' +
+      'rule). `minutes` is computed from the server’s two stamps.',
   })
   async stop(@Body() dto: StopTimeClockDto, @CurrentUser() user: JwtUser) {
     const data = await this.service.stop(user, dto);

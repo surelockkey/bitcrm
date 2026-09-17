@@ -190,6 +190,37 @@ describe('TechnicianLocationService', () => {
       expect(timeClock.openEntryId).toHaveBeenCalledTimes(1);
     });
 
+    // A man who leaves the app running after his shift still reports a fix
+    // every few seconds. Sampling has to throttle the clock lookup for him too
+    // — otherwise every one of those pings is a DynamoDB read, all day, for a
+    // row that is never written.
+    it('throttles the clock lookup off the clock, not only on it', async () => {
+      timeClock.openEntryId.mockResolvedValue(null);
+
+      // A minute of five-second pings, 0s…60s inclusive.
+      for (let i = 0; i <= 12; i++) {
+        jest.setSystemTime(at(i * 5_000));
+        await service.setLocation('tech-1', { lat: 33.749 + i * 0.01, lng: -84.388 });
+      }
+
+      expect(repository.append).not.toHaveBeenCalled();
+      // Thirteen pings, two lookups: the first fix, then the minute mark.
+      expect(timeClock.openEntryId).toHaveBeenCalledTimes(2);
+    });
+
+    it('starts the trail at the first sample after he clocks in', async () => {
+      timeClock.openEntryId.mockResolvedValue(null);
+      await service.setLocation('tech-1', { lat: 33.749, lng: -84.388 });
+      expect(repository.append).not.toHaveBeenCalled();
+
+      timeClock.openEntryId.mockResolvedValue('tc-9');
+      jest.setSystemTime(at(MIN_SAMPLE_INTERVAL_MS));
+      await service.setLocation('tech-1', { lat: 33.76, lng: -84.4 });
+
+      expect(repository.append).toHaveBeenCalledTimes(1);
+      expect(repository.append.mock.calls[0][0].timeClockEntryId).toBe('tc-9');
+    });
+
     // Dispatch is looking at the map right now; a breadcrumb that failed to
     // store must not take the live position down with it.
     it('still reports presence when the track write fails', async () => {

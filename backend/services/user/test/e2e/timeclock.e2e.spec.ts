@@ -102,13 +102,31 @@ describe('Time Clock (e2e)', () => {
     await request(app.getHttpServer()).post(`${BASE}/start`).send({ source: 'mobile' }).expect(401);
   });
 
-  // The honest answer: refuse, and say what is already running.
-  it('answers a second start with 409 and the running entry', async () => {
-    const first = await start(tech).expect(201);
+  // The honest answer: refuse. The body is the service-wide error envelope —
+  // `HttpExceptionFilter` renders `{ success, error: { code, message } }` and
+  // drops every other field — so the running entry cannot ride the 409 and the
+  // app reads it back from /current, as the next test does.
+  it('answers a second start with a 409 envelope', async () => {
+    await start(tech).expect(201);
     const second = await start(tech).expect(409);
 
-    expect(second.body.message).toBe('You are already clocked in');
-    expect(second.body.entry.id).toBe(first.body.data.id);
+    expect(second.body).toEqual({
+      success: false,
+      error: { code: 'CONFLICT', message: 'You are already clocked in' },
+    });
+  });
+
+  it('leaves the first shift running and readable after that 409', async () => {
+    const first = await start(tech).expect(201);
+    await start(tech).expect(409);
+
+    const running = await request(app.getHttpServer())
+      .get(`${BASE}/current`)
+      .set('x-test-user', createTestUserHeader(tech))
+      .expect(200);
+
+    expect(running.body.data.id).toBe(first.body.data.id);
+    expect(running.body.data.startedAt).toBe(first.body.data.startedAt);
   });
 
   it('reports the running entry, and null when there is none', async () => {
@@ -142,13 +160,17 @@ describe('Time Clock (e2e)', () => {
     await start(tech).expect(201);
 
     const res = await stop(tech).expect(400);
-    expect(res.body.message).toContain('at least one minute');
+    expect(res.body.error.message).toContain('at least one minute');
   });
 
   it('answers a clock-out with nothing running as 409, not 500', async () => {
     const res = await stop(tech).expect(409);
-    expect(res.body.message).toBe('You are not clocked in');
+    expect(res.body.error.message).toBe('You are not clocked in');
   });
+
+  // A second stop for the same shift takes the same 409 path — the slot is gone
+  // either way. The two-writers-at-once version of it is pinned in the unit
+  // tests, where the race can be produced without a real minute passing.
 
   it('keeps the shift open after a refused clock-out', async () => {
     await start(tech).expect(201);
@@ -173,6 +195,34 @@ describe('Time Clock (e2e)', () => {
     expect(res.body.data.entries).toHaveLength(1);
     // The open shift contributes nothing yet.
     expect(res.body.data.totalMinutes).toBe(0);
+  });
+
+  // An offset instant is what a report built in a US timezone sends. The bound
+  // has to be re-stamped as UTC before it becomes a sort key, or the query
+  // brackets the wrong hours.
+  it('finds today’s shift through a range given with a UTC offset', async () => {
+    await start(tech).expect(201);
+    const now = new Date();
+    const from = new Date(now.getTime() - 12 * 3_600_000)
+      .toISOString()
+      .replace('Z', '+00:00');
+    const to = new Date(now.getTime() + 12 * 3_600_000)
+      .toISOString()
+      .replace('Z', '+00:00');
+
+    const res = await request(app.getHttpServer())
+      .get(`${BASE}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .set('x-test-user', createTestUserHeader(tech))
+      .expect(200);
+
+    expect(res.body.data.entries).toHaveLength(1);
+  });
+
+  it('refuses a backwards range with 400 rather than a 500 from the table', async () => {
+    await request(app.getHttpServer())
+      .get(`${BASE}?from=2026-09-21&to=2026-09-15`)
+      .set('x-test-user', createTestUserHeader(tech))
+      .expect(400);
   });
 
   it('refuses one technician reading another’s hours', async () => {

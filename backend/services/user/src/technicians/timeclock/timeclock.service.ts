@@ -15,10 +15,12 @@ import {
   type TimeClockSummary,
 } from '@bitcrm/types';
 import {
+  ClockAlreadyClosedError,
   ClockAlreadyOpenError,
   TimeClockRepository,
 } from './timeclock.repository';
 import { elapsedMs, minutesBetween, MS_PER_MINUTE } from './timeclock.util';
+import { toRangeEnd, toRangeStart } from '../date-range.util';
 import { UsersService } from '../../users/users.service';
 import { StartTimeClockDto } from './dto/start-timeclock.dto';
 import { StopTimeClockDto } from './dto/stop-timeclock.dto';
@@ -70,15 +72,20 @@ export class TimeClockService {
    * Punch in. The instant is the server's, and the running-entry slot is
    * claimed atomically — see `TimeClockRepository.createOpen`.
    *
-   * A second start while one is running is a 409 carrying the entry that is
-   * already open, not a silent success and not a second shift. Silently
-   * returning the running entry would hide the case this exists to catch — a
-   * stop that never reached the server, leaving a technician "on the clock"
-   * overnight — and opening a second one would double-pay the overlap. The
-   * app can still recover without a round trip: the running entry is in the
-   * response body, so "you are already clocked in since 08:12" is one render
-   * away, which is exactly what the offline outbox needs when its own start
-   * was delivered but the reply was lost.
+   * A second start while one is running is a 409, not a silent success and not
+   * a second shift. Silently returning the running entry would hide the case
+   * this exists to catch — a stop that never reached the server, leaving a
+   * technician "on the clock" overnight — and opening a second one would
+   * double-pay the overlap.
+   *
+   * The 409 carries a message and nothing else. It cannot carry the running
+   * entry: every error in every service leaves through `HttpExceptionFilter`,
+   * which renders exactly `{ success: false, error: { code, message } }` and
+   * drops any other field of the exception payload. So the app answers a 409 by
+   * calling `GET /timeclock/current` — one GetItem — and renders "clocked in
+   * since 08:12" from that. Shipping the entry in a body the client never
+   * receives would be worse than the extra hop: the app would read `undefined`
+   * and show nothing at all.
    */
   async start(caller: JwtUser, dto: StartTimeClockDto): Promise<TimeClockEntry> {
     const now = new Date().toISOString();
@@ -97,11 +104,14 @@ export class TimeClockService {
       await this.repository.createOpen(entry);
     } catch (error) {
       if (error instanceof ClockAlreadyOpenError) {
+        // Logged, not returned: a shift still open from yesterday is the thing
+        // support is asked about, and the response cannot carry it.
         const running = await this.repository.getOpen(caller.id);
-        throw new ConflictException({
-          message: 'You are already clocked in',
-          entry: running,
-        });
+        this.logger.warn(
+          `Clock in refused, already open: user=${caller.id} ` +
+            `entry=${running?.id ?? 'unknown'} since=${running?.startedAt ?? 'unknown'}`,
+        );
+        throw new ConflictException('You are already clocked in');
       }
       throw error;
     }
@@ -116,6 +126,12 @@ export class TimeClockService {
   /**
    * Punch out. `minutes` is computed here from the two server stamps; nothing
    * the client sends can influence it.
+   *
+   * Two stops for one shift — a second tap while the first reply is still in
+   * flight, or an outbox redelivering a stop whose reply was lost — answer the
+   * same 409 as a stop with nothing running. The shift is already closed either
+   * way; the second caller must be told "not clocked in", not handed a 500 that
+   * an offline queue will retry forever.
    */
   async stop(caller: JwtUser, dto: StopTimeClockDto): Promise<TimeClockEntry> {
     const open = await this.repository.getOpen(caller.id);
@@ -131,11 +147,19 @@ export class TimeClockService {
       );
     }
 
-    const closed = await this.repository.close(open, {
-      endedAt,
-      minutes: minutesBetween(open.startedAt, endedAt),
-      endLocation: toLocation(dto),
-    });
+    let closed: TimeClockEntry;
+    try {
+      closed = await this.repository.close(open, {
+        endedAt,
+        minutes: minutesBetween(open.startedAt, endedAt),
+        endLocation: toLocation(dto),
+      });
+    } catch (error) {
+      if (error instanceof ClockAlreadyClosedError) {
+        throw new ConflictException('You are not clocked in');
+      }
+      throw error;
+    }
 
     this.logger.log(
       `Clock out: user=${caller.id} entry=${closed.id} minutes=${closed.minutes}`,
@@ -158,6 +182,13 @@ export class TimeClockService {
     to: string,
     userId?: string,
   ): Promise<TimeClockSummary> {
+    // DynamoDB rejects a BETWEEN whose bounds are the wrong way round, and that
+    // rejection would reach a person as a 500. A backwards range is a caller's
+    // mistake, so it gets a 400 that says which way round it goes.
+    if (toRangeStart(from) > toRangeEnd(to)) {
+      throw new BadRequestException('`from` must not be after `to`');
+    }
+
     const target = userId ?? caller.id;
     if (target !== caller.id) {
       await this.assertCanReadOthers(caller);

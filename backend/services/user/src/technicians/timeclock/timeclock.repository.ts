@@ -22,6 +22,20 @@ export class ClockAlreadyOpenError extends Error {
   }
 }
 
+/**
+ * Thrown when the slot no longer holds this entry by the time the close lands —
+ * i.e. somebody else already closed it. That is the ordinary shape of a
+ * double-tapped Stop on a slow connection, and of an outbox redelivering a stop
+ * whose reply was lost, so it must read as "already stopped" rather than as a
+ * server fault.
+ */
+export class ClockAlreadyClosedError extends Error {
+  constructor() {
+    super('This time-clock entry is no longer the open one');
+    this.name = 'ClockAlreadyClosedError';
+  }
+}
+
 @Injectable()
 export class TimeClockRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -85,7 +99,9 @@ export class TimeClockRepository {
    *
    * Both halves move together, and the slot is released under the condition
    * that it still holds THIS entry — so a stop racing another stop closes the
-   * shift exactly once.
+   * shift exactly once. The loser of that race gets `ClockAlreadyClosedError`,
+   * not the raw cancellation: a second tap on a slow connection is an ordinary
+   * event on a doorstep, and it must not read as a 500.
    */
   async close(
     entry: TimeClockEntry,
@@ -99,38 +115,43 @@ export class TimeClockRepository {
       updatedAt: patch.endedAt,
     };
 
-    await this.dynamoDb.client.send(
-      new TransactWriteCommand({
-        TransactItems: [
-          {
-            Update: {
-              TableName: TECHNICIANS_TABLE,
-              Key: this.entryKey(entry.userId, entry.startedAt, entry.id),
-              UpdateExpression: patch.endLocation
-                ? 'SET endedAt = :e, #m = :m, endLocation = :loc, updatedAt = :u'
-                : 'SET endedAt = :e, #m = :m, updatedAt = :u',
-              ExpressionAttributeNames: { '#m': 'minutes' },
-              ExpressionAttributeValues: {
-                ':e': patch.endedAt,
-                ':m': patch.minutes,
-                ':u': patch.endedAt,
-                ...(patch.endLocation ? { ':loc': patch.endLocation } : {}),
+    try {
+      await this.dynamoDb.client.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: TECHNICIANS_TABLE,
+                Key: this.entryKey(entry.userId, entry.startedAt, entry.id),
+                UpdateExpression: patch.endLocation
+                  ? 'SET endedAt = :e, #m = :m, endLocation = :loc, updatedAt = :u'
+                  : 'SET endedAt = :e, #m = :m, updatedAt = :u',
+                ExpressionAttributeNames: { '#m': 'minutes' },
+                ExpressionAttributeValues: {
+                  ':e': patch.endedAt,
+                  ':m': patch.minutes,
+                  ':u': patch.endedAt,
+                  ...(patch.endLocation ? { ':loc': patch.endLocation } : {}),
+                },
+                ConditionExpression: 'attribute_exists(SK)',
               },
-              ConditionExpression: 'attribute_exists(SK)',
             },
-          },
-          {
-            Delete: {
-              TableName: TECHNICIANS_TABLE,
-              Key: this.openKey(entry.userId),
-              ConditionExpression: '#id = :id',
-              ExpressionAttributeNames: { '#id': 'id' },
-              ExpressionAttributeValues: { ':id': entry.id },
+            {
+              Delete: {
+                TableName: TECHNICIANS_TABLE,
+                Key: this.openKey(entry.userId),
+                ConditionExpression: '#id = :id',
+                ExpressionAttributeNames: { '#id': 'id' },
+                ExpressionAttributeValues: { ':id': entry.id },
+              },
             },
-          },
-        ],
-      }),
-    );
+          ],
+        }),
+      );
+    } catch (error) {
+      if (isTransactionConflict(error)) throw new ClockAlreadyClosedError();
+      throw error;
+    }
 
     return closed;
   }

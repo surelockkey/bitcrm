@@ -1,11 +1,41 @@
 import {
+  type ArgumentsHost,
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
 } from '@nestjs/common';
+import { HttpExceptionFilter } from '@bitcrm/shared';
 import { DataScope, type JwtUser, type TimeClockEntry } from '@bitcrm/types';
 import { TimeClockService } from '../../../../src/technicians/timeclock/timeclock.service';
-import { ClockAlreadyOpenError } from '../../../../src/technicians/timeclock/timeclock.repository';
+import {
+  ClockAlreadyClosedError,
+  ClockAlreadyOpenError,
+} from '../../../../src/technicians/timeclock/timeclock.repository';
+
+/**
+ * What the client actually receives for a thrown exception. Every service
+ * installs `HttpExceptionFilter` globally (main.ts, and the e2e setup), and it
+ * renders one envelope and drops everything else — so an assertion on
+ * `getResponse()` alone proves nothing about the wire.
+ */
+function throughFilter(exception: HttpException): { status: number; body: unknown } {
+  let status = 0;
+  let body: unknown;
+  const host = {
+    switchToHttp: () => ({
+      getResponse: () => ({
+        status: (s: number) => {
+          status = s;
+          return { json: (b: unknown) => { body = b; } };
+        },
+      }),
+    }),
+  } as unknown as ArgumentsHost;
+
+  new HttpExceptionFilter().catch(exception, host);
+  return { status, body };
+}
 
 const tech: JwtUser = {
   id: 'tech-1', cognitoSub: 's', email: 't@x.com', roleId: 'role-technician', department: 'Field',
@@ -106,27 +136,39 @@ describe('TimeClockService', () => {
       expect(entry.startLocation).toBeUndefined();
     });
 
-    // The honest answer to a double start: refuse, and hand back what is
-    // already running so the app can say "clocked in since 08:00" without a
-    // second round trip. Opening a second shift would double-pay the overlap;
-    // silently succeeding would hide a stop that never arrived.
-    it('answers a second start with 409 carrying the running entry', async () => {
+    // The honest answer to a double start: refuse. Opening a second shift would
+    // double-pay the overlap; silently succeeding would hide a stop that never
+    // arrived and leave a man on the clock overnight.
+    it('answers a second start with 409, in words a person can read', async () => {
       repo.createOpen.mockRejectedValue(new ClockAlreadyOpenError());
       repo.getOpen.mockResolvedValue(open());
 
       await expect(service.start(tech, { source: 'mobile' })).rejects.toBeInstanceOf(
         ConflictException,
       );
+      await expect(service.start(tech, { source: 'mobile' })).rejects.toThrow(
+        'You are already clocked in',
+      );
+    });
 
+    // This is the shape the mobile app is written against, so it is asserted
+    // against the filter every response really passes through — not against
+    // `getResponse()`, which is the exception, not the wire. The running entry
+    // CANNOT ride a 409: the app reads it back from GET /timeclock/current.
+    it('sends a 409 the app can actually parse — envelope only, no entry', async () => {
+      repo.createOpen.mockRejectedValue(new ClockAlreadyOpenError());
+      repo.getOpen.mockResolvedValue(open());
+
+      expect.assertions(2);
       try {
         await service.start(tech, { source: 'mobile' });
       } catch (error) {
-        const body = (error as ConflictException).getResponse() as {
-          message: string; entry: TimeClockEntry;
-        };
-        expect(body.message).toBe('You are already clocked in');
-        expect(body.entry.id).toBe('tc-1');
-        expect(body.entry.startedAt).toBe(START);
+        const { status, body } = throughFilter(error as ConflictException);
+        expect(status).toBe(409);
+        expect(body).toEqual({
+          success: false,
+          error: { code: 'CONFLICT', message: 'You are already clocked in' },
+        });
       }
     });
 
@@ -218,6 +260,46 @@ describe('TimeClockService', () => {
       await expect(service.stop(tech, {})).rejects.toBeInstanceOf(ConflictException);
       await expect(service.stop(tech, {})).rejects.toThrow('You are not clocked in');
     });
+
+    // Two stops for one shift: a second tap while the first reply is still in
+    // flight, or the outbox redelivering a stop whose reply was lost. Both read
+    // the same open entry, both reach `close`, and one of them loses the race.
+    // The loser must be told "not clocked in" — a 500 is a lie about a shift
+    // that IS closed, and an offline queue will retry it for ever.
+    it('answers the loser of a stop race as 409, not a 500', async () => {
+      repo.getOpen.mockResolvedValue(open());
+      repo.close.mockRejectedValue(new ClockAlreadyClosedError());
+      jest.useFakeTimers().setSystemTime(new Date('2026-09-17T16:00:00.000Z'));
+
+      await expect(service.stop(tech, {})).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.stop(tech, {})).rejects.toThrow('You are not clocked in');
+    });
+
+    it('sends that race a 409 envelope, not a 500 one', async () => {
+      repo.getOpen.mockResolvedValue(open());
+      repo.close.mockRejectedValue(new ClockAlreadyClosedError());
+      jest.useFakeTimers().setSystemTime(new Date('2026-09-17T16:00:00.000Z'));
+
+      expect.assertions(2);
+      try {
+        await service.stop(tech, {});
+      } catch (error) {
+        const { status, body } = throughFilter(error as ConflictException);
+        expect(status).toBe(409);
+        expect(body).toEqual({
+          success: false,
+          error: { code: 'CONFLICT', message: 'You are not clocked in' },
+        });
+      }
+    });
+
+    it('still lets a genuine storage failure through as a failure', async () => {
+      repo.getOpen.mockResolvedValue(open());
+      repo.close.mockRejectedValue(new Error('throughput exceeded'));
+      jest.useFakeTimers().setSystemTime(new Date('2026-09-17T16:00:00.000Z'));
+
+      await expect(service.stop(tech, {})).rejects.toThrow('throughput exceeded');
+    });
   });
 
   describe('current', () => {
@@ -238,6 +320,20 @@ describe('TimeClockService', () => {
 
       expect(repo.listByUserInRange).toHaveBeenCalledWith('tech-1', '2026-09-15', '2026-09-21');
       expect(users.getResolvedPermissions).not.toHaveBeenCalled();
+    });
+
+    // DynamoDB refuses a BETWEEN with its bounds the wrong way round, and that
+    // refusal would surface as a 500 on somebody's payroll screen.
+    it('answers a backwards range with 400, before it reaches the table', async () => {
+      await expect(service.list(tech, '2026-09-21', '2026-09-15')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.listByUserInRange).not.toHaveBeenCalled();
+    });
+
+    it('allows a single-day range, where from and to are the same day', async () => {
+      await service.list(tech, '2026-09-17', '2026-09-17');
+      expect(repo.listByUserInRange).toHaveBeenCalled();
     });
 
     it('totals the closed entries only — a running shift is not a fact yet', async () => {

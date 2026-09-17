@@ -111,6 +111,15 @@ export class TechnicianLocationService {
    * is paid only by fixes that survived sampling, so it is bounded by the same
    * rate.
    *
+   * The marker is advanced whether or not the fix was stored, including when it
+   * was dropped because the technician is off the clock. Otherwise a man who
+   * leaves the app running after his shift never advances it, every ping looks
+   * like the first fix of a shift, and the clock lookup below runs on every
+   * ping instead of once a minute — a DynamoDB read every few seconds, per
+   * technician, for a row we will not write. It also means a write that failed
+   * is not retried on the next tick: one missing breadcrumb out of a sampled
+   * trail is cheaper than hammering a throttled table every few seconds.
+   *
    * A failure here never fails the presence update: the map is what dispatch is
    * looking at right now, and it must not go dark because a breadcrumb missed.
    */
@@ -121,6 +130,8 @@ export class TechnicianLocationService {
     try {
       const last = await this.readLastKept(userId);
       if (!shouldKeepPoint(last, location, location.updatedAt)) return;
+
+      await this.markSampled(userId, location);
 
       const timeClockEntryId = await this.timeClock.openEntryId(userId);
       if (!timeClockEntryId) return;
@@ -133,13 +144,6 @@ export class TechnicianLocationService {
         accuracy: location.accuracy,
         timeClockEntryId,
       });
-
-      const marker: TrackSample = {
-        lat: location.lat,
-        lng: location.lng,
-        at: location.updatedAt,
-      };
-      await this.redis.client.set(this.lastKeptKey(userId), JSON.stringify(marker));
     } catch (error) {
       this.logger.warn(
         `Failed to record location point for ${userId}: ${
@@ -147,6 +151,24 @@ export class TechnicianLocationService {
         }`,
       );
     }
+  }
+
+  /**
+   * Remember where and when sampling last looked. This is the live stream's
+   * own bookkeeping, not the stored trail: it holds the position Redis already
+   * holds for presence, and nothing about a man off the clock reaches DynamoDB
+   * because of it.
+   */
+  private async markSampled(
+    userId: string,
+    location: TechnicianLocation,
+  ): Promise<void> {
+    const marker: TrackSample = {
+      lat: location.lat,
+      lng: location.lng,
+      at: location.updatedAt,
+    };
+    await this.redis.client.set(this.lastKeptKey(userId), JSON.stringify(marker));
   }
 
   private async readLastKept(userId: string): Promise<TrackSample | null> {
