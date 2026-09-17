@@ -246,6 +246,15 @@ export type {
   MessagingSettings,
   QuietHours,
 } from './entities/messaging-settings.entity';
+export { PUSH_PLATFORMS } from './entities/push-device.entity';
+export type {
+  ConversationPushData,
+  JobPushData,
+  PushDevice,
+  PushDeviceRegistration,
+  PushNotificationData,
+  PushPlatform,
+} from './entities/push-device.entity';
 export {
   EMPTY_INBOX_COUNTERS,
   EMPTY_INBOX_TOTALS,

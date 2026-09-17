@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { type Address } from '@bitcrm/types';
 import { INTERNAL_FETCH, defaultFetch, type FetchLike } from '../../outbound/internal/internal-fetch';
 
 const DEAL_SERVICE_URL = process.env.DEAL_SERVICE_URL || 'http://localhost:4003';
@@ -19,6 +20,8 @@ export interface AutomationDeal {
   scheduledDate?: string;
   scheduledEndDate?: string;
   scheduledTimeSlot?: string;
+  /** Where the job is — what a push tells a technician besides when it is. */
+  address?: Address;
   assignedTechIds: string[];
   assignedDispatcherId?: string;
   superStatus?: string;
@@ -96,6 +99,7 @@ export class AutomationPeersClient {
       scheduledDate: raw.scheduledDate,
       scheduledEndDate: raw.scheduledEndDate,
       scheduledTimeSlot: raw.scheduledTimeSlot,
+      address: raw.address,
       assignedTechIds: raw.assignedTechIds ?? [],
       assignedDispatcherId: raw.assignedDispatcherId,
       superStatus: raw.superStatus,
