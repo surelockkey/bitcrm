@@ -44,15 +44,35 @@ export class TechnicianEligibilityRepository {
     );
   }
 
+  /**
+   * Every projected technician, paged to exhaustion.
+   *
+   * A Scan spends its 1MB budget on what the table holds before the filter
+   * runs, and this table is overwhelmingly deals — so one page can come back
+   * with a handful of eligibility rows, or none, however many are stored. Both
+   * readers take what this returns as the whole truth: the assignment dialog
+   * offers exactly these people, so a technician left out is simply missing
+   * from the picker; and the boot reconcile removes the rows user-service no
+   * longer vouches for, so a row it cannot see is a row it can never remove.
+   */
   async listAll(): Promise<TechnicianEligibility[]> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: DEALS_TABLE,
-        FilterExpression: 'begins_with(PK, :pk)',
-        ExpressionAttributeValues: { ':pk': PK_PREFIX },
-      }),
-    );
-    return (result.Items || []).map(this.toEntity);
+    const rows: TechnicianEligibility[] = [];
+    let lastKey: Record<string, unknown> | undefined;
+
+    do {
+      const result = await this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: DEALS_TABLE,
+          FilterExpression: 'begins_with(PK, :pk)',
+          ExpressionAttributeValues: { ':pk': PK_PREFIX },
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      rows.push(...(result.Items || []).map(this.toEntity));
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+
+    return rows;
   }
 
   private toEntity(item: Record<string, unknown>): TechnicianEligibility {
