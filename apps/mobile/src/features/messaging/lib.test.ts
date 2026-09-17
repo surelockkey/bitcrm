@@ -206,6 +206,38 @@ describe('pendingLines', () => {
     ]);
     expect(pendingStatusText(failed!)).toBe('Not sent · Job is outside your data scope');
   });
+
+  /**
+   * The same client's thread reached from the Messages list is not standing on
+   * a job, so it asks by contact instead. A text queued from one of that
+   * client's jobs belongs in the one conversation they have — filtering by the
+   * job it was sent from would make a technician's own words vanish the moment
+   * they opened the thread from the list.
+   */
+  it('finds this client’s queued texts wherever they were sent from', () => {
+    const sms = (over: Partial<QueueRecord & { queue: 'outbox' }> = {}) =>
+      chatRow({
+        kind: 'client_sms',
+        dealId: 'deal-7',
+        payload: JSON.stringify({ contactId: 'contact-1', body: 'I am outside' }),
+        ...over,
+      });
+
+    const lines = pendingLines([sms({ id: 'mine' }), sms({ id: 'theirs', dealId: 'deal-9' })], {
+      kind: 'client_sms',
+      contactId: 'contact-1',
+    });
+    expect(lines.map((l) => l.id)).toEqual(['mine', 'theirs']);
+  });
+
+  it('never hands one client’s text to another client’s thread', () => {
+    const other = chatRow({
+      kind: 'client_sms',
+      dealId: 'deal-7',
+      payload: JSON.stringify({ contactId: 'contact-2', body: 'wrong thread' }),
+    });
+    expect(pendingLines([other], { kind: 'client_sms', contactId: 'contact-1' })).toEqual([]);
+  });
 });
 
 describe('flattenFeed', () => {

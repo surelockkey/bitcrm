@@ -29,6 +29,12 @@ export const queryKeys = {
    */
   messaging: {
     all: () => ['messaging'] as const,
+    /** The conversation list behind the Messages tab (`GET /conversations?view=all`). */
+    conversations: () => ['messaging', 'conversations'] as const,
+    /** The caller's scoped inbox counters (`GET /conversations/counters`). */
+    inboxCounters: () => ['messaging', 'inbox-counters'] as const,
+    /** One conversation, for a link opened before the list has loaded. */
+    conversation: (id: string) => ['messaging', 'conversations', 'detail', id] as const,
     /** The technician's own team thread (`GET /team/conversations?kind=team`). */
     teamThread: () => ['messaging', 'team-thread'] as const,
     /** The caller's own unread badge (`GET /team/counters`). */

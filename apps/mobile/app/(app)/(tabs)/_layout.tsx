@@ -1,8 +1,7 @@
 import { router } from 'expo-router';
 import { StyleSheet, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router/js-tabs';
-import { useTeamChatBadge } from '../../../src/features/messaging/hooks';
-import { unreadBadge } from '../../../src/features/messaging/lib';
+import { useMessagesBadge } from '../../../src/features/messaging/inbox-hooks';
 import { AppMenu } from '../../../src/features/profile/AppMenu';
 import { TAB_ITEMS } from '../../../src/features/profile/app-nav';
 import { useTheme } from '../../../src/lib/theme/theme-provider';
@@ -36,7 +35,9 @@ function TabDot({ color, focused }: { color: ColorValue; focused: boolean }) {
  */
 export default function TabsLayout() {
   const { colors, type } = useTheme();
-  const chat = useTeamChatBadge();
+  // The whole inbox, not only the office thread: the tab now opens a list
+  // with four filters, so a badge counting one of them would undercount.
+  const messages = useMessagesBadge();
 
   return (
     <DrawerHost menu={<AppMenu onNavigate={(href) => router.push(href)} />}>
@@ -66,7 +67,7 @@ export default function TabsLayout() {
               // on this bar a technician acts on.
               ...(tab.name === 'chat'
                 ? {
-                    tabBarBadge: unreadBadge(chat.data?.unreadByKind?.team),
+                    tabBarBadge: messages,
                     tabBarBadgeStyle: {
                       backgroundColor: colors.primary,
                       color: colors.onAccent,

@@ -14,6 +14,10 @@ describe('shouldPersistQuery', () => {
     // What the office said is unreadable underground unless it is on the phone.
     expect(shouldPersistQuery(q(queryKeys.messaging.teamThread()))).toBe(true);
     expect(shouldPersistQuery(q(queryKeys.messaging.messages('conv-1')))).toBe(true);
+    // And so is the list of who has written: a Messages screen opened in a
+    // basement that shows only the office thread has silently lost every
+    // client conversation the technician had this morning.
+    expect(shouldPersistQuery(q(queryKeys.messaging.conversations()))).toBe(true);
     // "Have I got one on board?" is asked in basements.
     expect(shouldPersistQuery(q(queryKeys.inventory.containers.mine()))).toBe(true);
     expect(shouldPersistQuery(q(queryKeys.inventory.containers.stock('c1')))).toBe(true);

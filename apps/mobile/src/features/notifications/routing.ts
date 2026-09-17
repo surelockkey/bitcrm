@@ -91,12 +91,26 @@ export function routeForPushData(data: unknown): string | null {
  * So arriving marks the affected queries stale. It still never navigates and
  * never takes the screen: the list under their thumb simply becomes right.
  *
- * A conversation has nothing to invalidate yet — no chat query exists on the
- * phone. Its keys belong here when the messaging stream's screen lands.
+ * A conversation marks the Messages list, its counts and that thread stale.
+ * This is the case where the banner is deliberately suppressed — the
+ * technician is already on `/chat` — so without it the line that just arrived
+ * is invisible until the thirty-second poll comes round, over a screen being
+ * read right now.
  */
 export function staleKeysForPushData(data: unknown): readonly (readonly unknown[])[] {
   const payload = parsePushPayload(data);
-  if (payload?.kind !== 'job') return [];
+  if (!payload) return [];
+  if (payload.kind === 'conversation') {
+    return [
+      queryKeys.messaging.conversations(),
+      queryKeys.messaging.inboxCounters(),
+      // The office's half of the list is a second endpoint, and the unread dot
+      // on that row comes from it rather than from the list.
+      queryKeys.messaging.teamThread(),
+      queryKeys.messaging.teamCounters(),
+      queryKeys.messaging.messages(payload.conversationId),
+    ];
+  }
   // The card in the day list carries the same times and stamps as the job
   // itself, so both, or going back one screen undoes the correction.
   return [queryKeys.deals.lists(), queryKeys.deals.detail(payload.dealId)];
