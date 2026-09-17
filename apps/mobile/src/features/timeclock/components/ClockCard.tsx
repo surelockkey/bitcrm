@@ -43,7 +43,7 @@ export function ClockCard({
   testID = 'clock-card',
 }: ClockCardProps) {
   const { colors, radius, spacing, type } = useTheme();
-  const { state, failed } = useClockState();
+  const { state, failed, isLoading } = useClockState();
   const { clockIn, clockOut } = useClockActions();
   const sharing = useLocationSharing();
   const [busy, setBusy] = useState(false);
@@ -105,7 +105,15 @@ export function ClockCard({
           label={startLabel}
           testID="clock-in"
           size="hero"
-          busy={busy}
+          // Not offered while the server is actually being asked whether a
+          // clock is already running. On a phone whose cache was wiped — a
+          // fresh install, the technician before this one signing out — the
+          // card has nothing to go on for the second that answer takes, and a
+          // tap inside it is a second entry on a shift that started at seven.
+          // A phone with no signal never reaches this: the request is paused
+          // rather than run, the button stays live, and the tap goes on the
+          // outbox like everything else.
+          busy={busy || isLoading}
           hint={
             sharing.enabled && sharing.permission === 'granted'
               ? 'Your location is shared with the office while your clock runs'

@@ -1,4 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
+import { onlineManager } from '@tanstack/react-query';
 import { ApiError } from '../../lib/api/errors';
 import type { QueueRecord } from '../../lib/queue/types';
 import { createTestQueryClient, withQuery } from '../../test/query';
@@ -206,6 +207,38 @@ describe('useClockState', () => {
     expect(result.current.state.status).toBe('starting');
     expect(result.current.isLoading).toBe(false);
   });
+
+  it('admits it does not know yet while the server is being asked', async () => {
+    // A phone with an empty cache — a fresh install, or the technician before
+    // this one having signed out — cannot say whether a clock is already
+    // running until this answers. Nothing may offer "Clock in" on the strength
+    // of a question that has not come back.
+    mockApi.getCurrentClock.mockReturnValue(new Promise(() => {}));
+
+    const { result } = await renderHook(() => useClockState(), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(result.current.state.status).toBe('off');
+  });
+
+  it('is not "still asking" in a basement, where nothing is being asked at all', async () => {
+    /*
+     * With no connection react-query pauses the request rather than running it,
+     * and a paused query stays *pending* for as long as the basement lasts.
+     * Read as "the answer is on its way", that disables the clock-in button for
+     * the whole time a technician is underground — which is precisely when the
+     * outbox is supposed to take the tap.
+     */
+    onlineManager.setOnline(false);
+    try {
+      const { result } = await renderHook(() => useClockState(), { wrapper: wrapper() });
+
+      await waitFor(() => expect(result.current.state.status).toBe('off'));
+      expect(result.current.isLoading).toBe(false);
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
 });
 
 describe('useTimesheet', () => {
@@ -253,6 +286,24 @@ describe('useTimesheet', () => {
 
     await waitFor(() => expect(result.current.entries).toHaveLength(2));
     expect(result.current.weekMinutes).toBe(60);
+  });
+
+  it('says the week was never asked for, rather than that it is on its way', async () => {
+    // With no connection the request is paused, not sent: reported as "still
+    // loading" it would leave the timesheet spinning for the whole of the
+    // basement, where the screen's other half — the clock — still works.
+    onlineManager.setOnline(false);
+    try {
+      const { result } = await renderHook(() => useTimesheet('2026-09-17'), {
+        wrapper: wrapper(),
+      });
+
+      await waitFor(() => expect(result.current.offline).toBe(true));
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeUndefined();
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('admits the rows are the phone’s own copy when the read failed', async () => {

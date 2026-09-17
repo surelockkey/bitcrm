@@ -30,6 +30,13 @@ export function shouldPersistQuery(query: {
   // underground car park, the back of a building. Quantities drift while the
   // phone is offline, so the screen says when what it shows came off the disk.
   if (root === 'inventory') return scope === 'containers';
+  // "Am I already on the clock?" — the one question in this app whose wrong
+  // answer costs somebody money. A phone that forgets it over a restart with no
+  // signal shows "Not on the clock" and offers "Clock in" to a technician who
+  // clocked in at seven; that tap is a second entry on the same shift. Only the
+  // running entry is kept — a week of rows is a report, and a report read off
+  // the disk as if it were this week's hours is a number nobody can account for.
+  if (root === 'timeclock') return scope === 'current';
   return false;
 }
 

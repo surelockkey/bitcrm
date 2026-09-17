@@ -16,7 +16,7 @@ import {
   formatHoursMinutes,
   type ClockDayGroup,
 } from './lib';
-import { SECOND_MS, useElapsed } from './use-elapsed';
+import { HALF_MINUTE_MS, useElapsed } from './use-elapsed';
 import type { TimeClockEntry } from './types';
 
 export interface TimesheetScreenProps {
@@ -46,11 +46,31 @@ export function TimesheetScreen({
   todayIso = localDateIso(),
 }: TimesheetScreenProps) {
   const { colors, spacing, type } = useTheme();
-  const { days, todayMinutes, weekMinutes, isLoading, isRefetching, error, stale, refetch } =
-    useTimesheet(todayIso);
+  const {
+    days,
+    todayMinutes,
+    weekMinutes,
+    isLoading,
+    isRefetching,
+    error,
+    offline,
+    stale,
+    refetch,
+  } = useTimesheet(todayIso);
+  // Two ways the week is not here, and they read the same to the technician:
+  // the server refused, or there was no connection to ask over. The second one
+  // never produces an error at all, so a screen that waits for one waits for
+  // ever — with a spinner on it, in the basement where clocking in matters most.
+  const noSignal = offline || (error instanceof ApiError && error.status === 0);
+  const missing = Boolean(error) || offline;
   const { state } = useClockState();
   const runningSince = clockStartedAt(state);
-  const runningMs = useElapsed(runningSince, SECOND_MS);
+  // Twice a minute, not once a second: this number is printed to the minute
+  // (`H:MM`), and ticking it per second re-renders the whole week — every day
+  // heading and every entry row — 3,600 times an hour to change nothing. The
+  // stopwatch that really does move every second is inside the card, where a
+  // re-render costs one small subtree (`ClockFace`).
+  const runningMs = useElapsed(runningSince, HALF_MINUTE_MS);
 
   return (
     <Screen testID="timesheet-screen">
@@ -117,17 +137,13 @@ export function TimesheetScreen({
 
         {isLoading ? <Splash /> : null}
 
-        {!isLoading && error && days.length === 0 ? (
+        {!isLoading && missing && days.length === 0 ? (
           <EmptyState
             testID="timesheet-error"
             tone="error"
-            title={
-              error instanceof ApiError && error.status === 0
-                ? 'No signal'
-                : 'Could not load your timesheet'
-            }
+            title={noSignal ? 'No signal' : 'Could not load your timesheet'}
             body={
-              error instanceof ApiError && error.status === 0
+              noSignal
                 ? 'Your hours will appear as soon as the phone has a connection. Clocking in and out still works.'
                 : error instanceof ApiError
                   ? error.message
@@ -138,7 +154,7 @@ export function TimesheetScreen({
           />
         ) : null}
 
-        {!isLoading && !error && days.length === 0 ? (
+        {!isLoading && !missing && days.length === 0 ? (
           <EmptyState
             testID="timesheet-empty"
             title="No hours this week yet"

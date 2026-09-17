@@ -11,6 +11,8 @@ const mockClockOut = jest.fn().mockResolvedValue(undefined);
 
 let mockState: ClockState = { status: 'off' };
 let mockFailed: QueueRecord[] = [];
+/** The server is being asked whether a clock is already running. */
+let mockClockLoading = false;
 let mockTimesheet: {
   days: { dateIso: string; label: string; entries: TimeClockEntry[]; minutes: number }[];
   todayMinutes: number;
@@ -19,6 +21,7 @@ let mockTimesheet: {
   isLoading: boolean;
   isRefetching: boolean;
   error: unknown;
+  offline: boolean;
   stale: boolean;
   refetch: () => void;
 };
@@ -27,7 +30,7 @@ jest.mock('./hooks', () => ({
   useClockState: () => ({
     state: mockState,
     failed: mockFailed,
-    isLoading: false,
+    isLoading: mockClockLoading,
     refetch: jest.fn(),
   }),
   useClockActions: () => ({ clockIn: mockClockIn, clockOut: mockClockOut }),
@@ -62,6 +65,7 @@ const timesheet = (over: Partial<typeof mockTimesheet> = {}): typeof mockTimeshe
   isLoading: false,
   isRefetching: false,
   error: undefined,
+  offline: false,
   stale: false,
   refetch: jest.fn(),
   ...over,
@@ -72,6 +76,7 @@ const props = { onBack: jest.fn(), todayIso: '2026-09-17' };
 beforeEach(() => {
   mockState = { status: 'off' };
   mockFailed = [];
+  mockClockLoading = false;
   mockTimesheet = timesheet();
   mockClockIn.mockClear();
   mockClockOut.mockClear();
@@ -96,6 +101,20 @@ describe('TimesheetScreen', () => {
     await renderScreen(<TimesheetScreen {...props} />);
     await fireEvent.press(screen.getByTestId('clock-in'));
     expect(mockClockIn).toHaveBeenCalledWith(undefined);
+  });
+
+  it('will not offer a clock-in while it is still asking whether one is running', async () => {
+    // A phone with an empty cache — a fresh install, or the technician before
+    // this one having signed out — knows nothing until the server answers. A
+    // tap in that second is a second entry on a shift that started at seven,
+    // and the technician's day would be recorded as starting now.
+    mockClockLoading = true;
+    await renderScreen(<TimesheetScreen {...props} />);
+
+    const start = screen.getByTestId('clock-in');
+    expect(start).toBeDisabled();
+    await fireEvent.press(start);
+    expect(mockClockIn).not.toHaveBeenCalled();
   });
 
   it('shows a running stopwatch and offers only the way out', async () => {
@@ -210,6 +229,22 @@ describe('TimesheetScreen', () => {
 
     expect(screen.getByTestId('timesheet-error')).toBeTruthy();
     expect(screen.getByText('No signal')).toBeTruthy();
+    expect(screen.getByTestId('clock-in')).toBeTruthy();
+  });
+
+  it('says "No signal" rather than spinning where there is none', async () => {
+    /*
+     * A request made with no connection is paused, not failed: it never
+     * produces an error, so a screen that waits for one waits for the whole of
+     * the basement, with a spinner on it and nothing to tap. The clock itself
+     * has to stay usable — that is the half of this screen that still works
+     * underground.
+     */
+    mockTimesheet = timesheet({ days: [], entries: [], offline: true });
+    await renderScreen(<TimesheetScreen {...props} />);
+
+    expect(screen.getByText('No signal')).toBeTruthy();
+    expect(screen.queryByTestId('timesheet-empty')).toBeNull();
     expect(screen.getByTestId('clock-in')).toBeTruthy();
   });
 

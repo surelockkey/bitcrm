@@ -38,6 +38,15 @@ export interface UseClockStateResult {
    * unrecorded hours if nobody notices them.
    */
   failed: OutboxQueueRecord[];
+  /**
+   * The server is being asked right now and nothing else can answer.
+   *
+   * Deliberately `isLoading` rather than `isPending`: with no connection
+   * react-query pauses the request instead of running it, and a paused query is
+   * pending for as long as the basement lasts. Gating the button on that would
+   * be a technician who cannot start their shift — the exact failure the outbox
+   * exists to prevent.
+   */
   isLoading: boolean;
   refetch: () => void;
 }
@@ -55,6 +64,15 @@ export function useClockState(): UseClockStateResult {
     queryKey: queryKeys.timeclock.current(),
     queryFn: getCurrentClock,
     staleTime: CURRENT_STALE_MS,
+    /**
+     * The one query in this app that is re-asked on every return to the screen.
+     *
+     * A clock can be stopped from the office's web app, and this answer is what
+     * gates location sharing: left on a cached "yes", the phone would go on
+     * reporting a technician's position for a shift that ended an hour ago.
+     * `staleTime` keeps it to at most one request every thirty seconds.
+     */
+    refetchOnWindowFocus: true,
   });
 
   const state = useMemo(
@@ -68,7 +86,7 @@ export function useClockState(): UseClockStateResult {
     failed,
     // A queued clock-in answers the question on its own: a technician who has
     // just tapped "Clock in" must see a clock, not a spinner.
-    isLoading: query.isPending && state.status === 'off',
+    isLoading: query.isLoading && state.status === 'off',
     refetch: () => void query.refetch(),
   };
 }
@@ -84,6 +102,15 @@ export interface UseTimesheetResult {
   isLoading: boolean;
   isRefetching: boolean;
   error: unknown;
+  /**
+   * There is no connection, so the week was never asked for.
+   *
+   * Distinct from `error`, and the screen has to be able to tell them apart: a
+   * request that is *paused* never fails, so a screen watching only `error`
+   * shows its spinner for as long as the basement lasts, with nothing to read
+   * and nothing to tap.
+   */
+  offline: boolean;
   /** True when the rows on screen are the phone's own copy of a failed read. */
   stale: boolean;
   refetch: () => void;
@@ -114,16 +141,22 @@ export function useTimesheet(todayIso: string = localDateIso()): UseTimesheetRes
     () => sumFinishedMinutes(entriesOnDay(entries, todayIso)),
     [entries, todayIso],
   );
+  // Waiting for a connection, not for an answer.
+  const offline = query.fetchStatus === 'paused';
 
   return {
     days,
     todayMinutes,
     weekMinutes: useMemo(() => sumFinishedMinutes(entries), [entries]),
     entries,
-    isLoading: query.isPending,
+    // `isLoading`, not `isPending`: a request the connection has parked is not
+    // one that is on its way, and spinning on it would leave a technician
+    // underground looking at a spinner instead of at "No signal".
+    isLoading: query.isLoading,
     isRefetching: query.isRefetching,
     error: query.error ?? undefined,
-    stale: Boolean(query.error) && entries.length > 0,
+    offline,
+    stale: (Boolean(query.error) || offline) && entries.length > 0,
     refetch: () => void query.refetch(),
   };
 }

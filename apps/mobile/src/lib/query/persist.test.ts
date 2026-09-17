@@ -17,6 +17,10 @@ describe('shouldPersistQuery', () => {
     // "Have I got one on board?" is asked in basements.
     expect(shouldPersistQuery(q(queryKeys.inventory.containers.mine()))).toBe(true);
     expect(shouldPersistQuery(q(queryKeys.inventory.containers.stock('c1')))).toBe(true);
+    // The running clock. A phone that forgets it over a restart in a basement
+    // offers "Clock in" to somebody who clocked in at seven, and that tap is a
+    // second entry on the same shift.
+    expect(shouldPersistQuery(q(queryKeys.timeclock.current()))).toBe(true);
   });
 
   it('drops things that would be stale or useless on restore', () => {
@@ -26,6 +30,12 @@ describe('shouldPersistQuery', () => {
     expect(shouldPersistQuery(q(queryKeys.contacts.detail('c1')))).toBe(false);
     // A restored unread count, with nothing behind it, is a badge that lies.
     expect(shouldPersistQuery(q(queryKeys.messaging.teamCounters()))).toBe(false);
+    // A week of hours restored from disk would read as this week's timesheet
+    // while being last week's; the running entry is the only clock row worth
+    // keeping, and the week is re-read or plainly marked as stale.
+    expect(
+      shouldPersistQuery(q(queryKeys.timeclock.range('2026-09-14', '2026-09-21'))),
+    ).toBe(false);
     expect(shouldPersistQuery(q(['anything', 'else']))).toBe(false);
   });
 
