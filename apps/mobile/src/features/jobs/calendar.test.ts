@@ -1,5 +1,6 @@
 import {
   WEEKDAY_LABELS,
+  dayAfterRollover,
   dayMarks,
   dayNavCaption,
   dayNavTitle,
@@ -162,6 +163,35 @@ describe('the day bar’s wording', () => {
     expect(dayNavCaption(today, today, 2)).toBe('Today · 2 visits');
     expect(dayNavCaption('2026-09-23', today, 1)).toBe('1 visit');
     expect(dayNavCaption('2026-09-18', today, 0)).toBe('Tomorrow · No visits');
+  });
+});
+
+describe('dayAfterRollover', () => {
+  it('follows the date over for a list that was sitting on today', () => {
+    expect(dayAfterRollover('2026-09-17', '2026-09-17', '2026-09-18')).toBe(
+      '2026-09-18',
+    );
+  });
+
+  it('leaves a day the technician chose exactly where they put it', () => {
+    // They were looking at next Tuesday when midnight passed. Next Tuesday is
+    // still next Tuesday, and moving them off it would be its own surprise.
+    expect(dayAfterRollover('2026-09-22', '2026-09-17', '2026-09-18')).toBe(
+      '2026-09-22',
+    );
+    // And the day they chose that has since become today stays put too.
+    expect(dayAfterRollover('2026-09-18', '2026-09-17', '2026-09-18')).toBe(
+      '2026-09-18',
+    );
+  });
+
+  it('changes nothing while the day has not turned over', () => {
+    expect(dayAfterRollover('2026-09-17', '2026-09-17', '2026-09-17')).toBe(
+      '2026-09-17',
+    );
+    expect(dayAfterRollover('2026-09-20', '2026-09-17', '2026-09-17')).toBe(
+      '2026-09-20',
+    );
   });
 });
 

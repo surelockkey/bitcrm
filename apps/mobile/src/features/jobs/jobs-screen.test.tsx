@@ -9,6 +9,23 @@ import type { UseMyJobsResult } from './hooks';
 
 const mockCall = jest.fn();
 const mockRefetch = jest.fn();
+/**
+ * The device's calendar day, under the test's control.
+ *
+ * The screen reads it on every render, and one of the things it has to get
+ * right is what happens when it changes underneath a mounted app — a phone
+ * that spent the night on a charger. A real `new Date()` cannot express that,
+ * and pinning the date also takes a real flake out of the calendar tests: on
+ * the last day of a month, "tomorrow" is not a cell of the month the grid
+ * opens on.
+ */
+const BASE_TODAY = '2026-09-16';
+let mockToday = BASE_TODAY;
+jest.mock('./lib', () => ({
+  ...jest.requireActual('./lib'),
+  localDateIso: () => mockToday,
+}));
+
 let mockJobs: UseMyJobsResult;
 /** What the screen asked the hook for, most recent last: `[today, selected]`. */
 let mockAsked: [string, string][] = [];
@@ -64,6 +81,7 @@ describe('JobsScreen', () => {
     mockCall.mockReset();
     mockRefetch.mockReset();
     mockAsked = [];
+    mockToday = BASE_TODAY;
     mockJobs = result();
     mockAnswer = () => mockJobs;
   });
@@ -145,8 +163,9 @@ describe('JobsScreen', () => {
 /**
  * Moving between days (§1.3).
  *
- * Dates here are relative to the device's real "today", because that is what
- * the screen reads — pinning a date would test the fixture instead.
+ * Every date here is relative to whatever `localDateIso` is answering, which
+ * is what the screen itself reads — so the tests move with the clock instead
+ * of asserting against a fixture the screen never sees.
  */
 describe('JobsScreen — moving between days', () => {
   const today = localDateIso();
@@ -166,6 +185,7 @@ describe('JobsScreen — moving between days', () => {
     mockCall.mockReset();
     mockRefetch.mockReset();
     mockAsked = [];
+    mockToday = BASE_TODAY;
     mockJobs = result();
     mockAnswer = () => mockJobs;
   });
@@ -284,6 +304,44 @@ describe('JobsScreen — moving between days', () => {
     await fireEvent.press(screen.getByTestId('day-picker-cancel'));
 
     expect(mockAsked.at(-1)).toEqual([today, today]);
+  });
+
+  /**
+   * A technician's phone is not restarted at dawn. It sits on a charger with
+   * the app mounted, and the first render of the morning is the one where
+   * "today" has quietly become yesterday — a one-day-at-a-time list left on it
+   * shows none of the work the technician is about to do.
+   */
+  it('follows the date over when the app was left open all night', async () => {
+    mockAnswer = dayAware([deal({ id: 'morning', scheduledDate: tomorrow })]);
+    await renderScreen(<JobsScreen onOpenJob={jest.fn()} />);
+    expect(mockAsked.at(-1)).toEqual([today, today]);
+
+    mockToday = tomorrow;
+    // Any re-render will do; opening and closing the calendar is the cheapest.
+    await fireEvent.press(screen.getByTestId('day-open-calendar'));
+    await fireEvent.press(screen.getByTestId('day-picker-cancel'));
+
+    expect(mockAsked.at(-1)).toEqual([tomorrow, tomorrow]);
+    expect(screen.getByTestId('job-card-morning')).toBeTruthy();
+    // And nothing to go "back" to: the list is on today again.
+    expect(screen.queryByTestId('day-today')).toBeNull();
+  });
+
+  it('leaves a day the technician chose where they put it when the date turns', async () => {
+    mockAnswer = dayAware([]);
+    await renderScreen(<JobsScreen onOpenJob={jest.fn()} />);
+
+    const dayAfterTomorrow = shiftDateIso(today, 2);
+    await fireEvent.press(screen.getByTestId('day-next'));
+    await fireEvent.press(screen.getByTestId('day-next'));
+    expect(mockAsked.at(-1)).toEqual([today, dayAfterTomorrow]);
+
+    mockToday = tomorrow;
+    await fireEvent.press(screen.getByTestId('day-open-calendar'));
+    await fireEvent.press(screen.getByTestId('day-picker-cancel'));
+
+    expect(mockAsked.at(-1)).toEqual([tomorrow, dayAfterTomorrow]);
   });
 
   it('pages the calendar by month', async () => {

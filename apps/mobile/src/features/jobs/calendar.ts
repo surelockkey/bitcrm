@@ -161,6 +161,29 @@ export function dayNavCaption(
   return name ? `${name} · ${count}` : count;
 }
 
+/**
+ * Where the list should be once the calendar day has turned over under it.
+ *
+ * A technician's phone is not restarted at dawn: it spends the night on a
+ * charger with the app still mounted, and the screen re-renders in the morning
+ * with a new `todayIso` and the same selection as last night. A list left
+ * sitting on the day that has just stopped being today must follow it, or the
+ * app opens on yesterday — one day at a time, so today's work is not on the
+ * screen at all, and the only clue is the word "Yesterday" in the bar.
+ *
+ * A day the technician *chose* is not touched. Next Tuesday is still next
+ * Tuesday at midnight, and moving somebody off a day they deliberately
+ * navigated to would be its own surprise. `anchorIso` is the "today" the
+ * selection was made against, which is what tells the two cases apart.
+ */
+export function dayAfterRollover(
+  selectedIso: string,
+  anchorIso: string,
+  todayIso: string,
+): string {
+  return selectedIso === anchorIso ? todayIso : selectedIso;
+}
+
 /** What a swipe on the day list is wired to do. */
 export interface DaySwipeHandlers {
   onMoveShouldSetPanResponder: (

@@ -15,7 +15,7 @@ import { Splash } from '../../ui/Splash';
 import { DayBar } from './components/DayBar';
 import { DayPicker } from './components/DayPicker';
 import { JobCard } from './components/JobCard';
-import { daySwipeHandlers } from './calendar';
+import { dayAfterRollover, daySwipeHandlers } from './calendar';
 import { useMyJobs } from './hooks';
 import { localDateIso, shiftDateIso } from './lib';
 import type { Deal } from './types';
@@ -41,6 +41,17 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
   const todayIso = localDateIso();
   const [selectedIso, setSelectedIso] = useState(todayIso);
   const [picking, setPicking] = useState(false);
+  // Which "today" the selection above was made against. The app is left
+  // mounted overnight, so the day underneath it changes without anybody
+  // touching the phone — and a list still showing the day that has just become
+  // yesterday hides the whole of today's work. Derived during the render that
+  // notices the change rather than in an effect, so the list is never painted
+  // on the wrong day for a frame (the same reason `MonthGrid` does it).
+  const [anchorIso, setAnchorIso] = useState(todayIso);
+  if (anchorIso !== todayIso) {
+    setAnchorIso(todayIso);
+    setSelectedIso((iso) => dayAfterRollover(iso, anchorIso, todayIso));
+  }
   const {
     groups,
     ready,
