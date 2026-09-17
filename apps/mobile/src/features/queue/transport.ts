@@ -15,7 +15,13 @@ import {
   type MoveStatusBody,
 } from '../jobs/api';
 import type { Deal } from '../jobs/types';
-import { sendOnMyWay, sendRunningLate } from '../messaging/api';
+import {
+  openOfficeThread,
+  sendChatMessage,
+  sendOnMyWay,
+  sendRunningLate,
+  type FeedMessage,
+} from '../messaging/api';
 
 /** The JSON each queued action carries. */
 export type ArrivedPayload = MarkArrivedBody;
@@ -28,6 +34,14 @@ export interface OnMyWayPayload {
 }
 export interface LatePayload {
   minutes: number;
+}
+export interface ChatPayload {
+  /**
+   * The office thread. Absent when the technician wrote their first line on a
+   * phone that has never seen it — resolved at send time below.
+   */
+  conversationId?: string;
+  body: string;
 }
 
 /**
@@ -47,7 +61,7 @@ export interface LatePayload {
  */
 export async function performOutboxAction(
   record: OutboxRecord,
-): Promise<Deal | undefined> {
+): Promise<Deal | FeedMessage | undefined> {
   const payload: unknown = JSON.parse(record.payload);
 
   switch (record.kind) {
@@ -74,6 +88,29 @@ export async function performOutboxAction(
         clientMessageId: record.id,
       });
       return undefined;
+    case 'chat': {
+      const chat = payload as ChatPayload;
+      // The thread is resolved here rather than at the tap. A technician who
+      // has never opened the chat with a signal has no id to queue, and
+      // `POST /conversations` is find-or-create — so the first line costs one
+      // extra request and every line after it costs none. Doing it at the tap
+      // instead would mean no message could be written underground at all.
+      const conversationId =
+        chat.conversationId ?? (await openOfficeThread(record.userId)).conversation.id;
+      // Answers with the stored line (`send.service.ts:198` → `Message`, and a
+      // replay on the same key returns the FIRST one). That copy is handed back
+      // so the thread can show the office's own version the instant the queue
+      // row is swept — a refetch is a network round trip, and for the seconds
+      // it takes the technician's message would be on neither list.
+      return sendChatMessage(conversationId, {
+        // The queue row's id IS the idempotency key: a replay after a dropped
+        // connection returns the first message rather than writing a second.
+        clientMessageId: record.id,
+        channel: 'in_app',
+        body: chat.body,
+        ...(record.dealId ? { dealId: record.dealId } : {}),
+      });
+    }
   }
 }
 

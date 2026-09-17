@@ -14,7 +14,7 @@ import { useMaskedCall } from '../telephony/use-masked-call';
 import { MinutesSheet } from './components/MinutesSheet';
 import { JobStamps } from './components/JobStamps';
 import { StatusPill } from './components/StatusPill';
-import { useJob } from './hooks';
+import { useJob, useMarkSeenOnOpen, useMe } from './hooks';
 import {
   addressLine,
   clientDisplayName,
@@ -28,6 +28,8 @@ export interface JobDetailScreenProps {
   dealId: string;
   onBack: () => void;
   onOpenPhotos: (dealId: string) => void;
+  /** Opens the office thread with this job attached to whatever is written. */
+  onOpenChat: (dealId: string) => void;
 }
 
 type Sheet = 'none' | 'onMyWay' | 'late';
@@ -47,9 +49,14 @@ export function JobDetailScreen({
   dealId,
   onBack,
   onOpenPhotos,
+  onOpenChat,
 }: JobDetailScreenProps) {
   const { colors, radius, spacing, touch, type } = useTheme();
   const { data: deal, isPending, error, refetch } = useJob(dealId);
+  const { data: me } = useMe();
+  // Above every early return, because opening the job is the event — whether
+  // or not the fresh copy has landed yet.
+  useMarkSeenOnOpen(deal, me?.id);
   const actions = useJobActions(dealId);
   const call = useMaskedCall();
   const { records } = useQueue();
@@ -146,6 +153,15 @@ export function JobDetailScreen({
             busy={call.isPending}
             accessibilityHint="Rings your phone, then connects you to the client"
             onPress={() => call.mutate({ dealId, contactId: deal.contactId })}
+          />
+          {/* One tap from the job to the office, with the job carried along —
+              the technician does not have to say which job they mean. */}
+          <Button
+            label="Message the office"
+            testID="action-message-office"
+            variant="secondary"
+            hint="Asks dispatch about this job"
+            onPress={() => onOpenChat(dealId)}
           />
         </View>
 

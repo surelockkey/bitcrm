@@ -128,6 +128,25 @@ describe('DealsRepository', () => {
       expect(legacy!.arrivedAt).toBeUndefined();
     });
 
+    it('reads back closedAt, so a client can tell when the job was closed', async () => {
+      // `DealsService.updateStatus` stamps closedAt on a move into Done /
+      // Canceled and REMOVEs it on a reopen; the mapper has to carry both.
+      const closed = createMockDeal({ closedAt: '2026-09-16T17:05:00.000Z' });
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...closed },
+      });
+      const result = await repository.findById('deal-1');
+      expect(result!.closedAt).toBe('2026-09-16T17:05:00.000Z');
+
+      // A reopened job (and every row written before the field existed) has
+      // no attribute at all — which must read as "still open", not as a stamp.
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal() },
+      });
+      const reopened = await repository.findById('deal-1');
+      expect(reopened!.closedAt).toBeUndefined();
+    });
+
     it('should map all fields correctly', async () => {
       const deal = createMockDeal({
         companyId: 'comp-1', scheduledTimeSlot: '09:00-12:00',

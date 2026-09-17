@@ -1,6 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
+import { queryKeys } from '../../lib/api/query-keys';
 import { createTestQueryClient, withQuery } from '../../test/query';
-import { findDealById, useMyJobs } from './hooks';
+import { findDealById, useMarkSeenOnOpen, useMyJobs } from './hooks';
 import * as api from './api';
 import { JobSuperStatus, type Deal } from './types';
 import type { AuthState } from '../auth/auth-reducer';
@@ -96,5 +97,114 @@ describe('useMyJobs', () => {
 
     await waitFor(() => expect(result.current.error).toBeTruthy());
     expect(result.current.deals).toEqual([]);
+  });
+});
+
+/*
+ * The other half of the Sent/Seen pair. "Seen" reads `seenByTechAt`, and only
+ * this call writes it — so without these the stamp is a step that can never
+ * complete: a card reading "Seen —" for the job the technician has open, and
+ * an empty Seen column on the dispatcher's board for everyone who works off
+ * the phone.
+ */
+describe('useMarkSeenOnOpen', () => {
+  const mine = deal({ assignedTechIds: ['t1'] });
+
+  /**
+   * A client that keeps what is put into it.
+   *
+   * The shared test client uses `gcTime: 0`, so a query seeded by
+   * `setQueryData` and never subscribed to is collected on the next
+   * macrotask — which lands in the middle of these cases and makes them pass
+   * or fail depending on how busy the machine is. In the app both of these
+   * caches are being watched by a screen.
+   */
+  const cacheClient = () => {
+    const qc = createTestQueryClient();
+    qc.setDefaultOptions({ queries: { retry: false, gcTime: Infinity, staleTime: 0 } });
+    return qc;
+  };
+
+  beforeEach(() => {
+    mockApi.markDealSeen.mockReset();
+    mockApi.markDealSeen.mockResolvedValue({
+      seen: true,
+      seenAt: '2026-09-17T08:05:00.000Z',
+      first: true,
+    });
+  });
+
+  it('reports the open, once, for the technician the job belongs to', async () => {
+    const { rerender } = await renderHook(() => useMarkSeenOnOpen(mine, 't1'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+
+    await waitFor(() => expect(mockApi.markDealSeen).toHaveBeenCalledWith('d1'));
+    await rerender(undefined);
+    expect(mockApi.markDealSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it('fills the stamp on the job and on its card in the day list', async () => {
+    const qc = cacheClient();
+    qc.setQueryData(queryKeys.deals.detail('d1'), mine);
+    qc.setQueryData(queryKeys.deals.list({ techId: 't1' }), [mine, deal({ id: 'd2' })]);
+
+    await renderHook(() => useMarkSeenOnOpen(mine, 't1'), { wrapper: withQuery(qc) });
+
+    await waitFor(() =>
+      expect(qc.getQueryData<Deal>(queryKeys.deals.detail('d1'))?.seenByTechAt).toBe(
+        '2026-09-17T08:05:00.000Z',
+      ),
+    );
+    // Going back one screen must not show the job as if nobody had looked.
+    const list = qc.getQueryData<Deal[]>(queryKeys.deals.list({ techId: 't1' }));
+    expect(list?.[0]?.seenByTechAt).toBe('2026-09-17T08:05:00.000Z');
+    expect(list?.[1]?.seenByTechAt).toBeUndefined();
+  });
+
+  it('spends no request on a dispatcher looking at someone else’s job', async () => {
+    // The server answers `seen: false` and writes nothing for anyone off the
+    // roster, so the point is not making the call at all.
+    await renderHook(() => useMarkSeenOnOpen(mine, 'dispatcher-9'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+    expect(mockApi.markDealSeen).not.toHaveBeenCalled();
+  });
+
+  it('waits for the job before reporting an open of it', async () => {
+    await renderHook(() => useMarkSeenOnOpen(undefined, 't1'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+    expect(mockApi.markDealSeen).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing on a later open the server has already stamped', async () => {
+    mockApi.markDealSeen.mockResolvedValue({
+      seen: true,
+      seenAt: '2026-09-17T07:00:00.000Z',
+      first: false,
+    });
+    const qc = cacheClient();
+    qc.setQueryData(queryKeys.deals.detail('d1'), mine);
+
+    await renderHook(() => useMarkSeenOnOpen(mine, 't1'), { wrapper: withQuery(qc) });
+
+    await waitFor(() => expect(mockApi.markDealSeen).toHaveBeenCalled());
+    const cached = qc.getQueryData<Deal>(queryKeys.deals.detail('d1'));
+    // The job is still cached — so the absent stamp means "not written", not
+    // "nothing to read".
+    expect(cached?.id).toBe('d1');
+    expect(cached?.seenByTechAt).toBeUndefined();
+  });
+
+  it('says nothing to a technician when the receipt cannot be delivered', async () => {
+    // Opening a job in a basement is not an error worth a screen.
+    mockApi.markDealSeen.mockRejectedValue(new Error('no signal'));
+    const { result } = await renderHook(() => useMarkSeenOnOpen(mine, 't1'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+
+    await waitFor(() => expect(mockApi.markDealSeen).toHaveBeenCalled());
+    expect(result.current).toBeUndefined();
   });
 });

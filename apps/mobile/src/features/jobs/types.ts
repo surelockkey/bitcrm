@@ -46,6 +46,11 @@ type JobWhenSet =
   | 'notes'
   | 'subStatusId'
   | 'clientName'
+  // Dispatch's half of the receipt: when "Send to tech" was pressed, and when
+  // an assigned technician first opened the job. Absent until each happens —
+  // a job a dispatcher wrote but has not sent has neither.
+  | 'sentToTechAt'
+  | 'seenByTechAt'
   | 'techConfirmedAt'
   | 'techConfirmedBy'
   | 'arrivedAt'

@@ -28,6 +28,8 @@ import type {
 import { useAuth } from '../auth/auth-context';
 import { applyPatchToList } from '../jobs/optimistic';
 import type { Deal } from '../jobs/types';
+import type { FeedMessage } from '../messaging/api';
+import { feedWithLandedLine, type FeedPages } from '../messaging/lib';
 import {
   deleteLocalPhoto,
   discardAttachment,
@@ -96,6 +98,28 @@ function asDeal(result: unknown): Deal | undefined {
     : undefined;
 }
 
+/** Does this look like the stored line `POST …/messages` answered with? */
+function asFeedMessage(result: unknown): FeedMessage | undefined {
+  return result &&
+    typeof result === 'object' &&
+    typeof (result as FeedMessage).id === 'string' &&
+    typeof (result as FeedMessage).conversationId === 'string'
+    ? (result as FeedMessage)
+    : undefined;
+}
+
+/**
+ * How many times a wake-up may drain in a row.
+ *
+ * One pass takes at most one row per ordering lane, because a lane's rows must
+ * not overtake one another (lib/queue/policy.ts). Without a second pass the
+ * rest of a lane waits for the next tick — thirty seconds in which a second
+ * line typed straight after the first says "Waiting for a signal" on a phone
+ * with five bars. So the drain keeps going while it is making progress, and
+ * the bound is here only so a pathological store cannot spin.
+ */
+const MAX_DRAIN_PASSES = 20;
+
 export function QueueProvider({ children }: { children: React.ReactNode }) {
   const qc = useQueryClient();
   const { state } = useAuth();
@@ -131,6 +155,14 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   const [records, setRecords] = useState<QueueRecord[]>([]);
   const [isDraining, setIsDraining] = useState(false);
   const draining = useRef(false);
+  /**
+   * A wake-up that arrived while a drain was already running.
+   *
+   * Everything that wakes the worker — a new row, connectivity returning,
+   * the app coming back — used to be dropped outright if a drain happened to
+   * be in flight, and the work then waited for the slow tick.
+   */
+  const wakeAgain = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!stores) {
@@ -147,25 +179,34 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     ]);
   }, [stores]);
 
-  const drain = useCallback(async () => {
-    if (!stores) return;
-    if (draining.current) return;
-    draining.current = true;
-    setIsDraining(true);
+  /** One sweep of both queues. Answers with how many rows actually landed. */
+  const drainPass = useCallback(async (): Promise<number> => {
+    if (!stores) return 0;
 
     /** Jobs whose server-side copy we now hold, straight from the response. */
     const fresh = new Map<string, Deal>();
     /** Jobs that changed but did not hand one back. */
     const stale = new Set<string>();
+    /** Lines that reached the office, as the office itself stored them. */
+    const landed: FeedMessage[] = [];
+    /** A line reached the office — the thread has to show the real message. */
+    let chatLanded = false;
     let sent = 0;
     let failed = 0;
     const note = (
-      record: { dealId: string },
+      record: { dealId: string; kind?: OutboxKind },
       settledAs: 'done' | 'failed' | 'pending',
       result?: unknown,
     ) => {
       if (settledAs === 'done') {
         sent += 1;
+        // A chat line is about no job of its own: what changed is the thread.
+        if (record.kind === 'chat') {
+          chatLanded = true;
+          const message = asFeedMessage(result);
+          if (message) landed.push(message);
+          return;
+        }
         const deal = asDeal(result);
         if (deal) fresh.set(record.dealId, deal);
         else stale.add(record.dealId);
@@ -173,7 +214,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       }
       if (settledAs === 'failed') {
         failed += 1;
-        stale.add(record.dealId);
+        // The failed line stays visible in the thread from its queue row, so
+        // there is nothing to re-read; a job, on the other hand, may have
+        // moved under the optimistic patch that is still on screen.
+        if (record.dealId) stale.add(record.dealId);
       }
     };
 
@@ -195,8 +239,6 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       // A store that will not answer is not worth crashing the app over; the
       // rows are still on disk and the next wake-up tries again.
     } finally {
-      draining.current = false;
-      setIsDraining(false);
       await refresh();
     }
 
@@ -223,9 +265,60 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       void qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
       void qc.invalidateQueries({ queryKey: queryKeys.deals.attachments(dealId) });
     }
+    // The office's own copy of the line goes straight in, in the same render
+    // that drops the pending row — the invalidation below is a round trip, and
+    // a message that is on neither list until it answers is a message the
+    // technician will type again.
+    for (const message of landed) {
+      // A poll that went out before this line was stored would otherwise
+      // answer after it and overwrite the thread without it. Cancelling
+      // reverts to what the cache already held; the invalidation below then
+      // asks again, with the line in it.
+      await qc.cancelQueries({
+        queryKey: queryKeys.messaging.messages(message.conversationId),
+      });
+      qc.setQueryData<FeedPages>(
+        queryKeys.messaging.messages(message.conversationId),
+        (previous) => feedWithLandedLine(previous, message),
+      );
+    }
+    // The thread's own row — its preview, its stamp, the read state — and the
+    // badge. The feed is invalidated with them so anything the office wrote
+    // while this phone was underground arrives too.
+    if (chatLanded) void qc.invalidateQueries({ queryKey: queryKeys.messaging.all() });
     if (sent) hapticSuccess();
     if (failed) hapticError();
+    return sent;
   }, [qc, refresh, stores]);
+
+  /**
+   * A wake-up: drains, and keeps draining while it is getting somewhere.
+   *
+   * One pass takes at most one row per lane, so a technician who types two
+   * lines — or taps "Arrived" and then "Done" — needs more than one. Anything
+   * requested while this was running is honoured rather than dropped.
+   */
+  const drain = useCallback(async () => {
+    if (!stores) return;
+    if (draining.current) {
+      wakeAgain.current = true;
+      return;
+    }
+    draining.current = true;
+    setIsDraining(true);
+    try {
+      for (let pass = 0; pass < MAX_DRAIN_PASSES; pass++) {
+        wakeAgain.current = false;
+        const sent = await drainPass();
+        // Nothing landed and nobody asked again: whatever is left is waiting
+        // out a backoff, and hammering it is not what a backoff is for.
+        if (!sent && !wakeAgain.current) break;
+      }
+    } finally {
+      draining.current = false;
+      setIsDraining(false);
+    }
+  }, [drainPass, stores]);
 
   // Wake on start, on foreground, and the moment there is a signal again —
   // and only ever with a session behind it. Rows this technician left `sending`

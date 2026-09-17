@@ -3,6 +3,7 @@ import { SqsConsumerService } from '@bitcrm/shared';
 import { DealEventType } from '@bitcrm/types';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { OutboundModule } from '../outbound/outbound.module';
+import { PushModule } from '../push/push.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
 import { MessageTemplatesModule } from '../templates/message-templates.module';
 import { AUTOMATIONS_CONFIG, loadAutomationsConfig, type AutomationsConfig } from './automations.config';
@@ -54,7 +55,7 @@ export const CALL_EVENTS_SQS_CONSUMER = Symbol('CALL_EVENTS_SQS_CONSUMER');
  * does not also fire timers unless it is meant to.
  */
 @Module({
-  imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule],
+  imports: [ConversationsModule, MessagingSettingsModule, MessageTemplatesModule, OutboundModule, PushModule],
   controllers: [AutomationsController, TechNoticesController],
   providers: [
     { provide: AUTOMATIONS_CONFIG, useFactory: loadAutomationsConfig },

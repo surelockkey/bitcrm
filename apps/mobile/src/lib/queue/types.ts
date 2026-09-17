@@ -13,7 +13,9 @@ export type OutboxKind =
   | 'status'
   | 'note'
   | 'on_my_way'
-  | 'late';
+  | 'late'
+  /** A line the technician wrote to the office in the team thread (§1.4). */
+  | 'chat';
 
 export type QueueState =
   /** Waiting to be sent. Possibly waiting out a backoff — see nextAttemptAt. */
@@ -50,6 +52,11 @@ export interface OutboxRecord extends QueueRowBase {
    */
   id: string;
   kind: OutboxKind;
+  /**
+   * The job this row is about. Empty for a row that is about no job — a chat
+   * line written from the Messages tab rather than from a job — which is why
+   * the worker's ordering lane is `laneOf`, not this (policy.ts).
+   */
   dealId: string;
   /** JSON. Shape depends on `kind`; see `performOutboxAction`. */
   payload: string;

@@ -22,6 +22,29 @@ export const queryKeys = {
     detail: (id: string) => ['contacts', 'detail', id] as const,
   },
 
+  /**
+   * The chat with the office. Named as the web names the same data
+   * (`apps/web/lib/query-keys.ts:197-218`), minus everything an inbox has and
+   * a technician does not: one thread, one feed, one badge.
+   */
+  messaging: {
+    all: () => ['messaging'] as const,
+    /** The technician's own team thread (`GET /team/conversations?kind=team`). */
+    teamThread: () => ['messaging', 'team-thread'] as const,
+    /** The caller's own unread badge (`GET /team/counters`). */
+    teamCounters: () => ['messaging', 'team-counters'] as const,
+    messages: (conversationId: string) =>
+      ['messaging', 'messages', 'conversation', conversationId] as const,
+  },
+
+  inventory: {
+    containers: {
+      /** The signed-in technician's own van. */
+      mine: () => ['inventory', 'containers', 'mine'] as const,
+      stock: (id: string) => ['inventory', 'containers', id, 'stock'] as const,
+    },
+  },
+
   /** The technician's own outbox — read from SQLite, not the network. */
   outbox: {
     all: () => ['outbox'] as const,

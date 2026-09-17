@@ -13,6 +13,7 @@ import {
 } from '../../lib/api/http';
 import { ApiError } from '../../lib/api/errors';
 import { resetAppCache } from '../../lib/query/client';
+import { releasePushDevice } from '../notifications/device';
 import { authReducer, initialAuthState, type AuthState } from './auth-reducer';
 import { getMe, login as loginApi, refresh as refreshApi } from './api';
 import { clearProfile, loadProfile, saveProfile } from './profile-store';
@@ -59,6 +60,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [submitting, setSubmitting] = useState(false);
 
   const signOut = useCallback(async () => {
+    // Before the tokens go, not after: taking this phone off the push list is
+    // an authenticated call, and a moment later there is no session to make it
+    // with. Guarded all the same — nothing about saying goodbye may be able to
+    // trap a technician inside a session they have asked to leave, so a
+    // basement, or a server that has already forgotten the token, costs a
+    // stale row the server prunes when a push to it bounces.
+    await releasePushDevice().catch(() => {});
     await clearTokens();
     // The van's phone gets handed over. Nothing about the last technician —
     // their route, their clients' addresses — may survive into the next session.

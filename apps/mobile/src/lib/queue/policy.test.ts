@@ -38,6 +38,10 @@ describe('isIdempotent', () => {
     expect(isIdempotent('late')).toBe(true);
   });
 
+  it('lets a line to the office be replayed — it goes out on its own id', () => {
+    expect(isIdempotent('chat')).toBe(true);
+  });
+
   it('does not, for the two the server would genuinely duplicate', () => {
     expect(isIdempotent('note')).toBe(false);
     expect(isIdempotent('status')).toBe(false);
@@ -82,6 +86,31 @@ describe('selectNextBatch', () => {
       NOW + 10,
     );
     expect(batch.map((r) => r.id)).toEqual(['other']);
+  });
+
+  it('keeps the chat in one lane, whichever job each line is about', () => {
+    // Two lines typed seconds apart must reach the office in the order they
+    // were written — even when one was written from a job and one was not.
+    const batch = selectNextBatch(
+      [
+        row({ id: 'first', kind: 'chat', dealId: '', createdAt: NOW + 1 }),
+        row({ id: 'second', kind: 'chat', dealId: 'd1', createdAt: NOW + 2 }),
+        row({ id: 'arrival', kind: 'arrived', dealId: 'd1', createdAt: NOW + 3 }),
+      ],
+      NOW + 10,
+    );
+    expect(batch.map((r) => r.id)).toEqual(['first', 'arrival']);
+  });
+
+  it('holds the next line back while one is in flight to the office', () => {
+    const batch = selectNextBatch(
+      [
+        row({ id: 'inflight', kind: 'chat', dealId: '', state: 'sending' }),
+        row({ id: 'next', kind: 'chat', dealId: '', createdAt: NOW + 1 }),
+      ],
+      NOW + 10,
+    );
+    expect(batch).toEqual([]);
   });
 
   it('breaks a same-millisecond tie deterministically', () => {

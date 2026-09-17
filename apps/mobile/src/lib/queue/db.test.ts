@@ -173,7 +173,7 @@ describe('recovering from a process that was killed mid-flight', () => {
     },
   );
 
-  it.each(['on_my_way', 'late'] as const)(
+  it.each(['on_my_way', 'late', 'chat'] as const)(
     're-arms a %s — the server dedupes it on the row’s own id',
     async (kind) => {
       await loadDb()

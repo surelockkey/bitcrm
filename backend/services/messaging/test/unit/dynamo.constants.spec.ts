@@ -20,6 +20,10 @@ import {
   templatePk,
   templateCatalogSk,
   TEMPLATE_CATALOG_GSI3PK,
+  pushDevicePk,
+  pushDeviceOfGsi3Pk,
+  pushDeviceOfGsi3Sk,
+  PUSH_DEVICE_TTL_SECONDS,
   SETTINGS_PK,
   COUNTERS_PK,
   yearOf,
@@ -106,6 +110,18 @@ describe('messaging table key shapes', () => {
     expect(templateCatalogSk('  On My Way ', 't1')).toBe('on my way#t1');
     expect(SETTINGS_PK).toBe('MESSAGING#SETTINGS');
     expect(COUNTERS_PK).toBe('INBOX#COUNTERS');
+  });
+
+  it('keys a push device by its token, on the existing CategoryIndex catalog partition', () => {
+    // Token, not user: one row per phone, so a device that changed hands
+    // moves rather than being pushed two people's jobs. The adjacency is the
+    // same constant-partition trick as MEMBEROF# and the template catalog —
+    // no index of its own.
+    expect(pushDevicePk('ExponentPushToken[abc]')).toBe('DEVICE#ExponentPushToken[abc]');
+    expect(pushDeviceOfGsi3Pk('u1')).toBe('DEVICEOF#u1');
+    expect(pushDeviceOfGsi3Sk('2026-09-17T09:00:00.000Z', 'tok')).toBe('2026-09-17T09:00:00.000Z#tok');
+    // Long enough to survive a holiday, short enough to forget a phone nobody carries.
+    expect(PUSH_DEVICE_TTL_SECONDS).toBe(90 * 24 * 60 * 60);
   });
 
   it('builds the year-bucketed index keys', () => {

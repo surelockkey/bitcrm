@@ -156,12 +156,17 @@ function QueueRow({
       </Text>
 
       <View style={{ gap: spacing.md, marginTop: spacing.sm }}>
-        <Button
-          label={unknown ? 'Open the job and check' : 'Open the job'}
-          variant={unknown ? 'primary' : 'ghost'}
-          testID={`queue-open-${item.id}`}
-          onPress={() => onOpenJob(item.dealId)}
-        />
+        {/* A row about no job — a line to the office — has no job to open.
+            It cannot be `unknown` either: it is replayed on its own id, so it
+            never needs a human to decide whether it landed. */}
+        {item.dealId ? (
+          <Button
+            label={unknown ? 'Open the job and check' : 'Open the job'}
+            variant={unknown ? 'primary' : 'ghost'}
+            testID={`queue-open-${item.id}`}
+            onPress={() => onOpenJob(item.dealId)}
+          />
+        ) : null}
         {item.canRetry ? (
           <Button
             label={unknown ? 'Send it again' : 'Try again now'}

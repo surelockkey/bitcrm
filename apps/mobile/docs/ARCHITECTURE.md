@@ -407,7 +407,11 @@ app/
   +not-found.tsx
 ```
 
-v2 додає `(app)/chat/index.tsx`, `(app)/chat/[conversationId].tsx`;
+v2 додав `(app)/(tabs)/chat.tsx` — вкладку «Messages» з тредом офісу — і
+`(app)/chat/[dealId].tsx`: той самий тред, відкритий із роботи, лягає **над**
+табами, тому «Назад» веде на роботу, а рядок іде з `dealId`. Окремого
+`[conversationId]` немає: у техніка один тред, і список із одного рядка — це
+зайвий тап (`WORKIZ_MOBILE_APP.md` §1.5: 99,5 % in-app тредів — «офіс ↔ технік»).
 v3 — `(app)/stock.tsx`; v4 — `(app)/jobs/[id]/payment.tsx`.
 
 ---
@@ -747,8 +751,8 @@ URL протух (S3 віддав 403/400) — **видаляємо старе �
 | --- | --- |
 | Робота | `bitcrm://jobs/<dealId>` |
 | Фото роботи | `bitcrm://jobs/<dealId>/photos` |
-| Тред чату | `bitcrm://chat/<conversationId>` |
-| Тред за роботою | `bitcrm://jobs/<dealId>/chat` → редирект через `GET /messaging/conversations/by-job/:dealId` |
+| Тред офісу | `bitcrm://chat` — вкладка «Messages». Окремого `<conversationId>` немає: у техніка один тред, тому push `{ kind: 'conversation', conversationId }` веде сюди, а не на id |
+| Тред офісу з роботи | `bitcrm://chat/<dealId>` — той самий тред **над** табами, рядок іде з `dealId` |
 
 З expo-router ці URL **збігаються з деревом файлів** — окремої мапи не існує, що
 й було головним аргументом у §2.1.

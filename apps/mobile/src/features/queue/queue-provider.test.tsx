@@ -6,6 +6,7 @@ import { queryKeys } from '../../lib/api/query-keys';
 import { createSqliteOutboxStore } from '../../lib/queue/db';
 import type { AuthState } from '../auth/auth-reducer';
 import { JobSuperStatus, type Deal } from '../jobs/types';
+import type { FeedPages } from '../messaging/lib';
 import { QueueProvider, useQueue } from './queue-provider';
 
 /**
@@ -243,6 +244,88 @@ describe('what a settled row does to the cache', () => {
     });
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
     expect(keys).not.toContain(JSON.stringify(queryKeys.deals.lists()));
+  });
+
+  it('refreshes the thread, and no job at all, when a line reaches the office', async () => {
+    await seedRow('tech-a', {
+      kind: 'chat',
+      dealId: '',
+      payload: '{"conversationId":"conv-1","body":"door is locked"}',
+    });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue(undefined);
+
+    const qc = testClient();
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+
+    await mount(qc);
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalled());
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.messaging.all()));
+    });
+    // A message is about no job: `deals.detail('')` is a query nobody holds.
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect(keys).not.toContain(JSON.stringify(queryKeys.deals.detail('')));
+  });
+
+  it('puts the office’s own copy of the line in the thread, not a refetch away', async () => {
+    // The pending bubble goes the instant the row is `done`. If nothing takes
+    // its place in the same render, the technician watches their message
+    // vanish for as long as the refetch takes — and for good if the signal
+    // drops in between, which is when they type it again.
+    await seedRow('tech-a', {
+      kind: 'chat',
+      dealId: '',
+      payload: '{"conversationId":"conv-1","body":"door is locked"}',
+    });
+    mockAuth = signedIn('tech-a');
+    const stored = {
+      id: 'm-9',
+      conversationId: 'conv-1',
+      body: 'door is locked',
+      createdAt: '2026-09-16T13:00:00.000Z',
+    };
+    mockPerformOutboxAction.mockResolvedValue(stored);
+
+    const qc = testClient();
+    await mount(qc);
+
+    await waitFor(() =>
+      expect(
+        qc.getQueryData<FeedPages>(queryKeys.messaging.messages('conv-1'))?.pages[0]?.data,
+      ).toEqual([stored]),
+    );
+  });
+
+  it('keeps draining a lane it had to leave half-emptied', async () => {
+    // Two lines typed seconds apart share one ordering lane, so one pass can
+    // only take the first. Left at that, the second said "Waiting for a
+    // signal" until the next tick — thirty seconds, on a phone with five bars.
+    await seedRow('tech-a', {
+      id: 'line-1',
+      kind: 'chat',
+      dealId: '',
+      createdAt: 1_000,
+      payload: '{"conversationId":"conv-1","body":"first"}',
+    });
+    await seedRow('tech-a', {
+      id: 'line-2',
+      kind: 'chat',
+      dealId: '',
+      createdAt: 2_000,
+      payload: '{"conversationId":"conv-1","body":"second"}',
+    });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue({ id: 'm', conversationId: 'conv-1' });
+
+    await mount();
+
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalledTimes(2));
+    expect(
+      mockPerformOutboxAction.mock.calls.map(([r]) => (r as { id: string }).id),
+    ).toEqual(['line-1', 'line-2']);
   });
 });
 

@@ -762,6 +762,10 @@ export class DealsRepository {
       paymentStatus: item.paymentStatus as string | undefined,
       status: item.status as Deal['status'],
       createdBy: item.createdBy as string,
+      // Stamped by `updateStatus` on a move into Done/Canceled and REMOVEd on
+      // a reopen: without it here the attribute is written and then invisible
+      // to every read path, so nothing can show when a job was closed.
+      closedAt: item.closedAt as string | undefined,
       statusChangedAt: item.statusChangedAt as string | undefined,
       // Rows written before "Send to tech" existed simply have none of these.
       sentToTechAt: item.sentToTechAt as string | undefined,

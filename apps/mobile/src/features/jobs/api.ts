@@ -78,6 +78,29 @@ export const moveStatus = (id: string, body: MoveStatusBody): Promise<Deal> =>
 export const confirmJobReceipt = (id: string): Promise<Deal> =>
   http.post<Deal>(`/deals/${id}/tech/confirm`, {});
 
+/** What `POST /deals/:id/seen` answers (`deals.service.ts#markSeenByTech`). */
+export interface MarkSeenResult {
+  /** False for a caller not on the job's roster — nothing was written. */
+  seen: boolean;
+  seenAt?: string;
+  /** True only on the open that actually stamped the job. */
+  first: boolean;
+}
+
+/**
+ * "Viewed job in app" — Workiz's read receipt, and the only thing that writes
+ * the `seenByTechAt` the Seen stamp and dispatch's Seen column both read.
+ *
+ * Deliberately **not** on the offline outbox, unlike every other write here.
+ * The server stamps the moment it receives this, so a row replayed from the
+ * queue two hours later would report a moment that never happened — the exact
+ * class of bug the Sent/Seen fix exists to remove. A receipt that missed its
+ * moment is better lost than backdated: the next open sends another, and the
+ * server ignores every one after the first.
+ */
+export const markDealSeen = (id: string): Promise<MarkSeenResult> =>
+  http.post<MarkSeenResult>(`/deals/${id}/seen`, {});
+
 export interface MarkArrivedBody {
   lat?: number;
   lng?: number;

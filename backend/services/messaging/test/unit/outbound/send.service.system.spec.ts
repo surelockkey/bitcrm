@@ -36,11 +36,12 @@ function makeService(opts: {
       replyTo: `c-${conversationId}@reply.surelock.test`,
     })),
   };
+  const push = { notifyNewMessage: jest.fn(async () => 1) };
   const service = new SendService(
     conversations as any, messages as any, optOuts as any, sender as any, queue as any, deals as any, crm as any, events as any,
-    undefined, realtime as any, users as any, undefined, email as any,
+    undefined, realtime as any, users as any, undefined, email as any, push as any,
   );
-  return { service, conversations, messages, optOuts, sender, queue, events, realtime, crm, users, email };
+  return { service, conversations, messages, optOuts, sender, queue, events, realtime, crm, users, email, push };
 }
 
 /** The technician's team thread — where every "Send to tech" channel lands. */
@@ -173,6 +174,25 @@ describe('SendService.sendSystem — channel: in_app (Workiz "Send to tech · In
     const { service } = makeService();
     await expect(service.sendSystem(input({ channel: 'in_app' }))).rejects.toMatchObject({ status: 501 });
     await expect(service.sendSystem(input({ conversation: teamThread(), channel: 'in_app', body: '  ' }))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('hands the same line and recipients to the push notifier — SSE reaches a tab, not a pocket', async () => {
+    const { service, push } = makeService();
+    const { message } = await service.sendSystem(
+      input({ conversation: teamThread(), channel: 'in_app', sentByUserId: 'disp-1' }),
+    );
+
+    // Unfiltered: who actually has a phone, and whether quiet hours or a
+    // STOP cover them, is the notifier's decision, not the send path's.
+    expect(push.notifyNewMessage).toHaveBeenCalledWith(message, expect.objectContaining({ id: 'c-team' }), ['t1']);
+  });
+
+  it('pushes nothing on a replayed line — the first submit already did', async () => {
+    const { service, push } = makeService({
+      append: { duplicate: true, existing: { conversationId: 'c-team', messageSk: `MSG#${T1}#first` } },
+    });
+    await service.sendSystem(input({ conversation: teamThread(), channel: 'in_app' }));
+    expect(push.notifyNewMessage).not.toHaveBeenCalled();
   });
 });
 

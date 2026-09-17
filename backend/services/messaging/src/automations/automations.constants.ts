@@ -27,6 +27,15 @@ export const autoSentSk = (ruleId: string, techId: string) => `${ruleId}#${techI
 export const AUTOMATIONS_ACTOR = 'system:automations';
 
 /**
+ * `automationRuleId` of everything the dispatcher's "Send to tech" produces
+ * (`send-to-tech:sms`, `:in_app`, `:email`). It lives here, in the file that
+ * imports nothing, because the push notifier reads it to recognise the
+ * in-app line a job push already covers — and must not import the
+ * send-to-tech service that calls the notifier.
+ */
+export const SEND_TO_TECH_RULE_PREFIX = 'send-to-tech:';
+
+/**
  * The action types the engine actually performs today
  * (`AutomationActionExecutor.run`). `send_email` / `send_in_app` /
  * `add_tag` / `change_sub_status` are typed, translated and editable but
