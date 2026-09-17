@@ -31,6 +31,7 @@ import {
   describeReadError,
   flattenFeed,
   pendingLines,
+  recipientContactId,
   threadScreenEdges,
   type FeedRow,
 } from './lib';
@@ -78,9 +79,14 @@ export function ClientThreadScreen({
 
   const thread = useJobClientThread(dealId);
   const feed = useThreadFeed(thread.data?.id, live);
-  const lookup = useClientTextLookup(deal?.contactId);
+  // Addressed to the party of the thread being read, not to whichever contact
+  // the phone last downloaded on the job: those two differ after the office
+  // moves a job to another client, and the second would put the technician's
+  // words in a conversation that is not the one in front of them.
+  const contactId = recipientContactId(thread.data, deal?.contactId);
+  const lookup = useClientTextLookup(contactId);
   const { records, retry } = useQueue();
-  const { send, canSend } = useSendToClient(dealId, deal?.contactId);
+  const { send, canSend } = useSendToClient(dealId, contactId);
 
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);

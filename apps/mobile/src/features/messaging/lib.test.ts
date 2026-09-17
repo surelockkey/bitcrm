@@ -18,6 +18,7 @@ import {
   officeThreadOf,
   pendingLines,
   pendingStatusText,
+  recipientContactId,
   senderName,
   threadScreenEdges,
   unreadBadge,
@@ -465,6 +466,41 @@ describe('pendingLines, by thread', () => {
   it('keeps every office line in the one office thread, whatever job it names', () => {
     const rows = [chatRow({ id: 'a', dealId: 'deal-1' }), chatRow({ id: 'b', dealId: 'deal-2' })];
     expect(pendingLines(rows).map((l) => l.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('recipientContactId', () => {
+  const clientThread = (partyId?: string, partyKind = 'contact') =>
+    ({ partyKind, partyId }) as Parameters<typeof recipientContactId>[0];
+
+  // The thread came from `by-job`, which the server resolved from the job as
+  // it stands now; the job's own `contactId` is whatever the last list fetch
+  // left on this phone. When dispatch moves a job to another client, sending
+  // to the stale one files the words in a conversation nobody is reading.
+  it('addresses the party of the thread on screen, not the job’s cached contact', () => {
+    expect(recipientContactId(clientThread('contact-new'), 'contact-old')).toBe(
+      'contact-new',
+    );
+  });
+
+  it('falls back to the job’s contact when nobody has opened a thread yet', () => {
+    expect(recipientContactId(null, 'contact-old')).toBe('contact-old');
+    expect(recipientContactId(undefined, 'contact-old')).toBe('contact-old');
+  });
+
+  // `POST /messages` takes a contact or a bare number. A company thread has
+  // nobody this screen can text, and passing its id as a contact would be a
+  // send to an id that is not one.
+  it('refuses to read a company thread’s party as a contact', () => {
+    expect(recipientContactId(clientThread('company-3', 'company'), undefined)).toBeUndefined();
+    expect(recipientContactId(clientThread('company-3', 'company'), 'contact-old')).toBe(
+      'contact-old',
+    );
+  });
+
+  it('answers with nothing for a job that has no client on it at all', () => {
+    expect(recipientContactId(null, undefined)).toBeUndefined();
+    expect(recipientContactId(null, '')).toBeUndefined();
   });
 });
 

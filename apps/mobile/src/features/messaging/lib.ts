@@ -3,7 +3,7 @@ import { ApiError } from '../../lib/api/errors';
 import type { Page } from '../../lib/api/http';
 import type { OutboxKind, QueueRecord, QueueState } from '../../lib/queue/types';
 import type { ChatPayload } from '../queue/transport';
-import type { FeedMessage, TeamThread } from './api';
+import type { ClientThread, FeedMessage, TeamThread } from './api';
 
 /**
  * Turning the thread with the office into something a technician can read.
@@ -407,6 +407,35 @@ export function feedRows(
   }
 
   return attachDayChips(rows, stamps, now);
+}
+
+/**
+ * Who a text typed in a client thread is addressed to.
+ *
+ * The party of the **thread on screen** wins over the contact the phone has
+ * cached on the job. `POST /messages` routes by contact, so those two ids are
+ * what decides which conversation a line lands in — and they disagree the
+ * moment the office moves a job to another client after this phone last
+ * downloaded it. The thread came from `by-job`, which the server resolved from
+ * the job *now*; the job's own `contactId` is whatever the last list fetch
+ * left behind. Sending to the second would file the technician's words in a
+ * conversation they are not looking at, addressed to somebody they did not
+ * mean to text.
+ *
+ * The job's contact is the fallback, and the only candidate when there is no
+ * thread yet — which is the case this screen exists to handle, and the case
+ * where there is nothing on screen to disagree with.
+ *
+ * A thread whose party is a *company* yields nothing: `POST /messages` takes a
+ * contact or a bare number, so a company thread has nobody this screen can
+ * text, and guessing its id into `contactId` would be a 404 at best.
+ */
+export function recipientContactId(
+  thread: Pick<ClientThread, 'partyKind' | 'partyId'> | null | undefined,
+  dealContactId: string | undefined,
+): string | undefined {
+  if (thread?.partyKind === 'contact' && thread.partyId) return thread.partyId;
+  return dealContactId || undefined;
 }
 
 /**

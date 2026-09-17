@@ -194,6 +194,23 @@ describe('ClientThreadScreen', () => {
     expect(mockSendArgs).toEqual(['deal-1', 'contact-9']);
   });
 
+  // The thread on screen came from `by-job`, resolved by the server from the
+  // job as it stands; `deal.contactId` is whatever this phone last downloaded.
+  // When dispatch moves a job to another client the two disagree, and the
+  // cached one would send the technician's words into a conversation they are
+  // not looking at.
+  it('addresses the client whose thread is on screen, not the one the job cached', async () => {
+    mockThread = {
+      data: thread({ partyId: 'contact-new' }),
+      isLoading: false,
+      error: null,
+    };
+    mockDeal = deal({ contactId: 'contact-old' });
+    await render();
+
+    expect(mockSendArgs).toEqual(['deal-1', 'contact-new']);
+  });
+
   it('keeps Send inert until something has been typed', async () => {
     await render();
     expect(
@@ -246,7 +263,10 @@ describe('ClientThreadScreen', () => {
   });
 
   it('says plainly when a job has no client to text', async () => {
+    // No client on the job, and so — the server resolves the thread from that
+    // same client — no thread either.
     mockDeal = deal({ contactId: '' });
+    mockThread = { data: null, isLoading: false, error: null };
     await render();
 
     expect(screen.getByTestId('client-no-contact')).toBeTruthy();
@@ -260,10 +280,21 @@ describe('ClientThreadScreen', () => {
   // office about a job that is simply still downloading.
   it('does not call a job it has not downloaded a job without a client', async () => {
     mockDeal = undefined;
+    mockThread = { data: null, isLoading: false, error: null };
     await render();
 
     expect(screen.getByTestId('client-job-loading')).toBeTruthy();
     expect(screen.queryByTestId('client-no-contact')).toBeNull();
+  });
+
+  // The thread names its own party, so a job still on its way is no reason to
+  // keep the box shut: the technician can already see who they are writing to.
+  it('opens the box on a cached thread while the job is still downloading', async () => {
+    mockDeal = undefined;
+    await render();
+
+    expect(screen.queryByTestId('client-job-loading')).toBeNull();
+    expect(mockSendArgs).toEqual(['deal-1', 'contact-9']);
   });
 
   /* ------------------------------------------------------------- reading */
