@@ -49,6 +49,8 @@ export const TechChangedField = {
   ROLE: 'role',
   /** The account was deactivated or reactivated. */
   STATUS: 'status',
+  /** The person was switched onto, or off, the field team. */
+  FIELD_TEAM: 'fieldTeamMember',
 } as const;
 
 export type TechChangedField =
@@ -64,6 +66,7 @@ export function affectsEligibility(changedFields?: string[]): boolean {
     TechChangedField.ASSIGNMENTS,
     TechChangedField.ROLE,
     TechChangedField.STATUS,
+    TechChangedField.FIELD_TEAM,
   ];
   return Boolean(changedFields?.some((f) => relevant.includes(f)));
 }

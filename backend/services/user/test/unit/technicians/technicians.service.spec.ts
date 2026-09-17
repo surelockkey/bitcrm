@@ -7,6 +7,8 @@ import {
   createMockRolesServiceByPriority,
   createMockSnsPublisher,
   createMockTechnicianProfile,
+  createMockDocumentsRepository,
+  createMockS3Service,
 } from '../mocks';
 
 function caller(roleId: string, id = 'caller-1'): JwtUser {
@@ -101,6 +103,53 @@ describe('TechniciansService (unit)', () => {
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(repo.updateProfile).not.toHaveBeenCalled();
+    });
+
+    it('keeps the user type with the manager — pay hangs off it', async () => {
+      repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      await expect(
+        service.updateProfile(
+          'tech-1',
+          { technicianType: 'subcontractor' },
+          caller('role-technician', 'tech-1'),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.updateProfile).not.toHaveBeenCalled();
+
+      repo.updateProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', technicianType: 'subcontractor' }),
+      );
+      const result = await service.updateProfile(
+        'tech-1',
+        { technicianType: 'subcontractor' },
+        caller('role-admin'),
+      );
+      expect(repo.updateProfile).toHaveBeenCalledWith(
+        'tech-1',
+        expect.objectContaining({ technicianType: 'subcontractor' }),
+      );
+      expect(result.technicianType).toBe('subcontractor');
+    });
+
+    it('lets a technician keep their additional numbers on their own card', async () => {
+      repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      repo.updateProfile.mockResolvedValue(
+        createMockTechnicianProfile({ userId: 'tech-1', additionalPhones: ['+14045550100'] }),
+      );
+      const result = await service.updateProfile(
+        'tech-1',
+        { additionalPhones: ['+14045550100'] },
+        caller('role-technician', 'tech-1'),
+      );
+      expect(result.additionalPhones).toEqual(['+14045550100']);
+    });
+
+    it('starts a new profile as a regular employee', async () => {
+      repo.getProfile.mockResolvedValue(null);
+      await service.updateProfile('tech-1', { phone: '999' }, caller('role-technician', 'tech-1'));
+      expect(repo.upsertProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ technicianType: 'regular' }),
+      );
     });
 
     it('lets a manager set operational fields', async () => {
@@ -308,6 +357,83 @@ describe('TechniciansService (unit)', () => {
       const status = await service.getOnboardingStatus('tech-1', caller('role-technician', 'tech-1'));
 
       expect(status.checklist.profileComplete).toBe(false);
+    });
+  });
+
+  describe('profile photo', () => {
+    let documents: ReturnType<typeof createMockDocumentsRepository>;
+    let s3: ReturnType<typeof createMockS3Service>;
+    const photoDoc = {
+      userId: 'tech-1',
+      docType: 'profile_photo',
+      s3Key: 'technicians/tech-1/profile_photo',
+    };
+
+    beforeEach(() => {
+      documents = createMockDocumentsRepository();
+      s3 = createMockS3Service();
+      service = new TechniciansService(
+        repo as never,
+        cache as never,
+        roles as never,
+        geocoding as never,
+        users as never,
+        sns as never,
+        undefined,
+        undefined,
+        undefined,
+        documents as never,
+        s3 as never,
+      );
+    });
+
+    it('serves the uploaded photo as a short-lived link — the bucket is private', async () => {
+      cache.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      documents.getByType.mockResolvedValue(photoDoc);
+
+      const result = await service.getProfile('tech-1', caller('role-admin'));
+
+      expect(documents.getByType).toHaveBeenCalledWith('tech-1', 'profile_photo');
+      expect(s3.getPresignedDownloadUrl).toHaveBeenCalledWith(
+        'technicians/tech-1/profile_photo',
+        expect.any(Number),
+      );
+      expect(result.profilePhotoUrl).toBe('https://s3/download');
+    });
+
+    it('leaves the photo empty when none has been uploaded', async () => {
+      cache.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      documents.getByType.mockResolvedValue(null);
+
+      const result = await service.getProfile('tech-1', caller('role-admin'));
+
+      expect(result.profilePhotoUrl).toBeUndefined();
+      expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled();
+    });
+
+    it('caches the stored profile, never the link — a link expires, the cache entry outlives it', async () => {
+      cache.getProfile.mockResolvedValue(null);
+      repo.getProfile.mockResolvedValue(createMockTechnicianProfile({ userId: 'tech-1' }));
+      documents.getByType.mockResolvedValue(photoDoc);
+
+      await service.getProfile('tech-1', caller('role-admin'));
+
+      expect(cache.setProfile.mock.calls[0][0].profilePhotoUrl).toBeUndefined();
+    });
+
+    it('counts the uploaded photo towards a complete profile', async () => {
+      cache.getProfile.mockResolvedValue(
+        createMockTechnicianProfile({
+          userId: 'tech-1',
+          homeAddress: { line1: '1 Main', city: 'Atlanta', state: 'GA', zip: '30301' },
+        }),
+      );
+      users.findById.mockResolvedValue({ id: 'tech-1', phone: '+14045550123' });
+      documents.getByType.mockResolvedValue(photoDoc);
+
+      const status = await service.getOnboardingStatus('tech-1', caller('role-admin'));
+
+      expect(status.checklist.profileComplete).toBe(true);
     });
   });
 

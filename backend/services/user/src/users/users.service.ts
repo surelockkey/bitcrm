@@ -22,6 +22,7 @@ import {
   type UserPermissionOverrides,
   type ResolvedPermissions,
   isAssignableTechnician,
+  isFieldTeamMember,
   TechChangedField,
   TECHNICIAN_ROLE_ID,
   UserEventType,
@@ -104,6 +105,8 @@ export class UsersService implements OnModuleInit {
    *
    * "Assignable" is `isAssignableTechnician` and nothing else — see
    * `getTechnicianEligibility`, which answers the same question for one user.
+   * It reads every user, not every technician: the field-team flag that puts
+   * someone on this roster sits on the user record, whatever their role.
    */
   async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[]> {
     if (!this.techniciansRepository || !this.assignmentsRepository) {
@@ -116,7 +119,7 @@ export class UsersService implements OnModuleInit {
     }
 
     const [users, jobTypes, areas, profiles] = await Promise.all([
-      this.repository.findByRoleId(TECHNICIAN_ROLE_ID),
+      this.listAllUsers(),
       this.assignmentsRepository.listAllApproved('job_type'),
       this.assignmentsRepository.listAllApproved('service_area'),
       this.listAllTechnicianProfiles(),
@@ -136,9 +139,7 @@ export class UsersService implements OnModuleInit {
     const technicians: TechnicianEligibilityInfo[] = [];
     for (const user of users) {
       const entry = byTech.get(user.id) ?? { jobTypeIds: [], serviceAreaIds: [] };
-      if (!isAssignableTechnician(user, entry.jobTypeIds, entry.serviceAreaIds)) {
-        continue;
-      }
+      if (!isAssignableTechnician(user)) continue;
 
       const home = homeByTech.get(user.id);
       const mappable = home?.lat !== undefined && home?.lng !== undefined;
@@ -190,7 +191,7 @@ export class UsersService implements OnModuleInit {
 
     const jobTypeIds = approved('job_type');
     const serviceAreaIds = approved('service_area');
-    if (!isAssignableTechnician(user, jobTypeIds, serviceAreaIds)) return unassignable;
+    if (!isAssignableTechnician(user)) return unassignable;
 
     const profile = await this.techniciansRepository?.getProfile(userId);
     const home = profile?.homeAddress;
@@ -206,6 +207,21 @@ export class UsersService implements OnModuleInit {
       department: user?.department,
       homeAddress: mappable ? { lat: home.lat as number, lng: home.lng as number } : undefined,
     };
+  }
+
+  /**
+   * Every user, cursor-drained, for the dispatch roster. Bounded the same way
+   * as the profiles below.
+   */
+  private async listAllUsers(): Promise<User[]> {
+    const all: User[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.repository.findAll(200, cursor);
+      all.push(...page.items);
+      cursor = page.nextCursor;
+    } while (cursor && all.length < 5000);
+    return all;
   }
 
   /**
@@ -257,7 +273,7 @@ export class UsersService implements OnModuleInit {
       for (const user of items) {
         const existing = await this.techniciansRepository.getProfile(user.id);
         if (!existing) {
-          await this.ensureTechnicianProfile(user.id, user.roleId);
+          await this.ensureTechnicianProfile(user);
           created++;
         }
         await this.ensureTechnicianCommission(user.id);
@@ -359,7 +375,7 @@ export class UsersService implements OnModuleInit {
     await this.cache.setUser(user);
     this.businessMetrics?.entityCreated.inc({ entity_type: 'user' });
     this.publishUserEvent('user.activated', user);
-    await this.ensureTechnicianProfile(user.id, user.roleId);
+    await this.ensureTechnicianProfile(user);
     return user;
   }
 
@@ -567,6 +583,15 @@ export class UsersService implements OnModuleInit {
     }
 
     await this.cache.invalidateUser(id);
+
+    // On or off the field team is the one edit here that moves someone in or
+    // out of dispatch. Switching it on also gives them the technician card's
+    // fields; switching it off keeps the profile — the address and hours are
+    // still theirs, they just stop being offered on jobs.
+    if (dto.fieldTeamMember !== undefined) {
+      await this.ensureTechnicianProfile(updatedUser);
+      this.publishTechUpdated(id, TechChangedField.FIELD_TEAM);
+    }
     return updatedUser;
   }
 
@@ -674,7 +699,7 @@ export class UsersService implements OnModuleInit {
     // technician demoted to dispatcher otherwise stayed in the assignment
     // dialog until deal-service happened to restart.
     this.publishTechUpdated(userId, TechChangedField.ROLE);
-    await this.ensureTechnicianProfile(userId, roleId);
+    await this.ensureTechnicianProfile(updatedUser);
     return updatedUser;
   }
 
@@ -755,17 +780,18 @@ export class UsersService implements OnModuleInit {
   }
 
   /**
-   * Onboarding step 1: when a user becomes a technician, provision a pending
-   * technician profile so they appear in technician listings / onboarding
-   * tracking immediately, before they self-fill their profile. Best-effort —
-   * never fails the user mutation.
+   * Onboarding step 1: when a user joins the field team — by taking the
+   * technician role, or by the flag being switched on for any role —
+   * provision a pending technician profile so they appear in technician
+   * listings / onboarding tracking immediately, before anyone fills it in.
+   * Best-effort — never fails the user mutation.
    */
   private async ensureTechnicianProfile(
-    userId: string,
-    roleId: string,
+    user: Pick<User, 'id' | 'roleId' | 'fieldTeamMember'>,
   ): Promise<void> {
     if (!this.techniciansRepository) return;
-    if (roleId !== TECHNICIAN_ROLE_ID) return;
+    if (!isFieldTeamMember(user)) return;
+    const userId = user.id;
     try {
       const existing = await this.techniciansRepository.getProfile(userId);
       if (existing) return;

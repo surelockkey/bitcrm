@@ -13,7 +13,7 @@ Publishers and consumers import these so the wire format can't drift; the
 | `user.activated` | `UserActivatedEvent` | user created / reactivated | — (containers are created manually and technicians assigned to them; no auto-provisioning) |
 | `user.role-changed` | `UserRoleChangedEvent` | role assigned | — |
 | `user.invite-resent` | `UserInviteResentEvent` | invite re-sent | — (audit) |
-| `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change, **role change, (de)activation** | deal (eligibility), reporting |
+| `tech.updated` | `TechUpdatedEvent` `{technicianId, changedFields}` | profile / assignments / commission change, **role change, (de)activation, on/off the field team** | deal (eligibility), reporting |
 | `tech.approved` | `TechApprovedEvent` `{technicianId, jobTypeIds, serviceAreaIds}` | technician first becomes assignable | **deal (eligibility projection)** |
 | `commission.updated` | `CommissionUpdatedEvent` | commission set | reporting, payment |
 | `document.uploaded` / `document.accessed` / `document.deleted` | `DocumentEvent` | sensitive document op | — (compliance/audit) |
@@ -282,7 +282,7 @@ are not emitted individually — the search backfill reconciles them.
 
 ## Eligibility projection (deal-service)
 `tech.approved` / `tech.updated` (the latter when `changedFields` carries any
-`TechChangedField` — `assignments`, `role`, `status`) build a
+`TechChangedField` — `assignments`, `role`, `status`, `fieldTeamMember`) build a
 `TECH_ELIGIBILITY#<id>` read-model in `BitCRM_Deals`
 (`TechnicianEligibilityRepository`). Every event re-reads the authoritative
 answer from `GET /api/users/internal/technicians/:id/eligibility` and either

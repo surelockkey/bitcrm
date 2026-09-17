@@ -15,6 +15,7 @@ export class UpdateTechnicianDto extends IntersectionType(
 
 /** Operational fields — editing any of these requires a Manager+ caller. */
 export const OPERATIONAL_FIELDS = [
+  'technicianType',
   'laborCostPerHour',
   'callMaskingEnabled',
   'gpsTrackingEnabled',

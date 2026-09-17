@@ -114,6 +114,7 @@ export { StockItem } from './entities/stock-item.entity';
 export {
   TechnicianProfile,
   TechnicianProfileStatus,
+  TechnicianType,
   TechnicianHomeAddress,
   OnboardingStatus,
 } from './entities/technician-profile.entity';
@@ -128,6 +129,7 @@ export {
 export {
   isAssignable,
   isAssignableTechnician,
+  isFieldTeamMember,
   TECHNICIAN_ROLE_ID,
 } from './entities/technician-assignment.entity';
 export {

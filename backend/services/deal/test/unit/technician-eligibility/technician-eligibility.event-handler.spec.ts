@@ -56,6 +56,20 @@ describe('TechnicianEligibilityEventHandler (unit)', () => {
       expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ assignable: true }));
     });
 
+    it('refreshes when someone is switched onto or off the field team', async () => {
+      http.getTechnicianEligibility.mockResolvedValue({
+        ...assignable,
+        assignable: false,
+        jobTypeIds: [],
+        serviceAreaIds: [],
+      });
+
+      await handler.handleTechUpdated({ technicianId: 'tech-1', changedFields: ['fieldTeamMember'] });
+
+      expect(http.getTechnicianEligibility).toHaveBeenCalledWith('tech-1');
+      expect(repo.remove).toHaveBeenCalledWith('tech-1');
+    });
+
     it('removes the projection when no longer assignable', async () => {
       http.getTechnicianEligibility.mockResolvedValue({
         technicianId: 'tech-1',

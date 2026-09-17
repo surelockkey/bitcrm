@@ -6,7 +6,11 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { type TechnicianProfile, type TechnicianProfileStatus } from '@bitcrm/types';
+import {
+  type TechnicianProfile,
+  type TechnicianProfileStatus,
+  type TechnicianType,
+} from '@bitcrm/types';
 import {
   TECHNICIANS_TABLE,
   GSI3_NAME,
@@ -148,7 +152,11 @@ export class TechniciansRepository {
       userId: item.userId as string,
       phone: item.phone as string | undefined,
       homeAddress: item.homeAddress as TechnicianProfile['homeAddress'],
+      additionalPhones: item.additionalPhones as string[] | undefined,
       profilePhotoUrl: item.profilePhotoUrl as string | undefined,
+      // A profile from before the field is an employee — that is what every
+      // technician was, and what "no type" meant.
+      technicianType: (item.technicianType as TechnicianType | undefined) ?? 'regular',
       laborCostPerHour: item.laborCostPerHour as number | undefined,
       callMaskingEnabled: Boolean(item.callMaskingEnabled),
       gpsTrackingEnabled: Boolean(item.gpsTrackingEnabled),

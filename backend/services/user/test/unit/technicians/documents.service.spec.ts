@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { type JwtUser } from '@bitcrm/types';
 import { DocumentsService } from '../../../src/technicians/documents/documents.service';
 import {
@@ -65,6 +65,84 @@ describe('DocumentsService (unit)', () => {
       await expect(
         service.requestUpload('tech-2', { docType: 'profile_photo', contentType: 'image/png' }, caller('role-technician', 'tech-1')),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  /**
+   * The card's photo is the one document a manager puts up for someone else:
+   * an avatar is not a licence or a bank letter. Same bucket, same key, same
+   * audit row — only who may write it differs.
+   */
+  describe('requestPhotoUpload', () => {
+    it('lets a manager put a photo on a technician’s card', async () => {
+      const res = await service.requestPhotoUpload('tech-1', 'image/jpeg', caller('role-admin', 'mgr-1'));
+
+      expect(res.uploadUrl).toBe('https://s3/upload');
+      expect(res.headers).toEqual({ 'Content-Type': 'image/png' });
+      expect(s3.getPresignedUpload).toHaveBeenCalledWith(
+        'technicians/tech-1/profile_photo',
+        expect.objectContaining({ contentType: 'image/jpeg', kmsKeyId: 'alias/test' }),
+      );
+      expect(repo.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'tech-1', docType: 'profile_photo', uploadedBy: 'mgr-1' }),
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'document.uploaded', actorId: 'mgr-1', resource: 'profile_photo' }),
+      );
+    });
+
+    it('lets a technician put a photo on their own card', async () => {
+      await expect(
+        service.requestPhotoUpload('tech-1', 'image/png', caller('role-technician', 'tech-1')),
+      ).resolves.toMatchObject({ uploadUrl: 'https://s3/upload' });
+    });
+
+    it('forbids a technician from putting a photo on someone else’s card', async () => {
+      await expect(
+        service.requestPhotoUpload('tech-2', 'image/png', caller('role-technician', 'tech-1')),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.upsert).not.toHaveBeenCalled();
+    });
+
+    it('takes only an image: a PDF cannot be drawn in an avatar', async () => {
+      await expect(
+        service.requestPhotoUpload('tech-1', 'application/pdf', caller('role-admin', 'mgr-1')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(s3.getPresignedUpload).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deletePhoto', () => {
+    it('lets a manager take the photo off — S3 object and record both', async () => {
+      repo.getByType.mockResolvedValue({ userId: 'tech-1', docType: 'profile_photo', s3Key: 'technicians/tech-1/profile_photo' });
+
+      await service.deletePhoto('tech-1', caller('role-dept-manager', 'mgr-1'));
+
+      expect(s3.deleteObject).toHaveBeenCalledWith('technicians/tech-1/profile_photo');
+      expect(repo.delete).toHaveBeenCalledWith('tech-1', 'profile_photo');
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'document.deleted', actorId: 'mgr-1', resource: 'profile_photo' }),
+      );
+    });
+
+    it('lets a technician take their own photo off', async () => {
+      repo.getByType.mockResolvedValue({ userId: 'tech-1', docType: 'profile_photo', s3Key: 'k' });
+      await service.deletePhoto('tech-1', caller('role-technician', 'tech-1'));
+      expect(repo.delete).toHaveBeenCalledWith('tech-1', 'profile_photo');
+    });
+
+    it('forbids a technician from touching someone else’s photo', async () => {
+      await expect(
+        service.deletePhoto('tech-2', caller('role-technician', 'tech-1')),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFound when there is no photo to remove', async () => {
+      repo.getByType.mockResolvedValue(null);
+      await expect(service.deletePhoto('tech-1', caller('role-admin'))).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 
