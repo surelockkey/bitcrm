@@ -15,7 +15,18 @@ export type OutboxKind =
   | 'on_my_way'
   | 'late'
   /** A line the technician wrote to the office in the team thread (§1.4). */
-  | 'chat';
+  | 'chat'
+  /**
+   * The time clock, both halves (§1.7).
+   *
+   * Queued like everything else, because clocking in with no signal is the
+   * normal case in a basement and an unpaid hour is not an acceptable failure
+   * mode. Neither half is idempotent server-side — the contract gives the
+   * server nothing to dedupe on — so both take the bounded-retry path a note
+   * and a status move take (policy.ts).
+   */
+  | 'timeclock_in'
+  | 'timeclock_out';
 
 export type QueueState =
   /** Waiting to be sent. Possibly waiting out a backoff — see nextAttemptAt. */

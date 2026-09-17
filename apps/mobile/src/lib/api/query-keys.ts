@@ -37,6 +37,17 @@ export const queryKeys = {
       ['messaging', 'messages', 'conversation', conversationId] as const,
   },
 
+  /**
+   * The technician's own time clock. `all()` is what a landed clock row
+   * invalidates — the running entry and every range on screen move together.
+   */
+  timeclock: {
+    all: () => ['timeclock'] as const,
+    /** The entry that is still running, or null. */
+    current: () => ['timeclock', 'current'] as const,
+    range: (from: string, to: string) => ['timeclock', 'range', from, to] as const,
+  },
+
   inventory: {
     containers: {
       /** The signed-in technician's own van. */

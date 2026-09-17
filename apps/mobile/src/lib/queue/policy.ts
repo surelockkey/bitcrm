@@ -79,16 +79,32 @@ export function isReady(record: Attemptable, now: number): boolean {
 }
 
 /**
+ * The technician has one clock, whatever it was started from.
+ *
+ * A clock-in on a job carries that job's id and a clock-out carries none, so
+ * lanes taken from `dealId` would put the two halves of one shift in different
+ * lanes — and the "out" could then overtake the "in" on its way through a
+ * returning connection. The server would see a shift that ended before it
+ * began.
+ */
+const TIMECLOCK: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'timeclock_in',
+  'timeclock_out',
+]);
+
+/**
  * Which rows must not overtake one another.
  *
  * A job is one lane: "arrived", then the status move, then the note. The chat
  * is another — the technician has a single thread with the office, and two
  * lines typed seconds apart have to reach it in the order they were written.
  * A chat row's `dealId` is the job it is *about* (empty when it is about none),
- * so it cannot serve as the lane.
+ * so it cannot serve as the lane. The clock is a third, for the reason above.
  */
 export function laneOf(record: { dealId: string; kind?: OutboxKind }): string {
-  return record.kind === 'chat' ? 'chat' : `deal:${record.dealId}`;
+  if (record.kind === 'chat') return 'chat';
+  if (record.kind && TIMECLOCK.has(record.kind)) return 'timeclock';
+  return `deal:${record.dealId}`;
 }
 
 /**

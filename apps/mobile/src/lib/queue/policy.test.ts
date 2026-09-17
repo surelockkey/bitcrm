@@ -7,6 +7,7 @@ import {
   isReady,
   isSweepable,
   isTooOldToSend,
+  laneOf,
   outcomeAfterFailure,
   retryPatch,
   selectNextBatch,
@@ -45,6 +46,47 @@ describe('isIdempotent', () => {
   it('does not, for the two the server would genuinely duplicate', () => {
     expect(isIdempotent('note')).toBe(false);
     expect(isIdempotent('status')).toBe(false);
+  });
+
+  it('does not, for the clock: the contract gives the server no key to dedupe on', () => {
+    // A replay after an ambiguous failure would be a second entry on somebody's
+    // timesheet, so both halves take the bounded-retry path and then become
+    // visible to the technician.
+    expect(isIdempotent('timeclock_in')).toBe(false);
+    expect(isIdempotent('timeclock_out')).toBe(false);
+  });
+});
+
+describe('laneOf', () => {
+  it('gives each job its own lane', () => {
+    expect(laneOf({ dealId: 'd1', kind: 'arrived' })).toBe('deal:d1');
+    expect(laneOf({ dealId: 'd2', kind: 'note' })).not.toBe(
+      laneOf({ dealId: 'd1', kind: 'note' }),
+    );
+  });
+
+  it('keeps the office thread in one lane, whatever job a line is about', () => {
+    expect(laneOf({ dealId: '', kind: 'chat' })).toBe('chat');
+    expect(laneOf({ dealId: 'd1', kind: 'chat' })).toBe('chat');
+  });
+
+  it('keeps both halves of the clock in one lane, whatever it was started on', () => {
+    /*
+     * A clock-in carries the job's id and a clock-out carries none. Taken from
+     * `dealId`, they would sit in different lanes — and the "out" could then
+     * overtake the "in" through a returning connection, leaving the server a
+     * shift that ended before it began.
+     */
+    expect(laneOf({ dealId: 'd1', kind: 'timeclock_in' })).toBe('timeclock');
+    expect(laneOf({ dealId: '', kind: 'timeclock_out' })).toBe('timeclock');
+  });
+
+  it('does not put the clock in the same lane as the job it was started on', () => {
+    // An arrival and a clock-in on the same job are independent; making them
+    // queue behind each other would delay one for no reason.
+    expect(laneOf({ dealId: 'd1', kind: 'timeclock_in' })).not.toBe(
+      laneOf({ dealId: 'd1', kind: 'arrived' }),
+    );
   });
 });
 
