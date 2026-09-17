@@ -17,6 +17,7 @@ import {
   isAssignable,
   statusLabel,
   formatPct,
+  technicianEditRights,
 } from "./lib";
 
 describe("onboardingPct", () => {
@@ -114,6 +115,36 @@ describe("assignment approvals + assignability", () => {
   });
   it("is not assignable without an approved area", () => {
     expect(isAssignable(jobTypes, [])).toBe(false);
+  });
+});
+
+describe("technicianEditRights — the API's split, drawn on the page", () => {
+  it("lets a manager edit both halves", () => {
+    expect(technicianEditRights({ canEdit: true, isTechnician: false })).toEqual({
+      contact: true,
+      operational: true,
+    });
+  });
+
+  it("gives a technician their own details but not the operational fields", () => {
+    // The Technician role carries technicians.edit — it is how they save their
+    // own address — so the operational half must be closed by role, not by
+    // permission, exactly as TechniciansService.updateProfile does it.
+    expect(technicianEditRights({ canEdit: true, isTechnician: true })).toEqual({
+      contact: true,
+      operational: false,
+    });
+  });
+
+  it("gives a viewer without technicians.edit nothing", () => {
+    expect(technicianEditRights({ canEdit: false, isTechnician: false })).toEqual({
+      contact: false,
+      operational: false,
+    });
+    expect(technicianEditRights({ canEdit: false, isTechnician: true })).toEqual({
+      contact: false,
+      operational: false,
+    });
   });
 });
 

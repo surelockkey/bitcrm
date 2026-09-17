@@ -34,6 +34,13 @@ interface Props {
   country?: string;
   className?: string;
   autoFocus?: boolean;
+  /**
+   * Names the field where the visible label sits on the group around it rather
+   * than on this input — a placeholder is not a name, and this control is a
+   * combobox, which is announced unnamed without one.
+   */
+  id?: string;
+  ariaLabel?: string;
   /** Shown at the top of the dropdown while the input is focused and near-empty. */
   suggestions?: AddressSuggestion[];
 }
@@ -84,7 +91,7 @@ export function AddressAutocomplete(props: Props) {
 }
 
 /** Fallback with no Google key: a plain field that still offers saved addresses. */
-function PlainInput({ value, onChange, placeholder, className, autoFocus, suggestions }: Props) {
+function PlainInput({ value, onChange, placeholder, className, autoFocus, id, ariaLabel, suggestions }: Props) {
   const [focused, setFocused] = useState(false);
   const showSuggestions = focused && value.trim().length < 3 && !!suggestions?.length;
   return (
@@ -92,6 +99,8 @@ function PlainInput({ value, onChange, placeholder, className, autoFocus, sugges
       <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         className={cn("h-9 pl-8", className)}
+        id={id}
+        aria-label={ariaLabel}
         placeholder={placeholder ?? "Start typing an address…"}
         value={value}
         autoFocus={autoFocus}
@@ -117,6 +126,8 @@ function PlacesInput({
   country = "us",
   className,
   autoFocus,
+  id,
+  ariaLabel,
   suggestions,
 }: Props) {
   const placesLib = useMapsLibrary("places");
@@ -206,6 +217,8 @@ function PlacesInput({
         <MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className={cn("h-9 pl-8", className)}
+          id={id}
+          aria-label={ariaLabel}
           placeholder={placeholder}
           value={value}
           autoFocus={autoFocus}
