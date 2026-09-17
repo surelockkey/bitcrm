@@ -1,0 +1,69 @@
+name: Mobile (technician app)
+
+# The app is outside the root npm workspaces, so nothing else in CI installs it
+# or would notice it break. Nothing here touches AWS, and nothing here builds or
+# uploads to Expo/EAS — this is a typecheck and a jest run, no more.
+on:
+  push:
+    branches: [main, cicd]
+    paths:
+      - 'apps/mobile/**'
+      # A shared-types change can break the app without touching apps/mobile at
+      # all: that is the whole point of it importing @bitcrm/types.
+      - 'packages/types/**'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/types/**'
+      - '.github/workflows/mobile.yml'
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches backend/Dockerfile's NODE_VERSION, the only Node version
+          # this repo pins anywhere.
+          node-version: 20
+          cache: npm
+          # Two trees, two lockfiles: the root one installs packages/types'
+          # TypeScript, the app's installs Expo.
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+
+      # packages/types declares its own TypeScript and is compiled by it. This
+      # install provides that compiler; it installs no React Native.
+      - name: Install workspace root
+        run: npm ci
+
+      - name: Install the app
+        run: npm ci
+        working-directory: apps/mobile
+
+      # An explicit step so a broken shared package reads as a failed build
+      # rather than a wall of "cannot find module '@bitcrm/types'".
+      - name: Build shared types
+        run: npm run types:build
+        working-directory: apps/mobile
+
+      # tsc directly rather than `npm run typecheck`, whose pre-hook would just
+      # rebuild what the step above built. jest keeps its own globalSetup build
+      # either way; incremental, it costs about a second and is the guard that
+      # a developer running `npx jest` relies on.
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: apps/mobile
+
+      - name: Test
+        run: npx jest --ci --maxWorkers=2
+        working-directory: apps/mobile
