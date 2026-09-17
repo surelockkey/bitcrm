@@ -19,11 +19,13 @@ const state = vi.hoisted(() => ({
   canViewDocuments: true,
   canViewJobTypes: true,
   canViewServiceAreas: true,
+  canViewRoles: true,
   meId: "mgr-1",
 }));
 
 const fx = vi.hoisted(() => ({
   update: vi.fn(),
+  rolesEnabled: [] as boolean[],
   profile: {
     userId: "t1",
     phone: "+14045551234",
@@ -57,8 +59,9 @@ vi.mock("@/features/auth/use-permissions", () => ({
         case "service_areas":
           return action === "view" && state.canViewServiceAreas;
         case "users":
-        case "roles":
           return true;
+        case "roles":
+          return state.canViewRoles;
         default:
           return false;
       }
@@ -98,8 +101,13 @@ vi.mock("../masking-hooks", () => ({
   useSetClientNumberVisibility: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+// Honours `enabled` the way the real hook does, so a test can tell the
+// difference between "asked and got it" and "never asked".
 vi.mock("@/features/roles/hooks", () => ({
-  useRoles: () => ({ data: [{ id: "role-technician", name: "Technician", priority: 20 }] }),
+  useRoles: (enabled = true) => {
+    fx.rolesEnabled.push(enabled);
+    return { data: enabled ? [{ id: "role-technician", name: "Technician", priority: 20 }] : undefined };
+  },
 }));
 
 vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [] }) }));
@@ -144,8 +152,10 @@ beforeEach(() => {
   state.canViewDocuments = true;
   state.canViewJobTypes = true;
   state.canViewServiceAreas = true;
+  state.canViewRoles = true;
   state.meId = "mgr-1";
   fx.update.mockReset();
+  fx.rolesEnabled.length = 0;
 });
 
 /** Index of a piece of text inside an element, for order assertions. */
@@ -195,6 +205,22 @@ describe("TechnicianDetailPage — one page, two columns", () => {
       "Status",
     ].map((label) => at(col, label));
     expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it("names the role without asking for the roles list a technician can't have", () => {
+    state.canViewRoles = false;
+    state.isTechnician = true;
+    state.meId = "t1";
+    render(<TechnicianDetailPage technicianId="t1" />);
+
+    // Never asked: the list needs `roles.view`, and asking anyway buys a 403
+    // and a failed query on a page that only wanted to name one role.
+    expect(fx.rolesEnabled.every((enabled) => enabled === false)).toBe(true);
+    // Still named, from the system-role mirror.
+    expect(within(screen.getByTestId("work-column")).getByText("Technician")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /customize roles and permissions here/i }),
+    ).toBeNull();
   });
 
   it("keeps the role read-only, with the link to where roles are changed", () => {
