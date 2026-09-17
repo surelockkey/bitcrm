@@ -134,6 +134,26 @@ describe('UsersService event publishing', () => {
       techUpdated('u1', 'role');
     });
 
+    it('publishes when someone is switched onto or off the field team', async () => {
+      const target = createMockUser({ id: 'u1', roleId: 'role-dispatcher' });
+      repository.findById.mockResolvedValue(target);
+      repository.update.mockResolvedValue({ ...target, fieldTeamMember: true });
+
+      await service.update('u1', { fieldTeamMember: true }, createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }));
+
+      techUpdated('u1', 'fieldTeamMember');
+    });
+
+    it('says nothing to dispatch when an edit leaves the field team alone', async () => {
+      const target = createMockUser({ id: 'u1', roleId: 'role-technician' });
+      repository.findById.mockResolvedValue(target);
+      repository.update.mockResolvedValue({ ...target, firstName: 'Ada' });
+
+      await service.update('u1', { firstName: 'Ada' }, createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }));
+
+      expect(sns.publish).not.toHaveBeenCalledWith('user-events', 'tech.updated', expect.anything());
+    });
+
     it('publishes on deactivation', async () => {
       repository.findById.mockResolvedValue(createMockUser({ id: 'u1', roleId: 'role-technician' }));
 

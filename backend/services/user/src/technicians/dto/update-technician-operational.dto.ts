@@ -12,9 +12,19 @@ import {
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export const TECHNICIAN_STATUSES = ['pending', 'active', 'inactive'] as const;
+export const TECHNICIAN_TYPES = ['regular', 'subcontractor'] as const;
 
 /** Operational settings. Only Manager+ (privileged) callers may edit these. */
 export class UpdateTechnicianOperationalDto {
+  @ApiPropertyOptional({
+    enum: TECHNICIAN_TYPES,
+    example: 'regular',
+    description: 'Workiz "User type": an employee, or a subcontractor paid and insured differently.',
+  })
+  @IsOptional()
+  @IsEnum(TECHNICIAN_TYPES)
+  technicianType?: (typeof TECHNICIAN_TYPES)[number];
+
   @ApiPropertyOptional({ example: 45, description: 'Labor cost per hour (USD).' })
   @IsOptional()
   @IsNumber()

@@ -283,6 +283,9 @@ export class UsersRepository {
       // reads here — never deleted the old lookup item when a number changed,
       // leaving numbers that could never be claimed again.
       phone: item.phone as string | undefined,
+      // Absent on records from before the flag; `isFieldTeamMember` answers
+      // from the role for those, so nothing is defaulted here.
+      fieldTeamMember: item.fieldTeamMember as boolean | undefined,
       status: item.status as User['status'],
       permissionOverrides: item.permissionOverrides as User['permissionOverrides'],
       createdAt: item.createdAt as string,

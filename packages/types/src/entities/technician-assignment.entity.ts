@@ -59,19 +59,31 @@ export const TECHNICIAN_ROLE_ID = 'role-technician';
 export interface AssignableTechnicianSubject {
   roleId?: string;
   status?: UserStatus;
+  fieldTeamMember?: boolean;
 }
 
 /**
- * THE definition of "may be offered on a job", in one place because the two
- * paths that write deal-service's eligibility projection used to each carry
- * their own and disagree: the boot roster filtered by the technician role, the
- * per-user refresh behind `tech.approved` / `tech.updated` never looked at the
- * role at all. Anyone holding an approved job type and service area — a
- * dispatcher, a manager — was therefore projected as an assignable technician
- * and offered in the assignment dialog.
+ * Whether this person goes out on jobs. The flag is Workiz's "Field team
+ * member" and lives on the user, whatever their role; a record from before it
+ * existed answers from the role, so that on the day the flag arrived nobody
+ * moved: every technician was on the field team, nobody else was.
+ */
+export function isFieldTeamMember(
+  user: Pick<AssignableTechnicianSubject, 'roleId' | 'fieldTeamMember'>,
+): boolean {
+  return user.fieldTeamMember ?? user.roleId === TECHNICIAN_ROLE_ID;
+}
+
+/**
+ * THE definition of "may be put on a job", in one place because the two paths
+ * that write deal-service's eligibility projection used to each carry their
+ * own and disagree.
  *
- * Both callers pass the *approved* catalog ids, so this cannot be fooled by a
- * pending or rejected assignment row.
+ * Membership of the field team is the whole rule. Approved job types and
+ * service areas no longer gate it: they say whether someone *fits* a given
+ * job, which is `eligible` and the ranking in the assignment dialog — the
+ * owner who wants a job sent to their phone has no approvals and must still
+ * be assignable.
  *
  * Deactivation is read as an explicit INACTIVE rather than "not ACTIVE": a
  * record from before the status field existed must not silently drop a working
@@ -79,11 +91,8 @@ export interface AssignableTechnicianSubject {
  */
 export function isAssignableTechnician(
   user: AssignableTechnicianSubject | null | undefined,
-  approvedJobTypeIds: readonly string[],
-  approvedServiceAreaIds: readonly string[],
 ): boolean {
   if (!user) return false;
-  if (user.roleId !== TECHNICIAN_ROLE_ID) return false;
-  if (user.status === UserStatus.INACTIVE) return false;
-  return approvedJobTypeIds.length > 0 && approvedServiceAreaIds.length > 0;
+  if (!isFieldTeamMember(user)) return false;
+  return user.status !== UserStatus.INACTIVE;
 }

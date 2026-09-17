@@ -43,8 +43,8 @@ export class TechniciansController {
     summary: 'Update a technician profile',
     description:
       '**Guard:** `technicians.edit` permission required. ' +
-      'Self (technician) may set profile fields (phone, home address, photo). ' +
-      'Operational fields (labor cost, status, call masking, GPS, mobile app) require Manager+. ' +
+      'Self (technician) may set profile fields (phone, additional phones, home address). ' +
+      'Operational fields (user type, labor cost, status, call masking, GPS, mobile app) require Manager+. ' +
       'Publishes a `tech.updated` event.',
   })
   async updateProfile(

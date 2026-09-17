@@ -77,6 +77,20 @@ describe('UsersRepository', () => {
       expect(result?.phone).toBe('+380958601427');
     });
 
+    it('reads the field-team flag back, and leaves it absent on a record from before it', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user, fieldTeamMember: false },
+      });
+      expect((await repository.findById('user-1'))?.fieldTeamMember).toBe(false);
+
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user },
+      });
+      // Absent, not defaulted: the role answers for these, in `isFieldTeamMember`.
+      expect((await repository.findById('user-1'))?.fieldTeamMember).toBeUndefined();
+    });
+
     it('leaves the phone undefined for somebody who has not set one', async () => {
       const user = createMockUser();
       dbClient.send.mockResolvedValue({

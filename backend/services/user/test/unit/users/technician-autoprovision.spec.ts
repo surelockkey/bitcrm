@@ -160,6 +160,29 @@ describe('UsersService → technician profile auto-provisioning', () => {
     await expect(service.onModuleInit()).resolves.toBeUndefined();
   });
 
+  it('provisions when someone is switched onto the field team, whatever their role', async () => {
+    const owner = createMockUser({ id: 'owner-1', roleId: 'role-super-admin' });
+    usersRepo.findById.mockResolvedValue(owner);
+    usersRepo.update.mockResolvedValue({ ...owner, fieldTeamMember: true });
+
+    await service.update('owner-1', { fieldTeamMember: true }, createMockJwtUser({ id: 'caller', roleId: 'role-super-admin' }));
+
+    expect(usersRepo.update).toHaveBeenCalledWith('owner-1', expect.objectContaining({ fieldTeamMember: true }));
+    expect(techRepo.upsertProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner-1', status: 'pending' }),
+    );
+  });
+
+  it('keeps the profile when someone is switched off the field team', async () => {
+    const tech = createMockUser({ id: 'u9', roleId: 'role-technician' });
+    usersRepo.findById.mockResolvedValue(tech);
+    usersRepo.update.mockResolvedValue({ ...tech, fieldTeamMember: false });
+
+    await service.update('u9', { fieldTeamMember: false }, createMockJwtUser({ id: 'caller', roleId: 'role-super-admin' }));
+
+    expect(techRepo.upsertProfile).not.toHaveBeenCalled();
+  });
+
   it('provisions on assignRole to technician', async () => {
     usersRepo.findById.mockResolvedValue(createMockUser({ id: 'u9', roleId: 'role-read-only' }));
     usersRepo.update.mockResolvedValue(createMockUser({ id: 'u9', roleId: 'role-technician' }));

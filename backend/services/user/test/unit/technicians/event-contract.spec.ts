@@ -41,6 +41,7 @@ describe('user-events contract', () => {
       ASSIGNMENTS: 'assignments',
       ROLE: 'role',
       STATUS: 'status',
+      FIELD_TEAM: 'fieldTeamMember',
     });
   });
 
@@ -48,6 +49,7 @@ describe('user-events contract', () => {
     expect(affectsEligibility(['assignments'])).toBe(true);
     expect(affectsEligibility(['role'])).toBe(true);
     expect(affectsEligibility(['status'])).toBe(true);
+    expect(affectsEligibility(['fieldTeamMember'])).toBe(true);
     expect(affectsEligibility(['commission', 'role'])).toBe(true);
     expect(affectsEligibility(['commission'])).toBe(false);
     expect(affectsEligibility([])).toBe(false);

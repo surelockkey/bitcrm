@@ -7,6 +7,13 @@
  */
 export type TechnicianProfileStatus = 'pending' | 'active' | 'inactive';
 
+/**
+ * Workiz's "User type" on the user card. A subcontractor is paid and insured
+ * differently from an employee, and more will hang off this flag as those
+ * differences are built — so it is stored, not derived from the role.
+ */
+export type TechnicianType = 'regular' | 'subcontractor';
+
 export interface TechnicianHomeAddress {
   line1: string;
   line2?: string;
@@ -31,9 +38,21 @@ export interface TechnicianProfile {
    */
   phone?: string;
   homeAddress?: TechnicianHomeAddress;
+  /**
+   * Numbers beside the one telephony rings. Kept on the technician record:
+   * the user record holds exactly one phone, the one the call log matches.
+   */
+  additionalPhones?: string[];
+  /**
+   * Served, not stored: the photo is the `profile_photo` document in the
+   * private documents bucket, and the user-service fills this in on read with
+   * a short-lived link to it. Absent when no photo has been uploaded.
+   */
   profilePhotoUrl?: string;
 
   // --- Operational settings (manager-controlled) ---
+  /** Defaults to `regular`: a profile from before the field is an employee. */
+  technicianType?: TechnicianType;
   laborCostPerHour?: number;
   /**
    * @deprecated Replaced by the `contacts.view_numbers` permission, which
