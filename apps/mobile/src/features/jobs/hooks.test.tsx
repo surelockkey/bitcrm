@@ -110,6 +110,21 @@ describe('useMyJobs', () => {
 describe('useMarkSeenOnOpen', () => {
   const mine = deal({ assignedTechIds: ['t1'] });
 
+  /**
+   * A client that keeps what is put into it.
+   *
+   * The shared test client uses `gcTime: 0`, so a query seeded by
+   * `setQueryData` and never subscribed to is collected on the next
+   * macrotask — which lands in the middle of these cases and makes them pass
+   * or fail depending on how busy the machine is. In the app both of these
+   * caches are being watched by a screen.
+   */
+  const cacheClient = () => {
+    const qc = createTestQueryClient();
+    qc.setDefaultOptions({ queries: { retry: false, gcTime: Infinity, staleTime: 0 } });
+    return qc;
+  };
+
   beforeEach(() => {
     mockApi.markDealSeen.mockReset();
     mockApi.markDealSeen.mockResolvedValue({
@@ -130,7 +145,7 @@ describe('useMarkSeenOnOpen', () => {
   });
 
   it('fills the stamp on the job and on its card in the day list', async () => {
-    const qc = createTestQueryClient();
+    const qc = cacheClient();
     qc.setQueryData(queryKeys.deals.detail('d1'), mine);
     qc.setQueryData(queryKeys.deals.list({ techId: 't1' }), [mine, deal({ id: 'd2' })]);
 
@@ -169,13 +184,17 @@ describe('useMarkSeenOnOpen', () => {
       seenAt: '2026-09-17T07:00:00.000Z',
       first: false,
     });
-    const qc = createTestQueryClient();
+    const qc = cacheClient();
     qc.setQueryData(queryKeys.deals.detail('d1'), mine);
 
     await renderHook(() => useMarkSeenOnOpen(mine, 't1'), { wrapper: withQuery(qc) });
 
     await waitFor(() => expect(mockApi.markDealSeen).toHaveBeenCalled());
-    expect(qc.getQueryData<Deal>(queryKeys.deals.detail('d1'))?.seenByTechAt).toBeUndefined();
+    const cached = qc.getQueryData<Deal>(queryKeys.deals.detail('d1'));
+    // The job is still cached — so the absent stamp means "not written", not
+    // "nothing to read".
+    expect(cached?.id).toBe('d1');
+    expect(cached?.seenByTechAt).toBeUndefined();
   });
 
   it('says nothing to a technician when the receipt cannot be delivered', async () => {
