@@ -17,6 +17,10 @@ export default function JobChatRoute() {
     <ChatScreen
       live={useIsFocused()}
       dealId={dealId}
+      // A line about some *other* job — the screen never offers this for the
+      // job the technician came from. Pushed, so Back walks back through the
+      // thread to the job they were standing at.
+      onOpenJob={(other) => router.push(`/jobs/${other}`)}
       onBack={() =>
         router.canGoBack() ? router.back() : router.replace(dealId ? `/jobs/${dealId}` : '/chat')
       }

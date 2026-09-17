@@ -1,11 +1,13 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { SMS_BODY_MAX_LENGTH } from '@bitcrm/types';
 import { ApiError } from '../../lib/api/errors';
 import type { QueueRecord } from '../../lib/queue/types';
 import { createTestQueryClient } from '../../test/query';
 import { renderScreen } from '../../test/render';
 import type { FeedMessage } from './api';
 import { ChatScreen } from './chat-screen';
+import { COMPOSER_MAX_LENGTH } from './components/Composer';
 
 const mockSend = jest.fn().mockResolvedValue(undefined);
 const mockRetry = jest.fn();
@@ -204,6 +206,43 @@ describe('ChatScreen', () => {
     expect(
       screen.getByText(/could not reach the\s+server just now/),
     ).toBeTruthy();
+  });
+
+  it('will not let a line be typed that the server would refuse outright', async () => {
+    // A 400 from the send is classified permanent, so an over-long line parks
+    // as "Not sent" for ever — with the words only readable inside a bubble
+    // nobody can copy from. The box stops at the server's own ceiling.
+    await render();
+    // Against the shared constant, not the component's own: the ceiling that
+    // matters is the one `SendMessageDto` validates against.
+    expect(screen.getByTestId('chat-input').props.maxLength).toBe(SMS_BODY_MAX_LENGTH);
+    expect(COMPOSER_MAX_LENGTH).toBe(SMS_BODY_MAX_LENGTH);
+  });
+
+  it('opens the job a message names — Workiz’s View Job', async () => {
+    const onOpenJob = jest.fn();
+    mockFeed = {
+      ...mockFeed,
+      data: { pages: [{ data: [message({ id: 'm-job', dealId: 'deal-7' })] }] },
+    };
+    await render({ onOpenJob });
+
+    await fireEvent.press(screen.getByTestId('message-job-m-job'));
+    expect(onOpenJob).toHaveBeenCalledWith('deal-7');
+  });
+
+  it('does not offer the job the technician is already standing on', async () => {
+    const onOpenJob = jest.fn();
+    mockFeed = {
+      ...mockFeed,
+      data: { pages: [{ data: [message({ id: 'm-job', dealId: 'deal-7' })] }] },
+    };
+    await render({ onOpenJob, dealId: 'deal-7', onBack: jest.fn() });
+
+    // The line is there; only the button that would lead back to this very
+    // screen's own job is not.
+    expect(screen.getByTestId('message-m-job')).toBeTruthy();
+    expect(screen.queryByTestId('message-job-m-job')).toBeNull();
   });
 
   it('comes with a way back when it was opened from a job', async () => {

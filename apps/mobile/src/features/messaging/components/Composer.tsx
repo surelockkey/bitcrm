@@ -1,6 +1,16 @@
 import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { SMS_BODY_MAX_LENGTH } from '@bitcrm/types';
 import { useTheme } from '../../../lib/theme/theme-provider';
 import { Button } from '../../../ui/Button';
+
+/**
+ * The server's own ceiling for an in-app line (`SendMessageDto.body` is
+ * validated against it — `send-message.dto.ts:96`). Enforced in the box rather
+ * than discovered on the way out: a queued line the server refuses with a 400
+ * is classified permanent, so it parks as "Not sent" for ever, and the words
+ * are then only readable inside a bubble nobody can copy from.
+ */
+export const COMPOSER_MAX_LENGTH = SMS_BODY_MAX_LENGTH;
 
 export interface ComposerProps {
   value: string;
@@ -39,6 +49,7 @@ export function Composer({ value, onChangeText, onSend, hint, busy }: ComposerPr
         testID="chat-input"
         accessibilityLabel="Message to the office"
         multiline
+        maxLength={COMPOSER_MAX_LENGTH}
         placeholder="Write to the office"
         placeholderTextColor={colors.textMuted}
         value={value}

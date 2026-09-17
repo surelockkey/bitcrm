@@ -7,6 +7,12 @@ export interface MessageBubbleProps {
   row: FeedRow;
   /** Offered on a line the queue gave up on; absent, no button is drawn. */
   onRetry?: (queueId: string) => void;
+  /**
+   * Offered on a line that names a job — Workiz's own "View Job" from a
+   * message (`WORKIZ_MOBILE_APP.md` §1.5; one in six in-app lines carried a
+   * job id). Absent, no button is drawn: the technician is already on it.
+   */
+  onOpenJob?: (dealId: string) => void;
 }
 
 /**
@@ -19,7 +25,7 @@ export interface MessageBubbleProps {
  * the reason and a retry: a message typed at a job and silently lost is the
  * same failure as a photo silently lost (docs/ARCHITECTURE.md §2.5).
  */
-export function MessageBubble({ row, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ row, onRetry, onOpenJob }: MessageBubbleProps) {
   const { colors, radius, spacing, type } = useTheme();
   const ink = row.mine ? colors.onAccent : colors.text;
 
@@ -71,6 +77,16 @@ export function MessageBubble({ row, onRetry }: MessageBubbleProps) {
           onPress={() => onRetry(row.queueId as string)}
         />
       ) : null}
+
+      {row.dealId && onOpenJob ? (
+        <Button
+          label="View job"
+          testID={`message-job-${row.key}`}
+          variant="secondary"
+          style={[styles.job, row.mine ? styles.mineAlign : styles.theirsAlign]}
+          onPress={() => onOpenJob(row.dealId as string)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -82,4 +98,7 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   status: { flexShrink: 1 },
   retry: { marginTop: 8, alignSelf: 'flex-end' },
+  job: { marginTop: 8 },
+  mineAlign: { alignSelf: 'flex-end' },
+  theirsAlign: { alignSelf: 'flex-start' },
 });

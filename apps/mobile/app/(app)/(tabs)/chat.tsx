@@ -1,4 +1,4 @@
-import { useIsFocused } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { ChatScreen } from '../../../src/features/messaging/chat-screen';
 
 /**
@@ -9,5 +9,13 @@ import { ChatScreen } from '../../../src/features/messaging/chat-screen';
  * must not keep asking the server for a conversation nobody is reading.
  */
 export default function ChatTab() {
-  return <ChatScreen live={useIsFocused()} />;
+  return (
+    <ChatScreen
+      live={useIsFocused()}
+      // Workiz's "View Job" from a message (§1.5): dispatch writes about a job
+      // and the technician reaches it from the line itself, not by going back
+      // to the day list to look for it.
+      onOpenJob={(dealId) => router.push(`/jobs/${dealId}`)}
+    />
+  );
 }

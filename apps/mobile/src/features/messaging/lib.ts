@@ -244,8 +244,25 @@ export interface FeedRow {
   failed?: boolean;
   /** The outbox row, when this line can still be retried. */
   queueId?: string;
+  /** The job this line names, when it names one — Workiz's "View Job" (§1.5). */
+  dealId?: string;
   /** Drawn above this row, when the day changes here. */
   dayLabel?: string;
+}
+
+/**
+ * Which edges the thread has to keep clear of.
+ *
+ * Opened from a job the thread is pushed **over** the tabs, so nothing sits
+ * under the composer: without the bottom inset the Send button and its hint
+ * fall into the home indicator's own strip, where iOS eats the tap. In the tab
+ * the tab bar already holds that space, and claiming it twice would lift the
+ * composer off the bar.
+ */
+export function threadScreenEdges(pushedOverTheTabs: boolean): readonly ('top' | 'bottom' | 'left' | 'right')[] {
+  return pushedOverTheTabs
+    ? ['top', 'bottom', 'left', 'right']
+    : ['top', 'left', 'right'];
 }
 
 /**
@@ -291,6 +308,7 @@ export function feedRows(
       name: senderName(message, mine),
       body: bodyOf(message),
       time: formatMessageTime(message.createdAt),
+      ...(message.dealId ? { dealId: message.dealId } : {}),
     });
     stamps.push(message.createdAt);
   }

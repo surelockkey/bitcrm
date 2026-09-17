@@ -24,6 +24,7 @@ import {
   flattenFeed,
   messageSk,
   pendingLines,
+  threadScreenEdges,
   type FeedRow,
 } from './lib';
 
@@ -38,6 +39,11 @@ export interface ChatScreenProps {
   dealId?: string;
   /** Drawn as a Back button when this was pushed over a job. */
   onBack?: () => void;
+  /**
+   * Opens a job a message names — Workiz's "View Job" from the Message Center
+   * (§1.5). Never offered for the job the technician is already standing on.
+   */
+  onOpenJob?: (dealId: string) => void;
 }
 
 /**
@@ -53,7 +59,7 @@ export interface ChatScreenProps {
  * day chips between the days, your own words on the right and the office's on
  * the left, the composer under the thread.
  */
-export function ChatScreen({ live = true, dealId, onBack }: ChatScreenProps) {
+export function ChatScreen({ live = true, dealId, onBack, onOpenJob }: ChatScreenProps) {
   const { colors, spacing, type } = useTheme();
   const { data: me } = useMe();
   const meId = me?.id;
@@ -98,7 +104,7 @@ export function ChatScreen({ live = true, dealId, onBack }: ChatScreenProps) {
   const loading = thread.isLoading || (feed.isLoading && !messages.length);
 
   return (
-    <Screen testID="chat-screen">
+    <Screen testID="chat-screen" edges={threadScreenEdges(Boolean(onBack))}>
       {onBack ? (
         <View
           style={[
@@ -165,7 +171,13 @@ export function ChatScreen({ live = true, dealId, onBack }: ChatScreenProps) {
               data={rows}
               keyExtractor={(row) => row.key}
               renderItem={({ item }) => (
-                <Line row={item} onRetry={(id) => void retry('outbox', id)} />
+                <Line
+                  row={item}
+                  onRetry={(id) => void retry('outbox', id)}
+                  // Not for the job the technician came from: they are looking
+                  // at it, and "View job" on it would lead back to itself.
+                  onOpenJob={item.dealId && item.dealId !== dealId ? onOpenJob : undefined}
+                />
               )}
               contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}
               // Scrolling back in time reaches the *end* of an inverted list.
@@ -218,7 +230,15 @@ export function ChatScreen({ live = true, dealId, onBack }: ChatScreenProps) {
 }
 
 /** One row: the day chip that opens a day, then the bubble. */
-function Line({ row, onRetry }: { row: FeedRow; onRetry: (queueId: string) => void }) {
+function Line({
+  row,
+  onRetry,
+  onOpenJob,
+}: {
+  row: FeedRow;
+  onRetry: (queueId: string) => void;
+  onOpenJob?: (dealId: string) => void;
+}) {
   const { colors, radius, spacing, type } = useTheme();
   return (
     <View style={{ gap: spacing.md }}>
@@ -241,7 +261,7 @@ function Line({ row, onRetry }: { row: FeedRow; onRetry: (queueId: string) => vo
           </Text>
         </View>
       ) : null}
-      <MessageBubble row={row} onRetry={onRetry} />
+      <MessageBubble row={row} onRetry={onRetry} onOpenJob={onOpenJob} />
     </View>
   );
 }

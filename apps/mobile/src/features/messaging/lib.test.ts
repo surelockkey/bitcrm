@@ -15,6 +15,7 @@ import {
   pendingLines,
   pendingStatusText,
   senderName,
+  threadScreenEdges,
   unreadBadge,
 } from './lib';
 
@@ -293,6 +294,20 @@ describe('feedRows', () => {
     expect(rows[1]).toMatchObject({ mine: false, name: 'Dana' });
   });
 
+  it('carries the job a line names, so it can be opened from the line', () => {
+    const rows = feedRows(
+      [
+        message({ id: 'about-a-job', dealId: 'deal-7' }),
+        message({ id: 'about-nothing', createdAt: at(2026, 9, 16, 11) }),
+      ],
+      [],
+      'tech-1',
+      now,
+    );
+    expect(rows[0]!.dealId).toBe('deal-7');
+    expect(rows[1]!.dealId).toBeUndefined();
+  });
+
   it('offers a retry on a line the queue gave up on, and on nothing else', () => {
     const rows = feedRows(
       [],
@@ -318,6 +333,18 @@ describe('unreadBadge', () => {
   it('counts, and stops counting at nine', () => {
     expect(unreadBadge(3)).toBe('3');
     expect(unreadBadge(42)).toBe('9+');
+  });
+});
+
+describe('threadScreenEdges', () => {
+  it('keeps the composer off the home indicator when nothing sits under it', () => {
+    // Opened from a job the thread is pushed over the tabs: no tab bar holds
+    // the bottom strip, and iOS eats a tap that lands in the indicator's.
+    expect(threadScreenEdges(true)).toContain('bottom');
+  });
+
+  it('leaves the bottom to the tab bar in the tab', () => {
+    expect(threadScreenEdges(false)).not.toContain('bottom');
   });
 });
 
