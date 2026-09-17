@@ -408,6 +408,27 @@ describe("the chain saves what the form editor saved", () => {
     expect(roundTrip(spec)).toStrictEqual({ conditions: [], ...spec });
   });
 
+  it("leaves the whitespace a stored rule carries exactly where it is", () => {
+    // The dialog this replaced saved `toSpec(schema.parse(values))`, and the
+    // schema trims `url` / `number` / `email` / `templateId` — so opening an
+    // imported rule and pressing Save rewrote fields nobody had touched. The
+    // chain hands `toSpec` the values as they were read instead. Do not
+    // "fix" this by parsing on the way out: a rule opened and saved with
+    // nothing changed has to be stored as it was found, and normalising it is
+    // a change like any other.
+    //
+    // It leaves one gap, and it is the panel's to close: a URL *typed* with a
+    // stray space is stored with it, so the settings panel trims what it
+    // writes onto a node.
+    const padded: AutomationSpec = {
+      version: 1,
+      trigger: { kind: "deal.created" },
+      conditions: [],
+      actions: [{ type: "webhook", url: " https://x.test/h " }],
+    };
+    expect(roundTrip(padded).actions[0].url).toBe(" https://x.test/h ");
+  });
+
   it("drops a stored condition that matched everything, rather than keeping it", () => {
     // An `in` with no values narrows nothing: the evaluator reads it as "this
     // field is not narrowed", so storing it back would be a rule that fires
