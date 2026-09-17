@@ -48,6 +48,13 @@ export interface UseMyJobsResult {
   isRefetching: boolean;
   error: unknown;
   refetch: () => void;
+  /**
+   * When this list last came back from the server, epoch ms — 0 while it never
+   * has. Home turns it into words: the day list is served from a cache that
+   * survives being underground, so a screen showing counts off it has to be
+   * able to say how old they are.
+   */
+  updatedAt: number;
   /** Visits and "still open" dots per day, for the calendar. */
   marks: Map<string, DayMark>;
   /** How many visits the day being shown holds — Workiz's day counter (§1.3). */
@@ -99,6 +106,7 @@ export function useMyJobs(
     isRefetching: query.isRefetching,
     error: query.error,
     refetch: () => void query.refetch(),
+    updatedAt: query.dataUpdatedAt,
     marks,
     selectedVisits: visitsOn(deals, selectedIso),
   };

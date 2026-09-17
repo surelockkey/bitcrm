@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   PanResponder,
   RefreshControl,
@@ -22,6 +22,32 @@ import type { Deal } from './types';
 
 export interface JobsScreenProps {
   onOpenJob: (dealId: string) => void;
+  /**
+   * The day, when something above owns it.
+   *
+   * Schedule's two modes share one date: a week strip and a list keeping
+   * separate ideas of "the day" is the kind of drift a technician notices only
+   * after driving to the wrong one. Absent, the list keeps its own day, which
+   * is what the standalone Jobs screen does.
+   */
+  day?: { selectedIso: string; onSelect: (iso: string) => void };
+  /**
+   * Schedule's filter and search, when one is set.
+   *
+   * Applied to the list on its way to the screen, never to the cache — the day
+   * list is the only copy of these jobs this phone has, and a filter must not
+   * be able to evict any of it. Absent when nothing is narrowed, which is what
+   * lets an empty day say which kind of empty it is.
+   */
+  match?: (deal: Deal) => boolean;
+  /**
+   * Drawn without the page furniture: no title bar, no day bar, no calendar.
+   * Schedule supplies all three around it, and two of anything is worse than
+   * one.
+   */
+  embedded?: boolean;
+  /** Drawn as Back when this is a screen pushed off the menu rather than a tab. */
+  onBack?: () => void;
 }
 
 /**
@@ -35,11 +61,23 @@ export interface JobsScreenProps {
  * calendar expands (§1.3). None of it costs a request: the whole assigned set
  * is already on the phone, so yesterday and next Tuesday are as available
  * underground as today is.
+ *
+ * It is used in two places: on its own as **Jobs**, off the menu, and embedded
+ * as the **Timeline** half of the Schedule tab
+ * (`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §4). One list, so the two can
+ * never disagree about what today holds.
  */
-export function JobsScreen({ onOpenJob }: JobsScreenProps) {
+export function JobsScreen({
+  onOpenJob,
+  day,
+  match,
+  embedded = false,
+  onBack,
+}: JobsScreenProps) {
   const { colors, spacing, type } = useTheme();
   const todayIso = localDateIso();
-  const [selectedIso, setSelectedIso] = useState(todayIso);
+  const [ownIso, setOwnIso] = useState(todayIso);
+  const selectedIso = day ? day.selectedIso : ownIso;
   const [picking, setPicking] = useState(false);
   // Which "today" the selection above was made against. The app is left
   // mounted overnight, so the day underneath it changes without anybody
@@ -47,13 +85,26 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
   // yesterday hides the whole of today's work. Derived during the render that
   // notices the change rather than in an effect, so the list is never painted
   // on the wrong day for a frame (the same reason `MonthGrid` does it).
+  //
+  // Only when the day is this screen's own. When Schedule owns it, Schedule
+  // owns the rollover too — writing a parent's state from a child's render is
+  // exactly the update React warns about.
   const [anchorIso, setAnchorIso] = useState(todayIso);
-  if (anchorIso !== todayIso) {
+  if (!day && anchorIso !== todayIso) {
     setAnchorIso(todayIso);
-    setSelectedIso((iso) => dayAfterRollover(iso, anchorIso, todayIso));
+    setOwnIso((iso) => dayAfterRollover(iso, anchorIso, todayIso));
   }
+
+  // The swipe responder is built once and lives for the life of the screen, so
+  // the day it steps from has to be read at the moment of the swipe rather
+  // than captured when the screen mounted — embedded, it changes above us.
+  const commit = useRef<(iso: string) => void>(() => {});
+  commit.current = day ? day.onSelect : setOwnIso;
+  const current = useRef(selectedIso);
+  current.current = selectedIso;
+
   const {
-    groups,
+    groups: allGroups,
     ready,
     isLoading,
     isRefetching,
@@ -64,14 +115,17 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
     selectedVisits,
   } = useMyJobs(todayIso, selectedIso);
 
-  const step = useCallback(
-    (days: number) => setSelectedIso((iso) => shiftDateIso(iso, days)),
-    [],
-  );
+  const step = useCallback((days: number) => {
+    commit.current(shiftDateIso(current.current, days));
+  }, []);
 
-  // `step` is stable, so the responder is built once and keeps working for
-  // every day the technician moves to.
   const pan = useRef(PanResponder.create(daySwipeHandlers(step))).current;
+
+  const groups = useMemo(
+    () =>
+      match ? allGroups.map((g) => ({ ...g, deals: g.deals.filter(match) })) : allGroups,
+    [allGroups, match],
+  );
 
   const sections = useMemo(
     () => groups.map((g) => ({ key: g.key, label: g.label, data: g.deals })),
@@ -83,7 +137,22 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
     [onOpenJob],
   );
 
-  const dayBar = (
+  // Embedded, the page furniture belongs to Schedule: it draws the header, the
+  // date rail and the calendar, and a second set underneath would be two of
+  // everything.
+  const shell = (children: ReactNode) =>
+    embedded ? (
+      <View testID="jobs-screen" style={styles.flex}>
+        {children}
+      </View>
+    ) : (
+      <Screen testID="jobs-screen">
+        <ScreenHeader title="My jobs" onBack={onBack} />
+        {children}
+      </Screen>
+    );
+
+  const dayBar = embedded ? null : (
     <DayBar
       selectedIso={selectedIso}
       todayIso={todayIso}
@@ -91,11 +160,11 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
       onPrev={() => step(-1)}
       onNext={() => step(1)}
       onPick={() => setPicking(true)}
-      onToday={() => setSelectedIso(todayIso)}
+      onToday={() => commit.current(todayIso)}
     />
   );
 
-  const calendar = (
+  const calendar = embedded ? null : (
     <DayPicker
       visible={picking}
       selectedIso={selectedIso}
@@ -103,7 +172,7 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
       marks={marks}
       onCancel={() => setPicking(false)}
       onSelect={(dateIso) => {
-        setSelectedIso(dateIso);
+        commit.current(dateIso);
         setPicking(false);
       }}
     />
@@ -111,42 +180,33 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
 
   // Still resolving who the technician is: the list is loading, not empty.
   if (!ready || (isLoading && deals.length === 0 && !error)) {
-    return (
-      <Screen testID="jobs-screen">
-        <ScreenHeader title="My jobs" />
-        <Splash />
-      </Screen>
-    );
+    return shell(<Splash />);
   }
 
   // A failure with nothing cached is the only case worth a whole screen; with
   // a cached day behind it, the list stays up and the banner explains itself.
   if (error && deals.length === 0) {
     const offline = error instanceof ApiError && error.status === 0;
-    return (
-      <Screen testID="jobs-screen">
-        <ScreenHeader title="My jobs" />
-        <EmptyState
-          testID="jobs-error"
-          tone="error"
-          title={offline ? 'No signal' : 'Could not load your jobs'}
-          body={
-            offline
-              ? 'Your jobs will appear as soon as the phone has a connection. Anything you do in the meantime is saved and sent later.'
-              : error instanceof ApiError
-                ? error.message
-                : 'Something went wrong on the way to the server.'
-          }
-          actionLabel="Try again"
-          onAction={refetch}
-        />
-      </Screen>
+    return shell(
+      <EmptyState
+        testID="jobs-error"
+        tone="error"
+        title={offline ? 'No signal' : 'Could not load your jobs'}
+        body={
+          offline
+            ? 'Your jobs will appear as soon as the phone has a connection. Anything you do in the meantime is saved and sent later.'
+            : error instanceof ApiError
+              ? error.message
+              : 'Something went wrong on the way to the server.'
+        }
+        actionLabel="Try again"
+        onAction={refetch}
+      />,
     );
   }
 
-  return (
-    <Screen testID="jobs-screen">
-      <ScreenHeader title="My jobs" />
+  return shell(
+    <>
       {dayBar}
       {error ? (
         <View
@@ -198,14 +258,20 @@ export function JobsScreen({ onOpenJob }: JobsScreenProps) {
           renderSectionFooter={({ section }) =>
             section.data.length === 0 ? (
               <Text style={[type.body, { color: colors.textMuted }]}>
-                Nothing booked. Dispatch will let you know.
+                {/* Two different empties. A day a filter emptied is not a day
+                    with no work on it, and telling a technician dispatch has
+                    nothing for them when they have simply typed a name into a
+                    search box is the kind of wrong that gets phoned in. */}
+                {match
+                  ? 'Nothing on this day matches what you are looking for.'
+                  : 'Nothing booked. Dispatch will let you know.'}
               </Text>
             ) : null
           }
         />
       </View>
       {calendar}
-    </Screen>
+    </>,
   );
 }
 
