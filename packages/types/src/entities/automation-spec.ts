@@ -235,7 +235,10 @@ const MEDIUM_TEXT: Record<AutomationActionType, string> = {
 
 const CONDITION_FIELD_TEXT: Record<AutomationConditionField, string> = {
   status: 'status',
-  subStatus: 'status',
+  // Its own word, not "status": a sub-status is a clause of its own wherever
+  // the trigger has already spoken for the super-status, and two clauses both
+  // reading "its status is …" say one thing twice rather than two things once.
+  subStatus: 'sub-status',
   tag: 'job tag',
   source: 'source',
   jobType: 'job type',
@@ -303,14 +306,70 @@ export function automationDelayText(minutes: number | undefined): string {
   return minutes < 0 ? `${plural} before` : `after ${plural}`;
 }
 
+/**
+ * The conditions a trigger may speak for. Only a flat condition can be one:
+ * a status inside an OR group is an alternative, not the thing that fired the
+ * rule.
+ */
+const flatConditions = (spec: AutomationSpec): AutomationCondition[] =>
+  (spec.conditions ?? []).filter((c): c is AutomationCondition => !isAutomationConditionGroup(c));
+
+/**
+ * The status-family condition `deal.updated` borrows for its own half of the
+ * sentence. It has no status of its own, so it speaks for the first one it
+ * finds — and for that one only, which is why the sentence and the
+ * suppression below read it from here rather than each looking it up.
+ */
+const borrowedStatusCondition = (spec: AutomationSpec): AutomationCondition | undefined =>
+  flatConditions(spec).find((c) => c.field === 'status' || c.field === 'subStatus');
+
+/** The same ids in the same order — `values` is written in the order it was picked. */
+const sameValues = (a: string[] | undefined, b: string[] | undefined): boolean =>
+  (a ?? []).length === (b ?? []).length && (a ?? []).every((v, i) => v === (b ?? [])[i]);
+
+interface StatusSaidByTrigger {
+  /** The one condition the trigger's half repeats word for word, if any. */
+  echoed?: AutomationCondition;
+  /**
+   * The trigger named a sub-status. A sub-status is filed under exactly one
+   * super-status (`DealSubStatus.group`), so naming it names the super-status
+   * with it: a `status` condition beside it is the coarser way of saying a
+   * fact the sentence has already said finely. The reverse does not hold —
+   * naming a super-status leaves every sub-status under it open — so this is
+   * deliberately one-way.
+   */
+  fixesSuperStatus: boolean;
+}
+
+/**
+ * What the trigger's half has already said about the job's status, as the
+ * condition object it said rather than as a field name. Suppressing by field
+ * drops a whole family: a rule narrowed to Done *and* a sub-status loses the
+ * sub-status from its sentence while the engine goes on requiring it.
+ */
+function statusSaidByTrigger(spec: AutomationSpec): StatusSaidByTrigger {
+  const t = spec.trigger;
+  if (t.kind === 'deal.updated') {
+    const echoed = borrowedStatusCondition(spec);
+    return { echoed, fixesSuperStatus: echoed?.field === 'subStatus' };
+  }
+  if (t.kind !== 'deal.status_changed') return { fixesSuperStatus: false };
+  const onSubStatus = Boolean(t.toSubStatus?.length);
+  const entered = onSubStatus ? t.toSubStatus : t.to;
+  if (!entered?.length) return { fixesSuperStatus: false };
+  const field: AutomationConditionField = onSubStatus ? 'subStatus' : 'status';
+  return {
+    echoed: flatConditions(spec).find(
+      (c) => c.field === field && (c.op === 'in' || c.op === 'eq') && sameValues(c.values, entered),
+    ),
+    fixesSuperStatus: onSubStatus,
+  };
+}
+
 /** The "When …" half of the sentence. */
 export function automationTriggerSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   const t = spec.trigger;
-  // Only a flat condition can be the one the trigger already says: a status
-  // inside an OR group is an alternative, not the thing that fired the rule.
-  const statusCondition = (spec.conditions ?? [])
-    .filter((c): c is AutomationCondition => !isAutomationConditionGroup(c))
-    .find((c) => c.field === 'status' || c.field === 'subStatus');
+  const statusCondition = borrowedStatusCondition(spec);
   const negated = statusCondition?.op === 'not_in' || statusCondition?.op === 'ne';
   switch (t.kind) {
     case 'deal.created':
@@ -402,28 +461,22 @@ function groupClause(group: AutomationConditionGroup, labels: AutomationLabelMap
   return leaves.map((c) => conditionClause(c, labels)).join(' or ');
 }
 
-/** Whether the trigger's own half of the sentence already names a status. */
-function triggerNamesStatus(trigger: AutomationTrigger): boolean {
-  // `deal.updated` has no status of its own and borrows the first status
-  // condition, so it always says one; `deal.status_changed` says only the
-  // statuses it was given, and a rule given none says just that it changed.
-  if (trigger.kind === 'deal.updated') return true;
-  if (trigger.kind !== 'deal.status_changed') return false;
-  return Boolean(trigger.toSubStatus?.length || trigger.to?.length);
-}
-
 /** The ", and …" half — the conditions the trigger does not already say. */
 export function automationConditionsSentence(spec: AutomationSpec, labels?: AutomationLabelMap): string {
   // `isLead` is always true here (BitCRM has no separate lead entity), so it
-  // is never worth a clause; the status is already in the trigger's half —
-  // but only where the trigger actually says one. Dropped anywhere else, the
-  // sentence reads whole and is false: "when a job's status changes", with
-  // the status that is the rule's only narrowing nowhere in it.
-  const saidByTrigger = triggerNamesStatus(spec.trigger)
-    ? new Set(['status', 'subStatus', 'isLead'])
-    : new Set(['isLead']);
+  // is never worth a clause. Everything else is said unless the trigger's own
+  // half already said that exact condition: a clause dropped for belonging to
+  // the same family as the trigger's leaves the sentence reading whole and
+  // narrower than the rule — "when a job has a status of Done", with the
+  // sub-status the rule also requires nowhere in it.
+  const said = statusSaidByTrigger(spec);
   const parts = (spec.conditions ?? [])
-    .filter((c) => isAutomationConditionGroup(c) || !saidByTrigger.has(c.field))
+    .filter((c) => {
+      if (isAutomationConditionGroup(c)) return true;
+      if (c.field === 'isLead') return false;
+      if (c === said.echoed) return false;
+      return !(said.fixesSuperStatus && c.field === 'status');
+    })
     .map((c) => (isAutomationConditionGroup(c) ? groupClause(c, labels) : conditionClause(c, labels)));
   return parts.length ? ` and ${parts.join(', and ')}` : '';
 }

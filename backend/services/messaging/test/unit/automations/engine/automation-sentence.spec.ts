@@ -81,6 +81,93 @@ describe('automationSentence', () => {
     ).toBe('When a job has a status of Done, send the client a text message immediately');
   });
 
+  it('says the sub-status beside the status the trigger named, not instead of it', () => {
+    // "Job matches" is a trigger the editor offers and "Sub-status" a field it
+    // offers, so this rule is buildable here today. The trigger's half names
+    // the super-status; the sub-status is the rest of what the rule narrows on
+    // and nothing else says it.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed', to: ['done'] },
+          conditions: [{ field: 'subStatus', op: 'in', values: ['sub-cancel'] }],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe(
+      'When a job has a status of Done and its sub-status is Canceled check, send the client a text message immediately',
+    );
+
+    // `deal.updated` borrows the first status-family condition for its half;
+    // the second one is not the borrowed one and has to be said.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.updated' },
+          conditions: [
+            { field: 'status', op: 'in', values: ['done'] },
+            { field: 'subStatus', op: 'in', values: ['sub-cancel'] },
+          ],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe(
+      'When a job has a status of Done and its sub-status is Canceled check, send the client a text message immediately',
+    );
+  });
+
+  it('leaves out the one status condition the trigger echoed, not every status condition', () => {
+    // Two status conditions, one of them the trigger's own words. Dropping the
+    // family drops the exclusion with it, and the sentence then reads whole
+    // while the rule quietly refuses every canceled job.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed', to: ['done'] },
+          conditions: [
+            { field: 'status', op: 'in', values: ['done'] },
+            { field: 'status', op: 'not_in', values: ['canceled'], labels: ['Canceled'] },
+          ],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe(
+      'When a job has a status of Done and its status is not Canceled, send the client a text message immediately',
+    );
+  });
+
+  it('says nothing twice about a super-status a named sub-status has already fixed', () => {
+    // A sub-status is filed under exactly one super-status
+    // (`DealSubStatus.group`), so a trigger that names the sub-status has
+    // named the super-status with it. This is the shape two of the imported
+    // Workiz rules come in — a sub-status trigger plus the `status notEqual
+    // Canceled` Workiz adds itself and never shows — and it reads as one
+    // status, which is what it is.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed', toSubStatus: ['sub-cancel'] },
+          conditions: [
+            { field: 'status', op: 'not_in', values: ['canceled'], labels: ['Canceled'] },
+            { field: 'subStatus', op: 'in', values: ['sub-cancel'] },
+            { field: 'tag', op: 'in', values: ['tag-sched'] },
+          ],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe(
+      'When a job has a status of Canceled check and its job tag is SCHEDULED, send the client a text message immediately',
+    );
+  });
+
   it('says a tag rule through its conditions', () => {
     const spec: AutomationSpec = {
       version: 1,

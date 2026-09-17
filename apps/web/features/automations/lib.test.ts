@@ -138,6 +138,27 @@ describe("ruleSentence", () => {
     );
   });
 
+  it("says the sub-status a status rule also narrows on", () => {
+    // Both halves of this rule are things the editor offers — "Job status
+    // changes" with a status picked, and a "Sub-status" condition — and the
+    // card and the editor's live preview read the same sentence, so a clause
+    // lost here is lost in both places at once.
+    const withSubStatus = withSpec({
+      spec: {
+        version: 1,
+        trigger: { kind: "deal.status_changed", to: ["done"] },
+        conditions: [
+          { field: "status", op: "in", values: ["done"], labels: ["Done"] },
+          { field: "subStatus", op: "in", values: ["sub-paid"], labels: ["Paid in full"] },
+        ],
+        actions: [{ type: "send_sms", to: "client", body: "Hi" }],
+      },
+    });
+    expect(ruleSentence(withSubStatus)).toBe(
+      "When a job has a status of Done and its sub-status is Paid in full, send the client a text message immediately",
+    );
+  });
+
   it("says one channel choice per clause — a shared text and email is one thing", () => {
     // Workiz's `notify_medium: both` is one entry in the editor and two
     // actions in the spec; saying it twice would read as two decisions.

@@ -118,6 +118,30 @@ describe('the translator against real exported rules', () => {
     );
   });
 
+  /**
+   * The sentence leaves out the condition the trigger already said — and only
+   * that one. This rule is the shape that makes the difference visible: the
+   * export carries a `status notEqual Canceled` beside the `sub_status_id`
+   * that is the trigger, with no `friendly_strings`, because Workiz writes it
+   * itself and never shows it. It is four of the 83 exported rules (two of
+   * them runnable) and the only place two status-family conditions meet.
+   *
+   * It stays in the spec, because the engine must go on narrowing on it; it
+   * stays out of the sentence, because a sub-status is filed under exactly one
+   * super-status and "has a status of no answer" has already fixed it.
+   */
+  it('keeps the super-status exclusion Workiz hid, and does not read it back twice', () => {
+    const spec = of('facebook-key-copy-followup.json').spec!;
+    expect(spec.trigger.toSubStatus).toHaveLength(1);
+    expect(spec.conditions).toContainEqual({
+      field: 'status',
+      op: 'not_in',
+      values: ['canceled'],
+      labels: ['Canceled'],
+    });
+    expect(automationSentence(spec)).not.toContain('Canceled');
+  });
+
   it('never fires more broadly than Workiz did: an "is created" rule keeps its exclusion', () => {
     // The Workiz rule reads `status notIn [Done, Canceled]` under the
     // friendly name "is created"; dropping that would text a job created
