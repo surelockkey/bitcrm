@@ -472,6 +472,29 @@ describe("the status trigger", () => {
     expect(patched[0].body.spec?.trigger).toEqual({ kind: "deal.status_changed" });
   });
 
+  it("says nothing of the sort while a sub-status is still narrowing the trigger", async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      spec: { ...onOne, trigger: { kind: "deal.status_changed", to: ["done"], toSubStatus: ["sub-done"] } },
+    });
+
+    // No super-status left, but the trigger still fires on one sub-status and
+    // one only: it is saved, and the engine narrows on it. The note is for a
+    // trigger that fires on every status change, and this is not one.
+    await user.click(await screen.findByLabelText("Status entered"));
+    await user.click(await screen.findByRole("option", { name: "Done" }));
+    expect(screen.getByLabelText("Status entered")).toHaveTextContent("Any status");
+    expect(screen.getByLabelText("Sub-status entered")).toHaveTextContent("Paid in full");
+    expect(screen.queryByText(/narrows nothing/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(patched).toHaveLength(1));
+    expect(patched[0].body.spec?.trigger).toEqual({
+      kind: "deal.status_changed",
+      toSubStatus: ["sub-done"],
+    });
+  });
+
   it("keeps a sub-status that still fits, and drops one that cannot be entered any more", async () => {
     const user = userEvent.setup();
     renderDialog({

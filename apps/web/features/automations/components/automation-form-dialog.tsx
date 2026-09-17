@@ -294,8 +294,12 @@ export function AutomationFormDialog({
                   />
                   {/* Emptying this widens the rule from one status to every
                       status change, exactly as emptying a condition widens it
-                      to every value — the same thing, so the same note. */}
-                  {entered?.length ? null : <AutomationEmptyNote />}
+                      to every value — the same thing, so the same note. Not
+                      while a sub-status is picked, though: the trigger is
+                      then still narrowed to that sub-status and still saved
+                      with it, so the note would be warning about a widening
+                      that has not happened. */}
+                  {entered?.length || values.trigger.toSubStatus?.length ? null : <AutomationEmptyNote />}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Sub-status</Label>
