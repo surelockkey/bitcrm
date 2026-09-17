@@ -32,8 +32,8 @@ import { useJobTypeName } from "@/features/job-types/lib";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 
 /**
- * A row of the assignments tab, normalised across the two kinds so the chip and
- * its controls don't care whether it's a job type or a service area.
+ * A row of the assignments list, normalised across the two kinds so the chip
+ * and its controls don't care whether it's a job type or a service area.
  */
 interface Row {
   kind: AssignmentKind;
@@ -43,7 +43,35 @@ interface Row {
   comments?: string;
 }
 
-export function AssignmentsTab({ technicianId }: { technicianId: string }) {
+/** Label, empty state and action wording for one catalog. */
+const COPY: Record<AssignmentKind, { label: string; empty: string; assign: string }> = {
+  job_type: {
+    label: "Job types — what they can do",
+    empty: "No job types yet.",
+    assign: "Assign job types",
+  },
+  service_area: {
+    label: "Service areas — where they work",
+    empty: "No service areas yet.",
+    assign: "Assign areas",
+  },
+};
+
+/**
+ * One catalog's assignments — the chips and the review actions on them.
+ *
+ * One kind per instance because the card puts the two in different places in
+ * the work column (Workiz sets User skills between them) and because each kind
+ * carries its own approve/revoke/propose rights. Each instance owns its
+ * dialogs, so the two can never share a half-open state.
+ */
+export function AssignmentsSection({
+  technicianId,
+  kind,
+}: {
+  technicianId: string;
+  kind: AssignmentKind;
+}) {
   const { me, can } = usePermissions();
   const { data, isLoading } = useAssignments(technicianId);
   const jobTypeName = useJobTypeName();
@@ -53,136 +81,108 @@ export function AssignmentsTab({ technicianId }: { technicianId: string }) {
   const revoke = useRevokeAssignment();
 
   const [rejectTarget, setRejectTarget] = useState<Row | null>(null);
-  const [proposeKind, setProposeKind] = useState<AssignmentKind | null>(null);
-  const [assignKind, setAssignKind] = useState<AssignmentKind | null>(null);
+  const [proposeOpen, setProposeOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
 
-  const canApproveJobTypes = can("job_types", "approve");
-  const canRevokeJobTypes = can("job_types", "revoke");
-  const canProposeJobTypes = me?.id === technicianId && can("job_types", "propose");
-  const canApproveAreas = can("service_areas", "approve");
-  const canRevokeAreas = can("service_areas", "revoke");
-  const canProposeAreas = me?.id === technicianId && can("service_areas", "propose");
+  const resource = kind === "job_type" ? "job_types" : "service_areas";
+  const canApprove = can(resource, "approve");
+  const canRevoke = can(resource, "revoke");
+  const canPropose = me?.id === technicianId && can(resource, "propose");
+  const copy = COPY[kind];
 
-  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  if (isLoading) return <Skeleton className="h-24 w-full" />;
 
   const areaName = (id: string) => areas?.find((a) => a.id === id)?.name ?? id;
 
-  const jobTypeRows: Row[] = (data?.jobTypes ?? []).map((j: TechnicianJobType) => ({
-    kind: "job_type",
-    catalogId: j.jobTypeId,
-    name: jobTypeName(j.jobTypeId),
-    status: j.status,
-    comments: j.comments,
-  }));
-  const areaRows: Row[] = (data?.serviceAreas ?? []).map((a: TechnicianServiceArea) => ({
-    kind: "service_area",
-    catalogId: a.serviceAreaId,
-    name: areaName(a.serviceAreaId),
-    status: a.status,
-    comments: a.comments,
-  }));
-
-  const chipList = (
-    rows: Row[],
-    emptyText: string,
-    canApprove: boolean,
-    canRevoke: boolean,
-    canPropose: boolean,
-    onPropose: () => void,
-  ) => (
-    <div className="flex flex-wrap gap-2">
-      {rows.length === 0 ? (
-        <span className="text-sm text-muted-foreground">{emptyText}</span>
-      ) : (
-        rows.map((row) => (
-          <AssignmentChip
-            key={`${row.kind}:${row.catalogId}`}
-            row={row}
-            canApprove={canApprove}
-            canRevoke={canRevoke}
-            approving={approve.isPending}
-            revoking={revoke.isPending}
-            onApprove={() =>
-              approve.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })
-            }
-            onReject={() => setRejectTarget(row)}
-            onRevoke={() =>
-              revoke.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })
-            }
-          />
-        ))
-      )}
-      {canPropose ? (
-        <button
-          type="button"
-          onClick={onPropose}
-          className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <Plus className="size-3" /> propose
-        </button>
-      ) : null}
-    </div>
-  );
+  const rows: Row[] =
+    kind === "job_type"
+      ? (data?.jobTypes ?? []).map((j: TechnicianJobType) => ({
+          kind,
+          catalogId: j.jobTypeId,
+          name: jobTypeName(j.jobTypeId),
+          status: j.status,
+          comments: j.comments,
+        }))
+      : (data?.serviceAreas ?? []).map((a: TechnicianServiceArea) => ({
+          kind,
+          catalogId: a.serviceAreaId,
+          name: areaName(a.serviceAreaId),
+          status: a.status,
+          comments: a.comments,
+        }));
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <Label className="block text-[11px] tracking-wide uppercase">Job types — what they can do</Label>
-          {canApproveJobTypes ? (
-            <button
-              type="button"
-              onClick={() => setAssignKind("job_type")}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              <Plus className="size-3" /> Assign job types
-            </button>
-          ) : null}
-        </div>
-        {chipList(
-          jobTypeRows,
-          "No job types yet.",
-          canApproveJobTypes,
-          canRevokeJobTypes,
-          canProposeJobTypes,
-          () => setProposeKind("job_type"),
-        )}
-      </section>
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <Label className="block text-[11px] tracking-wide uppercase">{copy.label}</Label>
+        {canApprove ? (
+          <button
+            type="button"
+            onClick={() => setAssignOpen(true)}
+            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <Plus className="size-3" /> {copy.assign}
+          </button>
+        ) : null}
+      </div>
 
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <Label className="block text-[11px] tracking-wide uppercase">Service areas — where they work</Label>
-          {canApproveAreas ? (
-            <button
-              type="button"
-              onClick={() => setAssignKind("service_area")}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-            >
-              <Plus className="size-3" /> Assign areas
-            </button>
-          ) : null}
-        </div>
-        {chipList(
-          areaRows,
-          "No service areas yet.",
-          canApproveAreas,
-          canRevokeAreas,
-          canProposeAreas,
-          () => setProposeKind("service_area"),
+      <div className="flex flex-wrap gap-2">
+        {rows.length === 0 ? (
+          <span className="text-sm text-muted-foreground">{copy.empty}</span>
+        ) : (
+          rows.map((row) => (
+            <AssignmentChip
+              key={`${row.kind}:${row.catalogId}`}
+              row={row}
+              canApprove={canApprove}
+              canRevoke={canRevoke}
+              approving={approve.isPending}
+              revoking={revoke.isPending}
+              onApprove={() =>
+                approve.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })
+              }
+              onReject={() => setRejectTarget(row)}
+              onRevoke={() =>
+                revoke.mutate({ id: technicianId, kind: row.kind, catalogId: row.catalogId })
+              }
+            />
+          ))
         )}
-      </section>
+        {canPropose ? (
+          <button
+            type="button"
+            onClick={() => setProposeOpen(true)}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="size-3" /> propose
+          </button>
+        ) : null}
+      </div>
 
       <RejectDialog row={rejectTarget} onClose={() => setRejectTarget(null)} technicianId={technicianId} />
       <ProposeDialog
         technicianId={technicianId}
-        kind={proposeKind}
-        onClose={() => setProposeKind(null)}
+        kind={proposeOpen ? kind : null}
+        onClose={() => setProposeOpen(false)}
       />
       <AssignDirectDialog
         technicianId={technicianId}
-        kind={assignKind}
-        onClose={() => setAssignKind(null)}
+        kind={assignOpen ? kind : null}
+        onClose={() => setAssignOpen(false)}
       />
+    </section>
+  );
+}
+
+/**
+ * Both catalogs, one under the other — the technician's own page, where they
+ * sit together rather than in the columns of the manager's card.
+ */
+export function TechnicianAssignments({ technicianId }: { technicianId: string }) {
+  return (
+    <div className="max-w-2xl space-y-6">
+      <AssignmentsSection technicianId={technicianId} kind="job_type" />
+      <AssignmentsSection technicianId={technicianId} kind="service_area" />
     </div>
   );
 }

@@ -34,7 +34,7 @@ import { useUpdateUser, useUpdateMyPhone } from "@/features/users/hooks";
 import { updateUserSchema, type UpdateUserValues } from "@/features/users/schemas";
 import { useOnboarding } from "@/features/technicians/hooks";
 import { onboardingPct } from "@/features/technicians/lib";
-import { AssignmentsTab } from "@/features/technicians/components/assignments-tab";
+import { TechnicianAssignments } from "@/features/technicians/components/assignments-section";
 import { DocumentsTab } from "@/features/technicians/components/documents-tab";
 import { CommissionTab } from "@/features/technicians/components/commission-tab";
 import { SelfProfileForm } from "./self-profile-form";
@@ -310,7 +310,7 @@ function TechnicianSelfService({ technicianId }: { technicianId: string }) {
         </div>
         <div className="p-5">
           <TabsContent value="profile" className="mt-0"><SelfProfileForm technicianId={technicianId} /></TabsContent>
-          <TabsContent value="assignments" className="mt-0"><AssignmentsTab technicianId={technicianId} /></TabsContent>
+          <TabsContent value="assignments" className="mt-0"><TechnicianAssignments technicianId={technicianId} /></TabsContent>
           <TabsContent value="documents" className="mt-0"><DocumentsTab technicianId={technicianId} /></TabsContent>
           <TabsContent value="commission" className="mt-0"><CommissionTab technicianId={technicianId} /></TabsContent>
         </div>
