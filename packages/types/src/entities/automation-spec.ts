@@ -316,27 +316,50 @@ const flatConditions = (spec: AutomationSpec): AutomationCondition[] =>
 
 /**
  * The status-family condition `deal.updated` borrows for its own half of the
- * sentence. It has no status of its own, so it speaks for the first one it
- * finds — and for that one only, which is why the sentence and the
- * suppression below read it from here rather than each looking it up.
+ * sentence. It has no status of its own, so it speaks for one of the
+ * conditions — the super-status wherever the rule has one, because "has a
+ * status of …" is the phrase this half is written in and because it leaves
+ * the sub-status free to be said as the further narrowing it is. Taking the
+ * super-status first rather than whichever comes first also makes the
+ * sentence read the same whether the editor added the sub-status row above
+ * the status row or below it.
+ *
+ * Both halves read the borrowed condition from here, so the one the sentence
+ * says and the one it leaves out can never drift apart.
  */
-const borrowedStatusCondition = (spec: AutomationSpec): AutomationCondition | undefined =>
-  flatConditions(spec).find((c) => c.field === 'status' || c.field === 'subStatus');
+const borrowedStatusCondition = (spec: AutomationSpec): AutomationCondition | undefined => {
+  const flat = flatConditions(spec);
+  return flat.find((c) => c.field === 'status') ?? flat.find((c) => c.field === 'subStatus');
+};
 
-/** The same ids in the same order — `values` is written in the order it was picked. */
-const sameValues = (a: string[] | undefined, b: string[] | undefined): boolean =>
-  (a ?? []).length === (b ?? []).length && (a ?? []).every((v, i) => v === (b ?? [])[i]);
+/**
+ * The same ids, in whatever order they were written. `in` asks whether the
+ * fact is one of these, so a trigger and a condition filled in from opposite
+ * ends of the same picker hold the same list; comparing them in order would
+ * have the sentence say that list twice, and the second time reads as a
+ * second narrowing that is not there.
+ */
+const sameValues = (a: string[] | undefined, b: string[] | undefined): boolean => {
+  const left = new Set(a ?? []);
+  const right = new Set(b ?? []);
+  return left.size === right.size && [...left].every((v) => right.has(v));
+};
 
 interface StatusSaidByTrigger {
   /** The one condition the trigger's half repeats word for word, if any. */
   echoed?: AutomationCondition;
   /**
-   * The trigger named a sub-status. A sub-status is filed under exactly one
-   * super-status (`DealSubStatus.group`), so naming it names the super-status
-   * with it: a `status` condition beside it is the coarser way of saying a
-   * fact the sentence has already said finely. The reverse does not hold —
-   * naming a super-status leaves every sub-status under it open — so this is
-   * deliberately one-way.
+   * The trigger fires on exactly one super-status, and has already named it
+   * or a sub-status of it. A `status` condition beside that is the coarser
+   * way of saying what the sentence has said finely: it either holds for
+   * every job the trigger can fire on or for none of them, and either way it
+   * is not a second thing the reader has to be told.
+   *
+   * Only where the super-status is actually pinned down. A sub-status is
+   * filed under exactly one super-status (`DealSubStatus.group`), so naming
+   * *one* names its super-status with it — but a trigger naming two
+   * sub-statuses may be naming two super-statuses, and then a `status`
+   * condition beside them really does cut the rule in half.
    */
   fixesSuperStatus: boolean;
 }
@@ -349,10 +372,11 @@ interface StatusSaidByTrigger {
  */
 function statusSaidByTrigger(spec: AutomationSpec): StatusSaidByTrigger {
   const t = spec.trigger;
-  if (t.kind === 'deal.updated') {
-    const echoed = borrowedStatusCondition(spec);
-    return { echoed, fixesSuperStatus: echoed?.field === 'subStatus' };
-  }
+  // `deal.updated` names nothing itself; it borrows, and it borrows the
+  // super-status wherever the rule has one. So either the borrowed condition
+  // *is* the rule's status condition — already left out as the echoed one —
+  // or the rule has no status condition for a sub-status to speak for.
+  if (t.kind === 'deal.updated') return { echoed: borrowedStatusCondition(spec), fixesSuperStatus: false };
   if (t.kind !== 'deal.status_changed') return { fixesSuperStatus: false };
   const onSubStatus = Boolean(t.toSubStatus?.length);
   const entered = onSubStatus ? t.toSubStatus : t.to;
@@ -362,7 +386,9 @@ function statusSaidByTrigger(spec: AutomationSpec): StatusSaidByTrigger {
     echoed: flatConditions(spec).find(
       (c) => c.field === field && (c.op === 'in' || c.op === 'eq') && sameValues(c.values, entered),
     ),
-    fixesSuperStatus: onSubStatus,
+    // One sub-status is filed under one super-status; one `to` is that
+    // super-status outright. Either way the trigger has fixed it.
+    fixesSuperStatus: onSubStatus && (entered.length === 1 || t.to?.length === 1),
   };
 }
 

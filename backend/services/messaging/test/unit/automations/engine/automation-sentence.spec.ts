@@ -6,7 +6,14 @@ import { automationDelayText, automationSentence, type AutomationSpec } from '@b
  * and the firing log all read the same line.
  */
 describe('automationSentence', () => {
-  const labels = { 'sub-cancel': 'Canceled check', 'tag-sched': 'SCHEDULED', done: 'Done' };
+  const labels = {
+    'sub-cancel': 'Canceled check',
+    'sub-done': 'Paid in full',
+    'tag-sched': 'SCHEDULED',
+    done: 'Done',
+    submitted: 'Submitted',
+    canceled: 'Canceled',
+  };
 
   it('says a status rule the way Workiz says it', () => {
     const spec: AutomationSpec = {
@@ -165,6 +172,98 @@ describe('automationSentence', () => {
       ),
     ).toBe(
       'When a job has a status of Canceled check and its job tag is SCHEDULED, send the client a text message immediately',
+    );
+  });
+
+  it('treats the trigger\'s list and the condition\'s as the same list whatever order they are in', () => {
+    // `in` asks whether the status is one of these, so two pickers that were
+    // filled in from opposite ends wrote the same condition. Comparing them
+    // in order makes the sentence say it twice, and the second time reads as
+    // a second narrowing that is not there.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.status_changed', to: ['done', 'submitted'] },
+          conditions: [{ field: 'status', op: 'in', values: ['submitted', 'done'] }],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe('When a job has a status of Done or Submitted, send the client a text message immediately');
+  });
+
+  it('keeps a status condition the trigger\'s sub-statuses do not pin down', () => {
+    // Two sub-statuses, and the trigger names both super-statuses they are
+    // filed under, so "it entered one of these sub-statuses" leaves the job's
+    // super-status open — and `status is Done` is then half of what the rule
+    // narrows on, not a restatement of the trigger.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: {
+            kind: 'deal.status_changed',
+            to: ['done', 'canceled'],
+            toSubStatus: ['sub-done', 'sub-cancel'],
+          },
+          conditions: [
+            { field: 'subStatus', op: 'in', values: ['sub-done', 'sub-cancel'] },
+            { field: 'status', op: 'in', values: ['done'] },
+          ],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe(
+      'When a job has a status of Paid in full or Canceled check and its status is Done, send the client a text message immediately',
+    );
+  });
+
+  it('reads a `deal.updated` rule the same way whichever order its conditions are in', () => {
+    // The trigger has no status of its own and borrows one, so which
+    // condition it borrows decides both halves of the sentence. It borrows
+    // the super-status where there is one: that is the phrase the half is
+    // written in ("has a status of"), and it leaves the sub-status to be said
+    // as the extra narrowing it is — whether the editor happened to add it
+    // above or below.
+    const said =
+      'When a job has a status of Done and its sub-status is Canceled check, send the client a text message immediately';
+    for (const conditions of [
+      [
+        { field: 'status', op: 'in', values: ['done'] },
+        { field: 'subStatus', op: 'in', values: ['sub-cancel'] },
+      ],
+      [
+        { field: 'subStatus', op: 'in', values: ['sub-cancel'] },
+        { field: 'status', op: 'in', values: ['done'] },
+      ],
+    ] as AutomationSpec['conditions'][]) {
+      expect(
+        automationSentence(
+          { version: 1, trigger: { kind: 'deal.updated' }, conditions, actions: [{ type: 'send_sms', to: 'client' }] },
+          labels,
+        ),
+      ).toBe(said);
+    }
+
+    // A sub-status the rule *excludes* fixes no super-status at all, so the
+    // status beside it is the only thing saying which jobs this rule is for.
+    expect(
+      automationSentence(
+        {
+          version: 1,
+          trigger: { kind: 'deal.updated' },
+          conditions: [
+            { field: 'subStatus', op: 'not_in', values: ['sub-cancel'] },
+            { field: 'status', op: 'in', values: ['done'] },
+          ],
+          actions: [{ type: 'send_sms', to: 'client' }],
+        },
+        labels,
+      ),
+    ).toBe(
+      'When a job has a status of Done and its sub-status is not Canceled check, send the client a text message immediately',
     );
   });
 
