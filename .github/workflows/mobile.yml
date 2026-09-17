@@ -1,0 +1,116 @@
+name: Mobile (technician app)
+
+# The app is outside the root npm workspaces, so nothing else in CI installs it
+# or would notice it break. Nothing here touches AWS, and nothing here builds or
+# uploads to Expo/EAS — this is a typecheck and a jest run, no more.
+on:
+  push:
+    branches: [main, cicd]
+    paths:
+      - 'apps/mobile/**'
+      # A shared-types change can break the app without touching apps/mobile at
+      # all: that is the whole point of it importing @bitcrm/types.
+      - 'packages/types/**'
+      # The root manifests decide both halves of this job: whether the app is
+      # (wrongly) inside the root workspaces, and what `npm ci` installs for
+      # the compiler step.
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/types/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mobile.yml'
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only: this job must never be able to assume the deploy role, so it asks
+# for no `id-token` and names no environment.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Not backend/Dockerfile's Node 20: @testing-library/react-native
+          # 14.0.1, which ten of these test files import, declares
+          # `engines.node: ^22.13.0 || >=24` and excludes every 20.x. React
+          # Native 0.86 and Metro 0.84 accept 22 as well.
+          node-version: 22
+          cache: npm
+          # Two trees, two lockfiles: the root one installs packages/types'
+          # TypeScript, the app's installs Expo.
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+
+      # packages/types declares its own TypeScript and is compiled by it. This
+      # install provides that compiler; it installs no React Native.
+      - name: Install workspace root
+        run: npm ci
+
+      # The invariant a web deploy depends on, asserted in the one job that has
+      # both trees in front of it. AWS Amplify builds apps/web by running an
+      # install at this same root; if apps/mobile ever re-enters the root
+      # workspaces, every web deploy starts installing React Native, and a peer
+      # conflict with Next.js then breaks a deploy that has nothing to do with
+      # the phone. Nothing else in CI would notice — deploy-dev only builds the
+      # backend image, which never copies apps/ at all.
+      - name: The app must stay out of the root install
+        run: |
+          set -euo pipefail
+          node -e '
+            const lock = require("./package-lock.json");
+            const toolchain =
+              /(^|\/)node_modules\/(@expo\/[^/]+|expo|expo-[^/]+|jest-expo|react-native|react-native-[^/]+)$/;
+            const bad = Object.keys(lock.packages).filter(
+              (p) => p === "apps/mobile" || p.startsWith("apps/mobile/") || toolchain.test(p),
+            );
+            if (bad.length === 0) process.exit(0);
+            console.error("The root lockfile has taken on the Expo toolchain:");
+            for (const p of bad.slice(0, 20)) console.error("  " + p);
+            console.error(
+              "\napps/mobile must not be a root workspace — see apps/mobile/README.md.",
+            );
+            process.exit(1);
+          '
+          # Belt and braces: a workspaced apps/mobile would mostly hoist to the
+          # root tree, which the lockfile check above already catches, but an
+          # un-hoistable peer would land here instead.
+          if [ -n "$(ls -A apps/mobile/node_modules 2>/dev/null)" ]; then
+            echo "The root install reached into apps/mobile/node_modules."
+            exit 1
+          fi
+
+      - name: Install the app
+        run: npm ci
+        working-directory: apps/mobile
+
+      # An explicit step so a broken shared package reads as a failed build
+      # rather than a wall of "cannot find module '@bitcrm/types'".
+      - name: Build shared types
+        run: npm run types:build
+        working-directory: apps/mobile
+
+      # tsc directly rather than `npm run typecheck`, whose pre-hook would just
+      # rebuild what the step above built. jest keeps its own globalSetup build
+      # either way; incremental, it costs about a second and is the guard that
+      # a developer running `npx jest` relies on.
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: apps/mobile
+
+      - name: Test
+        run: npx jest --ci --maxWorkers=2
+        working-directory: apps/mobile

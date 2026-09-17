@@ -6,9 +6,12 @@ Locksmith business management platform.
 
 ```
 .
+├── apps/
+│   ├── web/          Next.js dispatch console (a root workspace)
+│   └── mobile/       Expo technician app — NOT a root workspace, see below
 ├── backend/          NestJS microservices monorepo
 ├── packages/
-│   └── types/        Shared TypeScript types (used by backend + frontend)
+│   └── types/        Shared TypeScript types (used by backend + both frontends)
 └── package.json      Root npm workspaces config
 ```
 
@@ -20,6 +23,19 @@ npm install
 
 # See backend/README.md for backend-specific instructions
 ```
+
+`npm install` at the root covers everything except `apps/mobile`, which installs
+separately:
+
+```bash
+cd apps/mobile && npm install
+```
+
+That is deliberate. AWS Amplify builds `apps/web` by running an install at the
+repository root, so anything in the root workspaces is installed on every web
+deploy — and the Expo SDK 57 / React Native 0.86 toolchain has no business being
+there. The app still uses `@bitcrm/types`, over a `file:` link.
+See [apps/mobile/README.md](./apps/mobile/README.md).
 
 ## Backend
 

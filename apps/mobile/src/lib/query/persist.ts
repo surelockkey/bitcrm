@@ -1,0 +1,40 @@
+import type { Query } from '@tanstack/react-query';
+
+/**
+ * What survives a restart.
+ *
+ * This is the offline store: the technician opens the app in a basement and the
+ * day's list, the jobs on it and their own profile are already there
+ * (docs/ARCHITECTURE.md §2.3). Everything else is re-fetched — a presigned
+ * download URL written to disk would be expired before it was ever read, and a
+ * failed query re-run is cheaper than a failure remembered.
+ *
+ * Kept as a pure predicate so the rule is a test rather than a guess.
+ */
+export function shouldPersistQuery(query: {
+  queryKey: readonly unknown[];
+  state: { status: string };
+}): boolean {
+  if (query.state.status !== 'success') return false;
+
+  const [root, scope] = query.queryKey;
+  if (root === 'me') return true;
+  if (root === 'deals') return scope === 'list' || scope === 'detail';
+  return false;
+}
+
+/** The shape `persistQueryClient` expects. */
+export const persistFilter = (query: Query): boolean =>
+  shouldPersistQuery(query as unknown as Parameters<typeof shouldPersistQuery>[0]);
+
+/**
+ * How stale a restored cache may be before it is thrown away instead. A week
+ * covers a holiday; beyond that, yesterday's route is noise.
+ */
+export const MAX_PERSISTED_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Bumped whenever a cached shape changes, so old blobs are discarded. */
+export const PERSISTED_CACHE_BUSTER = 'v1';
+
+/** AsyncStorage key the whole cache blob lives under. */
+export const PERSISTED_CACHE_KEY = 'bitcrm.query-cache';

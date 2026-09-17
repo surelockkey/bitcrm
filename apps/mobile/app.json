@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "BitCRM",
+    "slug": "bitcrm-mobile",
+    "version": "1.0.0",
+    "scheme": "bitcrm",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.surelockkey.bitcrm",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.surelockkey.bitcrm",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/splash-icon.png",
+            "backgroundColor": "#05090F"
+          }
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "BitCRM records where you were when you tap Arrived, so dispatch can see you reached the job. Location is never tracked in the background."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "BitCRM uses the camera so you can attach photos of the work to a job.",
+          "photosPermission": "BitCRM can attach a photo you already took to a job."
+        }
+      ]
+    ]
+  }
+}

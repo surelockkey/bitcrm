@@ -1,0 +1,69 @@
+{
+  "name": "bitcrm-mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "@bitcrm/types": "file:../../packages/types",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "12.0.1",
+    "@tanstack/query-async-storage-persister": "^5.103.0",
+    "@tanstack/react-query": "^5.103.0",
+    "@tanstack/react-query-persist-client": "^5.103.0",
+    "babel-preset-expo": "~57.0.0",
+    "expo": "~57.0.23",
+    "expo-constants": "~57.0.18",
+    "expo-crypto": "~57.0.3",
+    "expo-device": "~57.0.2",
+    "expo-file-system": "~57.0.7",
+    "expo-haptics": "~57.0.3",
+    "expo-image-picker": "~57.0.18",
+    "expo-linking": "~57.0.10",
+    "expo-location": "~57.0.18",
+    "expo-router": "~57.0.21",
+    "expo-secure-store": "~57.0.4",
+    "expo-splash-screen": "~57.0.9",
+    "expo-sqlite": "~57.0.3",
+    "expo-status-bar": "~57.0.1",
+    "jest-expo": "~57.0.5",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "~29.5.14",
+    "@types/react": "~19.2.2",
+    "jest": "^29.7.0",
+    "react-test-renderer": "19.2.3",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "types:build": "npm --prefix ../../packages/types run build",
+    "prestart": "npm run types:build",
+    "start": "expo start",
+    "preandroid": "npm run types:build",
+    "android": "expo start --android",
+    "preios": "npm run types:build",
+    "ios": "expo start --ios",
+    "preweb": "npm run types:build",
+    "web": "expo start --web",
+    "pretypecheck": "npm run types:build",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "globalSetup": "<rootDir>/jest.global-setup.js",
+    "setupFilesAfterEnv": [
+      "<rootDir>/jest.setup.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/.expo/"
+    ]
+  },
+  "private": true
+}
