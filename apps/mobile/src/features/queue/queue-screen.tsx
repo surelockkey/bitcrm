@@ -16,6 +16,8 @@ import { useQueue } from './queue-provider';
 export interface QueueScreenProps {
   /** Opens the job a queued item belongs to. */
   onOpenJob: (dealId: string) => void;
+  /** Drawn as Back: this is opened from the menu now rather than being a tab. */
+  onBack?: () => void;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface QueueScreenProps {
  * button to try it again — one at a time, or all of them at once after coming
  * back into signal.
  */
-export function QueueScreen({ onOpenJob }: QueueScreenProps) {
+export function QueueScreen({ onOpenJob, onBack }: QueueScreenProps) {
   const { colors, spacing, type } = useTheme();
   const { records, retry, retryAll, discard, drainNow, isDraining } = useQueue();
 
@@ -52,7 +54,7 @@ export function QueueScreen({ onOpenJob }: QueueScreenProps) {
   if (!outstanding) {
     return (
       <Screen testID="queue-screen">
-        <ScreenHeader title="Queue" />
+        <ScreenHeader title="Queue" onBack={onBack} />
         <EmptyState
           testID="queue-empty"
           title="Everything has been sent"
@@ -66,6 +68,7 @@ export function QueueScreen({ onOpenJob }: QueueScreenProps) {
     <Screen testID="queue-screen">
       <ScreenHeader
         title="Queue"
+        onBack={onBack}
         subtitle={[
           counts.unknown ? `${counts.unknown} need checking` : null,
           counts.failed ? `${counts.failed} not sent` : null,

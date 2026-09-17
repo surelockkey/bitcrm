@@ -12,6 +12,19 @@ import { useClockBadge } from '../timeclock/hooks';
 export interface ProfileScreenProps {
   /** Workiz's Menu → Timesheets (`WORKIZ_MOBILE_APP.md` §1.12). */
   onOpenTimesheet?: () => void;
+  /** Drawn as Back: this is pushed off the menu now rather than being a tab. */
+  onBack?: () => void;
+  /**
+   * Which of the menu's two account rows opened this.
+   *
+   * Workiz's menu ends Settings · Get Help · Log out and has no profile screen
+   * at all — the name and the account are the menu's own header
+   * (`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §2, §10). Ours keeps both rows,
+   * so `settings` is exactly what Workiz keeps under that word: the controls,
+   * with no identity card to scroll past and no Sign out button sitting a
+   * finger's width from the Log out row in the menu behind it.
+   */
+  variant?: 'profile' | 'settings';
 }
 
 /**
@@ -23,11 +36,16 @@ export interface ProfileScreenProps {
  * only for now), so the order below is the rest of that list, unchanged: a
  * technician who has used Workiz for years finds both where they left them.
  */
-export function ProfileScreen({ onOpenTimesheet }: ProfileScreenProps = {}) {
+export function ProfileScreen({
+  onOpenTimesheet,
+  onBack,
+  variant = 'profile',
+}: ProfileScreenProps = {}) {
   const { state, signOut } = useAuth();
   const { colors, spacing, type } = useTheme();
   const clock = useClockBadge();
 
+  const settingsOnly = variant === 'settings';
   const user = state.status === 'signedIn' ? state.user : null;
   const name = user
     ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
@@ -35,11 +53,11 @@ export function ProfileScreen({ onOpenTimesheet }: ProfileScreenProps = {}) {
 
   return (
     <Screen testID="profile-screen">
-      <ScreenHeader title="Profile" />
+      <ScreenHeader title={settingsOnly ? 'Settings' : 'Profile'} onBack={onBack} />
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, gap: spacing.lg }}
       >
-        {user ? (
+        {user && !settingsOnly ? (
           <Card>
             <Text style={[type.heading, { color: colors.text }]}>{name}</Text>
             <CardRow label="Email" value={user.email} />
@@ -51,12 +69,15 @@ export function ProfileScreen({ onOpenTimesheet }: ProfileScreenProps = {}) {
         ) : null}
 
         <View style={{ gap: spacing.md }}>
-          <Text
-            accessibilityRole="header"
-            style={[type.heading, { color: colors.textMuted }]}
-          >
-            Settings
-          </Text>
+          {/* The screen's own title already says it when this *is* Settings. */}
+          {settingsOnly ? null : (
+            <Text
+              accessibilityRole="header"
+              style={[type.heading, { color: colors.textMuted }]}
+            >
+              Settings
+            </Text>
+          )}
           <LocationSettingRow />
           {onOpenTimesheet ? (
             <Button
@@ -94,13 +115,15 @@ export function ProfileScreen({ onOpenTimesheet }: ProfileScreenProps = {}) {
           ) : null}
         </Card>
 
-        <Button
-          label="Sign out"
-          variant="secondary"
-          size="hero"
-          onPress={() => void signOut()}
-          testID="sign-out"
-        />
+        {settingsOnly ? null : (
+          <Button
+            label="Sign out"
+            variant="secondary"
+            size="hero"
+            onPress={() => void signOut()}
+            testID="sign-out"
+          />
+        )}
         <View style={styles.spacer} />
       </ScrollView>
     </Screen>
