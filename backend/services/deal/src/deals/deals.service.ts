@@ -849,6 +849,12 @@ export class DealsService {
     return candidates
       .map((tech) => {
         const reasons: string[] = [];
+        // First, and disqualifying on its own: user-service does not call this
+        // person an assignable technician. Such a row should not be here at all
+        // — the event handler removes it and the boot reconcile sweeps up what
+        // no event covers — but for as long as one is, it reaches the UI
+        // carrying its reason, never as a bare name the dispatcher is left to
+        // read as a technician.
         if (!tech.assignable) reasons.push('not_assignable');
         // An empty job type means "any" — skip the job-type check entirely.
         if (params.jobTypeId && !tech.jobTypeIds.includes(params.jobTypeId)) {
@@ -881,6 +887,11 @@ export class DealsService {
       .sort(
         (a, b) =>
           Number(b.eligible) - Number(a.eligible) ||
+          // Below every real technician who merely doesn't fit this job: a
+          // close home address must not float a non-technician to the top of
+          // the list a dispatcher scans.
+          Number(a.reasons.includes('not_assignable')) -
+            Number(b.reasons.includes('not_assignable')) ||
           (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity),
       );
   }
