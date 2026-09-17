@@ -69,6 +69,16 @@ describe('describeQueue', () => {
         action({ id: 'e', kind: 'late' }),
         action({ id: 'f', kind: 'status', payload: '{"superStatus":"in_progress"}' }),
         action({ id: 'g', kind: 'chat', dealId: '', payload: '{"body":"door is locked"}' }),
+        action({
+          id: 'i',
+          kind: 'client_sms',
+          payload: '{"contactId":"c1","body":"I am outside"}',
+        }),
+        action({
+          id: 'j',
+          kind: 'reschedule',
+          payload: '{"scheduledDate":"2026-09-18","scheduledTimeSlot":"14:00-16:00"}',
+        }),
         upload({ id: 'h' }),
       ],
       NOW,
@@ -81,9 +91,20 @@ describe('describeQueue', () => {
       'Text: on my way',
       'Text: running late',
       'Status: In progress',
+      // The two threads are never named the same way on this screen, because
+      // this is where a technician goes to work out what has not gone out.
       'Message to the office',
       'Photo — job-K4T9ZW-2026-09-16.jpg',
+      'Text to the client',
+      // Named with its destination: three moves in a morning are three rows
+      // that have to be tellable apart.
+      'Reschedule: Fri, Sep 18 · 2:00 PM – 4:00 PM',
     ]);
+  });
+
+  it('still names a reschedule whose payload cannot be read', () => {
+    const [item] = describeQueue([action({ kind: 'reschedule', payload: 'not json' })], NOW);
+    expect(item!.title).toBe('Reschedule');
   });
 
   it('survives a payload it cannot read rather than rendering nothing', () => {

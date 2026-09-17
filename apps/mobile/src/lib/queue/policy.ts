@@ -30,10 +30,28 @@ const IDEMPOTENT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'on_my_way',
   'late',
   'chat',
+  'client_sms',
 ]);
 
 export function isIdempotent(kind: OutboxKind): boolean {
   return IDEMPOTENT.has(kind);
+}
+
+/**
+ * Rows whose result is a **message in a thread** rather than a change to a job.
+ *
+ * What lands is the stored line, so the thread takes it straight into the feed
+ * and nothing about the job needs re-reading. The two threads are separate
+ * screens and separate kinds on purpose — a row can be one or the other, never
+ * both — and this is the one place that knows they behave alike.
+ */
+const THREAD_KINDS: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'chat',
+  'client_sms',
+]);
+
+export function isThreadKind(kind: OutboxKind | undefined): boolean {
+  return kind !== undefined && THREAD_KINDS.has(kind);
 }
 
 /**
@@ -50,6 +68,16 @@ export function isIdempotent(kind: OutboxKind): boolean {
  * A chat line is deliberately **not** here: it is addressed to a colleague in
  * the office, and "the gate code did not work" is still worth reading an hour
  * after it was written in a basement.
+ *
+ * Nor is a `client_sms`, which is the harder call — it does reach a client.
+ * The difference is authorship and visibility. These two are templates the
+ * server renders and sends in the company's voice, chosen from a menu of
+ * minutes, and a technician who taps one has no reason to think about it
+ * again. A typed text is the technician's own sentence, it sits in the thread
+ * saying "Waiting for a signal" until it goes, and it is as likely to be "the
+ * part is ordered, we'll be back Tuesday" as "I'm outside". Silently throwing
+ * away somebody's own words half an hour later is the worse failure of the
+ * two: they believe it was sent, and nothing on the screen says otherwise.
  */
 const CLIENT_VISIBLE: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'on_my_way',

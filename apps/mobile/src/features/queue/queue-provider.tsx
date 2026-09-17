@@ -17,7 +17,7 @@ import {
   createSqliteUploadStore,
   recoverQueuesForUser,
 } from '../../lib/queue/db';
-import { canDiscardSilently, retryPatch } from '../../lib/queue/policy';
+import { canDiscardSilently, isThreadKind, retryPatch } from '../../lib/queue/policy';
 import { drainOutbox, drainUploads } from '../../lib/queue/worker';
 import type {
   OutboxKind,
@@ -200,8 +200,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     ) => {
       if (settledAs === 'done') {
         sent += 1;
-        // A chat line is about no job of its own: what changed is the thread.
-        if (record.kind === 'chat') {
+        // A line in a thread — to the office or to the client — changed no
+        // field of the job: what changed is the thread it landed in.
+        if (isThreadKind(record.kind)) {
           chatLanded = true;
           const message = asFeedMessage(result);
           if (message) landed.push(message);

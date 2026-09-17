@@ -253,4 +253,16 @@ describe('ChatScreen', () => {
     await fireEvent.press(screen.getByTestId('chat-back'));
     expect(onBack).toHaveBeenCalled();
   });
+
+  // The other half of the pair. A warning on the client thread alone would
+  // leave this one as the thread with nothing said about it, and "nothing said"
+  // is inferred rather than read — which is what goes wrong at a doorstep.
+  it('says on its own face that the client is not on this thread', async () => {
+    await render({ dealId: 'deal-7', onBack: jest.fn() });
+
+    expect(screen.getByTestId('audience-office')).toBeTruthy();
+    expect(screen.getByText(/client is not on this thread/)).toBeTruthy();
+    expect(screen.getByPlaceholderText('Write to the office')).toBeTruthy();
+    expect(screen.queryByTestId('audience-client')).toBeNull();
+  });
 });

@@ -15,10 +15,12 @@ import { Screen, ScreenHeader } from '../../ui/Screen';
 import { Splash } from '../../ui/Splash';
 import { useMe } from '../jobs/hooks';
 import { useQueue } from '../queue/queue-provider';
+import { AudienceStrip } from './components/AudienceStrip';
 import { Composer } from './components/Composer';
 import { MessageBubble } from './components/MessageBubble';
 import { useMarkThreadRead, useOfficeThread, useSendToOffice, useThreadFeed } from './hooks';
 import {
+  audienceChrome,
   describeReadError,
   feedRows,
   flattenFeed,
@@ -63,6 +65,9 @@ export function ChatScreen({ live = true, dealId, onBack, onOpenJob }: ChatScree
   const { colors, spacing, type } = useTheme();
   const { data: me } = useMe();
   const meId = me?.id;
+  // The same function the client thread reads its words from, so the two can
+  // never converge on wording that leaves a technician guessing which is which.
+  const chrome = audienceChrome('office', { fromJob: Boolean(dealId) });
 
   const thread = useOfficeThread(meId);
   const feed = useThreadFeed(thread.data?.id, live);
@@ -113,15 +118,17 @@ export function ChatScreen({ live = true, dealId, onBack, onOpenJob }: ChatScree
           ]}
         >
           <Button label="Back" variant="ghost" onPress={onBack} testID="chat-back" />
-          <Text
-            accessibilityRole="header"
-            style={[type.heading, styles.shrink, { color: colors.text }]}
-          >
-            Office
-          </Text>
+          <View style={styles.shrink}>
+            <Text accessibilityRole="header" style={[type.heading, { color: colors.text }]}>
+              {chrome.title}
+            </Text>
+            <Text style={[type.caption, { color: colors.textMuted }]}>
+              {chrome.subtitle}
+            </Text>
+          </View>
         </View>
       ) : (
-        <ScreenHeader title="Messages" subtitle="Office" />
+        <ScreenHeader title="Messages" subtitle={chrome.subtitle} />
       )}
 
       <KeyboardAvoidingView
@@ -213,16 +220,16 @@ export function ChatScreen({ live = true, dealId, onBack, onOpenJob }: ChatScree
           </View>
         )}
 
+        <AudienceStrip chrome={chrome} />
+
         <Composer
           value={text}
           onChangeText={setText}
           onSend={submit}
           busy={sending}
-          hint={
-            dealId
-              ? 'Goes to the office, linked to the job you came from.'
-              : 'Goes to the office. With no signal it waits here and is sent when there is one.'
-          }
+          placeholder={chrome.placeholder}
+          accessibilityLabel={chrome.inputLabel}
+          hint={chrome.hint}
         />
       </KeyboardAvoidingView>
     </Screen>

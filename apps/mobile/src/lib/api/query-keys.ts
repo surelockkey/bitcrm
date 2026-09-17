@@ -35,6 +35,15 @@ export const queryKeys = {
     teamCounters: () => ['messaging', 'team-counters'] as const,
     messages: (conversationId: string) =>
       ['messaging', 'messages', 'conversation', conversationId] as const,
+    /**
+     * A job's thread with its **client** (`GET /conversations/by-job/:dealId`).
+     * Keyed by the job, exactly as the endpoint is: the client thread a
+     * technician may see is the one their own job leads to.
+     */
+    clientThread: (dealId: string) => ['messaging', 'client-thread', dealId] as const,
+    /** Whether this client can be texted, and whether they said STOP. */
+    clientTextLookup: (contactId: string) =>
+      ['messaging', 'client-text-lookup', contactId] as const,
   },
 
   inventory: {

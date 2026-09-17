@@ -52,6 +52,10 @@ function titleFor(record: QueueRecord): string {
       return 'Text: running late';
     case 'chat':
       return 'Message to the office';
+    // Spelled out as "the client", because the two threads are the one thing
+    // on this screen that must never be read as each other.
+    case 'client_sms':
+      return 'Text to the client';
     case 'status': {
       try {
         const payload = JSON.parse(record.payload) as StatusPayload;

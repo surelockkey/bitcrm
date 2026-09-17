@@ -54,7 +54,12 @@ const deal = (over: Partial<Deal> = {}): Deal => ({
 });
 
 describe('JobDetailScreen', () => {
-  const props = { onBack: jest.fn(), onOpenPhotos: jest.fn(), onOpenChat: jest.fn() };
+  const props = {
+    onBack: jest.fn(),
+    onOpenPhotos: jest.fn(),
+    onOpenChat: jest.fn(),
+    onOpenClientThread: jest.fn(),
+  };
 
   beforeEach(() => {
     mockDeal = deal();
@@ -71,6 +76,34 @@ describe('JobDetailScreen', () => {
     await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
     await fireEvent.press(screen.getByTestId('action-message-office'));
     expect(props.onOpenChat).toHaveBeenCalledWith('d1');
+  });
+
+  it('reaches the client’s own text thread, by a different button', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-text-client'));
+
+    expect(props.onOpenClientThread).toHaveBeenCalledWith('d1');
+    expect(props.onOpenChat).not.toHaveBeenCalled();
+  });
+
+  // Two buttons a thumb apart, each opening a thread the other cannot reach.
+  // They are told apart by name before either screen is even open.
+  it('names the client on one button and the office on the other', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+
+    expect(screen.getByLabelText('Text Ada Byron')).toBeTruthy();
+    expect(screen.getByLabelText('Message the office')).toBeTruthy();
+    expect(screen.getByText(/they see it, the office does not/)).toBeTruthy();
+    expect(screen.getByText(/the client does not see it/)).toBeTruthy();
+  });
+
+  it('offers no text thread for a job with no client on it', async () => {
+    mockDeal = deal({ contactId: '', clientName: undefined });
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+
+    expect(
+      screen.getByTestId('action-text-client').props.accessibilityState.disabled,
+    ).toBe(true);
   });
 
   it.each(['light', 'dark'] as const)('renders the job in the %s theme', async (scheme) => {
@@ -229,7 +262,12 @@ describe('JobDetailScreen', () => {
 
 /** Moving the visit from the phone — 15 956 of them in this account (§1.3). */
 describe('JobDetailScreen — rescheduling', () => {
-  const props = { onBack: jest.fn(), onOpenPhotos: jest.fn(), onOpenChat: jest.fn() };
+  const props = {
+    onBack: jest.fn(),
+    onOpenPhotos: jest.fn(),
+    onOpenChat: jest.fn(),
+    onOpenClientThread: jest.fn(),
+  };
   const today = localDateIso();
   const tomorrow = shiftDateIso(today, 1);
 

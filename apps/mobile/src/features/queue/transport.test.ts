@@ -72,3 +72,46 @@ describe('performOutboxAction — a line to the office', () => {
     await expect(performOutboxAction(row())).resolves.toEqual(stored);
   });
 });
+
+describe('performOutboxAction — a text to the client', () => {
+  beforeEach(() => {
+    mockMessaging.sendClientText.mockReset().mockResolvedValue({} as never);
+    mockMessaging.sendChatMessage.mockReset().mockResolvedValue({} as never);
+  });
+
+  const sms = (over: Partial<OutboxRecord> = {}) =>
+    row({
+      kind: 'client_sms',
+      dealId: 'deal-7',
+      payload: JSON.stringify({ contactId: 'contact-9', body: 'I am outside' }),
+      ...over,
+    });
+
+  it('sends it on the row’s own id, and against the job it was written from', async () => {
+    await performOutboxAction(sms());
+
+    expect(mockMessaging.sendClientText).toHaveBeenCalledWith({
+      clientMessageId: 'row-1',
+      contactId: 'contact-9',
+      // Not decoration: under `assigned_only` the server authorises the send
+      // against this, and without it falls back to the thread's last job.
+      dealId: 'deal-7',
+      body: 'I am outside',
+    });
+  });
+
+  // The two threads are separate kinds from the moment a row is written, so
+  // nothing has to work out at send time which one a line was meant for.
+  it('never reaches the office thread', async () => {
+    await performOutboxAction(sms());
+    expect(mockMessaging.sendChatMessage).not.toHaveBeenCalled();
+    expect(mockMessaging.openOfficeThread).not.toHaveBeenCalled();
+  });
+
+  it('answers with the stored text, so the thread never goes blank', async () => {
+    const stored = { id: 'm-3', conversationId: 'conv-client', body: 'I am outside' };
+    mockMessaging.sendClientText.mockResolvedValue(stored as never);
+
+    await expect(performOutboxAction(sms())).resolves.toEqual(stored);
+  });
+});

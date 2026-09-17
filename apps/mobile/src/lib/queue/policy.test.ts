@@ -4,6 +4,7 @@ import {
   canDiscardSilently,
   CLIENT_VISIBLE_MAX_AGE_MS,
   isIdempotent,
+  isThreadKind,
   isReady,
   isSweepable,
   isTooOldToSend,
@@ -42,9 +43,31 @@ describe('isIdempotent', () => {
     expect(isIdempotent('chat')).toBe(true);
   });
 
-  it('does not, for the two the server would genuinely duplicate', () => {
+  it('lets a text to the client be replayed — same key, same message', () => {
+    expect(isIdempotent('client_sms')).toBe(true);
+  });
+
+  it('does not, for the three the server would genuinely duplicate', () => {
     expect(isIdempotent('note')).toBe(false);
     expect(isIdempotent('status')).toBe(false);
+    // `PUT /deals/:id` is safe to repeat; landing it hours later on a job
+    // dispatch has since moved is what is not.
+    expect(isIdempotent('reschedule')).toBe(false);
+  });
+});
+
+describe('isThreadKind', () => {
+  it('knows the two kinds that land a message rather than change a job', () => {
+    expect(isThreadKind('chat')).toBe(true);
+    expect(isThreadKind('client_sms')).toBe(true);
+  });
+
+  it('leaves everything that touches the job itself alone', () => {
+    for (const kind of ['confirm', 'arrived', 'status', 'note', 'reschedule'] as const) {
+      expect(isThreadKind(kind)).toBe(false);
+    }
+    // An upload row carries no kind at all.
+    expect(isThreadKind(undefined)).toBe(false);
   });
 });
 
@@ -272,7 +295,10 @@ describe('isTooOldToSend', () => {
     ).toBe(false);
   });
 
-  it.each(['confirm', 'arrived', 'status', 'note'] as const)(
+  // A typed text is the technician's own sentence, and it says "Waiting for a
+  // signal" in the thread until it goes. Throwing it away silently is worse
+  // than delivering it late.
+  it.each(['confirm', 'arrived', 'status', 'note', 'reschedule', 'client_sms'] as const)(
     'never ages out a %s — it records something that happened',
     (kind) => {
       expect(isTooOldToSend({ kind, createdAt: 0 }, NOW)).toBe(false);

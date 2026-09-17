@@ -19,18 +19,43 @@ export interface ComposerProps {
   /** Written under the box: what will happen to the line when it is sent. */
   hint?: string;
   busy?: boolean;
+  /**
+   * Who the box writes to, spelled out inside it.
+   *
+   * The placeholder is the last thing a technician reads before they start
+   * typing, so it is where "which thread is this" gets answered — "Text Ada
+   * Byron" and "Write to the office" are not two screens that look alike. Both
+   * come from `audienceChrome`, so neither can drift into the other's words.
+   */
+  placeholder?: string;
+  accessibilityLabel?: string;
+  /** No signal is never a reason to block the box; nobody to write to is. */
+  disabled?: boolean;
+  testID?: string;
+  sendTestID?: string;
 }
 
 /**
- * Writing to the office.
+ * Writing a line, to whoever the screen around it is addressed to.
  *
  * The box grows with the text and never scrolls away from the Send button,
  * which keeps its full 56 dp however little has been typed — this is used
  * one-handed, in gloves, standing up (docs/ARCHITECTURE.md §2.9). Send is
  * disabled on an empty box and on whitespace alone, so a mis-tap cannot put a
- * blank line in front of dispatch.
+ * blank line in front of dispatch, or in front of a client.
  */
-export function Composer({ value, onChangeText, onSend, hint, busy }: ComposerProps) {
+export function Composer({
+  value,
+  onChangeText,
+  onSend,
+  hint,
+  busy,
+  placeholder = 'Write to the office',
+  accessibilityLabel = 'Message to the office',
+  disabled = false,
+  testID = 'chat-input',
+  sendTestID = 'chat-send',
+}: ComposerProps) {
   const { colors, radius, spacing, touch, type } = useTheme();
 
   return (
@@ -46,11 +71,12 @@ export function Composer({ value, onChangeText, onSend, hint, busy }: ComposerPr
       ]}
     >
       <TextInput
-        testID="chat-input"
-        accessibilityLabel="Message to the office"
+        testID={testID}
+        accessibilityLabel={accessibilityLabel}
         multiline
+        editable={!disabled}
         maxLength={COMPOSER_MAX_LENGTH}
-        placeholder="Write to the office"
+        placeholder={placeholder}
         placeholderTextColor={colors.textMuted}
         value={value}
         onChangeText={onChangeText}
@@ -66,13 +92,14 @@ export function Composer({ value, onChangeText, onSend, hint, busy }: ComposerPr
             color: colors.text,
             padding: spacing.md,
             textAlignVertical: 'top',
+            opacity: disabled ? 0.55 : 1,
           },
         ]}
       />
       <Button
         label="Send"
-        testID="chat-send"
-        disabled={value.trim().length === 0}
+        testID={sendTestID}
+        disabled={disabled || value.trim().length === 0}
         busy={busy}
         onPress={onSend}
       />

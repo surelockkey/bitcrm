@@ -34,6 +34,8 @@ export interface JobDetailScreenProps {
   onOpenPhotos: (dealId: string) => void;
   /** Opens the office thread with this job attached to whatever is written. */
   onOpenChat: (dealId: string) => void;
+  /** Opens the text thread with this job's client — a different screen. */
+  onOpenClientThread: (dealId: string) => void;
 }
 
 type Sheet = 'none' | 'onMyWay' | 'late' | 'reschedule';
@@ -54,6 +56,7 @@ export function JobDetailScreen({
   onBack,
   onOpenPhotos,
   onOpenChat,
+  onOpenClientThread,
 }: JobDetailScreenProps) {
   const { colors, radius, spacing, touch, type } = useTheme();
   const { data: deal, isPending, error, refetch } = useJob(dealId);
@@ -161,13 +164,24 @@ export function JobDetailScreen({
             accessibilityHint="Rings your phone, then connects you to the client"
             onPress={() => call.mutate({ dealId, contactId: deal.contactId })}
           />
+          {/* The two client-facing buttons together, the office one under
+              them: the grouping is the first thing that says which of the two
+              threads a technician is about to open, before any wording does. */}
+          <Button
+            label={client ? `Text ${client}` : 'Text the client'}
+            testID="action-text-client"
+            variant="secondary"
+            hint="Their own text thread — they see it, the office does not"
+            disabled={!deal.contactId}
+            onPress={() => onOpenClientThread(dealId)}
+          />
           {/* One tap from the job to the office, with the job carried along —
               the technician does not have to say which job they mean. */}
           <Button
             label="Message the office"
             testID="action-message-office"
             variant="secondary"
-            hint="Asks dispatch about this job"
+            hint="Asks dispatch about this job — the client does not see it"
             onPress={() => onOpenChat(dealId)}
           />
         </View>

@@ -1,7 +1,7 @@
 import type { InfiniteData } from '@tanstack/react-query';
 import { ApiError } from '../../lib/api/errors';
 import type { Page } from '../../lib/api/http';
-import type { QueueRecord, QueueState } from '../../lib/queue/types';
+import type { OutboxKind, QueueRecord, QueueState } from '../../lib/queue/types';
 import type { ChatPayload } from '../queue/transport';
 import type { FeedMessage, TeamThread } from './api';
 
@@ -15,6 +15,66 @@ import type { FeedMessage, TeamThread } from './api';
  * (`apps/web/features/messaging/lib.ts`), because the office and the van have
  * to be reading one conversation, not two.
  */
+
+/* ------------------------------------------------------------- the audience */
+
+/**
+ * Who a thread's words reach.
+ *
+ * The one mistake these screens must make impossible is a technician typing
+ * into the wrong one — "tell them I'll be twenty minutes" to the office is a
+ * message nobody acts on, and "the gate code did not work, this is the third
+ * time" to the client is a phone call from the client to the owner. They are
+ * two different screens, two different outbox kinds and two different sets of
+ * words, and every one of those words comes from here so the two can never
+ * drift into sounding like each other.
+ */
+export type ThreadAudience = 'office' | 'client';
+
+export interface AudienceChrome {
+  audience: ThreadAudience;
+  /** The header: who is on the other end. */
+  title: string;
+  /** Under it: what they are and how this reaches them. */
+  subtitle: string;
+  /** The strip above the composer. Both threads have one, so neither is the
+   *  quiet one a technician has to infer from its silence. */
+  banner: string;
+  placeholder: string;
+  /** Under the Send button: what happens to the line. */
+  hint: string;
+  /** What a screen reader calls the box. */
+  inputLabel: string;
+}
+
+export function audienceChrome(
+  audience: ThreadAudience,
+  { clientName, fromJob = false }: { clientName?: string; fromJob?: boolean } = {},
+): AudienceChrome {
+  if (audience === 'client') {
+    const name = clientName?.trim() || 'the client';
+    return {
+      audience,
+      title: clientName?.trim() || 'Client',
+      subtitle: 'Client · text message',
+      banner: `This goes to ${name} by text message. The office is not on this thread.`,
+      placeholder: `Text ${name}`,
+      hint: 'Goes to the client as a text. With no signal it waits here and is sent when there is one.',
+      inputLabel: `Text message to ${name}`,
+    };
+  }
+  return {
+    audience,
+    title: 'Office',
+    subtitle: 'Your dispatcher · inside the app',
+    banner: 'Only the office sees this. The client is not on this thread.',
+    placeholder: 'Write to the office',
+    hint: fromJob
+      ? 'Goes to the office, linked to the job you came from.'
+      : 'Goes to the office. With no signal it waits here and is sent when there is one.',
+    inputLabel: 'Message to the office',
+  };
+}
 
 /* --------------------------------------------------------------- the thread */
 
@@ -135,8 +195,25 @@ export interface PendingLine {
   lastError: string | null;
 }
 
+/** Which queued lines a thread is allowed to draw. */
+export interface PendingFilter {
+  /** `chat` for the office thread, `client_sms` for the client's. */
+  kind: OutboxKind;
+  /**
+   * Only rows about this job. The client thread uses it; the office thread
+   * does not, and must not — a technician has **one** thread with the office,
+   * so a line written from another job still belongs in it, while a text to a
+   * client is drawn on the job it was sent from.
+   */
+  dealId?: string;
+}
+
 /**
- * The chat lines still in the outbox, oldest first.
+ * The lines still in the outbox for one thread, oldest first.
+ *
+ * Filtered by kind first of all, which is what keeps a text meant for a client
+ * from ever appearing in the office thread: the two are separate kinds from
+ * the moment they are queued, and no row can be both.
  *
  * A row that has landed (`done`) is dropped: the server's own copy is in the
  * feed, or is one poll away, and showing both would read as a message sent
@@ -144,10 +221,14 @@ export interface PendingLine {
  * empty — it is still on the Queue screen, which is where an unreadable row
  * belongs.
  */
-export function pendingLines(records: readonly QueueRecord[]): PendingLine[] {
+export function pendingLines(
+  records: readonly QueueRecord[],
+  filter: PendingFilter = { kind: 'chat' },
+): PendingLine[] {
   const lines: PendingLine[] = [];
   for (const record of records) {
-    if (record.queue !== 'outbox' || record.kind !== 'chat') continue;
+    if (record.queue !== 'outbox' || record.kind !== filter.kind) continue;
+    if (filter.dealId !== undefined && record.dealId !== filter.dealId) continue;
     if (record.state === 'done') continue;
     try {
       const payload = JSON.parse(record.payload) as ChatPayload;
@@ -325,6 +406,97 @@ export function feedRows(
     stamps.push(message.createdAt);
   }
 
+  return attachDayChips(rows, stamps, now);
+}
+
+/**
+ * Whose line this is **in a client thread**, which is a different question
+ * from the same one in the office thread.
+ *
+ * Only the technician's own lines are theirs. On a client thread every other
+ * outbound line was written by the office, and every inbound one by the client
+ * — so `isMine`'s fallback, which reads an author-less `inbound` as the
+ * viewer's own (imported team history), would put the *client's* words on the
+ * technician's side of the screen. Wrong side, wrong name, and a technician
+ * reading their own name over a sentence the client wrote.
+ */
+export function isMineInClientThread(
+  message: Pick<FeedMessage, 'sentByUserId'>,
+  meId: string | undefined,
+): boolean {
+  return Boolean(meId) && message.sentByUserId === meId;
+}
+
+/** The name on a bubble in a client thread. */
+export function clientSenderName(
+  message: Pick<FeedMessage, 'sentByUserId' | 'sentByName' | 'origin' | 'direction'>,
+  meId: string | undefined,
+  clientName: string | undefined,
+): string {
+  if (isMineInClientThread(message, meId)) return 'You';
+  if (message.direction === 'inbound') return clientName?.trim() || 'Client';
+  if (message.origin === 'automation') return 'Automation';
+  return message.sentByName ?? 'Office';
+}
+
+/**
+ * The rows of the client thread, newest first.
+ *
+ * The same shape the office thread draws, deliberately — one bubble component,
+ * one set of queue states — with every rule about *who wrote what* replaced,
+ * because on this thread they are all different.
+ */
+export function clientFeedRows(
+  messages: readonly FeedMessage[],
+  pending: readonly PendingLine[],
+  meId: string | undefined,
+  clientName: string | undefined,
+  now = new Date(),
+): FeedRow[] {
+  const rows: FeedRow[] = [];
+  const stamps: string[] = [];
+  const newest = messages[0] ? Date.parse(messages[0].createdAt) : NaN;
+
+  for (let i = pending.length - 1; i >= 0; i--) {
+    const line = pending[i]!;
+    const iso = new Date(line.createdAt).toISOString();
+    rows.push({
+      key: `pending:${line.id}`,
+      mine: true,
+      name: 'You',
+      body: line.body,
+      time: formatMessageTime(iso),
+      status: pendingStatusText(line),
+      failed: line.state === 'failed' || line.state === 'unknown',
+      queueId: line.id,
+    });
+    stamps.push(
+      Number.isNaN(newest) || line.createdAt >= newest
+        ? iso
+        : new Date(newest).toISOString(),
+    );
+  }
+
+  for (const message of messages) {
+    rows.push({
+      key: message.id,
+      mine: isMineInClientThread(message, meId),
+      name: clientSenderName(message, meId, clientName),
+      body: bodyOf(message),
+      time: formatMessageTime(message.createdAt),
+      ...(message.dealId ? { dealId: message.dealId } : {}),
+    });
+    stamps.push(message.createdAt);
+  }
+
+  return attachDayChips(rows, stamps, now);
+}
+
+/**
+ * The day chip goes on the row whose older neighbour belongs to another day,
+ * so in an inverted list it is drawn immediately above that day's first line.
+ */
+function attachDayChips(rows: FeedRow[], stamps: string[], now: Date): FeedRow[] {
   for (let i = 0; i < rows.length; i++) {
     const day = dayOf(stamps[i]!);
     const older = i + 1 < rows.length ? dayOf(stamps[i + 1]!) : undefined;
@@ -362,7 +534,10 @@ export function unreadBadge(unread: number | undefined): string | undefined {
  * Why the thread would not load, in words a technician can act on. Everything
  * the phone does with a message is queued, so this only ever describes a read.
  */
-export function describeReadError(error: unknown): { title: string; body: string } {
+export function describeReadError(
+  error: unknown,
+  audience: ThreadAudience = 'office',
+): { title: string; body: string } {
   if (error instanceof ApiError && error.status === 0) {
     return {
       title: 'No signal',
@@ -372,7 +547,12 @@ export function describeReadError(error: unknown): { title: string; body: string
   if (error instanceof ApiError && error.status === 403) {
     return {
       title: 'Not your conversation',
-      body: 'This account cannot open the office thread. Ask dispatch to check your role.',
+      body:
+        audience === 'client'
+          ? // `assigned_only` — the server checks the caller is on the job
+            // before it will even name the thread.
+            'This thread belongs to a job you are not on. Ask dispatch to assign you.'
+          : 'This account cannot open the office thread. Ask dispatch to check your role.',
     };
   }
   return {

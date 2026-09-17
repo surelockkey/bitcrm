@@ -16,6 +16,11 @@ export type OutboxKind =
   | 'late'
   /** A line the technician wrote to the office in the team thread (§1.4). */
   | 'chat'
+  /**
+   * A text the technician wrote to the **client** — their own words, not one
+   * of the two templated notices. The biggest channel this account has (§1.5).
+   */
+  | 'client_sms'
   /** Moving the visit to another day or window — `PUT /deals/:id` (§1.3). */
   | 'reschedule';
 
