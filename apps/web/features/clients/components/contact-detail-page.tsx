@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronLeft, Mail, MapPin, MessagesSquare, Pencil, Phone, PhoneCall, Trash2 } from "lucide-react";
+import { Building2, ChevronLeft, FileSpreadsheet, FileText, Mail, MapPin, MessagesSquare, Pencil, Phone, PhoneCall, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -11,6 +11,8 @@ import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { PartyChat } from "@/features/messaging/components/party-chat";
 import { TextButton } from "@/features/messaging/components/text-button";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
+import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
+import { PortalLinkCard } from "@/features/portal/components/portal-link-card";
 import { FieldList } from "./field-list";
 import { useContact, useCompanyMap, useDeleteContact } from "../hooks";
 import {
@@ -22,7 +24,7 @@ import {
   initials,
   sourceLabel,
 } from "../lib";
-import { ContactTypeBadge } from "./client-badges";
+import { ContactTypeBadge, TaxExemptBadge } from "./client-badges";
 import { ContactForm } from "./contact-form";
 import { DeleteClientDialog } from "./delete-client-dialog";
 
@@ -61,6 +63,7 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
           </div>
         </div>
         <ContactTypeBadge type={contact.type} />
+        {contact.taxExempt ? <TaxExemptBadge reason={contact.taxExemptReason} /> : null}
         {/* Text opens (or starts) their thread right here — the Workiz card's action. */}
         {!editing ? <TextButton partyKind="contact" partyId={contact.id} name={contactName(contact)} /> : null}
         {!editing && can("contacts", "edit") ? (
@@ -107,6 +110,24 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               </div>
               {contact.notes ? <Detail label="Notes" value={contact.notes} /> : null}
 
+              {can("estimates") ? (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <FileSpreadsheet className="size-3.5" /> Estimates
+                  </div>
+                  <ClientEstimatesList contactIds={[contact.id]} />
+                </div>
+              ) : null}
+
+              {can("invoices") ? (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <FileText className="size-3.5" /> Invoices
+                  </div>
+                  <ClientInvoicesList contactIds={[contact.id]} />
+                </div>
+              ) : null}
+
               <div>
                 <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <PhoneCall className="size-3.5" /> Calls
@@ -138,6 +159,9 @@ export function ContactDetailPage({ contactId }: { contactId: string }) {
               ) : (
                 <p className="text-sm text-muted-foreground">Residential — no company.</p>
               )}
+              {can("invoices") || can("estimates") ? (
+                <PortalLinkCard contactId={contact.id} className="mt-5" />
+              ) : null}
               <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Jobs</div>
               <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
                 Their jobs appear here once Jobs ships.

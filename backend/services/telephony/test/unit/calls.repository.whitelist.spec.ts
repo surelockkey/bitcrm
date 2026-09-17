@@ -33,6 +33,8 @@ describe('CallsRepository upsert — the optional attribute whitelist', () => {
     internalLegOf: 'CA0',
     origin: 'bridge',
     callerIdSource: 'area',
+    sourceId: 'src-1',
+    businessProfileId: 'bp-2',
   };
 
   const BASE = {

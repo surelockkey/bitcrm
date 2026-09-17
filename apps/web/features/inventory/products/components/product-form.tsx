@@ -39,6 +39,7 @@ const EMPTY: ProductFormValues = {
   priceClient: 0,
   supplier: "",
   serialTracking: false,
+  taxable: true,
   minimumStockLevel: 0,
 };
 
@@ -74,6 +75,7 @@ export function ProductForm({
 
   const type = useWatch({ control, name: "type" });
   const serialTracking = useWatch({ control, name: "serialTracking" });
+  const taxable = useWatch({ control, name: "taxable" });
   const costCompany = Number(useWatch({ control, name: "costCompany" }) || 0);
   const costTech = Number(useWatch({ control, name: "costTech" }) || 0);
   const priceClient = Number(useWatch({ control, name: "priceClient" }) || 0);
@@ -145,6 +147,20 @@ export function ProductForm({
             <Input type="number" step="0.01" min="0" className="h-10 tabular-nums" disabled={readOnly} {...register("priceClient")} />
           </Field>
         </div>
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="block text-sm font-medium">Taxable</span>
+            <span className="text-xs text-muted-foreground">
+              New job and estimate lines for this item charge tax by default.
+            </span>
+          </span>
+          <Switch
+            checked={taxable !== false}
+            disabled={readOnly}
+            aria-label="Taxable"
+            onCheckedChange={(c) => setValue("taxable", c, { shouldDirty: true })}
+          />
+        </label>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
           {showCompanyCost ? (
             <span>

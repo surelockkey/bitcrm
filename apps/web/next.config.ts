@@ -6,7 +6,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   // Transpile the shared workspace package so its output is bundled cleanly.
-  transpilePackages: ["@bitcrm/types"],
+  transpilePackages: ["@bitcrm/types", "@bitcrm/document-renderer"],
   // Pin the workspace root — the repo lives inside a folder that also has a
   // stray parent lockfile, which otherwise confuses Turbopack's inference.
   turbopack: {
@@ -63,6 +63,7 @@ const nextConfig: NextConfig = {
         search: 4005,
         telephony: 4006,
         messaging: 4007,
+        billing: 4008,
       };
       return Object.entries(services).map(([name, port]) => ({
         source: `/api/${name}/:path*`,

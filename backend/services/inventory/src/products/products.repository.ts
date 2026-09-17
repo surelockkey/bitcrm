@@ -284,6 +284,8 @@ export class ProductsRepository {
       costCompany: item.costCompany as number,
       costTech: item.costTech as number,
       priceClient: item.priceClient as number,
+      // Rows written before billing have no flag; Workiz default is taxable.
+      taxable: item.taxable !== false,
       supplier: item.supplier as string | undefined,
       photoKey: item.photoKey as string | undefined,
       serialTracking: item.serialTracking as boolean,

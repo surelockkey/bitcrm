@@ -13,7 +13,9 @@ import {
   S3Client,
   HeadBucketCommand,
   CreateBucketCommand,
+  PutBucketCorsCommand,
 } from '@aws-sdk/client-s3';
+import { bucketCorsConfiguration, corsOrigins } from './bucket-cors';
 
 const awsConfig = {
   region: process.env.AWS_REGION || 'us-east-1',
@@ -83,7 +85,34 @@ async function setupBucket() {
       console.log(`S3 bucket "${DOCUMENTS_BUCKET}" created`);
     } catch (err) {
       console.error(`Failed to ensure bucket "${DOCUMENTS_BUCKET}":`, err);
+      return;
     }
+  }
+  await setupBucketCors(s3);
+}
+
+/**
+ * The web app uploads straight to the bucket with presigned PUTs (logos,
+ * attachments) and reads objects back — without CORS the browser blocks both.
+ * PutBucketCors replaces the whole configuration, so re-running is idempotent.
+ * Local only: real buckets get their CORS from Terraform.
+ */
+async function setupBucketCors(s3: S3Client) {
+  if (!process.env.AWS_ENDPOINT) {
+    console.log('S3 CORS: skipped (no AWS_ENDPOINT — managed by Terraform in real AWS)');
+    return;
+  }
+  const origins = corsOrigins(process.env);
+  try {
+    await s3.send(
+      new PutBucketCorsCommand({
+        Bucket: DOCUMENTS_BUCKET,
+        CORSConfiguration: bucketCorsConfiguration(origins),
+      }),
+    );
+    console.log(`S3 bucket "${DOCUMENTS_BUCKET}" CORS set for ${origins.join(', ')}`);
+  } catch (err) {
+    console.error(`Failed to set CORS on bucket "${DOCUMENTS_BUCKET}":`, err);
   }
 }
 

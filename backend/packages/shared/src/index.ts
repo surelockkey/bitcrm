@@ -17,7 +17,11 @@ export type {
 // Storage (S3 documents + KMS field encryption)
 export { StorageModule } from './storage/storage.module';
 export { S3Service } from './storage/s3.service';
-export type { PresignedUploadOptions, PutObjectOptions } from './storage/s3.service';
+export type {
+  PresignedUploadOptions,
+  PresignedDownloadOptions,
+  PutObjectOptions,
+} from './storage/s3.service';
 export { KmsService } from './storage/kms.service';
 
 // Auth

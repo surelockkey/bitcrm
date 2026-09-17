@@ -63,6 +63,16 @@ describe('ProductsRepository', () => {
       expect(result!.id).toBe('prod-1');
     });
 
+    it('maps taxable, treating a missing flag as true', async () => {
+      const product = createMockProduct();
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Item: { ...product, PK: 'PRODUCT#prod-1', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Item: { ...product, taxable: false, PK: 'PRODUCT#prod-1', SK: 'METADATA' } });
+
+      expect((await repository.findById('prod-1'))!.taxable).toBe(true);
+      expect((await repository.findById('prod-1'))!.taxable).toBe(false);
+    });
+
     it('should return null when not found', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: undefined });
 

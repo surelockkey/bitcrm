@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -29,6 +28,7 @@ import { AddressAutocomplete } from "./address-autocomplete";
 import { ResolvedAreaField } from "@/features/service-areas/components/resolved-area-field";
 import { JobTypeSelect } from "@/features/job-types/components/job-type-select";
 import { JobSourceSelect } from "@/features/job-sources/components/job-source-select";
+import { BusinessProfileSelect } from "@/features/business-profiles/components/business-profile-select";
 import { ExternalCompanySelect } from "@/features/external-companies/components/external-company-select";
 import { JobTagPicker } from "@/features/job-tags/components/job-tag-picker";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
@@ -58,6 +58,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
       scheduledTimeSlot: deal.scheduledTimeSlot ?? "",
       priority: deal.priority,
       sourceId: deal.sourceId ?? "",
+      businessProfileId: deal.businessProfileId ?? "",
       externalCompanyId: deal.externalCompanyId ?? "",
       poNumber: deal.poNumber ?? "",
       notes: deal.notes ?? "",
@@ -74,6 +75,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
         scheduledDate: v.scheduledDate || undefined,
         scheduledTimeSlot: v.scheduledTimeSlot || undefined,
         sourceId: v.sourceId || undefined,
+        businessProfileId: v.businessProfileId || undefined,
         externalCompanyId: v.externalCompanyId || null,
         poNumber: v.poNumber || undefined,
         notes: v.notes || undefined,
@@ -89,6 +91,7 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
   const jobTypeId = useWatch({ control: form.control, name: "jobTypeId" });
   const sourceId = useWatch({ control: form.control, name: "sourceId" });
   const externalCompanyId = useWatch({ control: form.control, name: "externalCompanyId" });
+  const businessProfileId = useWatch({ control: form.control, name: "businessProfileId" });
   const tagIds = useWatch({ control: form.control, name: "tagIds" }) ?? [];
   const priority = useWatch({ control: form.control, name: "priority" });
   const customFields = useWatch({ control: form.control, name: "customFields" }) ?? {};
@@ -143,6 +146,17 @@ export function EditDealSheet({ deal, open, onOpenChange }: { deal: Deal; open: 
               <div className="space-y-1.5"><Label>Time slot</Label><Input className="h-9" placeholder="09:00-12:00" {...form.register("scheduledTimeSlot")} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="edit-job-company">Company</Label>
+                <BusinessProfileSelect
+                  id="edit-job-company"
+                  className="h-9"
+                  value={businessProfileId}
+                  fallbackName={deal.businessProfileName}
+                  placeholder="Default company"
+                  onChange={(v) => form.setValue("businessProfileId", v ?? "")}
+                />
+              </div>
               <div className="space-y-1.5"><Label>Source</Label><JobSourceSelect value={sourceId} onChange={(v) => form.setValue("sourceId", v ?? "")} /></div>
               <div className="space-y-1.5"><Label>External company</Label><ExternalCompanySelect value={externalCompanyId} onChange={(v) => form.setValue("externalCompanyId", v ?? "")} /></div>
               <div className="space-y-1.5"><Label>PO number</Label><Input className="h-9" placeholder="PO-12345" {...form.register("poNumber")} /></div>

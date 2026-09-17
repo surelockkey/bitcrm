@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { serviceAreaTaxLabel } from "@/features/billing/lib";
 import { useServiceAreas, useDeleteServiceArea } from "../hooks";
 import { describeArea } from "../lib";
 import { ServiceAreaFormDialog } from "./service-area-form-dialog";
@@ -92,12 +93,13 @@ export function ServiceAreasPage() {
           </p>
         </div>
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Definition</TableHead>
+                <TableHead>Sales tax</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-24 text-right">Actions</TableHead>
@@ -108,6 +110,7 @@ export function ServiceAreasPage() {
                 <TableRow key={area.id}>
                   <TableCell className="font-medium">{area.name}</TableCell>
                   <TableCell className="text-muted-foreground">{describeArea(area)}</TableCell>
+                  <TableCell className="text-muted-foreground">{serviceAreaTaxLabel(area.tax)}</TableCell>
                   <TableCell>{area.priority}</TableCell>
                   <TableCell>
                     <Badge variant={area.active ? "default" : "secondary"}>

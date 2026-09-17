@@ -168,6 +168,12 @@ if [ "$RUN_UNIT" = true ]; then
     "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
     "unit"
 
+  run_tests \
+    "billing-service" \
+    "$BACKEND_DIR/services/billing" \
+    "npx jest test/unit/ --silent --passWithNoTests $COVERAGE_FLAG" \
+    "unit"
+
   # Config, not code: fails if a service exists that nothing scrapes or probes.
   print_section "monitoring coverage" "$BACKEND_DIR/monitoring"
   if node "$BACKEND_DIR/scripts/verify-monitoring.mjs" > /dev/null 2>&1; then

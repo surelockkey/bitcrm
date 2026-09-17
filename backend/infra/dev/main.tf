@@ -48,6 +48,9 @@ locals {
     # /api/messaging/webhooks/twilio/*, authenticated by signature, so this
     # rule is public too.
     messaging = { port = 4007, priority = 700, path_pattern = "/api/messaging/*" }
+    # Also serves the unauthenticated client portal (/api/billing/public/*);
+    # those routes are @Public() and rate-limited in the service.
+    billing = { port = 4008, priority = 800, path_pattern = "/api/billing/*" }
   }
 }
 

@@ -24,7 +24,9 @@ import {
   ProductType,
   type Address,
   type Deal,
+  type ServiceArea,
   type DealProductFulfillment,
+  type Product,
   type TimelineEntry,
   type JwtUser,
   type CustomFieldDefinition,
@@ -56,6 +58,18 @@ import { type UpdateNoteDto } from './dto/update-note.dto';
 import { JobFieldSettingsService } from '../job-field-settings/job-field-settings.service';
 import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
+import { DealTaxResolver, type DealTaxSnapshot } from './billing/deal-tax.resolver';
+import { BusinessProfilesClient } from '../common/services/business-profiles.client';
+
+/** Tax snapshot fields: written by resolution, never diffed as plain field edits. */
+const TAX_KEYS = new Set(['taxSource', 'taxRateId', 'taxRateName', 'taxRatePercent']);
+/** Company fields: one FIELD_UPDATED entry (with names) instead of two raw diffs. */
+const COMPANY_KEYS = new Set(['businessProfileId', 'businessProfileName']);
+
+interface CompanyRef {
+  id: string;
+  name?: string;
+}
 
 @Injectable()
 export class DealsService {
@@ -79,6 +93,8 @@ export class DealsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly jobFieldSettings?: JobFieldSettingsService,
+    @Optional() private readonly taxResolver?: DealTaxResolver,
+    @Optional() private readonly businessProfiles?: BusinessProfilesClient,
   ) {}
 
   /**
@@ -121,7 +137,7 @@ export class DealsService {
   private async resolveServiceArea(
     address: Address,
     fallbackLabel?: string,
-  ): Promise<{ serviceAreaId?: string; serviceArea: string }> {
+  ): Promise<{ serviceAreaId?: string; serviceArea: string; area?: ServiceArea }> {
     if (address.lat === undefined || address.lng === undefined) {
       return { serviceArea: fallbackLabel ?? '' };
     }
@@ -133,20 +149,48 @@ export class DealsService {
       this.logger.log(`No service area covers deal address; leaving unassigned`);
       return { serviceArea: fallbackLabel ?? '' };
     }
-    return { serviceAreaId: area.id, serviceArea: area.name };
+    return { serviceAreaId: area.id, serviceArea: area.name, area };
   }
 
   /** A manually chosen area: must exist; archived ones may not take new jobs. */
   private async pickServiceArea(
     id: string,
-  ): Promise<{ serviceAreaId: string; serviceArea: string }> {
+  ): Promise<{ serviceAreaId: string; serviceArea: string; area: ServiceArea }> {
     const area = await this.serviceAreas.findById(id);
     if (!area.active) {
       throw new BadRequestException(
         `Service area "${area.name}" is archived and cannot be used on a new deal`,
       );
     }
-    return { serviceAreaId: area.id, serviceArea: area.name };
+    return { serviceAreaId: area.id, serviceArea: area.name, area };
+  }
+
+  /**
+   * The company a new job starts with: the one asked for (must be active) →
+   * the service area's default company (skipped if it is gone/archived) →
+   * billing's default company → none. Billing being unreachable never fails
+   * the create — an id is then accepted without a snapshot name.
+   */
+  private async companyForCreate(
+    requested: string | null | undefined,
+    area?: ServiceArea,
+  ): Promise<CompanyRef | undefined> {
+    const explicit = requested?.trim();
+    if (explicit) {
+      return this.businessProfiles ? this.businessProfiles.resolve(explicit) : { id: explicit };
+    }
+    if (!this.businessProfiles) return undefined;
+    if (area?.defaultBusinessProfileId) {
+      try {
+        return await this.businessProfiles.resolve(area.defaultBusinessProfileId);
+      } catch (err) {
+        this.logger.warn(
+          `Service area ${area.id} default company ${area.defaultBusinessProfileId} unusable: ${(err as Error).message}`,
+        );
+      }
+    }
+    const fallback = await this.businessProfiles.findDefault();
+    return fallback ? { id: fallback.id, name: fallback.name } : undefined;
   }
 
   /** An answer counts as "not filled" when it is absent, blank, or an empty list. */
@@ -314,7 +358,7 @@ export class DealsService {
     // one, auto-resolve from the geocoded location; a match is authoritative
     // for the display label, and an explicit dto.serviceArea label is a
     // fallback used only when the address falls outside every area.
-    const { serviceAreaId, serviceArea } = dto.serviceAreaId
+    const { serviceAreaId, serviceArea, area } = dto.serviceAreaId
       ? await this.pickServiceArea(dto.serviceAreaId)
       : await this.resolveServiceArea(address, dto.serviceArea);
 
@@ -360,6 +404,20 @@ export class DealsService {
     // none were supplied so a required applicable field can't be skipped.
     await this.validateCustomFields(dto.customFields ?? {}, dto.jobTypeId, { forCreate: true });
 
+    // Company: requested → area default → billing default → none.
+    const company = await this.companyForCreate(dto.businessProfileId, area);
+
+    // Tax: exempt client → service-area tax → none.
+    const tax = this.taxResolver
+      ? DealTaxResolver.forCreate(
+          await this.taxResolver.resolve({
+            contactId: dto.contactId,
+            companyId: dto.companyId,
+            serviceAreaId,
+          }),
+        )
+      : {};
+
     const deal: Deal = {
       id,
       dealNumber,
@@ -379,12 +437,16 @@ export class DealsService {
       assignedDispatcherId: caller.id,
       priority: dto.priority || DealPriority.NORMAL,
       sourceId: dto.sourceId,
+      ...(company && { businessProfileId: company.id }),
+      ...(company?.name && { businessProfileName: company.name }),
       externalCompanyId: dto.externalCompanyId,
       workOrderId: dto.workOrderId,
       poNumber: dto.poNumber,
       notes: dto.notes,
       tagIds,
       customFields: dto.customFields as Record<string, CustomFieldValue> | undefined,
+      ...tax,
+      itemCount: 0,
       status: DealStatus.ACTIVE,
       createdBy: caller.id,
       // The status clock starts with the job itself (drives "time in status").
@@ -446,6 +508,7 @@ export class DealsService {
     const filters: DealFilters = {
       jobTypeId: query.jobTypeId,
       sourceId: query.sourceId,
+      businessProfileId: query.businessProfileId || undefined,
       serviceArea: query.serviceArea,
       clientType: query.clientType,
       priority: query.priority,
@@ -453,6 +516,8 @@ export class DealsService {
         ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
         : undefined,
       dealNumber: this.parseDealNumberSearch(search),
+      needsInvoice:
+        query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
     };
 
     if (query.superStatus) {
@@ -535,6 +600,29 @@ export class DealsService {
     if (updates.sourceId) await this.jobSources.findById(updates.sourceId);
     // Disabled company allowed on update so an old job stays editable.
     if (updates.externalCompanyId) await this.externalCompanies.findById(updates.externalCompanyId);
+    // Company: undefined → untouched; same id → no-op; null/'' → cleared; a new
+    // id must be an active company. The name is snapshotted alongside.
+    let companyChange: { from: CompanyRef | null; to: CompanyRef | null } | undefined;
+    if (dto.businessProfileId !== undefined) {
+      const next = dto.businessProfileId?.trim() || null;
+      if ((next ?? undefined) === existing.businessProfileId) {
+        delete updates.businessProfileId;
+      } else {
+        const to: CompanyRef | null = next
+          ? this.businessProfiles
+            ? await this.businessProfiles.resolve(next)
+            : { id: next }
+          : null;
+        updates.businessProfileId = to?.id ?? null;
+        updates.businessProfileName = to?.name ?? null;
+        companyChange = {
+          from: existing.businessProfileId
+            ? { id: existing.businessProfileId, name: existing.businessProfileName }
+            : null,
+          to,
+        };
+      }
+    }
     // Tags: archived allowed on update; enforce each id exists.
     if (updates.tagIds?.length) {
       const known = new Set((await this.jobTags.list()).map((t) => t.id));
@@ -558,10 +646,27 @@ export class DealsService {
       updates.customFields = { ...(existing.customFields ?? {}), ...customFieldsPatch };
     }
 
+    // A job that moved market picks up that market's tax (unless someone chose
+    // the tax by hand). Written in the same update; logged as TAX_CHANGED below.
+    let taxChange: { from: DealTaxSnapshot; to: DealTaxSnapshot } | undefined;
+    if (
+      updates.serviceAreaId !== undefined &&
+      (updates.serviceAreaId ?? undefined) !== existing.serviceAreaId
+    ) {
+      taxChange = await this.reresolveTax(existing, {
+        serviceAreaId: updates.serviceAreaId ?? undefined,
+      });
+      if (taxChange) Object.assign(updates, taxChange.to);
+    }
+
     const result = await this.repository.update(id, updates);
     await this.cache.invalidate(id);
     // Any edit must reach the search index (address, custom fields, notes…).
-    this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
+    this.publishEvent('deal.updated', {
+      dealId: id,
+      updatedBy: caller.id,
+      ...(companyChange && { businessProfileId: companyChange.to?.id ?? null }),
+    });
 
     // Moving the deal's date re-stamps its assignment rows (so each tech's day
     // re-sorts on the tech index) and renumbers both the old and new days.
@@ -580,12 +685,33 @@ export class DealsService {
       if (value === undefined) continue;
       // Custom fields are diffed per-answer below, labeled by their human name.
       if (key === 'customFields') continue;
+      // Tax snapshot changes get one TAX_CHANGED entry instead.
+      if (TAX_KEYS.has(key)) continue;
+      // The company gets one labeled entry below.
+      if (COMPANY_KEYS.has(key)) continue;
       const previous = (existing as unknown as Record<string, unknown>)[key];
       if (this.valuesEqual(previous, value)) continue;
       await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
         field: key,
         oldValue: previous ?? null,
         newValue: value,
+      });
+    }
+
+    if (companyChange) {
+      await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
+        field: 'businessProfileId',
+        oldValue: companyChange.from?.id ?? null,
+        newValue: companyChange.to?.id ?? null,
+        oldLabel: companyChange.from?.name ?? null,
+        newLabel: companyChange.to?.name ?? null,
+      });
+    }
+
+    if (taxChange) {
+      await this.addTimelineEntry(id, TimelineEventType.TAX_CHANGED, caller, {
+        ...taxChange,
+        reason: 'service_area_changed',
       });
     }
 
@@ -624,15 +750,50 @@ export class DealsService {
     }
 
     await this.repository.reassignContact(id, contactId);
+    // The new client may be tax-exempt (or the old one was).
+    const taxChange = await this.reresolveTax(existing, { contactId });
+    if (taxChange) await this.repository.update(id, { ...taxChange.to });
     await this.cache.invalidate(id);
     await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
       field: 'contactId',
       oldValue: existing.contactId,
       newValue: contactId,
     });
+    if (taxChange) {
+      await this.addTimelineEntry(id, TimelineEventType.TAX_CHANGED, caller, {
+        ...taxChange,
+        reason: 'client_changed',
+      });
+    }
     this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
 
     return this.findById(id);
+  }
+
+  /**
+   * Re-run tax resolution for a deal about to change market or client. Returns
+   * the before/after snapshots only when the tax actually changes, and never
+   * touches a tax a user picked by hand (`taxSource: 'manual'`).
+   */
+  private async reresolveTax(
+    existing: Deal,
+    changes: { serviceAreaId?: string; contactId?: string },
+  ): Promise<{ from: DealTaxSnapshot; to: DealTaxSnapshot } | undefined> {
+    if (!this.taxResolver || existing.taxSource === 'manual') return undefined;
+    const to = await this.taxResolver.resolve({
+      contactId: changes.contactId ?? existing.contactId,
+      companyId: existing.companyId,
+      serviceAreaId:
+        'serviceAreaId' in changes ? changes.serviceAreaId : existing.serviceAreaId,
+    });
+    const from = DealTaxResolver.fromDeal(existing);
+    return DealTaxResolver.sameTax(from, to) ? undefined : { from, to };
+  }
+
+  /** Keep `Deal.itemCount` (drives "needs invoice") in step with the line rows. */
+  private async syncItemCount(id: string): Promise<void> {
+    const itemCount = await this.productsRepo.countByDeal(id);
+    await this.repository.update(id, { itemCount });
   }
 
   async softDelete(id: string, caller: JwtUser): Promise<void> {
@@ -1045,7 +1206,7 @@ export class DealsService {
   private async validateProductFulfillment(
     dto: { productId: string; name: string },
     fulfillment: DealProductFulfillment,
-  ): Promise<void> {
+  ): Promise<Product> {
     const product = await this.internalHttp.getProduct(dto.productId);
     if (!product) {
       throw new BadRequestException(
@@ -1063,13 +1224,14 @@ export class DealsService {
         `"${dto.name}" is a stockable product and cannot be added as a service line`,
       );
     }
+    return product;
   }
 
   async addProduct(id: string, dto: AddDealProductDto, caller: JwtUser): Promise<void> {
     const deal = await this.findById(id);
     const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
 
-    await this.validateProductFulfillment(dto, fulfillment);
+    const product = await this.validateProductFulfillment(dto, fulfillment);
 
     // Only `sourced` lines are pulled from a technician's container and deduct
     // stock. `to_order` (a part the tech doesn't carry) and `service` (labor)
@@ -1123,10 +1285,14 @@ export class DealsService {
       fulfillment,
       // Only a sourced line records which technician supplied it.
       ...(fulfillment === 'sourced' && { sourceTechId: dto.sourceTechId }),
+      // Absent on the request → the catalog product's default (itself absent → taxable).
+      taxable: dto.taxable ?? product.taxable ?? true,
+      ...(dto.description !== undefined && { description: dto.description }),
       addedBy: caller.id,
       addedAt: new Date().toISOString(),
     });
 
+    await this.syncItemCount(id);
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_ADDED, caller, {
@@ -1176,7 +1342,7 @@ export class DealsService {
       );
     }
 
-    await this.validateProductFulfillment(dto, fulfillment);
+    const product = await this.validateProductFulfillment(dto, fulfillment);
 
     if (fulfillment === 'sourced') {
       if (deal.assignedTechIds.length === 0) {
@@ -1232,6 +1398,11 @@ export class DealsService {
       }
     }
 
+    // An in-place edit keeps the line's own taxable/description (a user may have
+    // toggled it); a swap starts from the new catalog product's default.
+    const taxable = dto.taxable ?? (isSwap ? product.taxable : existing.taxable) ?? true;
+    const description = dto.description ?? (isSwap ? undefined : existing.description);
+
     if (isSwap) {
       await this.productsRepo.removeProduct(id, productId);
     }
@@ -1250,12 +1421,15 @@ export class DealsService {
       ...(!isSwap &&
         fulfillment === 'to_order' &&
         existing.orderedAt && { orderedAt: existing.orderedAt }),
+      taxable,
+      ...(description !== undefined && { description }),
       addedBy: existing.addedBy,
       addedAt: existing.addedAt,
       updatedBy: caller.id,
       updatedAt: new Date().toISOString(),
     });
 
+    await this.syncItemCount(id);
     await this.cache.invalidate(id);
 
     // Money/quantity edits, old → new, so the timeline can say exactly what
@@ -1313,6 +1487,7 @@ export class DealsService {
     }
 
     await this.productsRepo.removeProduct(id, productId);
+    await this.syncItemCount(id);
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_REMOVED, caller, {

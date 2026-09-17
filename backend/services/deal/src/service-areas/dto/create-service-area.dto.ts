@@ -1,6 +1,6 @@
 import {
   IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsInt,
-  IsNumber, Min, Max, ValidateNested, ArrayMinSize,
+  IsNumber, Min, Max, ValidateNested, ArrayMinSize, MinLength, MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -33,6 +33,21 @@ export class GeoPointDto {
   lng!: number;
 }
 
+/** Name 1–60 chars, rate 0–100 with at most 3 decimals (re-checked in the service). */
+export class ServiceAreaTaxDto {
+  @ApiProperty({ example: 'CT Sales Tax', minLength: 1, maxLength: 60 })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  name!: string;
+
+  @ApiProperty({ example: 6.35, minimum: 0, maximum: 100 })
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  @Max(100)
+  ratePercent!: number;
+}
+
 export class CreateServiceAreaDto {
   @ApiPropertyOptional({
     example: '+14045550100',
@@ -43,6 +58,29 @@ export class CreateServiceAreaDto {
   @IsOptional()
   @IsString()
   callerId?: string | null;
+
+  @ApiPropertyOptional({
+    type: () => ServiceAreaTaxDto,
+    nullable: true,
+    description:
+      "The area's sales tax, applied automatically to jobs in this area. " +
+      'Null clears it (jobs in the area then carry no tax).',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ServiceAreaTaxDto)
+  tax?: ServiceAreaTaxDto | null;
+
+  @ApiPropertyOptional({
+    example: 'bp-default',
+    nullable: true,
+    description:
+      'Company (billing business profile) new jobs in this area default to. ' +
+      'Must be an active company. Null or empty clears it.',
+  })
+  @IsOptional()
+  @IsString()
+  defaultBusinessProfileId?: string | null;
 
   @ApiProperty({ example: 'Atlanta Metro' })
   @IsString()

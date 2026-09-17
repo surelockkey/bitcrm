@@ -23,6 +23,13 @@ export interface DealProduct {
   fulfillment?: DealProductFulfillment;
   /** For `to_order` lines: ISO timestamp set when the line is marked ordered. */
   orderedAt?: string;
+  /**
+   * Whether the job's tax rate applies to this line. Missing on legacy rows —
+   * readers must treat an absent value as `true` (Workiz default).
+   */
+  taxable?: boolean;
+  /** Optional client-facing description shown on estimates/invoices. */
+  description?: string;
   addedBy: string;
   addedAt: string;
   /** Set when the line was last edited (quantity/price change or product swap). */

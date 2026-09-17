@@ -67,6 +67,19 @@ describe('ProductsService', () => {
     });
   });
 
+  describe('create — taxable', () => {
+    it('defaults taxable to true', async () => {
+      const result = await service.create(createMockCreateProductDto());
+      expect(result.taxable).toBe(true);
+      expect(repository.create.mock.calls[0][0].taxable).toBe(true);
+    });
+
+    it('keeps an explicit taxable=false', async () => {
+      const result = await service.create({ ...createMockCreateProductDto(), taxable: false });
+      expect(result.taxable).toBe(false);
+    });
+  });
+
   describe('findById', () => {
     it('should return from cache on hit', async () => {
       const product = createMockProduct();
@@ -300,6 +313,47 @@ describe('ProductsService', () => {
       expect(result.updated).toBe(1);
       expect(repository.update).toHaveBeenCalledTimes(1);
       expect(cache.invalidate).toHaveBeenCalledWith(existing.id);
+    });
+
+    it('reads the optional taxable column (default true on create)', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel,taxable\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5,false\n' +
+        'Lock B,SKU-101,Locks,product,10,15,25,false,5,',
+      );
+      repository.findBySku.mockResolvedValue(null);
+
+      const result = await service.importFromCsv(csv);
+
+      expect(result.created).toBe(2);
+      expect(repository.create.mock.calls[0][0].taxable).toBe(false);
+      expect(repository.create.mock.calls[1][0].taxable).toBe(true);
+    });
+
+    it('updates taxable only when the column has a value', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel,taxable\n' +
+        'Lock A,SKU-001,Locks,product,10,15,25,false,5,no\n' +
+        'Lock B,SKU-002,Locks,product,10,15,25,false,5,',
+      );
+      repository.findBySku.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct());
+
+      await service.importFromCsv(csv);
+
+      expect(repository.update.mock.calls[0][1].taxable).toBe(false);
+      expect(repository.update.mock.calls[1][1]).not.toHaveProperty('taxable');
+    });
+
+    it('rejects an unreadable taxable value', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,taxable\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,maybe',
+      );
+
+      const result = await service.importFromCsv(csv);
+
+      expect(result.errors[0].message).toContain('taxable');
     });
 
     it('should report errors for invalid rows', async () => {

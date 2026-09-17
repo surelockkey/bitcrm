@@ -95,7 +95,8 @@ export const MAIN_NAV: NavGroup[] = [
   {
     label: "Billing",
     items: [
-      { label: "Invoices", href: "/invoices", icon: FileText, status: "coming-soon" },
+      { label: "Estimates", href: "/estimates", icon: FileText, resource: "estimates" },
+      { label: "Invoices", href: "/invoices", icon: FileText, resource: "invoices" },
       { label: "Payments", href: "/payments", icon: CreditCard, status: "coming-soon" },
       { label: "Work Orders", href: "/work-orders", icon: ClipboardCheck, resource: "work_orders" },
     ],

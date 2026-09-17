@@ -100,6 +100,12 @@ export class ServiceAreasRepository {
       // read-modify-full-Put, so the next edit of the area DELETES it — as can
       // the boot self-heal, with nobody touching anything.
       ...(item.callerId ? { callerId: item.callerId as string } : {}),
+      // Same full-Put hazard as callerId. (The legacy `defaultTaxRateId` is
+      // deliberately NOT mapped — `backfill:area-taxes` converts it into `tax`.)
+      ...(item.tax ? { tax: item.tax as NonNullable<ServiceArea['tax']> } : {}),
+      ...(item.defaultBusinessProfileId
+        ? { defaultBusinessProfileId: item.defaultBusinessProfileId as string }
+        : {}),
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

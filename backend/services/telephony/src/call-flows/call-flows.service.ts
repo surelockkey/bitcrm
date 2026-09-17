@@ -13,6 +13,14 @@ import {
   type CallFlowNode,
 } from '@bitcrm/types';
 
+/**
+ * Telephony runs without a global ValidationPipe, so the body is raw JSON:
+ * anything but a non-blank string means "no company".
+ */
+function normalizeCompanyId(raw: unknown): string | undefined {
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
+}
+
 /** Every step this one can lead to — `next` plus whatever branches it has. */
 function exitsOf(node: CallFlowNode): string[] {
   const exits: (string | undefined)[] = [node.next];
@@ -82,6 +90,7 @@ export class CallFlowsService {
     await this.validateGraph(nodes, entryNodeId, active, numbers);
 
     const now = new Date().toISOString();
+    const businessProfileId = normalizeCompanyId(dto.businessProfileId);
     const flow: CallFlow = {
       id: randomUUID(),
       name,
@@ -90,6 +99,7 @@ export class CallFlowsService {
       entryNodeId,
       nodes,
       active,
+      ...(businessProfileId && { businessProfileId }),
       version: 1,
       createdBy: caller.id,
       createdAt: now,
@@ -108,7 +118,13 @@ export class CallFlowsService {
     caller: { id: string },
   ): Promise<CallFlow> {
     return this.create(
-      { ...this.simpleGraph(dto), name: dto.name, numbers: dto.numbers, active: dto.active },
+      {
+        ...this.simpleGraph(dto),
+        name: dto.name,
+        numbers: dto.numbers,
+        active: dto.active,
+        businessProfileId: dto.businessProfileId,
+      },
       caller,
     );
   }
@@ -120,7 +136,13 @@ export class CallFlowsService {
   ): Promise<CallFlow> {
     return this.update(
       id,
-      { ...this.simpleGraph(dto), name: dto.name, numbers: dto.numbers, active: dto.active },
+      {
+        ...this.simpleGraph(dto),
+        name: dto.name,
+        numbers: dto.numbers,
+        active: dto.active,
+        businessProfileId: dto.businessProfileId,
+      },
       caller,
     );
   }
@@ -195,6 +217,12 @@ export class CallFlowsService {
       updatedBy: caller.id,
       updatedAt: new Date().toISOString(),
     };
+    // undefined keeps the company; null / blank clears it.
+    if (dto.businessProfileId !== undefined) {
+      const businessProfileId = normalizeCompanyId(dto.businessProfileId);
+      if (businessProfileId) updated.businessProfileId = businessProfileId;
+      else delete updated.businessProfileId;
+    }
     await this.repository.put(updated);
     return updated;
   }

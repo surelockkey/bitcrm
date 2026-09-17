@@ -14,15 +14,18 @@ import { PresenceModule } from '../presence/presence.module';
 import { TelephonyModule } from '../telephony/telephony.module';
 import { NumbersModule } from '../numbers/numbers.module';
 import { VoiceModule } from '../voice/voice.module';
+import { CallFlowsModule } from '../call-flows/call-flows.module';
 
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
-  // NumbersModule: per-number source assignments for call attribution.
+  // NumbersModule: per-number source/company assignments for call attribution;
+  // CallFlowsModule: the flow answering a number (company fallback).
   imports: [
     TelephonyModule,
     PresenceModule,
     NumbersModule,
+    CallFlowsModule,
     forwardRef(() => VoiceModule),
   ],
   controllers: [CallsController],

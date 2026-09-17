@@ -1,5 +1,5 @@
 import {
-  IsString, IsOptional, IsEnum, IsArray, IsObject,
+  IsString, IsOptional, IsBoolean, MaxLength, IsEnum, IsArray, IsObject,
   ArrayMinSize, ArrayMaxSize, MinLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -72,4 +72,18 @@ export class UpdateContactDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Tax-exempt client: new jobs and estimates carry no tax.' + (''),
+  })
+  @IsOptional()
+  @IsBoolean()
+  taxExempt?: boolean;
+
+  @ApiPropertyOptional({ example: 'Registered non-profit', maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  taxExemptReason?: string;
 }

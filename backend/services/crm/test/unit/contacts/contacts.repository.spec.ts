@@ -65,6 +65,18 @@ describe('ContactsRepository', () => {
       expect(result!.firstName).toBe('John');
     });
 
+    it('maps taxExempt and taxExemptReason', async () => {
+      const contact = createMockContact({ taxExempt: true, taxExemptReason: 'Non-profit' });
+      dynamoDb.client.send.mockResolvedValue({
+        Item: { ...contact, PK: `CONTACT#${contact.id}`, SK: 'METADATA' },
+      });
+
+      const result = await repository.findById('contact-1');
+
+      expect(result!.taxExempt).toBe(true);
+      expect(result!.taxExemptReason).toBe('Non-profit');
+    });
+
     it('should return null when not found', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: undefined });
 

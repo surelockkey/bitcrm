@@ -1,4 +1,4 @@
-import { IsString, IsNumber, Min, IsOptional, IsIn } from 'class-validator';
+import { IsString, IsNumber, Min, IsOptional, IsIn, IsBoolean, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { type DealProductFulfillment } from '@bitcrm/types';
 
@@ -53,4 +53,20 @@ export class AddDealProductDto {
   @ApiProperty({ example: 45.0 })
   @IsNumber()
   priceClient!: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      "Whether the job's tax applies to this line. Defaults to the catalog product's " +
+      'flag (itself defaulting to true); an edit keeps the line\'s current value.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  taxable?: boolean;
+
+  @ApiPropertyOptional({ example: 'Front door, keyed alike', maxLength: 2000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
 }

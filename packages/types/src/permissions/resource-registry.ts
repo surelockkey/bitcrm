@@ -55,6 +55,13 @@ export const RESOURCE_REGISTRY = {
   // Staff chat: technician threads (in-app + SMS to their phone) and groups.
   team_chat: ['view', 'send', 'manage_groups'],
   message_templates: ['view', 'create', 'edit', 'delete'],
+  // Billing (Workiz invoices/estimates model).
+  tax_rates: ['view', 'create', 'edit', 'delete'],
+  invoices: ['view', 'create', 'edit', 'delete', 'send'],
+  // `sync` = overwrite the job's items with an estimate's items.
+  estimates: ['view', 'create', 'edit', 'delete', 'send', 'sync'],
+  // Settings → Documents: PDF templates + business profile.
+  document_templates: ['view', 'edit'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

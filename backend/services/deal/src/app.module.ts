@@ -17,6 +17,7 @@ import { AppController } from './app.controller';
 import { DealsModule } from './deals/deals.module';
 import { DealsEventHandler } from './deals/deals.event-handler';
 import { ServiceAreasModule } from './service-areas/service-areas.module';
+import { TaxRatesModule } from './tax-rates/tax-rates.module';
 import { JobTypesModule } from './job-types/job-types.module';
 import { JobSourcesModule } from './job-sources/job-sources.module';
 import { ExternalCompaniesModule } from './external-companies/external-companies.module';
@@ -77,6 +78,9 @@ const AWS_ENDPOINT = process.env.AWS_ENDPOINT;
     // The catalog modules must register before DealsModule: their collection
     // routes (GET /service-areas, GET /job-types) would otherwise be shadowed by
     // DealsController's `GET /:id` under the shared `api/deals` prefix.
+    // TaxRatesModule also owns `GET internal/tax-rates`, which DealsController's
+    // `GET internal/:id` would otherwise capture.
+    TaxRatesModule,
     ServiceAreasModule,
     JobTypesModule,
     JobSourcesModule,

@@ -94,6 +94,12 @@ export interface CallRecord {
    * once, so re-assigning a number later never rewrites past calls.
    */
   sourceId?: string;
+  /**
+   * Company (billing business profile) the call belongs to — the tracked
+   * number's own setting, else the flow answering that number. Stamped with
+   * `sourceId` and never rewritten once set.
+   */
+  businessProfileId?: string;
   /** Talk time (endedAt − answeredAt), seconds. */
   durationSeconds?: number;
   startedAt: string;
@@ -234,6 +240,7 @@ export class CallsRepository {
       ['origin', rec.origin],
       ['callerIdSource', rec.callerIdSource],
       ['sourceId', rec.sourceId],
+      ['businessProfileId', rec.businessProfileId],
     ];
     for (const [field, value] of optional) {
       // Empty strings guard against Twilio callbacks that report blank

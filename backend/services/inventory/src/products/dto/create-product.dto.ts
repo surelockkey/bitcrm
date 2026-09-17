@@ -51,6 +51,14 @@ export class CreateProductDto {
   @Min(0)
   priceClient!: number;
 
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Default `taxable` flag copied onto job/estimate lines. Defaults to true.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  taxable?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

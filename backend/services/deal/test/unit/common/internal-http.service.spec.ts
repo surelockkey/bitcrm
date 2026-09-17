@@ -45,6 +45,31 @@ describe('InternalHttpService', () => {
     });
   });
 
+  describe('getContact / getCompany', () => {
+    it('reads the contact over the internal CRM route', async () => {
+      crmGet.mockResolvedValue({ data: { success: true, data: { id: 'contact-1', taxExempt: true } } });
+      const contact = await service.getContact('contact-1');
+      expect(contact).toEqual({ id: 'contact-1', taxExempt: true });
+      expect(crmGet).toHaveBeenCalledWith('/api/crm/contacts/internal/contact-1');
+    });
+
+    it('reads the company over the internal CRM route', async () => {
+      crmGet.mockResolvedValue({ data: { success: true, data: { id: 'co-1', taxExempt: false } } });
+      const company = await service.getCompany('co-1');
+      expect(company).toEqual({ id: 'co-1', taxExempt: false });
+      expect(crmGet).toHaveBeenCalledWith('/api/crm/companies/internal/co-1');
+    });
+
+    it('returns null on 404 and throws otherwise', async () => {
+      crmGet.mockRejectedValueOnce({ response: { status: 404 } });
+      expect(await service.getContact('gone')).toBeNull();
+      crmGet.mockRejectedValueOnce({ response: { status: 404 } });
+      expect(await service.getCompany('gone')).toBeNull();
+      crmGet.mockRejectedValueOnce(new Error('down'));
+      await expect(service.getCompany('co-1')).rejects.toThrow();
+    });
+  });
+
   describe('listAssignableTechnicians', () => {
     it('returns the assignable technicians from user service', async () => {
       const techs = [{ technicianId: 'tech-1', assignable: true, jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] }];

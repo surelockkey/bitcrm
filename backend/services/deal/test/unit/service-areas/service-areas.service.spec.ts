@@ -326,3 +326,96 @@ describe('ServiceAreasService — market caller id', () => {
     );
   });
 });
+
+describe('ServiceAreasService — sales tax and default company', () => {
+  let repo: ReturnType<typeof createMockServiceAreasRepository>;
+  let companies: { resolve: jest.Mock };
+  let service: ServiceAreasService;
+  const caller = createMockJwtUser();
+  const zips = { type: ServiceAreaType.ZIPS, zips: [{ zip: '30301' }] };
+
+  beforeEach(() => {
+    repo = createMockServiceAreasRepository();
+    companies = {
+      resolve: jest.fn(async (id: string) => {
+        if (id === 'missing') throw new BadRequestException('Company missing not found');
+        return { id, name: 'Acme' };
+      }),
+    };
+    const geocoding = createMockGeocodingService();
+    geocoding.geocode.mockResolvedValue({ lat: 33.75, lng: -84.39 });
+    service = new ServiceAreasService(
+      repo as any,
+      geocoding as any,
+      createMockSnsPublisherService() as any,
+      undefined,
+      companies as any,
+    );
+  });
+
+  it('stores a trimmed tax on create', async () => {
+    const area = await service.create(
+      { name: 'CT', ...zips, tax: { name: '  CT Sales Tax ', ratePercent: 6.35 } } as any,
+      caller,
+    );
+    expect(area.tax).toEqual({ name: 'CT Sales Tax', ratePercent: 6.35 });
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ tax: { name: 'CT Sales Tax', ratePercent: 6.35 } }),
+    );
+  });
+
+  it.each([
+    [{ name: '', ratePercent: 5 }],
+    [{ name: 'x'.repeat(61), ratePercent: 5 }],
+    [{ name: 'Tax', ratePercent: -1 }],
+    [{ name: 'Tax', ratePercent: 100.5 }],
+    [{ name: 'Tax', ratePercent: 1.2345 }],
+    [{ name: 'Tax' }],
+  ])('rejects an invalid tax %j', async (tax) => {
+    await expect(service.create({ name: 'CT', ...zips, tax } as any, caller)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it('accepts 0% and 3 decimals', async () => {
+    expect((await service.create({ name: 'A', ...zips, tax: { name: 'Zero', ratePercent: 0 } } as any, caller)).tax)
+      .toEqual({ name: 'Zero', ratePercent: 0 });
+    expect((await service.create({ name: 'B', ...zips, tax: { name: 'NY', ratePercent: 8.875 } } as any, caller)).tax)
+      .toEqual({ name: 'NY', ratePercent: 8.875 });
+  });
+
+  it('sets, keeps and clears the tax on update', async () => {
+    repo.get.mockResolvedValue(createMockServiceArea({ tax: { name: 'Old', ratePercent: 5 } }));
+
+    expect((await service.update('area-1', { name: 'X' } as any, caller)).tax).toEqual({ name: 'Old', ratePercent: 5 });
+    expect((await service.update('area-1', { tax: { name: 'New', ratePercent: 7 } } as any, caller)).tax)
+      .toEqual({ name: 'New', ratePercent: 7 });
+    const cleared = await service.update('area-1', { tax: null } as any, caller);
+    expect(cleared).not.toHaveProperty('tax');
+    expect(repo.put).toHaveBeenLastCalledWith(expect.not.objectContaining({ tax: expect.anything() }));
+  });
+
+  it('validates and stores the default company', async () => {
+    const area = await service.create({ name: 'A', ...zips, defaultBusinessProfileId: 'bp-2' } as any, caller);
+    expect(area.defaultBusinessProfileId).toBe('bp-2');
+    expect(companies.resolve).toHaveBeenCalledWith('bp-2');
+
+    await expect(
+      service.create({ name: 'B', ...zips, defaultBusinessProfileId: 'missing' } as any, caller),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('keeps, changes and clears the default company on update', async () => {
+    repo.get.mockResolvedValue(createMockServiceArea({ defaultBusinessProfileId: 'bp-1' }));
+
+    expect((await service.update('area-1', { name: 'X' } as any, caller)).defaultBusinessProfileId).toBe('bp-1');
+    expect(companies.resolve).not.toHaveBeenCalled();
+    expect((await service.update('area-1', { defaultBusinessProfileId: 'bp-3' } as any, caller)).defaultBusinessProfileId)
+      .toBe('bp-3');
+    expect(await service.update('area-1', { defaultBusinessProfileId: null } as any, caller))
+      .not.toHaveProperty('defaultBusinessProfileId');
+    expect(await service.update('area-1', { defaultBusinessProfileId: '' } as any, caller))
+      .not.toHaveProperty('defaultBusinessProfileId');
+  });
+});

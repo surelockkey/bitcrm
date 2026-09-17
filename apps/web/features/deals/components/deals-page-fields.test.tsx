@@ -69,6 +69,14 @@ vi.mock("@/features/external-companies/lib", () => ({ useExternalCompanyName: ()
 vi.mock("@/features/job-sources/lib", () => ({ useJobSourceName: () => () => "—" }));
 vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "—" }));
 vi.mock("./deal-quick-view", () => ({ DealQuickView: () => null }));
+vi.mock("@/features/business-profiles/hooks", () => ({
+  useBusinessProfiles: () => ({
+    data: [
+      { id: "bp-default", name: "SureLock", isDefault: true, active: true },
+      { id: "bp-2", name: "KeyPro", isDefault: false, active: true },
+    ],
+  }),
+}));
 
 const contact: Contact = {
   id: "c1",
@@ -342,5 +350,26 @@ describe("DealsPage fields visibility", () => {
     render(<DealsPage />);
     expect(screen.queryByRole("columnheader", { name: "Scheduled" })).toBeNull();
     expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();
+  });
+});
+
+describe("DealsPage company filter", () => {
+  afterEach(() => {
+    mocks.deals = [deal];
+  });
+
+  it("narrows the table to one company", async () => {
+    mocks.deals = [
+      { ...deal, id: "d1", dealNumber: "A11111", businessProfileId: "bp-default" },
+      { ...deal, id: "d2", dealNumber: "B22222", businessProfileId: "bp-2" },
+    ];
+    const u = userEvent.setup();
+    render(<DealsPage />);
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+    await u.click(screen.getByRole("combobox", { name: "Company filter" }));
+    await u.click(await screen.findByRole("option", { name: "KeyPro" }));
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("B22222");
   });
 });

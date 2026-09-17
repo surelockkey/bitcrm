@@ -27,6 +27,7 @@ import { CallClientButton } from "@/features/telephony/components/call-client-bu
 import { PartyChat } from "@/features/messaging/components/party-chat";
 import { TextButton } from "@/features/messaging/components/text-button";
 import { EmptyState } from "./contacts-page";
+import { ClientEstimatesList, ClientInvoicesList } from "@/features/billing/components/client-documents";
 
 export function CompanyDetailPage({ companyId }: { companyId: string }) {
   const router = useRouter();
@@ -89,6 +90,8 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
                 <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
                 <TabsTrigger value="contacts" className="px-2">Contacts · {roster.length}</TabsTrigger>
                 <TabsTrigger value="compliance" className="px-2">Compliance</TabsTrigger>
+                {can("estimates") ? <TabsTrigger value="estimates" className="px-2">Estimates</TabsTrigger> : null}
+                {can("invoices") ? <TabsTrigger value="invoices" className="px-2">Invoices</TabsTrigger> : null}
                 {can("messages") ? <TabsTrigger value="messages" className="px-2">Messages</TabsTrigger> : null}
               </TabsList>
             </div>
@@ -140,6 +143,20 @@ export function CompanyDetailPage({ companyId }: { companyId: string }) {
             <TabsContent value="compliance" className="mt-0 p-6">
               <CompanyComplianceTab company={company} />
             </TabsContent>
+
+            {can("estimates") ? (
+              <TabsContent value="estimates" className="mt-0 max-w-3xl p-6">
+                <p className="mb-3 text-sm text-muted-foreground">Estimates for everyone at {company.title}</p>
+                {contacts.isLoading ? <Skeleton className="h-20 w-full" /> : <ClientEstimatesList contactIds={roster.map((c) => c.id)} />}
+              </TabsContent>
+            ) : null}
+
+            {can("invoices") ? (
+              <TabsContent value="invoices" className="mt-0 max-w-3xl p-6">
+                <p className="mb-3 text-sm text-muted-foreground">Invoices for everyone at {company.title}</p>
+                {contacts.isLoading ? <Skeleton className="h-20 w-full" /> : <ClientInvoicesList contactIds={roster.map((c) => c.id)} />}
+              </TabsContent>
+            ) : null}
 
             {can("messages") ? (
               <TabsContent value="messages" className="mt-0 p-6">

@@ -20,11 +20,17 @@ import { DealsEventHandler } from './deals.event-handler';
 import { DealAttachmentsController } from './attachments/deal-attachments.controller';
 import { DealAttachmentsService } from './attachments/deal-attachments.service';
 import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
+import { TaxRatesModule } from '../tax-rates/tax-rates.module';
+import { BusinessProfilesClientModule } from '../common/services/business-profiles.module';
+import { DealBillingController } from './billing/deal-billing.controller';
+import { DealBillingService } from './billing/deal-billing.service';
+import { DealTaxResolver } from './billing/deal-tax.resolver';
 
 @Module({
-  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule],
-  // Attachments controller before Deals so `/:id/attachments` isn't shadowed by `/:id`.
-  controllers: [DealAttachmentsController, DealsController],
+  imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
+  // Attachments and billing controllers before Deals so their `/:id/...` and
+  // `internal/:id/...` routes are matched ahead of DealsController's.
+  controllers: [DealAttachmentsController, DealBillingController, DealsController],
   providers: [
     DealsService,
     DealsRepository,
@@ -36,6 +42,8 @@ import { DealAttachmentsRepository } from './attachments/deal-attachments.reposi
     DealsEventHandler,
     DealAttachmentsService,
     DealAttachmentsRepository,
+    DealTaxResolver,
+    DealBillingService,
   ],
   exports: [DealsService, DealsEventHandler],
 })

@@ -12,6 +12,7 @@ import {
   statusTone,
   recentCallerIds,
   formatCallAgo,
+  newJobHref,
 } from "./lib";
 import type { CallRecord } from "./lib";
 
@@ -292,5 +293,40 @@ describe("formatCallAgo", () => {
 
   it("renders a dash for nothing at all", () => {
     expect(formatCallAgo(undefined)).toBe("—");
+  });
+});
+
+describe("newJobHref", () => {
+  const base = {
+    callSid: "CA1",
+    status: "completed",
+    direction: "inbound",
+    from: "+14045551234",
+    to: "+15412830739",
+    startedAt: "",
+    updatedAt: "",
+  } as unknown as CallRecord;
+
+  it("carries the call, client, source and company", () => {
+    const href = newJobHref({
+      ...base,
+      sourceId: "src-1",
+      businessProfileId: "bp-2",
+      fromParty: { kind: "contact", id: "c9", name: "Jane" },
+    } as CallRecord);
+    const qs = new URLSearchParams(href.split("?")[1]);
+    expect(href.startsWith("/deals/new?")).toBe(true);
+    expect(qs.get("callSid")).toBe("CA1");
+    expect(qs.get("contactId")).toBe("c9");
+    expect(qs.get("sourceId")).toBe("src-1");
+    expect(qs.get("companyId")).toBe("bp-2");
+  });
+
+  it("falls back to the number and omits unknown attribution", () => {
+    const qs = new URLSearchParams(newJobHref(base).split("?")[1]);
+    expect(qs.get("phone")).toBe("+14045551234");
+    expect(qs.has("contactId")).toBe(false);
+    expect(qs.has("sourceId")).toBe(false);
+    expect(qs.has("companyId")).toBe(false);
   });
 });

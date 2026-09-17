@@ -86,6 +86,8 @@ const deal: Deal = {
   createdBy: "u1",
   createdAt: "",
   updatedAt: "",
+  businessProfileId: "bp-2",
+  businessProfileName: "KeyPro",
 };
 
 vi.mock("../hooks", () => ({
@@ -120,5 +122,11 @@ describe("DealQuickView", () => {
 
     const link = screen.getByRole("link", { name: "Jane Smith" });
     expect(link).toHaveAttribute("href", "/contacts/c1");
+  });
+
+  it("shows the job's company", () => {
+    render(<DealQuickView dealId="d1" open onOpenChange={() => {}} />);
+    expect(screen.getByText("Company")).toBeInTheDocument();
+    expect(screen.getByText("KeyPro")).toBeInTheDocument();
   });
 });

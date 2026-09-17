@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { fetchAllProducts } from "@/features/inventory/warehouses/api";
@@ -130,7 +132,12 @@ export function AddProductDialog({
             submitLabel={isEdit ? "Save" : undefined}
             initial={
               editing && current.id === editing.productId
-                ? { quantity: editing.quantity, price: editing.priceClient }
+                ? {
+                    quantity: editing.quantity,
+                    price: editing.priceClient,
+                    taxable: editing.taxable,
+                    description: editing.description,
+                  }
                 : undefined
             }
             onBack={() => { setPicked(null); setChangingItem(true); }}
@@ -261,13 +268,16 @@ function Configure({
   backLabel?: string;
   submitLabel?: string;
   /** Prefill when reconfiguring an existing line (edit mode, same product). */
-  initial?: { quantity: number; price: number };
+  initial?: { quantity: number; price: number; taxable?: boolean; description?: string };
   onBack: () => void;
   onAdd: (v: AddProductValues) => void;
 }) {
   const isService = product.type === ProductType.SERVICE;
   const [qty, setQty] = useState(initial?.quantity ?? 1);
   const [price, setPrice] = useState(initial?.price ?? product.priceClient);
+  // Absent flags mean taxable — on the line and on the catalog product alike.
+  const [taxable, setTaxable] = useState(initial ? initial.taxable !== false : product.taxable !== false);
+  const [description, setDescription] = useState(initial?.description ?? "");
   const { min, max } = priceRange(product.priceClient);
   const inBand = isPriceInBand(price, product.priceClient);
 
@@ -284,6 +294,8 @@ function Configure({
     costCompany: product.costCompany,
     costForTech: product.costTech,
     priceClient: price,
+    taxable,
+    description: description.trim() || undefined,
   };
 
   const submit = () => {
@@ -324,6 +336,26 @@ function Configure({
             Allowed {formatMoney(min)}–{formatMoney(max)} (±15%)
           </p>
         </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="line-description">
+          Description <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <Textarea
+          id="line-description"
+          rows={2}
+          maxLength={1000}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Shown to the client on estimates and invoices"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+        <Label htmlFor="line-taxable" className="flex flex-col items-start gap-0.5">
+          <span>Taxable</span>
+          <span className="text-[11px] font-normal text-muted-foreground">Apply the job&apos;s tax rate to this item.</span>
+        </Label>
+        <Switch id="line-taxable" checked={taxable} onCheckedChange={setTaxable} />
       </div>
       {mustOrder ? (
         <div className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-700 dark:text-amber-400">

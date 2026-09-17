@@ -259,6 +259,8 @@ export class ContactsRepository {
       title: item.title as string | undefined,
       source: item.source as Contact['source'],
       notes: item.notes as string | undefined,
+      taxExempt: item.taxExempt as boolean | undefined,
+      taxExemptReason: item.taxExemptReason as string | undefined,
       status: item.status as Contact['status'],
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,

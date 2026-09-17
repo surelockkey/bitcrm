@@ -7,6 +7,7 @@ jest.mock('../../src/common/constants/dynamo.constants', () => ({
 }));
 
 import {
+  BadRequestException,
   CanActivate,
   ExecutionContext,
   Global,
@@ -31,10 +32,12 @@ import {
 import { type JwtUser } from '@bitcrm/types';
 import { DealsModule } from 'src/deals/deals.module';
 import { ServiceAreasModule } from 'src/service-areas/service-areas.module';
+import { TaxRatesModule } from 'src/tax-rates/tax-rates.module';
 import { JobTypesModule } from 'src/job-types/job-types.module';
 import { JobTypesService } from 'src/job-types/job-types.service';
 import { CustomFieldsModule } from 'src/custom-fields/custom-fields.module';
 import { InternalHttpService } from 'src/common/services/internal-http.service';
+import { BusinessProfilesClient } from 'src/common/services/business-profiles.client';
 import {
   createTestTables,
   clearTestTable,
@@ -97,6 +100,9 @@ const mockInternalHttpService = {
     .mockResolvedValue({ technicianId: '', assignable: false, jobTypeIds: [], serviceAreaIds: [] }),
   deductStock: jest.fn().mockResolvedValue(undefined),
   restoreStock: jest.fn().mockResolvedValue(undefined),
+  // Tax resolution reads the client; null = not found (→ not exempt).
+  getContact: jest.fn().mockResolvedValue(null),
+  getCompany: jest.fn().mockResolvedValue(null),
   // Default: the referenced product exists and is a stockable product-type.
   // Individual tests override this (e.g. to return a service-type product).
   getProduct: jest.fn().mockResolvedValue({
@@ -104,6 +110,27 @@ const mockInternalHttpService = {
     name: 'Test Product',
     sku: 'SKU-1',
     type: 'product',
+  }),
+};
+
+// ---------------------------------------------------------------------------
+// Mock billing company list (no real billing calls)
+// ---------------------------------------------------------------------------
+export const E2E_COMPANIES = [
+  { id: 'bp-default', name: 'Default Co', isDefault: true, active: true },
+  { id: 'bp-north', name: 'North Co', isDefault: false, active: true },
+  { id: 'bp-old', name: 'Old Co', isDefault: false, active: false },
+];
+const mockBusinessProfilesClient = {
+  list: jest.fn(async () => E2E_COMPANIES),
+  clearCache: jest.fn(),
+  findDefault: jest.fn(async () => E2E_COMPANIES[0]),
+  resolve: jest.fn(async (id: string, opts: { allowInactive?: boolean } = {}) => {
+    const hit = E2E_COMPANIES.find((c) => c.id === id);
+    if (!hit || (!hit.active && !opts.allowInactive)) {
+      throw new BadRequestException(`Company ${id} not found`);
+    }
+    return { id: hit.id, name: hit.name };
   }),
 };
 
@@ -129,6 +156,7 @@ const superAdminPermissions = {
     job_sources: { view: true, create: true, edit: true, delete: true },
     job_tags: { view: true, create: true, edit: true, delete: true },
     custom_fields: { view: true, create: true, edit: true, delete: true },
+    tax_rates: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -142,6 +170,7 @@ const adminPermissions = {
     job_sources: { view: true, create: true, edit: true, delete: true },
     job_tags: { view: true, create: true, edit: true, delete: true },
     custom_fields: { view: true, create: true, edit: true, delete: true },
+    tax_rates: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: ['*->*'],
@@ -155,6 +184,7 @@ const dispatcherPermissions = {
     job_sources: { view: true, create: false, edit: false, delete: false },
     job_tags: { view: true, create: false, edit: false, delete: false },
     custom_fields: { view: true, create: false, edit: false, delete: false },
+    tax_rates: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'department' },
   dealStageTransitions: [
@@ -171,6 +201,7 @@ const techPermissions = {
     job_sources: { view: true, create: false, edit: false, delete: false },
     job_tags: { view: true, create: false, edit: false, delete: false },
     custom_fields: { view: true, create: false, edit: false, delete: false },
+    tax_rates: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'assigned_only' },
   dealStageTransitions: [
@@ -187,6 +218,7 @@ const readOnlyPermissions = {
     job_sources: { view: true, create: false, edit: false, delete: false },
     job_tags: { view: true, create: false, edit: false, delete: false },
     custom_fields: { view: true, create: false, edit: false, delete: false },
+    tax_rates: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: { deals: 'all' },
   dealStageTransitions: [],
@@ -216,6 +248,7 @@ export async function setupApp(): Promise<INestApplication> {
       TestPermissionModule,
       // Register before DealsModule so GET /service-areas isn't shadowed by
       // DealsController's GET /:id (see app.module.ts for the rationale).
+      TaxRatesModule,
       ServiceAreasModule,
       JobTypesModule,
       CustomFieldsModule,
@@ -228,6 +261,8 @@ export async function setupApp(): Promise<INestApplication> {
   })
     .overrideProvider(InternalHttpService)
     .useValue(mockInternalHttpService)
+    .overrideProvider(BusinessProfilesClient)
+    .useValue(mockBusinessProfilesClient)
     // e2e must never call Google. Returning null models "address not resolvable":
     // coordinates the caller supplies are kept, none are invented.
     .overrideProvider(GeocodingService)

@@ -6,7 +6,7 @@ import { PhoneNumbersPage } from "./phone-numbers-page";
 const mocks = vi.hoisted(() => ({
   can: vi.fn(() => true),
   numbers: [] as unknown[],
-  settings: [{ phoneNumber: "+14045551234", sourceId: "src-google-ads" }],
+  settings: [{ phoneNumber: "+14045551234", sourceId: "src-google-ads", businessProfileId: "bp-2" }],
   setTechLine: vi.fn(),
   release: vi.fn(),
   updateSettings: vi.fn(),
@@ -46,6 +46,27 @@ vi.mock("@/features/job-sources/components/job-source-select", () => ({
     <button type="button" onClick={() => onChange("src-picked")}>
       source:{value ?? "none"}
     </button>
+  ),
+}));
+
+vi.mock("@/features/business-profiles/components/business-profile-select", () => ({
+  BusinessProfileSelect: ({
+    value,
+    onChange,
+    noneLabel,
+  }: {
+    value?: string | null;
+    onChange: (v: string | null) => void;
+    noneLabel?: string;
+  }) => (
+    <span>
+      <button type="button" onClick={() => onChange("bp-picked")}>
+        company:{value ?? "none"}
+      </button>
+      <button type="button" onClick={() => onChange(null)}>
+        {noneLabel}:{value ?? "none"}
+      </button>
+    </span>
   ),
 }));
 
@@ -138,6 +159,37 @@ describe("PhoneNumbersPage — job source per number", () => {
     expect(mocks.updateSettings).toHaveBeenCalledWith({
       phoneNumber: "+15412830739",
       sourceId: "src-picked",
+    });
+  });
+});
+
+describe("PhoneNumbersPage — company per number", () => {
+  it("shows a Company column next to Job source with each number's override", () => {
+    render(<PhoneNumbersPage />);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers.indexOf("Company")).toBe(headers.indexOf("Job source") + 1);
+    expect(screen.getByText("company:bp-2")).toBeInTheDocument();
+    expect(screen.getByText("company:none")).toBeInTheDocument();
+    expect(screen.getByTitle("Overrides the call flow's company")).toBeInTheDocument();
+  });
+
+  it("saves only the company, leaving the source alone", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+    await u.click(screen.getByText("company:none"));
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      phoneNumber: "+15412830739",
+      businessProfileId: "bp-picked",
+    });
+  });
+
+  it("clears the override back to the call flow's company", async () => {
+    const u = userEvent.setup();
+    render(<PhoneNumbersPage />);
+    await u.click(screen.getByText("Call flow's company:bp-2"));
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      phoneNumber: "+14045551234",
+      businessProfileId: null,
     });
   });
 });

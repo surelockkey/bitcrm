@@ -1,0 +1,43 @@
+{
+  "family": "bitcrm-dev-billing",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "2048",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "executionRoleArn": "${EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${TASK_ROLE_ARN}",
+  "containerDefinitions": [
+    {
+      "name": "billing",
+      "image": "${IMAGE}",
+      "essential": true,
+      "portMappings": [
+        {
+          "name": "billing",
+          "containerPort": 4008,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/bitcrm-dev-billing",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "environment": [
+        {
+          "name": "PUPPETEER_EXECUTABLE_PATH",
+          "value": "/usr/bin/chromium-browser"
+        }
+      ]
+    }
+  ]
+}

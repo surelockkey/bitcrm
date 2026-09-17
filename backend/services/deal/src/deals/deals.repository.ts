@@ -34,12 +34,15 @@ export interface PaginatedResult {
 export interface DealFilters {
   jobTypeId?: string;
   sourceId?: string;
+  businessProfileId?: string;
   serviceArea?: string;
   clientType?: string;
   priority?: string;
   tagIds?: string[];
   /** Random 6-char code (string) or legacy sequential id (number, stored as-is). */
   dealNumber?: string | number;
+  /** Billing: jobs with at least one line item and no invoice yet. */
+  needsInvoice?: boolean;
 }
 
 /**
@@ -79,10 +82,18 @@ export class DealsRepository {
     };
     if (filters?.jobTypeId) eq('jobTypeId', filters.jobTypeId);
     if (filters?.sourceId) eq('sourceId', filters.sourceId);
+    if (filters?.businessProfileId) eq('businessProfileId', filters.businessProfileId);
     if (filters?.serviceArea) eq('serviceArea', filters.serviceArea);
     if (filters?.clientType) eq('clientType', filters.clientType);
     if (filters?.priority) eq('priority', filters.priority);
     if (filters?.dealNumber !== undefined) eq('dealNumber', filters.dealNumber);
+    if (filters?.needsInvoice) {
+      // Legacy rows without `itemCount` don't match until the backfill runs.
+      parts.push('#itemCount > :zeroItems', 'attribute_not_exists(#invoiceId)');
+      names['#itemCount'] = 'itemCount';
+      names['#invoiceId'] = 'invoiceId';
+      values[':zeroItems'] = 0;
+    }
     if (filters?.tagIds?.length) {
       names['#tagIds'] = 'tagIds';
       filters.tagIds.forEach((t, i) => {
@@ -102,11 +113,13 @@ export class DealsRepository {
     if (deal.status !== status) return false;
     if (filters?.jobTypeId && deal.jobTypeId !== filters.jobTypeId) return false;
     if (filters?.sourceId && deal.sourceId !== filters.sourceId) return false;
+    if (filters?.businessProfileId && deal.businessProfileId !== filters.businessProfileId) return false;
     if (filters?.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
     if (filters?.clientType && deal.clientType !== filters.clientType) return false;
     if (filters?.priority && deal.priority !== filters.priority) return false;
     if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    if (filters?.needsInvoice && (!(deal.itemCount && deal.itemCount > 0) || deal.invoiceId)) return false;
     return true;
   }
 
@@ -495,6 +508,8 @@ export class DealsRepository {
       sequences: (item.sequences as Record<string, number>) || {},
       priority: item.priority as Deal['priority'],
       sourceId: item.sourceId as string | undefined,
+      businessProfileId: item.businessProfileId as string | undefined,
+      businessProfileName: item.businessProfileName as string | undefined,
       externalCompanyId: item.externalCompanyId as string | undefined,
       clientName: item.clientName as Deal['clientName'] | undefined,
       workOrderId: item.workOrderId as string | undefined,
@@ -505,6 +520,13 @@ export class DealsRepository {
       tagIds: (item.tagIds as string[]) || [],
       customFields: item.customFields as Deal['customFields'] | undefined,
       subStatusId: (item.subStatusId as string) || undefined,
+      taxRateId: item.taxRateId as string | undefined,
+      taxRateName: item.taxRateName as string | undefined,
+      taxRatePercent: item.taxRatePercent as number | undefined,
+      taxSource: item.taxSource as Deal['taxSource'] | undefined,
+      discount: item.discount as Deal['discount'] | undefined,
+      itemCount: item.itemCount as number | undefined,
+      invoiceId: item.invoiceId as string | undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,
       paymentStatus: item.paymentStatus as string | undefined,

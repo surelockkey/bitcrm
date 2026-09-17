@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { TAX_EXEMPT_REASONS } from "@/features/billing/lib";
 import {
   Select,
   SelectContent,
@@ -63,6 +65,8 @@ export function ContactForm({
           source: contact.source,
           title: contact.title ?? "",
           notes: contact.notes ?? "",
+          taxExempt: contact.taxExempt ?? false,
+          taxExemptReason: contact.taxExemptReason ?? "",
         }
       : {
           firstName: "",
@@ -77,10 +81,13 @@ export function ContactForm({
           source: defaultPhone ? ContactSource.PHONE_CALL : ContactSource.MANUAL,
           title: "",
           notes: "",
+          taxExempt: false,
+          taxExemptReason: "",
         },
   });
 
   const watchedPhone = useWatch({ control: form.control, name: "phones.0" });
+  const taxExempt = useWatch({ control: form.control, name: "taxExempt" });
   const firstPhone = (watchedPhone ?? "").trim();
   const dupe = useContactByPhone(firstPhone, !isEdit && firstPhone.length >= 7);
   // Dedup only surfaces while creating (isEdit === false), so any match is a
@@ -101,6 +108,9 @@ export function ContactForm({
       type: v.type,
       title: v.title || undefined,
       notes: v.notes || undefined,
+      taxExempt: v.taxExempt,
+      // "" clears a stale reason once the client is no longer exempt.
+      taxExemptReason: v.taxExempt ? (v.taxExemptReason ?? "") : "",
     };
     if (isEdit) {
       update.mutate({ id: contact.id, body: base }, { onSuccess: (c) => onDone?.(c) });
@@ -227,6 +237,40 @@ export function ContactForm({
             )}
           />
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-md border px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="contact-tax-exempt" className="flex flex-col items-start gap-0.5">
+            <span>Tax exempt</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              New jobs and estimates for this client carry no tax.
+            </span>
+          </Label>
+          <Controller
+            control={form.control}
+            name="taxExempt"
+            render={({ field }) => (
+              <Switch id="contact-tax-exempt" checked={!!field.value} onCheckedChange={field.onChange} />
+            )}
+          />
+        </div>
+        {taxExempt ? (
+          <Field label="Exemption reason" error={form.formState.errors.taxExemptReason?.message}>
+            <Input
+              className="h-9"
+              list="tax-exempt-reasons"
+              placeholder="e.g. Non-profit"
+              aria-label="Exemption reason"
+              {...form.register("taxExemptReason")}
+            />
+            <datalist id="tax-exempt-reasons">
+              {TAX_EXEMPT_REASONS.map((r) => (
+                <option key={r} value={r} />
+              ))}
+            </datalist>
+          </Field>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">
