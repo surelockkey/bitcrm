@@ -48,7 +48,7 @@ const deal = (over: Partial<Deal> = {}): Deal => ({
 });
 
 describe('JobDetailScreen', () => {
-  const props = { onBack: jest.fn(), onOpenPhotos: jest.fn() };
+  const props = { onBack: jest.fn(), onOpenPhotos: jest.fn(), onOpenChat: jest.fn() };
 
   beforeEach(() => {
     mockDeal = deal();
@@ -57,6 +57,13 @@ describe('JobDetailScreen', () => {
     mockCall.mockReset();
     props.onBack.mockReset();
     props.onOpenPhotos.mockReset();
+    props.onOpenChat.mockReset();
+  });
+
+  it('reaches the office thread in one tap, carrying the job', async () => {
+    await renderScreen(<JobDetailScreen dealId="d1" {...props} />);
+    await fireEvent.press(screen.getByTestId('action-message-office'));
+    expect(props.onOpenChat).toHaveBeenCalledWith('d1');
   });
 
   it.each(['light', 'dark'] as const)('renders the job in the %s theme', async (scheme) => {

@@ -28,6 +28,8 @@ export interface JobDetailScreenProps {
   dealId: string;
   onBack: () => void;
   onOpenPhotos: (dealId: string) => void;
+  /** Opens the office thread with this job attached to whatever is written. */
+  onOpenChat: (dealId: string) => void;
 }
 
 type Sheet = 'none' | 'onMyWay' | 'late';
@@ -47,6 +49,7 @@ export function JobDetailScreen({
   dealId,
   onBack,
   onOpenPhotos,
+  onOpenChat,
 }: JobDetailScreenProps) {
   const { colors, radius, spacing, touch, type } = useTheme();
   const { data: deal, isPending, error, refetch } = useJob(dealId);
@@ -146,6 +149,15 @@ export function JobDetailScreen({
             busy={call.isPending}
             accessibilityHint="Rings your phone, then connects you to the client"
             onPress={() => call.mutate({ dealId, contactId: deal.contactId })}
+          />
+          {/* One tap from the job to the office, with the job carried along —
+              the technician does not have to say which job they mean. */}
+          <Button
+            label="Message the office"
+            testID="action-message-office"
+            variant="secondary"
+            hint="Asks dispatch about this job"
+            onPress={() => onOpenChat(dealId)}
           />
         </View>
 

@@ -24,6 +24,7 @@ export default function JobRoute() {
       dealId={id}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
       onOpenPhotos={(dealId) => router.push(`/jobs/${dealId}/photos`)}
+      onOpenChat={(dealId) => router.push(`/chat/${dealId}`)}
     />
   );
 }
