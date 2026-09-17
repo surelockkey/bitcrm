@@ -6,7 +6,8 @@ import { getMe } from '../auth/api';
 import { saveProfile } from '../auth/profile-store';
 import type { AuthUser } from '../auth/types';
 import { fetchAllDeals, getDeal, markDealSeen } from './api';
-import { groupJobsByDay, localDateIso } from './lib';
+import { dayMarks, visitsOn, type DayMark } from './calendar';
+import { groupJobsForDay, localDateIso } from './lib';
 import { applyPatchToList } from './optimistic';
 import type { Deal } from './types';
 
@@ -38,7 +39,7 @@ export function useMe() {
 }
 
 export interface UseMyJobsResult {
-  groups: ReturnType<typeof groupJobsByDay>;
+  groups: ReturnType<typeof groupJobsForDay>;
   deals: Deal[];
   techId: string | undefined;
   /** False until the technician's own id is known — "loading", not "empty". */
@@ -47,6 +48,10 @@ export interface UseMyJobsResult {
   isRefetching: boolean;
   error: unknown;
   refetch: () => void;
+  /** Visits and "still open" dots per day, for the calendar. */
+  marks: Map<string, DayMark>;
+  /** How many visits the day being shown holds — Workiz's day counter (§1.3). */
+  selectedVisits: number;
 }
 
 /**
@@ -56,8 +61,19 @@ export interface UseMyJobsResult {
  * the caller under the `assigned_only` data scope (deals.service.ts:441-443),
  * so a dispatcher opening this screen without it would pull the entire board
  * onto a phone (docs/ARCHITECTURE.md §1.2).
+ *
+ * Moving between days changes nothing about the request. The whole assigned
+ * set is already on the phone — `GET /deals` has no date filter, so there is
+ * one query and one cache entry for it — and the day is chosen over that, in
+ * memory. Putting the day in the query key instead would fragment the
+ * persisted cache into one entry per date, re-download the same jobs on every
+ * swipe, and leave a technician underground able to see only the day they
+ * happened to be on when the signal died (docs/ARCHITECTURE.md §1.2, §2.2).
  */
-export function useMyJobs(todayIso: string = localDateIso()): UseMyJobsResult {
+export function useMyJobs(
+  todayIso: string = localDateIso(),
+  selectedIso: string = todayIso,
+): UseMyJobsResult {
   const { data: me } = useMe();
   const techId = me?.id;
 
@@ -69,9 +85,10 @@ export function useMyJobs(todayIso: string = localDateIso()): UseMyJobsResult {
 
   const deals = query.data ?? [];
   const groups = useMemo(
-    () => groupJobsByDay(deals, todayIso, techId),
-    [deals, todayIso, techId],
+    () => groupJobsForDay(deals, selectedIso, todayIso, techId),
+    [deals, selectedIso, todayIso, techId],
   );
+  const marks = useMemo(() => dayMarks(deals, todayIso), [deals, todayIso]);
 
   return {
     groups,
@@ -82,6 +99,8 @@ export function useMyJobs(todayIso: string = localDateIso()): UseMyJobsResult {
     isRefetching: query.isRefetching,
     error: query.error,
     refetch: () => void query.refetch(),
+    marks,
+    selectedVisits: visitsOn(deals, selectedIso),
   };
 }
 

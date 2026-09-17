@@ -198,6 +198,43 @@ export function groupJobsByDay(
   return groups;
 }
 
+/**
+ * The list for whichever day the technician has moved to.
+ *
+ * On **today** this is the day list above, unchanged — what is still open from
+ * earlier, today, tomorrow, the days after, then the undated jobs. That view is
+ * where a technician starts and what they work from, and moving days must not
+ * cost them the two groups that only exist there: an overdue job and an undated
+ * one belong to no day, so a screen showing one day at a time would hide them.
+ *
+ * On any other day it is that day and nothing else — Workiz's Schedule tab,
+ * which shows the visits of the date it is on (§1.3). A past day keeps its
+ * closed jobs: the technician navigated there deliberately, and "what did I do
+ * on Tuesday" is the only question that takes them backwards.
+ */
+export function groupJobsForDay(
+  deals: Deal[],
+  selectedIso: string,
+  todayIso: string,
+  techId?: string,
+): JobDayGroup[] {
+  if (selectedIso === todayIso) return groupJobsByDay(deals, todayIso, techId);
+
+  const onDay = deals
+    .filter((d) => d.scheduledDate?.slice(0, 10) === selectedIso)
+    .sort((a, b) => compareVisitOrder(a, b, techId));
+
+  const tomorrowIso = shiftDateIso(todayIso, 1);
+  return [
+    {
+      key: selectedIso === tomorrowIso ? 'tomorrow' : `day:${selectedIso}`,
+      label: selectedIso === tomorrowIso ? 'Tomorrow' : formatDayHeading(selectedIso),
+      dateIso: selectedIso,
+      deals: onDay,
+    },
+  ];
+}
+
 /* --------------------------------------------------------------- address */
 
 /** One-line service address for a card; empty when nothing is filled in. */
