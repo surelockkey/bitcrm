@@ -328,14 +328,33 @@ export interface JobStamp {
 
 /**
  * The three-step receipt on a job card: dispatch **sent** it, the technician
- * **saw** it (`tech/confirm`), the technician **arrived** (`tech/arrived`).
+ * **saw** it, the technician **arrived**.
  *
  * This is the same trail dispatch watches from the other end, so it is on the
  * card rather than buried in the timeline — a technician asked "did you get
- * the 2 o'clock?" can answer from the list without opening anything.
+ * the 2 o'clock?" can answer from the list without opening anything. Dispatch
+ * reads those two columns off `sentToTechAt` and `seenByTechAt`
+ * (`apps/web/features/deals/lib.ts:342-355`), so the phone reads the same two
+ * or the two ends of the same conversation disagree.
+ *
+ * Each label therefore names the field that actually means it:
+ *
+ *   - **Sent** is `sentToTechAt` — the moment a dispatcher pressed "Send to
+ *     tech" (`deals.service.ts:1016`). It was `createdAt` until this was
+ *     fixed, which is when the *job* was written down. Those are routinely
+ *     days apart: a job booked Monday for Thursday read "Sent 9:12 AM" on
+ *     Monday. It is the one number a technician quotes back down the phone,
+ *     so being confidently wrong about it is worse than leaving it blank.
+ *   - **Seen** is `seenByTechAt`, stamped on first open by
+ *     `POST /deals/:id/seen` (`deals.service.ts:1057`). It was
+ *     `techConfirmedAt`, which is a different act: "Confirm receipt" is a
+ *     button a technician presses, not the app noticing they looked. A job
+ *     confirmed but never opened claimed to have been seen, and one opened
+ *     ten times but not confirmed claimed it never was.
+ *   - **Arrived** is `arrivedAt` (`deals.service.ts:1244`), which was right.
  */
 export function jobStamps(
-  deal: Pick<Deal, 'createdAt' | 'techConfirmedAt' | 'arrivedAt'>,
+  deal: Pick<Deal, 'sentToTechAt' | 'seenByTechAt' | 'arrivedAt'>,
 ): JobStamp[] {
   const step = (
     key: JobStamp['key'],
@@ -347,8 +366,8 @@ export function jobStamps(
     return { key, label, time, done: Boolean(iso) };
   };
   return [
-    step('sent', 'Sent', deal.createdAt),
-    step('seen', 'Seen', deal.techConfirmedAt),
+    step('sent', 'Sent', deal.sentToTechAt),
+    step('seen', 'Seen', deal.seenByTechAt),
     step('arrived', 'Arrived', deal.arrivedAt),
   ];
 }
