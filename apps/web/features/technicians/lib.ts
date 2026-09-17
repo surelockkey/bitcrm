@@ -24,11 +24,14 @@ export function onboardingPct(o: Pick<OnboardingStatus, "completedSteps" | "tota
  * `self` covers viewers who can't fetch the user map at all (technicians have
  * no `users.view`): their own record is still resolvable from `me`.
  */
-export function techUser(
+export function techUser<T extends DirectoryUser>(
   userId: string,
-  map: Map<string, DirectoryUser>,
-  self?: User | null,
-): DirectoryUser | undefined {
+  map: Map<string, T>,
+  self?: T | null,
+): T | undefined {
+  // Generic so a caller holding whole User records (the technician card needs
+  // the role and email) keeps them instead of being narrowed to a directory
+  // entry on the way out.
   return map.get(userId) ?? (self && self.id === userId ? self : undefined);
 }
 
@@ -68,6 +71,36 @@ export function auditActorLabel(
   map: Map<string, DirectoryUser>,
 ): string {
   return r.actorName || actorName(r.actorId, map);
+}
+
+/* ---- Who may edit what on the card ---- */
+
+export interface TechnicianEditRights {
+  /** Phone, home address, photo — the technician's own details. */
+  contact: boolean;
+  /** Labor cost, status, masking, GPS, mobile app, working hours. */
+  operational: boolean;
+}
+
+/**
+ * `PUT /users/technicians/:id/profile` splits one body in two: self-fill fields
+ * a technician may set on themselves, and OPERATIONAL_FIELDS that need a caller
+ * ranked above a field technician (TechniciansService.updateProfile). The
+ * Technician role itself carries `technicians.edit` — it is how they save their
+ * own address — so a page that gates on that permission alone draws a
+ * technician their own labor-cost box, status select and GPS switch, and the
+ * API answers the save with a 403 for the whole body.
+ *
+ * One line, drawn where the backend draws it.
+ */
+export function technicianEditRights({
+  canEdit,
+  isTechnician,
+}: {
+  canEdit: boolean;
+  isTechnician: boolean;
+}): TechnicianEditRights {
+  return { contact: canEdit, operational: canEdit && !isTechnician };
 }
 
 /* ---- Assignments ---- */
