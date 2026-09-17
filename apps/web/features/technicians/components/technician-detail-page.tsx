@@ -19,6 +19,8 @@ import {
   NOT_CONNECTED_BANNER,
   SETTINGS_NOT_CONNECTED,
 } from "../not-connected";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AssignmentsSection } from "./assignments-section";
 import { TechnicianStatusBadge } from "./technician-status-badge";
 import { TechnicianForm } from "./technician-form";
 import { NotConnectedField } from "./not-connected-field";
@@ -99,46 +101,88 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
         <TechnicianStatusBadge status={profile.status} />
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-8 px-6 py-6">
+      {/* The tabs this card has always had. Workiz puts everything on one
+          scrolling page; the owner asked for their arrangement, not for the
+          navigation he already knows to be taken away — so the two columns are
+          theirs, and the tabs stay ours. */}
+      <Tabs defaultValue="profile" className="flex flex-1 flex-col overflow-hidden">
+        <div className="border-b px-6">
+          <div className="mx-auto max-w-5xl">
+            <TabsList variant="line" className="h-11">
+              <TabsTrigger value="profile" className="px-2">Profile</TabsTrigger>
+              {can("job_types", "view") || can("service_areas", "view") ? (
+                <TabsTrigger value="assignments" className="px-2">Assignments</TabsTrigger>
+              ) : null}
+              <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
+              {can("commission", "view") ? (
+                <TabsTrigger value="commission" className="px-2">Commission</TabsTrigger>
+              ) : null}
+              {can("documents", "view") ? (
+                <TabsTrigger value="documents" className="px-2">Documents</TabsTrigger>
+              ) : null}
+            </TabsList>
+          </div>
+        </div>
+
+        {/* Profile keeps its own scroll region so the Save bar can sit in a
+            footer that never moves, the way the job card does it. */}
+        <TabsContent value="profile" className="mt-0 flex flex-1 flex-col overflow-hidden">
           <TechnicianForm
             technicianId={technicianId}
             user={u}
             roleLabel={u ? roleName(u.roleId, roles) : "—"}
             rights={rights}
           />
+        </TabsContent>
 
-          <Block title="User availability">
-            <NotConnectedField field={AVAILABILITY_NOT_CONNECTED} />
-            {/* Its own Save, as on their page — and as it already had here. */}
-            <WorkingHoursEditor profile={profile} readOnly={!rights.operational} />
-          </Block>
+        <TabsContent value="assignments" className="mt-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-5xl space-y-8 px-6 py-6">
+            {can("job_types", "view") ? (
+              <AssignmentsSection technicianId={technicianId} kind="job_type" />
+            ) : null}
+            {can("service_areas", "view") ? (
+              <AssignmentsSection technicianId={technicianId} kind="service_area" />
+            ) : null}
+          </div>
+        </TabsContent>
 
-          <OnboardingSection technicianId={technicianId} />
+        <TabsContent value="overview" className="mt-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-5xl space-y-8 px-6 py-6">
+            <OnboardingSection technicianId={technicianId} />
 
-          {can("commission", "view") ? (
-            <Block title="Commission">
-              {/* Laid out in the new page, wired exactly as it was. */}
+            <Block title="User availability">
+              <NotConnectedField field={AVAILABILITY_NOT_CONNECTED} />
+              {/* Its own Save, as on their page — and as it already had here. */}
+              <WorkingHoursEditor profile={profile} readOnly={!rights.operational} />
+            </Block>
+
+            <Block title="Workiz settings we don't hold yet">
+              <p className="text-sm text-muted-foreground">{NOT_CONNECTED_BANNER}</p>
+              <div className="space-y-5">
+                {SETTINGS_NOT_CONNECTED.map((field) => (
+                  <NotConnectedField key={field.key} field={field} />
+                ))}
+              </div>
+            </Block>
+          </div>
+        </TabsContent>
+
+        {can("commission", "view") ? (
+          <TabsContent value="commission" className="mt-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-5xl px-6 py-6">
               <CommissionTab technicianId={technicianId} />
-            </Block>
-          ) : null}
-
-          {can("documents", "view") ? (
-            <Block title="Documents">
-              <DocumentsTab technicianId={technicianId} />
-            </Block>
-          ) : null}
-
-          <Block title="Workiz settings we don't hold yet">
-            <p className="text-sm text-muted-foreground">{NOT_CONNECTED_BANNER}</p>
-            <div className="space-y-5">
-              {SETTINGS_NOT_CONNECTED.map((field) => (
-                <NotConnectedField key={field.key} field={field} />
-              ))}
             </div>
-          </Block>
-        </div>
-      </div>
+          </TabsContent>
+        ) : null}
+
+        {can("documents", "view") ? (
+          <TabsContent value="documents" className="mt-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-5xl px-6 py-6">
+              <DocumentsTab technicianId={technicianId} />
+            </div>
+          </TabsContent>
+        ) : null}
+      </Tabs>
     </div>
   );
 }

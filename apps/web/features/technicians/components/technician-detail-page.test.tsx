@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { allNotConnected } from "../not-connected";
+import {
+  AVAILABILITY_NOT_CONNECTED,
+  SETTINGS_NOT_CONNECTED,
+  allNotConnected,
+} from "../not-connected";
 import { TechnicianDetailPage } from "./technician-detail-page";
 
 /**
@@ -166,9 +170,25 @@ const at = (el: HTMLElement, text: string) => {
 };
 
 describe("TechnicianDetailPage — one page, two columns", () => {
-  it("has no tabs left: the form is the page", () => {
+  it("keeps the tabs this card has always had, opening on the form", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Profile",
+      "Assignments",
+      "Overview",
+      "Commission",
+      "Documents",
+    ]);
+    expect(screen.getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("pins the Save bar under the middle of both columns", () => {
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const bar = screen.getByRole("button", { name: /save changes/i }).parentElement!;
+    // The job card's own footer: centred, bordered, and outside the scroll
+    // region so it cannot scroll away while somebody edits.
+    expect(bar.className).toContain("justify-center");
+    expect(bar.className).toContain("border-t");
   });
 
   it("draws the person column in Workiz's order", () => {
@@ -194,9 +214,7 @@ describe("TechnicianDetailPage — one page, two columns", () => {
       "Role",
       "Field team member",
       "Labor cost per hour",
-      "Job types",
       "User skills",
-      "Service areas",
       "Schedule color",
       "Hide client numbers",
       "Two-factor authentication",
@@ -251,10 +269,18 @@ describe("TechnicianDetailPage — one page, two columns", () => {
   });
 });
 
+/** Radix renders only the open tab, so a check has to go where its field lives. */
+const openTab = (name: string) => userEvent.click(screen.getByRole("tab", { name }));
+
+/** Availability and the Workiz-settings block live on Overview; every other dead field on Profile. */
+const OVERVIEW_KEYS = new Set([AVAILABILITY_NOT_CONNECTED.key, ...SETTINGS_NOT_CONNECTED.map((f) => f.key)]);
+const tabOf = (key: string) => (OVERVIEW_KEYS.has(key) ? "Overview" : "Profile");
+
 describe("TechnicianDetailPage — what is drawn but dead", () => {
-  it("disables every not-connected control and says why beside it", () => {
+  it("disables every not-connected control and says why beside it", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     for (const field of allNotConnected()) {
+      await openTab(tabOf(field.key));
       const block = screen.getByTestId(`not-connected-${field.key}`);
       expect(block).toHaveTextContent(field.label);
       expect(block).toHaveTextContent(field.note);
@@ -264,9 +290,10 @@ describe("TechnicianDetailPage — what is drawn but dead", () => {
     }
   });
 
-  it("gives no dead control a value to be misread", () => {
+  it("gives no dead control a value to be misread", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     for (const field of allNotConnected()) {
+      await openTab(tabOf(field.key));
       const block = screen.getByTestId(`not-connected-${field.key}`);
       // Radix's switch keeps a hidden checkbox for form submission; its "on" is
       // the checkbox default, not a value of ours — `checked` below is what
@@ -319,11 +346,15 @@ describe("TechnicianDetailPage — what is drawn but dead", () => {
 });
 
 describe("TechnicianDetailPage — the blocks below the columns", () => {
-  it("keeps availability, onboarding, commission and documents on the page", () => {
+  it("keeps availability, onboarding, commission and documents, each on its tab", async () => {
     render(<TechnicianDetailPage technicianId="t1" />);
+    // Radix renders only the open tab, so each is asserted where it lives.
+    await openTab("Overview");
     expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "no");
     expect(screen.getByText("Onboarding")).toBeInTheDocument();
+    await openTab("Commission");
     expect(screen.getByTestId("commission-panel")).toBeInTheDocument();
+    await openTab("Documents");
     expect(screen.getByTestId("documents-panel")).toBeInTheDocument();
   });
 
@@ -331,8 +362,8 @@ describe("TechnicianDetailPage — the blocks below the columns", () => {
     state.canViewCommission = false;
     state.canViewDocuments = false;
     render(<TechnicianDetailPage technicianId="t1" />);
-    expect(screen.queryByTestId("commission-panel")).toBeNull();
-    expect(screen.queryByTestId("documents-panel")).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Commission" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Documents" })).toBeNull();
   });
 
   it("hides the job-type and service-area assignments without their view permissions", () => {
@@ -351,16 +382,17 @@ describe("TechnicianDetailPage — guards", () => {
     expect(screen.getByText("No access")).toBeInTheDocument();
   });
 
-  it("locks the whole card for a viewer who may not edit technicians", () => {
+  it("locks the whole card for a viewer who may not edit technicians", async () => {
     state.canEditTechs = false;
     render(<TechnicianDetailPage technicianId="t1" />);
     expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
     expect(screen.getByLabelText("City")).toBeDisabled();
     expect(screen.getByLabelText("Labor cost per hour")).toBeDisabled();
+    await openTab("Overview");
     expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "yes");
   });
 
-  it("lets a technician on their own card edit their details but not their labor cost", () => {
+  it("lets a technician on their own card edit their details but not their labor cost", async () => {
     state.isTechnician = true;
     state.meId = "t1";
     render(<TechnicianDetailPage technicianId="t1" />);
@@ -369,8 +401,9 @@ describe("TechnicianDetailPage — guards", () => {
     expect(screen.getByLabelText("Labor cost per hour")).toBeDisabled();
     expect(screen.getByRole("switch", { name: "Track location" })).toBeDisabled();
     expect(screen.getByRole("switch", { name: "Mobile app installed" })).toBeDisabled();
-    expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "yes");
     expect(screen.getAllByText("A manager sets this.").length).toBeGreaterThan(0);
+    await openTab("Overview");
+    expect(screen.getByTestId("working-hours")).toHaveAttribute("data-readonly", "yes");
   });
 
   it("sends a technician's own save without the operational fields the API would refuse", async () => {
