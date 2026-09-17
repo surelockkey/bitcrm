@@ -1,10 +1,10 @@
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 import type { InboxCounters, TeamChatCounters } from '@bitcrm/types';
 import { ApiError } from '../../lib/api/errors';
 import { createTestQueryClient, withQuery } from '../../test/query';
 import * as api from './api';
 import type { InboxConversation, TeamThread } from './api';
-import { useConversation, useInbox, useMessagesBadge } from './inbox-hooks';
+import { INBOX_POLL_MS, useConversation, useInbox, useMessagesBadge } from './inbox-hooks';
 
 jest.mock('./api');
 
@@ -118,11 +118,12 @@ describe('useInbox', () => {
   });
 
   /**
-   * The one number a technician sees in two places. The tab badge and the All
-   * chip are computed by the same function from the same two payloads, so
-   * they cannot drift apart.
+   * Each chip is counted once, from whichever endpoint knows *this* viewer's
+   * read state. The tab badge is a narrower question — what is new **for him**
+   * — because a client thread's unread is the office's flag and nothing this
+   * app does clears it.
    */
-  it('gives the chips and the badge one number', async () => {
+  it('counts each chip from the endpoint that knows this viewer', async () => {
     setUp({
       counters: inboxCounters({ unreadConversations: 5, unreadByKind: { client: 2, team: 1 } }),
       team: teamCounters({ unreadConversations: 1, unreadByKind: { team: 1 } }),
@@ -138,7 +139,8 @@ describe('useInbox', () => {
     // technician's own thread as well.
     expect(result.current.counts.clients.unread).toBe(2);
     expect(result.current.counts.team.unread).toBe(1);
-    await waitFor(() => expect(badge.result.current).toBe('3'));
+    // The tab carries only the one he can put out by reading it.
+    await waitFor(() => expect(badge.result.current).toBe('1'));
   });
 
   it('prints the category sizes the server reports', async () => {
@@ -149,11 +151,41 @@ describe('useInbox', () => {
     expect(result.current.counts.clients.approximate).toBe(false);
   });
 
-  it('leaves Requests out for a technician, who can never be handed one', async () => {
+  // The live app was read off a technician account with nothing assigned and
+  // still printed all four chips (`WORKIZ_APP_SCREENS_LIVE.md` §5). A row that
+  // changes length with the data moves Team out from under a practised thumb.
+  it('draws Workiz’s four chips whatever this account has', async () => {
     const { result } = await renderInbox();
 
     await waitFor(() => expect(result.current.rows).toHaveLength(2));
-    expect(result.current.categories).toEqual(['all', 'clients', 'team']);
+    expect(result.current.categories).toEqual(['all', 'requests', 'clients', 'team']);
+    expect(result.current.counts.requests.total).toBe(0);
+  });
+
+  /**
+   * The Team chip's unread comes from `GET /team/counters` and the office
+   * row's dot from `GET /team/conversations`. If only the first is polled, a
+   * message from the office lights the chip and the tab while the row under
+   * them stays quiet — the exact drift this screen was built to make
+   * impossible.
+   */
+  it('refreshes the office row on the same beat as the counters', async () => {
+    jest.useFakeTimers();
+    try {
+      const { result } = await renderHook(() => useInbox('all', '', deals, true), {
+        wrapper: withQuery(createTestQueryClient()),
+      });
+      await waitFor(() => expect(result.current.rows).toHaveLength(2));
+      const before = mockApi.listTeamThreads.mock.calls.length;
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(INBOX_POLL_MS + 1_000);
+      });
+
+      expect(mockApi.listTeamThreads.mock.calls.length).toBeGreaterThan(before);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   /**

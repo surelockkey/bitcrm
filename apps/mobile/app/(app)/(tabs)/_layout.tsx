@@ -1,7 +1,6 @@
 import { StyleSheet, View, type ColorValue } from 'react-native';
 import { Tabs } from 'expo-router/js-tabs';
-import { useTeamChatBadge } from '../../../src/features/messaging/hooks';
-import { unreadBadge } from '../../../src/features/messaging/lib';
+import { useMessagesBadge } from '../../../src/features/messaging/inbox-hooks';
 import { summarizeQueue, tabBadge } from '../../../src/features/queue/lib';
 import { useQueue } from '../../../src/features/queue/queue-provider';
 import { useClockBadge } from '../../../src/features/timeclock/hooks';
@@ -23,7 +22,7 @@ export default function TabsLayout() {
   const { colors, type } = useTheme();
   const { records } = useQueue();
   const counts = summarizeQueue(records);
-  const chat = useTeamChatBadge();
+  const messages = useMessagesBadge();
   const clock = useClockBadge();
 
   return (
@@ -50,7 +49,10 @@ export default function TabsLayout() {
         name="chat"
         options={{
           title: 'Messages',
-          tabBarBadge: unreadBadge(chat.data?.unreadByKind?.team),
+          // Only what this technician's own reading puts out — see
+          // `messagesBadgeCount`. A number that survives being read is a
+          // number he stops looking at.
+          tabBarBadge: messages,
           tabBarBadgeStyle: {
             backgroundColor: colors.primary,
             color: colors.onAccent,

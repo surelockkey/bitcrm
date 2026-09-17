@@ -36,8 +36,9 @@ export interface InboxScreenProps {
  *
  * What the chips mean is the web Inbox's mapping, kind for kind
  * (`apps/web/features/messaging/lib.ts:76-124`), so the two clients name the
- * same threads with the same words. `Requests` is drawn only for a viewer who
- * can actually have one — see `visibleCategories`.
+ * same threads with the same words. All four are drawn whatever the data says
+ * — the live app printed `Requests (0)` on a technician account with nothing
+ * assigned to it; see `CATEGORY_ORDER`.
  */
 export function InboxScreen({ live = true, onOpenThread }: InboxScreenProps) {
   const { colors, radius, spacing, touch, type } = useTheme();

@@ -14,6 +14,7 @@ import {
 import { useTeamChatBadge } from './hooks';
 import { unreadBadge } from './lib';
 import {
+  CATEGORY_ORDER,
   chipCount,
   inCategory,
   inboxAccess,
@@ -21,7 +22,6 @@ import {
   messagesBadgeCount,
   partyNames,
   searchRows,
-  visibleCategories,
   type ChipCount,
   type InboxAccess,
   type InboxCategory,
@@ -73,12 +73,18 @@ export function useInboxCounters(live: boolean) {
  * caller's own read state (`viewerUnread` — `team-counters.service.ts:13-21`).
  * It is also the fallback list, so an account that may read its office thread
  * but not the inbox still has a Messages screen with something in it.
+ *
+ * Polled on the same beat as the list, and that is not an optimisation. The
+ * Team chip's unread comes from `GET /team/counters`, which polls; the office
+ * row's dot comes from here. Refreshing one and not the other is exactly how a
+ * chip and the row under it end up disagreeing about the same message.
  */
-export function useTeamThreads() {
+export function useTeamThreads(live: boolean) {
   return useQuery<Page<TeamThread>, unknown, TeamThread[]>({
     queryKey: queryKeys.messaging.teamThread(),
     queryFn: () => listTeamThreads(),
     select: (page) => page.data,
+    refetchInterval: live ? INBOX_POLL_MS : false,
   });
 }
 
@@ -87,8 +93,8 @@ export interface UseInboxResult {
   rows: InboxRow[];
   /** The rows under the chosen chip, narrowed by the search box. */
   visible: InboxRow[];
-  /** Which chips to draw — Requests only when this viewer can actually have one. */
-  categories: InboxCategory[];
+  /** Which chips to draw: Workiz's four, in Workiz's order, always. */
+  categories: readonly InboxCategory[];
   counts: Record<InboxCategory, ChipCount>;
   /** What this account is allowed to see, and what to say about the rest. */
   access: InboxAccess;
@@ -125,7 +131,7 @@ export function useInbox(
 ): UseInboxResult {
   const conversations = useConversations(live);
   const counters = useInboxCounters(live);
-  const team = useTeamThreads();
+  const team = useTeamThreads(live);
   const teamCounters = useTeamChatBadge();
 
   const names: PartyNames = useMemo(() => partyNames(deals), [deals]);
@@ -147,8 +153,8 @@ export function useInbox(
   );
 
   const access = useMemo(
-    () => inboxAccess(conversations.error, team.error, teamRows.length > 0),
-    [conversations.error, team.error, teamRows.length],
+    () => inboxAccess(conversations.error, team.error, teamRows.length > 0, team.isLoading),
+    [conversations.error, team.error, teamRows.length, team.isLoading],
   );
 
   const complete = !conversations.hasNextPage;
@@ -164,12 +170,10 @@ export function useInbox(
     return byCategory;
   }, [rows, counters.data, teamCounters.data, complete]);
 
-  const loadedKinds = useMemo(() => rows.map((row) => row.kind), [rows]);
-
   return {
     rows,
     visible,
-    categories: visibleCategories(counters.data, loadedKinds),
+    categories: CATEGORY_ORDER,
     counts,
     access,
     // `isLoading`, not `isPending`: a query that is switched off is pending
@@ -220,7 +224,7 @@ export interface UseConversationResult {
  */
 export function useConversation(id: string | undefined): UseConversationResult {
   const conversations = useConversations(false);
-  const team = useTeamThreads();
+  const team = useTeamThreads(false);
 
   const cached = useMemo(() => {
     if (!id) return undefined;
@@ -250,19 +254,18 @@ export function useConversation(id: string | undefined): UseConversationResult {
 }
 
 /**
- * The badge on the Messages tab.
+ * The badge on the Messages tab: what this technician's own reading puts out,
+ * from his own `READ#` markers. See `messagesBadgeCount` for why the office's
+ * unanswered client threads are counted on their rows and not here.
  *
- * Reads the same two counters the chips read and runs them through the same
- * function, so the number on the tab is the `All` chip's unread by
- * construction — not a second count that drifts from it. Kept here rather than
- * in the tab layout so the tab has one import and no arithmetic.
+ * Kept in this file rather than in the tab layout so the tab has one import
+ * and no arithmetic, and so it costs the one counters request it already did.
  *
  * Returns `undefined` at zero: react-navigation draws a badge for any defined
  * value, and an empty circle over "Messages" reads as an unread message that
  * is not there.
  */
 export function useMessagesBadge(): string | undefined {
-  const inbox = useInboxCounters(true);
   const team = useTeamChatBadge();
-  return unreadBadge(messagesBadgeCount(inbox.data, team.data));
+  return unreadBadge(messagesBadgeCount(team.data));
 }

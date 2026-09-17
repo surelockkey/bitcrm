@@ -45,7 +45,7 @@ const inbox = (over: Partial<UseInboxResult> = {}): UseInboxResult => {
   return {
     rows,
     visible: over.visible ?? rows,
-    categories: ['all', 'clients', 'team'],
+    categories: ['all', 'requests', 'clients', 'team'],
     counts: {
       all: count({ total: 2 }),
       requests: count(),
@@ -93,15 +93,13 @@ describe('InboxScreen', () => {
     expect(screen.getByText('Team (1)')).toBeTruthy();
   });
 
-  it('leaves Requests out when this viewer can never have one', async () => {
-    await render();
-    expect(screen.queryByTestId('chip-requests')).toBeNull();
-  });
-
-  it('draws Requests when the viewer does have them', async () => {
-    mockInbox = inbox({ categories: ['all', 'requests', 'clients', 'team'] });
+  // The live app printed `Requests (0)` on a technician account with nothing
+  // assigned to it (§5), and so does this: a chip row that changes length with
+  // the data moves Team out from under a thumb that has years of practice.
+  it('draws Requests even when it can only ever say (0)', async () => {
     await render();
     expect(screen.getByTestId('chip-requests')).toBeTruthy();
+    expect(screen.getByText('Requests (0)')).toBeTruthy();
   });
 
   it('marks a chip that has something unread', async () => {

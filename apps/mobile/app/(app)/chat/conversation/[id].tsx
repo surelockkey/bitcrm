@@ -5,6 +5,7 @@ import {
   audienceOfKind,
   partyNames,
   rowTitle,
+  textableDealId,
 } from '../../../../src/features/messaging/inbox-lib';
 import { useMyJobs } from '../../../../src/features/jobs/hooks';
 import { EmptyState } from '../../../../src/ui/EmptyState';
@@ -73,7 +74,10 @@ export default function ConversationRoute() {
 
   const audience = audienceOfKind(conversation.kind);
   const title = rowTitle(conversation, partyNames(deals));
-  const job = conversation.lastDealId;
+  // One of *his* jobs with this client, never simply the job the thread last
+  // touched: that one is often another technician's, and the server authorises
+  // the text against it. See `textableDealId`.
+  const job = textableDealId(conversation, deals);
 
   return (
     <ChatScreen
@@ -87,8 +91,9 @@ export default function ConversationRoute() {
       {...(audience === 'client'
         ? {
             readOnly: {
-              reason:
-                'Texts to a client are sent from the job, so the office knows which one they are about.',
+              reason: job
+                ? 'Texts to a client are sent from the job, so the office knows which one they are about.'
+                : 'Texts to a client are sent from the job, and none of your jobs is with this client. Ask dispatch if you need to write to them.',
               ...(job
                 ? {
                     actionLabel: 'Open the job to text',

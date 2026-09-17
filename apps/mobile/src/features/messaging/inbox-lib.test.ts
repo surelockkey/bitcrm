@@ -20,7 +20,7 @@ import {
   rowTitle,
   rowUnread,
   searchRows,
-  visibleCategories,
+  textableDealId,
   visibleRows,
 } from './inbox-lib';
 
@@ -108,44 +108,24 @@ describe('the chips', () => {
 });
 
 /**
- * Requests maps to the `unknown` kind — but a technician's scope builds the
- * inbox from contact / company / user / group pointers, and an `unknown`
- * thread is keyed by its address. The chip is therefore not "empty today", it
- * is unreachable, and an always-zero chip teaches a man to stop reading them.
+ * The row of chips is fixed. The live Workiz app was read off a **technician**
+ * account with nothing assigned to it, and it still printed all four —
+ * `All (0) · Requests (0) · Clients (0) · Team (0)`
+ * (`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §5). Requests is structurally
+ * empty for a technician here, and it is still drawn: the men using this have
+ * used Workiz for years, and a row whose length changes with the data moves
+ * Team out from under a thumb that has been landing on the fourth chip since
+ * before we wrote any of this.
  */
 describe('which chips are drawn', () => {
-  it('leaves Requests out for a viewer who can never have one', () => {
-    expect(visibleCategories(counters(), ['team', 'client'])).toEqual([
-      'all',
-      'clients',
-      'team',
-    ]);
+  it('is Workiz’s four, in Workiz’s order, whatever the data says', () => {
+    expect(CATEGORY_ORDER).toEqual(['all', 'requests', 'clients', 'team']);
   });
 
-  it('leaves it out before the counters have answered at all', () => {
-    expect(visibleCategories(undefined)).toEqual(['all', 'clients', 'team']);
-  });
-
-  it('draws it for a viewer the server says has unknown threads', () => {
-    expect(visibleCategories(counters({ totalByKind: { unknown: 4 } }))).toEqual([
-      'all',
-      'requests',
-      'clients',
-      'team',
-    ]);
-  });
-
-  it('draws it on an unread even when the totals were never rebuilt', () => {
-    const noTotals: InboxCounters = {
-      unreadConversations: 1,
-      flaggedConversations: 0,
-      unreadByKind: { unknown: 1 },
-    };
-    expect(visibleCategories(noTotals)).toContain('requests');
-  });
-
-  it('draws it when a row of that kind is already on the list', () => {
-    expect(visibleCategories(counters(), ['unknown'])).toContain('requests');
+  it('counts an empty category as (0) rather than dropping it', () => {
+    expect(chipLabel('requests', chipCount('requests', counters(), team(), undefined))).toBe(
+      'Requests (0)',
+    );
   });
 });
 
@@ -188,14 +168,70 @@ describe('unread, assembled from the counters that know', () => {
     expect(chipUnread('all', inbox, mine)).toBe(parts + 1);
   });
 
-  it('gives the tab badge the All chip’s number, by construction', () => {
-    const inbox = counters({ unreadByKind: { client: 3 } });
-    const mine = team({ unreadConversations: 1 });
-    expect(messagesBadgeCount(inbox, mine)).toBe(chipUnread('all', inbox, mine));
+  /**
+   * The badge is a summons, and the only unread this app can put out is the
+   * kind the technician's own reading clears. A client thread's `unread` is
+   * the office's flag — nothing on this phone clears it, and a number that
+   * survives being read teaches a man to stop looking at the tab.
+   */
+  it('badges only the unread this technician’s own reading can clear', () => {
+    const mine = team({ unreadConversations: 1, unreadByKind: { team: 1 } });
+    expect(messagesBadgeCount(mine)).toBe(1);
   });
 
-  it('is zero, not a crash, before either counter has answered', () => {
-    expect(messagesBadgeCount(undefined, undefined)).toBe(0);
+  it('leaves the office’s unanswered client threads off the tab', () => {
+    // Three clients have written and nobody in the office has read them. That
+    // is a dot on those rows, not a number on the tab this man cannot clear.
+    const inbox = counters({ unreadByKind: { client: 3 } });
+    const mine = team({ unreadConversations: 0 });
+    expect(chipUnread('clients', inbox, mine)).toBe(3);
+    expect(messagesBadgeCount(mine)).toBe(0);
+  });
+
+  it('is zero, not a crash, before the counters have answered', () => {
+    expect(messagesBadgeCount(undefined)).toBe(0);
+  });
+});
+
+/**
+ * "Open the job to text" is the one action a client thread offers, and it must
+ * land on a job the server will accept a text against. `lastDealId` is the job
+ * the **thread** last touched, which for a client with several properties is
+ * very often a job this technician is not on — `POST /messages` authorises
+ * against that id (`send.service.ts:942-950`) and would refuse it.
+ */
+describe('the job a client thread can be texted from', () => {
+  const deals = [
+    { id: 'job-mine-1', contactId: 'contact-1' },
+    { id: 'job-mine-2', contactId: 'contact-1' },
+    { id: 'job-other', contactId: 'contact-9' },
+  ];
+
+  it('keeps the thread’s own job when the technician is on it', () => {
+    expect(
+      textableDealId(conversation({ partyId: 'contact-1', lastDealId: 'job-mine-2' }), deals),
+    ).toBe('job-mine-2');
+  });
+
+  it('falls back to this technician’s own job with the same client', () => {
+    expect(
+      textableDealId(conversation({ partyId: 'contact-1', lastDealId: 'job-theirs' }), deals),
+    ).toBe('job-mine-1');
+  });
+
+  it('offers nothing when the technician is on no job of that client', () => {
+    expect(
+      textableDealId(conversation({ partyId: 'contact-4', lastDealId: 'job-theirs' }), deals),
+    ).toBeUndefined();
+  });
+
+  it('offers nothing for a thread with no contact behind it', () => {
+    expect(
+      textableDealId(
+        conversation({ kind: 'unknown', partyKind: 'none', lastDealId: 'job-theirs' }),
+        deals,
+      ),
+    ).toBeUndefined();
   });
 });
 
@@ -445,6 +481,13 @@ describe('what this account may see', () => {
 
   it('blocks it when the inbox is refused and there is no office thread to fall back on', () => {
     expect(inboxAccess(forbidden, null, false).blocked).toBe(true);
+  });
+
+  // The two halves arrive separately, and the inbox route is the one that
+  // refuses first. "Not your inbox", with a Try again under it, must not flash
+  // over a screen whose office thread is a fifth of a second behind.
+  it('waits for the office thread before calling the whole screen refused', () => {
+    expect(inboxAccess(forbidden, null, false, true).blocked).toBe(false);
   });
 
   it('treats an expired session the same as a refusal, not as a broken list', () => {

@@ -33,6 +33,21 @@ export const CATEGORY_LABEL: Record<InboxCategory, string> = {
   team: 'Team',
 };
 
+/**
+ * All four, always, in this order.
+ *
+ * Requests maps to the `unknown` kind exactly as the web Inbox maps it, and a
+ * technician can never be handed one: under `assigned_only` the server builds
+ * the inbox from `CONVOF#` pointers of kind contact / company / user / group
+ * (`conversation-scope.service.ts:113-137`), while an `unknown` thread is keyed
+ * by its address (`CONVOF#address#<e164>`) — a pointer that walk never looks
+ * up. It is drawn anyway, because the live app was read off a **technician**
+ * account with nothing assigned to it and still printed
+ * `All (0) · Requests (0) · Clients (0) · Team (0)`
+ * (`docs/import/WORKIZ_APP_SCREENS_LIVE.md` §5). These are men who have used
+ * that screen for years; a row of chips that changes length with the data
+ * moves Team out from under a thumb that already knows where it is.
+ */
 export const CATEGORY_ORDER: readonly InboxCategory[] = [
   'all',
   'requests',
@@ -80,36 +95,6 @@ export function inCategory(kind: ConversationKind, cat: InboxCategory): boolean 
  */
 export function audienceOfKind(kind: ConversationKind): ThreadAudience {
   return kind === 'team' || kind === 'group' ? 'office' : 'client';
-}
-
-/* --------------------------------------------------------- what is on offer */
-
-/**
- * Which chips to draw.
- *
- * Requests maps to the `unknown` kind, exactly as the web Inbox maps it — but
- * a technician can never be handed one. Under `assigned_only` the server
- * builds the inbox from `CONVOF#` pointers of kind contact / company / user /
- * group (`conversation-scope.service.ts:113-137`), and an `unknown` thread is
- * keyed by its address (`CONVOF#address#<e164>`, `conversation-kind.enum.ts`)
- * — a pointer that walk never looks up. So for a technician the chip is not
- * "empty today", it is unreachable, and a chip that is structurally always
- * `(0)` teaches a man to stop reading the row of chips.
- *
- * It is therefore drawn only on evidence that this viewer has such threads:
- * a total or an unread the server reported, or a row already loaded. A
- * dispatcher signing in on a phone (scope `all`) sees four chips; a
- * technician sees three.
- */
-export function visibleCategories(
-  counters: InboxCounters | undefined,
-  loadedKinds: Iterable<ConversationKind> = [],
-): InboxCategory[] {
-  const evidence =
-    (counters?.totalByKind?.unknown ?? 0) > 0 ||
-    (counters?.unreadByKind?.unknown ?? 0) > 0 ||
-    [...loadedKinds].includes('unknown');
-  return CATEGORY_ORDER.filter((c) => c !== 'requests' || evidence);
 }
 
 /* ------------------------------------------------------------- the counts */
@@ -223,15 +208,21 @@ export function chipAccessibilityLabel(cat: InboxCategory, count: ChipCount): st
 }
 
 /**
- * The tab badge: every unread thread this viewer can open, counted the same
- * way the `All` chip counts it, so the number on the tab and the number on the
- * chip can never disagree.
+ * The tab badge: the unread this technician's own reading puts out.
+ *
+ * Deliberately narrower than the `All` chip. A client thread's `unread` is the
+ * office's team-wide flag, and nothing in this app clears it — the thread
+ * screen does not mark a client conversation read on purpose, because that
+ * call empties a dispatcher's badge on their behalf. Counting it on the tab
+ * would put a number over Messages that survives being read, every day, and a
+ * badge that cannot be put out is one a man stops looking at — including on
+ * the day it is the office asking him something.
+ *
+ * The client's dot is not lost: it is on that row and in that chip, where it
+ * sits next to the words that explain it.
  */
-export function messagesBadgeCount(
-  inbox: InboxCounters | undefined,
-  team: TeamChatCounters | undefined,
-): number {
-  return chipUnread('all', inbox, team);
+export function messagesBadgeCount(team: TeamChatCounters | undefined): number {
+  return chipUnread('team', undefined, team);
 }
 
 /* ---------------------------------------------------------------- the rows */
@@ -454,6 +445,39 @@ export function visibleRows(
   );
 }
 
+/* ---------------------------------------------------- the way into texting */
+
+/** A job of this technician's, as the day list already holds it. */
+export interface OwnDeal {
+  id: string;
+  contactId?: string;
+}
+
+/**
+ * The job a client thread opened from the list can be texted from — or
+ * nothing, in which case no such offer is made.
+ *
+ * `POST /messages` authorises a text against the job it names
+ * (`send.service.ts:942-950`), and the only job a conversation carries is
+ * `lastDealId`: the job the **thread** last touched. For a client with more
+ * than one property — a landlord, a letting agent, a shop with three branches
+ * — that is very often a job this technician is not on, and the button would
+ * open a screen the server refuses. So the offer is made against one of his
+ * own jobs with that client: the thread's own job when he is on it, otherwise
+ * the first of his that belongs to the same contact.
+ */
+export function textableDealId(
+  conversation: Pick<InboxConversation, 'partyKind' | 'partyId' | 'lastDealId'>,
+  deals: readonly OwnDeal[],
+): string | undefined {
+  if (conversation.partyKind !== 'contact' || !conversation.partyId) return undefined;
+  const mine = deals.filter((deal) => deal.contactId === conversation.partyId);
+  if (!mine.length) return undefined;
+  const thread = conversation.lastDealId;
+  if (thread && mine.some((deal) => deal.id === thread)) return thread;
+  return mine[0]!.id;
+}
+
 /* --------------------------------------------------------- what may be seen */
 
 /**
@@ -487,10 +511,20 @@ export function inboxAccess(
   inboxError: unknown,
   teamError: unknown,
   hasTeamRows: boolean,
+  /**
+   * The office thread is still on its way. The two halves are two requests and
+   * the refusal comes back first, so without this a technician who has an
+   * office thread gets "Not your inbox" thrown up over the screen for as long
+   * as the second request takes.
+   */
+  teamPending = false,
 ): InboxAccess {
   const inboxForbidden = isForbidden(inboxError);
   const teamForbidden = isForbidden(teamError);
 
+  if (inboxForbidden && teamPending && !teamForbidden) {
+    return { blocked: false, clientsRefused: true };
+  }
   if (inboxForbidden && (teamForbidden || !hasTeamRows)) {
     return { blocked: true, clientsRefused: true };
   }
