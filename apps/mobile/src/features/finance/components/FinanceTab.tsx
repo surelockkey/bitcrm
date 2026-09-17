@@ -6,11 +6,12 @@ import { NOT_CONNECTED, financeFigures, financeSections } from '../mock';
 /**
  * The Finance tab of a job card — Workiz's skeleton, reading from nothing.
  *
- * Invoice, Total, Balance across the top; then View invoice, Items, Payments,
- * Payment schedule, Estimates, Documents, in that order (§1.8–§1.9). It exists
- * so that wiring the invoice and payment APIs later is a data change rather
- * than a redesign, and so a technician who has used Workiz for years finds the
- * tab where they expect it.
+ * A summary line of our own — Invoice, Total, Balance — over Workiz's five
+ * sections in the order §1.4 records them: Job items, Estimates, Invoices,
+ * Payments, Documents. Which of those is theirs and which is ours is settled in
+ * `mock.ts`, once, where it can be tested. It exists so that wiring the invoice
+ * and payment APIs later is a data change rather than a redesign, and so a
+ * technician who has used Workiz for years finds the tab where they expect it.
  *
  * Nothing here is tappable. A dead row a technician taps twice a day is worse
  * than an absent one — so the rows say what is not there instead of accepting
