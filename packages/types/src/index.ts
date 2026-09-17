@@ -40,7 +40,8 @@ export { Company } from './entities/company.entity';
 export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
-export { Deal } from './entities/deal.entity';
+export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
+export type { SendToTechChannel } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export {
   CallGroup,
@@ -67,6 +68,7 @@ export {
   VoicemailNode,
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
+export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { ExternalCompany } from './entities/external-company.entity';
@@ -91,12 +93,21 @@ export {
   ServiceAreaTax,
   DEFAULT_TIMEZONE,
 } from './entities/service-area.entity';
-export { DealProduct, DealProductFulfillment } from './entities/deal-product.entity';
+export {
+  DealProduct,
+  DealProductFulfillment,
+  DealProductPriceSource,
+} from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
-export { Product } from './entities/product.entity';
+export {
+  Product,
+  ProductWithExtras,
+  WORKIZ_SERVICE_TYPES,
+  WorkizProductType,
+} from './entities/product.entity';
 export { Warehouse } from './entities/warehouse.entity';
 export { Container } from './entities/container.entity';
-export { ProductCategory } from './entities/product-category.entity';
+export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-category.entity';
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
@@ -112,8 +123,13 @@ export {
   TechnicianJobType,
   TechnicianServiceArea,
   AssignmentStatus,
+  AssignableTechnicianSubject,
 } from './entities/technician-assignment.entity';
-export { isAssignable } from './entities/technician-assignment.entity';
+export {
+  isAssignable,
+  isAssignableTechnician,
+  TECHNICIAN_ROLE_ID,
+} from './entities/technician-assignment.entity';
 export {
   CommissionConfig,
   CommissionBreakdown,
@@ -127,6 +143,8 @@ export {
 export {
   USER_EVENT_TOPIC,
   UserEventType,
+  TechChangedField,
+  affectsEligibility,
 } from './events/user-events';
 export type {
   UserActivatedEvent,
@@ -145,6 +163,7 @@ export type {
   CallStartedEvent,
   CallCompletedEvent,
   CallRecordingReadyEvent,
+  CallUpdatedEvent,
 } from './events/call-events';
 
 // Messaging (client inbox + team chat) — enums
@@ -235,10 +254,68 @@ export type {
   MessagingSettings,
   QuietHours,
 } from './entities/messaging-settings.entity';
-export { EMPTY_INBOX_COUNTERS, EMPTY_TEAM_CHAT_COUNTERS } from './entities/inbox-counters.entity';
-export type { InboxCounters, TeamChatCounters } from './entities/inbox-counters.entity';
+export {
+  EMPTY_INBOX_COUNTERS,
+  EMPTY_INBOX_TOTALS,
+  EMPTY_TEAM_CHAT_COUNTERS,
+} from './entities/inbox-counters.entity';
+export type { InboxCounters, InboxTotals, TeamChatCounters } from './entities/inbox-counters.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
+export {
+  AUTOMATION_ACTION_TYPES,
+  AUTOMATION_CONDITION_FIELDS,
+  AUTOMATION_CONDITION_OPS,
+  AUTOMATION_OWN_SPEC_SOURCES,
+  AUTOMATION_RECIPIENTS,
+  AUTOMATION_RUN_OUTCOMES,
+  AUTOMATION_TRIGGER_KINDS,
+  automationActionSentence,
+  automationConditionLeaves,
+  automationConditionsSentence,
+  automationDelayText,
+  automationSentence,
+  automationSpecLabels,
+  automationTriggerSentence,
+  isAutomationConditionGroup,
+  isOwnAutomationSpec,
+} from './entities/automation-spec';
+export type {
+  AutomationAction,
+  AutomationActionType,
+  AutomationCallOutcome,
+  AutomationCondition,
+  AutomationConditionField,
+  AutomationConditionGroup,
+  AutomationConditionNode,
+  AutomationConditionOp,
+  AutomationLabelMap,
+  AutomationQuietHoursMode,
+  AutomationRecipient,
+  AutomationRun,
+  AutomationRunAction,
+  AutomationRunOutcome,
+  AutomationScheduleAnchor,
+  AutomationSpec,
+  AutomationSpecSource,
+  AutomationTiming,
+  AutomationTrigger,
+  AutomationTriggerKind,
+} from './entities/automation-spec';
+
+// Event contract (deal-events topic)
+export { DEAL_EVENT_TOPIC, DealEventType } from './events/deal-events';
+export type {
+  DealCreatedEvent,
+  DealDeletedEvent,
+  DealScheduleSlice,
+  DealScheduledChangedEvent,
+  DealSentToTechEvent,
+  DealStatusChangedEvent,
+  DealTechAssignedEvent,
+  DealTechUnassignedEvent,
+  DealUpdatedEvent,
+} from './events/deal-events';
 
 // Event contract (message-events topic)
 export { MESSAGE_EVENT_TOPIC, MessageEventType } from './events/message-events';

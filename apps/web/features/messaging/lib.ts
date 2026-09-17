@@ -124,8 +124,9 @@ export function conversationInCategory(c: InboxConversation, cat: InboxCategory)
 }
 
 /**
- * The number by a category's label. The API keeps unread counters only (no
- * totals), so this is the unread-conversation count; Archived has none.
+ * Unread conversations in a category — the red dot and the "N unread" in the
+ * tooltip, NOT the number printed by the label (see `categoryCount`).
+ * Archived conversations are never counted unread, so Archived has none.
  */
 export function categoryUnread(cat: InboxCategory, counters: InboxCounters | undefined): number | undefined {
   if (!counters) return undefined;
@@ -142,6 +143,89 @@ export function categoryUnread(cat: InboxCategory, counters: InboxCounters | und
     default:
       return undefined;
   }
+}
+
+/**
+ * Total conversations in a category, or `undefined` when the API did not
+ * report totals at all.
+ *
+ * The `total*` fields are optional and arrive together, gated behind
+ * `totalsRecountedAt`: a counters item that predates them, or one whose
+ * totals have never been rebuilt after a direct DynamoDB import, carries
+ * none of them. `undefined` there means "not known" — never zero, which is
+ * exactly the wrong 0 the column used to print next to All and Requests.
+ */
+export function categoryTotal(cat: InboxCategory, counters: InboxCounters | undefined): number | undefined {
+  if (!counters || counters.totalsRecountedAt === undefined) return undefined;
+  const byKind = counters.totalByKind ?? {};
+  switch (cat) {
+    case "all":
+      return counters.totalConversations;
+    case "requests":
+      return byKind.unknown ?? 0;
+    case "clients":
+      return byKind.client ?? 0;
+    case "team":
+      return (byKind.team ?? 0) + (byKind.group ?? 0);
+    case "archived":
+      return counters.archivedConversations;
+    default:
+      return undefined;
+  }
+}
+
+/** What the category column prints beside one label. */
+export interface CategoryCount {
+  /** The number to print; `undefined` prints nothing rather than a wrong 0. */
+  total?: number;
+  /** `total` is only a floor (from the loaded page) and renders as "42+". */
+  approximate: boolean;
+  /** Unread in this category — the red dot, and "N unread" in the tooltip. */
+  unread: number;
+}
+
+/**
+ * Workiz prints the TOTAL number of conversations in each category and marks
+ * unread with a red dot only ("Clients 42423 •"), which is what this
+ * returns. Three cases, in order:
+ *
+ *   totals known     the real total, exact
+ *   totals missing,  `loaded` — the rows this browser has actually fetched
+ *   rows loaded      for the category — shown as "42+", a floor the reader
+ *                    can see is partial, never a confident 0 over a list
+ *                    that plainly has conversations in it
+ *   nothing known    `undefined` — print nothing at all
+ *
+ * `loaded` is only ever known for the category currently being listed, so
+ * the other four fall to the third case until a recount lands.
+ */
+export function categoryCount(
+  cat: InboxCategory,
+  counters: InboxCounters | undefined,
+  loaded?: number,
+): CategoryCount {
+  const unread = categoryUnread(cat, counters) ?? 0;
+  const total = categoryTotal(cat, counters);
+  if (total !== undefined) return { total, approximate: false, unread };
+  if (loaded !== undefined) return { total: loaded, approximate: true, unread };
+  return { total: undefined, approximate: false, unread };
+}
+
+/** "42,657", or "42+" while the number is only what has been loaded so far. */
+export function formatCategoryCount(count: CategoryCount): string {
+  if (count.total === undefined) return "";
+  return `${count.total.toLocaleString("en-US")}${count.approximate ? "+" : ""}`;
+}
+
+/** The tooltip line: "Clients · 42,423 conversations · 3 unread". */
+export function categoryTooltip(label: string, count: CategoryCount): string {
+  const parts = [label];
+  if (count.total !== undefined) {
+    const plural = count.total === 1 && !count.approximate ? "" : "s";
+    parts.push(`${formatCategoryCount(count)} conversation${plural}`);
+  }
+  if (count.unread) parts.push(`${count.unread.toLocaleString("en-US")} unread`);
+  return parts.join(" · ");
 }
 
 export const STATUS_LABEL: Record<MessageStatus, string> = {

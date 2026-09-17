@@ -6,12 +6,47 @@ import {
   Optional,
 } from '@nestjs/common';
 import { SnsPublisherService } from '@bitcrm/shared';
-import { type ProductCategory } from '@bitcrm/types';
-import { randomUUID } from 'crypto';
+import { type ProductCategory, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
+import { createHash, randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesRepository } from './item-categories.repository';
 import { type CreateItemCategoryDto } from './dto/create-item-category.dto';
 import { type UpdateItemCategoryDto } from './dto/update-item-category.dto';
+
+/**
+ * The id a name-seeded category gets. It must be **deterministic**: the
+ * repository's `create` guards with `attribute_not_exists(PK)` and the PK is
+ * `ITEM_CATEGORY#<id>`, so a `randomUUID()` here could never collide and the
+ * guard could never fire. Two writers seeding the same name would both
+ * succeed — and `UncategorizedCategorySeed.onModuleInit` runs on *every*
+ * service instance, so the first multi-task deploy after the import would mint
+ * one duplicate "Uncategorized" row per task. Duplicates are then stuck:
+ * `assertNameAvailable` 409s any rename of either, and `findByName` (`Limit:
+ * 1`) resolves to an arbitrary one.
+ *
+ * With a name-derived id both writers aim at the same PK, the loser gets a
+ * ConditionalCheckFailedException and re-reads the winner's row.
+ *
+ * RFC 4122 v5 shape (SHA-1, name-based) over the trimmed, lowercased name in a
+ * fixed BitCRM namespace, so the id is still a well-formed UUID.
+ */
+const SEEDED_CATEGORY_NAMESPACE = 'bitcrm:item-category:';
+
+export function seededCategoryId(name: string): string {
+  const h = createHash('sha1')
+    .update(SEEDED_CATEGORY_NAMESPACE + name.trim().toLowerCase(), 'utf8')
+    .digest('hex');
+  const variant = ((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80)
+    .toString(16)
+    .padStart(2, '0');
+  return [
+    h.slice(0, 8),
+    h.slice(8, 12),
+    `5${h.slice(13, 16)}`,
+    `${variant}${h.slice(18, 20)}`,
+    h.slice(20, 32),
+  ].join('-');
+}
 
 @Injectable()
 export class ItemCategoriesService {
@@ -52,6 +87,56 @@ export class ItemCategoriesService {
       name: category.name,
     });
     return category;
+  }
+
+  /**
+   * Make sure a catalog row with this name exists (case-insensitive), creating
+   * it when missing. Used for the `Uncategorized` sentinel that imported and
+   * uncategorized items reference by name — the picker must list it and the
+   * archive-on-delete rule must resolve it. Idempotent: an existing row (active
+   * or archived) is returned untouched; a concurrent create is re-read.
+   *
+   * The id is derived from the name (`seededCategoryId`) so that concurrent
+   * callers collide on one PK instead of each writing their own duplicate.
+   */
+  async ensureCategory(
+    name: string,
+    createdBy = 'system',
+  ): Promise<{ category: ProductCategory; created: boolean }> {
+    const existing = await this.repository.findByName(name);
+    if (existing) return { category: existing, created: false };
+
+    const now = new Date().toISOString();
+    const category: ProductCategory = {
+      id: seededCategoryId(name),
+      name,
+      active: true,
+      createdBy,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await this.repository.create(category);
+    } catch (err) {
+      // Lost the race for this PK — the winner's row is there now, use it.
+      // `findByName` reads GSI1, which is eventually consistent, so fall back
+      // to a base-table read at the id we just tried to claim.
+      const raced =
+        (await this.repository.findByName(name)) ??
+        (await this.repository.get(category.id));
+      if (raced) return { category: raced, created: false };
+      throw err;
+    }
+    publishInventoryEvent(this.snsPublisher, this.logger, 'item-category.created', {
+      categoryId: category.id,
+      name: category.name,
+    });
+    return { category, created: true };
+  }
+
+  /** The `Uncategorized` sentinel row, seeded on first demand. */
+  ensureUncategorized(): Promise<{ category: ProductCategory; created: boolean }> {
+    return this.ensureCategory(UNCATEGORIZED_CATEGORY);
   }
 
   async list(): Promise<ProductCategory[]> {

@@ -47,4 +47,29 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     expect(input.ExpressionAttributeValues[':pk']).toBe('TECH_ELIGIBILITY#');
     expect(out).toHaveLength(1);
   });
+
+  /**
+   * The Scan's 1MB budget is spent on deals — the rows this filter throws away
+   * — long before the eligibility partition is exhausted, so page one can hold
+   * almost none of it. What the picker offers and what the boot reconcile can
+   * remove are both exactly this list.
+   */
+  it('listAll follows LastEvaluatedKey to the end of the table', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({
+        Items: [{ technicianId: 'tech-1', assignable: true }],
+        LastEvaluatedKey: { PK: 'DEAL#999', SK: 'METADATA' },
+      })
+      .mockResolvedValueOnce({
+        Items: [{ technicianId: 'test-tech-ct-3', assignable: true }],
+      });
+
+    const out = await repo.listAll();
+
+    expect(out.map((r) => r.technicianId)).toEqual(['tech-1', 'test-tech-ct-3']);
+    expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({
+      PK: 'DEAL#999',
+      SK: 'METADATA',
+    });
+  });
 });

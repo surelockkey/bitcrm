@@ -13,10 +13,22 @@ export enum TimelineEventType {
   /** A phone call was attached to this job. */
   CALL_LINKED = 'call_linked',
   CALL_UNLINKED = 'call_unlinked',
+  /**
+   * The technician flow, as the old CRM logged it: "Confirmed job receipt"
+   * (the tech acknowledged the assignment on their phone) and "Arrived at
+   * location". Written by the technician endpoints; dispatch reads them on
+   * the job's activity feed like any other event.
+   */
+  TECH_CONFIRMED = 'tech_confirmed',
+  TECH_ARRIVED = 'tech_arrived',
   /** A photo/file appeared on, was renamed on, or vanished from the job. */
   ATTACHMENT_ADDED = 'attachment_added',
   ATTACHMENT_RENAMED = 'attachment_renamed',
   ATTACHMENT_REMOVED = 'attachment_removed',
+  /** Workiz "Sent to tech by SMS / In App / Email": a dispatcher handed the job to the roster. */
+  SENT_TO_TECH = 'sent_to_tech',
+  /** Workiz "Viewed job in app": an assigned technician opened the job. */
+  SEEN_BY_TECH = 'seen_by_tech',
   /** Job tax rate / discount / line taxable flag changed. */
   TAX_CHANGED = 'tax_changed',
   DISCOUNT_CHANGED = 'discount_changed',

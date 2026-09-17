@@ -60,6 +60,7 @@ import { MaskedClientPhones } from "./masked-client-phones";
 import {
   useDeal,
   useDeleteDeal,
+  useMarkSeenOnOpen,
   useMoveStatus,
   useSetDealTags,
   useAssignTechs,
@@ -81,6 +82,7 @@ import { DealTimelinePanel } from "./deal-timeline-panel";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
 import { useAttachments } from "../attachments-hooks";
 import { AssignedTechs } from "./assigned-techs";
+import { SendToTechCard } from "./send-to-tech-card";
 import { TechSuggestions } from "./tech-suggestions";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
@@ -109,7 +111,7 @@ export function DealDetailPage({
   initialEstimateId?: string | null;
 }) {
   const router = useRouter();
-  const { can } = usePermissions();
+  const { can, me } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
   const del = useDeleteDeal();
   const setTags = useSetDealTags(dealId);
@@ -144,6 +146,9 @@ export function DealDetailPage({
   const { data: attachments } = useAttachments(dealId);
   const attachmentCount = attachments?.length ?? 0;
   usePageHistoryLabel(deal ? `Job (${deal.dealNumber})` : undefined);
+  // Workiz "Viewed job in app": an assigned technician opening the job is what
+  // marks it seen — the dispatcher who sent it then sees the eye light up.
+  useMarkSeenOnOpen(deal, me?.id);
 
   if (isLoading || !deal) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
@@ -545,7 +550,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         </div>
       </Section>
 
-      {/* Team — inline assign (Workiz-style): pick techs who can do the job. */}
+      {/* Team — inline assign (Workiz-style): pick techs who can do the job,
+          then hand them the job over the channels they use. */}
       <Section title="Team">
         {canEdit ? (
           <TechSuggestions
@@ -557,6 +563,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         ) : (
           <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
         )}
+        <div className="border-t pt-3">
+          <SendToTechCard deal={deal} canEdit={canEdit} />
+        </div>
       </Section>
 
       {/* Custom fields — user-defined answers, held in the same draft and saved

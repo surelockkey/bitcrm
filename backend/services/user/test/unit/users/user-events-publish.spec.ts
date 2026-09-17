@@ -41,6 +41,7 @@ describe('UsersService event publishing', () => {
       findById: jest.fn().mockImplementation((id: string) => {
         const map: Record<string, unknown> = {
           'role-admin': createMockRole({ id: 'role-admin', name: 'Admin', priority: 80, isSystem: true }),
+          'role-dispatcher': createMockRole({ id: 'role-dispatcher', name: 'Dispatcher', priority: 40 }),
           'role-technician': createMockRole({ id: 'role-technician', name: 'Technician', priority: 20 }),
         };
         if (map[id]) return Promise.resolve(map[id]);
@@ -103,5 +104,50 @@ describe('UsersService event publishing', () => {
 
   it('createMockUser sanity (status active)', () => {
     expect(createMockUser().status).toBeDefined();
+  });
+
+  /**
+   * Dispatch has to hear about the two ways of ceasing to be an assignable
+   * technician that have nothing to do with job types: losing the role, and
+   * the account being switched off. Neither used to publish anything the
+   * eligibility projection consumes, so a demoted or deactivated person stayed
+   * in the job's technician picker until deal-service happened to restart.
+   */
+  describe('tech.updated for the eligibility projection', () => {
+    const techUpdated = (userId: string, field: string) =>
+      expect(sns.publish).toHaveBeenCalledWith('user-events', 'tech.updated', {
+        technicianId: userId,
+        changedFields: [field],
+      });
+
+    it('publishes when a technician is moved to another role', async () => {
+      const target = createMockUser({ id: 'u1', roleId: 'role-technician' });
+      repository.findById.mockResolvedValue(target);
+      repository.update.mockResolvedValue({ ...target, roleId: 'role-dispatcher' });
+
+      await service.assignRole(
+        'u1',
+        'role-dispatcher',
+        createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }),
+      );
+
+      techUpdated('u1', 'role');
+    });
+
+    it('publishes on deactivation', async () => {
+      repository.findById.mockResolvedValue(createMockUser({ id: 'u1', roleId: 'role-technician' }));
+
+      await service.deactivate('u1', createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }));
+
+      techUpdated('u1', 'status');
+    });
+
+    it('publishes on reactivation', async () => {
+      repository.findById.mockResolvedValue(createMockUser({ id: 'u1', roleId: 'role-technician' }));
+
+      await service.reactivate('u1', createMockJwtUser({ id: 'caller-1', roleId: 'role-admin' }));
+
+      techUpdated('u1', 'status');
+    });
   });
 });

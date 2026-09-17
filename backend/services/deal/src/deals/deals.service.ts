@@ -18,6 +18,7 @@ import {
   JobSuperStatus,
   TERMINAL_SUPER_STATUSES,
   CLOSED_SUPER_STATUSES,
+  DataScope,
   DealStatus,
   DealPriority,
   TimelineEventType,
@@ -32,9 +33,13 @@ import {
   type CustomFieldDefinition,
   type CustomFieldValue,
   type CustomFieldType,
+  type DealSentToTechEvent,
+  DealEventType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
+import { type SendToTechDto } from './dto/send-to-tech.dto';
+import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
 import { TimelineRepository } from '../timeline/timeline.repository';
@@ -1005,6 +1010,12 @@ export class DealsService {
     return candidates
       .map((tech) => {
         const reasons: string[] = [];
+        // First, and disqualifying on its own: user-service does not call this
+        // person an assignable technician. Such a row should not be here at all
+        // — the event handler removes it and the boot reconcile sweeps up what
+        // no event covers — but for as long as one is, it reaches the UI
+        // carrying its reason, never as a bare name the dispatcher is left to
+        // read as a technician.
         if (!tech.assignable) reasons.push('not_assignable');
         // An empty job type means "any" — skip the job-type check entirely.
         if (params.jobTypeId && !tech.jobTypeIds.includes(params.jobTypeId)) {
@@ -1037,6 +1048,11 @@ export class DealsService {
       .sort(
         (a, b) =>
           Number(b.eligible) - Number(a.eligible) ||
+          // Below every real technician who merely doesn't fit this job: a
+          // close home address must not float a non-technician to the top of
+          // the list a dispatcher scans.
+          Number(a.reasons.includes('not_assignable')) -
+            Number(b.reasons.includes('not_assignable')) ||
           (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity),
       );
   }
@@ -1127,6 +1143,301 @@ export class DealsService {
 
     await this.cache.invalidate(id);
     return this.findById(id);
+  }
+
+  // ------------------------------------------------- send to tech / seen
+
+  /**
+   * Workiz "Send to tech": hand the job to its technicians over the picked
+   * channels. The deal is stamped at the click (`sentToTechAt` = Workiz
+   * `last_sent`, `sentToTechVia`, `sentToTechBy`; `sentAt` / `sentVia` on
+   * each `ASSIGN#` row), a `sent_to_tech` timeline entry is written and one
+   * `deal.sent_to_tech` event goes out — messaging-service renders the
+   * settings `smsFormat` text and delivers it per channel, then reports
+   * back through `recordSentToTechDelivery`. Re-pressing is a resend: a new
+   * `sentAt`, so the consumer's idempotency key changes.
+   */
+  async sendToTech(id: string, dto: SendToTechDto, caller: JwtUser): Promise<Deal> {
+    const deal = await this.findById(id);
+    if (deal.status !== DealStatus.ACTIVE) {
+      throw new BadRequestException('A deleted job cannot be sent to a technician');
+    }
+    if (!deal.assignedTechIds.length) {
+      throw new BadRequestException('Assign a technician before sending the job');
+    }
+
+    const roster = new Set(deal.assignedTechIds);
+    const techIds = dto.techIds?.length ? [...new Set(dto.techIds)] : [...deal.assignedTechIds];
+    const strangers = techIds.filter((t) => !roster.has(t));
+    if (strangers.length) {
+      throw new BadRequestException(
+        `Technician${strangers.length > 1 ? 's' : ''} ${strangers.join(', ')} ${strangers.length > 1 ? 'are' : 'is'} not assigned to this job`,
+      );
+    }
+
+    const channels = [...new Set(dto.channels)];
+    const sentAt = new Date().toISOString();
+
+    // Order matters: the per-technician rows first, the job's own stamp only
+    // once they are written, the timeline entry and the event last of all. A
+    // write that fails here has to leave the job "not sent" — the alternative
+    // is a job reading `Sent · 12:10 PM` forever for a send no consumer was
+    // ever told to deliver, where pressing Resend repeats the same failure.
+    await this.repository.markAssignmentsSent(id, techIds, { sentAt, sentVia: channels, sentBy: caller.id });
+    await this.repository.update(id, {
+      sentToTechAt: sentAt,
+      sentToTechVia: channels,
+      sentToTechBy: caller.id,
+    });
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.SENT_TO_TECH, caller, { techIds, channels, sentAt });
+
+    const payload: DealSentToTechEvent = {
+      dealId: id,
+      dealNumber: deal.dealNumber,
+      techIds,
+      channels,
+      sentAt,
+      sentBy: caller.id,
+    };
+    this.publishEvent(DealEventType.SENT_TO_TECH, { ...payload });
+
+    return this.findById(id);
+  }
+
+  /**
+   * Workiz `seen` / "Viewed job in app": the technician's app calls this
+   * when it opens the job. Only an assigned technician counts — anyone else
+   * (a dispatcher previewing) is answered `seen: false` and nothing is
+   * written, so the client can call it blindly. First open stamps the
+   * `ASSIGN#` row, the deal's `seenByTechAt` (once, for the whole job) and
+   * a `seen_by_tech` timeline entry; later opens are no-ops.
+   */
+  async markSeenByTech(
+    id: string,
+    caller: JwtUser,
+  ): Promise<{ seen: boolean; seenAt?: string; first: boolean }> {
+    const deal = await this.findById(id);
+    if (!deal.assignedTechIds.includes(caller.id)) return { seen: false, first: false };
+
+    const now = new Date().toISOString();
+    const stored = await this.repository.markAssignmentSeen(id, caller.id, now);
+    const first = stored === now;
+    if (!first) return { seen: true, seenAt: stored, first: false };
+
+    if (!deal.seenByTechAt) {
+      await this.repository.update(id, { seenByTechAt: now });
+    }
+    await this.cache.invalidate(id);
+    await this.addTimelineEntry(id, TimelineEventType.SEEN_BY_TECH, caller, { techId: caller.id, seenAt: now });
+    return { seen: true, seenAt: now, first: true };
+  }
+
+  /**
+   * Messaging-service's report for one (technician, channel) of a send —
+   * stored on the `ASSIGN#` row so the job page can say "SMS delivered,
+   * email skipped: no address". A report for an older click than the row's
+   * current `sentAt` is ignored (a slow consumer must not describe the
+   * previous send as the latest). Skips and failures are logged; the
+   * dispatcher's click already stamped the job, Workiz-style.
+   */
+  async recordSentToTechDelivery(id: string, dto: RecordSentToTechDto): Promise<{ recorded: boolean }> {
+    const assignment = await this.repository.getAssignment(id, dto.techId);
+    if (!assignment) {
+      this.logger.warn(`sent-to-tech delivery for ${id}/${dto.techId} ignored: technician not on the job`);
+      return { recorded: false };
+    }
+    if (assignment.sentAt && assignment.sentAt > dto.sentAt) {
+      this.logger.log(`sent-to-tech delivery for ${id}/${dto.techId} (${dto.channel}) ignored: a newer send exists`);
+      return { recorded: false };
+    }
+
+    await this.repository.recordAssignmentDelivery(id, dto.techId, dto.channel, {
+      status: dto.status,
+      sentAt: dto.sentAt,
+      at: dto.at ?? new Date().toISOString(),
+      ...(dto.reason && { reason: dto.reason }),
+      ...(dto.messageId && { messageId: dto.messageId }),
+      ...(dto.conversationId && { conversationId: dto.conversationId }),
+    });
+    if (dto.status !== 'sent') {
+      this.logger.warn(`sent-to-tech ${dto.channel} for ${id}/${dto.techId} ${dto.status}: ${dto.reason ?? 'no reason given'}`);
+    }
+    return { recorded: true };
+  }
+
+  /** The per-technician sent / seen stamps of a deal (`ASSIGN#` rows). */
+  async getAssignments(id: string) {
+    await this.findById(id);
+    return this.repository.listAssignments(id);
+  }
+
+  /* ----------------------------------------------------- technician flow */
+
+  /**
+   * Who may act *as the technician on the job*.
+   *
+   * The roster is the rule: "I've got it", "I'm here" are first-person
+   * statements, and a dispatcher making them on somebody's behalf is the
+   * normal office case (a technician with no signal, a phone call) — so
+   * dispatch is allowed too, and the timeline records who actually tapped.
+   * A technician whose deals scope is `assigned_only` and who is NOT on the
+   * roster is refused: that is somebody else's job.
+   */
+  private assertTechActionAllowed(
+    deal: Deal,
+    caller: JwtUser,
+    dealScope?: string,
+  ): void {
+    if (deal.assignedTechIds.includes(caller.id)) return;
+    if (dealScope === DataScope.ASSIGNED_ONLY) {
+      throw new ForbiddenException('Only a technician assigned to this job can do that');
+    }
+  }
+
+  /** A job nobody can work any more takes no technician actions. */
+  private assertJobOpen(deal: Deal): void {
+    if (TERMINAL_SUPER_STATUSES.has(deal.superStatus)) {
+      throw new BadRequestException('This job is closed');
+    }
+  }
+
+  /**
+   * "Confirm receipt" — Workiz's *Confirmed job receipt* (≈15k in the export).
+   * The technician acknowledges the assignment from their phone; dispatch then
+   * knows the job has been seen rather than hoping.
+   *
+   * The stamp is per-technician and lives on that technician's own `ASSIGN#`
+   * row. The deal metadata mirrors the FIRST confirmation so a list view — the
+   * dispatch board, "My jobs" — can show it without reading a row per job.
+   *
+   * Idempotent: a second tap keeps the first timestamp and writes no second
+   * timeline entry. "A second tap" is per technician — each technician on a
+   * two-tech job confirms their own row and so gets their own entry — while a
+   * caller who is NOT on the roster (dispatch acting for somebody) has no row
+   * of their own and rides the deal-level mirror instead: once the job carries
+   * a confirmation, their repeat taps do nothing at all.
+   */
+  async confirmReceipt(id: string, caller: JwtUser, dealScope?: string): Promise<Deal> {
+    const deal = await this.findById(id);
+    this.assertTechActionAllowed(deal, caller, dealScope);
+    this.assertJobOpen(deal);
+
+    const existing = await this.repository.getAssignment(id, caller.id);
+    if (existing?.techConfirmedAt) return deal;
+
+    const onRoster = deal.assignedTechIds.includes(caller.id);
+    // Off the roster there is no `ASSIGN#` row to remember the tap, so the
+    // deal-level mirror is the only stamp there is: without this, every retry
+    // of a dispatcher's Confirm wrote another feed entry and another event.
+    if (!onRoster && deal.techConfirmedAt) return deal;
+
+    const at = new Date().toISOString();
+    // Only an assigned technician has a row to stamp; dispatch confirming on
+    // somebody's behalf records the deal-level mirror and the timeline entry.
+    // That write is conditional (`if_not_exists`) and answers with whatever was
+    // already there, so two taps that both race past the read above still leave
+    // one entry: the loser stops here.
+    if (onRoster) {
+      const alreadyConfirmedAt = await this.repository.confirmAssignment(id, caller.id, at);
+      if (alreadyConfirmedAt) return deal;
+    }
+
+    const result = deal.techConfirmedAt
+      ? deal
+      : await this.repository.update(id, { techConfirmedAt: at, techConfirmedBy: caller.id });
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.TECH_CONFIRMED, caller, {
+      techId: caller.id,
+      confirmedAt: at,
+    });
+    this.publishEvent('deal.tech_confirmed', { dealId: id, techId: caller.id, confirmedAt: at });
+
+    return result;
+  }
+
+  /**
+   * The catalog's own "arrived" sub-status, when it has one. The old CRM has no
+   * fixed arrival sub-status — every workspace names it itself — so this looks
+   * for one under In Progress rather than inventing a row. Nothing found means
+   * the job keeps whatever sub-status it had.
+   */
+  private static readonly ARRIVED_SUBSTATUS = /^(arrived|on[\s-]?site)\b/i;
+
+  private async arrivalSubStatusId(deal: Deal): Promise<string | undefined> {
+    // A sub-status belongs to exactly one super-status, so it can only be
+    // applied while the job actually sits in In Progress.
+    if (deal.superStatus !== JobSuperStatus.IN_PROGRESS) return undefined;
+    const all = await this.jobStatuses.list();
+    const match = all.find(
+      (s) =>
+        s.active &&
+        s.group === JobSuperStatus.IN_PROGRESS &&
+        DealsService.ARRIVED_SUBSTATUS.test(s.name.trim()),
+    );
+    return match?.id;
+  }
+
+  /**
+   * "Arrived" — Workiz's *Arrived at location* (30 427 in the export). Stamps
+   * when the technician reached the door, who, and the GPS fix their phone
+   * offered (absent when the permission was declined), and moves the job onto
+   * the catalog's arrival sub-status if the workspace has one.
+   *
+   * Idempotent like confirm: the first arrival is the arrival.
+   */
+  async markArrived(
+    id: string,
+    dto: { lat?: number; lng?: number; accuracy?: number; subStatusId?: string },
+    caller: JwtUser,
+    dealScope?: string,
+  ): Promise<Deal> {
+    const deal = await this.findById(id);
+    this.assertTechActionAllowed(deal, caller, dealScope);
+    this.assertJobOpen(deal);
+    if (deal.arrivedAt) return deal;
+
+    // An explicitly chosen sub-status is validated exactly as moveStatus does.
+    let subStatusId = dto.subStatusId;
+    if (subStatusId) {
+      const sub = await this.jobStatuses.findById(subStatusId);
+      if (sub.group !== deal.superStatus) {
+        throw new BadRequestException(
+          `Sub-status "${sub.name}" does not belong to super-status ${deal.superStatus}`,
+        );
+      }
+    } else {
+      subStatusId = await this.arrivalSubStatusId(deal);
+    }
+
+    const at = new Date().toISOString();
+    const updates: DealUpdate = { arrivedAt: at, arrivedBy: caller.id };
+    if (dto.lat !== undefined && dto.lng !== undefined) {
+      updates.arrivedLocation = {
+        lat: dto.lat,
+        lng: dto.lng,
+        ...(dto.accuracy !== undefined ? { accuracy: dto.accuracy } : {}),
+      };
+    }
+    if (subStatusId && subStatusId !== deal.subStatusId) {
+      updates.subStatusId = subStatusId;
+      updates.statusChangedAt = at;
+    }
+
+    const result = await this.repository.update(id, updates);
+    await this.cache.invalidate(id);
+
+    await this.addTimelineEntry(id, TimelineEventType.TECH_ARRIVED, caller, {
+      techId: caller.id,
+      arrivedAt: at,
+      ...(updates.arrivedLocation ? { location: updates.arrivedLocation } : {}),
+      ...(updates.subStatusId ? { subStatusId: updates.subStatusId } : {}),
+    });
+    this.publishEvent('deal.tech_arrived', { dealId: id, techId: caller.id, arrivedAt: at });
+
+    return result;
   }
 
   /** Every active deal a technician has, drained across pages. */

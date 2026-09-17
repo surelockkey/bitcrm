@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { type AutomationRule } from '@bitcrm/types';
 import {
@@ -78,6 +78,32 @@ export class AutomationsRepository {
     );
     this.logger.log(`Automation rule ${rule.id} saved (enabled=${rule.enabled})`);
     return rule;
+  }
+
+  /**
+   * `Delete AUTOMATION#<id>` — the rule row and, with it, its place in the
+   * GSI3 catalog. The rule's `AUTORUN#<id>` firings are deliberately left
+   * behind: they are history with a 30-day TTL, DynamoDB reaps them for
+   * free, and fanning out a Query + BatchWrite over a partition that can
+   * hold thousands of rows (the busiest Workiz rule fired 17 476 times) to
+   * delete what is about to expire anyway would be a lot of writes for
+   * nothing.
+   *
+   * They stay visible, though: `GET /automations/runs` reads the month
+   * partitions on GSI3, not the rules, so a deleted rule's firings keep
+   * appearing in the account feed until their TTL. That is the honest
+   * history — the rule did fire — but it means the feed carries `ruleId`s
+   * that `GET /automations` no longer lists, and whatever renders it must
+   * survive a run whose rule it cannot name.
+   */
+  async delete(id: string): Promise<void> {
+    await this.dynamoDb.client.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: { PK: automationPk(id), SK: METADATA_SK },
+      }),
+    );
+    this.logger.log(`Automation rule ${id} deleted`);
   }
 
   private toEntity(item: Record<string, unknown>): AutomationRule {

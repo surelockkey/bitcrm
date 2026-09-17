@@ -35,3 +35,48 @@ export function isWithinQuietHours(quietHours: QuietHours | undefined, now: Date
   const t = localMinutes(now, quietHours.timezone);
   return from < to ? t >= from && t < to : t >= from || t < to;
 }
+
+/**
+ * The next instant at local wall-clock `hhmm` in `timezone`, strictly after
+ * `now` — when a held message goes out. Computed by adding the minutes
+ * until that time rather than by building a local date, which keeps it
+ * right across a DST change to within the hour the clock itself moved.
+ */
+export function nextLocalTime(hhmm: string, timezone: string, now: Date = new Date()): Date {
+  const target = toMinutes(hhmm);
+  if (target === undefined) return now;
+  const t = localMinutes(now, timezone);
+  const delta = (target - t + 1440) % 1440 || 1440;
+  return new Date(now.getTime() + delta * 60_000);
+}
+
+/** When the quiet-hours window `now` falls in ends; `now` itself when none is running. */
+export function quietHoursEnd(quietHours: QuietHours | undefined, now: Date = new Date()): Date {
+  if (!quietHours || !isWithinQuietHours(quietHours, now)) return now;
+  return nextLocalTime(quietHours.to, quietHours.timezone, now);
+}
+
+/** A rule's own window (Workiz per-rule "working hours"): is `now` outside it? */
+export function isOutsideWorkingHours(
+  window: { from: string; to: string } | undefined,
+  timezone: string,
+  now: Date = new Date(),
+): boolean {
+  if (!window) return false;
+  const from = toMinutes(window.from);
+  const to = toMinutes(window.to);
+  if (from === undefined || to === undefined || from === to) return false;
+  const t = localMinutes(now, timezone);
+  const inside = from < to ? t >= from && t < to : t >= from || t < to;
+  return !inside;
+}
+
+/** When the rule's window opens again; `now` when it is already open. */
+export function workingHoursStart(
+  window: { from: string; to: string } | undefined,
+  timezone: string,
+  now: Date = new Date(),
+): Date {
+  if (!window || !isOutsideWorkingHours(window, timezone, now)) return now;
+  return nextLocalTime(window.from, timezone, now);
+}

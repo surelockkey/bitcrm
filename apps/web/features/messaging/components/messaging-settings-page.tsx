@@ -2,7 +2,9 @@
 
 import { useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
+import { SEND_TO_TECH_CHANNELS } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { SEND_TO_TECH_CHANNEL_LABEL } from "@/features/deals/lib";
 import { useNumbers } from "@/features/telephony/numbers-hooks";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
@@ -157,6 +160,35 @@ export function MessagingSettingsPage() {
           <Switch checked={form.useCloseLink} onCheckedChange={(v) => set("useCloseLink", v)} disabled={!canEdit} aria-label="Include the close-job link" />
           Include the close-job link in the new job text
         </label>
+        {/* Workiz's "Send to tech" checkboxes: what a job page ticks before a
+            dispatcher touches them. Clearing every box falls back to SMS. */}
+        <Field
+          label="Send to tech — default channels"
+          hint="What the job page’s “Send to tech” ticks before the dispatcher changes it."
+        >
+          <div className="flex flex-wrap items-center gap-4">
+            {SEND_TO_TECH_CHANNELS.map((channel) => (
+              <label key={channel} className="flex items-center gap-1.5 text-sm">
+                <Checkbox
+                  checked={form.sendToTechChannels.includes(channel)}
+                  onCheckedChange={(v) =>
+                    set(
+                      "sendToTechChannels",
+                      v === true
+                        ? SEND_TO_TECH_CHANNELS.filter(
+                            (c) => c === channel || form.sendToTechChannels.includes(c),
+                          )
+                        : form.sendToTechChannels.filter((c) => c !== channel),
+                    )
+                  }
+                  disabled={!canEdit}
+                  aria-label={SEND_TO_TECH_CHANNEL_LABEL[channel]}
+                />
+                {SEND_TO_TECH_CHANNEL_LABEL[channel]}
+              </label>
+            ))}
+          </div>
+        </Field>
         <Field label="On my way" error={errors.onMyWayMsg}>
           <Textarea rows={2} {...text("onMyWayMsg")} placeholder="Hi {{first_name}}, {{tech_name}} is on the way to you now." />
         </Field>

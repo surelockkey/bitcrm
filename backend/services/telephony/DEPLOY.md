@@ -107,6 +107,13 @@ the single most common cause of "the phone rings but nothing appears in the CRM"
 4. `GET /api/telephony/calls/stream` should stay open (SSE) — if it closes
    immediately, check the ALB idle timeout and that nginx-style buffering is off.
 
+## Importing history
+
+The item shapes an importer has to write into the calls table are documented
+next to the code that reads them. For call tags — the `CALLTAG#ALL` catalog
+rows and the `tagIds` attribute on `CALL#<sid>/METADATA` — see
+[`docs/CALL_TAGS_IMPORT.md`](docs/CALL_TAGS_IMPORT.md).
+
 ## Rollback
 
 ```bash

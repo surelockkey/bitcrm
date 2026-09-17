@@ -1,8 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { MAIN_NAV, visibleNavItems } from "./nav-config";
+import { MAIN_NAV, TECHNICIAN_HOME, TECHNICIAN_NAV, visibleNavItems } from "./nav-config";
 import type { Resource } from "@bitcrm/types";
 
 const work = MAIN_NAV.find((g) => g.label === "Work")!;
+const communications = MAIN_NAV.find((g) => g.label === "Communications")!;
+
+describe("TECHNICIAN_NAV", () => {
+  it("leads with the phone-first day list, which is also the technician's home", () => {
+    expect(TECHNICIAN_NAV[0]).toMatchObject({ label: "My Jobs", href: "/my-jobs" });
+    expect(TECHNICIAN_HOME).toBe("/my-jobs");
+  });
+
+  it("offers the van as My Stock, gated on containers.view", () => {
+    const stock = TECHNICIAN_NAV.find((i) => i.label === "My Stock")!;
+    expect(stock).toMatchObject({ href: "/my-stock", resource: "containers" });
+    expect(visibleNavItems(TECHNICIAN_NAV, () => false).map((i) => i.label)).toEqual([
+      "My Jobs",
+      "My Profile",
+    ]);
+  });
+});
 
 describe("MAIN_NAV structure", () => {
   it("has a single Inventory entry in Work instead of an Inventory group", () => {
@@ -18,6 +35,22 @@ describe("MAIN_NAV structure", () => {
       "containers",
       "transfers",
     ]);
+  });
+
+  it("puts Automations in Communications as a first-level item gated on settings", () => {
+    const automations = communications.items.find((i) => i.label === "Automations")!;
+    expect(automations).toMatchObject({ href: "/automations", resource: "settings" });
+    // It sits after the inbox: a rule that texts a client belongs next to it.
+    expect(communications.items.map((i) => i.label)).toEqual([
+      "Calls",
+      "Messages",
+      "Automations",
+    ]);
+  });
+
+  it("hides Automations from a user without settings.view", () => {
+    const items = visibleNavItems(communications.items, (r: Resource) => r === "messages");
+    expect(items.map((i) => i.label)).toEqual(["Messages"]);
   });
 });
 

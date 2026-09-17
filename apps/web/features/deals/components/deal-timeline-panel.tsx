@@ -3,10 +3,13 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
+  CheckCheck,
+  Eye,
   FilePlus2,
   FileX,
   History,
   Loader2,
+  MapPinCheck,
   MessageSquare,
   PackageMinus,
   PackageOpen,
@@ -28,7 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { TimelineEventType } from "@bitcrm/types";
-import type { TimelineEntry } from "@bitcrm/types";
+import type { SendToTechChannel, TimelineEntry } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -51,7 +54,7 @@ import { useJobTypes } from "@/features/job-types/hooks";
 import { useJobSources } from "@/features/job-sources/hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useJobTags } from "@/features/job-tags/hooks";
-import { stageLabel, superStatusLabel } from "../lib";
+import { SEND_TO_TECH_CHANNEL_LABEL, stageLabel, superStatusLabel } from "../lib";
 import {
   useAddNote,
   useContactMap,
@@ -76,9 +79,14 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.PRODUCT_REMOVED]: { icon: PackageMinus, label: "Product removed" },
   [TimelineEventType.CALL_LINKED]: { icon: PhoneCall, label: "Call linked" },
   [TimelineEventType.CALL_UNLINKED]: { icon: PhoneOff, label: "Call unlinked" },
+  [TimelineEventType.TECH_CONFIRMED]: { icon: CheckCheck, label: "Job receipt confirmed" },
+  [TimelineEventType.TECH_ARRIVED]: { icon: MapPinCheck, label: "Arrived at location" },
   [TimelineEventType.ATTACHMENT_ADDED]: { icon: Paperclip, label: "File added" },
   [TimelineEventType.ATTACHMENT_RENAMED]: { icon: Paperclip, label: "File renamed" },
   [TimelineEventType.ATTACHMENT_REMOVED]: { icon: FileX, label: "File removed" },
+  // Workiz "Sent to tech by SMS / In App / Email" and "Viewed job in app".
+  [TimelineEventType.SENT_TO_TECH]: { icon: Send, label: "Sent to tech" },
+  [TimelineEventType.SEEN_BY_TECH]: { icon: Eye, label: "Viewed job in app" },
   [TimelineEventType.TAX_CHANGED]: { icon: Percent, label: "Tax changed" },
   [TimelineEventType.DISCOUNT_CHANGED]: { icon: Percent, label: "Discount changed" },
   [TimelineEventType.INVOICE_CREATED]: { icon: Receipt, label: "Invoice created" },
@@ -299,6 +307,20 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     return lk.userName(d.techId ?? d.previousTechId);
   }
   if (
+    entry.eventType === TimelineEventType.TECH_CONFIRMED ||
+    entry.eventType === TimelineEventType.TECH_ARRIVED
+  ) {
+    // Who said so, and — on an arrival the phone could place — that it was
+    // located. The coordinates themselves belong on the map, not in a feed.
+    const parts = [lk.userName(d.techId)].filter(Boolean) as string[];
+    if (entry.eventType === TimelineEventType.TECH_ARRIVED && d.location) {
+      parts.push("location recorded");
+    }
+    const sub = typeof d.subStatusId === "string" ? lk.subStatuses.get(d.subStatusId) : undefined;
+    if (sub) parts.push(sub);
+    return parts.length ? parts.join(" · ") : null;
+  }
+  if (
     entry.eventType === TimelineEventType.PRODUCT_ADDED ||
     entry.eventType === TimelineEventType.PRODUCT_REMOVED
   ) {
@@ -348,6 +370,18 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     const name = d.fileName as string | undefined;
     const category = d.category as string | undefined;
     if (name) return category ? `${name} · ${category}` : name;
+  }
+  if (entry.eventType === TimelineEventType.SENT_TO_TECH) {
+    // Workiz's own wording: "Sent to tech by SMS · Ann Lee, Bob Ray".
+    const channels = Array.isArray(d.channels) ? (d.channels as SendToTechChannel[]) : [];
+    const via = channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c] ?? c).join(" & ");
+    const who = Array.isArray(d.techIds)
+      ? (d.techIds as string[]).map((id) => lk.userName(id) ?? id).join(", ")
+      : "";
+    return [via ? `by ${via}` : "", who].filter(Boolean).join(" · ") || null;
+  }
+  if (entry.eventType === TimelineEventType.SEEN_BY_TECH) {
+    return typeof d.techId === "string" ? lk.userName(d.techId) : null;
   }
   return null;
 }

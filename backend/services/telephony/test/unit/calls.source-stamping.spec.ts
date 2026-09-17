@@ -166,7 +166,7 @@ describe('CallsService.applyLifecycle — company stamping', () => {
     const callFlows = {
       findByNumber: jest.fn(async (phone: string) => (flows[phone] ? { id: 'f1', ...flows[phone] } : null)),
     } as unknown as CallFlowsService;
-    const service = new CallsService(repo, undefined, undefined, undefined, numberSettings, undefined, callFlows);
+    const service = new CallsService(repo, undefined, undefined, undefined, numberSettings, undefined, undefined, callFlows);
     return { service, upserts, numberSettings, callFlows };
   }
 

@@ -26,6 +26,15 @@ import { AddProductDialog } from "./add-product-dialog";
 
 function FulfillmentBadge({ product }: { product: DealProduct }) {
   const f = product.fulfillment ?? "sourced";
+  if (f === "imported") {
+    // Carried over from Workiz: it never moved BitCRM stock, and its price is
+    // whatever Workiz recorded (so the ±15% band leaves it alone).
+    return (
+      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+        Imported
+      </span>
+    );
+  }
   if (f === "service") {
     return (
       <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">

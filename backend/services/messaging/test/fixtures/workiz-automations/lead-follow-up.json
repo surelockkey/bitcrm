@@ -1,0 +1,170 @@
+{
+  "hidden": false,
+  "hiddenReason": null,
+  "_id": "638e589063561f000746a438",
+  "entities": [
+    "lead"
+  ],
+  "enabled": false,
+  "deleted": false,
+  "default_rule": false,
+  "paused": false,
+  "triggered": 11201,
+  "category": "custom",
+  "name": "Lead follow up",
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "1"
+      },
+      {
+        "fact": "schedule_type",
+        "operator": "equal",
+        "value": "1"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1670247291.021
+      },
+      {
+        "fact": "status",
+        "operator": "equal",
+        "value": "new",
+        "friendly_strings": {
+          "value": "new",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "client",
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Update from {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 12,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name"
+            }
+          }
+        ]
+      },
+      "message_from": "Sure Lock and Key LLC",
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Hello! It's Sure Lock and Key the locksmith company. We had a call from you, so if you still need our help, feel free to text back or give us a call. Have a good one!",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": []
+      },
+      "time_interval": {
+        "value": 10,
+        "operator": "after",
+        "time_field": "job_date_utc",
+        "time_unit": "minutes",
+        "time_field_friendly_string": "schedule date"
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "09:00",
+        "to": "17:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Update from {{account_business_name}} ",
+      "message_template": "<p>Hello! It's Sure Lock and Key the locksmith company. We had a call from you, so if you still need our help, feel free to text back or give us a call. Have a good one!</p>\n"
+    }
+  ],
+  "createdAt": "2022-12-05T20:46:08.610Z",
+  "updatedAt": "2024-10-09T14:36:03.702Z",
+  "namespace": "2774",
+  "parameters": {
+    "p1": {
+      "text": "a lead",
+      "type": "entity",
+      "value": "job"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "new",
+      "type": "entity_main_condition"
+    },
+    "p3": {
+      "text": "client",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "10 minutes after",
+      "type": "time"
+    },
+    "p6": {
+      "text": "schedule date",
+      "type": "time_field"
+    }
+  },
+  "ruleSentence": {
+    "_id": "notification2",
+    "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5} the {entity} {p6}"
+  },
+  "validFrom": "2022-12-06T13:34:51.021Z",
+  "hash_code": "1b8a1f8f2c028d6d0f07238a3a4c43a3",
+  "__v": 0,
+  "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5} the {entity} {p6}",
+  "fullSentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5} the {entity} {p6}"
+}

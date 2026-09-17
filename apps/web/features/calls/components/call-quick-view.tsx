@@ -28,6 +28,7 @@ import {
 import { CallAssociations } from "./call-associations";
 import { CallPartyCell } from "./call-party-cell";
 import { CallStatusBadge } from "./call-status-badge";
+import { CallTagsCell } from "./call-tags-cell";
 import { RecordingPlayer } from "./recording-player";
 
 /**
@@ -114,6 +115,12 @@ function QuickViewBody({ callSid }: { callSid: string }) {
       <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
         <Row label="Status">
           <CallStatusBadge status={call.status} />
+        </Row>
+
+        {/* Right under the status: marking a call spam or a wrong number is
+            the first thing a dispatcher does after hearing who it was. */}
+        <Row label="Tags">
+          <CallTagsCell call={call} />
         </Row>
 
         <Row label="Recording">

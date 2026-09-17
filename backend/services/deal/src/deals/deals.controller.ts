@@ -18,6 +18,7 @@ import { DealsService } from './deals.service';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { MoveStatusDto } from './dto/move-status.dto';
+import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
 import { AddNoteDto } from './dto/add-note.dto';
@@ -30,6 +31,8 @@ import { MarkProductOrderedDto } from './dto/mark-product-ordered.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { RecordCallLinkDto } from './dto/record-call-link.dto';
+import { SendToTechDto } from './dto/send-to-tech.dto';
+import { RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
 
 @ApiTags('Deals')
@@ -172,6 +175,50 @@ export class DealsController {
     return { success: true, data };
   }
 
+  @Post(':id/tech/confirm')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Confirm receipt of the job (technician)',
+    description:
+      '**Guard:** `deals.edit`, and — for a caller whose `deals` data scope is `assigned_only` — ' +
+      'membership of this job\'s technician roster (403 otherwise); dispatch may confirm on a ' +
+      'technician\'s behalf. Mirrors the old CRM\'s "Confirmed job receipt": stamps `techConfirmedAt` ' +
+      'on the caller\'s `ASSIGN#` row (and the first one onto the job, so lists can show it) and ' +
+      'writes a `tech_confirmed` timeline entry. Idempotent per caller — a second call keeps the ' +
+      'first stamp and writes no second entry and no second event, a dispatcher with no `ASSIGN#` ' +
+      'row of their own included; a second technician on the same job still records their own ' +
+      'confirmation. 400 once the job is closed.',
+  })
+  async confirmReceipt(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.confirmReceipt(id, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
+  @Post(':id/tech/arrived')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Mark arrival at the job (technician)',
+    description:
+      '**Guard:** `deals.edit`, plus the same roster rule as confirm. Mirrors the old CRM\'s ' +
+      '"Arrived at location": stamps `arrivedAt`/`arrivedBy` (and the phone\'s GPS fix when the body ' +
+      'carries one), applies the catalog\'s In Progress arrival sub-status when the workspace has ' +
+      'one (or the `subStatusId` in the body), and writes a `tech_arrived` timeline entry. ' +
+      'Idempotent — the first arrival stands. 400 once the job is closed.',
+  })
+  async markArrived(
+    @Param('id') id: string,
+    @Body() dto: MarkArrivedDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.markArrived(id, dto, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
   @Get(':id/timeline')
   @RequirePermission('deals', 'view')
   @ApiOperation({
@@ -311,6 +358,56 @@ export class DealsController {
     return { success: true, data };
   }
 
+  @Post(':id/send-to-tech')
+  @RequirePermission('deals', 'edit')
+  @ApiOperation({
+    summary: 'Send the job to its technician(s) — Workiz "Send to tech"',
+    description:
+      '**Guard:** `deals.edit` permission required. Stamps `sentToTechAt` / `sentToTechVia` / ' +
+      '`sentToTechBy` on the job (and `sentAt` on each technician’s assignment row), writes a ' +
+      '`sent_to_tech` timeline entry and publishes `deal.sent_to_tech`; messaging-service renders the ' +
+      'settings `smsFormat` text and delivers it per channel (`sms` → personal phone, `email`, ' +
+      '`in_app` → team thread). `techIds` narrows the roster; omitted = everyone assigned. Pressing ' +
+      'again is a resend.',
+  })
+  async sendToTech(
+    @Param('id') id: string,
+    @Body() dto: SendToTechDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.dealsService.sendToTech(id, dto, user);
+    return { success: true, data };
+  }
+
+  @Post(':id/seen')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'The technician opened the job — Workiz "seen" / "Viewed job in app"',
+    description:
+      '**Guard:** `deals.view` permission required. Called by the technician’s app when the job is ' +
+      'opened. Only an assigned technician counts: first open stamps `seenAt` on their assignment ' +
+      'row, `seenByTechAt` on the job and a `seen_by_tech` timeline entry; later opens (and anyone ' +
+      'not on the roster) answer `seen: false` / unchanged without writing.',
+  })
+  async markSeen(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    const data = await this.dealsService.markSeenByTech(id, user);
+    return { success: true, data };
+  }
+
+  @Get(':id/assignments')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'Per-technician sent / seen stamps of a job',
+    description:
+      '**Guard:** `deals.view` permission required. The `ASSIGN#` rows: who is on the job, when it ' +
+      'was last sent to each of them and over which channels, whether (and when) they opened it, and ' +
+      'what messaging reported per channel.',
+  })
+  async getAssignments(@Param('id') id: string) {
+    const data = await this.dealsService.getAssignments(id);
+    return { success: true, data };
+  }
+
   // Static path — declared before the dynamic ":id" routes can't shadow it.
   @Post('reorder')
   @RequirePermission('deals', 'edit')
@@ -435,6 +532,24 @@ export class DealsController {
   ) {
     await this.dealsService.updatePaymentStatus(id, dto);
     return { success: true, data: { updated: true } };
+  }
+
+  @Put('internal/:id/sent-to-tech')
+  @Internal()
+  @ApiOperation({
+    summary: 'Record what happened to one channel of a "Send to tech" (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). ' +
+      'Written by messaging-service after handling `deal.sent_to_tech`: per (technician, channel) — ' +
+      'the message it stored, or why nothing went out. Lands in `deliveries` on the `ASSIGN#` row; ' +
+      'a report for an older `sentAt` than the row’s current one is ignored.',
+  })
+  async recordSentToTech(
+    @Param('id') id: string,
+    @Body() dto: RecordSentToTechDto,
+  ) {
+    const data = await this.dealsService.recordSentToTechDelivery(id, dto);
+    return { success: true, data };
   }
 
   // NOTE: `internal/all` (static) MUST stay declared before `internal/:id`

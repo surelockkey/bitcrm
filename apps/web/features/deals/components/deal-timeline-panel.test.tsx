@@ -456,4 +456,31 @@ describe("DealTimelinePanel — every event reads human", () => {
     );
     expect(screen.getByText(/File removed/)).toBeInTheDocument();
   });
+
+  // Workiz's own wording for the two dispatch events.
+  it("reads a 'Send to tech' as the channels it went out on and who it went to", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.SENT_TO_TECH,
+        details: {
+          techIds: ["u-olha"],
+          channels: ["sms", "email"],
+          sentAt: "2026-08-01T10:00:00.000Z",
+        },
+      }),
+    );
+    expect(screen.getByText(/Sent to tech/)).toBeInTheDocument();
+    expect(screen.getByText(/by SMS & Email · Olha Datsiuk/)).toBeInTheDocument();
+  });
+
+  it("names the technician who opened the job in their app", () => {
+    show(
+      entry({
+        eventType: TimelineEventType.SEEN_BY_TECH,
+        details: { techId: "u-olha", seenAt: "2026-08-01T10:04:00.000Z" },
+      }),
+    );
+    expect(screen.getByText(/Viewed job in app/)).toBeInTheDocument();
+    expect(screen.getByText(/Olha Datsiuk/)).toBeInTheDocument();
+  });
 });

@@ -1,0 +1,221 @@
+{
+  "hidden": false,
+  "hiddenReason": null,
+  "_id": "(555) 010-01005c17000843d4e3",
+  "entities": [
+    "invoice"
+  ],
+  "enabled": false,
+  "deleted": false,
+  "triggered": 5,
+  "category": "followUps",
+  "name": "Invoice due 7 days / Email",
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "invoices"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1637189510.953
+      },
+      {
+        "fact": "is_sent",
+        "operator": "equal",
+        "value": true,
+        "friendly_strings": {
+          "value": "sent",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "job_amount_due",
+        "entity": "invoice",
+        "operator": "greaterThan",
+        "value": 0,
+        "friendly_strings": {
+          "fact": "amount due",
+          "value": "0"
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "email",
+      "receiverType": "client",
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Invoice payment reminder from {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 30,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name"
+            }
+          }
+        ]
+      },
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Hi {{first_name}} ,",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 3,
+                "length": 14,
+                "key": 0
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "q492",
+            "text": "This is just a reminder that payment on invoice #{{invoice_id_interval}} (total {{job_total_price}} ) is due.",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 49,
+                "length": 23,
+                "key": 1
+              },
+              {
+                "offset": 80,
+                "length": 19,
+                "key": 2
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "29fdl",
+            "text": "If you have any questions whatsoever, please reply and we would be happy to clarify them.",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "first_name"
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "invoice_id_interval"
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "job_total_price"
+            }
+          }
+        ]
+      },
+      "time_interval": {
+        "value": "7",
+        "operator": "after",
+        "time_field": "sent_utc",
+        "time_unit": "days",
+        "time_field_friendly_string": "date of sending"
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "09:00",
+        "to": "17:00",
+        "from_utc": "14:00",
+        "to_utc": "22:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Invoice payment reminder from {{account_business_name}} ",
+      "message_template": "<p>Hi {{first_name}} ,</p>\n<p>This is just a reminder that payment on invoice #{{invoice_id_interval}} (total {{job_total_price}} ) is due.</p>\n<p>If you have any questions whatsoever, please reply and we would be happy to clarify them.</p>\n"
+    }
+  ],
+  "createdAt": "2021-11-17T22:51:50.953Z",
+  "updatedAt": "2024-10-09T14:36:03.702Z",
+  "namespace": "2774",
+  "hash_code": "cafba609b386af2acb280e7d9cb8ed3c",
+  "__v": 0,
+  "paused": false,
+  "default_rule": false,
+  "parameters": {
+    "p1": {
+      "text": "an invoice",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "is sent",
+      "type": "entity_main_condition"
+    },
+    "p7": {
+      "text": "",
+      "type": "type_of_main_condition"
+    },
+    "p3": {
+      "text": "client",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "an email",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "7 days after",
+      "type": "time"
+    },
+    "p6": {
+      "text": "date of sending",
+      "type": "time_field"
+    }
+  },
+  "ruleSentence": {
+    "_id": "notification1",
+    "sentence": "When {p1} {p2}, send {p3} {p4} {p5} the {entity} {p6}"
+  },
+  "sentence": "When {p1} {p2}, send {p3} {p4} {p5} the {entity} {p6}",
+  "fullSentence": "When {p1} {p2}, send {p3} {p4} {p5} the {entity} {p6}"
+}

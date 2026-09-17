@@ -1094,6 +1094,61 @@ describe('DealsService', () => {
       expect(result[0].eligible).toBe(false);
       expect(result[0].reasons).toContain('outside_area');
     });
+
+    /**
+     * A row user-service does not vouch for is normally gone by now — the
+     * event handler removes it, the boot reconcile sweeps up what no event
+     * covers. While one is still here it has to arrive saying so: the picker
+     * renders an unexplained row as just another technician, which is how
+     * people who are not technicians came to be offered on a job.
+     */
+    describe('a row the projection cannot vouch for', () => {
+      const dealForMatch = () =>
+        createMockDeal({
+          jobTypeId: 'jt-x',
+          serviceAreaId: 'sa-y',
+          address: createMockAddress({ lat: 33.749, lng: -84.388 }),
+        });
+
+      const notATech = {
+        technicianId: 'not-a-tech',
+        jobTypeIds: ['jt-x'],
+        serviceAreaIds: ['sa-y'],
+        assignable: false,
+        homeAddress: { lat: 33.75, lng: -84.39 },
+        updatedAt: '2026-04-16T10:00:00.000Z',
+      };
+
+      it('never comes back eligible, however well its catalog ids match', async () => {
+        mockFindById(dealForMatch());
+        eligibility.listAll.mockResolvedValue([notATech]);
+
+        const result = await service.getQualifiedTechs('deal-1');
+
+        expect(result[0].eligible).toBe(false);
+        expect(result[0].reasons).toContain('not_assignable');
+      });
+
+      it('sorts below a real technician who merely cannot take this job', async () => {
+        mockFindById(dealForMatch());
+        eligibility.listAll.mockResolvedValue([
+          // Nearest of the three, so distance alone would have put it first.
+          notATech,
+          {
+            technicianId: 'real-tech',
+            jobTypeIds: ['jt-other'],
+            serviceAreaIds: ['sa-y'],
+            assignable: true,
+            homeAddress: { lat: 34.3, lng: -84.9 },
+            updatedAt: '2026-04-16T10:00:00.000Z',
+          },
+        ]);
+
+        const result = await service.getQualifiedTechs('deal-1');
+
+        expect(result.map((t) => t.id)).toEqual(['real-tech', 'not-a-tech']);
+      });
+    });
   });
 
   describe('assignTechs', () => {
@@ -1356,6 +1411,20 @@ describe('DealsService', () => {
 
       expect(http.restoreStock).not.toHaveBeenCalled();
     });
+
+    it('does not restore stock when removing an imported Workiz line', async () => {
+      // The 2026-09-11 opening snapshot already accounts for the 35 243
+      // historical stock lines — restoring would double-count them.
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-9'] }));
+      products.findProduct.mockResolvedValue(
+        createMockDealProduct({ fulfillment: 'imported', sourceTechId: undefined }),
+      );
+
+      await service.removeProduct('deal-1', 'product-1', caller);
+
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+    });
   });
 
   describe('replaceProduct', () => {
@@ -1398,6 +1467,30 @@ describe('DealsService', () => {
         productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
       }));
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
+    });
+
+    it('editing an imported line restores nothing and drops both import markers', async () => {
+      mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
+      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
+        productId === 'product-1'
+          ? createMockDealProduct({
+              fulfillment: 'imported',
+              priceSource: 'imported',
+              sourceTechId: undefined,
+            })
+          : null,
+      );
+
+      await service.replaceProduct('deal-1', 'product-1', dto as any, caller);
+
+      // The imported line never deducted BitCRM stock, so nothing goes back.
+      expect(http.restoreStock).not.toHaveBeenCalled();
+      expect(http.deductStock).toHaveBeenCalledWith(
+        expect.objectContaining({ containerId: 'tech-1' }),
+      );
+      const written = products.addProduct.mock.calls[0][1];
+      expect(written.fulfillment).toBe('sourced');
+      expect(written.priceSource).toBeUndefined();
     });
 
     it('preserves the original addedBy/addedAt and stamps the editor', async () => {

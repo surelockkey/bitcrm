@@ -81,8 +81,19 @@ describe('InternalHttpService', () => {
       expect(userGet).toHaveBeenCalledWith('/api/users/internal/technicians/assignable');
     });
 
-    it('returns an empty array on error', async () => {
+    /**
+     * Null, not `[]`. The caller reconciles the eligibility projection against
+     * this list and removes what is missing from it, so "user-service could
+     * not answer" has to be distinguishable from "there are no technicians" —
+     * otherwise one timeout empties the assignment dialog.
+     */
+    it('returns null when user-service cannot answer', async () => {
       userGet.mockRejectedValue(new Error('timeout'));
+      expect(await service.listAssignableTechnicians()).toBeNull();
+    });
+
+    it('returns an empty list when user-service really has no technicians', async () => {
+      userGet.mockResolvedValue({ data: { data: [] } });
       expect(await service.listAssignableTechnicians()).toEqual([]);
     });
   });
@@ -98,10 +109,21 @@ describe('InternalHttpService', () => {
       expect(userGet).toHaveBeenCalledWith('/api/users/internal/technicians/tech-1/eligibility');
     });
 
-    it('treats an unreachable user-service as not assignable', async () => {
+    /**
+     * "Not assignable" is acted on by deleting the projection row, so an
+     * unreachable user-service must not be able to say it: a single timeout
+     * would take a working technician out of dispatch until the next boot.
+     * The throw is what lets SQS redeliver instead.
+     */
+    it('throws when user-service cannot answer', async () => {
       userGet.mockRejectedValue(new Error('timeout'));
-      const result = await service.getTechnicianEligibility('tech-1');
-      expect(result).toEqual({ technicianId: 'tech-1', assignable: false, jobTypeIds: [], serviceAreaIds: [] });
+      await expect(service.getTechnicianEligibility('tech-1')).rejects.toThrow();
+    });
+
+    it('treats a 404 as a real "not a technician" answer', async () => {
+      userGet.mockRejectedValue({ response: { status: 404 } });
+      const result = await service.getTechnicianEligibility('ghost');
+      expect(result).toEqual({ technicianId: 'ghost', assignable: false, jobTypeIds: [], serviceAreaIds: [] });
     });
   });
 

@@ -45,7 +45,7 @@ import {
   unreadGsi2Pk,
 } from '../common/constants/dynamo.constants';
 import { InvalidCursorError, decodeCursor, encodeCursor } from '../common/cursor';
-import { conditionFailedAt, isConditionalCheckFailed } from '../common/dynamo-errors';
+import { conditionFailedAt, duplicateKeyError, isConditionalCheckFailed } from '../common/dynamo-errors';
 import { compact, stripKeys } from '../common/items';
 import { walkYears, yearNow, type YearWalkCursor } from '../common/year-walk';
 import { countersAddUpdate } from '../counters/inbox-counters.repository';
@@ -230,15 +230,35 @@ export class ConversationsRepository {
 
   // ---------------------------------------------------------------- writes
 
-  /** `Put CONV#<id>/METADATA` with `attribute_not_exists(PK)` — fails on a duplicate id. */
+  /**
+   * `Put CONV#<id>/METADATA` with `attribute_not_exists(PK)` — fails on a
+   * duplicate id. A create adds the conversation to the category totals, so
+   * the counters ADD rides in the same transaction as the Put.
+   *
+   * The duplicate-id failure is still a `ConditionalCheckFailedException`: in
+   * a transaction DynamoDB reports it as a cancellation of item 0, and that is
+   * translated back here so callers keep the contract they had when this was
+   * a single `PutItem`.
+   */
   async create(conversation: Conversation): Promise<void> {
-    await this.dynamoDb.client.send(
-      new PutCommand({
-        TableName: this.tableName,
-        Item: conversationItem(conversation),
-        ConditionExpression: 'attribute_not_exists(PK)',
-      }),
-    );
+    const Put = {
+      TableName: this.tableName,
+      Item: conversationItem(conversation),
+      ConditionExpression: 'attribute_not_exists(PK)',
+    };
+    const counters = this.countersUpdate(undefined, conversation);
+    try {
+      if (counters) {
+        await this.dynamoDb.client.send(
+          new TransactWriteCommand({ TransactItems: [{ Put }, { Update: counters }] }),
+        );
+      } else {
+        await this.dynamoDb.client.send(new PutCommand(Put));
+      }
+    } catch (err) {
+      if (conditionFailedAt(err, 0)) throw duplicateKeyError(conversation.id);
+      throw err;
+    }
     this.logger.log(`Created conversation ${conversation.id} (${conversation.kind})`);
   }
 
@@ -261,6 +281,7 @@ export class ConversationsRepository {
       conversationId: c.id,
       createdAt: c.createdAt,
     };
+    const counters = this.countersUpdate(undefined, c);
     const TransactItems = [
       {
         Put: {
@@ -289,6 +310,9 @@ export class ConversationsRepository {
           }),
         },
       })),
+      // The new conversation joins the category totals. Last, so the pointer
+      // stays at index 0 for the `conditionFailedAt(err, 0)` race check.
+      ...(counters ? [{ Update: counters }] : []),
     ];
 
     try {
@@ -321,8 +345,7 @@ export class ConversationsRepository {
     if (!fields.length) return current;
 
     const conversationUpdate = this.guardedUpdate(current, next, fields);
-    const delta = countersDelta(current, next);
-    const counters = delta ? countersAddUpdate(this.tableName, delta) : undefined;
+    const counters = this.countersUpdate(current, next);
 
     try {
       if (counters) {
@@ -362,8 +385,7 @@ export class ConversationsRepository {
       lastReadAt: at,
       lastReadMessageSk: opts.lastReadMessageSk,
     };
-    const delta = countersDelta(current, next);
-    const counters = delta ? countersAddUpdate(this.tableName, delta) : undefined;
+    const counters = this.countersUpdate(current, next);
 
     try {
       await this.dynamoDb.client.send(
@@ -424,6 +446,7 @@ export class ConversationsRepository {
       conversationId: c.id,
       createdAt: c.createdAt,
     };
+    const counters = this.countersUpdate(undefined, c);
     await this.dynamoDb.client.send(
       new TransactWriteCommand({
         TransactItems: [
@@ -442,6 +465,8 @@ export class ConversationsRepository {
             },
           },
           ...members.map((m) => ({ Put: { TableName: this.tableName, Item: this.memberItem(m) } })),
+          // A group is a conversation like any other — it belongs in the Team total.
+          ...(counters ? [{ Update: counters }] : []),
         ],
       }),
     );
@@ -791,6 +816,17 @@ export class ConversationsRepository {
       }),
     );
     return { items: res.Items ?? [], lastEvaluatedKey: res.LastEvaluatedKey };
+  }
+
+  /**
+   * The counters `Update` for a conversation going `current` → `next`
+   * (`current: undefined` is a create), or `undefined` when nothing moved.
+   * Every write path funnels through here so the badge and the category
+   * totals can never be maintained by two different rules.
+   */
+  private countersUpdate(current: Conversation | undefined, next: Conversation) {
+    const delta = countersDelta(current, next);
+    return delta ? countersAddUpdate(this.tableName, delta) : undefined;
   }
 
   /** The conversation Update body with the optimistic `updatedAt` guard. */

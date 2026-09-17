@@ -12,6 +12,14 @@ export interface AutoSentMarker {
   techId: string;
   /** The job's `scheduledDate` at send time (`''` when unscheduled); a different one means a reschedule. */
   scheduledDate: string;
+  /**
+   * Which occurrence of the rule this marker is for, when the job's date is
+   * not what decides. `send-to-tech:*` puts the click's `sentAt` here: a
+   * redelivery of the same `deal.sent_to_tech` finds its own value and sends
+   * nothing, a second press of the button brings a new one and sends again.
+   * Absent for `new-job-sms`, which keys on `scheduledDate`.
+   */
+  sentFor?: string;
   conversationId: string;
   messageId: string;
   sentAt: string;

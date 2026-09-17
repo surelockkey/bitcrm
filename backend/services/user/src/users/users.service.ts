@@ -21,6 +21,10 @@ import {
   type JwtUser,
   type UserPermissionOverrides,
   type ResolvedPermissions,
+  isAssignableTechnician,
+  TechChangedField,
+  TECHNICIAN_ROLE_ID,
+  UserEventType,
   UserStatus,
 } from '@bitcrm/types';
 import { UsersRepository } from './users.repository';
@@ -87,8 +91,6 @@ export class UsersService implements OnModuleInit {
     private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
   ) {}
 
-  private static readonly TECHNICIAN_ROLE_ID = 'role-technician';
-
   /**
    * Every assignable technician, with identity and approved catalog ids.
    * deal-service projects this into its eligibility read-model on boot, and
@@ -96,8 +98,12 @@ export class UsersService implements OnModuleInit {
    * list used to come back empty was that both sides compared free text
    * (`lock_change` against a hand-typed "Lock Change") instead.
    *
-   * Assignable means ≥1 approved job type AND ≥1 approved service area, so
-   * partially-onboarded technicians are left out.
+   * This roster is also the authority deal-service reconciles against, so it
+   * must be the complete set: a technician left out here is removed from the
+   * assignment dialog on deal-service's next boot.
+   *
+   * "Assignable" is `isAssignableTechnician` and nothing else — see
+   * `getTechnicianEligibility`, which answers the same question for one user.
    */
   async listAssignableTechnicians(): Promise<TechnicianEligibilityInfo[]> {
     if (!this.techniciansRepository || !this.assignmentsRepository) {
@@ -110,7 +116,7 @@ export class UsersService implements OnModuleInit {
     }
 
     const [users, jobTypes, areas, profiles] = await Promise.all([
-      this.repository.findByRoleId(UsersService.TECHNICIAN_ROLE_ID),
+      this.repository.findByRoleId(TECHNICIAN_ROLE_ID),
       this.assignmentsRepository.listAllApproved('job_type'),
       this.assignmentsRepository.listAllApproved('service_area'),
       this.listAllTechnicianProfiles(),
@@ -129,8 +135,10 @@ export class UsersService implements OnModuleInit {
 
     const technicians: TechnicianEligibilityInfo[] = [];
     for (const user of users) {
-      const entry = byTech.get(user.id);
-      if (!entry?.jobTypeIds.length || !entry.serviceAreaIds.length) continue;
+      const entry = byTech.get(user.id) ?? { jobTypeIds: [], serviceAreaIds: [] };
+      if (!isAssignableTechnician(user, entry.jobTypeIds, entry.serviceAreaIds)) {
+        continue;
+      }
 
       const home = homeByTech.get(user.id);
       const mappable = home?.lat !== undefined && home?.lng !== undefined;
@@ -152,7 +160,16 @@ export class UsersService implements OnModuleInit {
     return technicians;
   }
 
-  /** One technician's eligibility, in the same shape as the list above. */
+  /**
+   * One user's eligibility, by the same rule as the roster above — the two
+   * used to disagree, and this was the looser of the pair: it read the approved
+   * job types and service areas and never asked whose they were, so approving a
+   * job type for a dispatcher published `tech.approved` and put them in the
+   * assignment dialog as a technician.
+   *
+   * Answers for any user id, not only technicians: deal-service asks this on a
+   * role change or a deactivation precisely to hear "no longer assignable".
+   */
   async getTechnicianEligibility(userId: string): Promise<TechnicianEligibilityInfo> {
     const unassignable: TechnicianEligibilityInfo = {
       technicianId: userId,
@@ -162,18 +179,20 @@ export class UsersService implements OnModuleInit {
     };
     if (!this.assignmentsRepository) return unassignable;
 
-    const all = await this.assignmentsRepository.listByUser(userId);
+    const [all, user] = await Promise.all([
+      this.assignmentsRepository.listByUser(userId),
+      // A deleted or unknown user is not a technician; `findById` here is the
+      // repository's (null-returning) one, not the service's throwing wrapper.
+      this.repository.findById(userId),
+    ]);
     const approved = (kind: 'job_type' | 'service_area') =>
       all.filter((a) => a.kind === kind && a.status === 'approved').map((a) => a.catalogId);
 
     const jobTypeIds = approved('job_type');
     const serviceAreaIds = approved('service_area');
-    if (!jobTypeIds.length || !serviceAreaIds.length) return unassignable;
+    if (!isAssignableTechnician(user, jobTypeIds, serviceAreaIds)) return unassignable;
 
-    const [user, profile] = await Promise.all([
-      this.repository.findById(userId),
-      this.techniciansRepository?.getProfile(userId),
-    ]);
+    const profile = await this.techniciansRepository?.getProfile(userId);
     const home = profile?.homeAddress;
     const mappable = home?.lat !== undefined && home?.lng !== undefined;
 
@@ -231,7 +250,7 @@ export class UsersService implements OnModuleInit {
     let created = 0;
     do {
       const { items, nextCursor } = await this.repository.findByRole(
-        UsersService.TECHNICIAN_ROLE_ID,
+        TECHNICIAN_ROLE_ID,
         200,
         cursor,
       );
@@ -564,6 +583,8 @@ export class UsersService implements OnModuleInit {
     await this.cognitoAdmin.disableUser(user.cognitoSub);
     await this.permissionCacheReader.setUserDisabled(id);
     await this.cache.invalidateUser(id);
+    // Nobody who cannot log in should still be offered for tomorrow's work.
+    this.publishTechUpdated(id, TechChangedField.STATUS);
   }
 
   async reactivate(id: string, caller: JwtUser): Promise<void> {
@@ -576,6 +597,7 @@ export class UsersService implements OnModuleInit {
     await this.permissionCacheReader.removeUserDisabled(id);
     await this.cache.invalidateUser(id);
     this.publishUserEvent('user.activated', user);
+    this.publishTechUpdated(id, TechChangedField.STATUS);
   }
 
   async resendInvite(id: string): Promise<void> {
@@ -648,6 +670,10 @@ export class UsersService implements OnModuleInit {
     await this.rolesCache.invalidateUserPermissions(userId);
 
     this.publishUserEvent('user.role-changed', updatedUser);
+    // `user.role-changed` is a user-shaped event nobody joins to dispatch. A
+    // technician demoted to dispatcher otherwise stayed in the assignment
+    // dialog until deal-service happened to restart.
+    this.publishTechUpdated(userId, TechChangedField.ROLE);
     await this.ensureTechnicianProfile(userId, roleId);
     return updatedUser;
   }
@@ -739,7 +765,7 @@ export class UsersService implements OnModuleInit {
     roleId: string,
   ): Promise<void> {
     if (!this.techniciansRepository) return;
-    if (roleId !== UsersService.TECHNICIAN_ROLE_ID) return;
+    if (roleId !== TECHNICIAN_ROLE_ID) return;
     try {
       const existing = await this.techniciansRepository.getProfile(userId);
       if (existing) return;
@@ -783,6 +809,23 @@ export class UsersService implements OnModuleInit {
       `Carrying the client-number restriction forward for ${user.id} into ${incomingRoleId}`,
     );
     return { permissions: { contacts: { view_numbers: false } } };
+  }
+
+  /**
+   * Tell the consumers of the eligibility projection to re-read this user.
+   * Published for anyone, technician or not: "this person is not a technician"
+   * is exactly the answer that takes a stale row out of the assignment dialog.
+   */
+  private publishTechUpdated(userId: string, changed: TechChangedField): void {
+    if (!this.snsPublisher) return;
+    this.snsPublisher
+      .publish('user-events', UserEventType.TECH_UPDATED, {
+        technicianId: userId,
+        changedFields: [changed],
+      })
+      .catch((err) =>
+        this.logger.warn(`Failed to publish tech.updated (${changed}): ${err.message}`),
+      );
   }
 
   private publishUserEvent(eventType: string, user: User): void {

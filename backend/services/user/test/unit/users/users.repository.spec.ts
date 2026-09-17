@@ -152,6 +152,48 @@ describe('UsersRepository', () => {
     });
   });
 
+  /**
+   * Unlike `findByRole`, this one has no cursor to hand back — the caller gets
+   * "everyone in the role" or a wrong answer. deal-service reconciles its
+   * dispatch projection against this list and DELETES the technicians missing
+   * from it, so a page-one-only read takes every technician past the first 1MB
+   * out of the job's technician picker.
+   */
+  describe('findByRoleId', () => {
+    it('follows LastEvaluatedKey until the role is exhausted', async () => {
+      const page1 = createMockUser({ id: 'tech-1' });
+      const page2 = createMockUser({ id: 'tech-2' });
+      dbClient.send
+        .mockResolvedValueOnce({
+          Items: [{ PK: 'USER#tech-1', SK: 'METADATA', ...page1 }],
+          LastEvaluatedKey: { PK: 'USER#tech-1', SK: 'METADATA' },
+        })
+        .mockResolvedValueOnce({
+          Items: [{ PK: 'USER#tech-2', SK: 'METADATA', ...page2 }],
+        });
+
+      const result = await repository.findByRoleId('role-technician');
+
+      expect(result.map((u) => u.id)).toEqual(['tech-1', 'tech-2']);
+      expect(dbClient.send).toHaveBeenCalledTimes(2);
+      expect(dbClient.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({
+        PK: 'USER#tech-1',
+        SK: 'METADATA',
+      });
+    });
+
+    it('queries GSI1 for the role and stops on a single page', async () => {
+      dbClient.send.mockResolvedValue({ Items: [] });
+
+      await repository.findByRoleId('role-technician');
+
+      const input = dbClient.send.mock.calls[0][0].input;
+      expect(input.IndexName).toBe('RoleIndex');
+      expect(input.ExpressionAttributeValues[':pk']).toBe('ROLE_USER#role-technician');
+      expect(dbClient.send).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('findByDepartment', () => {
     it('should query GSI2 with correct key', async () => {
       dbClient.send.mockResolvedValue({ Items: [] });

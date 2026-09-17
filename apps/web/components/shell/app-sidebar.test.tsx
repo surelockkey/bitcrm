@@ -141,11 +141,19 @@ describe("AppSidebar", () => {
     permissionsMock.mockReturnValue({ can: () => false, isTechnician: true });
     renderSidebar();
 
-    expect(screen.getByText("My Jobs")).toBeInTheDocument();
-    expect(screen.getByText("My Container")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^my jobs$/i })).toHaveAttribute("href", "/my-jobs");
     expect(screen.getByText("My Profile")).toBeInTheDocument();
+    // The van is gated on containers.view, which this technician doesn't hold.
+    expect(screen.queryByText("My Stock")).not.toBeInTheDocument();
     expect(screen.queryByText("Users")).not.toBeInTheDocument();
     expect(screen.queryByText("Contacts")).not.toBeInTheDocument();
+  });
+
+  it("offers the technician their own stock once they may view containers", () => {
+    permissionsMock.mockReturnValue({ can: (r: string) => r === "containers", isTechnician: true });
+    renderSidebar();
+
+    expect(screen.getByRole("link", { name: /^my stock$/i })).toHaveAttribute("href", "/my-stock");
   });
 
   it("gives technicians a Messages item once they may view messages", () => {
@@ -162,6 +170,16 @@ describe("AppSidebar", () => {
 
     expect(screen.getByRole("link", { name: /^messages$/i })).toHaveAttribute("href", "/messages");
     expect(screen.getByLabelText("7 unread conversations")).toHaveTextContent("7");
+  });
+
+  it("shows Automations under Communications", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    expect(screen.getByRole("link", { name: /^automations$/i })).toHaveAttribute(
+      "href",
+      "/automations",
+    );
   });
 
   it("keeps the Messages item plain when nothing is unread", () => {

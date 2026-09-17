@@ -15,6 +15,7 @@ import {
   STAGE_TO_SUPER_STATUS,
   type Deal,
   type DealStage,
+  type SendToTechChannel,
 } from '@bitcrm/types';
 import {
   DEALS_TABLE,
@@ -51,6 +52,43 @@ export interface DealFilters {
  * is dropped when it moves to a bare super-status.
  */
 export type DealUpdate = Partial<{ [K in keyof Deal]: Deal[K] | null }>;
+
+/** What messaging-service reported for one (technician, channel) of a send. */
+export interface SentToTechDelivery {
+  status: 'sent' | 'skipped' | 'failed';
+  /** The click this delivery belongs to (the deal's `sentToTechAt` at that time). */
+  sentAt: string;
+  at: string;
+  reason?: string;
+  messageId?: string;
+  conversationId?: string;
+}
+
+/**
+ * The `ASSIGN#<techId>` adjacency row as the service reads it — the roster
+ * membership, the Workiz per-technician "sent" / "seen" stamps, and the
+ * technician flow's own receipt confirmation.
+ */
+export interface DealAssignment {
+  dealId: string;
+  techId: string;
+  assignedBy?: string;
+  assignedAt?: string;
+  scheduledDate?: string;
+  /** The latest "Send to tech" click that included this technician. */
+  sentAt?: string;
+  sentVia?: SendToTechChannel[];
+  sentBy?: string;
+  /** First time this technician opened the job in their app (sticky). */
+  seenAt?: string;
+  /**
+   * Technician flow ("Confirmed job receipt"). Per-technician: on a two-tech
+   * job each one confirms their own receipt.
+   */
+  techConfirmedAt?: string;
+  /** Per-channel outcome of the latest send, written back by messaging-service. */
+  deliveries?: Partial<Record<SendToTechChannel, SentToTechDelivery>>;
+}
 
 @Injectable()
 export class DealsRepository {
@@ -345,10 +383,224 @@ export class DealsRepository {
     return (result.Items || []).map((i) => i.techId as string);
   }
 
-  /** Re-stamp every assignment row's sort key when a deal's date changes. */
+  /**
+   * Re-stamp every assignment row's tech-index keys when a deal's date
+   * changes. An in-place UPDATE, not a re-Put: the rows also carry the
+   * technician's "sent" / "seen" stamps and their `techConfirmedAt`, and
+   * moving the job to next Tuesday must erase none of them. The original
+   * `assignedBy` / `assignedAt` stay; `by` is recorded as `restampedBy`.
+   *
+   * `GSI2PK` is written next to `GSI2SK` even though it never changes: the
+   * re-Put this replaced also rewrote it, so a row that lost it (or an
+   * imported one that never had it) was healed by any reschedule and stayed
+   * visible to `findByTech` / the dispatch board. Keeping that repair is the
+   * whole reason the SET clause is wider than it needs to be.
+   */
   async restampAssignmentDates(dealId: string, scheduledDate: string | undefined, by: string): Promise<void> {
     const techIds = await this.listAssignmentTechIds(dealId);
-    await Promise.all(techIds.map((techId) => this.addAssignment(dealId, techId, scheduledDate, by)));
+    await Promise.all(
+      techIds.map((techId) =>
+        this.writeAssignmentIfPresent(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+            UpdateExpression: scheduledDate
+              ? 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, scheduledDate = :scheduledDate, restampedBy = :by, restampedAt = :now'
+              : 'SET GSI2PK = :gsi2pk, GSI2SK = :gsi2sk, restampedBy = :by, restampedAt = :now REMOVE scheduledDate',
+            ExpressionAttributeValues: {
+              ':gsi2pk': `TECH#${techId}`,
+              ':gsi2sk': `${scheduledDate || new Date().toISOString()}#DEAL#${dealId}`,
+              ':by': by,
+              ':now': new Date().toISOString(),
+              ...(scheduledDate ? { ':scheduledDate': scheduledDate } : {}),
+            },
+            ConditionExpression: 'attribute_exists(PK)',
+          }),
+          `date restamp of ${dealId}/${techId}`,
+        ),
+      ),
+    );
+  }
+
+  /**
+   * An `ASSIGN#` write guarded by `attribute_exists(PK)`. The row vanishing
+   * under us — a concurrent unassign between the roster read and this write —
+   * is an expected race, not a failure: the row that is gone is exactly the
+   * one that no longer needs the write, and the unconditional Put this
+   * replaced would simply have succeeded. Logged and reported as "not
+   * written"; every other error rethrows.
+   */
+  private async writeAssignmentIfPresent(command: UpdateCommand, what: string): Promise<boolean> {
+    try {
+      await this.dynamoDb.client.send(command);
+      return true;
+    } catch (error) {
+      if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+      this.logger.warn(`Skipped the ${what}: the assignment row is no longer there`);
+      return false;
+    }
+  }
+
+  // --------------------------------------- assignments: sent / seen / confirmed
+
+  /**
+   * One technician's `ASSIGN#` row, or null when they are not on the deal —
+   * the roster membership, the Workiz "sent" / "seen" stamps and the
+   * technician flow's own `techConfirmedAt`.
+   */
+  async getAssignment(dealId: string, techId: string): Promise<DealAssignment | null> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+      }),
+    );
+    return result.Item ? this.toAssignment(result.Item) : null;
+  }
+
+  /** Every `ASSIGN#` row of a deal, with its sent / seen stamps. */
+  async listAssignments(dealId: string): Promise<DealAssignment[]> {
+    const result = await this.dynamoDb.client.send(
+      new QueryCommand({
+        TableName: this.tableName,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+        ExpressionAttributeValues: { ':pk': `DEAL#${dealId}`, ':sk': 'ASSIGN#' },
+      }),
+    );
+    return (result.Items || []).map((i) => this.toAssignment(i));
+  }
+
+  /**
+   * Stamp "this technician has seen the job" on their own assignment row —
+   * per-technician by nature, so it belongs here and not on the shared deal
+   * metadata (which carries the first confirmation as a convenience mirror).
+   *
+   * `if_not_exists` keeps the FIRST tap: a second one is a no-op rather than a
+   * later timestamp, and the guard makes it safe to call twice. The row must
+   * already exist (the technician must be assigned), so an unassigned caller
+   * fails the condition instead of creating a phantom assignment.
+   *
+   * Answers with the stamp the row carried BEFORE this write (`ALL_OLD`), so a
+   * repeat tap — or the loser of two simultaneous ones — can be told the
+   * confirmation was already there and skip the timeline entry and the event
+   * it would otherwise write a second time. `undefined` means this call is the
+   * one that confirmed the job.
+   */
+  async confirmAssignment(dealId: string, techId: string, at: string): Promise<string | undefined> {
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+        UpdateExpression: 'SET techConfirmedAt = if_not_exists(techConfirmedAt, :at)',
+        ExpressionAttributeValues: { ':at': at },
+        ConditionExpression: 'attribute_exists(PK)',
+        ReturnValues: 'ALL_OLD',
+      }),
+    );
+    return result?.Attributes?.techConfirmedAt as string | undefined;
+  }
+
+  /**
+   * Stamp "Send to tech" on each named technician's row (Workiz `last_sent`
+   * per tech). The previous send's per-channel `deliveries` are dropped —
+   * they described the old click. Only existing rows are touched, and a
+   * technician on the roster whose row is missing (a concurrent unassign, a
+   * job the assignment backfill never reached) is skipped rather than
+   * aborting the send for everyone else. Answers which rows were stamped.
+   */
+  async markAssignmentsSent(
+    dealId: string,
+    techIds: string[],
+    stamp: { sentAt: string; sentVia: SendToTechChannel[]; sentBy: string },
+  ): Promise<string[]> {
+    const written = await Promise.all(
+      techIds.map(async (techId) => {
+        const ok = await this.writeAssignmentIfPresent(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+            UpdateExpression: 'SET sentAt = :sentAt, sentVia = :sentVia, sentBy = :sentBy REMOVE deliveries',
+            ExpressionAttributeValues: {
+              ':sentAt': stamp.sentAt,
+              ':sentVia': stamp.sentVia,
+              ':sentBy': stamp.sentBy,
+            },
+            ConditionExpression: 'attribute_exists(PK)',
+          }),
+          `sent stamp of ${dealId}/${techId}`,
+        );
+        return ok ? techId : null;
+      }),
+    );
+    return written.filter((techId): techId is string => techId !== null);
+  }
+
+  /**
+   * First-open stamp (Workiz `seen`): `if_not_exists` keeps the earliest
+   * time, so repeated opens are harmless. Returns the stored value — equal
+   * to `seenAt` exactly when this call was the first.
+   */
+  async markAssignmentSeen(dealId: string, techId: string, seenAt: string): Promise<string> {
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` },
+        UpdateExpression: 'SET seenAt = if_not_exists(seenAt, :seenAt)',
+        ExpressionAttributeValues: { ':seenAt': seenAt },
+        ConditionExpression: 'attribute_exists(PK)',
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return (result.Attributes?.seenAt as string | undefined) ?? seenAt;
+  }
+
+  /**
+   * Messaging's report for one channel of the latest send. `deliveries` is a
+   * map keyed by channel; DynamoDB cannot SET into a missing map, so the
+   * map is created empty first (a no-op when it already exists).
+   */
+  async recordAssignmentDelivery(
+    dealId: string,
+    techId: string,
+    channel: SendToTechChannel,
+    delivery: SentToTechDelivery,
+  ): Promise<void> {
+    const key = { PK: `DEAL#${dealId}`, SK: `ASSIGN#${techId}` };
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: key,
+        UpdateExpression: 'SET deliveries = if_not_exists(deliveries, :empty)',
+        ExpressionAttributeValues: { ':empty': {} },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: key,
+        UpdateExpression: 'SET deliveries.#channel = :delivery',
+        ExpressionAttributeNames: { '#channel': channel },
+        ExpressionAttributeValues: { ':delivery': delivery },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
+  }
+
+  private toAssignment(item: Record<string, unknown>): DealAssignment {
+    return {
+      dealId: item.dealId as string,
+      techId: item.techId as string,
+      assignedBy: item.assignedBy as string | undefined,
+      assignedAt: item.assignedAt as string | undefined,
+      scheduledDate: item.scheduledDate as string | undefined,
+      sentAt: item.sentAt as string | undefined,
+      sentVia: item.sentVia as SendToTechChannel[] | undefined,
+      sentBy: item.sentBy as string | undefined,
+      seenAt: item.seenAt as string | undefined,
+      techConfirmedAt: item.techConfirmedAt as string | undefined,
+      deliveries: item.deliveries as DealAssignment['deliveries'],
+    };
   }
 
   private async batchGetDeals(ids: string[]): Promise<Deal[]> {
@@ -533,6 +785,18 @@ export class DealsRepository {
       status: item.status as Deal['status'],
       createdBy: item.createdBy as string,
       statusChangedAt: item.statusChangedAt as string | undefined,
+      // Rows written before "Send to tech" existed simply have none of these.
+      sentToTechAt: item.sentToTechAt as string | undefined,
+      sentToTechVia: item.sentToTechVia as SendToTechChannel[] | undefined,
+      sentToTechBy: item.sentToTechBy as string | undefined,
+      seenByTechAt: item.seenByTechAt as string | undefined,
+      // Technician flow. Absent on every row written before these fields
+      // existed, which reads exactly as "not confirmed / not arrived yet".
+      techConfirmedAt: item.techConfirmedAt as string | undefined,
+      techConfirmedBy: item.techConfirmedBy as string | undefined,
+      arrivedAt: item.arrivedAt as string | undefined,
+      arrivedBy: item.arrivedBy as string | undefined,
+      arrivedLocation: item.arrivedLocation as Deal['arrivedLocation'],
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };

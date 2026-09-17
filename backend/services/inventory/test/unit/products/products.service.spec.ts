@@ -1,17 +1,23 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { BadRequestException } from '@nestjs/common';
-import { ProductsService } from 'src/products/products.service';
+import {
+  ProductsService,
+  normalizeCategory,
+  normalizeProductType,
+} from 'src/products/products.service';
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
+import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
 import { S3Service, SnsPublisherService } from '@bitcrm/shared';
-import { InventoryStatus, ProductType } from '@bitcrm/types';
+import { InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import {
   createMockProduct,
   createMockCreateProductDto,
   createMockProductsRepository,
   createMockProductsCacheService,
   createMockS3Service,
+  createMockItemCategoriesService,
 } from '../mocks';
 
 describe('ProductsService', () => {
@@ -20,12 +26,14 @@ describe('ProductsService', () => {
   let cache: ReturnType<typeof createMockProductsCacheService>;
   let s3: ReturnType<typeof createMockS3Service>;
   let publisher: { publish: jest.Mock };
+  let categories: ReturnType<typeof createMockItemCategoriesService>;
 
   beforeEach(async () => {
     repository = createMockProductsRepository();
     cache = createMockProductsCacheService();
     s3 = createMockS3Service();
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
+    categories = createMockItemCategoriesService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -34,6 +42,7 @@ describe('ProductsService', () => {
         { provide: ProductsCacheService, useValue: cache },
         { provide: S3Service, useValue: s3 },
         { provide: SnsPublisherService, useValue: publisher },
+        { provide: ItemCategoriesService, useValue: categories },
       ],
     }).compile();
 
@@ -64,6 +73,58 @@ describe('ProductsService', () => {
       expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'product.created', {
         productId: result.id,
       });
+    });
+
+    it('does not touch the category catalog for an ordinary category', async () => {
+      repository.create.mockResolvedValue(undefined);
+      await service.create(createMockCreateProductDto({ category: 'Locks' }));
+      expect(categories.ensureUncategorized).not.toHaveBeenCalled();
+    });
+
+    describe('the "Uncategorized" sentinel', () => {
+      it('normalizes the spelling and seeds the catalog row on demand', async () => {
+        repository.create.mockResolvedValue(undefined);
+
+        const result = await service.create(
+          createMockCreateProductDto({ category: '  uncategorized ' }),
+        );
+
+        expect(result.category).toBe(UNCATEGORIZED_CATEGORY);
+        expect(repository.create).toHaveBeenCalledWith(
+          expect.objectContaining({ category: 'Uncategorized' }),
+        );
+        expect(categories.ensureUncategorized).toHaveBeenCalledTimes(1);
+      });
+
+      it('still creates the product when seeding the category fails', async () => {
+        repository.create.mockResolvedValue(undefined);
+        categories.ensureUncategorized.mockRejectedValue(new Error('dynamo down'));
+
+        const result = await service.create(
+          createMockCreateProductDto({ category: 'Uncategorized' }),
+        );
+
+        expect(result.category).toBe('Uncategorized');
+        expect(repository.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('works without an ItemCategoriesService (optional collaborator)', async () => {
+        const bare = new ProductsService(repository as any, cache as any, s3 as any);
+        repository.create.mockResolvedValue(undefined);
+
+        const result = await bare.create(createMockCreateProductDto({ category: 'UNCATEGORIZED' }));
+
+        expect(result.category).toBe('Uncategorized');
+      });
+    });
+  });
+
+  describe('normalizeCategory', () => {
+    it('canonicalizes only the sentinel and keeps every other name verbatim', () => {
+      expect(normalizeCategory('uncategorized')).toBe('Uncategorized');
+      expect(normalizeCategory(' Uncategorized ')).toBe('Uncategorized');
+      expect(normalizeCategory('Door Hardware')).toBe('Door Hardware');
+      expect(normalizeCategory('Locks > Residential ')).toBe('Locks > Residential ');
     });
   });
 
@@ -146,6 +207,51 @@ describe('ProductsService', () => {
 
       expect(repository.findById).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * Every deduct and every restore runs assertStockable and then
+     * partitionStockManaged over the same ids. Both used to go straight to the
+     * repository, so a movement cost 2 × GetItem per distinct product.
+     */
+    it('reads a product once across both stock guards', async () => {
+      const store = new Map<string, unknown>();
+      cache.get.mockImplementation(async (id: string) => store.get(id) ?? null);
+      cache.set.mockImplementation(async (id: string, p: unknown) => {
+        store.set(id, p);
+      });
+      repository.findById.mockResolvedValue(
+        createMockProduct({ id: 'prod-1', type: ProductType.PRODUCT }),
+      );
+      const items = [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 1 }];
+
+      await service.assertStockable(items.map((i) => i.productId));
+      const { managed } = await service.partitionStockManaged(items);
+
+      expect(managed).toEqual(items);
+      expect(repository.findById).toHaveBeenCalledTimes(1);
+    });
+
+    it('still guards when the cache is unavailable', async () => {
+      // These paths had no Redis dependency before; a cache outage must not
+      // turn into a failed deduct.
+      cache.get.mockRejectedValue(new Error('redis down'));
+      cache.set.mockRejectedValue(new Error('redis down'));
+      repository.findById.mockResolvedValue(
+        createMockProduct({ id: 'svc-1', name: 'Rekey', type: ProductType.SERVICE }),
+      );
+
+      await expect(service.assertStockable(['svc-1'])).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.isStockManaged('svc-1')).resolves.toBe(true);
+    });
+
+    it('reflects a cached manageStock: false without a second read', async () => {
+      cache.get.mockResolvedValue({ ...createMockProduct(), manageStock: false });
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(false);
+      expect(repository.findById).not.toHaveBeenCalled();
+    });
   });
 
   describe('findBySku', () => {
@@ -212,6 +318,16 @@ describe('ProductsService', () => {
       expect(result).toEqual(updated);
       expect(repository.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' });
       expect(cache.invalidate).toHaveBeenCalledWith('prod-1');
+    });
+
+    it('accepts moving a product to "Uncategorized" and seeds the catalog row', async () => {
+      cache.get.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
+
+      await service.update('prod-1', { category: 'uncategorized' } as any);
+
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { category: 'Uncategorized' });
+      expect(categories.ensureUncategorized).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -390,6 +506,24 @@ describe('ProductsService', () => {
 
       expect(result.created).toBe(1);
       expect(repository.create).not.toHaveBeenCalled();
+      expect(categories.ensureUncategorized).not.toHaveBeenCalled();
+    });
+
+    it('normalizes an "uncategorized" CSV row to the sentinel and seeds its catalog row', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,uncategorized,product,10,15,0,false,0',
+      );
+      repository.findBySku.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.importFromCsv(csv);
+
+      expect(result.created).toBe(1);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'Uncategorized', priceClient: 0 }),
+      );
+      expect(categories.ensureUncategorized).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -452,6 +586,157 @@ describe('ProductsService', () => {
 
       expect(s3.deleteObject).not.toHaveBeenCalled();
       expect(repository.update).toHaveBeenCalledWith('prod-1', { photoKey: undefined });
+    });
+  });
+  describe('normalizeProductType', () => {
+    it('passes the two BitCRM types through untouched', () => {
+      expect(normalizeProductType('product')).toEqual({ type: ProductType.PRODUCT });
+      expect(normalizeProductType('service')).toEqual({ type: ProductType.SERVICE });
+      expect(normalizeProductType(' SERVICE ')).toEqual({ type: ProductType.SERVICE });
+    });
+
+    it("maps Workiz 'other' and 'hours' to service and keeps the word", () => {
+      // Both are non-stockable in Workiz, so `service` keeps assertStockable
+      // on the safe side (9 `other` items, 1 `hours`).
+      expect(normalizeProductType('other')).toEqual({
+        type: ProductType.SERVICE,
+        workizType: 'other',
+      });
+      expect(normalizeProductType('Hours')).toEqual({
+        type: ProductType.SERVICE,
+        workizType: 'hours',
+      });
+    });
+
+    it('still rejects anything else', () => {
+      expect(() => normalizeProductType('widget')).toThrow(/Invalid type/);
+      expect(() => normalizeProductType('')).toThrow(/Invalid type/);
+    });
+  });
+
+  describe('importFromCsv — Workiz types', () => {
+    const csvRow = (type: string) =>
+      Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        `Trip charge,WZ-10707,Locks,${type},0,0,0,false,0`,
+      );
+
+    it("imports an 'other' row as a service carrying workizType", async () => {
+      repository.findBySku.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.importFromCsv(csvRow('other'));
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.created).toBe(1);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: ProductType.SERVICE, workizType: 'other' }),
+      );
+    });
+
+    it("carries workizType through an update matched by SKU", async () => {
+      repository.findBySku.mockResolvedValue(createMockProduct({ id: 'prod-9' }));
+
+      const result = await service.importFromCsv(csvRow('hours'));
+
+      expect(result.updated).toBe(1);
+      expect(repository.update).toHaveBeenCalledWith(
+        'prod-9',
+        expect.objectContaining({ type: ProductType.SERVICE, workizType: 'hours' }),
+      );
+    });
+
+    it('clears a stale workizType when the row re-imports as a plain product', async () => {
+      // Imported once as Workiz `other` (stored workizType: 'other'), then a
+      // later export brings it back as `product`. Without an explicit
+      // `undefined` the attribute survives and the item list keeps rendering
+      // the second pill: "Product · other".
+      repository.findBySku.mockResolvedValue({
+        ...createMockProduct({ id: 'prod-9' }),
+        workizType: 'other',
+      });
+
+      const result = await service.importFromCsv(csvRow('product'));
+
+      expect(result.updated).toBe(1);
+      const attrs = repository.update.mock.calls[0][1];
+      expect(attrs.type).toBe(ProductType.PRODUCT);
+      expect('workizType' in attrs).toBe(true); // present…
+      expect(attrs.workizType).toBeUndefined(); // …as a REMOVE
+    });
+
+    it('leaves workizType off an ordinary row', async () => {
+      repository.findBySku.mockResolvedValue(null);
+      repository.create.mockResolvedValue(undefined);
+
+      await service.importFromCsv(csvRow('product'));
+
+      const written = repository.create.mock.calls[0][0];
+      expect(written.type).toBe(ProductType.PRODUCT);
+      expect('workizType' in written).toBe(false);
+    });
+
+    it('still reports an unknown type as a row error', async () => {
+      const result = await service.importFromCsv(csvRow('widget'));
+
+      expect(result.created).toBe(0);
+      expect(result.errors).toEqual([
+        { row: 2, message: expect.stringContaining('Invalid type') },
+      ]);
+    });
+  });
+  /**
+   * Workiz tracks stock per item (`manage`); 6 643 product-type items have
+   * manage=0. Those must never move a stock counter.
+   */
+  describe('isStockManaged / partitionStockManaged', () => {
+    it('treats a product with no manageStock attribute as managed', async () => {
+      repository.findById.mockResolvedValue(createMockProduct());
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(true);
+    });
+
+    it('treats manageStock: false as not managed', async () => {
+      repository.findById.mockResolvedValue({
+        ...createMockProduct(),
+        manageStock: false,
+      });
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(false);
+    });
+
+    it('treats manageStock: true as managed', async () => {
+      repository.findById.mockResolvedValue({
+        ...createMockProduct(),
+        manageStock: true,
+      });
+
+      await expect(service.isStockManaged('prod-1')).resolves.toBe(true);
+    });
+
+    it('treats an unknown product as managed (the stock call decides)', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.isStockManaged('ghost')).resolves.toBe(true);
+    });
+
+    it('splits a mixed list and looks each product up once', async () => {
+      repository.findById.mockImplementation(async (id: string) =>
+        id === 'prod-2'
+          ? { ...createMockProduct({ id: 'prod-2' }), manageStock: false }
+          : createMockProduct({ id }),
+      );
+      const items = [
+        { productId: 'prod-1', productName: 'Deadbolt', quantity: 1 },
+        { productId: 'prod-2', productName: 'Shop rag', quantity: 2 },
+        { productId: 'prod-2', productName: 'Shop rag', quantity: 3 },
+      ];
+
+      const { managed, unmanaged } = await service.partitionStockManaged(items);
+
+      expect(managed).toEqual([items[0]]);
+      expect(unmanaged).toEqual([items[1], items[2]]);
+      expect(repository.findById).toHaveBeenCalledTimes(2);
     });
   });
 });

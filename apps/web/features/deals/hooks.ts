@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -23,6 +23,7 @@ import { getUserNames } from "@/features/users/api";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
+import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
 
 /* ------------------------------------------------------------- queries */
@@ -32,12 +33,16 @@ export const DEALS_POLL_MS = 30_000;
 
 export function useDeals(
   params: { superStatus?: JobSuperStatus; techId?: string } = {},
-  options: { poll?: boolean } = {},
+  options: { poll?: boolean; enabled?: boolean } = {},
 ) {
   return useQuery({
     queryKey: queryKeys.deals.list(params),
     queryFn: () => api.fetchAllDeals(params),
     refetchInterval: options.poll ? DEALS_POLL_MS : false,
+    // Opt-in only — every existing caller omits it and still fetches on mount.
+    // "My jobs" waits for the signed-in technician's id, so it never asks for
+    // the whole board on its way to asking for one technician's.
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -73,6 +78,18 @@ export function useDealTimeline(id: string) {
   });
 }
 
+
+/**
+ * The per-technician sent / seen stamps of a job (`ASSIGN#` rows). Only
+ * fetched where they are shown — the job page's "Send to tech" card.
+ */
+export function useDealAssignments(id: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.deals.assignments(id),
+    queryFn: () => api.getDealAssignments(id),
+    enabled,
+  });
+}
 
 export function useQualifiedTechs(id: string, enabled: boolean) {
   return useQuery({
@@ -195,6 +212,7 @@ function useInvalidateDeal(id?: string) {
       qc.invalidateQueries({ queryKey: queryKeys.deals.detail(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.products(id) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(id) });
+      qc.invalidateQueries({ queryKey: queryKeys.deals.assignments(id) });
     }
   };
 }
@@ -356,6 +374,67 @@ export function useUnassignTech(id: string) {
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
+}
+
+/**
+ * Workiz "Send to tech". The job is stamped at the click — delivery is
+ * asynchronous, so the toast names the channels rather than promising
+ * arrival, and the per-channel outcome lands on the assignment rows a
+ * moment later (hence the second, delayed refetch).
+ */
+export function useSendToTech(id: string) {
+  const qc = useQueryClient();
+  const invalidate = useInvalidateDeal(id);
+  return useMutation({
+    mutationFn: (body: api.SendToTechBody) => api.sendToTech(id, body),
+    onSuccess: (deal, body) => {
+      invalidate();
+      const via = body.channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c]).join(" & ");
+      // The card sends no `techIds` — that means "the whole roster", so the
+      // count comes from the job the server handed back, not from the request.
+      const recipients = body.techIds?.length ?? deal.assignedTechIds?.length ?? 0;
+      toast.success(`Job sent to the technician${recipients === 1 ? "" : "s"} by ${via}`);
+      // messaging reports each channel back through deal-service; give it a
+      // beat, then pick the deliveries up without making the user reload.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: queryKeys.deals.assignments(id) }),
+        SEND_TO_TECH_DELIVERY_REFETCH_MS,
+      );
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** How long messaging is given to report its deliveries before the card refetches. */
+export const SEND_TO_TECH_DELIVERY_REFETCH_MS = 4000;
+
+/**
+ * Workiz "Viewed job in app": the technician's own view of a job stamps it
+ * seen the first time they open it. Fires once per mounted job, and only for
+ * a technician actually on the roster — the endpoint ignores anyone else, so
+ * this is about not making the request at all.
+ */
+export function useMarkSeenOnOpen(deal: Deal | undefined, viewerId: string | undefined) {
+  const qc = useQueryClient();
+  const marked = useRef<string | null>(null);
+  const assigned = !!deal && !!viewerId && deal.assignedTechIds.includes(viewerId);
+  const dealId = deal?.id;
+
+  useEffect(() => {
+    if (!assigned || !dealId || marked.current === dealId) return;
+    marked.current = dealId;
+    api
+      .markDealSeen(dealId)
+      .then((res) => {
+        // Only the first open changes anything worth repainting.
+        if (!res.first) return;
+        qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
+        qc.invalidateQueries({ queryKey: queryKeys.deals.assignments(dealId) });
+      })
+      // Silent: a technician opening a job must never see an error about a
+      // read receipt they did not ask for.
+      .catch(() => undefined);
+  }, [assigned, dealId, qc]);
 }
 
 /** Reorder a technician's jobs, then refresh the board so badges catch up. */

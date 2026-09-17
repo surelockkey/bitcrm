@@ -22,7 +22,11 @@ import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON_LABEL: Record<IneligibilityReason, string> = {
-  not_assignable: "Not yet assignable",
+  // Not "not yet assignable": the row is here because the projection still
+  // holds it, and the commonest cause is that the person is not a technician
+  // — someone whose role changed, or who never had it. Reading that as "still
+  // onboarding" is what let a dispatcher assign them.
+  not_assignable: "Not a technician",
   missing_job_type: "Missing job type",
   outside_area: "Outside service area",
 };
@@ -63,7 +67,13 @@ export function AssignTechDialog({
   }, [techs, search]);
 
   const eligible = filtered.filter((t) => t.eligible);
-  const others = filtered.filter((t) => !t.eligible);
+  // Three groups, not two. "Other technicians" used to swallow anyone the
+  // backend couldn't vouch for as a technician at all, which is how people who
+  // aren't technicians came to be offered here as if they were.
+  const others = filtered.filter(
+    (t) => !t.eligible && !t.reasons.includes("not_assignable"),
+  );
+  const notTechs = filtered.filter((t) => t.reasons.includes("not_assignable"));
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
@@ -82,6 +92,13 @@ export function AssignTechDialog({
       checked={selected.includes(t.id)}
       onToggle={() => toggle(t.id)}
       open={open}
+      // A dispatcher may override "wrong job type" or "wrong area" — those are
+      // judgement calls about a technician. "Not a technician" is not, so the
+      // row is only unlocked to take someone already on the job back off it.
+      // Keyed to who is on the job, not to the tick: keyed to the tick, the box
+      // disabled itself the instant it was cleared, so a mis-click could only
+      // be undone by closing the dialog.
+      locked={t.reasons.includes("not_assignable") && !assignedTechIds.includes(t.id)}
     />
   );
 
@@ -92,7 +109,7 @@ export function AssignTechDialog({
           <DialogTitle>Assign technicians</DialogTitle>
           <DialogDescription>
             Pick everyone working this job. Technicians approved for its job type and area come
-            first, ranked by proximity — you can still assign anyone.
+            first, ranked by proximity — you can still assign any technician.
           </DialogDescription>
         </DialogHeader>
 
@@ -128,6 +145,20 @@ export function AssignTechDialog({
                   {others.map(row)}
                 </div>
               ) : null}
+
+              {notTechs.length > 0 ? (
+                <div className="space-y-2 border-t pt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Not technicians
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Listed here because dispatch still holds a record for them. They can&apos;t be
+                    assigned — give them the technician role and approve a job type and service
+                    area first.
+                  </p>
+                  {notTechs.map(row)}
+                </div>
+              ) : null}
             </>
           )}
         </div>
@@ -152,11 +183,13 @@ function TechRow({
   checked,
   onToggle,
   open,
+  locked = false,
 }: {
   tech: QualifiedTech;
   checked: boolean;
   onToggle: () => void;
   open: boolean;
+  locked?: boolean;
 }) {
   const [showItems, setShowItems] = useState(false);
   const name = `${tech.firstName ?? ""} ${tech.lastName ?? ""}`.trim() || tech.id;
@@ -165,9 +198,20 @@ function TechRow({
     typeof tech.distanceMiles === "number" ? `${tech.distanceMiles.toFixed(1)} mi from home` : null;
 
   return (
-    <div className={cn("rounded-lg border", checked && "border-primary/40 bg-primary/5")}>
-      <label className="flex cursor-pointer items-center gap-2.5 p-2">
-        <Checkbox checked={checked} onCheckedChange={onToggle} />
+    <div
+      className={cn(
+        "rounded-lg border",
+        checked && "border-primary/40 bg-primary/5",
+        locked && "opacity-70",
+      )}
+    >
+      <label className={cn("flex items-center gap-2.5 p-2", locked ? "cursor-not-allowed" : "cursor-pointer")}>
+        <Checkbox
+          checked={checked}
+          disabled={locked}
+          aria-label={locked ? `${name} can't be assigned` : `Assign ${name}`}
+          onCheckedChange={onToggle}
+        />
         <span className="grid size-7 flex-none place-items-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
           {initials(parts[0] ?? name, parts[1] ?? "")}
         </span>

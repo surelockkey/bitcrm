@@ -10,12 +10,18 @@ import { CallsRepository, type CallRecord } from '../../src/calls/calls.reposito
  * no type error, no runtime warning, and no failing build. The record simply
  * never carries it, and the feature that reads it looks broken somewhere else.
  *
- * This spec round-trips every optional attribute through a fake DynamoDB and
- * asserts it survives. Adding a field to CallRecord without adding it to the
- * whitelist makes it fail.
+ * This spec round-trips every lifecycle-written attribute through a fake
+ * DynamoDB and asserts it survives.
+ *
+ * The map below is hand-maintained — types are erased at runtime, so nothing
+ * can enumerate CallRecord for us. Adding a field that a webhook writes means
+ * adding it here too, or it is guarded by nothing. Fields written by their own
+ * dedicated paths are deliberately absent: `tagIds` (setTags — and
+ * calls.repository.tags.spec asserts upsert never writes it), `dealId`,
+ * `participants`, `childSids`, `flowPath` and the party fields.
  */
 describe('CallsRepository upsert — the optional attribute whitelist', () => {
-  /** Every optional CallRecord field, with a value that is not dropped. */
+  /** Every optional CallRecord field the lifecycle writes, with a live value. */
   const OPTIONAL: Partial<CallRecord> = {
     direction: 'outbound',
     from: '+14045550100',
@@ -33,7 +39,7 @@ describe('CallsRepository upsert — the optional attribute whitelist', () => {
     internalLegOf: 'CA0',
     origin: 'bridge',
     callerIdSource: 'area',
-    sourceId: 'src-1',
+    sourceId: 'src-google-ads',
     businessProfileId: 'bp-2',
   };
 

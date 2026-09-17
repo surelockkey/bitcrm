@@ -1,3 +1,4 @@
+import { GetCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { type Conversation } from '@bitcrm/types';
 import { ConversationsRepository, StaleConversationError } from 'src/conversations/conversations.repository';
@@ -45,6 +46,18 @@ describe('ConversationsRepository (integration)', () => {
     (repo as any).tableName = MESSAGING_TEST_TABLE;
     (counters as any).tableName = MESSAGING_TEST_TABLE;
   });
+
+  /**
+   * The raw `INBOX#COUNTERS` item. `counters.get()` deliberately hides the
+   * `total*` attributes until a recount has stamped `totalsRecountedAt`, so
+   * asserting that the live ADDs move them takes a direct read.
+   */
+  const rawCounters = async (): Promise<Record<string, any>> => {
+    const res = await getTestDynamoDbClient().send(
+      new GetCommand({ TableName: MESSAGING_TEST_TABLE, Key: { PK: 'INBOX#COUNTERS', SK: 'METADATA' } }),
+    );
+    return res.Item ?? {};
+  };
 
   afterAll(() => destroyRawClient());
 
@@ -97,8 +110,11 @@ describe('ConversationsRepository (integration)', () => {
 
   it('keeps the sparse indexes and counters in step through unread → read → flag → archive', async () => {
     const c = conv('c1', '2026-09-01T10:00:00.000Z', { unread: true, unreadCount: 2 });
+    // `create` now carries the counters ADD itself — both halves, the unread
+    // badge and the category totals — so the test must not add them by hand.
     await repo.create(c);
-    await counters.add({ unreadConversations: 1, unreadByKind: { client: 1 } });
+    expect(await counters.get()).toMatchObject({ unreadConversations: 1, unreadByKind: { client: 1 } });
+    expect(await rawCounters()).toMatchObject({ totalConversations: 1, totalKind_client: 1 });
 
     expect((await repo.listInbox({ view: 'unread' }, { limit: 10, now: NOW })).items.map((x) => x.id)).toEqual(['c1']);
 
@@ -113,6 +129,8 @@ describe('ConversationsRepository (integration)', () => {
 
     const archived = await repo.update(flagged, { state: 'archived' }, { actorId: 'u1' });
     expect(archived).toMatchObject({ state: 'archived', archivedBy: 'u1', flagged: true });
+    // Archiving moves the conversation between the two totals, never drops it.
+    expect(await rawCounters()).toMatchObject({ totalConversations: 0, totalKind_client: 0, archivedConversations: 1 });
     expect((await repo.listInbox({ view: 'all' }, { limit: 10, now: NOW })).items).toEqual([]);
     expect((await repo.listInbox({ view: 'all', kind: 'client' }, { limit: 10, now: NOW })).items).toEqual([]);
     expect((await repo.listInbox({ view: 'archived' }, { limit: 10, now: NOW })).items.map((x) => x.id)).toEqual(['c1']);

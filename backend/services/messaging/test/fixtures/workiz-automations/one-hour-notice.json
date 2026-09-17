@@ -1,0 +1,853 @@
+{
+  "hidden": false,
+  "hiddenReason": null,
+  "_id": "6745fe43f7a5dc8a4ef74193",
+  "name": "1 Hour Notice / Client Reminder",
+  "entities": [
+    "job"
+  ],
+  "conditions": {
+    "all": [
+      {
+        "fact": "account_id",
+        "entity": "account",
+        "operator": "equal",
+        "value": "2774"
+      },
+      {
+        "fact": "doctype",
+        "operator": "equal",
+        "value": "job"
+      },
+      {
+        "fact": "is_lead",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "is_deleted",
+        "operator": "equal",
+        "value": "0"
+      },
+      {
+        "fact": "schedule_type",
+        "operator": "equal",
+        "value": "1"
+      },
+      {
+        "fact": "created_timestamp",
+        "operator": "greaterThan",
+        "value": 1732553922.971
+      },
+      {
+        "fact": "status",
+        "operator": "equal",
+        "value": "Submitted",
+        "friendly_strings": {
+          "value": "submitted",
+          "fact": "status"
+        },
+        "mainConditionId": true
+      },
+      {
+        "fact": "tags",
+        "entity": "job",
+        "operator": "contains",
+        "value": "404171",
+        "friendly_strings": {
+          "fact": "job tag",
+          "value": "appointment confirmed"
+        },
+        "path": "$[*].tag_id",
+        "subject": "job_tag"
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "notification",
+      "notify_medium": "sms",
+      "receiverType": "client",
+      "message_subject_json": {
+        "blocks": [
+          {
+            "key": "akvig",
+            "text": "Your upcoming service with {{account_business_name}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 27,
+                "length": 25,
+                "key": 0
+              }
+            ],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "estimate": true,
+                "lead": true,
+                "incoming_call": true,
+                "outgoing_call": true
+              },
+              "mainEntity": "Account",
+              "uuid": "5b971fcc-b711-490f-9807-5c8038f01795"
+            }
+          }
+        ]
+      },
+      "message_json": {
+        "blocks": [
+          {
+            "key": "1ek4a",
+            "text": "Hi {{client_first_name}} ,",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 3,
+                "length": 21,
+                "key": 0
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "21lbe",
+            "text": "",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "eoelh",
+            "text": "This is a friendly reminder about your upcoming service appointment with us at {{account_business_name}} .",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 79,
+                "length": 25,
+                "key": 1
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "biikv",
+            "text": "",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "dq85p",
+            "text": "Appointment details",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [
+              {
+                "offset": 0,
+                "length": 19,
+                "style": "BOLD"
+              }
+            ],
+            "entityRanges": [],
+            "data": []
+          },
+          {
+            "key": "1s6bu",
+            "text": "Date: {{jobDate}}  at {{jobTime}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [
+              {
+                "offset": 0,
+                "length": 6,
+                "style": "BOLD"
+              }
+            ],
+            "entityRanges": [
+              {
+                "offset": 6,
+                "length": 11,
+                "key": 2
+              },
+              {
+                "offset": 22,
+                "length": 11,
+                "key": 3
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "5ld9v",
+            "text": "Address: {{location_key}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [
+              {
+                "offset": 0,
+                "length": 9,
+                "style": "BOLD"
+              }
+            ],
+            "entityRanges": [
+              {
+                "offset": 9,
+                "length": 16,
+                "key": 4
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "3rnro",
+            "text": "Tech(s): {{tech_names}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [
+              {
+                "offset": 0,
+                "length": 8,
+                "style": "BOLD"
+              }
+            ],
+            "entityRanges": [
+              {
+                "offset": 9,
+                "length": 14,
+                "key": 5
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "ct927",
+            "text": "Please confirm your appointment here: {{client_confirm_link}} ",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [
+              {
+                "offset": 38,
+                "length": 23,
+                "key": 6
+              }
+            ],
+            "data": []
+          },
+          {
+            "key": "cf2ph",
+            "text": "Feel free to call or text us if you have any updates or questions!",
+            "type": "unstyled",
+            "depth": 0,
+            "inlineStyleRanges": [],
+            "entityRanges": [],
+            "data": []
+          }
+        ],
+        "entityMap": [
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "client_first_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "estimate": true,
+                "lead": true,
+                "incoming_call": true,
+                "outgoing_call": true,
+                "messaging": true,
+                "visit": true,
+                "service plan": true
+              },
+              "mainEntity": "Client",
+              "uuid": "99(555) 010-0100-4b2c-95ce-b4ba816517cd",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "account_business_name",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "estimate": true,
+                "lead": true,
+                "incoming_call": true,
+                "outgoing_call": true,
+                "messaging": true,
+                "visit": true,
+                "service plan": true
+              },
+              "mainEntity": "Account",
+              "uuid": "2b3cacea-9b7e-4634-9709-b60d39cade01",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "jobDate",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true
+              },
+              "mainEntity": "Job",
+              "uuid": "aaba0d5d-11e4-417a-a977-2405e8509a69",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "jobTime",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true
+              },
+              "mainEntity": "Job",
+              "uuid": "6a17c09b-7bd3-4fd9-9dd0-e0af1604ae73",
+              "forceText": "jobStartTime"
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "location_key",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true
+              },
+              "mainEntity": "Job",
+              "uuid": "defdc049-1de9-4df9-9e05-b5730dc9d072",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "tech_names",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true
+              },
+              "mainEntity": "Job",
+              "uuid": "22164a38-2392-4aab-9473-ae48a29cd865",
+              "forceText": null
+            }
+          },
+          {
+            "type": "SHORT_CODE",
+            "mutability": "IMMUTABLE",
+            "data": {
+              "shortCode": "client_confirm_link",
+              "relatedEntities": {
+                "job": true,
+                "invoice": true,
+                "lead": true
+              },
+              "mainEntity": "Job",
+              "uuid": "58879c85-df66-45c7-ad61-f9a2de098ab5",
+              "forceText": null
+            }
+          }
+        ]
+      },
+      "time_interval": {
+        "value": 1,
+        "operator": "ahead",
+        "time_field": "job_date_utc",
+        "time_unit": "hours",
+        "time_field_friendly_string": "date"
+      },
+      "working_hours": {
+        "dnd": true,
+        "from": "09:00",
+        "to": "17:00",
+        "from_utc": "06:00",
+        "to_utc": "14:00"
+      },
+      "roleId": null,
+      "users_to": [],
+      "friendly_string": "client",
+      "message_subject_template": "Your upcoming service with {{account_business_name}} ",
+      "message_template": "<p>Hi {{client_first_name}} ,</p>\n<p></p>\n<p>This is a friendly reminder about your upcoming service appointment with us at {{account_business_name}} .</p>\n<p></p>\n<p><strong>Appointment details</strong></p>\n<p><strong>Date: </strong>{{jobDate}}  at {{jobTime}}&nbsp;</p>\n<p><strong>Address: </strong>{{location_key}}&nbsp;</p>\n<p><strong>Tech(s):</strong> {{tech_names}}&nbsp;</p>\n<p>Please confirm your appointment here: {{client_confirm_link}}&nbsp;</p>\n<p>Feel free to call or text us if you have any updates or questions!</p>\n"
+    }
+  ],
+  "createdAt": "2024-11-26T16:58:43.476Z",
+  "updatedAt": "2024-11-26T16:58:49.679Z",
+  "enabled": false,
+  "deleted": false,
+  "default_rule": false,
+  "paused": false,
+  "triggered": 0,
+  "category": "reminders",
+  "namespace": "2774",
+  "ruleSentence": {
+    "_id": "notification2",
+    "sentence": "When {p1} {p2} of {p7}, send {p3} {p4} {p5} the {entity} {p6}"
+  },
+  "parameters": {
+    "p1": {
+      "text": "a job",
+      "type": "entity"
+    },
+    "p2": {
+      "text": "has a status",
+      "type": "type_of_main_condition"
+    },
+    "p7": {
+      "text": "submitted",
+      "type": "entity_main_condition"
+    },
+    "p3": {
+      "text": "client",
+      "type": "event_receiver"
+    },
+    "p4": {
+      "text": "a text message",
+      "type": "notify_medium"
+    },
+    "p5": {
+      "text": "1 hour ahead of",
+      "type": "time"
+    },
+    "p6": {
+      "text": "schedule date",
+      "type": "time_field"
+    },
+    "p8": {
+      "text": "send",
+      "type": "action_type"
+    }
+  },
+  "validFrom": "2024-11-26T16:58:42.971Z",
+  "notifyMedium": "sms",
+  "trigger": {
+    "sentence": "When {p1} {p2} of {p7}",
+    "parameters": {
+      "p1": {
+        "text": "a job",
+        "type": "entity"
+      },
+      "p2": {
+        "text": "has a status",
+        "type": "type_of_main_condition"
+      },
+      "p7": {
+        "text": "submitted",
+        "type": "entity_main_condition"
+      }
+    },
+    "type": "trigger",
+    "typeOfMainCondition": "has a status"
+  },
+  "actions": [
+    {
+      "sentence": "{p8} {p3} {p4} {p5} the job {p6}",
+      "events": [
+        {
+          "type": "notification",
+          "notify_medium": "sms",
+          "receiverType": "client",
+          "message_subject_json": {
+            "blocks": [
+              {
+                "key": "akvig",
+                "text": "Your upcoming service with {{account_business_name}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 27,
+                    "length": 25,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "account_business_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "estimate": true,
+                    "lead": true,
+                    "incoming_call": true,
+                    "outgoing_call": true
+                  },
+                  "mainEntity": "Account",
+                  "uuid": "5b971fcc-b711-490f-9807-5c8038f01795"
+                }
+              }
+            ]
+          },
+          "message_json": {
+            "blocks": [
+              {
+                "key": "1ek4a",
+                "text": "Hi {{client_first_name}} ,",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 3,
+                    "length": 21,
+                    "key": 0
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "21lbe",
+                "text": "",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "eoelh",
+                "text": "This is a friendly reminder about your upcoming service appointment with us at {{account_business_name}} .",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 79,
+                    "length": 25,
+                    "key": 1
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "biikv",
+                "text": "",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "dq85p",
+                "text": "Appointment details",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [
+                  {
+                    "offset": 0,
+                    "length": 19,
+                    "style": "BOLD"
+                  }
+                ],
+                "entityRanges": [],
+                "data": []
+              },
+              {
+                "key": "1s6bu",
+                "text": "Date: {{jobDate}}  at {{jobTime}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [
+                  {
+                    "offset": 0,
+                    "length": 6,
+                    "style": "BOLD"
+                  }
+                ],
+                "entityRanges": [
+                  {
+                    "offset": 6,
+                    "length": 11,
+                    "key": 2
+                  },
+                  {
+                    "offset": 22,
+                    "length": 11,
+                    "key": 3
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "5ld9v",
+                "text": "Address: {{location_key}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [
+                  {
+                    "offset": 0,
+                    "length": 9,
+                    "style": "BOLD"
+                  }
+                ],
+                "entityRanges": [
+                  {
+                    "offset": 9,
+                    "length": 16,
+                    "key": 4
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "3rnro",
+                "text": "Tech(s): {{tech_names}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [
+                  {
+                    "offset": 0,
+                    "length": 8,
+                    "style": "BOLD"
+                  }
+                ],
+                "entityRanges": [
+                  {
+                    "offset": 9,
+                    "length": 14,
+                    "key": 5
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "ct927",
+                "text": "Please confirm your appointment here: {{client_confirm_link}} ",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [
+                  {
+                    "offset": 38,
+                    "length": 23,
+                    "key": 6
+                  }
+                ],
+                "data": []
+              },
+              {
+                "key": "cf2ph",
+                "text": "Feel free to call or text us if you have any updates or questions!",
+                "type": "unstyled",
+                "depth": 0,
+                "inlineStyleRanges": [],
+                "entityRanges": [],
+                "data": []
+              }
+            ],
+            "entityMap": [
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "client_first_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "estimate": true,
+                    "lead": true,
+                    "incoming_call": true,
+                    "outgoing_call": true,
+                    "messaging": true,
+                    "visit": true,
+                    "service plan": true
+                  },
+                  "mainEntity": "Client",
+                  "uuid": "99(555) 010-0100-4b2c-95ce-b4ba816517cd",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "account_business_name",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "estimate": true,
+                    "lead": true,
+                    "incoming_call": true,
+                    "outgoing_call": true,
+                    "messaging": true,
+                    "visit": true,
+                    "service plan": true
+                  },
+                  "mainEntity": "Account",
+                  "uuid": "2b3cacea-9b7e-4634-9709-b60d39cade01",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "jobDate",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "aaba0d5d-11e4-417a-a977-2405e8509a69",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "jobTime",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "6a17c09b-7bd3-4fd9-9dd0-e0af1604ae73",
+                  "forceText": "jobStartTime"
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "location_key",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "defdc049-1de9-4df9-9e05-b5730dc9d072",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "tech_names",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "22164a38-2392-4aab-9473-ae48a29cd865",
+                  "forceText": null
+                }
+              },
+              {
+                "type": "SHORT_CODE",
+                "mutability": "IMMUTABLE",
+                "data": {
+                  "shortCode": "client_confirm_link",
+                  "relatedEntities": {
+                    "job": true,
+                    "invoice": true,
+                    "lead": true
+                  },
+                  "mainEntity": "Job",
+                  "uuid": "58879c85-df66-45c7-ad61-f9a2de098ab5",
+                  "forceText": null
+                }
+              }
+            ]
+          },
+          "time_interval": {
+            "value": 1,
+            "operator": "ahead",
+            "time_field": "job_date_utc",
+            "time_unit": "hours",
+            "time_field_friendly_string": "date"
+          },
+          "working_hours": {
+            "dnd": true,
+            "from": "09:00",
+            "to": "17:00",
+            "from_utc": "06:00",
+            "to_utc": "14:00"
+          },
+          "roleId": null,
+          "users_to": [],
+          "friendly_string": "client",
+          "message_subject_template": "Your upcoming service with {{account_business_name}} ",
+          "message_template": "<p>Hi {{client_first_name}} ,</p>\n<p></p>\n<p>This is a friendly reminder about your upcoming service appointment with us at {{account_business_name}} .</p>\n<p></p>\n<p><strong>Appointment details</strong></p>\n<p><strong>Date: </strong>{{jobDate}}  at {{jobTime}}&nbsp;</p>\n<p><strong>Address: </strong>{{location_key}}&nbsp;</p>\n<p><strong>Tech(s):</strong> {{tech_names}}&nbsp;</p>\n<p>Please confirm your appointment here: {{client_confirm_link}}&nbsp;</p>\n<p>Feel free to call or text us if you have any updates or questions!</p>\n"
+        }
+      ],
+      "parameters": {
+        "p3": {
+          "text": "client",
+          "type": "event_receiver"
+        },
+        "p4": {
+          "text": "a text message",
+          "type": "notify_medium"
+        },
+        "p5": {
+          "text": "1 hour ahead of",
+          "type": "time"
+        },
+        "p6": {
+          "text": "schedule date",
+          "type": "time_field"
+        },
+        "p8": {
+          "text": "send",
+          "type": "action_type"
+        }
+      },
+      "actionSpecificParams": {
+        "notifyMedium": "sms"
+      },
+      "type": "SEND"
+    }
+  ],
+  "hash_code": "19ac69624eeca2870cdbcca12d936cea",
+  "__v": 0,
+  "sentence": "",
+  "fullSentence": ""
+}

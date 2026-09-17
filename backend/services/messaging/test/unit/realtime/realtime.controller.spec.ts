@@ -132,7 +132,13 @@ describe('RealtimeController.stream (SSE)', () => {
 
     expect(frames()).toHaveLength(1);
     expect(frames()[0].type).toBe('counters.changed');
-    expect(frames()[0].counters).toEqual({ unreadConversations: 1, flaggedConversations: 0, unreadByKind: { client: 1 } });
+    expect(frames()[0].counters).toMatchObject({
+      unreadConversations: 1,
+      flaggedConversations: 0,
+      unreadByKind: { client: 1 },
+      totalConversations: 1,
+      totalByKind: { client: 1 },
+    });
     expect(countersRepo.get).not.toHaveBeenCalled();
 
     // the burst collapses into one trailing recount after the cooldown

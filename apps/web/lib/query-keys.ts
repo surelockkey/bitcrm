@@ -21,6 +21,16 @@ export const queryKeys = {
     callFlows: () => ["telephony", "call-flows"] as const,
   },
 
+  /**
+   * The call-tag catalog. Its own root (not under `telephony`) so that the
+   * chips, the picker and the Settings page share one cache entry that a
+   * telephony-wide invalidation never sweeps out from under them.
+   */
+  callTags: {
+    all: () => ["call-tags"] as const,
+    list: () => ["call-tags", "list"] as const,
+  },
+
   calls: {
     all: () => ["calls"] as const,
     /** Prefix for every filtered list — use for invalidation. */
@@ -43,6 +53,7 @@ export const queryKeys = {
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
+    assignments: (id: string) => ["deals", id, "assignments"] as const,
     products: (id: string) => ["deals", id, "products"] as const,
     attachments: (id: string) => ["deals", id, "attachments"] as const,
     attachmentUrl: (id: string, attachmentId: string) =>
@@ -203,6 +214,8 @@ export const queryKeys = {
     messagesByJob: (dealId: string) => ["messaging", "messages", "by-job", dealId] as const,
     flaggedMessages: () => ["messaging", "messages", "flagged"] as const,
     counters: () => ["messaging", "counters"] as const,
+    /** The caller's own team-chat badge (`GET /team/counters`). */
+    teamCounters: () => ["messaging", "team-counters"] as const,
     templates: (params?: unknown) => ["messaging", "templates", "list", params] as const,
     templatesAll: () => ["messaging", "templates"] as const,
     template: (id: string) => ["messaging", "templates", "detail", id] as const,
@@ -210,6 +223,16 @@ export const queryKeys = {
     settings: () => ["messaging", "settings"] as const,
     optOuts: (address: string) => ["messaging", "opt-outs", address] as const,
   },
+
+  automations: {
+    all: () => ["automations"] as const,
+    list: () => ["automations", "list"] as const,
+    detail: (id: string) => ["automations", "detail", id] as const,
+    runs: (id: string) => ["automations", "runs", id] as const,
+    /** Every rule's firings in one stream (`GET /automations/runs`). */
+    runsFeed: (params?: unknown) => ["automations", "runs-feed", params] as const,
+  },
+
   taxRates: {
     all: () => ["tax-rates"] as const,
     list: () => ["tax-rates", "list"] as const,

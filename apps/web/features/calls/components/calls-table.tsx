@@ -25,11 +25,12 @@ import {
 import { CallPartyCell } from "./call-party-cell";
 import { CallQuickView } from "./call-quick-view";
 import { CallStatusBadge } from "./call-status-badge";
+import { CallTagsCell } from "./call-tags-cell";
 import { NewClientFromCallDialog } from "./new-client-from-call-dialog";
 import { RecordingPreview } from "./recording-preview";
 
 /** Every column, kept in one place so the preview row spans them all. */
-const COLUMN_COUNT = 12;
+const COLUMN_COUNT = 13;
 
 export function CallsTable({ calls }: { calls: CallRecord[] }) {
   const sourceName = useJobSourceName();
@@ -52,7 +53,10 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
             <TableHead>Answered by</TableHead>
             <TableHead>Call flow</TableHead>
             <TableHead>Source</TableHead>
+            {/* The call's own tags, as in Workiz; the linked job's tags are a
+                separate column so neither answer has to stand in for the other. */}
             <TableHead>Tags</TableHead>
+            <TableHead>Job tags</TableHead>
             <TableHead>Job</TableHead>
             <TableHead>Started</TableHead>
             <TableHead className="text-right">Duration</TableHead>
@@ -106,6 +110,9 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
                 </TableCell>
                 <TableCell className="text-sm">
                   {call.sourceId ? sourceName(call.sourceId) : <Dash />}
+                </TableCell>
+                <TableCell className="min-w-44">
+                  <CallTagsCell call={call} inRow />
                 </TableCell>
                 <TableCell>
                   {call.dealId ? <CallJobTagsCell dealId={call.dealId} /> : <Dash />}
@@ -199,7 +206,11 @@ function CallJobCell({ dealId }: { dealId: string }) {
   );
 }
 
-/** The linked job's tags — a call carries none of its own. */
+/**
+ * The linked job's tags — a different question from the call's own tags in
+ * the column beside it, which is why both columns exist: the job is
+ * "Warranty", the call that booked it "SPAM CALLER".
+ */
 function CallJobTagsCell({ dealId }: { dealId: string }) {
   const { data: deal } = useDeal(dealId);
   if (!deal?.tagIds?.length) return <Dash />;

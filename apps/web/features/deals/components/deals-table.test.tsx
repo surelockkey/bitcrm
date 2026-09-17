@@ -282,6 +282,72 @@ describe("DealsTable", () => {
    * The jobs list is where a tech picks up the number before heading out — so
    * it has to say what to press once the line answers, not just the number.
    */
+  /**
+   * Workiz's dispatch stamps. Both columns are opt-in, so a preference saved
+   * before they existed is unchanged.
+   */
+  describe("Sent / Seen columns", () => {
+    // Today at that clock time. The stamp a dispatcher reads is the time alone
+    // only while it happened today (`formatStamp`), so a fixture pinned to a
+    // calendar date stops matching the day after it was written.
+    const at = (h: number, m: number) => {
+      const d = new Date();
+      d.setHours(h, m, 0, 0);
+      return d.toISOString();
+    };
+    const sentSeen: VisibleFields = { ...DEFAULT_VISIBLE, sent: true, seen: true };
+
+    it("is off by default", () => {
+      expect(DEFAULT_VISIBLE.sent).toBe(false);
+      expect(DEFAULT_VISIBLE.seen).toBe(false);
+      render(
+        <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+      );
+      expect(screen.queryByRole("columnheader", { name: "Sent" })).toBeNull();
+      expect(screen.queryByRole("columnheader", { name: "Seen" })).toBeNull();
+    });
+
+    it("shows when the job went out, over which channels, and when it was opened", () => {
+      render(
+        <DealsTable
+          deals={[
+            deal({
+              sentToTechAt: at(12, 10),
+              sentToTechVia: ["sms", "email"],
+              seenByTechAt: at(12, 14),
+            }),
+          ]}
+          contactMap={contactMap}
+          userMap={userMap}
+          onOpen={vi.fn()}
+          visibleFields={sentSeen}
+        />,
+      );
+      expect(screen.getByRole("columnheader", { name: "Sent" })).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: "Seen" })).toBeInTheDocument();
+      expect(screen.getByText("12:10 PM")).toBeInTheDocument();
+      expect(screen.getByText("SMS & Email")).toBeInTheDocument();
+      expect(screen.getByText("12:14 PM")).toBeInTheDocument();
+    });
+
+    it("leaves a dash on a job nobody has been sent or has opened", () => {
+      render(
+        <DealsTable
+          deals={[deal()]}
+          contactMap={contactMap}
+          userMap={userMap}
+          onOpen={vi.fn()}
+          visibleFields={sentSeen}
+        />,
+      );
+      const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+      const row = screen.getByText("Jane Smith").closest("tr")!;
+      const cells = [...row.querySelectorAll("td")].map((c) => c.textContent);
+      expect(cells[headers.indexOf("Sent")]).toBe("—");
+      expect(cells[headers.indexOf("Seen")]).toBe("—");
+    });
+  });
+
   it("shows the client's extension beside their number", () => {
     render(
       <DealsTable deals={[deal()]} contactMap={withExtension} userMap={userMap} onOpen={vi.fn()} />,

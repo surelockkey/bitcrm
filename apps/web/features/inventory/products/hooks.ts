@@ -11,7 +11,7 @@ import type { Product } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
-import type { CreateProductValues, UpdateProductValues } from "./schemas";
+import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
 
 export function useProducts(filter: ProductFilter) {
@@ -60,7 +60,7 @@ export function useCreateProduct() {
 export function useUpdateProduct() {
   const invalidate = useInvalidateProducts();
   return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: UpdateProductValues }) =>
+    mutationFn: ({ id, body }: { id: string; body: PatchProductValues }) =>
       api.updateProduct(id, body),
     onSuccess: () => {
       invalidate();

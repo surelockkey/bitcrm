@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Eye } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -33,7 +33,14 @@ import {
   jobFieldOptions,
   type VisibleFields,
 } from "../fields";
-import { dealClientName, formatSchedule, isUrgent, scheduleMarker } from "../lib";
+import {
+  SEND_TO_TECH_CHANNEL_LABEL,
+  dealClientName,
+  formatSchedule,
+  formatStamp,
+  isUrgent,
+  scheduleMarker,
+} from "../lib";
 import { TechChips } from "./assigned-techs";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
@@ -153,6 +160,29 @@ export function DealsTable({
           </>
         );
       }
+      case "sent": {
+        // Workiz `last_sent`: the click, with the channels it went out on.
+        if (!d.sentToTechAt) return <span className="text-sm text-muted-foreground">—</span>;
+        const via = (d.sentToTechVia ?? [])
+          .map((c) => SEND_TO_TECH_CHANNEL_LABEL[c])
+          .filter(Boolean)
+          .join(" & ");
+        return (
+          <>
+            <div className="text-sm">{formatStamp(d.sentToTechAt)}</div>
+            {via ? <div className="text-xs text-muted-foreground">{via}</div> : null}
+          </>
+        );
+      }
+      case "seen":
+        // Workiz `seen`: the first technician to open the job in their app.
+        return d.seenByTechAt ? (
+          <span className="inline-flex items-center gap-1 text-sm text-emerald-700 dark:text-emerald-400">
+            <Eye className="size-3.5" /> {formatStamp(d.seenByTechAt)}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        );
       case "jobType":
         return <span className="text-sm">{jobTypeName(d.jobTypeId)}</span>;
       case "source":

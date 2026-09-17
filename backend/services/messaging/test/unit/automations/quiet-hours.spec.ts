@@ -1,4 +1,11 @@
-import { isWithinQuietHours, localMinutes } from '../../../src/automations/quiet-hours';
+import {
+  isOutsideWorkingHours,
+  isWithinQuietHours,
+  localMinutes,
+  nextLocalTime,
+  quietHoursEnd,
+  workingHoursStart,
+} from '../../../src/automations/quiet-hours';
 
 // 2026-09-15T02:30:00Z = 22:30 in New York (EDT, UTC-4) on 2026-09-14
 const NY_2230 = new Date('2026-09-15T02:30:00.000Z');
@@ -35,5 +42,38 @@ describe('quiet hours', () => {
 
   it('falls back to the company default zone on an unknown one', () => {
     expect(isWithinQuietHours({ from: '20:00', to: '08:00', timezone: 'Mars/Olympus' }, NY_2230)).toBe(true);
+  });
+});
+
+describe('releasing a held message', () => {
+  it('finds the next instant at a local wall time', () => {
+    // 22:30 New York → the next 08:00 local is 12:00 UTC the following day.
+    expect(nextLocalTime('08:00', 'America/New_York', NY_2230).toISOString()).toBe('2026-09-15T12:00:00.000Z');
+    // 10:00 New York → 12:00 local is two hours away.
+    expect(nextLocalTime('12:00', 'America/New_York', NY_1000).toISOString()).toBe('2026-09-15T16:00:00.000Z');
+    // The same wall time is a full day away, never "now".
+    expect(nextLocalTime('10:00', 'America/New_York', NY_1000).toISOString()).toBe('2026-09-16T14:00:00.000Z');
+  });
+
+  it('releases at the end of the window it is inside, and not at all outside one', () => {
+    expect(quietHoursEnd(ny('20:00', '08:00'), NY_2230).toISOString()).toBe('2026-09-15T12:00:00.000Z');
+    expect(quietHoursEnd(ny('20:00', '08:00'), NY_1000)).toBe(NY_1000);
+    expect(quietHoursEnd(undefined, NY_1000)).toBe(NY_1000);
+  });
+});
+
+describe("a rule's own working hours", () => {
+  it('is outside the window only when the clock says so', () => {
+    expect(isOutsideWorkingHours({ from: '08:00', to: '18:00' }, 'America/New_York', NY_1000)).toBe(false);
+    expect(isOutsideWorkingHours({ from: '08:00', to: '18:00' }, 'America/New_York', NY_2230)).toBe(true);
+    expect(isOutsideWorkingHours(undefined, 'America/New_York', NY_2230)).toBe(false);
+    expect(isOutsideWorkingHours({ from: '09:00', to: '09:00' }, 'America/New_York', NY_2230)).toBe(false);
+  });
+
+  it('opens again at the start of the window', () => {
+    expect(workingHoursStart({ from: '08:00', to: '18:00' }, 'America/New_York', NY_2230).toISOString()).toBe(
+      '2026-09-15T12:00:00.000Z',
+    );
+    expect(workingHoursStart({ from: '08:00', to: '18:00' }, 'America/New_York', NY_1000)).toBe(NY_1000);
   });
 });

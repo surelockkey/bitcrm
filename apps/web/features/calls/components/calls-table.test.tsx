@@ -42,6 +42,14 @@ vi.mock("@/features/job-tags/components/job-tag-chips", () => ({
   ),
 }));
 
+// The call's own tag picker reads the catalog and writes through a mutation;
+// its behaviour is covered by call-tags-cell.test.tsx.
+vi.mock("./call-tags-cell", () => ({
+  CallTagsCell: ({ call }: { call: { tagIds?: string[] } }) => (
+    <span>calltags:{(call.tagIds ?? []).join(",")}</span>
+  ),
+}));
+
 // The job cell fetches the linked deal; serve a fixture from the cache mock.
 vi.mock("@/features/deals/hooks", () => ({
   useDeal: (id: string) => ({
@@ -186,6 +194,7 @@ describe("CallsTable recording preview", () => {
     expect(screen.getByText("Source")).toBeInTheDocument();
     expect(screen.getByText("Answered by")).toBeInTheDocument();
     expect(screen.getByText("Tags")).toBeInTheDocument();
+    expect(screen.getByText("Job tags")).toBeInTheDocument();
     expect(screen.getByText("Job")).toBeInTheDocument();
 
     expect(screen.getByText("Main line")).toBeInTheDocument();

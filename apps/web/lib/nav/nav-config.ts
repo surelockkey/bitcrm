@@ -18,6 +18,7 @@ import {
   Truck,
   UserRound,
   UsersRound,
+  Workflow,
   Wrench,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
@@ -90,6 +91,9 @@ export const MAIN_NAV: NavGroup[] = [
       { label: "Calls", href: "/calls", icon: Phone, resource: "calls" },
       // The client inbox (SMS today; email and in-app land on the same page).
       { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
+      // A rule that texts a client on its own belongs next to the inbox, not
+      // buried in settings — Workiz puts its Automation Center at this level too.
+      { label: "Automations", href: "/automations", icon: Workflow, resource: "settings" },
     ],
   },
   {
@@ -112,13 +116,21 @@ export const MAIN_NAV: NavGroup[] = [
   },
 ];
 
-/** Simplified nav for the Technician role (assigned-only scope). */
+/**
+ * Simplified nav for the Technician role (assigned-only scope). The
+ * phone-first pages come first: the day list, then the van. `/deals` and
+ * `/inventory/containers` keep working for a technician who lands on them
+ * (the office's table view of the same jobs, the same van read-only).
+ */
 export const TECHNICIAN_NAV: NavItem[] = [
-  { label: "My Jobs", href: "/deals", icon: Briefcase },
+  { label: "My Jobs", href: "/my-jobs", icon: Briefcase },
   { label: "Messages", href: "/messages", icon: MessagesSquare, resource: "messages" },
-  { label: "My Container", href: "/inventory/containers", icon: Truck },
+  { label: "My Stock", href: "/my-stock", icon: Truck, resource: "containers" },
   { label: "My Profile", href: "/profile", icon: UserRound },
 ];
+
+/** Where a technician lands after signing in — their day, not a dashboard. */
+export const TECHNICIAN_HOME = "/my-jobs";
 
 export const SHOW_ROADMAP = process.env.NEXT_PUBLIC_SHOW_ROADMAP === "true";
 

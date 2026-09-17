@@ -1,18 +1,35 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DynamoDbService, PermissionCacheReader, RedisService, S3Service, SqsConsumerService } from '@bitcrm/shared';
 import { AUTOMATIONS_CONFIG } from '../../../src/automations/automations.config';
 import { AutomationsService } from '../../../src/automations/automations.service';
-import { AutomationsModule, DEAL_EVENTS_SQS_CONSUMER } from '../../../src/automations/automations.module';
-import { DEAL_TECH_ASSIGNED_EVENT, DEAL_UPDATED_EVENT } from '../../../src/automations/deal-events';
+import {
+  AutomationsModule,
+  CALL_EVENTS_SQS_CONSUMER,
+  DEAL_EVENTS_SQS_CONSUMER,
+} from '../../../src/automations/automations.module';
+import {
+  CALL_COMPLETED_EVENT,
+  DEAL_CREATED_EVENT,
+  DEAL_SCHEDULED_CHANGED_EVENT,
+  DEAL_STATUS_CHANGED_EVENT,
+  DEAL_TECH_ASSIGNED_EVENT,
+  DEAL_UPDATED_EVENT,
+} from '../../../src/automations/deal-events';
+import { AutomationDealEventsHandler } from '../../../src/automations/engine/deal-events.handler';
+import { AutomationRuleEngine } from '../../../src/automations/engine/rule-engine.service';
 import { NewJobSmsService } from '../../../src/automations/new-job-sms.service';
+import { SendToTechService } from '../../../src/automations/send-to-tech.service';
 import { TechNoticesService } from '../../../src/automations/tech-notices.service';
+import { DealEventType } from '@bitcrm/types';
 
 /** The platform globals AppModule provides (see outbound.module.spec.ts). */
 @Global()
 @Module({
   providers: [
-    { provide: DynamoDbService, useValue: { client: { send: jest.fn() } } },
+    { provide: DynamoDbService, useValue: { client: { send: jest.fn().mockResolvedValue({}) } } },
     { provide: S3Service, useValue: {} },
     { provide: RedisService, useValue: { client: { publish: jest.fn().mockResolvedValue(1), duplicate: jest.fn() } } },
     { provide: PermissionCacheReader, useValue: { get: jest.fn().mockResolvedValue(null) } },
@@ -22,16 +39,25 @@ import { TechNoticesService } from '../../../src/automations/tech-notices.servic
 class FakePlatformModule {}
 
 describe('AutomationsModule wiring', () => {
-  const saved = { queue: process.env.DEAL_EVENTS_TO_MESSAGING_QUEUE_URL, outbound: process.env.MESSAGING_OUTBOUND_QUEUE_URL, enable: process.env.ENABLE_SQS_CONSUMER };
+  const saved = {
+    queue: process.env.DEAL_EVENTS_TO_MESSAGING_QUEUE_URL,
+    calls: process.env.CALL_EVENTS_TO_MESSAGING_QUEUE_URL,
+    outbound: process.env.MESSAGING_OUTBOUND_QUEUE_URL,
+    enable: process.env.ENABLE_SQS_CONSUMER,
+    scheduler: process.env.ENABLE_AUTOMATION_SCHEDULER,
+  };
   beforeEach(() => {
     delete process.env.MESSAGING_OUTBOUND_QUEUE_URL;
     delete process.env.ENABLE_SQS_CONSUMER;
+    delete process.env.ENABLE_AUTOMATION_SCHEDULER;
   });
   afterEach(() => {
     for (const [key, value] of [
       ['DEAL_EVENTS_TO_MESSAGING_QUEUE_URL', saved.queue],
+      ['CALL_EVENTS_TO_MESSAGING_QUEUE_URL', saved.calls],
       ['MESSAGING_OUTBOUND_QUEUE_URL', saved.outbound],
       ['ENABLE_SQS_CONSUMER', saved.enable],
+      ['ENABLE_AUTOMATION_SCHEDULER', saved.scheduler],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -40,19 +66,29 @@ describe('AutomationsModule wiring', () => {
 
   it('resolves every provider with only the platform globals; no queue URL → no consumer', async () => {
     delete process.env.DEAL_EVENTS_TO_MESSAGING_QUEUE_URL;
+    delete process.env.CALL_EVENTS_TO_MESSAGING_QUEUE_URL;
     const moduleRef = await Test.createTestingModule({ imports: [FakePlatformModule, AutomationsModule] }).compile();
     await moduleRef.init();
 
     expect(moduleRef.get(AutomationsService)).toBeInstanceOf(AutomationsService);
     expect(moduleRef.get(NewJobSmsService)).toBeInstanceOf(NewJobSmsService);
+    expect(moduleRef.get(SendToTechService)).toBeInstanceOf(SendToTechService);
     expect(moduleRef.get(TechNoticesService)).toBeInstanceOf(TechNoticesService);
-    expect(moduleRef.get(AUTOMATIONS_CONFIG)).toMatchObject({ awsRegion: expect.any(String), consumerEnabled: false });
+    expect(moduleRef.get(AutomationRuleEngine)).toBeInstanceOf(AutomationRuleEngine);
+    expect(moduleRef.get(AutomationDealEventsHandler)).toBeInstanceOf(AutomationDealEventsHandler);
+    expect(moduleRef.get(AUTOMATIONS_CONFIG)).toMatchObject({
+      awsRegion: expect.any(String),
+      consumerEnabled: false,
+      schedulerEnabled: false,
+      schedulerIntervalMs: 60_000,
+    });
     expect(moduleRef.get(DEAL_EVENTS_SQS_CONSUMER)).toBeNull();
+    expect(moduleRef.get(CALL_EVENTS_SQS_CONSUMER)).toBeNull();
 
     await moduleRef.close();
   });
 
-  it('with a queue URL, registers deal.tech_assigned / deal.updated on a dedicated consumer and polls only when enabled', async () => {
+  it('with a queue URL, registers every job event (deal.sent_to_tech included) on a dedicated consumer and polls only when enabled', async () => {
     process.env.DEAL_EVENTS_TO_MESSAGING_QUEUE_URL = 'http://localhost:4566/000000000000/deal-events-to-messaging';
     const moduleRef = await Test.createTestingModule({ imports: [FakePlatformModule, AutomationsModule] }).compile();
     const consumer = moduleRef.get<SqsConsumerService>(DEAL_EVENTS_SQS_CONSUMER);
@@ -61,18 +97,76 @@ describe('AutomationsModule wiring', () => {
 
     await moduleRef.init();
     const handlers = consumer.getHandlers();
-    expect(handlers.has(DEAL_TECH_ASSIGNED_EVENT)).toBe(true);
-    expect(handlers.has(DEAL_UPDATED_EVENT)).toBe(true);
+    for (const event of [
+      DEAL_CREATED_EVENT,
+      DEAL_UPDATED_EVENT,
+      DEAL_STATUS_CHANGED_EVENT,
+      DEAL_TECH_ASSIGNED_EVENT,
+      DEAL_SCHEDULED_CHANGED_EVENT,
+      DealEventType.SENT_TO_TECH,
+    ]) {
+      expect(handlers.has(event)).toBe(true);
+    }
     expect(start).not.toHaveBeenCalled(); // ENABLE_SQS_CONSUMER unset
 
-    const newJob = moduleRef.get(NewJobSmsService);
-    const assigned = jest.spyOn(newJob, 'onTechAssigned').mockResolvedValue(undefined);
-    const updated = jest.spyOn(newJob, 'onDealUpdated').mockResolvedValue(undefined);
+    // The built-in New-job SMS still runs first, then the rule engine.
+    const events = moduleRef.get(AutomationDealEventsHandler);
+    const assigned = jest.spyOn(events, 'onTechAssigned').mockResolvedValue(undefined);
+    const updated = jest.spyOn(events, 'onDealUpdated').mockResolvedValue(undefined);
     await handlers.get(DEAL_TECH_ASSIGNED_EVENT)!({ dealId: 'd1', techId: 't1', assignedBy: 'u1' });
     await handlers.get(DEAL_UPDATED_EVENT)!({ dealId: 'd1', updatedBy: 'u1' });
     expect(assigned).toHaveBeenCalledWith({ dealId: 'd1', techId: 't1', assignedBy: 'u1' });
     expect(updated).toHaveBeenCalledWith({ dealId: 'd1', updatedBy: 'u1' });
 
+    const sendToTech = moduleRef.get(SendToTechService);
+    const sent = jest.spyOn(sendToTech, 'onSentToTech').mockResolvedValue('no_deal');
+    const event = { dealId: 'd1', techIds: ['t1'], channels: ['sms'], sentAt: '2026-09-16T10:00:00.000Z', sentBy: 'u1' };
+    // The handler must resolve to void, whatever the service reports back.
+    await expect(handlers.get(DealEventType.SENT_TO_TECH)!(event)).resolves.toBeUndefined();
+    expect(sent).toHaveBeenCalledWith(event);
+
     await moduleRef.close();
+  });
+
+  it('registers call.completed on its own consumer when that queue is configured', async () => {
+    process.env.CALL_EVENTS_TO_MESSAGING_QUEUE_URL = 'http://localhost:4566/000000000000/call-events-to-messaging';
+    const moduleRef = await Test.createTestingModule({ imports: [FakePlatformModule, AutomationsModule] }).compile();
+    const consumer = moduleRef.get<SqsConsumerService>(CALL_EVENTS_SQS_CONSUMER);
+    jest.spyOn(consumer, 'start').mockImplementation(() => undefined);
+    await moduleRef.init();
+
+    expect(consumer.getHandlers().has(CALL_COMPLETED_EVENT)).toBe(true);
+    await moduleRef.close();
+  });
+
+  it('the deployed messaging task carries the flag the poller needs', () => {
+    // Without it every delayed, held and relative firing is armed in a
+    // SCHEDULE# row that nothing ever reads: the rule logs `scheduled` and
+    // its ONCE# claim blocks any retry until it TTLs out.
+    const script = readFileSync(join(__dirname, '../../../../../scripts/render-taskdef.sh'), 'utf8');
+    const line = script
+      .split('\n')
+      .find((l) => l.includes('ENABLE_AUTOMATION_SCHEDULER') && l.includes('value:'));
+    expect(line).toBeDefined();
+    expect(line).toContain('$service == "messaging"');
+  });
+
+  it('polls the scheduler only under ENABLE_AUTOMATION_SCHEDULER', async () => {
+    jest.useFakeTimers();
+    process.env.ENABLE_AUTOMATION_SCHEDULER = 'true';
+    process.env.AUTOMATION_SCHEDULER_INTERVAL_MS = '1000';
+    const moduleRef = await Test.createTestingModule({ imports: [FakePlatformModule, AutomationsModule] }).compile();
+    const engine = moduleRef.get(AutomationRuleEngine);
+    const tick = jest.spyOn(engine, 'tick').mockResolvedValue(0);
+
+    await moduleRef.init();
+    jest.advanceTimersByTime(2_500);
+    expect(tick).toHaveBeenCalledTimes(2);
+
+    await moduleRef.close();
+    jest.advanceTimersByTime(5_000);
+    expect(tick).toHaveBeenCalledTimes(2); // stopped with the module
+    jest.useRealTimers();
+    delete process.env.AUTOMATION_SCHEDULER_INTERVAL_MS;
   });
 });

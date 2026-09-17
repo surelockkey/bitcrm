@@ -23,3 +23,19 @@ export function cancellationCodes(err: unknown): string[] {
 export function conditionFailedAt(err: unknown, index: number): boolean {
   return isTransactionCanceled(err) && cancellationCodes(err)[index] === 'ConditionalCheckFailed';
 }
+
+/**
+ * The `ConditionalCheckFailedException` a bare `PutItem` with
+ * `attribute_not_exists(PK)` raises on a duplicate key.
+ *
+ * A write that has to grow to a transaction — because a counters ADD now rides
+ * with it — gets a `TransactionCanceledException` from DynamoDB instead. Where
+ * the existence guard is the whole point of the call, the caller's contract
+ * should not change with the number of items in the write, so the transaction
+ * form is translated back into this.
+ */
+export function duplicateKeyError(id: string): Error {
+  const err = new Error(`The conditional request failed (duplicate ${id})`);
+  err.name = 'ConditionalCheckFailedException';
+  return err;
+}
