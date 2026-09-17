@@ -135,12 +135,20 @@ export function SegmentedControl<T extends string>({
   );
 }
 
-/** The sentence a panel opens with — slots sit inside it, on one wrapping line. */
+/**
+ * The sentence a panel opens with — slots sit inside it, on one wrapping line.
+ *
+ * A `<div>` rather than the `<p>` it reads as: a slot is a positioned `<div>`
+ * (it carries its own popover), and HTML closes a `<p>` at the first `<div>`
+ * inside it. The server would send one tree and the browser would parse
+ * another, which is a hydration error on the first paint of the builder and
+ * a sentence whose slots have fallen out of their line.
+ */
 export function PanelSentence({ children }: { children: ReactNode }) {
   return (
-    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-2 text-sm leading-7 text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2 text-sm leading-7 text-muted-foreground">
       {children}
-    </p>
+    </div>
   );
 }
 
