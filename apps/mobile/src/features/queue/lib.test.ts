@@ -68,7 +68,8 @@ describe('describeQueue', () => {
         action({ id: 'd', kind: 'on_my_way' }),
         action({ id: 'e', kind: 'late' }),
         action({ id: 'f', kind: 'status', payload: '{"superStatus":"in_progress"}' }),
-        upload({ id: 'g' }),
+        action({ id: 'g', kind: 'chat', dealId: '', payload: '{"body":"door is locked"}' }),
+        upload({ id: 'h' }),
       ],
       NOW,
     ).map((i) => i.title);
@@ -80,6 +81,7 @@ describe('describeQueue', () => {
       'Text: on my way',
       'Text: running late',
       'Status: In progress',
+      'Message to the office',
       'Photo — job-K4T9ZW-2026-09-16.jpg',
     ]);
   });

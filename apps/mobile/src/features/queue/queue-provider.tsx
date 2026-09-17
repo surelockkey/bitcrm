@@ -157,15 +157,22 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     const fresh = new Map<string, Deal>();
     /** Jobs that changed but did not hand one back. */
     const stale = new Set<string>();
+    /** A line reached the office — the thread has to show the real message. */
+    let chatLanded = false;
     let sent = 0;
     let failed = 0;
     const note = (
-      record: { dealId: string },
+      record: { dealId: string; kind?: OutboxKind },
       settledAs: 'done' | 'failed' | 'pending',
       result?: unknown,
     ) => {
       if (settledAs === 'done') {
         sent += 1;
+        // A chat line is about no job of its own: what changed is the thread.
+        if (record.kind === 'chat') {
+          chatLanded = true;
+          return;
+        }
         const deal = asDeal(result);
         if (deal) fresh.set(record.dealId, deal);
         else stale.add(record.dealId);
@@ -173,7 +180,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       }
       if (settledAs === 'failed') {
         failed += 1;
-        stale.add(record.dealId);
+        // The failed line stays visible in the thread from its queue row, so
+        // there is nothing to re-read; a job, on the other hand, may have
+        // moved under the optimistic patch that is still on screen.
+        if (record.dealId) stale.add(record.dealId);
       }
     };
 
@@ -223,6 +233,9 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       void qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
       void qc.invalidateQueries({ queryKey: queryKeys.deals.attachments(dealId) });
     }
+    // The office's own copy of the line, its stamp and the thread's read
+    // state, in place of the pending row that has just been swept.
+    if (chatLanded) void qc.invalidateQueries({ queryKey: queryKeys.messaging.all() });
     if (sent) hapticSuccess();
     if (failed) hapticError();
   }, [qc, refresh, stores]);

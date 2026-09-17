@@ -15,7 +15,12 @@ import {
   type MoveStatusBody,
 } from '../jobs/api';
 import type { Deal } from '../jobs/types';
-import { sendOnMyWay, sendRunningLate } from '../messaging/api';
+import {
+  openOfficeThread,
+  sendChatMessage,
+  sendOnMyWay,
+  sendRunningLate,
+} from '../messaging/api';
 
 /** The JSON each queued action carries. */
 export type ArrivedPayload = MarkArrivedBody;
@@ -28,6 +33,14 @@ export interface OnMyWayPayload {
 }
 export interface LatePayload {
   minutes: number;
+}
+export interface ChatPayload {
+  /**
+   * The office thread. Absent when the technician wrote their first line on a
+   * phone that has never seen it — resolved at send time below.
+   */
+  conversationId?: string;
+  body: string;
 }
 
 /**
@@ -74,6 +87,25 @@ export async function performOutboxAction(
         clientMessageId: record.id,
       });
       return undefined;
+    case 'chat': {
+      const chat = payload as ChatPayload;
+      // The thread is resolved here rather than at the tap. A technician who
+      // has never opened the chat with a signal has no id to queue, and
+      // `POST /conversations` is find-or-create — so the first line costs one
+      // extra request and every line after it costs none. Doing it at the tap
+      // instead would mean no message could be written underground at all.
+      const conversationId =
+        chat.conversationId ?? (await openOfficeThread(record.userId)).conversation.id;
+      await sendChatMessage(conversationId, {
+        // The queue row's id IS the idempotency key: a replay after a dropped
+        // connection returns the first message rather than writing a second.
+        clientMessageId: record.id,
+        channel: 'in_app',
+        body: chat.body,
+        ...(record.dealId ? { dealId: record.dealId } : {}),
+      });
+      return undefined;
+    }
   }
 }
 

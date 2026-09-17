@@ -244,6 +244,30 @@ describe('what a settled row does to the cache', () => {
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
     expect(keys).not.toContain(JSON.stringify(queryKeys.deals.lists()));
   });
+
+  it('refreshes the thread, and no job at all, when a line reaches the office', async () => {
+    await seedRow('tech-a', {
+      kind: 'chat',
+      dealId: '',
+      payload: '{"conversationId":"conv-1","body":"door is locked"}',
+    });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue(undefined);
+
+    const qc = testClient();
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+
+    await mount(qc);
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalled());
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.messaging.all()));
+    });
+    // A message is about no job: `deals.detail('')` is a query nobody holds.
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect(keys).not.toContain(JSON.stringify(queryKeys.deals.detail('')));
+  });
 });
 
 describe('patching a queued payload', () => {

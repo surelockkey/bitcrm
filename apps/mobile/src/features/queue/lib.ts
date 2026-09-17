@@ -49,6 +49,8 @@ function titleFor(record: QueueRecord): string {
       return 'Text: on my way';
     case 'late':
       return 'Text: running late';
+    case 'chat':
+      return 'Message to the office';
     case 'status': {
       try {
         const payload = JSON.parse(record.payload) as StatusPayload;

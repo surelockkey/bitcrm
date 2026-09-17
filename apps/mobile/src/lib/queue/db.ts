@@ -62,12 +62,14 @@ CREATE INDEX IF NOT EXISTS uploads_ready ON uploads (user_id, state, next_attemp
  * Kinds the server will absorb a second time without a client-visible trace,
  * and only those. `tech/confirm` returns early on `techConfirmedAt`
  * (deals.service.ts:1023-1041) and `tech/arrived` on `arrivedAt` (:1096), both
- * before the timeline entry; the two automatic texts dedupe on the
- * `clientMessageId` we send, which is the row's own id
- * (messages.repository.ts:277-284). Kept as a SQL literal list because the
- * recovery below runs before any of our TypeScript touches a row.
+ * before the timeline entry; the two automatic texts and a chat line dedupe on
+ * the `clientMessageId` we send, which is the row's own id
+ * (messages.repository.ts:277-284, send.controller.ts:34 "a repeated
+ * `clientMessageId` returns the first message instead of sending again").
+ * Kept as a SQL literal list because the recovery below runs before any of our
+ * TypeScript touches a row.
  */
-const REPLAYABLE_KINDS = `('confirm', 'arrived', 'on_my_way', 'late')`;
+const REPLAYABLE_KINDS = `('confirm', 'arrived', 'on_my_way', 'late', 'chat')`;
 
 export const UNKNOWN_OUTCOME_MESSAGE =
   'The app closed while this was being sent, so it may already have been sent. Open the job to check.';

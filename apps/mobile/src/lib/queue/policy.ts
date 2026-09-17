@@ -10,8 +10,8 @@ import type { OutboxKind, OutboxRecord, QueueState, UploadRecord } from './types
  *
  * `tech/confirm` and `tech/arrived` keep their first stamp however often they
  * are replayed (deals.controller.ts:184-189, :206-208), and the two automatic
- * texts dedupe on the `clientMessageId` we send — which is the queue row's own
- * id. Those can be retried for as long as it takes.
+ * texts — like a chat line — dedupe on the `clientMessageId` we send, which is
+ * the queue row's own id. Those can be retried for as long as it takes.
  *
  * A note and a status move have **no** server-side idempotency. Replaying one
  * after an ambiguous failure would add a second note or re-announce a status,
@@ -23,6 +23,7 @@ const IDEMPOTENT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'arrived',
   'on_my_way',
   'late',
+  'chat',
 ]);
 
 export function isIdempotent(kind: OutboxKind): boolean {
@@ -39,6 +40,10 @@ export function isIdempotent(kind: OutboxKind): boolean {
  * the visit is over is worse than one never sent: the client is told something
  * that is no longer true, by a technician who has already been and gone
  * (docs/ARCHITECTURE.md §2.3).
+ *
+ * A chat line is deliberately **not** here: it is addressed to a colleague in
+ * the office, and "the gate code did not work" is still worth reading an hour
+ * after it was written in a basement.
  */
 const CLIENT_VISIBLE: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
   'on_my_way',
@@ -74,18 +79,30 @@ export function isReady(record: Attemptable, now: number): boolean {
 }
 
 /**
- * What the worker takes on this pass: **at most one row per job**.
+ * Which rows must not overtake one another.
+ *
+ * A job is one lane: "arrived", then the status move, then the note. The chat
+ * is another — the technician has a single thread with the office, and two
+ * lines typed seconds apart have to reach it in the order they were written.
+ * A chat row's `dealId` is the job it is *about* (empty when it is about none),
+ * so it cannot serve as the lane.
+ */
+export function laneOf(record: { dealId: string; kind?: OutboxKind }): string {
+  return record.kind === 'chat' ? 'chat' : `deal:${record.dealId}`;
+}
+
+/**
+ * What the worker takes on this pass: **at most one row per lane**.
  *
  * Order matters within a job — "arrived", then the status move, then the note —
  * and the server has no notion of our ordering, so the queue enforces it by
- * only ever having one row of a job in flight. Different jobs go in parallel.
+ * only ever having one row of a lane in flight. Different lanes go in parallel.
  */
-export function selectNextBatch<T extends Attemptable & { dealId: string; createdAt: number }>(
-  records: readonly T[],
-  now: number,
-): T[] {
+export function selectNextBatch<
+  T extends Attemptable & { dealId: string; createdAt: number; kind?: OutboxKind },
+>(records: readonly T[], now: number): T[] {
   const busy = new Set(
-    records.filter((r) => r.state === 'sending').map((r) => r.dealId),
+    records.filter((r) => r.state === 'sending').map(laneOf),
   );
   const ready = records
     .filter((r) => isReady(r, now))
@@ -94,8 +111,9 @@ export function selectNextBatch<T extends Attemptable & { dealId: string; create
   const batch: T[] = [];
   const taken = new Set<string>();
   for (const record of ready) {
-    if (busy.has(record.dealId) || taken.has(record.dealId)) continue;
-    taken.add(record.dealId);
+    const lane = laneOf(record);
+    if (busy.has(lane) || taken.has(lane)) continue;
+    taken.add(lane);
     batch.push(record);
   }
   return batch;
