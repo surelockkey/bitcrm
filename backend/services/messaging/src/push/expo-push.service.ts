@@ -56,7 +56,13 @@ export interface PushSendResult {
 /** Expo's word for "this phone is gone" — the one error that must delete a token. */
 const DEVICE_NOT_REGISTERED = 'DeviceNotRegistered';
 
-const EMPTY: PushSendResult = { disabled: false, accepted: 0, failed: 0, unregistered: [], pending: [] };
+/**
+ * A fresh "nothing happened" result. A **function**, not a shared constant:
+ * spreading one object handed every caller the very same `unregistered` and
+ * `pending` arrays, so the first caller to append to either would have
+ * poisoned the answer every later send gave — the flag-off one included.
+ */
+const empty = (): PushSendResult => ({ disabled: false, accepted: 0, failed: 0, unregistered: [], pending: [] });
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms).unref?.());
 
@@ -96,11 +102,11 @@ export class ExpoPushService implements OnModuleDestroy {
   async send(messages: ExpoPushMessage[]): Promise<PushSendResult> {
     if (!this.config.enabled) {
       this.logger.log(`Push is disabled (PUSH_ENABLED): ${messages.length} notification(s) not sent`);
-      return { ...EMPTY, disabled: true };
+      return { ...empty(), disabled: true };
     }
-    if (!messages.length) return { ...EMPTY };
+    if (!messages.length) return empty();
 
-    const result: PushSendResult = { ...EMPTY, unregistered: [], pending: [] };
+    const result = empty();
     for (let i = 0; i < messages.length; i += EXPO_BATCH_SIZE) {
       const batch = messages.slice(i, i + EXPO_BATCH_SIZE);
       const tickets = await this.postBatch(batch);

@@ -135,6 +135,27 @@ describe('ExpoPushService', () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     });
 
+    it('hands every call its own result, so one caller cannot poison the next', async () => {
+      // The nothing-happened answers used to be spreads of one module-level
+      // object, which meant they shared its two arrays with each other and
+      // with every result ever returned.
+      const off = makeService({ config: { enabled: false } });
+      const first = await off.service.send([message('t1')]);
+      first.unregistered.push('poison');
+      first.pending.push({ id: 'poison', token: 'poison' });
+      expect(await off.service.send([message('t2')])).toEqual({
+        disabled: true,
+        accepted: 0,
+        failed: 0,
+        unregistered: [],
+        pending: [],
+      });
+
+      const on = makeService({ responses: [{ body: { data: [{ status: 'ok', id: 'r1' }] } }] });
+      (await on.service.send([])).pending.push({ id: 'poison', token: 'poison' });
+      expect((await on.service.send([message('t1')])).pending).toEqual([{ id: 'r1', token: 't1' }]);
+    });
+
     it('sends the access token only when the Expo project needs one', async () => {
       const withToken = makeService({ config: { accessToken: 'secret' }, responses: [{ body: { data: [] } }] });
       await withToken.service.send([message('t1')]);
