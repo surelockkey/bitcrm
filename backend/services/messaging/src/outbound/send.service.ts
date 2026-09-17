@@ -37,6 +37,7 @@ import { EmailAddressResolver } from '../email/email-address.resolver';
 import { emailBodies } from '../email/email-body';
 import { MessagesRepository, type AppendResult, type MessageKey } from '../messages/messages.repository';
 import { OptOutsRepository } from '../opt-outs/opt-outs.repository';
+import { PushNotifierService } from '../push/push-notifier.service';
 import { TeamAccessService, isTeamKind } from '../team/team-access.service';
 import { type ResendMessageDto } from './dto/resend-message.dto';
 import { MAX_ATTACHMENT_BYTES, type SendAttachmentDto, type SendMessageDto, type StartConversationMessageDto } from './dto/send-message.dto';
@@ -192,6 +193,7 @@ export class SendService {
     @Optional() private readonly users?: UserLookupService,
     @Optional() private readonly inboxCounters?: InboxCountersRepository,
     @Optional() private readonly email?: EmailAddressResolver,
+    @Optional() private readonly push?: PushNotifierService,
   ) {}
 
   /** `POST /conversations/:id/messages`. */
@@ -822,6 +824,10 @@ export class SendService {
     const recipients = teamRecipients(result.conversation, opts.senderId);
     this.logger.log(`In-app ${message.id} stored in ${conversation.id} (${conversation.kind}) for ${recipients.length} member(s)`);
     this.realtime?.messageUpserted(message, result.conversation, now, { recipients, mentions: opts.mentions });
+    // SSE reaches an open tab; a phone in a pocket needs a push. Same
+    // recipients, same line — the notifier decides who of them actually has
+    // a device, and holds the ones quiet hours or a STOP cover.
+    void this.push?.notifyNewMessage(message, result.conversation, recipients);
     // Badges (§6): every recipient's own team-chat badge is recounted on
     // their stream; when the employee's line marked the office's thread
     // unread, the company-wide counters are read back and pushed too.

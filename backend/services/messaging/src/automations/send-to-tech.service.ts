@@ -1,9 +1,10 @@
-import { HttpException, HttpStatus, Injectable, Logger, NotImplementedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, NotImplementedException, Optional } from '@nestjs/common';
 import { type Conversation, type DealSentToTechEvent, type SendToTechChannel } from '@bitcrm/types';
 import { RecipientOptedOutException, SendService } from '../outbound/send.service';
+import { PushNotifierService } from '../push/push-notifier.service';
 import { MessagingSettingsService } from '../settings/messaging-settings.service';
 import { TemplateRenderer } from '../templates/template-renderer';
-import { AUTOMATIONS_ACTOR } from './automations.constants';
+import { AUTOMATIONS_ACTOR, SEND_TO_TECH_RULE_PREFIX } from './automations.constants';
 import { AutoSentRepository } from './auto-sent.repository';
 import { isDealSentToTechPayload } from './deal-events';
 import {
@@ -15,7 +16,7 @@ import {
 import { TeamThreadService } from './team-thread.service';
 
 /** `AUTOSENT#` rule id per channel — one marker per (job, technician, channel). */
-export const sendToTechRuleId = (channel: SendToTechChannel) => `send-to-tech:${channel}` as const;
+export const sendToTechRuleId = (channel: SendToTechChannel) => `${SEND_TO_TECH_RULE_PREFIX}${channel}` as const;
 
 /** `CLIENTMSG#` key: the click's `sentAt` makes a resend a new message, a redelivery a duplicate. */
 export const sendToTechMessageKey = (dealId: string, techId: string, channel: SendToTechChannel, sentAt: string) =>
@@ -110,6 +111,7 @@ export class SendToTechService {
     private readonly renderer: TemplateRenderer,
     private readonly send: SendService,
     private readonly markers: AutoSentRepository,
+    @Optional() private readonly push?: PushNotifierService,
   ) {}
 
   /** `deal.sent_to_tech` off the `deal-events-to-messaging` queue. */
@@ -184,7 +186,39 @@ export class SendToTechService {
       result[channel] = outcome;
       this.logger.log(`Send to tech ${deal.id} → ${techId} (${channel}): ${outcome}`);
     }
+    await this.pushJob(deal, techId, result);
     return result;
+  }
+
+  /**
+   * The push that goes with the `in_app` channel — Workiz's "Sent to tech by
+   * In App", which in the export is a **server-side** mark (118 227 of its
+   * 120 571 rows carry `native=0`) of the app being told about a job, not
+   * anything the technician did.
+   *
+   * It follows the dispatcher's tick rather than adding a channel of its
+   * own: `by SMS` (316 331) and `by In App` (120 571) are separate choices
+   * in the same dialog, so a technician sent the job by text alone is not
+   * also pushed — their phone has already buzzed — while one ticked for both
+   * gets both, exactly as they do today. Only a fresh `sent` pushes:
+   * `duplicate` is an SQS redelivery of a click whose push already went.
+   */
+  private async pushJob(
+    deal: AutomationDeal,
+    techId: string,
+    result: Partial<Record<SendToTechChannel, SendToTechOutcome>>,
+  ): Promise<void> {
+    if (!this.push || result.in_app !== 'sent') return;
+    await this.push.notifyJobSentToTech({
+      dealId: deal.id,
+      techId,
+      deal: {
+        dealNumber: deal.dealNumber,
+        scheduledDate: deal.scheduledDate,
+        scheduledTimeSlot: deal.scheduledTimeSlot,
+        address: deal.address,
+      },
+    });
   }
 
   private async deliverChannel(

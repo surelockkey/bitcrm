@@ -72,6 +72,7 @@ function makeService(opts: {
   const inboxCounters = { get: jest.fn(async () => ({ unreadConversations: 5, flaggedConversations: 0, unreadByKind: { team: 2 } })) };
   const teammate = opts.teammate === undefined ? { id: 'u2', name: 'Ann Tech', phone: '+14045550002' } : opts.teammate;
   const users = teammate === 'none' ? undefined : { find: jest.fn(async (id: string) => (teammate ? { ...teammate, id } : null)) };
+  const push = { notifyNewMessage: jest.fn(async () => 1) };
   const service = new SendService(
     conversations as any,
     messages as any,
@@ -86,8 +87,9 @@ function makeService(opts: {
     users as any,
     inboxCounters as any,
     opts.email as any,
+    push as any,
   );
-  return { service, conversations, messages, optOuts, sender, queue, deals, crm, events, realtime, users, inboxCounters };
+  return { service, conversations, messages, optOuts, sender, queue, deals, crm, events, realtime, users, inboxCounters, push };
 }
 
 const emailReady = () => ({
@@ -447,11 +449,29 @@ describe('SendService — channel in_app', () => {
 
   it('the employee writes on their own thread: inbound / employee, the office is marked unread, nobody to push to', async () => {
     const mine = { ...TEAM, partyId: 'u1' };
-    const { service, messages, realtime } = makeService({ conversation: mine });
+    const { service, messages, realtime, push } = makeService({ conversation: mine });
     const m = await service.sendToConversation('c-u2', dto({ channel: 'in_app' }), { user, perms: perms() });
     expect(m).toMatchObject({ direction: 'inbound', origin: 'employee', status: 'sent' });
     expect(messages.appendOutbound).toHaveBeenCalledWith(expect.objectContaining({ markUnread: true }));
     expect(realtime.messageUpserted).toHaveBeenCalledWith(m, expect.anything(), m.createdAt, { recipients: [], mentions: undefined });
+    // The office reads this in the web inbox; nobody's phone is woken.
+    expect(push.notifyNewMessage).toHaveBeenCalledWith(m, expect.anything(), []);
+  });
+
+  it('wakes the phone of everyone the line is for, the office composer included', async () => {
+    const team = makeService({ conversation: TEAM });
+    const m = await team.service.sendToConversation('c-u2', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(team.push.notifyNewMessage).toHaveBeenCalledWith(m, expect.objectContaining({ id: 'c-u2' }), ['u2']);
+
+    const group = makeService({ conversation: GROUP });
+    const g = await group.service.sendToConversation('g1', dto({ channel: 'in_app' }), { user, perms: perms() });
+    expect(group.push.notifyNewMessage).toHaveBeenCalledWith(g, expect.objectContaining({ id: 'g1' }), ['u2', 'u3']);
+  });
+
+  it('never pushes an SMS or an email — those already reach the phone as themselves', async () => {
+    const { service, push } = makeService();
+    await service.sendToConversation('c1', dto({ channel: 'sms' }), { user, perms: perms() });
+    expect(push.notifyNewMessage).not.toHaveBeenCalled();
   });
 
   it('a group line goes to every other member, with the mentions deduplicated and carried on the message', async () => {

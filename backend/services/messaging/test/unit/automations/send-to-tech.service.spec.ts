@@ -93,8 +93,17 @@ function makeService(opts: {
     get: jest.fn(async (dealId: string, ruleId: string, techId: string) => stored.get(`${dealId}|${ruleId}|${techId}`) ?? null),
     put: jest.fn(async (m: AutoSentMarker) => { stored.set(`${m.dealId}|${m.ruleId}|${m.techId}`, m); }),
   };
-  const service = new SendToTechService(settings as any, peers as any, threads as any, renderer as any, send as any, markers as any);
-  return { service, settings, peers, threads, renderer, send, markers, stored, reports };
+  const push = { notifyJobSentToTech: jest.fn(async () => 1) };
+  const service = new SendToTechService(
+    settings as any,
+    peers as any,
+    threads as any,
+    renderer as any,
+    send as any,
+    markers as any,
+    push as any,
+  );
+  return { service, settings, peers, threads, renderer, send, markers, stored, reports, push };
 }
 
 const marker = (channel: 'sms' | 'email' | 'in_app', sentFor: string): AutoSentMarker => ({
@@ -337,6 +346,64 @@ describe('SendToTechService — deal.sent_to_tech', () => {
     const { service, send } = makeService({ deal: deal({ dealNumber: undefined }) });
     await service.onSentToTech(event({ dealNumber: undefined, channels: ['email'] }));
     expect(send.sendSystem).toHaveBeenCalledWith(expect.objectContaining({ subject: 'New job' }));
+  });
+});
+
+/**
+ * The push follows the dispatcher's tick rather than adding a channel: in
+ * the Workiz export `Sent to tech by In App` (120 571, of which 118 227 are
+ * `native=0` — a server-side mark of the app being told) and `by SMS`
+ * (316 331) are separate choices in the same dialog.
+ */
+describe('SendToTechService — the push that goes with the in-app channel', () => {
+  it('pushes the technician when the in-app channel actually delivered', async () => {
+    const { service, push } = makeService({
+      deal: deal({ address: { street: '128 Main St', city: 'Hartford', state: 'CT', zip: '06103' }, scheduledTimeSlot: '09:00-12:00' }),
+    });
+
+    await service.onSentToTech(event({ channels: ['in_app'] }));
+
+    expect(push.notifyJobSentToTech).toHaveBeenCalledWith({
+      dealId: 'd1',
+      techId: 't1',
+      deal: {
+        dealNumber: '1001',
+        scheduledDate: '2026-09-20',
+        scheduledTimeSlot: '09:00-12:00',
+        address: { street: '128 Main St', city: 'Hartford', state: 'CT', zip: '06103' },
+      },
+    });
+  });
+
+  it('does not push a technician the dispatcher sent the job to by text alone', async () => {
+    const { service, push } = makeService();
+    await service.onSentToTech(event({ channels: ['sms'] }));
+    expect(push.notifyJobSentToTech).not.toHaveBeenCalled();
+  });
+
+  it('pushes once for a technician ticked for both SMS and the app', async () => {
+    const { service, push } = makeService();
+    await service.onSentToTech(event({ channels: ['sms', 'in_app'] }));
+    expect(push.notifyJobSentToTech).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not push again on an SQS redelivery of the same click', async () => {
+    const { service, push } = makeService({ markers: { 'd1|send-to-tech:in_app|t1': marker('in_app', SENT_AT) } });
+
+    expect(await service.onSentToTech(event({ channels: ['in_app'] }))).toEqual({ t1: { in_app: 'duplicate' } });
+    expect(push.notifyJobSentToTech).not.toHaveBeenCalled();
+  });
+
+  it('does not push a technician whose in-app delivery was skipped', async () => {
+    const { service, push } = makeService({ users: { t1: null } });
+    await service.onSentToTech(event({ channels: ['in_app'] }));
+    expect(push.notifyJobSentToTech).not.toHaveBeenCalled();
+  });
+
+  it('pushes each technician of a multi-tech click', async () => {
+    const { service, push } = makeService();
+    await service.onSentToTech(event({ techIds: ['t1', 't2'], channels: ['in_app'] }));
+    expect(push.notifyJobSentToTech.mock.calls.map((c: any[]) => c[0].techId)).toEqual(['t1', 't2']);
   });
 });
 

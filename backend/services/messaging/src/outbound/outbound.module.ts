@@ -7,6 +7,7 @@ import { InboxCountersModule } from '../counters/inbox-counters.module';
 import { EmailModule } from '../email/email.module';
 import { MessagesModule } from '../messages/messages.module';
 import { OptOutsModule } from '../opt-outs/opt-outs.module';
+import { PushModule } from '../push/push.module';
 import { MessagingSettingsModule } from '../settings/messaging-settings.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { MessageTemplatesModule } from '../templates/message-templates.module';
@@ -57,6 +58,8 @@ export const OUTBOUND_SQS_CONSUMER = Symbol('OUTBOUND_SQS_CONSUMER');
     InboxCountersModule,
     // M17: the email sender-address rules for the accept path and the worker the FIFO consumer hands `email` jobs to.
     EmailModule,
+    // An in-app line is the one thing the technician app has to be woken for.
+    PushModule,
   ],
   controllers: [SendController, OutboundAttachmentsController, StatusController],
   providers: [
