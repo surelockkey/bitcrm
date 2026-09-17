@@ -75,11 +75,20 @@ describe('staleKeysForPushData', () => {
     ]);
   });
 
-  it('has nothing to reload for a conversation yet', () => {
-    // No chat query exists on the phone; its keys land with that screen.
+  it('marks the Messages list, its counts and the thread out of date', () => {
+    // The Messages screen has landed, and this is the case the banner is
+    // deliberately suppressed in: the technician is already looking at the
+    // list. Without this the new line is invisible until the 30-second poll
+    // comes round, over a screen that is being read right now.
     expect(
       staleKeysForPushData({ kind: 'conversation', conversationId: 'c1', messageId: 'm1' }),
-    ).toEqual([]);
+    ).toEqual([
+      queryKeys.messaging.conversations(),
+      queryKeys.messaging.inboxCounters(),
+      queryKeys.messaging.teamThread(),
+      queryKeys.messaging.teamCounters(),
+      queryKeys.messaging.messages('c1'),
+    ]);
   });
 
   it('reloads nothing at all on a payload it cannot read', () => {
