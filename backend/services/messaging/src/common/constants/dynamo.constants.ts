@@ -20,6 +20,7 @@ export const MESSAGING_TABLE = process.env.MESSAGING_TABLE || 'BitCRM_Messaging'
 //   GSI2 UnreadIndex (sparse)  GSI2PK = UNREAD#<YYYY>                       open + unread only
 //   GSI3 CategoryIndex         GSI3PK = CAT#<kind>#<YYYY>                   conversations
 //                              GSI3PK = CATALOG#MESSAGE_TEMPLATE, GSI3SK = <title lower>#<id>  templates
+//                              GSI3PK = DEVICEOF#<userId>, GSI3SK = <registeredAt>#<token>     push devices
 //   GSI4 JobIndex (sparse)     GSI4PK = JOB#<dealId>, GSI4SK = <createdAt>#<messageId>  messages with a job
 //   GSI5 FlagIndex (sparse)    conversation: FLAG#conversation / <lastMessageAt>#<conversationId>
 //                              message:      FLAG#message#<YYYY> / <createdAt>#<messageId>
@@ -47,7 +48,7 @@ export const MESSAGING_GSIS: ReadonlyArray<{ n: 1 | 2 | 3 | 4 | 5 | 6; name: str
   { n: 6, name: MESSAGING_GSI6_NAME },
 ];
 
-/** TTL attribute (epoch seconds) — only service pointers such as CLIENTMSG# carry it. */
+/** TTL attribute (epoch seconds) — carried by service pointers (CLIENTMSG#) and DEVICE# rows. */
 export const MESSAGING_TTL_ATTRIBUTE = 'expiresAt';
 
 export const METADATA_SK = 'METADATA';
@@ -114,6 +115,31 @@ export const TEMPLATE_CATALOG_GSI3PK = 'CATALOG#MESSAGE_TEMPLATE';
 /** `<title lower>#<id>` — alphabetical catalog order, unique per template. */
 export const templateCatalogSk = (title: string, templateId: string) =>
   `${title.trim().toLowerCase()}#${templateId}`;
+
+/**
+ * `DEVICE#<token>` / METADATA — one phone's Expo push token. The token is
+ * the partition, not the user, so the same token can never end up on two
+ * users: a phone handed over (or an app signed in as someone else)
+ * overwrites the row, and with it the GSI3 adjacency below, instead of
+ * leaving a second row that would push the new owner's jobs to the old one.
+ */
+export const pushDevicePk = (token: string) => `DEVICE#${token}`;
+/**
+ * `DEVICEOF#<userId>` / `<registeredAt>#<token>` on the CategoryIndex — the
+ * "which phones does this user carry" adjacency, the same constant-partition
+ * trick `MEMBEROF#` and the template catalog use (CLAUDE.md §5). A handful
+ * of rows per user, so no index of its own.
+ */
+export const pushDeviceOfGsi3Pk = (userId: string) => `DEVICEOF#${userId}`;
+export const pushDeviceOfGsi3Sk = (registeredAt: string, token: string) => `${registeredAt}#${token}`;
+/**
+ * How long a phone nobody has opened stays in the registry. Refreshed by
+ * every registration (the app registers on each launch), so this only ever
+ * expires a device that has genuinely gone quiet — a technician who left, a
+ * phone that was replaced — and stops us writing to a token Expo will
+ * eventually reject anyway.
+ */
+export const PUSH_DEVICE_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 /** Singletons. */
 export const SETTINGS_PK = 'MESSAGING#SETTINGS';
