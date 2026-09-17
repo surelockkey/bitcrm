@@ -1,6 +1,7 @@
 import type { QueueRecord, QueueState } from '../../lib/queue/types';
 import { statusLabel } from '../jobs/lib';
-import type { StatusPayload } from './transport';
+import { describeMove } from '../jobs/reschedule';
+import type { ReschedulePayload, StatusPayload } from './transport';
 
 /**
  * Turning the queue into something a technician can read.
@@ -51,12 +52,32 @@ function titleFor(record: QueueRecord): string {
       return 'Text: running late';
     case 'chat':
       return 'Message to the office';
+    // A clock row is the one kind whose failure costs money, so it is named as
+    // plainly as possible: a technician scanning this list has to spot it.
+    case 'timeclock_in':
+      return record.dealId ? 'Clocked in on a job' : 'Clocked in';
+    case 'timeclock_out':
+      return 'Clocked out';
+    // Spelled out as "the client", because the two threads are the one thing
+    // on this screen that must never be read as each other.
+    case 'client_sms':
+      return 'Text to the client';
     case 'status': {
       try {
         const payload = JSON.parse(record.payload) as StatusPayload;
         return `Status: ${statusLabel(payload.superStatus)}`;
       } catch {
         return 'Status change';
+      }
+    }
+    // Named with where the job is going: a technician who moved three jobs in
+    // a morning has to be able to tell the three rows apart.
+    case 'reschedule': {
+      try {
+        const payload = JSON.parse(record.payload) as ReschedulePayload;
+        return `Reschedule: ${describeMove(payload)}`;
+      } catch {
+        return 'Reschedule';
       }
     }
   }

@@ -25,6 +25,10 @@ export default function JobRoute() {
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
       onOpenPhotos={(dealId) => router.push(`/jobs/${dealId}/photos`)}
       onOpenChat={(dealId) => router.push(`/chat/${dealId}`)}
+      // A route under the job, not under the Messages tab: that tab is the
+      // office thread and nothing else, and this thread only exists in the
+      // context of a job the technician is on.
+      onOpenClientThread={(dealId) => router.push(`/jobs/${dealId}/messages`)}
     />
   );
 }

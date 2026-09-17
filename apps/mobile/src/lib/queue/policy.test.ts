@@ -4,9 +4,11 @@ import {
   canDiscardSilently,
   CLIENT_VISIBLE_MAX_AGE_MS,
   isIdempotent,
+  isThreadKind,
   isReady,
   isSweepable,
   isTooOldToSend,
+  laneOf,
   outcomeAfterFailure,
   retryPatch,
   selectNextBatch,
@@ -42,9 +44,72 @@ describe('isIdempotent', () => {
     expect(isIdempotent('chat')).toBe(true);
   });
 
-  it('does not, for the two the server would genuinely duplicate', () => {
+  it('lets a text to the client be replayed — same key, same message', () => {
+    expect(isIdempotent('client_sms')).toBe(true);
+  });
+
+  it('does not, for the three the server would genuinely duplicate', () => {
     expect(isIdempotent('note')).toBe(false);
     expect(isIdempotent('status')).toBe(false);
+    // `PUT /deals/:id` is safe to repeat; landing it hours later on a job
+    // dispatch has since moved is what is not.
+    expect(isIdempotent('reschedule')).toBe(false);
+  });
+});
+
+describe('isThreadKind', () => {
+  it('knows the two kinds that land a message rather than change a job', () => {
+    expect(isThreadKind('chat')).toBe(true);
+    expect(isThreadKind('client_sms')).toBe(true);
+  });
+
+  it('leaves everything that touches the job itself alone', () => {
+    for (const kind of ['confirm', 'arrived', 'status', 'note', 'reschedule'] as const) {
+      expect(isThreadKind(kind)).toBe(false);
+    }
+    // An upload row carries no kind at all.
+    expect(isThreadKind(undefined)).toBe(false);
+  });
+
+  it('does not, for the clock: the contract gives the server no key to dedupe on', () => {
+    // A replay after an ambiguous failure would be a second entry on somebody's
+    // timesheet, so both halves take the bounded-retry path and then become
+    // visible to the technician.
+    expect(isIdempotent('timeclock_in')).toBe(false);
+    expect(isIdempotent('timeclock_out')).toBe(false);
+  });
+});
+
+describe('laneOf', () => {
+  it('gives each job its own lane', () => {
+    expect(laneOf({ dealId: 'd1', kind: 'arrived' })).toBe('deal:d1');
+    expect(laneOf({ dealId: 'd2', kind: 'note' })).not.toBe(
+      laneOf({ dealId: 'd1', kind: 'note' }),
+    );
+  });
+
+  it('keeps the office thread in one lane, whatever job a line is about', () => {
+    expect(laneOf({ dealId: '', kind: 'chat' })).toBe('chat');
+    expect(laneOf({ dealId: 'd1', kind: 'chat' })).toBe('chat');
+  });
+
+  it('keeps both halves of the clock in one lane, whatever it was started on', () => {
+    /*
+     * A clock-in carries the job's id and a clock-out carries none. Taken from
+     * `dealId`, they would sit in different lanes — and the "out" could then
+     * overtake the "in" through a returning connection, leaving the server a
+     * shift that ended before it began.
+     */
+    expect(laneOf({ dealId: 'd1', kind: 'timeclock_in' })).toBe('timeclock');
+    expect(laneOf({ dealId: '', kind: 'timeclock_out' })).toBe('timeclock');
+  });
+
+  it('does not put the clock in the same lane as the job it was started on', () => {
+    // An arrival and a clock-in on the same job are independent; making them
+    // queue behind each other would delay one for no reason.
+    expect(laneOf({ dealId: 'd1', kind: 'timeclock_in' })).not.toBe(
+      laneOf({ dealId: 'd1', kind: 'arrived' }),
+    );
   });
 });
 
@@ -272,7 +337,10 @@ describe('isTooOldToSend', () => {
     ).toBe(false);
   });
 
-  it.each(['confirm', 'arrived', 'status', 'note'] as const)(
+  // A typed text is the technician's own sentence, and it says "Waiting for a
+  // signal" in the thread until it goes. Throwing it away silently is worse
+  // than delivering it late.
+  it.each(['confirm', 'arrived', 'status', 'note', 'reschedule', 'client_sms'] as const)(
     'never ages out a %s — it records something that happened',
     (kind) => {
       expect(isTooOldToSend({ kind, createdAt: 0 }, NOW)).toBe(false);

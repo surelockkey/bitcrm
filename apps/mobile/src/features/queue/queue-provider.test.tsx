@@ -32,6 +32,12 @@ jest.mock('./transport', () => ({
   sweepOrphanedPhotos: () => mockSweepOrphanedPhotos(),
 }));
 
+/** `GET /deals/:id` — the one read the provider makes on its own account. */
+const mockGetDeal = jest.fn();
+jest.mock('../jobs/api', () => ({
+  getDeal: (...args: unknown[]) => mockGetDeal(...args),
+}));
+
 let mockAuth: AuthState = { status: 'loading' };
 jest.mock('../auth/auth-context', () => ({
   useAuth: () => ({ state: mockAuth }),
@@ -91,6 +97,7 @@ async function seedRow(userId: string, over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   mockAuth = { status: 'loading' };
+  mockGetDeal.mockReset().mockResolvedValue(deal());
   mockPerformOutboxAction.mockReset().mockResolvedValue(undefined);
   mockPresignUpload.mockReset();
   mockPutUpload.mockReset();
@@ -326,6 +333,206 @@ describe('what a settled row does to the cache', () => {
     expect(
       mockPerformOutboxAction.mock.calls.map(([r]) => (r as { id: string }).id),
     ).toEqual(['line-1', 'line-2']);
+  });
+
+  it('never mistakes a time entry for the job it was started on', async () => {
+    /*
+     * A `TimeClockEntry` has an `id`, which is all `asDeal` looks for. Without
+     * a check for the clock's own kinds first, clocking in from a job would
+     * write the time entry into the cache *as* that job, and the technician
+     * would come back to a job screen rendering a clock entry.
+     */
+    await seedRow('tech-a', { kind: 'timeclock_in', dealId: 'd1' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue({
+      id: 'entry-1',
+      userId: 'tech-a',
+      startedAt: '2026-09-17T09:00:00.000Z',
+      source: 'mobile',
+      createdAt: '2026-09-17T09:00:00.000Z',
+      updatedAt: '2026-09-17T09:00:00.000Z',
+    });
+
+    const qc = testClient();
+    qc.setQueryData(queryKeys.deals.detail('d1'), deal());
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+
+    await mount(qc);
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalled());
+
+    expect(qc.getQueryData(queryKeys.deals.detail('d1'))).toEqual(deal());
+    // What it does refresh is the clock: the running entry and every range on
+    // screen, so the server's own stamp replaces the phone's guess.
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.timeclock.all()));
+    });
+  });
+
+  it('leaves no gap between the queued clock and the server’s own entry', async () => {
+    /*
+     * The optimistic clock runs off the queue row, and the row is `done` the
+     * instant the request returns. Left to a refetch there is a round trip in
+     * which the row no longer counts and the answer has not arrived — the card
+     * reads "Not on the clock" and offers "Clock in" to somebody who has just
+     * clocked in. A second tap there is a second entry.
+     */
+    await seedRow('tech-a', { kind: 'timeclock_in', dealId: '' });
+    mockAuth = signedIn('tech-a');
+    const started = {
+      id: 'entry-1',
+      userId: 'tech-a',
+      startedAt: '2026-09-17T09:00:00.000Z',
+      source: 'mobile',
+      createdAt: '2026-09-17T09:00:00.000Z',
+      updatedAt: '2026-09-17T09:00:00.000Z',
+    };
+    mockPerformOutboxAction.mockResolvedValue(started);
+
+    const qc = testClient();
+    await mount(qc);
+
+    await waitFor(() =>
+      expect(qc.getQueryData(queryKeys.timeclock.current())).toEqual(started),
+    );
+  });
+
+  it('empties the running entry when the clock-out lands', async () => {
+    await seedRow('tech-a', { kind: 'timeclock_out', dealId: '' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockResolvedValue({
+      id: 'entry-1',
+      userId: 'tech-a',
+      startedAt: '2026-09-17T09:00:00.000Z',
+      // A finished entry is not the running one, whichever call returned it.
+      endedAt: '2026-09-17T17:00:00.000Z',
+      minutes: 480,
+      source: 'mobile',
+      createdAt: '2026-09-17T09:00:00.000Z',
+      updatedAt: '2026-09-17T17:00:00.000Z',
+    });
+
+    const qc = testClient();
+    qc.setQueryData(queryKeys.timeclock.current(), {
+      id: 'entry-1',
+      startedAt: '2026-09-17T09:00:00.000Z',
+    });
+    await mount(qc);
+
+    await waitFor(() =>
+      expect(qc.getQueryData(queryKeys.timeclock.current())).toBeNull(),
+    );
+  });
+
+  it('re-reads the clock even when the clock row failed', async () => {
+    // The screen has to stop showing a clock that is not running.
+    await seedRow('tech-a', { kind: 'timeclock_out', dealId: '' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockRejectedValue(new ApiError(400, 'No clock running'));
+
+    const qc = testClient();
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+
+    await mount(qc);
+    await waitFor(() => expect(mockPerformOutboxAction).toHaveBeenCalled());
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.timeclock.all()));
+    });
+  });
+});
+
+/**
+ * A visit the phone moved and the server never did.
+ *
+ * Every queued action patches the job at the tap, and for most of them a
+ * failure leaves a wrong chip on a card. A reschedule leaves the job on
+ * another *day* — off the list the technician is working from, onto one they
+ * are not — and the day list is the one query the drain deliberately never
+ * invalidates, so nothing else takes the guess back off it.
+ */
+describe('a move the server refused', () => {
+  const RESCHEDULE = {
+    kind: 'reschedule',
+    payload: '{"scheduledDate":"2026-09-18","scheduledTimeSlot":"14:00-16:00","allDay":false}',
+  };
+  const booked = deal({ scheduledDate: '2026-09-16', scheduledTimeSlot: '09:00-12:00' });
+  const guessed = deal({ scheduledDate: '2026-09-18', scheduledTimeSlot: '14:00-16:00' });
+
+  it('puts the visit back on the day the office has it', async () => {
+    await seedRow('tech-a', RESCHEDULE);
+    mockAuth = signedIn('tech-a');
+    // 400 is permanent: the row is parked, not retried.
+    mockPerformOutboxAction.mockRejectedValue(new ApiError(400, 'Job is already closed'));
+    mockGetDeal.mockResolvedValue(booked);
+
+    const qc = testClient();
+    qc.setQueryData(queryKeys.deals.list({ techId: 'tech-a' }), [guessed]);
+    qc.setQueryData(queryKeys.deals.detail('d1'), guessed);
+
+    await mount(qc);
+
+    await waitFor(() =>
+      expect(qc.getQueryData<Deal[]>(queryKeys.deals.list({ techId: 'tech-a' }))).toEqual([
+        booked,
+      ]),
+    );
+    expect(qc.getQueryData(queryKeys.deals.detail('d1'))).toEqual(booked);
+    expect(mockGetDeal).toHaveBeenCalledWith('d1');
+  });
+
+  it('leaves the job marked stale when it cannot read it back', async () => {
+    await seedRow('tech-a', RESCHEDULE);
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockRejectedValue(new ApiError(403, 'not your job'));
+    // The phone went back underground between the refusal and the re-read.
+    mockGetDeal.mockRejectedValue(new ApiError(0, 'no signal'));
+
+    const qc = testClient();
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+    await mount(qc);
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.deals.detail('d1')));
+    });
+  });
+
+  it('reads nothing back for a row that failed without moving anything', async () => {
+    await seedRow('tech-a', { kind: 'note', payload: '{"note":"gate code"}' });
+    mockAuth = signedIn('tech-a');
+    mockPerformOutboxAction.mockRejectedValue(new ApiError(400, 'no'));
+
+    const qc = testClient();
+    const invalidate = jest.spyOn(qc, 'invalidateQueries');
+    await mount(qc);
+
+    await waitFor(() => {
+      const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+      expect(keys).toContain(JSON.stringify(queryKeys.deals.detail('d1')));
+    });
+    expect(mockGetDeal).not.toHaveBeenCalled();
+  });
+
+  it('puts the visit back when the technician throws the move away themselves', async () => {
+    await seedRow('tech-a', { ...RESCHEDULE, state: 'failed', lastError: 'Job is already closed' });
+    mockAuth = signedIn('tech-a');
+    mockGetDeal.mockResolvedValue(booked);
+
+    const qc = testClient();
+    qc.setQueryData(queryKeys.deals.list({ techId: 'tech-a' }), [guessed]);
+
+    const { result } = await mount(qc);
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.discard('outbox', 'row-tech-a');
+    });
+
+    expect(
+      qc.getQueryData<Deal[]>(queryKeys.deals.list({ techId: 'tech-a' })),
+    ).toEqual([booked]);
   });
 });
 

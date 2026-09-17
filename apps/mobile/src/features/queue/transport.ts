@@ -11,21 +11,31 @@ import {
   markArrived,
   moveStatus,
   requestAttachmentUpload,
+  rescheduleDeal,
   type MarkArrivedBody,
   type MoveStatusBody,
+  type RescheduleDealBody,
 } from '../jobs/api';
 import type { Deal } from '../jobs/types';
 import {
   openOfficeThread,
   sendChatMessage,
+  sendClientText,
   sendOnMyWay,
   sendRunningLate,
   type FeedMessage,
 } from '../messaging/api';
+import { startClock, stopClock } from '../timeclock/api';
+import type {
+  ClockInPayload,
+  ClockOutPayload,
+  TimeClockEntry,
+} from '../timeclock/types';
 
 /** The JSON each queued action carries. */
 export type ArrivedPayload = MarkArrivedBody;
 export type StatusPayload = MoveStatusBody;
+export type ReschedulePayload = RescheduleDealBody;
 export interface NotePayload {
   note: string;
 }
@@ -41,6 +51,15 @@ export interface ChatPayload {
    * phone that has never seen it — resolved at send time below.
    */
   conversationId?: string;
+  body: string;
+}
+/**
+ * A text to the client. Carries the **contact**, never a phone number: the
+ * number is resolved on the server, so it is one more place a technician's
+ * phone cannot leak a client's line (§1.6).
+ */
+export interface ClientSmsPayload {
+  contactId: string;
   body: string;
 }
 
@@ -61,7 +80,7 @@ export interface ChatPayload {
  */
 export async function performOutboxAction(
   record: OutboxRecord,
-): Promise<Deal | FeedMessage | undefined> {
+): Promise<Deal | FeedMessage | TimeClockEntry | undefined> {
   const payload: unknown = JSON.parse(record.payload);
 
   switch (record.kind) {
@@ -71,6 +90,8 @@ export async function performOutboxAction(
       return markArrived(record.dealId, payload as ArrivedPayload);
     case 'status':
       return moveStatus(record.dealId, payload as StatusPayload);
+    case 'reschedule':
+      return rescheduleDeal(record.dealId, payload as ReschedulePayload);
     case 'note':
       await addNote(record.dealId, (payload as NotePayload).note);
       return undefined;
@@ -88,6 +109,41 @@ export async function performOutboxAction(
         clientMessageId: record.id,
       });
       return undefined;
+    /**
+     * The clock, both halves.
+     *
+     * The job's id travels on the **record**, not in the payload, the way the
+     * chat row's does: it is what the queue orders and labels rows by, and one
+     * source for it is one fewer to disagree with itself.
+     *
+     * `clientStartedAt` / `clientEndedAt` go out with the body even though the
+     * agreed contract has no room for them. User-service validates with
+     * `whitelist: true` and no `forbidNonWhitelisted` (`main.ts`), so the field
+     * is stripped rather than rejected — it cannot break the call today, and it
+     * is the moment the technician actually tapped, which is what a row that
+     * spent an hour in a basement needs in order to be worth anything. The day
+     * the backend accepts it, phones already in vans start sending the truth.
+     */
+    case 'timeclock_in':
+      return startClock({
+        ...(payload as ClockInPayload),
+        ...(record.dealId ? { dealId: record.dealId } : {}),
+      });
+    case 'timeclock_out':
+      return stopClock(payload as ClockOutPayload);
+    case 'client_sms': {
+      const sms = payload as ClientSmsPayload;
+      // One request that opens the thread if there is not one yet, so a first
+      // text works from a phone that has never seen it. The row's own id is
+      // the idempotency key, so a replay after a dropped connection returns
+      // the first message rather than texting the client twice.
+      return sendClientText({
+        clientMessageId: record.id,
+        contactId: sms.contactId,
+        dealId: record.dealId,
+        body: sms.body,
+      });
+    }
     case 'chat': {
       const chat = payload as ChatPayload;
       // The thread is resolved here rather than at the tap. A technician who

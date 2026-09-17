@@ -28,14 +28,25 @@ jest.mock('../jobs/hooks', () => ({ useMe: () => ({ data: { id: 'tech-1' } }) })
 jest.mock('../queue/queue-provider', () => ({
   useQueue: () => ({ records: mockRecords, retry: mockRetry }),
 }));
+/** What the screen asked its hooks for: which thread, and whether to mark it read. */
+const mockMarkRead = jest.fn();
+const mockFeedFor = jest.fn();
+const mockOfficeThreadFor = jest.fn();
+
 jest.mock('./hooks', () => ({
-  useOfficeThread: () => ({ ...mockThread, refetch: mockRefetch }),
-  useThreadFeed: () => ({
-    ...mockFeed,
-    refetch: mockRefetch,
-    fetchNextPage: mockFetchNextPage,
-  }),
-  useMarkThreadRead: jest.fn(),
+  useOfficeThread: (meId?: string) => {
+    mockOfficeThreadFor(meId);
+    return { ...mockThread, refetch: mockRefetch };
+  },
+  useThreadFeed: (conversationId?: string, live?: boolean) => {
+    mockFeedFor(conversationId, live);
+    return {
+      ...mockFeed,
+      refetch: mockRefetch,
+      fetchNextPage: mockFetchNextPage,
+    };
+  },
+  useMarkThreadRead: (...args: unknown[]) => mockMarkRead(...args),
   useSendToOffice: () => ({ send: mockSend }),
 }));
 
@@ -252,5 +263,177 @@ describe('ChatScreen', () => {
     expect(screen.getByText('Goes to the office, linked to the job you came from.')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('chat-back'));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  // The other half of the pair. A warning on the client thread alone would
+  // leave this one as the thread with nothing said about it, and "nothing said"
+  // is inferred rather than read — which is what goes wrong at a doorstep.
+  it('says on its own face that the client is not on this thread', async () => {
+    await render({ dealId: 'deal-7', onBack: jest.fn() });
+
+    expect(screen.getByTestId('audience-office')).toBeTruthy();
+    expect(screen.getByText(/client is not on this thread/)).toBeTruthy();
+    expect(screen.getByPlaceholderText('Write to the office')).toBeTruthy();
+    expect(screen.queryByTestId('audience-client')).toBeNull();
+  });
+});
+
+/**
+ * The same screen, opened on a thread the Messages list named.
+ *
+ * One implementation for both, so read state, day chips, the outbox's pending
+ * lines and their retry cannot behave differently depending on which way a
+ * technician arrived at a conversation.
+ */
+describe('ChatScreen — a thread opened from the list', () => {
+  const openList = (props: Partial<React.ComponentProps<typeof ChatScreen>> = {}) =>
+    renderScreen(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ChatScreen conversationId="conv-9" onBack={jest.fn()} {...props} />
+      </QueryClientProvider>,
+    );
+
+  beforeEach(() => {
+    mockRecords = [];
+    mockThread = { data: { id: 'conv-1' }, isLoading: false, error: null };
+    mockFeed = {
+      data: { pages: [{ data: [message()] }] },
+      isLoading: false,
+      error: null,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+    };
+    jest.clearAllMocks();
+  });
+
+  it('reads the thread it was given, without looking one up', async () => {
+    await openList();
+
+    expect(mockFeedFor).toHaveBeenCalledWith('conv-9', expect.anything());
+    // The office-thread lookup is switched off: it could only disagree with
+    // the row the technician has just tapped.
+    expect(mockOfficeThreadFor).toHaveBeenCalledWith(undefined);
+  });
+
+  it('still resolves the technician’s own thread when given none', async () => {
+    await renderScreen(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ChatScreen />
+      </QueryClientProvider>,
+    );
+
+    expect(mockOfficeThreadFor).toHaveBeenCalledWith('tech-1');
+    expect(mockFeedFor).toHaveBeenCalledWith('conv-1', expect.anything());
+  });
+
+  it('marks an office thread read', async () => {
+    await openList();
+    expect(mockMarkRead).toHaveBeenCalledWith('conv-9', expect.anything(), expect.anything());
+  });
+
+  /**
+   * A client thread's read marker is the office's — clearing it would empty a
+   * dispatcher's badge on their behalf, from a van, by accident.
+   */
+  it('never marks a client thread read', async () => {
+    await openList({ audience: 'client', clientName: 'Ada Byron' });
+    expect(mockMarkRead).toHaveBeenCalledWith(undefined, expect.anything(), expect.anything());
+  });
+
+  it('dresses a client thread as the client’s, not as the office’s', async () => {
+    await openList({ audience: 'client', clientName: 'Ada Byron' });
+
+    expect(screen.getByTestId('audience-client')).toBeTruthy();
+    expect(screen.queryByTestId('audience-office')).toBeNull();
+    expect(screen.getByText('Ada Byron')).toBeTruthy();
+  });
+
+  /**
+   * `POST /messages` authorises a text against the job it names, and the list
+   * only knows the job the *thread* last touched — which may be one this
+   * technician is not on. A box that looked live here would queue a row the
+   * server refuses, and the client would never read the words.
+   */
+  it('says why a client thread cannot be written to here, and offers the job', async () => {
+    const onAction = jest.fn();
+    await openList({
+      audience: 'client',
+      clientName: 'Ada Byron',
+      readOnly: {
+        reason: 'Texts to a client are sent from the job.',
+        actionLabel: 'Open the job to text',
+        onAction,
+      },
+    });
+
+    expect(screen.getByTestId('chat-read-only')).toBeTruthy();
+    expect(screen.queryByTestId('chat-input')).toBeNull();
+    await fireEvent.press(screen.getByTestId('chat-read-only-action'));
+    expect(onAction).toHaveBeenCalled();
+  });
+
+  it('keeps the box on an office thread opened from the list', async () => {
+    await openList();
+
+    expect(screen.queryByTestId('chat-read-only')).toBeNull();
+    await fireEvent.changeText(screen.getByTestId('chat-input'), 'on my way back');
+    await fireEvent.press(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledWith('on my way back'));
+  });
+
+  /**
+   * A text queued from a job and the same client's thread opened from the list
+   * are one conversation. Drawing it by the contact rather than by the job is
+   * what stops a technician watching their own words disappear.
+   */
+  it('draws a text still in the outbox for this client', async () => {
+    mockRecords = [
+      queued({
+        id: 'q-sms',
+        kind: 'client_sms',
+        dealId: 'deal-7',
+        payload: JSON.stringify({ contactId: 'contact-1', body: 'I am outside' }),
+      }),
+    ];
+    await openList({
+      audience: 'client',
+      clientName: 'Ada Byron',
+      clientContactId: 'contact-1',
+      readOnly: { reason: 'Texts to a client are sent from the job.' },
+    });
+
+    expect(screen.getByText('I am outside')).toBeTruthy();
+    expect(screen.getByText('Waiting for a signal')).toBeTruthy();
+  });
+
+  it('never draws another client’s queued text in this thread', async () => {
+    mockRecords = [
+      queued({
+        id: 'q-sms',
+        kind: 'client_sms',
+        dealId: 'deal-7',
+        payload: JSON.stringify({ contactId: 'contact-2', body: 'wrong thread' }),
+      }),
+    ];
+    await openList({
+      audience: 'client',
+      clientName: 'Ada Byron',
+      clientContactId: 'contact-1',
+      readOnly: { reason: 'Texts to a client are sent from the job.' },
+    });
+
+    expect(screen.queryByText('wrong thread')).toBeNull();
+  });
+
+  it('never draws a line meant for the office in a client’s thread', async () => {
+    mockRecords = [queued()];
+    await openList({
+      audience: 'client',
+      clientName: 'Ada Byron',
+      clientContactId: 'contact-1',
+      readOnly: { reason: 'Texts to a client are sent from the job.' },
+    });
+
+    expect(screen.queryByText('On my way back')).toBeNull();
   });
 });

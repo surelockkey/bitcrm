@@ -56,6 +56,34 @@ export async function fetchAllDeals(
 
 export const getDeal = (id: string): Promise<Deal> => http.get<Deal>(`/deals/${id}`);
 
+/* ------------------------------------------------------------- the visit */
+
+/**
+ * The only part of a job the phone edits through `PUT /deals/:id`: when the
+ * visit is.
+ *
+ * Deliberately not an `updateDeal(id, patch)` covering `UpdateDealDto` in
+ * full. That endpoint takes the address, the job type, the tags and the
+ * custom fields as well, and a technician's phone has no business sending any
+ * of them — the narrow body is what keeps a future screen from quietly
+ * gaining the power to move a job across town.
+ *
+ * Only the fields present are written (deals.service.ts:495-499), which is why
+ * `allDay` is stated on every one of these rather than omitted.
+ */
+export interface RescheduleDealBody {
+  /** `YYYY-MM-DD`. */
+  scheduledDate: string;
+  /** `HH:MM-HH:MM`; the server rejects any other shape (`UpdateDealDto:27`). */
+  scheduledTimeSlot?: string;
+  allDay?: boolean;
+}
+
+export const rescheduleDeal = (
+  id: string,
+  body: RescheduleDealBody,
+): Promise<Deal> => http.put<Deal>(`/deals/${id}`, body);
+
 /* ----------------------------------------------------------------- status */
 
 export interface MoveStatusBody {

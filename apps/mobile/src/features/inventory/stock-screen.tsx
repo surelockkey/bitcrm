@@ -39,7 +39,12 @@ import type { StockRow } from './types';
  * sideways. Read-only — stock moves when the office transfers it or the part
  * goes onto a job, and both of those come later.
  */
-export function StockScreen() {
+export interface StockScreenProps {
+  /** Drawn as Back: this is opened from the menu now rather than being a tab. */
+  onBack?: () => void;
+}
+
+export function StockScreen({ onBack }: StockScreenProps = {}) {
   const { colors, radius, spacing, touch, type } = useTheme();
   const { container, rows, summary, unassigned, isLoading, isRefetching, error, stale, refetch } =
     useMyStock();
@@ -51,6 +56,7 @@ export function StockScreen() {
     <ScreenHeader
       title="My stock"
       subtitle={container ? containerTitle(container) : undefined}
+      onBack={onBack}
     />
   );
 

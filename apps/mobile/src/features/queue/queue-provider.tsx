@@ -9,7 +9,11 @@ import React, {
 } from 'react';
 import { AppState } from 'react-native';
 import * as Crypto from 'expo-crypto';
-import { onlineManager, useQueryClient } from '@tanstack/react-query';
+import {
+  onlineManager,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { queryKeys } from '../../lib/api/query-keys';
 import { hapticError, hapticSuccess } from '../../lib/haptics';
 import {
@@ -17,7 +21,12 @@ import {
   createSqliteUploadStore,
   recoverQueuesForUser,
 } from '../../lib/queue/db';
-import { canDiscardSilently, retryPatch } from '../../lib/queue/policy';
+import {
+  canDiscardSilently,
+  isThreadKind,
+  movesTheVisit,
+  retryPatch,
+} from '../../lib/queue/policy';
 import { drainOutbox, drainUploads } from '../../lib/queue/worker';
 import type {
   OutboxKind,
@@ -26,10 +35,12 @@ import type {
   UploadRecord,
 } from '../../lib/queue/types';
 import { useAuth } from '../auth/auth-context';
+import { getDeal } from '../jobs/api';
 import { applyPatchToList } from '../jobs/optimistic';
 import type { Deal } from '../jobs/types';
 import type { FeedMessage } from '../messaging/api';
 import { feedWithLandedLine, type FeedPages } from '../messaging/lib';
+import type { TimeClockEntry } from '../timeclock/types';
 import {
   deleteLocalPhoto,
   discardAttachment,
@@ -106,6 +117,58 @@ function asFeedMessage(result: unknown): FeedMessage | undefined {
     typeof (result as FeedMessage).conversationId === 'string'
     ? (result as FeedMessage)
     : undefined;
+}
+
+/**
+ * The clock's two kinds, which answer with a `TimeClockEntry`.
+ *
+ * They have to be recognised *before* `asDeal` gets a look at the result: an
+ * entry has an `id` too, so a clock-in started from a job would otherwise be
+ * written into the cache as that job, and the technician would come back to a
+ * job screen rendering a time entry.
+ */
+const TIMECLOCK_KINDS: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'timeclock_in',
+  'timeclock_out',
+]);
+
+/** Does this look like the entry the clock endpoints answer with? */
+function asTimeClockEntry(result: unknown): TimeClockEntry | undefined {
+  return result &&
+    typeof result === 'object' &&
+    typeof (result as TimeClockEntry).id === 'string' &&
+    typeof (result as TimeClockEntry).startedAt === 'string'
+    ? (result as TimeClockEntry)
+    : undefined;
+}
+
+/**
+ * Put the server's own copy of a job back over an optimistic guess that never
+ * left the phone.
+ *
+ * Invalidating the job is not enough on its own. The day list is a single
+ * cached query that is never invalidated — `GET /deals` has no date filter, so
+ * doing that re-downloads a technician's whole history — and the guess was
+ * written straight into its row. Left there, a reschedule the server refused
+ * keeps the visit filed under a day the office does not have it on: the card
+ * is missing from the day the technician is actually working, and sitting on
+ * one they are not.
+ *
+ * One read, and quiet when it fails: the job is marked stale either way, so a
+ * phone that has gone back underground fixes itself the next time the list is
+ * fetched.
+ */
+async function restoreDealFromServer(qc: QueryClient, dealId: string): Promise<boolean> {
+  try {
+    const deal = await getDeal(dealId);
+    qc.setQueryData<Deal>(queryKeys.deals.detail(dealId), deal);
+    qc.setQueriesData<Deal[]>({ queryKey: queryKeys.deals.lists() }, (list) =>
+      applyPatchToList(list, dealId, deal),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -187,10 +250,16 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     const fresh = new Map<string, Deal>();
     /** Jobs that changed but did not hand one back. */
     const stale = new Set<string>();
+    /** Jobs whose visit was moved on the day list by a row that never landed. */
+    const restore = new Set<string>();
     /** Lines that reached the office, as the office itself stored them. */
     const landed: FeedMessage[] = [];
     /** A line reached the office — the thread has to show the real message. */
     let chatLanded = false;
+    /** A clock-in or clock-out settled — the timesheet has to be re-read. */
+    let clockSettled = false;
+    /** The entry the server wrote, straight from the response. */
+    let clockLanded: TimeClockEntry | undefined;
     let sent = 0;
     let failed = 0;
     const note = (
@@ -198,10 +267,22 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
       settledAs: 'done' | 'failed' | 'pending',
       result?: unknown,
     ) => {
+      // Whichever way it went. A clock row that *failed* matters as much as one
+      // that landed: the screen has to stop showing a clock that is not running.
+      if (record.kind && TIMECLOCK_KINDS.has(record.kind)) {
+        clockSettled = true;
+        if (settledAs === 'done') {
+          sent += 1;
+          clockLanded = asTimeClockEntry(result);
+        }
+        if (settledAs === 'failed') failed += 1;
+        return;
+      }
       if (settledAs === 'done') {
         sent += 1;
-        // A chat line is about no job of its own: what changed is the thread.
-        if (record.kind === 'chat') {
+        // A line in a thread — to the office or to the client — changed no
+        // field of the job: what changed is the thread it landed in.
+        if (isThreadKind(record.kind)) {
           chatLanded = true;
           const message = asFeedMessage(result);
           if (message) landed.push(message);
@@ -218,6 +299,10 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
         // there is nothing to re-read; a job, on the other hand, may have
         // moved under the optimistic patch that is still on screen.
         if (record.dealId) stale.add(record.dealId);
+        // And a move that was refused has to come off the *list*, not only off
+        // the job screen: until it does, the visit is filed under a day the
+        // office never agreed to.
+        if (record.dealId && movesTheVisit(record.kind)) restore.add(record.dealId);
       }
     };
 
@@ -261,7 +346,11 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     // so one job and its sub-resources, never the list.
     for (const dealId of stale) {
       if (fresh.has(dealId)) continue;
-      void qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
+      // A refused move needs the job read back rather than merely marked
+      // stale — nobody may have the job screen open, and the day list is never
+      // invalidated, so the guess would sit on it until the next full fetch.
+      const restored = restore.has(dealId) && (await restoreDealFromServer(qc, dealId));
+      if (!restored) void qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
       void qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
       void qc.invalidateQueries({ queryKey: queryKeys.deals.attachments(dealId) });
     }
@@ -286,6 +375,24 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     // badge. The feed is invalidated with them so anything the office wrote
     // while this phone was underground arrives too.
     if (chatLanded) void qc.invalidateQueries({ queryKey: queryKeys.messaging.all() });
+    // The server's own entry goes straight in, the way a settled job's does.
+    //
+    // Not a nicety: the optimistic clock runs off the queue row, and the row is
+    // `done` the instant the request returns. Left to a refetch, there is a
+    // round trip in which the row no longer counts and the answer has not
+    // arrived — the card reads "Not on the clock" and offers "Clock in" to
+    // somebody who just clocked in, and a second tap there is a second entry.
+    // An entry that carries `endedAt` is a finished one, so the running entry
+    // is now nothing.
+    if (clockLanded) {
+      qc.setQueryData<TimeClockEntry | null>(
+        queryKeys.timeclock.current(),
+        clockLanded.endedAt ? null : clockLanded,
+      );
+    }
+    // Then the ranges: a clock-out changes today's total as well as the "am I
+    // on the clock" answer, and both are read from the server, not guessed.
+    if (clockSettled) void qc.invalidateQueries({ queryKey: queryKeys.timeclock.all() });
     if (sent) hapticSuccess();
     if (failed) hapticError();
     return sent;
@@ -456,14 +563,18 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
   const discard = useCallback<QueueContextValue['discard']>(
     async (queue, id) => {
       if (!stores) return;
-      if (queue === 'uploads') {
-        const row = records.find((r) => r.queue === 'uploads' && r.id === id);
-        if (row?.queue === 'uploads') await deleteLocalPhoto(row);
-      }
+      const row = records.find((r) => r.queue === queue && r.id === id);
+      if (row?.queue === 'uploads') await deleteLocalPhoto(row);
       await stores[queue].remove(id);
       await refresh();
+      // Throwing a move away puts the visit back where the server has it. The
+      // optimistic patch is the only thing that ever moved it, and nothing
+      // else will now take it back off the day list.
+      if (row?.queue === 'outbox' && row.dealId && movesTheVisit(row.kind)) {
+        await restoreDealFromServer(qc, row.dealId);
+      }
     },
-    [records, refresh, stores],
+    [qc, records, refresh, stores],
   );
 
   const value = useMemo<QueueContextValue>(

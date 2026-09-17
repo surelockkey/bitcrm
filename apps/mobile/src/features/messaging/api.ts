@@ -2,9 +2,12 @@ import * as Crypto from 'expo-crypto';
 import type {
   Conversation,
   ConversationReadMarker,
+  InboxCounters,
   Message,
+  OptOut,
   TeamChatCounters,
 } from '@bitcrm/types';
+import { ApiError } from '../../lib/api/errors';
 import { http, type Page } from '../../lib/api/http';
 
 /**
@@ -92,6 +95,73 @@ export const listTeamThreads = (limit = 20): Promise<Page<TeamThread>> =>
 export const getTeamChatCounters = (): Promise<TeamChatCounters> =>
   http.get<TeamChatCounters>('/messaging/team/counters');
 
+/* ------------------------------------------------------------- the inbox */
+
+/**
+ * One row of the conversation list. The same shape the web Inbox reads
+ * (`apps/web/features/messaging/api.ts`), masking included: a viewer without
+ * `contacts.view_numbers` gets the party's digits withheld rather than
+ * refused, and `phonesMasked` says so.
+ */
+export type InboxConversation = Conversation & { phonesMasked?: true };
+
+/**
+ * The inbox, newest activity first.
+ *
+ * No `kind=` filter is sent, deliberately. Under `assigned_only` — which is
+ * every technician — the server materialises the whole assigned set on every
+ * request and pages it in memory (`conversation-scope.service.ts:113-137`,
+ * `conversations.service.ts:251-264`), so asking for one kind costs exactly
+ * the same work as asking for all of them. Filtering on the phone instead
+ * makes the chips instant, keeps them working from cache with no signal, and
+ * lets "Team" mean `team` **and** `group` — two kinds the single `kind=`
+ * parameter cannot express.
+ *
+ * `messages.view` is required. A technician whose role does not carry it gets
+ * a 403 here while their office thread still loads from the team routes,
+ * which is a refusal the screen has to say out loud rather than draw as an
+ * empty list.
+ */
+export const listConversations = (
+  cursor?: string,
+  limit = 50,
+): Promise<Page<InboxConversation>> => {
+  const q = new URLSearchParams({ view: 'all', limit: String(limit) });
+  if (cursor) q.set('cursor', cursor);
+  return http.paginated<InboxConversation>(`/messaging/conversations?${q.toString()}`);
+};
+
+/**
+ * The inbox counters for this caller: `unreadConversations`,
+ * `unreadByKind` and the category totals.
+ *
+ * Scoped like the list it counts — an `assigned_only` caller's numbers are
+ * counted over their own threads, not the company's, and the scoped branch
+ * always stamps `totalsRecountedAt`, so a technician's totals are exact
+ * (`counters.service.ts:30-56`).
+ *
+ * Its `unread` is the **team-wide** flag the office clears, not the caller's
+ * own read marker — see `chipUnread` in `./inbox-lib` for which half of these
+ * numbers may be believed for whom.
+ */
+export const getInboxCounters = (): Promise<InboxCounters> =>
+  http.get<InboxCounters>('/messaging/conversations/counters');
+
+/**
+ * One conversation, with the caller's own read marker.
+ *
+ * Only for the thread a link points at when the list is not in the cache — a
+ * push notification tapped on a cold phone. Opened from the list it is already
+ * known, and a second read could only disagree with what is on screen. 403
+ * outside the caller's scope, which `describeReadError` turns into a sentence.
+ */
+export const getConversation = (
+  id: string,
+): Promise<InboxConversation & { readMarker?: ConversationReadMarker }> =>
+  http.get<InboxConversation & { readMarker?: ConversationReadMarker }>(
+    `/messaging/conversations/${id}`,
+  );
+
 /** The feed, newest first. `cursor` loads older. */
 export const listMessages = (
   conversationId: string,
@@ -139,3 +209,87 @@ export const openOfficeThread = (
     partyKind: 'user',
     partyId: userId,
   });
+
+/* ------------------------------------------------- the thread with the client */
+
+/**
+ * SMS to clients is this account's biggest channel by a distance — 78.4% of
+ * 2.26M messages, against 18.4% in-app (`WORKIZ_MOBILE_APP.md` §1.5). A
+ * technician outside a door wants to say "I'm here" without handing over their
+ * own number, which is what these three calls are for.
+ */
+
+/** A conversation with a client, as the inbox hands it over. */
+export type ClientThread = Conversation & { phonesMasked?: true };
+
+/** Nothing there yet is an answer, not a failure — 404 is the normal case. */
+async function nullOn404<T>(promise: Promise<T>): Promise<T | null> {
+  try {
+    return await promise;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * The client thread of a job.
+ *
+ * Anchored on the **job**, not on the contact: the server resolves the job's
+ * own client and answers with their thread, and under `assigned_only` it first
+ * checks the caller is on that job (`conversations.controller.ts:97-112`). A
+ * lookup by contact id would be one guess further from the thing on screen,
+ * and the guess it could get wrong is which client.
+ *
+ * 404 until somebody has written to them — a job booked this morning has no
+ * thread, and that is the empty state rather than an error.
+ */
+export const getJobClientThread = (dealId: string): Promise<ClientThread | null> =>
+  nullOn404(http.get<ClientThread>(`/messaging/conversations/by-job/${dealId}`));
+
+/**
+ * What the "Text" button needs before anything is typed: can this client be
+ * texted at all, and have they replied STOP.
+ */
+export interface ClientTextLookup {
+  conversation: ClientThread | null;
+  /** The number a text would go to; withheld without `contacts.view_numbers`. */
+  address?: string;
+  addressMasked?: true;
+  optOut: OptOut | null;
+  canText: boolean;
+}
+
+export const lookupClientText = (contactId: string): Promise<ClientTextLookup> => {
+  const q = new URLSearchParams({ partyKind: 'contact', partyId: contactId });
+  return http.get<ClientTextLookup>(
+    `/messaging/conversations/text-lookup?${q.toString()}`,
+  );
+};
+
+export interface SendClientTextBody {
+  /** The outbox row's id. A replay returns the first message, never a second. */
+  clientMessageId: string;
+  contactId: string;
+  /** The job the text is about; the office sees it on the message (JobIndex). */
+  dealId: string;
+  body: string;
+}
+
+/**
+ * Text the client.
+ *
+ * `POST /messages` rather than `POST /conversations/:id/messages`, and
+ * deliberately: it finds **or opens** the client's thread in the same request
+ * (`send.service.ts:207-223`), so the first text a technician ever sends to a
+ * client works from a phone that has never seen that thread — which is the
+ * case underground, where there is no id to have looked up.
+ *
+ * `dealId` is not decoration. Under the `assigned_only` scope a technician
+ * carries, the server authorises the send against `dto.dealId`
+ * (`send.service.ts:942-950`): without it the check falls back to whatever job
+ * the thread last touched, and a text about today's job would be judged by
+ * last year's.
+ */
+export const sendClientText = (body: SendClientTextBody): Promise<FeedMessage> =>
+  http.post<FeedMessage>('/messaging/messages', { ...body, channel: 'sms' });

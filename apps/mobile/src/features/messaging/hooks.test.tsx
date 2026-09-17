@@ -3,8 +3,10 @@ import { createTestQueryClient, withQuery } from '../../test/query';
 import * as api from './api';
 import type { FeedMessage, TeamThread } from './api';
 import {
+  useJobClientThread,
   useMarkThreadRead,
   useOfficeThread,
+  useSendToClient,
   useSendToOffice,
   useThreadFeed,
 } from './hooks';
@@ -195,5 +197,77 @@ describe('useSendToOffice', () => {
       dealId: '',
       payload: { conversationId: undefined, body: 'hello' },
     });
+  });
+});
+
+describe('useJobClientThread', () => {
+  it('asks for the thread of the job, not of a contact it guessed at', async () => {
+    mockApi.getJobClientThread.mockResolvedValue(null);
+    const { result } = await renderHook(() => useJobClientThread('deal-7'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+
+    await waitFor(() => expect(mockApi.getJobClientThread).toHaveBeenCalledWith('deal-7'));
+    // Nothing there yet is an answer, not a failure: the screen offers the
+    // first line instead of apologising.
+    await waitFor(() => expect(result.current.data).toBeNull());
+    expect(result.current.error).toBeNull();
+  });
+
+  it('asks for nothing until there is a job', async () => {
+    mockApi.getJobClientThread.mockResolvedValue(null);
+    await renderHook(() => useJobClientThread(undefined), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+    expect(mockApi.getJobClientThread).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSendToClient', () => {
+  beforeEach(() => mockEnqueueAction.mockClear());
+
+  it('queues a text of its own kind, against the job and the client', async () => {
+    const { result } = await renderHook(() => useSendToClient('deal-7', 'contact-9'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+
+    await result.current.send('  I am outside  ');
+
+    expect(mockEnqueueAction).toHaveBeenCalledWith({
+      // Not `chat`. What a line is addressed to is decided here, written to
+      // disk, and never worked out again.
+      kind: 'client_sms',
+      dealId: 'deal-7',
+      payload: { contactId: 'contact-9', body: 'I am outside' },
+    });
+  });
+
+  // No conversation id anywhere in the row: `POST /messages` opens the thread
+  // from the contact, so a first text works on a phone that has never seen it.
+  it('carries no thread id, so the first text works underground', async () => {
+    const { result } = await renderHook(() => useSendToClient('deal-7', 'contact-9'), {
+      wrapper: withQuery(createTestQueryClient()),
+    });
+
+    await result.current.send('hello');
+    const [[queued]] = mockEnqueueAction.mock.calls;
+    expect(queued.payload).not.toHaveProperty('conversationId');
+  });
+
+  it('queues nothing for an empty box, or for a job with no client', async () => {
+    const { result: empty } = await renderHook(
+      () => useSendToClient('deal-7', 'contact-9'),
+      { wrapper: withQuery(createTestQueryClient()) },
+    );
+    await empty.current.send('   ');
+
+    const { result: nobody } = await renderHook(
+      () => useSendToClient('deal-7', undefined),
+      { wrapper: withQuery(createTestQueryClient()) },
+    );
+    await nobody.current.send('I am outside');
+
+    expect(mockEnqueueAction).not.toHaveBeenCalled();
+    expect(nobody.current.canSend).toBe(false);
   });
 });

@@ -22,14 +22,27 @@ export function shouldPersistQuery(query: {
   if (root === 'deals') return scope === 'list' || scope === 'detail';
   // What the office said is worth as much underground as the job it was about:
   // "the gate code is 4021" cannot be re-read over a connection that is not
-  // there. The badge counter is deliberately not kept — a restored unread
-  // count with nothing behind it is a number that lies.
-  if (root === 'messaging') return scope === 'team-thread' || scope === 'messages';
+  // there. `conversations` is the Messages list itself — without it a screen
+  // opened in a basement shows the office thread and nothing else, which reads
+  // as "no client has ever written to you" rather than "no signal". The badge
+  // counter is deliberately not kept — a restored unread count with nothing
+  // behind it is a number that lies, and the chips fall back to counting the
+  // rows they can actually see.
+  if (root === 'messaging') {
+    return scope === 'team-thread' || scope === 'messages' || scope === 'conversations';
+  }
   // The van and its contents. Its whole question — "have I got one on board?"
   // — gets asked in the places with the worst signal there are: a basement, an
   // underground car park, the back of a building. Quantities drift while the
   // phone is offline, so the screen says when what it shows came off the disk.
   if (root === 'inventory') return scope === 'containers';
+  // "Am I already on the clock?" — the one question in this app whose wrong
+  // answer costs somebody money. A phone that forgets it over a restart with no
+  // signal shows "Not on the clock" and offers "Clock in" to a technician who
+  // clocked in at seven; that tap is a second entry on the same shift. Only the
+  // running entry is kept — a week of rows is a report, and a report read off
+  // the disk as if it were this week's hours is a number nobody can account for.
+  if (root === 'timeclock') return scope === 'current';
   return false;
 }
 

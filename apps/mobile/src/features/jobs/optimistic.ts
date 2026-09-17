@@ -1,6 +1,10 @@
 import type { OutboxKind } from '../../lib/queue/types';
 import type { Deal } from './types';
-import type { ArrivedPayload, StatusPayload } from '../queue/transport';
+import type {
+  ArrivedPayload,
+  ReschedulePayload,
+  StatusPayload,
+} from '../queue/transport';
 
 /**
  * What the screen should show the instant the technician taps, before the
@@ -47,6 +51,18 @@ export function optimisticPatch(
         // would show a label that is about to change. Clearing it is honest.
         subStatusId: body.subStatusId,
         statusChangedAt: nowIso,
+      };
+    }
+    case 'reschedule': {
+      const body = payload as ReschedulePayload;
+      return {
+        scheduledDate: body.scheduledDate,
+        // Both stated, both ways round: an all-day move clears the window and
+        // a windowed move clears all-day, exactly as the request does. A patch
+        // that only set one of them would leave the card reading "All day"
+        // over the 2 o'clock the technician just picked.
+        scheduledTimeSlot: body.allDay ? undefined : body.scheduledTimeSlot,
+        allDay: Boolean(body.allDay),
       };
     }
     default:

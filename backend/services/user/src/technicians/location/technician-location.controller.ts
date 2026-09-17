@@ -6,12 +6,14 @@ import {
   Get,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { TechnicianLocationService } from './technician-location.service';
 import { SetLocationDto } from './dto/set-location.dto';
+import { ListLocationHistoryQueryDto } from './dto/list-location-history-query.dto';
 
 const TECHNICIAN_ROLE_ID = 'role-technician';
 
@@ -74,6 +76,30 @@ export class TechnicianLocationController {
       );
     }
     const data = await this.locationService.listLocations();
+    return { success: true, data };
+  }
+
+  @Get(':id/location-history')
+  @RequirePermission('technicians', 'view')
+  @ApiOperation({
+    summary: 'Where a technician has been (stored track)',
+    description:
+      '**Guard:** `technicians.view`; own history always, somebody else’s only for a ' +
+      'non-technician — the same rule as the live map, because it answers the same ' +
+      'question a few hours later. Points are sampled (≤1/min) and only kept while ' +
+      'the technician was clocked in; they expire after 30 days.',
+  })
+  async listHistory(
+    @Param('id') id: string,
+    @Query() query: ListLocationHistoryQueryDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    if (user.id !== id && user.roleId === TECHNICIAN_ROLE_ID) {
+      throw new ForbiddenException(
+        'Field technicians cannot view other technicians’ location history',
+      );
+    }
+    const data = await this.locationService.listHistory(id, query.from, query.to);
     return { success: true, data };
   }
 }

@@ -1,7 +1,7 @@
 /**
  * Schema migration: ensure the users table has all required GSIs, adding any
- * that are missing via online UpdateTable (one at a time, waiting for ACTIVE).
- * Idempotent — safe to run repeatedly.
+ * that are missing via online UpdateTable (one at a time, waiting for ACTIVE),
+ * and that TTL is switched on. Idempotent — safe to run repeatedly.
  *
  * In PRODUCTION the table schema is owned by Terraform (infra/dev/data_plane.tf);
  * `terraform apply` adds new GSIs declaratively as part of the deploy pipeline.
@@ -19,8 +19,11 @@ config({ path: resolve(__dirname, '../../../../.env') });
 import {
   DynamoDBClient,
   DescribeTableCommand,
+  DescribeTimeToLiveCommand,
   UpdateTableCommand,
+  UpdateTimeToLiveCommand,
 } from '@aws-sdk/client-dynamodb';
+import { TRACK_TTL_ATTRIBUTE } from '../technicians/constants/dynamo.constants';
 
 const USERS_TABLE = process.env.USERS_TABLE || 'BitCRM_Users';
 
@@ -100,7 +103,35 @@ async function main() {
     console.log(`    ${gsi.name}: ACTIVE`);
   }
 
+  await ensureTtl(client);
+
   console.log('\nDone. All required GSIs present.');
+}
+
+/**
+ * The technician location track is the first expiring data in this table; its
+ * 30-day bound is only real if TTL is switched on. Enabling it is an in-place
+ * table setting — no rebuild, no downtime — and the repository also filters
+ * expired rows on read, so a table where this has not run yet is correct, just
+ * larger than it needs to be.
+ */
+async function ensureTtl(client: DynamoDBClient): Promise<void> {
+  const { TimeToLiveDescription } = await client.send(
+    new DescribeTimeToLiveCommand({ TableName: USERS_TABLE }),
+  );
+  const status = TimeToLiveDescription?.TimeToLiveStatus;
+  if (status === 'ENABLED' || status === 'ENABLING') {
+    console.log(`  = TTL on ${TimeToLiveDescription?.AttributeName}: ${status}`);
+    return;
+  }
+
+  console.log(`  + TTL on ${TRACK_TTL_ATTRIBUTE}: enabling…`);
+  await client.send(
+    new UpdateTimeToLiveCommand({
+      TableName: USERS_TABLE,
+      TimeToLiveSpecification: { AttributeName: TRACK_TTL_ATTRIBUTE, Enabled: true },
+    }),
+  );
 }
 
 main().catch((err) => {

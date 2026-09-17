@@ -46,7 +46,12 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "BitCRM records where you were when you tap Arrived, so dispatch can see you reached the job. Location is never tracked in the background."
+          "locationWhenInUsePermission": "BitCRM records where you were when you tap Arrived, and — only while your time clock is running and this app is open — shares your location with your office so dispatch can send you the job you are nearest to. Nothing is shared once you clock out.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
         }
       ],
       [

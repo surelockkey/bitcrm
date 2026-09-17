@@ -29,12 +29,38 @@ export const queryKeys = {
    */
   messaging: {
     all: () => ['messaging'] as const,
+    /** The conversation list behind the Messages tab (`GET /conversations?view=all`). */
+    conversations: () => ['messaging', 'conversations'] as const,
+    /** The caller's scoped inbox counters (`GET /conversations/counters`). */
+    inboxCounters: () => ['messaging', 'inbox-counters'] as const,
+    /** One conversation, for a link opened before the list has loaded. */
+    conversation: (id: string) => ['messaging', 'conversations', 'detail', id] as const,
     /** The technician's own team thread (`GET /team/conversations?kind=team`). */
     teamThread: () => ['messaging', 'team-thread'] as const,
     /** The caller's own unread badge (`GET /team/counters`). */
     teamCounters: () => ['messaging', 'team-counters'] as const,
     messages: (conversationId: string) =>
       ['messaging', 'messages', 'conversation', conversationId] as const,
+    /**
+     * A job's thread with its **client** (`GET /conversations/by-job/:dealId`).
+     * Keyed by the job, exactly as the endpoint is: the client thread a
+     * technician may see is the one their own job leads to.
+     */
+    clientThread: (dealId: string) => ['messaging', 'client-thread', dealId] as const,
+    /** Whether this client can be texted, and whether they said STOP. */
+    clientTextLookup: (contactId: string) =>
+      ['messaging', 'client-text-lookup', contactId] as const,
+  },
+
+  /**
+   * The technician's own time clock. `all()` is what a landed clock row
+   * invalidates — the running entry and every range on screen move together.
+   */
+  timeclock: {
+    all: () => ['timeclock'] as const,
+    /** The entry that is still running, or null. */
+    current: () => ['timeclock', 'current'] as const,
+    range: (from: string, to: string) => ['timeclock', 'range', from, to] as const,
   },
 
   inventory: {

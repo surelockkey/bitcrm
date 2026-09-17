@@ -2,7 +2,10 @@ import { ApiError } from '../../lib/api/errors';
 import type { QueueRecord } from '../../lib/queue/types';
 import type { FeedMessage, TeamThread } from './api';
 import {
+  audienceChrome,
   bodyOf,
+  clientFeedRows,
+  clientSenderName,
   describeReadError,
   feedRows,
   feedWithLandedLine,
@@ -10,10 +13,12 @@ import {
   formatDayChip,
   formatMessageTime,
   isMine,
+  isMineInClientThread,
   messageSk,
   officeThreadOf,
   pendingLines,
   pendingStatusText,
+  recipientContactId,
   senderName,
   threadScreenEdges,
   unreadBadge,
@@ -201,6 +206,38 @@ describe('pendingLines', () => {
     ]);
     expect(pendingStatusText(failed!)).toBe('Not sent · Job is outside your data scope');
   });
+
+  /**
+   * The same client's thread reached from the Messages list is not standing on
+   * a job, so it asks by contact instead. A text queued from one of that
+   * client's jobs belongs in the one conversation they have — filtering by the
+   * job it was sent from would make a technician's own words vanish the moment
+   * they opened the thread from the list.
+   */
+  it('finds this client’s queued texts wherever they were sent from', () => {
+    const sms = (over: Partial<QueueRecord & { queue: 'outbox' }> = {}) =>
+      chatRow({
+        kind: 'client_sms',
+        dealId: 'deal-7',
+        payload: JSON.stringify({ contactId: 'contact-1', body: 'I am outside' }),
+        ...over,
+      });
+
+    const lines = pendingLines([sms({ id: 'mine' }), sms({ id: 'theirs', dealId: 'deal-9' })], {
+      kind: 'client_sms',
+      contactId: 'contact-1',
+    });
+    expect(lines.map((l) => l.id)).toEqual(['mine', 'theirs']);
+  });
+
+  it('never hands one client’s text to another client’s thread', () => {
+    const other = chatRow({
+      kind: 'client_sms',
+      dealId: 'deal-7',
+      payload: JSON.stringify({ contactId: 'contact-2', body: 'wrong thread' }),
+    });
+    expect(pendingLines([other], { kind: 'client_sms', contactId: 'contact-1' })).toEqual([]);
+  });
 });
 
 describe('flattenFeed', () => {
@@ -378,5 +415,221 @@ describe('describeReadError', () => {
   it('repeats the server’s own words for anything else', () => {
     expect(describeReadError(new ApiError(500, 'Upstream is down')).body).toBe('Upstream is down');
     expect(describeReadError(new ApiError(403, 'no')).title).toBe('Not your conversation');
+  });
+});
+
+/* ---------------------------------------------- the thread with the client */
+
+const smsRow = (over: Partial<QueueRecord & { queue: 'outbox' }> = {}): QueueRecord =>
+  chatRow({
+    kind: 'client_sms',
+    dealId: 'deal-1',
+    payload: JSON.stringify({ contactId: 'c1', body: 'I am outside' }),
+    ...over,
+  });
+
+describe('audienceChrome', () => {
+  // The whole point of one function: two sets of words that cannot converge,
+  // because the same call site produces both.
+  it('names the client in every place the client thread speaks', () => {
+    const chrome = audienceChrome('client', { clientName: 'Ada Byron' });
+    expect(chrome.title).toBe('Ada Byron');
+    expect(chrome.subtitle).toContain('Client');
+    expect(chrome.placeholder).toBe('Text Ada Byron');
+    expect(chrome.banner).toContain('Ada Byron');
+    expect(chrome.banner).toContain('The office is not on this thread');
+    expect(chrome.inputLabel).toContain('Ada Byron');
+  });
+
+  it('falls back to "the client" rather than an empty sentence', () => {
+    const chrome = audienceChrome('client');
+    expect(chrome.title).toBe('Client');
+    expect(chrome.placeholder).toBe('Text the client');
+    expect(chrome.banner).toContain('the client');
+    expect(audienceChrome('client', { clientName: '   ' }).title).toBe('Client');
+  });
+
+  it('says of the office thread that the client is not on it', () => {
+    const chrome = audienceChrome('office');
+    expect(chrome.title).toBe('Office');
+    expect(chrome.placeholder).toBe('Write to the office');
+    expect(chrome.banner).toContain('client is not on this thread');
+  });
+
+  it('keeps the office hint the job screen already promised', () => {
+    expect(audienceChrome('office', { fromJob: true }).hint).toBe(
+      'Goes to the office, linked to the job you came from.',
+    );
+    expect(audienceChrome('office').hint).toContain('waits here');
+  });
+
+  it('shares no wording at all between the two audiences', () => {
+    const office = audienceChrome('office', { fromJob: true });
+    const client = audienceChrome('client', { clientName: 'Ada Byron' });
+    for (const key of ['title', 'subtitle', 'banner', 'placeholder', 'hint', 'inputLabel'] as const) {
+      expect(client[key]).not.toBe(office[key]);
+    }
+  });
+});
+
+describe('pendingLines, by thread', () => {
+  // The bug this exists to make impossible: a text meant for a client drawn
+  // in the thread with the office, or the other way round.
+  it('never hands one thread the other’s queued rows', () => {
+    const rows = [chatRow({ id: 'to-office' }), smsRow({ id: 'to-client' })];
+    expect(pendingLines(rows).map((l) => l.id)).toEqual(['to-office']);
+    expect(
+      pendingLines(rows, { kind: 'client_sms', dealId: 'deal-1' }).map((l) => l.id),
+    ).toEqual(['to-client']);
+  });
+
+  it('draws a client text on the job it was sent from', () => {
+    const rows = [
+      smsRow({ id: 'here', dealId: 'deal-1' }),
+      smsRow({ id: 'elsewhere', dealId: 'deal-2' }),
+    ];
+    expect(
+      pendingLines(rows, { kind: 'client_sms', dealId: 'deal-1' }).map((l) => l.id),
+    ).toEqual(['here']);
+  });
+
+  // A technician has one thread with the office, so a line written from
+  // another job still belongs in it.
+  it('keeps every office line in the one office thread, whatever job it names', () => {
+    const rows = [chatRow({ id: 'a', dealId: 'deal-1' }), chatRow({ id: 'b', dealId: 'deal-2' })];
+    expect(pendingLines(rows).map((l) => l.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('recipientContactId', () => {
+  const clientThread = (partyId?: string, partyKind = 'contact') =>
+    ({ partyKind, partyId }) as Parameters<typeof recipientContactId>[0];
+
+  // The thread came from `by-job`, which the server resolved from the job as
+  // it stands now; the job's own `contactId` is whatever the last list fetch
+  // left on this phone. When dispatch moves a job to another client, sending
+  // to the stale one files the words in a conversation nobody is reading.
+  it('addresses the party of the thread on screen, not the job’s cached contact', () => {
+    expect(recipientContactId(clientThread('contact-new'), 'contact-old')).toBe(
+      'contact-new',
+    );
+  });
+
+  it('falls back to the job’s contact when nobody has opened a thread yet', () => {
+    expect(recipientContactId(null, 'contact-old')).toBe('contact-old');
+    expect(recipientContactId(undefined, 'contact-old')).toBe('contact-old');
+  });
+
+  // `POST /messages` takes a contact or a bare number. A company thread has
+  // nobody this screen can text, and passing its id as a contact would be a
+  // send to an id that is not one.
+  it('refuses to read a company thread’s party as a contact', () => {
+    expect(recipientContactId(clientThread('company-3', 'company'), undefined)).toBeUndefined();
+    expect(recipientContactId(clientThread('company-3', 'company'), 'contact-old')).toBe(
+      'contact-old',
+    );
+  });
+
+  it('answers with nothing for a job that has no client on it at all', () => {
+    expect(recipientContactId(null, undefined)).toBeUndefined();
+    expect(recipientContactId(null, '')).toBeUndefined();
+  });
+});
+
+describe('who wrote what, in a client thread', () => {
+  it('counts only the technician’s own lines as theirs', () => {
+    expect(isMineInClientThread(message({ sentByUserId: 'tech-1' }), 'tech-1')).toBe(true);
+    expect(isMineInClientThread(message({ sentByUserId: 'office-9' }), 'tech-1')).toBe(false);
+  });
+
+  // `isMine` reads an author-less inbound line as the viewer's own, which is
+  // right for imported team history and catastrophic here: it would put the
+  // client's own words on the technician's side, under their name.
+  it('never reads the client’s own words as the technician’s', () => {
+    const fromClient = message({ direction: 'inbound', sentByUserId: undefined });
+    expect(isMine(fromClient, 'tech-1')).toBe(true);
+    expect(isMineInClientThread(fromClient, 'tech-1')).toBe(false);
+  });
+
+  it('names each side the way a technician would', () => {
+    const mine = message({ sentByUserId: 'tech-1' });
+    const fromOffice = message({ sentByUserId: 'office-9', sentByName: 'Dana' });
+    const fromClient = message({ direction: 'inbound', sentByUserId: undefined });
+    const automated = message({ origin: 'automation', sentByUserId: undefined });
+
+    expect(clientSenderName(mine, 'tech-1', 'Ada Byron')).toBe('You');
+    expect(clientSenderName(fromOffice, 'tech-1', 'Ada Byron')).toBe('Dana');
+    expect(clientSenderName(fromClient, 'tech-1', 'Ada Byron')).toBe('Ada Byron');
+    expect(clientSenderName(fromClient, 'tech-1', undefined)).toBe('Client');
+    expect(clientSenderName(automated, 'tech-1', 'Ada Byron')).toBe('Automation');
+  });
+});
+
+describe('clientFeedRows', () => {
+  it('puts the technician’s own words on the right and everyone else’s on the left', () => {
+    const rows = clientFeedRows(
+      [
+        message({ id: 'mine', sentByUserId: 'tech-1', body: 'On my way' }),
+        message({ id: 'theirs', direction: 'inbound', body: 'Gate is locked' }),
+      ],
+      [],
+      'tech-1',
+      'Ada Byron',
+      new Date(at(2026, 9, 16, 14)),
+    );
+    expect(rows.map((r) => [r.mine, r.name])).toEqual([
+      [true, 'You'],
+      [false, 'Ada Byron'],
+    ]);
+  });
+
+  it('shows a queued text under the last one that landed, with the queue’s words', () => {
+    const rows = clientFeedRows(
+      [message({ id: 'landed', createdAt: at(2026, 9, 16, 12) })],
+      pendingLines([smsRow({ id: 'q1' })], { kind: 'client_sms', dealId: 'deal-1' }),
+      'tech-1',
+      'Ada Byron',
+      new Date(at(2026, 9, 16, 14)),
+    );
+    // Newest first, as the inverted list wants: the queued line sits below the
+    // office's last one on screen.
+    expect(rows[0]!.key).toBe('pending:q1');
+    expect(rows[0]!.status).toBe('Waiting for a signal');
+    expect(rows[0]!.queueId).toBe('q1');
+  });
+
+  it('carries the job a line names, so another job can be opened from it', () => {
+    const [row] = clientFeedRows(
+      [message({ id: 'm', dealId: 'deal-9' })],
+      [],
+      'tech-1',
+      'Ada Byron',
+      new Date(at(2026, 9, 16, 14)),
+    );
+    expect(row!.dealId).toBe('deal-9');
+  });
+
+  it('chips the days the same way the office thread does', () => {
+    const rows = clientFeedRows(
+      [
+        message({ id: 'today', createdAt: at(2026, 9, 16, 12) }),
+        message({ id: 'before', createdAt: at(2026, 9, 15, 12) }),
+      ],
+      [],
+      'tech-1',
+      'Ada Byron',
+      new Date(at(2026, 9, 16, 14)),
+    );
+    expect(rows[0]!.dayLabel).toBe('Today');
+    expect(rows[1]!.dayLabel).toBe('Yesterday');
+  });
+});
+
+describe('describeReadError, in a client thread', () => {
+  it('explains a 403 as the job it belongs to, not as a role', () => {
+    expect(describeReadError(new ApiError(403, 'no'), 'client').body).toContain(
+      'a job you are not on',
+    );
+    expect(describeReadError(new ApiError(403, 'no')).body).toContain('your role');
   });
 });
