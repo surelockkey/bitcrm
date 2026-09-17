@@ -55,6 +55,26 @@ export function isThreadKind(kind: OutboxKind | undefined): boolean {
 }
 
 /**
+ * Rows whose optimistic patch moves the job to **another day**.
+ *
+ * Every queued action patches the job the instant it is tapped, and a failed
+ * one leaves that guess behind. For most of them the guess is a chip on a card
+ * the technician is looking at — wrong, and visibly wrong beside the "Not
+ * sent" row on the queue screen. A reschedule is not that: it files the visit
+ * under a different date, which on a one-day-at-a-time list means the job is
+ * no longer where the technician left it and today's list is missing a stop.
+ * So when one of these never reaches the server, the server's own copy has to
+ * be fetched back over the guess rather than merely marked stale.
+ */
+const MOVES_THE_VISIT: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'reschedule',
+]);
+
+export function movesTheVisit(kind: OutboxKind | undefined): boolean {
+  return kind !== undefined && MOVES_THE_VISIT.has(kind);
+}
+
+/**
  * Kinds that put words in front of a **client**, and are therefore only true
  * for a little while.
  *
