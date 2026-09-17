@@ -270,6 +270,13 @@ export function QueueProvider({ children }: { children: React.ReactNode }) {
     // a message that is on neither list until it answers is a message the
     // technician will type again.
     for (const message of landed) {
+      // A poll that went out before this line was stored would otherwise
+      // answer after it and overwrite the thread without it. Cancelling
+      // reverts to what the cache already held; the invalidation below then
+      // asks again, with the line in it.
+      await qc.cancelQueries({
+        queryKey: queryKeys.messaging.messages(message.conversationId),
+      });
       qc.setQueryData<FeedPages>(
         queryKeys.messaging.messages(message.conversationId),
         (previous) => feedWithLandedLine(previous, message),

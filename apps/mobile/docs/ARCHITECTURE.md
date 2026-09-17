@@ -751,8 +751,8 @@ URL протух (S3 віддав 403/400) — **видаляємо старе �
 | --- | --- |
 | Робота | `bitcrm://jobs/<dealId>` |
 | Фото роботи | `bitcrm://jobs/<dealId>/photos` |
-| Тред чату | `bitcrm://chat/<conversationId>` |
-| Тред за роботою | `bitcrm://jobs/<dealId>/chat` → редирект через `GET /messaging/conversations/by-job/:dealId` |
+| Тред офісу | `bitcrm://chat` — вкладка «Messages». Окремого `<conversationId>` немає: у техніка один тред, тому push `{ kind: 'conversation', conversationId }` веде сюди, а не на id |
+| Тред офісу з роботи | `bitcrm://chat/<dealId>` — той самий тред **над** табами, рядок іде з `dealId` |
 
 З expo-router ці URL **збігаються з деревом файлів** — окремої мапи не існує, що
 й було головним аргументом у §2.1.
