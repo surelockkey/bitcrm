@@ -74,7 +74,7 @@ export function UserDetailSheet({
   onClose: () => void;
 }) {
   const { can } = usePermissions();
-  const { roles, canManage, assignableRoles } = useHierarchy();
+  const { roles, canManage, canEditProfile, assignableRoles } = useHierarchy();
   const manageable = canManage(user);
 
   const updateUser = useUpdateUser();
@@ -101,6 +101,8 @@ export function UserDetailSheet({
   });
 
   const canEdit = can("users", "edit") && manageable;
+  // The profile tab alone: your own card as well as those below you.
+  const canEditProfileTab = can("users", "edit") && canEditProfile(user);
   const isActive = user.status === UserStatus.ACTIVE;
 
   return (
@@ -176,7 +178,7 @@ export function UserDetailSheet({
                       <FormItem>
                         <FormLabel>First name</FormLabel>
                         <FormControl>
-                          <Input className="h-10" disabled={!canEdit} {...field} />
+                          <Input className="h-10" disabled={!canEditProfileTab} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -189,7 +191,7 @@ export function UserDetailSheet({
                       <FormItem>
                         <FormLabel>Last name</FormLabel>
                         <FormControl>
-                          <Input className="h-10" disabled={!canEdit} {...field} />
+                          <Input className="h-10" disabled={!canEditProfileTab} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -208,7 +210,7 @@ export function UserDetailSheet({
                     <FormItem>
                       <FormLabel>Department</FormLabel>
                       <FormControl>
-                        <Input className="h-10" disabled={!canEdit} {...field} />
+                        <Input className="h-10" disabled={!canEditProfileTab} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -223,7 +225,7 @@ export function UserDetailSheet({
                       <FormControl>
                         <PhoneInput
                           className="h-10"
-                          disabled={!canEdit}
+                          disabled={!canEditProfileTab}
                           value={field.value ?? ""}
                           onChange={field.onChange}
                           onBlur={field.onBlur}
@@ -253,12 +255,12 @@ export function UserDetailSheet({
                         </p>
                       </div>
                       <FormControl>
-                        <Switch checked={field.value ?? false} disabled={!canEdit} onCheckedChange={field.onChange} />
+                        <Switch checked={field.value ?? false} disabled={!canEditProfileTab} onCheckedChange={field.onChange} />
                       </FormControl>
                     </FormItem>
                   )}
                 />
-                {canEdit ? (
+                {canEditProfileTab ? (
                   <div className="flex justify-end">
                     <Button type="submit" variant="brand" disabled={updateUser.isPending} className="gap-1.5">
                       {updateUser.isPending ? <Loader2 className="size-4 animate-spin" /> : null}

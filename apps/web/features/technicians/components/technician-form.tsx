@@ -27,6 +27,7 @@ import type {
 } from "@bitcrm/types";
 import { isFieldTeamMember } from "@bitcrm/types";
 import { AddressAutocomplete } from "@/features/deals/components/address-autocomplete";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { initials } from "@/features/users/lib";
 import { useUpdateUser } from "@/features/users/hooks";
 import { useDeletePhoto, useProfile, useUpdateProfile, useUploadPhoto } from "../hooks";
@@ -35,13 +36,14 @@ import { profileSchema, type ProfileValues } from "../schemas";
 import { useSetClientNumberVisibility } from "../masking-hooks";
 import type { TechnicianEditRights } from "../lib";
 import { WORK_NOT_CONNECTED } from "../not-connected";
+import { AssignmentsSection } from "./assignments-section";
 import { NotConnectedField } from "./not-connected-field";
 import { ScheduleColorField } from "./schedule-color-field";
 
 /** Said under a live control the viewer may read but not set. */
 const MANAGER_ONLY = "A manager sets this.";
-const NOT_YOURS = "You can read this technician\'s details but not change them.";
-/** The name and the field-team switch: the user record\'s, behind `users.edit`. */
+const NOT_YOURS = "You can read this technician's details but not change them.";
+/** The name and the field-team switch: the user record's, behind `users.edit`. */
 const ON_USER_RECORD = "Set on the user record, by someone who may edit users.";
 const MAX_ADDITIONAL_PHONES = 5;
 
@@ -57,13 +59,13 @@ const MAX_ADDITIONAL_PHONES = 5;
  * this person do, and where" — the two halves of one question.
  *
  * Fields Workiz has and we hold no data for are drawn dead, in their place,
- * from `not-connected.ts`. Fields we have and Workiz doesn\'t (status, mobile
+ * from `not-connected.ts`. Fields we have and Workiz doesn't (status, mobile
  * app) sit at the foot of the work column under a heading that says they are
  * ours, rather than being slipped into their order.
  *
- * Editing follows the API\'s own split rather than one permission: contact
- * details are the technician\'s own, operational fields are a manager\'s, and
- * the name and the field-team switch are the user record\'s — see
+ * Editing follows the API's own split rather than one permission: contact
+ * details are the technician's own, operational fields are a manager's, and
+ * the name and the field-team switch are the user record's — see
  * `technicianEditRights`. One Save writes both records, each with only what
  * its viewer may set and, for the user record, only what changed.
  */
@@ -107,6 +109,7 @@ function Form({
   user?: User;
   rights: TechnicianEditRights;
 }) {
+  const { can } = usePermissions();
   const update = useUpdateProfile();
   const updateUser = useUpdateUser();
   const fieldId = useId();
@@ -129,7 +132,7 @@ function Form({
       city: a?.city ?? "",
       state: a?.state ?? "",
       zip: a?.zip ?? "",
-      // Carried through so a save that doesn\'t touch the address keeps the
+      // Carried through so a save that doesn't touch the address keeps the
       // technician on the dispatch map.
       lat: a?.lat,
       lng: a?.lng,
@@ -215,7 +218,7 @@ function Form({
             editable={rights.contact}
           />
 
-          {/* Under the photo, where the owner asked for it. Workiz\'s words,
+          {/* Under the photo, where the owner asked for it. Workiz's words,
               on their page and in their app. Ours read "GPS tracking" — the
               same switch under a name nobody in the field uses. */}
           <Toggle
@@ -226,9 +229,9 @@ function Form({
             onChange={(c) => setValue("gpsTrackingEnabled", c, { shouldDirty: true })}
           />
 
-          {/* Workiz\'s "User type". A subcontractor is paid and insured
+          {/* Workiz's "User type". A subcontractor is paid and insured
               differently from an employee, and more will hang off this as
-              those differences are built — so it is the manager\'s to set. */}
+              those differences are built — so it is the manager's to set. */}
           <Field
             label="User type"
             htmlFor={id("user-type")}
@@ -250,7 +253,7 @@ function Form({
             </Select>
           </Field>
 
-          {/* The name is the user record\'s. Whoever may edit users changes it
+          {/* The name is the user record's. Whoever may edit users changes it
               here and it is written there; everyone else reads it, and the
               one line under the email says why. */}
           <div className="grid grid-cols-2 gap-3">
@@ -285,8 +288,8 @@ function Form({
             />
             <p id={id("user-record")} className="text-xs text-muted-foreground">
               {rights.identity
-                ? "The email is the sign-in and can\'t be changed."
-                : "Name and email live on the user record; the email is the sign-in and can\'t be changed."}
+                ? "The email is the sign-in and can't be changed."
+                : "Name and email live on the user record; the email is the sign-in and can't be changed."}
             </p>
           </Field>
 
@@ -310,7 +313,7 @@ function Form({
             />
           </Field>
 
-          {/* Workiz\'s "Additional phone numbers": a list, with an add. They
+          {/* Workiz's "Additional phone numbers": a list, with an add. They
               live on the technician record; the user record holds exactly one
               number, the one telephony rings and the call log matches. */}
           <div className="space-y-1.5" role="group" aria-labelledby={id("additional-label")}>
@@ -365,7 +368,7 @@ function Form({
           <div className="space-y-1.5" role="group" aria-labelledby={id("address-label")}>
             <Label id={id("address-label")}>Home address</Label>
             {rights.contact ? (
-              /* Named, not just placeheld: the group\'s label names the block,
+              /* Named, not just placeheld: the group's label names the block,
                  and a combobox with only a placeholder is announced unnamed —
                  the disabled twin below has carried this name all along. */
               <AddressAutocomplete
@@ -416,8 +419,8 @@ function Form({
         <div className="space-y-5" data-testid="work-column">
           <ColumnHeading>Work</ColumnHeading>
 
-          {/* Workiz\'s "Field team member", and the one switch that decides who
-              may be put on a job — whatever the role. It is the user record\'s,
+          {/* Workiz's "Field team member", and the one switch that decides who
+              may be put on a job — whatever the role. It is the user record's,
               so it saves there, and only someone who may edit users sets it.
               The role itself is not on this card: it is assigned on the user
               record, where the change is confirmed and overrides are reset. */}
@@ -451,16 +454,24 @@ function Form({
             </div>
           </Field>
 
-          {/* Job types and service areas keep their own tab, where this card
-              has always had them. Workiz puts them in this column; a tab the
-              reader already knows beats a column that matches a screenshot.
+          {/* Job types and service areas, in this column under the labor
+              cost, where Workiz has them — the owner moved them off their own
+              tab on 2026-09-17. Each section owns its dialogs and its buttons
+              are all type="button", so nothing in them submits this form.
 
-              Workiz\'s "User skills" is not here at all: skills are a separate
+              Workiz's "User skills" is not here at all: skills are a separate
               catalog there and we hold job types only, so a dead row would
               promise a second catalog we have no plans for. */}
+          {can("job_types", "view") ? (
+            <AssignmentsSection technicianId={technicianId} kind="job_type" plain />
+          ) : null}
+          {can("service_areas", "view") ? (
+            <AssignmentsSection technicianId={technicianId} kind="service_area" plain />
+          ) : null}
+
           <ScheduleColorField disabled={!rights.operational} />
 
-          {/* The label used to read "Hide the tech\'s number on calls", which is
+          {/* The label used to read "Hide the tech's number on calls", which is
               what a manager WANTS but not what the switch does. It hides CLIENT
               numbers from the technician; their own number is hidden from
               clients by every masked call, always, and is not optional. Workiz
@@ -472,7 +483,7 @@ function Form({
               how a privacy setting ends up wrong. */}
           <Toggle
             label="Hide client numbers"
-            hint={workHint ?? "They see the client\'s name and call through the system, never the number"}
+            hint={workHint ?? "They see the client's name and call through the system, never the number"}
             checked={callMasking}
             disabled={!rights.operational || maskingPending}
             onChange={(c) => {
@@ -485,7 +496,7 @@ function Form({
           <NotConnectedField field={WORK_NOT_CONNECTED.notes} />
 
           <div className="space-y-5 border-t pt-5">
-            {/* Ours, not Workiz\'s — kept together and labelled, rather than
+            {/* Ours, not Workiz's — kept together and labelled, rather than
                 slipped into their order where it would read as parity. */}
             <ColumnHeading>Not on the Workiz card — ours</ColumnHeading>
             <Field label="Status" htmlFor={id("status")} hint={workHint} hintId={id("status-hint")}>
@@ -629,7 +640,7 @@ function ColumnHeading({ children }: { children: React.ReactNode }) {
  * A labelled field. `htmlFor` ties the label to the control it belongs to —
  * without it a label is only text sitting above a box, and a screen reader
  * announces the box unnamed. Fields that hold several inputs (the address)
- * name each input themselves and use the label as the group\'s heading.
+ * name each input themselves and use the label as the group's heading.
  */
 function Field({
   label,

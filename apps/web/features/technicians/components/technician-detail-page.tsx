@@ -18,7 +18,6 @@ import {
   SETTINGS_NOT_CONNECTED,
 } from "../not-connected";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AssignmentsSection } from "./assignments-section";
 import { TechnicianStatusBadge } from "./technician-status-badge";
 import { TechnicianForm } from "./technician-form";
 import { NotConnectedField } from "./not-connected-field";
@@ -109,9 +108,6 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
           <div className="max-w-5xl">
             <TabsList variant="line" className="h-11">
               <TabsTrigger value="profile" className="px-2">Profile</TabsTrigger>
-              {can("job_types", "view") || can("service_areas", "view") ? (
-                <TabsTrigger value="assignments" className="px-2">Assignments</TabsTrigger>
-              ) : null}
               <TabsTrigger value="overview" className="px-2">Overview</TabsTrigger>
               {can("commission", "view") ? (
                 <TabsTrigger value="commission" className="px-2">Commission</TabsTrigger>
@@ -127,17 +123,6 @@ export function TechnicianDetailPage({ technicianId }: { technicianId: string })
             footer that never moves, the way the job card does it. */}
         <TabsContent value="profile" className="mt-0 flex flex-1 flex-col overflow-hidden">
           <TechnicianForm technicianId={technicianId} user={u} rights={rights} />
-        </TabsContent>
-
-        <TabsContent value="assignments" className="mt-0 flex-1 overflow-y-auto">
-          <div className="max-w-5xl space-y-8 px-6 py-6">
-            {can("job_types", "view") ? (
-              <AssignmentsSection technicianId={technicianId} kind="job_type" />
-            ) : null}
-            {can("service_areas", "view") ? (
-              <AssignmentsSection technicianId={technicianId} kind="service_area" />
-            ) : null}
-          </div>
         </TabsContent>
 
         <TabsContent value="overview" className="mt-0 flex-1 overflow-y-auto">

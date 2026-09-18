@@ -68,9 +68,17 @@ const COPY: Record<AssignmentKind, { label: string; empty: string; assign: strin
 export function AssignmentsSection({
   technicianId,
   kind,
+  plain = false,
 }: {
   technicianId: string;
   kind: AssignmentKind;
+  /**
+   * Draw an approved entry without its green. On the technician card the
+   * owner wants the list to read as a list, not as a row of lit-up badges;
+   * pending and rejected keep their colour there too, since those are the
+   * ones that still need something done.
+   */
+  plain?: boolean;
 }) {
   const { me, can } = usePermissions();
   const { data, isLoading } = useAssignments(technicianId);
@@ -134,6 +142,7 @@ export function AssignmentsSection({
             <AssignmentChip
               key={`${row.kind}:${row.catalogId}`}
               row={row}
+              plain={plain}
               canApprove={canApprove}
               canRevoke={canRevoke}
               approving={approve.isPending}
@@ -189,6 +198,7 @@ export function TechnicianAssignments({ technicianId }: { technicianId: string }
 
 function AssignmentChip({
   row,
+  plain,
   canApprove,
   canRevoke,
   approving,
@@ -198,6 +208,7 @@ function AssignmentChip({
   onRevoke,
 }: {
   row: Row;
+  plain: boolean;
   canApprove: boolean;
   canRevoke: boolean;
   approving: boolean;
@@ -208,7 +219,9 @@ function AssignmentChip({
 }) {
   const tone =
     row.status === "approved"
-      ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-500"
+      ? plain
+        ? "bg-muted/40"
+        : "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-500"
       : row.status === "rejected"
         ? "border-destructive/30 bg-destructive/10 text-destructive"
         : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-500";
