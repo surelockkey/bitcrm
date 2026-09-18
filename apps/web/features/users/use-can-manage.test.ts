@@ -27,6 +27,21 @@ describe("computeHierarchy", () => {
     expect(h.amSuperAdmin).toBe(true);
   });
 
+  /**
+   * The backend's profile update carries no hierarchy guard — `users.edit` is
+   * enough — and an owner has to be able to switch THEMSELVES onto the field
+   * team. So the profile tab opens for yourself as well as for anyone you
+   * manage; role, overrides and deactivation stay strictly-below-you.
+   */
+  it("lets anyone edit their own profile, and the profile of anyone they manage", () => {
+    const admin = computeHierarchy({ id: "me", roleId: "role-admin" }, roles);
+    expect(admin.canEditProfile(user("me", "role-admin"))).toBe(true);
+    expect(admin.canEditProfile(user("t", "role-technician"))).toBe(true);
+    expect(admin.canEditProfile(user("peer", "role-admin"))).toBe(false);
+    expect(admin.canEditProfile(user("boss", "role-super-admin"))).toBe(false);
+    expect(admin.canManage(user("me", "role-admin"))).toBe(false);
+  });
+
   it("assignableRoles excludes roles at/above a non-super caller", () => {
     const h = computeHierarchy({ id: "me", roleId: "role-admin" }, roles);
     const ids = h.assignableRoles(roles).map((r) => r.id);

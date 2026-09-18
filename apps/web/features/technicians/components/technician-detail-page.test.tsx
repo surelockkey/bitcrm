@@ -34,6 +34,7 @@ const fx = vi.hoisted(() => ({
   uploadPhoto: vi.fn(),
   deletePhoto: vi.fn(),
   rolesEnabled: [] as boolean[],
+  assignments: { jobTypes: [] as unknown[], serviceAreas: [] as unknown[] },
   profile: {
     userId: "t1",
     phone: "+14045551234",
@@ -98,7 +99,7 @@ vi.mock("../hooks", () => ({
     },
     isLoading: false,
   }),
-  useAssignments: () => ({ data: { jobTypes: [], serviceAreas: [] }, isLoading: false }),
+  useAssignments: () => ({ data: fx.assignments, isLoading: false }),
   useUpdateProfile: () => ({ mutate: fx.update, isPending: false }),
   useUploadPhoto: () => ({ mutate: fx.uploadPhoto, isPending: false }),
   useDeletePhoto: () => ({ mutate: fx.deletePhoto, isPending: false }),
@@ -178,6 +179,7 @@ beforeEach(() => {
   fx.uploadPhoto.mockReset();
   fx.deletePhoto.mockReset();
   fx.rolesEnabled.length = 0;
+  fx.assignments = { jobTypes: [], serviceAreas: [] };
 });
 
 /** Index of a piece of text inside an element, for order assertions. */
@@ -189,10 +191,11 @@ const at = (el: HTMLElement, text: string) => {
 
 describe("TechnicianDetailPage — one page, two columns", () => {
   it("keeps the tabs this card has always had, opening on the form", () => {
+    // Assignments moved onto the form on 2026-09-17, under the labor cost,
+    // where Workiz has job types and areas — so one tab fewer.
     render(<TechnicianDetailPage technicianId="t1" />);
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
       "Profile",
-      "Assignments",
       "Overview",
       "Commission",
       "Documents",
@@ -232,6 +235,8 @@ describe("TechnicianDetailPage — one page, two columns", () => {
     const order = [
       "Field team member",
       "Labor cost per hour",
+      "Job types — what they can do",
+      "Service areas — where they work",
       "Schedule color",
       "Hide client numbers",
       "Two-factor authentication",
@@ -375,6 +380,17 @@ describe("TechnicianDetailPage — the blocks below the columns", () => {
     render(<TechnicianDetailPage technicianId="t1" />);
     expect(screen.queryByText(/Job types — what they can do/)).toBeNull();
     expect(screen.queryByText(/Service areas — where they work/)).toBeNull();
+  });
+
+  it("draws an approved assignment plain on the card — the owner struck the green", () => {
+    fx.assignments = {
+      jobTypes: [{ jobTypeId: "jt-lockout", status: "approved", proposedBy: "m", proposedAt: "t" }],
+      serviceAreas: [],
+    };
+    render(<TechnicianDetailPage technicianId="t1" />);
+    const chip = screen.getByText("jt-lockout").closest("span.rounded-full") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(chip.className).not.toMatch(/green/);
   });
 });
 
