@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
-import { isInvalidPortalError } from "./lib";
 import { usePortalUrlStore } from "./store";
 
 export function usePortalLink(contactId: string, enabled = true) {
@@ -21,16 +20,6 @@ export function usePortalPreview(contactId: string) {
     queryKey: [...queryKeys.portal.link(contactId), "preview"],
     queryFn: () => api.getPortalPreview(contactId),
     enabled: !!contactId,
-  });
-}
-
-export function usePublicPortal(token: string) {
-  return useQuery({
-    queryKey: queryKeys.portal.view(token),
-    queryFn: () => api.getPublicPortal(token),
-    enabled: !!token,
-    // A dead link stays dead; only transient failures are worth a retry.
-    retry: (count, e) => !isInvalidPortalError(e) && count < 2,
   });
 }
 
@@ -61,6 +50,29 @@ export function useCreatePortalLink(contactId: string) {
       remember(contactId, link.url);
       const copied = await copyText(link.url);
       toast.success(copied ? "Portal link created and copied" : "Portal link created");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/**
+ * The link's URL for copying / texting, WITHOUT regenerating it: the client's
+ * earlier link keeps working. Remembers the URL for this browser session.
+ */
+export function usePortalLinkUrl(contactId: string) {
+  const qc = useQueryClient();
+  const remember = usePortalUrlStore((s) => s.remember);
+  return useMutation({
+    mutationFn: () => api.getPortalLinkUrl(contactId),
+    onSuccess: (link) => {
+      qc.setQueryData(queryKeys.portal.link(contactId), { ...link, url: undefined, token: undefined, replaced: undefined });
+      qc.invalidateQueries({ queryKey: queryKeys.portal.link(contactId) });
+      if (link.url) remember(contactId, link.url);
+      if (link.replaced) {
+        toast.message("A new portal link was created", {
+          description: "This client's earlier link was from before links could be re-sent, so it no longer works.",
+        });
+      }
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });

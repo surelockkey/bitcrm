@@ -126,6 +126,21 @@ describe("DealInvoiceTab — existing invoice", () => {
     await waitFor(() => expect(body).toEqual({ invoiceDate: "2026-09-20", dueDate: "2026-10-05" }));
   });
 
+  it("offers Send by text only to someone who may both send invoices and send messages", async () => {
+    const { unmount } = renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    await screen.findByRole("heading", { name: "Invoice #1042" });
+    expect(screen.queryByRole("button", { name: /send by text/i })).not.toBeInTheDocument();
+    unmount();
+
+    mocks.perms.add("messages.send");
+    try {
+      renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+      expect(await screen.findByRole("button", { name: /send by text/i })).toBeInTheDocument();
+    } finally {
+      mocks.perms.delete("messages.send");
+    }
+  });
+
   it("explains that deleting keeps the job's items", async () => {
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
     await user().click(await screen.findByRole("button", { name: /delete invoice/i }));

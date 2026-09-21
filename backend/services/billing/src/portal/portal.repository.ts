@@ -11,8 +11,8 @@ import {
   stripKeys,
 } from '../common/constants/dynamo.constants';
 
-/** The stored link: public metadata + the hash of the live token. */
-export type StoredPortalLink = PortalLink & { tokenHash: string };
+/** The stored link: public metadata + the hash of the live token (+ the nonce it is derived from). */
+export type StoredPortalLink = PortalLink & { tokenHash: string; nonce?: string };
 
 /**
  * Client-portal links, one per contact.

@@ -29,7 +29,8 @@ async function bootstrap() {
   // Client IPs for the portal rate limiter come from X-Forwarded-For.
   app.set('trust proxy', true);
 
-  app.setGlobalPrefix('api/billing');
+  // `/portal/:token` is the redirect for portal links sent before the portal had its own domain.
+  app.setGlobalPrefix('api/billing', { exclude: ['portal/:token'] });
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   app.useGlobalFilters(new HttpExceptionFilter());

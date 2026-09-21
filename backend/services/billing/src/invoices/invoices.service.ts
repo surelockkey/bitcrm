@@ -404,6 +404,14 @@ export class InvoicesService {
     return this.renderPdf(this.toView(invoice, view), download, view);
   }
 
+  /** Portal on-screen view: the caller already proved ownership through the token. */
+  async portalHtml(id: string): Promise<{ html: string }> {
+    const invoice = await this.repo.get(id);
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    const view = await this.loadView(invoice.dealId);
+    return this.requireDocuments().html({ kind: 'invoice', doc: this.toView(invoice, view), view });
+  }
+
   /** The document + job a template preview renders against. */
   async renderSource(id: string, caller: Caller) {
     const doc = await this.get(id, caller);

@@ -432,6 +432,15 @@ export class EstimatesService {
     return this.requireDocuments().html(await this.renderSource(id, caller));
   }
 
+  /** Portal on-screen view: the caller already proved ownership through the token. */
+  async portalHtml(id: string): Promise<{ html: string }> {
+    const found = await this.repo.get(id);
+    if (!found) throw new NotFoundException('Estimate not found');
+    const view = await this.loadView(found.estimate.dealId);
+    const doc = { ...found.estimate, items: found.items };
+    return this.requireDocuments().html({ kind: 'estimate', doc, view });
+  }
+
   async portalPdf(id: string, download = false): Promise<{ url: string }> {
     const found = await this.repo.get(id);
     if (!found) throw new NotFoundException('Estimate not found');

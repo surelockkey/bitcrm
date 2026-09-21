@@ -38,6 +38,19 @@ export class PortalLinksController {
     return { success: true, data: await this.portal.createLink(contactId, user) };
   }
 
+  @Post(':contactId/url')
+  @RequireAnyPermission(['invoices', 'send'], ['estimates', 'send'])
+  @ApiOperation({
+    summary: 'The portal link with its URL — without regenerating it',
+    description:
+      '**Guard:** `invoices.send` OR `estimates.send`. Returns the contact’s existing link and its `url` (the ' +
+      'one the client already has keeps working); creates one when there is none. A link made before URLs were ' +
+      'recoverable is replaced by a new one and comes back with `replaced: true`.',
+  })
+  async url(@Param('contactId') contactId: string, @CurrentUser() user: JwtUser) {
+    return { success: true, data: await this.portal.linkUrl(contactId, user) };
+  }
+
   @Delete(':contactId')
   @RequireAnyPermission(['invoices', 'send'], ['estimates', 'send'])
   @ApiOperation({ summary: 'Revoke the portal link', description: '**Guard:** `invoices.send` OR `estimates.send`.' })

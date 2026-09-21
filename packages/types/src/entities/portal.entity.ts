@@ -8,6 +8,8 @@ export interface PortalLink {
   /** Full URL, only present right after creation/regeneration. */
   url?: string;
   token?: string;
+  /** Set on `POST …/url` when an older, unrecoverable link had to be replaced by a new one. */
+  replaced?: boolean;
   createdBy: string;
   createdAt: string;
   lastViewedAt?: string;

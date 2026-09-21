@@ -18,7 +18,7 @@ vi.mock("next/link", () => ({
     <a href={href} {...rest}>{children}</a>
   ),
 }));
-const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 
 import { PortalLinkCard } from "./portal-link-card";
@@ -51,7 +51,7 @@ describe("PortalLinkCard", () => {
         created = true;
         return HttpResponse.json({
           success: true,
-          data: { ...link, url: "http://localhost:3000/portal/tok123", token: "tok123" },
+          data: { ...link, url: "https://portal.test/tok123", token: "tok123" },
         });
       }),
     );
@@ -59,28 +59,48 @@ describe("PortalLinkCard", () => {
 
     await user().click(await screen.findByRole("button", { name: /create link/i }));
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("http://localhost:3000/portal/tok123"));
-    expect(await screen.findByDisplayValue("http://localhost:3000/portal/tok123")).toBeInTheDocument();
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://portal.test/tok123"));
+    expect(await screen.findByDisplayValue("https://portal.test/tok123")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /preview portal/i })).toHaveAttribute("href", "/portal/preview/c1");
   });
 
-  it("asks before regenerating an existing link whose URL is unknown", async () => {
+  it("copies an existing link WITHOUT regenerating it (the client's earlier link keeps working)", async () => {
+    let regenerated = 0;
+    server.use(
+      http.get("*/billing/portal-links/c1", () => HttpResponse.json({ success: true, data: link })),
+      http.post("*/billing/portal-links/c1", () => {
+        regenerated += 1;
+        return HttpResponse.json({ success: true, data: link });
+      }),
+      http.post("*/billing/portal-links/c1/url", () =>
+        HttpResponse.json({ success: true, data: { ...link, url: "https://portal.test/existing", token: "existing" } }),
+      ),
+    );
+    renderWithClient(<PortalLinkCard contactId="c1" />);
+
+    await user().click(await screen.findByRole("button", { name: /^copy link$/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://portal.test/existing"));
+    expect(await screen.findByDisplayValue("https://portal.test/existing")).toBeInTheDocument();
+    expect(regenerated).toBe(0);
+  });
+
+  it("asks before regenerating, because that kills the old link", async () => {
     let posted = 0;
     server.use(
       http.get("*/billing/portal-links/c1", () => HttpResponse.json({ success: true, data: link })),
       http.post("*/billing/portal-links/c1", () => {
         posted += 1;
-        return HttpResponse.json({ success: true, data: { ...link, url: "http://x/portal/new" } });
+        return HttpResponse.json({ success: true, data: { ...link, url: "https://portal.test/new" } });
       }),
     );
     renderWithClient(<PortalLinkCard contactId="c1" />);
 
-    await user().click(await screen.findByRole("button", { name: /regenerate & copy/i }));
+    await user().click(await screen.findByRole("button", { name: /regenerate link/i }));
     expect(await screen.findByText(/old link will stop working/i)).toBeInTheDocument();
     expect(posted).toBe(0);
 
     await user().click(screen.getByRole("button", { name: /^regenerate$/i }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("http://x/portal/new"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://portal.test/new"));
     expect(posted).toBe(1);
   });
 
@@ -94,22 +114,28 @@ describe("PortalLinkCard", () => {
 });
 
 describe("CopyPortalLinkButton", () => {
-  it("copies a URL generated earlier this session without asking", async () => {
-    usePortalUrlStore.setState({ urls: { c1: "http://x/portal/known" } });
+  it("copies a URL known from earlier this session without asking the server", async () => {
+    usePortalUrlStore.setState({ urls: { c1: "https://portal.test/known" } });
     renderWithClient(<CopyPortalLinkButton contactId="c1" />);
     await user().click(screen.getByRole("button", { name: /copy client portal link/i }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("http://x/portal/known"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://portal.test/known"));
   });
 
-  it("creates a link straight away when the client has none", async () => {
+  it("fetches the existing link's URL — never regenerating it — and remembers it", async () => {
+    let regenerated = 0;
     server.use(
-      http.get("*/billing/portal-links/c1", () => HttpResponse.json({ success: true, data: null })),
-      http.post("*/billing/portal-links/c1", () =>
-        HttpResponse.json({ success: true, data: { ...link, url: "http://x/portal/first" } }),
+      http.post("*/billing/portal-links/c1", () => {
+        regenerated += 1;
+        return HttpResponse.json({ success: true, data: link });
+      }),
+      http.post("*/billing/portal-links/c1/url", () =>
+        HttpResponse.json({ success: true, data: { ...link, url: "https://portal.test/first" } }),
       ),
     );
     renderWithClient(<CopyPortalLinkButton contactId="c1" />);
     await user().click(screen.getByRole("button", { name: /copy client portal link/i }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("http://x/portal/first"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://portal.test/first"));
+    expect(regenerated).toBe(0);
+    expect(usePortalUrlStore.getState().urls.c1).toBe("https://portal.test/first");
   });
 });

@@ -14,18 +14,21 @@ import { EstimatesService } from '../estimates/estimates.service';
 import { CrmClient } from '../integrations/crm.client';
 import { DealClient } from '../integrations/deal.client';
 import { InvoicesService } from '../invoices/invoices.service';
-import { generatePortalToken, hashPortalToken, isPlausibleToken } from './portal-token';
+import { generatePortalToken, hashPortalToken, isPlausibleToken, recoverPortalToken } from './portal-token';
 import { PortalRepository, type StoredPortalLink } from './portal.repository';
 
-type InvoiceSource = Pick<InvoicesService, 'listForContact' | 'getStored' | 'portalPdf'>;
-type EstimateSource = Pick<EstimatesService, 'listForContact' | 'getStored' | 'portalPdf'>;
+type InvoiceSource = Pick<InvoicesService, 'listForContact' | 'getStored' | 'portalPdf' | 'portalHtml'>;
+type EstimateSource = Pick<EstimatesService, 'listForContact' | 'getStored' | 'portalPdf' | 'portalHtml'>;
 
 const notFound = () => new NotFoundException('This link is no longer valid');
 
 function publicLink(link: StoredPortalLink): PortalLink {
-  const { tokenHash: _hash, token: _t, url: _u, ...rest } = link;
+  const { tokenHash: _hash, nonce: _n, token: _t, url: _u, replaced: _r, ...rest } = link;
   return rest;
 }
+
+/** What a client is sent: the portal origin plus the bearer token, nothing else. */
+export const portalUrl = (token: string) => `${portalBaseUrl()}/${token}`;
 
 /**
  * The client portal: one bearer link per contact listing the client's
@@ -55,15 +58,32 @@ export class PortalService {
     const contact = await this.crm.getContact(contactId);
     if (!contact) throw new NotFoundException('Contact not found');
     const previous = await this.repo.getLink(contactId);
-    const { token, hash } = generatePortalToken();
+    const { token, hash, nonce } = generatePortalToken(contactId);
     const stored: StoredPortalLink = {
       contactId,
       tokenHash: hash,
+      ...(nonce && { nonce }),
       createdBy: user.id,
       createdAt: new Date().toISOString(),
     };
     await this.repo.saveLink(stored, previous?.tokenHash);
-    return { ...publicLink(stored), token, url: `${portalBaseUrl()}/portal/${token}` };
+    return { ...publicLink(stored), token, url: portalUrl(token) };
+  }
+
+  /**
+   * The contact's link WITH its URL, without invalidating the one the client
+   * already has: an existing link is rebuilt from its nonce. Only a contact
+   * with no link — or one made before tokens were recoverable, which can
+   * never show its URL again — gets a fresh one (`replaced` says which).
+   */
+  async linkUrl(contactId: string, user: JwtUser): Promise<PortalLink> {
+    const existing = await this.repo.getLink(contactId);
+    if (existing) {
+      const token = recoverPortalToken(contactId, existing.nonce, existing.tokenHash);
+      if (token) return { ...publicLink(existing), token, url: portalUrl(token) };
+    }
+    const created = await this.createLink(contactId, user);
+    return existing ? { ...created, replaced: true } : created;
   }
 
   async deleteLink(contactId: string): Promise<void> {
@@ -86,6 +106,18 @@ export class PortalService {
   }
 
   async publicPdf(token: string, kind: string, id: string, download = false): Promise<{ url: string }> {
+    const source = await this.sentDocumentSource(token, kind, id);
+    return source.portalPdf(id, download);
+  }
+
+  /** The document as the on-screen HTML the portal shows first (the PDF is the download). */
+  async publicHtml(token: string, kind: string, id: string): Promise<{ html: string }> {
+    const source = await this.sentDocumentSource(token, kind, id);
+    return source.portalHtml(id);
+  }
+
+  /** Resolves the token and proves the document is one of that contact's SENT ones. */
+  private async sentDocumentSource(token: string, kind: string, id: string): Promise<InvoiceSource | EstimateSource> {
     const contactId = await this.resolveToken(token);
     const source: InvoiceSource | EstimateSource | null =
       kind === 'invoice' ? this.invoices : kind === 'estimate' ? this.estimates : null;
@@ -95,7 +127,7 @@ export class PortalService {
     if (!doc || doc.contactId !== contactId || !doc.sentAt) {
       throw new NotFoundException('Document not found');
     }
-    return source.portalPdf(id, download);
+    return source;
   }
 
   private async resolveToken(token: string): Promise<string> {

@@ -4,9 +4,12 @@ import type { NextConfig } from "next";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Where the client portal is served (apps/portal). */
+const PORTAL_URL = (process.env.NEXT_PUBLIC_PORTAL_URL ?? "https://portal.bitcrm.tech-slk.com").replace(/\/+$/, "");
+
 const nextConfig: NextConfig = {
   // Transpile the shared workspace package so its output is bundled cleanly.
-  transpilePackages: ["@bitcrm/types", "@bitcrm/document-renderer"],
+  transpilePackages: ["@bitcrm/types", "@bitcrm/document-renderer", "@bitcrm/portal-ui"],
   // Pin the workspace root — the repo lives inside a folder that also has a
   // stray parent lockfile, which otherwise confuses Turbopack's inference.
   turbopack: {
@@ -25,6 +28,21 @@ const nextConfig: NextConfig = {
      * slower without it; correctness beats warm boots here.
      */
     turbopackFileSystemCacheForDev: false,
+  },
+
+  /**
+   * The client portal used to live here at /portal/<token>; it is its own app
+   * on its own domain now (apps/portal). Links that were already sent from
+   * this origin keep working by being handed on.
+   */
+  async redirects() {
+    return [
+      {
+        source: "/portal/:token([A-Za-z0-9_-]{32,128})",
+        destination: `${PORTAL_URL}/:token`,
+        permanent: false,
+      },
+    ];
   },
 
   /**

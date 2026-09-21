@@ -48,8 +48,9 @@ locals {
     # /api/messaging/webhooks/twilio/*, authenticated by signature, so this
     # rule is public too.
     messaging = { port = 4007, priority = 700, path_pattern = "/api/messaging/*" }
-    # Also serves the unauthenticated client portal (/api/billing/public/*);
-    # those routes are @Public() and rate-limited in the service.
+    # Also serves the unauthenticated client-portal API (/api/billing/public/*);
+    # those routes are @Public() and rate-limited in the service. The portal
+    # PAGES live in apps/portal on their own domain (var.portal_domain).
     billing = { port = 4008, priority = 800, path_pattern = "/api/billing/*" }
   }
 }
@@ -66,5 +67,8 @@ module "alb" {
   services       = local.services
   extra_rules = {
     docs = { priority = 50, path_pattern = "/api/docs*", target_service = "user" }
+    # Portal links sent before the portal had its own domain read
+    # <api host>/portal/<token>; billing 302s them to the portal.
+    portal_legacy = { priority = 60, path_pattern = "/portal/*", target_service = "billing" }
   }
 }
