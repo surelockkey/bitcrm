@@ -18,6 +18,10 @@ setAuthTokenProvider(getIdToken);
 setSessionRefresher(renewSession);
 setUnauthorizedHandler(() => useAuthStore.getState().clear());
 
+// The floating TanStack button covers the corner of the app it sits in, so it
+// is asked for (`NEXT_PUBLIC_RQ_DEVTOOLS=1` in `.env.local`), not shown by default.
+const showQueryDevtools = process.env.NEXT_PUBLIC_RQ_DEVTOOLS === "1";
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -41,7 +45,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>{children}</TooltipProvider>
-        <ReactQueryDevtools initialIsOpen={false} />
+        {showQueryDevtools ? <ReactQueryDevtools initialIsOpen={false} /> : null}
       </QueryClientProvider>
     </ThemeProvider>
   );
