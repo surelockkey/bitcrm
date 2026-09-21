@@ -668,7 +668,7 @@ describe('billing — cross-service flow', () => {
     expect(link.status).toBe(201);
     const { token, url } = link.body.data;
     expect(token).toEqual(expect.any(String));
-    expect(url).toBe(`http://portal.e2e.test/portal/${token}`);
+    expect(url).toBe(`http://portal.e2e.test/${token}`);
     expect(link.body.data.tokenHash).toBeUndefined();
     const stored = await call('GET', `${BILL}/portal-links/${s.contact.id}`);
     expect(stored.body.data).toMatchObject({ contactId: s.contact.id });
@@ -696,6 +696,15 @@ describe('billing — cross-service flow', () => {
     expect((await pub(token, 'estimate', s.e3.id)).status).toBe(200);
     expect((await pub(token, 'estimate', s.e1.id)).status).toBe(404); // not sent
     expect((await pub(token, 'receipt', s.deal.id)).status).toBe(404);
+
+    // The web view the portal shows first: same ownership rules as the PDF.
+    const pubHtml = (t: string, kind: string, id: string) =>
+      call('GET', `${BILL}/public/portal/${t}/${kind}/${id}/html`, { auth: false });
+    const invHtml = await pubHtml(token, 'invoice', s.deal.id);
+    expect(invHtml.status).toBe(200);
+    expect(invHtml.body.data.html).toContain('<!doctype html>');
+    expect((await pubHtml(token, 'estimate', s.e3.id)).status).toBe(200);
+    expect((await pubHtml(token, 'estimate', s.e1.id)).status).toBe(404); // not sent
 
     // Another client's sent document is invisible through this token.
     const c2 = await call('POST', `${CRM}/contacts`, {
@@ -727,6 +736,20 @@ describe('billing — cross-service flow', () => {
     expect((await pub(token, 'invoice', s.deal.id)).status).toBe(404);
     expect((await call('GET', `${BILL}/public/portal/${s.token}`, { auth: false })).status).toBe(200);
     expect((await call('GET', `${BILL}/public/portal/not-a-token`, { auth: false })).status).toBe(404);
+
+    // Sending / copying the link re-issues the SAME url; nothing is regenerated.
+    const again = await call('POST', `${BILL}/portal-links/${s.contact.id}/url`);
+    expect(again.status).toBe(201);
+    expect(again.body.data.token).toBe(s.token);
+    expect(again.body.data.url).toBe(`http://portal.e2e.test/${s.token}`);
+    expect(again.body.data.replaced).toBeUndefined();
+    expect((await call('GET', `${BILL}/public/portal/${s.token}`, { auth: false })).status).toBe(200);
+
+    // Links sent before the portal had its own domain (<api>/portal/<token>) are handed on to it.
+    const legacy = await fetch(`http://localhost:4008/portal/${s.token}`, { redirect: 'manual' });
+    expect(legacy.status).toBe(302);
+    expect(legacy.headers.get('location')).toBe(`http://portal.e2e.test/${s.token}`);
+    expect((await fetch('http://localhost:4008/portal/nope', { redirect: 'manual' })).status).toBe(404);
 
     // BILLING_PORTAL_RATE_LIMIT=30 per IP + token per minute.
     const ip = { 'x-forwarded-for': '203.0.113.9' };

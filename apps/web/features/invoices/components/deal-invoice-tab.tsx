@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Eye, FileText, Loader2, Send, Trash2, Undo2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2, MessageSquareText, Send, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { PaymentTerms, type Deal, type InvoiceView } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import { CommitInput, CommitTextarea, DocField } from "@/features/billing/compon
 import { DocumentPreviewDialog } from "@/features/billing/components/document-preview-dialog";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
+import { SendDocumentDialog } from "@/features/portal/components/send-document-dialog";
 import { getInvoiceHtml, getInvoicePdfUrl } from "../api";
 import {
   useCreateInvoice,
@@ -127,6 +128,8 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
   const pdf = useOpenPdf(() => getInvoicePdfUrl(invoice.id));
   const [previewing, setPreviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sendingText, setSendingText] = useState(false);
+  const canText = canSend && can("messages", "send");
   const custom = invoice.paymentTerms === PaymentTerms.CUSTOM;
 
   /** Validate the merged header before sending only what changed. */
@@ -227,6 +230,11 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
               {invoice.sentAt ? "Mark as unsent" : "Mark as sent"}
             </Button>
           ) : null}
+          {canText ? (
+            <Button variant="brand" size="sm" onClick={() => setSendingText(true)}>
+              <MessageSquareText /> Send by text
+            </Button>
+          ) : null}
           {canSend ? <CopyPortalLinkButton contactId={invoice.contactId} /> : null}
           {canDelete ? (
             <Button
@@ -265,6 +273,24 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
         onDownload={pdf.open}
         downloadPending={pdf.pending}
       />
+
+      {canText ? (
+        <SendDocumentDialog
+          open={sendingText}
+          onOpenChange={setSendingText}
+          document={{
+            kind: "invoice",
+            id: invoice.id,
+            number: invoice.number,
+            total: invoice.totals?.total ?? 0,
+            contactId: invoice.contactId,
+            dealId: deal.id,
+            businessProfileId: deal.businessProfileId,
+            alreadySent: !!invoice.sentAt,
+          }}
+          markSent={() => markSent.mutateAsync({ id: invoice.id, sent: true })}
+        />
+      ) : null}
 
       <AlertDialog open={deleting} onOpenChange={setDeleting}>
         <AlertDialogContent>

@@ -4,6 +4,9 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The client-portal UI is a workspace package outside this app; scan it for classes. */
+@source "../../../packages/portal-ui/src";
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

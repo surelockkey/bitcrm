@@ -20,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { formatYmd } from "@/features/billing/dates";
-import { copyText, useCreatePortalLink, useDeletePortalLink, usePortalLink } from "../hooks";
+import { copyText, useCreatePortalLink, useDeletePortalLink, usePortalLink, usePortalLinkUrl } from "../hooks";
 import { usePortalUrlStore } from "../store";
 import { RegenerateLinkDialog } from "./regenerate-link-dialog";
 
@@ -34,13 +34,22 @@ export function PortalLinkCard({ contactId, className }: { contactId: string; cl
   const { data: link, isLoading, isError } = usePortalLink(contactId);
   const url = usePortalUrlStore((s) => s.urls[contactId]);
   const create = useCreatePortalLink(contactId);
+  const ensure = usePortalLinkUrl(contactId);
   const remove = useDeletePortalLink(contactId);
   const [regenerating, setRegenerating] = useState(false);
   const [disabling, setDisabling] = useState(false);
 
   const copy = async () => {
-    if (!url) return;
-    if (await copyText(url)) toast.success("Portal link copied");
+    let target: string | undefined = url;
+    if (!target) {
+      try {
+        target = (await ensure.mutateAsync()).url;
+      } catch {
+        return; // reported by the hook
+      }
+    }
+    if (!target) return;
+    if (await copyText(target)) toast.success("Portal link copied");
     else toast.message("Copy the link from the field");
   };
 
@@ -81,8 +90,8 @@ export function PortalLinkCard({ contactId, className }: { contactId: string; cl
               <dd>{link.lastViewedAt ? formatYmd(link.lastViewedAt) : "Not yet"}</dd>
             </div>
           </dl>
-          {url ? (
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
+            {url ? (
               <Input
                 readOnly
                 value={url}
@@ -90,15 +99,13 @@ export function PortalLinkCard({ contactId, className }: { contactId: string; cl
                 className="h-8 min-w-0 flex-1 font-mono text-xs"
                 onFocus={(e) => e.currentTarget.select()}
               />
-              <Button variant="outline" size="sm" className="h-8" onClick={copy}>
-                <Copy /> Copy link
+            ) : null}
+            {canManage ? (
+              <Button variant="outline" size="sm" className="h-8" onClick={copy} disabled={ensure.isPending}>
+                {ensure.isPending ? <Loader2 className="animate-spin" /> : <Copy />} Copy link
               </Button>
-            </div>
-          ) : canManage ? (
-            <Button variant="outline" size="sm" onClick={() => setRegenerating(true)} disabled={create.isPending}>
-              {create.isPending ? <Loader2 className="animate-spin" /> : <Copy />} Regenerate &amp; copy
-            </Button>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -110,11 +117,9 @@ export function PortalLinkCard({ contactId, className }: { contactId: string; cl
         </Button>
         {link && canManage ? (
           <>
-            {url ? (
-              <Button variant="ghost" size="sm" onClick={() => setRegenerating(true)} disabled={create.isPending}>
-                <RefreshCw /> Regenerate link
-              </Button>
-            ) : null}
+            <Button variant="ghost" size="sm" onClick={() => setRegenerating(true)} disabled={create.isPending}>
+              <RefreshCw /> Regenerate link
+            </Button>
             <Button
               variant="ghost"
               size="sm"

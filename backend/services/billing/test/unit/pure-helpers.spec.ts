@@ -3,7 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import type { DocumentTemplate } from '@bitcrm/types';
 import { selectTemplate } from 'src/templates/template-selection';
-import { generatePortalToken, hashPortalToken } from 'src/portal/portal-token';
+import { generatePortalToken, hashPortalToken, recoverPortalToken } from 'src/portal/portal-token';
 import { pdfCacheHash } from 'src/documents/pdf-cache';
 import { pdfS3Key } from 'src/common/constants/dynamo.constants';
 import { EstimateItemDto } from 'src/estimates/dto/estimate-item.dto';
@@ -85,13 +85,46 @@ describe('selectTemplate', () => {
 });
 
 describe('portal tokens', () => {
-  it('are 32 random bytes as base64url, stored as their sha256', () => {
-    const { token, hash } = generatePortalToken();
+  afterEach(() => {
+    delete process.env.PORTAL_TOKEN_SECRET;
+    delete process.env.INTERNAL_SERVICE_SECRET;
+  });
+
+  it('without a secret are 32 random bytes as base64url, stored as their sha256, and unrecoverable', () => {
+    const { token, hash, nonce } = generatePortalToken('c-1');
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(Buffer.from(token, 'base64url')).toHaveLength(32);
     expect(hash).toBe(createHash('sha256').update(token).digest('hex'));
     expect(hashPortalToken(token)).toBe(hash);
-    expect(generatePortalToken().token).not.toBe(token);
+    expect(generatePortalToken('c-1').token).not.toBe(token);
+    expect(nonce).toBeUndefined();
+    expect(recoverPortalToken('c-1', 'anything', hash)).toBeNull();
+  });
+
+  it('with a secret are an HMAC of contact + nonce, rebuilt from the nonce alone', () => {
+    process.env.PORTAL_TOKEN_SECRET = 's3cret';
+    const { token, hash, nonce } = generatePortalToken('c-1');
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(nonce).toBeDefined();
+    expect(hash).toBe(hashPortalToken(token));
+    expect(recoverPortalToken('c-1', nonce, hash)).toBe(token);
+    expect(generatePortalToken('c-1').token).not.toBe(token);
+  });
+
+  it('are not recoverable for another contact, without the nonce, or after the secret changes', () => {
+    process.env.PORTAL_TOKEN_SECRET = 's3cret';
+    const { hash, nonce } = generatePortalToken('c-1');
+    expect(recoverPortalToken('c-2', nonce, hash)).toBeNull();
+    expect(recoverPortalToken('c-1', undefined, hash)).toBeNull();
+    process.env.PORTAL_TOKEN_SECRET = 'rotated';
+    expect(recoverPortalToken('c-1', nonce, hash)).toBeNull();
+  });
+
+  it('fall back to INTERNAL_SERVICE_SECRET, which every service already has', () => {
+    process.env.INTERNAL_SERVICE_SECRET = 'internal';
+    const { hash, nonce } = generatePortalToken('c-1');
+    expect(nonce).toBeDefined();
+    expect(recoverPortalToken('c-1', nonce, hash)).not.toBeNull();
   });
 });
 

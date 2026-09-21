@@ -98,6 +98,16 @@ if [[ -n "$APP_DOMAIN" && "$APP_DOMAIN" != "null" ]]; then
   API_GATEWAY_URL="https://${APP_DOMAIN}"
 fi
 
+# The client portal has its OWN domain (not the API host, which serves no pages),
+# published to SSM by infra/dev/ssm_params.tf as /bitcrm/dev/app/portal-domain.
+APP_PORTAL_DOMAIN=$(echo "$SSM_ENV_JSON" | jq -r '.[] | select(.name == "APP_PORTAL_DOMAIN") | .value')
+PORTAL_BASE_URL=""
+if [[ -n "$APP_PORTAL_DOMAIN" && "$APP_PORTAL_DOMAIN" != "null" ]]; then
+  PORTAL_BASE_URL="https://${APP_PORTAL_DOMAIN}"
+elif [[ "$SERVICE" == "billing" ]]; then
+  echo "warning: SSM /bitcrm/dev/app/portal-domain is not set (terraform apply infra/dev) — billing will build portal links for localhost" >&2
+fi
+
 EXTRA_ENV_JSON=$(jq -n \
   --arg port "$PORT" \
   --arg port_env "$PORT_ENV" \
@@ -107,6 +117,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg cognito_secret "${COGNITO_CLIENT_SECRET:-}" \
   --arg internal_token "${INTERNAL_SERVICE_TOKEN:-}" \
   --arg api_gateway_url "$API_GATEWAY_URL" \
+  --arg portal_base_url "$PORTAL_BASE_URL" \
   --arg twilio_account_sid "${TWILIO_ACCOUNT_SID:-}" \
   --arg twilio_auth_token "${TWILIO_AUTH_TOKEN:-}" \
   --arg twilio_api_key "${TWILIO_API_KEY:-}" \
@@ -161,10 +172,10 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $messaging_default_sender   != "" then [{name: "MESSAGING_DEFAULT_SENDER",     value: $messaging_default_sender}]     else [] end)
     else [] end)
   # Billing renders PDFs with the Alpine chromium the Dockerfile installs for
-  # it, and links clients to the portal on the public app domain.
+  # it, and links clients to the portal on its own domain.
   + (if $service == "billing" then
       [{name: "PUPPETEER_EXECUTABLE_PATH", value: "/usr/bin/chromium-browser"}]
-      + (if $api_gateway_url != "" then [{name: "PORTAL_BASE_URL", value: $api_gateway_url}] else [] end)
+      + (if $portal_base_url != "" then [{name: "PORTAL_BASE_URL", value: $portal_base_url}] else [] end)
     else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)

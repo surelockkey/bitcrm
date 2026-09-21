@@ -27,7 +27,8 @@ export function RegenerateLinkDialog({
           <AlertDialogTitle>Regenerate the portal link?</AlertDialogTitle>
           <AlertDialogDescription>
             A new link will be created and copied. The old link will stop working — anyone you
-            sent it to will need the new one.
+            sent it to (a text, an email) will need the new one. Only do this if the old link
+            leaked.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

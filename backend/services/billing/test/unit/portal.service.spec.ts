@@ -2,6 +2,7 @@ import { NotFoundException, HttpException } from '@nestjs/common';
 import type { Estimate, Invoice } from '@bitcrm/types';
 import { PortalService } from 'src/portal/portal.service';
 import { PortalRateLimiter } from 'src/portal/portal-rate-limiter';
+import { LegacyPortalRedirectController } from 'src/portal/public-portal.controller';
 import { hashPortalToken } from 'src/portal/portal-token';
 import type { StoredPortalLink } from 'src/portal/portal.repository';
 import { NOW, mockCrmClient, profile, user } from './mocks';
@@ -58,8 +59,8 @@ const estimate = (over: Partial<Estimate>): Estimate =>
 describe('PortalService', () => {
   let repo: ReturnType<typeof mockRepo>;
   let crm: ReturnType<typeof mockCrmClient>;
-  let invoices: { listForContact: jest.Mock; getStored: jest.Mock; portalPdf: jest.Mock };
-  let estimates: { listForContact: jest.Mock; getStored: jest.Mock; portalPdf: jest.Mock };
+  let invoices: { listForContact: jest.Mock; getStored: jest.Mock; portalPdf: jest.Mock; portalHtml: jest.Mock };
+  let estimates: { listForContact: jest.Mock; getStored: jest.Mock; portalPdf: jest.Mock; portalHtml: jest.Mock };
   let profiles: { getPublic: jest.Mock; listAll: jest.Mock };
   let deals: { listByContact: jest.Mock };
   let service: PortalService;
@@ -77,11 +78,13 @@ describe('PortalService', () => {
       listForContact: jest.fn(async () => [sentInv, unsentInv]),
       getStored: jest.fn(async (id: string) => [sentInv, unsentInv].find((i) => i.id === id) ?? null),
       portalPdf: jest.fn(async () => ({ url: 'https://s3/inv.pdf' })),
+      portalHtml: jest.fn(async () => ({ html: '<html>invoice</html>' })),
     };
     estimates = {
       listForContact: jest.fn(async () => [sentEst, unsentEst]),
       getStored: jest.fn(async (id: string) => [sentEst, unsentEst].find((e) => e.id === id) ?? null),
       portalPdf: jest.fn(async () => ({ url: 'https://s3/est.pdf' })),
+      portalHtml: jest.fn(async () => ({ html: '<html>estimate</html>' })),
     };
     profiles = {
       getPublic: jest.fn(async (id?: string) => {
@@ -107,12 +110,14 @@ describe('PortalService', () => {
   afterEach(() => {
     jest.useRealTimers();
     delete process.env.PORTAL_BASE_URL;
+    delete process.env.PORTAL_TOKEN_SECRET;
+    delete process.env.INTERNAL_SERVICE_SECRET;
   });
 
   it('creates a link with a raw token + URL, storing only the hash', async () => {
     const link = await service.createLink('contact-1', user());
     expect(link.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(link.url).toBe(`https://app.example.com/portal/${link.token}`);
+    expect(link.url).toBe(`https://app.example.com/${link.token}`);
     expect(link).toMatchObject({ contactId: 'contact-1', createdBy: 'u-1', createdAt: NOW });
     const stored = repo.links.get('contact-1')!;
     expect(stored.tokenHash).toBe(hashPortalToken(link.token!));
@@ -131,6 +136,55 @@ describe('PortalService', () => {
     expect(repo.saveLink).toHaveBeenLastCalledWith(expect.anything(), hashPortalToken(first.token!));
     await expect(service.publicView(first.token!)).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.publicView(second.token!)).resolves.toBeDefined();
+  });
+
+  describe('link URL (recoverable tokens)', () => {
+    beforeEach(() => {
+      process.env.PORTAL_TOKEN_SECRET = 'test-secret';
+    });
+
+    it('re-issues the SAME url for an existing link instead of regenerating it', async () => {
+      const created = await service.createLink('contact-1', user());
+      const again = await service.linkUrl('contact-1', user());
+      expect(again.url).toBe(created.url);
+      expect(again.replaced).toBeUndefined();
+      expect(repo.saveLink).toHaveBeenCalledTimes(1);
+      // …and the client's link is still the live one.
+      await expect(service.publicView(created.token!)).resolves.toBeDefined();
+    });
+
+    it('never stores the token or the secret, only the hash and the nonce', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      const stored = repo.links.get('contact-1')! as unknown as Record<string, unknown>;
+      expect(stored.tokenHash).toBe(hashPortalToken(token!));
+      expect(typeof stored.nonce).toBe('string');
+      expect(JSON.stringify(stored)).not.toContain(token!);
+      expect(await service.getLink('contact-1')).not.toHaveProperty('nonce');
+    });
+
+    it('creates a link when the contact has none', async () => {
+      const link = await service.linkUrl('contact-1', user());
+      expect(link.url).toBe(`https://app.example.com/${link.token}`);
+      expect(link.replaced).toBeUndefined();
+    });
+
+    it('replaces a link made before tokens were recoverable, and says so', async () => {
+      delete process.env.PORTAL_TOKEN_SECRET;
+      const legacy = await service.createLink('contact-1', user());
+      process.env.PORTAL_TOKEN_SECRET = 'test-secret';
+      const link = await service.linkUrl('contact-1', user());
+      expect(link.replaced).toBe(true);
+      expect(link.token).not.toBe(legacy.token);
+      await expect(service.publicView(legacy.token!)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.publicView(link.token!)).resolves.toBeDefined();
+    });
+
+    it('replaces the link when the secret was rotated (the old token cannot be rebuilt)', async () => {
+      await service.createLink('contact-1', user());
+      process.env.PORTAL_TOKEN_SECRET = 'rotated';
+      const link = await service.linkUrl('contact-1', user());
+      expect(link.replaced).toBe(true);
+    });
   });
 
   it('getLink hides the token and hash', async () => {
@@ -219,6 +273,17 @@ describe('PortalService', () => {
     expect(repo.touchViewed).not.toHaveBeenCalled();
   });
 
+  describe('public html', () => {
+    it('serves the on-screen document under the same rules as the pdf', async () => {
+      const { token } = await service.createLink('contact-1', user());
+      await expect(service.publicHtml(token!, 'invoice', 'deal-1')).resolves.toEqual({ html: '<html>invoice</html>' });
+      await expect(service.publicHtml(token!, 'estimate', 'est-1')).resolves.toEqual({ html: '<html>estimate</html>' });
+      await expect(service.publicHtml(token!, 'invoice', 'deal-2')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.publicHtml(token!, 'receipt', 'x')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.publicHtml('A'.repeat(43), 'invoice', 'deal-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('public pdf', () => {
     let token: string;
     beforeEach(async () => {
@@ -242,6 +307,24 @@ describe('PortalService', () => {
       await expect(service.publicPdf(token, 'receipt', 'x')).rejects.toBeInstanceOf(NotFoundException);
       expect(invoices.portalPdf).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('LegacyPortalRedirectController', () => {
+  beforeEach(() => {
+    process.env.PORTAL_BASE_URL = 'https://portal.example.com';
+  });
+  afterEach(() => {
+    delete process.env.PORTAL_BASE_URL;
+  });
+
+  it('sends an old <api>/portal/<token> link on to the portal domain', () => {
+    const token = 'A'.repeat(43);
+    expect(new LegacyPortalRedirectController().redirect(token)).toEqual({ url: `https://portal.example.com/${token}` });
+  });
+
+  it('404s something that cannot be a token', () => {
+    expect(() => new LegacyPortalRedirectController().redirect('nope')).toThrow(NotFoundException);
   });
 });
 

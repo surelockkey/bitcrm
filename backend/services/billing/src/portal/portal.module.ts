@@ -7,11 +7,11 @@ import { PortalLinksController } from './portal-links.controller';
 import { PortalRateLimiter } from './portal-rate-limiter';
 import { PortalRepository } from './portal.repository';
 import { PortalService } from './portal.service';
-import { PublicPortalController } from './public-portal.controller';
+import { LegacyPortalRedirectController, PublicPortalController } from './public-portal.controller';
 
 @Module({
   imports: [BusinessProfileModule, InvoicesModule, EstimatesModule],
-  controllers: [PublicPortalController, PortalLinksController],
+  controllers: [PublicPortalController, LegacyPortalRedirectController, PortalLinksController],
   providers: [PortalRepository, PortalService, PortalRateLimiter, AnyPermissionGuard],
 })
 export class PortalModule {}

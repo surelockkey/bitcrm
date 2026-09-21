@@ -1,25 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, Eye } from "lucide-react";
 import type { PortalDocumentSummary } from "@bitcrm/types";
+import { PortalDocumentViewer, PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
-import { getEstimatePdfUrl } from "@/features/estimates/api";
-import { getInvoicePdfUrl } from "@/features/invoices/api";
+import { getEstimateHtml, getEstimatePdfUrl } from "@/features/estimates/api";
+import { getInvoiceHtml, getInvoicePdfUrl } from "@/features/invoices/api";
 import { usePortalPreview } from "../hooks";
-import { PortalDocumentViewer } from "./portal-document-viewer";
-import { PortalSkeleton } from "./public-portal-page";
-import { PortalView } from "./portal-view";
 
-/** Staff preview of a client's portal (includes unsent documents). */
+/** Staff preview of a client's portal (includes unsent documents). Same UI as the client's page. */
 export function PortalPreviewPage({ contactId }: { contactId: string }) {
   const { can } = usePermissions();
   const q = usePortalPreview(contactId);
   const [open, setOpen] = useState<PortalDocumentSummary | null>(null);
+  // Staff read documents with their own session; the client's page does the same by token.
+  const loaders = useMemo<DocumentLoaders>(
+    () => ({
+      getHtml: (doc) => (doc.kind === "invoice" ? getInvoiceHtml(doc.id) : getEstimateHtml(doc.id)),
+      getPdfUrl: (doc, download) =>
+        doc.kind === "invoice" ? getInvoicePdfUrl(doc.id, download) : getEstimatePdfUrl(doc.id, download),
+    }),
+    [],
+  );
 
   if (!can("contacts")) return <NoAccess what="client portals" />;
 
@@ -53,14 +60,7 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
           <PortalView view={{ ...q.data, preview: true }} onOpen={setOpen} />
         )}
       </div>
-      <PortalDocumentViewer
-        doc={open}
-        onClose={() => setOpen(null)}
-        scope={`preview:${contactId}`}
-        getUrl={(doc, download) =>
-          doc.kind === "invoice" ? getInvoicePdfUrl(doc.id, download) : getEstimatePdfUrl(doc.id, download)
-        }
-      />
+      <PortalDocumentViewer doc={open} onClose={() => setOpen(null)} loaders={loaders} scope={`preview:${contactId}`} />
     </div>
   );
 }

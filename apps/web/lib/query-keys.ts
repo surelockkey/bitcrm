@@ -274,6 +274,5 @@ export const queryKeys = {
 
   portal: {
     link: (contactId: string) => ["portal", "link", contactId] as const,
-    view: (token: string) => ["portal", "view", token] as const,
   },
 } as const;

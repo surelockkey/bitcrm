@@ -44,7 +44,7 @@ documented surface; keep it in sync when you add a variable.
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
 | messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
-| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client portal (`/public/portal/:token`, `@Public` + Redis rate limit) |
+| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10) |
 
 ---
 
@@ -475,5 +475,19 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   its name snapshotted; documents and the portal render the job's company (fallback:
   the default). Telephony stamps `CallRecord.businessProfileId` next to `sourceId`
   (number setting → the flow answering the number).
+- **The client portal is its own frontend.** `apps/portal` (own Next app, own domain —
+  `PORTAL_BASE_URL`, from SSM `/app/portal-domain`) serves `<PORTAL_BASE_URL>/<token>`
+  and only calls billing's `@Public` `/public/portal/:token[/:kind/:id/(html|pdf)]`
+  routes; the document is shown as `…/html` (the renderer's screen mode, in a
+  sandboxed iframe) and the PDF is a download. Tokens are `HMAC(PORTAL_TOKEN_SECRET ||
+  INTERNAL_SERVICE_SECRET, contactId:nonce)` — only the sha256 and the nonce are
+  stored — so `POST /portal-links/:contactId/url` can hand out the SAME link again
+  (copy, SMS) without killing the one the client already has; only
+  `POST /portal-links/:contactId` regenerates. Rotating the secret orphans links
+  (the next `…/url` replaces them). `GET /portal/:token` (outside the `api/billing`
+  prefix, ALB rule `portal_legacy`) 302s links sent before the split to the portal.
+- **Texting a document = messaging's `POST /messages`** (Twilio, the client's thread),
+  driven by the web app's "Send by text" dialog: mark the document sent FIRST (the
+  portal shows sent documents only), then send.
 - Plan documents belong in the gitignored `claude-plans/` at the repo root, not
   in `project-info/`.
