@@ -1,13 +1,15 @@
 "use client";
 
-import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { ChevronUp, FileText, ImageIcon, Loader2, Paperclip, Sparkles, X } from "lucide-react";
+import { useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { AlertTriangle, ChevronUp, FileText, ImageIcon, Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   MESSAGE_ATTACHMENT_LIMIT,
   MESSAGE_ATTACHMENT_TYPES,
+  SENDABLE_MESSAGE_CHANNELS,
   SMS_BODY_MAX_LENGTH,
   type MessageTemplate,
+  type SendableMessageChannel,
 } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +28,7 @@ import { formatPhone } from "@/lib/phone";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useNumbers } from "@/features/telephony/numbers-hooks";
 import { uploadAttachment, type InboxConversation, type SendAttachment, type SendMessageBody } from "../api";
-import { useMessagingAccess, usePreviewTemplate, useRenderTemplate } from "../hooks";
+import { useMessagingAccess, usePreviewTemplate, useRenderTemplate, useSendOptions } from "../hooks";
 import {
   formatBytes,
   hasShortCodes,
@@ -34,15 +36,21 @@ import {
   MAX_ATTACHMENT_BYTES,
   newClientMessageId,
 } from "../lib";
+import {
+  deadEndText,
+  describeDestination,
+  fallbackSendOptions,
+  optionFor,
+  SEND_BUTTON_LABEL,
+  SEND_CHANNEL_LABEL,
+  unavailableText,
+} from "../send-channels";
 import { countSegments } from "../segments";
 import { QuickReplies } from "./quick-replies";
 import { ShortCodeMenu } from "./short-code-menu";
 
 const ACCEPT = MESSAGE_ATTACHMENT_TYPES.join(",");
 const ACCEPTED = new Set<string>(MESSAGE_ATTACHMENT_TYPES);
-
-type Channel = "sms" | "email";
-const SEND_LABEL: Record<Channel, string> = { sms: "Send Text", email: "Send Email" };
 
 export interface ComposerProps {
   /** The thread being written in, when it exists — sticky sender, render context. */
@@ -70,11 +78,18 @@ const boxIcon =
 /**
  * The Workiz composer: the quick-reply chips, then a box saying "Type your
  * message here…" with the AI sparkle, short codes and the paperclip inside
- * it, and the yellow "Send Text" button to its right — with a chevron to
- * switch to Email (where the thread has an address) or pick the sending
+ * it, and the yellow send button to its right — with a chevron carrying the
+ * three ways a message leaves (in app, a text, an email) and the sending
  * number. Templates, short codes, attachments (button or paste) and the
  * GSM-7 / UCS-2 segment counter all stay. Enter sends, Shift+Enter breaks
  * a line.
+ *
+ * Which of the three are real is the server's answer, not a guess here
+ * (`GET /conversations/:id/send-options`): it resolves the recipient, the
+ * sender and both opt-out ledgers the way the send would. A channel that
+ * cannot be used keeps its place in the menu and says why — in-app on a
+ * client's thread is offered and refused, never quietly missing — and the
+ * control itself shows where the message is going before it goes.
  */
 export function Composer({
   conversation,
@@ -92,7 +107,8 @@ export function Composer({
   const { canSend } = useMessagingAccess();
   const [text, setText] = useState(initialText);
   const [subject, setSubject] = useState("");
-  const [channel, setChannel] = useState<Channel>("sms");
+  /** Undefined until the user picks — the thread's own best channel is the default. */
+  const [pickedChannel, setPickedChannel] = useState<SendableMessageChannel | undefined>(undefined);
   const [templateId, setTemplateId] = useState<string | undefined>(undefined);
   const [attachments, setAttachments] = useState<SendAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -101,10 +117,22 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** The send button points at whichever note is under it — the destination, or why there is none. */
+  const noteId = useId();
 
   const render = useRenderTemplate();
   const preview = usePreviewTemplate();
   const { data: numbers } = useNumbers(canSend && !!conversation);
+  const { data: resolved } = useSendOptions(conversation?.id, canSend);
+
+  // The server's answer whenever it has one; until then (and for a thread it
+  // refuses to answer for) what the conversation itself proves — which never
+  // closes a channel the entity cannot rule out, so nothing is blocked on a guess.
+  const options = resolved ?? fallbackSendOptions(conversation);
+  const channel = pickedChannel ?? options?.defaultChannel ?? "sms";
+  const current = optionFor(options, channel);
+  const unavailable = current && !current.available ? unavailableText(current.reason) : undefined;
+  const deadEnd = deadEndText(options);
 
   // The number the client last heard from is what they will recognise, so
   // it is the default whenever the workspace still owns it.
@@ -112,15 +140,18 @@ export function Composer({
   const stickyKnown = !!sticky && !!numbers?.some((n) => n.phoneNumber === sticky);
   const from = fromNumber ?? (stickyKnown ? sticky : "auto");
 
-  // Email is offered only where the thread has an address to send to.
-  const emailPossible = !!conversation?.addresses?.emails?.length;
-  const hasOptions = emailPossible || (numbers?.length ?? 0) > 0;
+  const destination = describeDestination(current, from !== "auto" ? from : undefined);
+  const hasOptions = !!options || (numbers?.length ?? 0) > 0;
 
   const segments = countSegments(text);
   const tooLong = channel === "sms" && text.length > SMS_BODY_MAX_LENGTH;
   const blocked = disabled || !canSend || optedOut;
   const busy = sending || uploading > 0 || render.isPending || preview.isPending;
-  const canSubmit = !blocked && !busy && !tooLong && text.trim().length > 0;
+  // An email with no subject is refused by the server; say so on the control
+  // rather than after the text has been written twice.
+  const needsSubject = channel === "email" && !subject.trim();
+  const canSubmit =
+    !blocked && !busy && !tooLong && !unavailable && !needsSubject && text.trim().length > 0;
   const effectiveContactId = contactId ?? (conversation?.partyKind === "contact" ? conversation.partyId : undefined);
   const effectiveDealId = dealId ?? conversation?.lastDealId;
 
@@ -255,8 +286,33 @@ export function Composer({
 
   return (
     <div className={cn("shrink-0", className)} data-testid="composer">
+      {/* An in-app line is plain text, so it draws on the same replies a text does. */}
       {quickReplies ? (
-        <QuickReplies channel={channel} onPick={pickTemplate} disabled={blocked} pending={render.isPending} />
+        <QuickReplies
+          channel={channel === "email" ? "email" : "sms"}
+          onPick={pickTemplate}
+          disabled={blocked}
+          pending={render.isPending}
+        />
+      ) : null}
+
+      {/* Above the box, where it is read before the message is written. */}
+      {deadEnd || (unavailable && !optedOut) ? (
+        <div
+          className="flex items-start gap-2 border-t bg-amber-500/5 px-4 py-2 text-[12px] text-amber-700 dark:text-amber-400"
+          role="status"
+          data-testid="composer-warning"
+        >
+          <AlertTriangle className="mt-px size-3.5 shrink-0" />
+          <span>{deadEnd ?? unavailable}</span>
+        </div>
+      ) : null}
+
+      {/* A subject belongs to an email; it must not leave silently with anything else. */}
+      {channel !== "email" && subject.trim() ? (
+        <div className="border-t bg-amber-500/5 px-4 py-2 text-[12px] text-amber-700 dark:text-amber-400" role="status">
+          The subject line is kept for the email — {SEND_CHANNEL_LABEL[channel]} carries the message only.
+        </div>
       ) : null}
 
       <div className="flex items-end gap-3 border-t bg-muted/40 px-4 py-3">
@@ -373,17 +429,19 @@ export function Composer({
           </div>
         </div>
 
-        {/* "Send Text", with the chevron for Text / Email and the sending number. */}
+        {/* The send button, with the chevron for the three channels and the sending number. */}
         <div className="flex h-10 shrink-0 items-stretch overflow-hidden rounded-lg">
           <Button
             type="button"
             variant="brand"
             className={cn("h-10 rounded-none px-4 font-semibold", hasOptions && "border-r border-brand-foreground/25")}
             disabled={!canSubmit}
+            aria-describedby={noteId}
             onClick={() => void submit()}
           >
             {sending ? <Loader2 className="size-4 animate-spin" /> : null}
-            {SEND_LABEL[channel]}
+            {unavailable ? <AlertTriangle className="size-4" /> : null}
+            {SEND_BUTTON_LABEL[channel]}
           </Button>
           {hasOptions ? (
             <DropdownMenu>
@@ -398,22 +456,59 @@ export function Composer({
                   <ChevronUp className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" side="top" className="w-56">
-                {emailPossible ? (
+              <DropdownMenuContent align="end" side="top" className="w-72">
+                {options ? (
                   <>
                     <DropdownMenuLabel>Send as</DropdownMenuLabel>
-                    <DropdownMenuRadioGroup value={channel} onValueChange={(v) => setChannel(v as Channel)}>
-                      <DropdownMenuRadioItem value="sms">Text</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="email">Email</DropdownMenuRadioItem>
+                    <DropdownMenuRadioGroup
+                      value={channel}
+                      onValueChange={(v) => setPickedChannel(v as SendableMessageChannel)}
+                    >
+                      {/* Every channel keeps its place: one that cannot be used
+                          says so, rather than leaving the reader to wonder. */}
+                      {SENDABLE_MESSAGE_CHANNELS.map((c) => {
+                        const option = optionFor(options, c);
+                        const why = option && !option.available ? unavailableText(option.reason) : undefined;
+                        const target = describeDestination(option);
+                        const label = SEND_CHANNEL_LABEL[c];
+                        return (
+                          <DropdownMenuRadioItem
+                            key={c}
+                            value={c}
+                            disabled={!option?.available}
+                            className="items-start"
+                            // Spelled out rather than read off the two lines, so
+                            // the channel is heard before the reason it is closed.
+                            aria-label={
+                              why ? `${label} — unavailable: ${why}` : target ? `${label} to ${target.to}` : label
+                            }
+                          >
+                            <span className="flex min-w-0 flex-col">
+                              <span>{label}</span>
+                              {why ?? target ? (
+                                <span className="text-xs text-muted-foreground">{why ?? target?.to}</span>
+                              ) : null}
+                            </span>
+                          </DropdownMenuRadioItem>
+                        );
+                      })}
                     </DropdownMenuRadioGroup>
                   </>
                 ) : null}
-                {numbers && numbers.length > 0 ? (
+                {channel === "sms" && numbers && numbers.length > 0 ? (
                   <>
-                    {emailPossible ? <DropdownMenuSeparator /> : null}
+                    {options ? <DropdownMenuSeparator /> : null}
                     <DropdownMenuLabel>Send from</DropdownMenuLabel>
                     <DropdownMenuRadioGroup value={from} onValueChange={setFromNumber}>
-                      <DropdownMenuRadioItem value="auto">Best match</DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="auto">
+                        Best match
+                        {/* Which number that actually is — the chain resolved it server-side. */}
+                        {current?.from || current?.fromSource === "pool" ? (
+                          <span className="ml-auto pl-2 text-xs text-muted-foreground">
+                            {current.from ? formatPhone(current.from) : "the carrier picks"}
+                          </span>
+                        ) : null}
+                      </DropdownMenuRadioItem>
                       {numbers.map((n) => (
                         <DropdownMenuRadioItem key={n.sid} value={n.phoneNumber}>
                           {formatPhone(n.phoneNumber)}
@@ -431,11 +526,25 @@ export function Composer({
         </div>
       </div>
 
-      {optedOut ? (
-        <div className="bg-muted/40 px-4 pb-2 text-[11px] text-muted-foreground">
-          The recipient opted out; they can text START to opt back in.
-        </div>
-      ) : null}
+      {/* Under the control it belongs to: where this message is going, or why
+          it is going nowhere. A dispatcher should never have to guess either. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 bg-muted/40 px-4 pb-2 text-[11px] text-muted-foreground">
+        {optedOut ? <span>The recipient opted out; they can text START to opt back in.</span> : <span />}
+        <span id={noteId} className="min-w-0 truncate" data-testid="send-destination">
+          {unavailable ? (
+            <span className="font-medium text-amber-700 dark:text-amber-400">{unavailable}</span>
+          ) : needsSubject ? (
+            <span className="font-medium text-amber-700 dark:text-amber-400">
+              An email needs a subject — add one above.
+            </span>
+          ) : destination ? (
+            <>
+              To <span className="font-medium text-foreground">{destination.to}</span>
+              {destination.from ? ` · from ${destination.from}` : null}
+            </>
+          ) : null}
+        </span>
+      </div>
     </div>
   );
 }

@@ -209,6 +209,10 @@ export const queryKeys = {
       ["messaging", "conversations", "by-address", address] as const,
     textLookups: () => ["messaging", "text-lookup"] as const,
     textLookup: (params?: unknown) => ["messaging", "text-lookup", params] as const,
+    /** Prefix for every thread's send options — an opt-out anywhere invalidates the lot. */
+    sendOptionsAll: () => ["messaging", "send-options"] as const,
+    sendOptions: (conversationId: string) =>
+      ["messaging", "send-options", conversationId] as const,
     messages: (conversationId: string) =>
       ["messaging", "messages", "conversation", conversationId] as const,
     messagesByJob: (dealId: string) => ["messaging", "messages", "by-job", dealId] as const,

@@ -171,6 +171,26 @@ export function useTextLookup(params: TextLookupParams | undefined, enabled = tr
   });
 }
 
+/**
+ * Which channels this thread can actually send on, and to whom (design §4.4,
+ * §5, §6). Answered by the send rules themselves, so it goes stale the way
+ * they do: a STOP or an unsubscribe arrives as `opt_out.changed` and
+ * invalidates it, and the rest (a number added to the contact, a teammate's
+ * profile) is caught by the refetch on focus.
+ */
+export function useSendOptions(conversationId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.messaging.sendOptions(conversationId ?? ""),
+    queryFn: () => api.getSendOptions(conversationId as string),
+    enabled: enabled && !!conversationId,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+    // A thread the caller may read but not send in answers 403; the composer
+    // falls back to what the conversation itself proves, and the send speaks.
+    retry: false,
+  });
+}
+
 export function useMessagesByJob(dealId: string | undefined) {
   const connected = useMessagingStreamStore((s) => s.connected);
   return useInfiniteQuery({

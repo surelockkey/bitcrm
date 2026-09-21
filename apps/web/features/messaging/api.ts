@@ -2,6 +2,7 @@ import type {
   Conversation,
   ConversationKind,
   ConversationReadMarker,
+  ConversationSendOptions,
   InboxCounters,
   Message,
   MessageAttachmentType,
@@ -284,6 +285,15 @@ export function textLookup(params: TextLookupParams): Promise<TextLookupResult> 
   if (params.address) qs.set("address", params.address);
   return http.get<TextLookupResult>(`${BASE}/conversations/text-lookup?${qs.toString()}`);
 }
+
+/**
+ * What the send control may offer for this thread, resolved by the same
+ * rules the send itself runs — the recipient, the sender, both opt-out
+ * ledgers — so the composer can say "no email address on file" before the
+ * message is written instead of after it is refused.
+ */
+export const getSendOptions = (conversationId: string): Promise<ConversationSendOptions> =>
+  http.get<ConversationSendOptions>(`${BASE}/conversations/${conversationId}/send-options`);
 
 /* -------------------------------------------------------------- messages */
 
