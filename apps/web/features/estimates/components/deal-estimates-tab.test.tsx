@@ -131,6 +131,58 @@ describe("EstimateEditor — sync to job", () => {
     expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/1 item synced/));
   });
 
+  it("offers Send by text only to someone who may send both estimates and messages", async () => {
+    const { unmount } = renderWithClient(<Harness initial="e1" />);
+    await screen.findByRole("button", { name: /sync to job/i });
+    expect(screen.queryByRole("button", { name: /send by text/i })).not.toBeInTheDocument();
+    unmount();
+
+    mocks.perms.add("messages.send");
+    renderWithClient(<Harness initial="e1" />);
+    expect(await screen.findByRole("button", { name: /send by text/i })).toBeInTheDocument();
+  });
+
+  it("texts the client their portal link, marking the estimate sent first", async () => {
+    mocks.perms.add("messages.send");
+    const order: string[] = [];
+    let sms: Record<string, unknown> | undefined;
+    server.use(
+      http.get("*/crm/contacts/c1", () =>
+        HttpResponse.json({
+          success: true,
+          data: { id: "c1", firstName: "Jane", lastName: "Client", phones: ["+18605550199"], emails: [], addresses: [] },
+        }),
+      ),
+      http.get("*/billing/business-profiles", () => HttpResponse.json({ success: true, data: [] })),
+      http.post("*/billing/portal-links/c1/url", () =>
+        HttpResponse.json({
+          success: true,
+          data: { contactId: "c1", createdBy: "u", createdAt: "t", url: "https://portal.test/tok_abc", token: "tok_abc" },
+        }),
+      ),
+      http.post("*/billing/estimates/e1/mark-sent", () => {
+        order.push("mark-sent");
+        return HttpResponse.json({ success: true, data: { ...estimate, sentAt: "2026-09-16T11:00:00.000Z" } });
+      }),
+      http.post("*/messaging/messages", async ({ request }) => {
+        order.push("sms");
+        sms = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ success: true, data: { id: "m1", status: "queued" } }, { status: 202 });
+      }),
+    );
+    renderWithClient(<Harness initial="e1" />);
+    await user().click(await screen.findByRole("button", { name: /send by text/i }));
+
+    const box = (await screen.findByLabelText("Message")) as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toContain("https://portal.test/tok_abc"));
+    expect(box.value).toBe("Hi Jane, your estimate #1042-1 is ready ($80.00). View it here: https://portal.test/tok_abc");
+
+    await user().click(screen.getByRole("button", { name: /send text/i }));
+    await waitFor(() => expect(sms).toBeDefined());
+    expect(order).toEqual(["mark-sent", "sms"]);
+    expect(sms).toMatchObject({ contactId: "c1", channel: "sms", dealId: "d1", body: expect.stringContaining("tok_abc") });
+  });
+
   it("disables sync without the sync permission", async () => {
     mocks.perms.delete("estimates.sync");
     renderWithClient(<Harness initial="e1" />);

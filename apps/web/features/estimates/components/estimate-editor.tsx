@@ -8,6 +8,7 @@ import {
   Download,
   Eye,
   Loader2,
+  MessageSquareText,
   Send,
   Trash2,
   Undo2,
@@ -39,6 +40,7 @@ import { DocumentSummaryPanel } from "@/features/billing/components/document-sum
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { SentBadge } from "@/features/invoices/components/sent-badge";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
+import { SendDocumentDialog } from "@/features/portal/components/send-document-dialog";
 import { getEstimateHtml, getEstimatePdfUrl } from "../api";
 import {
   useDeleteEstimate,
@@ -80,6 +82,7 @@ export function EstimateEditor({
   const [previewing, setPreviewing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sendingText, setSendingText] = useState(false);
 
   const items = useMemo(() => estimate?.items ?? [], [estimate?.items]);
   const localTotals = useMemo(
@@ -115,6 +118,7 @@ export function EstimateEditor({
   const canEdit = can("estimates", "edit");
   const canSend = can("estimates", "send");
   const canCreate = can("estimates", "create");
+  const canText = canSend && can("messages", "send");
   const canDelete = can("estimates", "delete");
   const syncBlocked = syncBlockReason(estimate, items.length, can("estimates", "sync"));
   const jobItemCount = jobProducts?.length ?? deal.itemCount ?? 0;
@@ -197,6 +201,11 @@ export function EstimateEditor({
             >
               {markSent.isPending ? <Loader2 className="animate-spin" /> : estimate.sentAt ? <Undo2 /> : <Send />}
               {estimate.sentAt ? "Mark as unsent" : "Mark as sent"}
+            </Button>
+          ) : null}
+          {canText ? (
+            <Button variant="brand" size="sm" onClick={() => setSendingText(true)}>
+              <MessageSquareText /> Send by text
             </Button>
           ) : null}
           {canSend ? <CopyPortalLinkButton contactId={estimate.contactId} /> : null}
@@ -293,6 +302,24 @@ export function EstimateEditor({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {canText ? (
+        <SendDocumentDialog
+          open={sendingText}
+          onOpenChange={setSendingText}
+          document={{
+            kind: "estimate",
+            id: estimate.id,
+            number: estimate.number,
+            total: estimate.totals?.total ?? 0,
+            contactId: estimate.contactId,
+            dealId: deal.id,
+            businessProfileId: deal.businessProfileId,
+            alreadySent: !!estimate.sentAt,
+          }}
+          markSent={() => markSent.mutateAsync(true)}
+        />
+      ) : null}
 
       <AlertDialog open={deleting} onOpenChange={setDeleting}>
         <AlertDialogContent>
