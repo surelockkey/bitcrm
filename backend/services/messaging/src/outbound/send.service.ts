@@ -20,6 +20,7 @@ import {
   isSmsChannel,
   type Conversation,
   type ConversationKind,
+  type ConversationSendOptions,
   type JwtUser,
   type Message,
   type MessageAttachment,
@@ -27,6 +28,8 @@ import {
   type MessageStatus,
   type OptOutChannel,
   type ResolvedPermissions,
+  type SendChannelOption,
+  type SendUnavailableReason,
 } from '@bitcrm/types';
 import { UserLookupService } from '../api/access/user-lookup.service';
 import { messageSk } from '../common/constants/dynamo.constants';
@@ -218,6 +221,118 @@ export class SendService {
     if (input.contactId) return this.conversationForContact(input.contactId, input.phone);
     if (input.phone) return this.conversationForPhone(normalizePhone(input.phone));
     throw new BadRequestException('contactId or phone is required');
+  }
+
+  // -------------------------------------------------- what this thread sends
+
+  /**
+   * `GET /conversations/:id/send-options` — what the composer's send control
+   * may offer, answered before the message is typed instead of after it is
+   * refused. Every channel is resolved by the rules that would run on the
+   * send itself: `smsTarget`'s recipient (the thread's number, or the
+   * teammate's personal phone from the directory), `emailRecipient`'s
+   * address, both opt-out ledgers, `isTeamKind` for in-app, and the same
+   * sender chains — so what the dispatcher reads here is what would happen.
+   *
+   * Nothing is written: the employee's number is reported, not adopted onto
+   * the thread (`adoptPhone` belongs to the send). An unavailable channel
+   * carries the reason rather than disappearing, because "why can't I email
+   * them?" is the question the composer exists to answer. A lookup that
+   * fails costs the detail it would have added (the sender, the name), never
+   * the channel — the send remains the authority.
+   */
+  async sendOptions(conversationId: string, caller: SendCaller): Promise<ConversationSendOptions> {
+    const conversation = await this.conversations.get(conversationId);
+    if (!conversation) throw new NotFoundException('Conversation not found');
+    await this.authorise(conversation, {}, caller);
+
+    const seesNumbers = hasPermission(caller.perms, 'contacts', 'view_numbers');
+    const [inApp, sms, email] = await Promise.all([
+      this.inAppOption(conversation),
+      this.smsOption(conversation, seesNumbers),
+      this.emailOption(conversation),
+    ]);
+    // A teammate already has the app open, so their thread leads with the
+    // in-app line; a client has no app at all and leads with the text.
+    const channels = isTeamKind(conversation.kind) ? [inApp, sms, email] : [sms, email, inApp];
+    return {
+      conversationId: conversation.id,
+      defaultChannel: channels.find((c) => c.available)?.channel,
+      channels,
+    };
+  }
+
+  /** In-app is a line in a team / group thread (design §6) — a client has no app to receive it. */
+  private async inAppOption(conversation: Conversation): Promise<SendChannelOption> {
+    if (!isTeamKind(conversation.kind)) {
+      return { channel: 'in_app', available: false, reason: 'not_a_team_thread' };
+    }
+    const toName =
+      conversation.kind === 'group'
+        ? conversation.name
+        : conversation.partyId
+          ? await this.senderName(conversation.partyId)
+          : undefined;
+    return { channel: 'in_app', available: true, toName };
+  }
+
+  /** The number `prepareSms` would text, the STOP list, and the sender the chain would pick. */
+  private async smsOption(conversation: Conversation, seesNumbers: boolean): Promise<SendChannelOption> {
+    const target = await this.smsTargetPreview(conversation);
+    if (typeof target === 'string') return { channel: 'sms', available: false, reason: target };
+
+    const option: SendChannelOption = { channel: 'sms', available: true, toName: target.toName };
+    if (seesNumbers) option.to = target.to;
+    else option.toMasked = true;
+
+    if (await this.optOuts.isOptedOut('sms', target.to)) {
+      return { ...option, available: false, reason: 'opted_out_sms' };
+    }
+    // The employee path deliberately passes no job: a teammate is texted from
+    // the workspace number, never the job's tracking line (design §6).
+    const sender = await this.sender
+      .resolve({ conversation, dealId: target.employee ? undefined : conversation.lastDealId })
+      .catch((error) => {
+        this.logger.warn(`sender preview for ${conversation.id} failed: ${error instanceof Error ? error.message : error}`);
+        return undefined;
+      });
+    return { ...option, from: sender?.from, fromSource: sender?.source };
+  }
+
+  /**
+   * `smsTarget` without its writes: where the text would go, or the reason
+   * there is nowhere. A directory that cannot answer reads as `employee_unknown`
+   * — the send would 503, so offering the channel as ready would be a lie.
+   */
+  private async smsTargetPreview(
+    conversation: Conversation,
+  ): Promise<{ to: string; toName?: string; employee: boolean } | SendUnavailableReason> {
+    if (conversation.partyKind === 'user' && conversation.partyId && this.users) {
+      const teammate = await this.users.find(conversation.partyId).catch((error) => {
+        this.logger.warn(`user ${conversation.partyId} lookup failed: ${error instanceof Error ? error.message : error}`);
+        return null;
+      });
+      if (!teammate) return 'employee_unknown';
+      const phone = teammate.phone ? tryNormalizePhone(teammate.phone) : undefined;
+      return phone ? { to: phone, toName: teammate.name, employee: true } : 'employee_has_no_phone';
+    }
+    const phone = conversation.addresses?.phones?.[0];
+    return phone ? { to: phone, employee: conversation.partyKind === 'user' } : 'no_phone';
+  }
+
+  /** The address `prepareEmail` would write to, the unsubscribe ledger, and the `From` SES would show. */
+  private async emailOption(conversation: Conversation): Promise<SendChannelOption> {
+    if (!this.email?.configured) return { channel: 'email', available: false, reason: 'email_not_configured' };
+    const to = conversation.addresses?.emails?.[0];
+    if (!to) return { channel: 'email', available: false, reason: 'no_email' };
+    if (await this.optOuts.isOptedOut('email', to)) {
+      return { channel: 'email', available: false, reason: 'opted_out_email', to };
+    }
+    const sender = await this.email.resolve(conversation.id).catch(() => null);
+    // `prepareEmail` answers 501 when the resolver yields no address, so the
+    // option says the same rather than promising a send that cannot happen.
+    if (!sender) return { channel: 'email', available: false, reason: 'email_not_configured', to };
+    return { channel: 'email', available: true, to, from: sender.from };
   }
 
   // --------------------------------------------------------------- resend

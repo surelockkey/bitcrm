@@ -262,6 +262,12 @@ export {
   EMPTY_TEAM_CHAT_COUNTERS,
 } from './entities/inbox-counters.entity';
 export type { InboxCounters, InboxTotals, TeamChatCounters } from './entities/inbox-counters.entity';
+export { SEND_UNAVAILABLE_REASONS } from './entities/send-options.entity';
+export type {
+  ConversationSendOptions,
+  SendChannelOption,
+  SendUnavailableReason,
+} from './entities/send-options.entity';
 export { BUILTIN_AUTOMATION_RULE_IDS } from './entities/automation-rule.entity';
 export type { AutomationRule, BuiltinAutomationRuleId } from './entities/automation-rule.entity';
 export {

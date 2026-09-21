@@ -24,6 +24,25 @@ describe('SendController', () => {
     }
   });
 
+  it('declares send-options as the one GET, under the same messages.send grant as the sends it describes', () => {
+    const handler = SendController.prototype.sendOptions;
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('conversations/:id/send-options');
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'messages', action: 'send' });
+    // A read answers 200, not the 202 the sends use.
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, handler)).toBeUndefined();
+  });
+
+  it('GET /conversations/:id/send-options — hands the id and the caller to the service, wraps the answer', async () => {
+    const options = { conversationId: 'c1', defaultChannel: 'sms' as const, channels: [] };
+    const sendOptions = jest.fn().mockResolvedValue(options);
+    const controller = new SendController({ sendOptions } as unknown as SendService);
+    const perms = adminPerms();
+
+    expect(await controller.sendOptions('c1', ADMIN, perms)).toEqual({ success: true, data: options });
+    expect(sendOptions).toHaveBeenCalledWith('c1', { user: ADMIN, perms });
+  });
+
   it('POST /conversations/:id/messages/:messageId/resend — hands the ids, the body and the caller to the service, wraps the copy', async () => {
     const copy = createMockMessage({ id: 'm-new', direction: 'outbound', status: 'queued', resentFromMessageId: 'm-fail' });
     const resend = jest.fn().mockResolvedValue(copy);
