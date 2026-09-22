@@ -57,9 +57,10 @@ locals {
   email_rule_set       = "${var.project}-${var.environment}-messaging"
 
   # ARNs the task policy needs without forcing the resources to exist first.
-  email_identity_arn   = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/${var.messaging_email_domain}"
-  email_config_set_arn = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:configuration-set/${local.email_config_set}"
-  email_rule_set_arn   = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:receipt-rule-set/${local.email_rule_set}"
+  email_identity_arn_prefix = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/"
+  email_identity_arn        = "${local.email_identity_arn_prefix}${var.messaging_email_domain}"
+  email_config_set_arn      = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:configuration-set/${local.email_config_set}"
+  email_rule_set_arn        = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:receipt-rule-set/${local.email_rule_set}"
 
   # Splat + merge/flatten read as empty when the module / resource has count 0,
   # so outputs and SSM parameters below never index a missing instance.

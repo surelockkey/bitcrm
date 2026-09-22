@@ -463,13 +463,22 @@ data "aws_iam_policy_document" "task_messaging" {
   # inbound mail SES writes under messaging/inbound-email/ is already readable
   # through S3MessagingObjects (messaging/*), and the two email queues are
   # SNS-fed, so the task only consumes them.
+  #
+  # The address identities matter too: once someone verifies a single address
+  # on the domain (system@, office@ — the owner did, for the sandbox), SES
+  # authorises a send from it against that address's own identity ARN, not the
+  # domain's, and a policy naming only the domain answers AccessDenied.
   dynamic "statement" {
     for_each = local.email_enabled ? [1] : []
     content {
-      sid       = "SESSendEmail"
-      effect    = "Allow"
-      actions   = ["ses:SendEmail", "ses:SendRawEmail"]
-      resources = [local.email_identity_arn, local.email_config_set_arn]
+      sid     = "SESSendEmail"
+      effect  = "Allow"
+      actions = ["ses:SendEmail", "ses:SendRawEmail"]
+      resources = [
+        local.email_identity_arn,
+        "${local.email_identity_arn_prefix}*@${local.email_domain}",
+        local.email_config_set_arn,
+      ]
     }
   }
 
