@@ -39,13 +39,19 @@ variable "messaging_email_from_local_part" {
   default     = "office"
 }
 
+variable "messaging_mail_from_subdomain" {
+  description = "Subdomain of messaging_email_domain SES uses as the MAIL FROM (bounce) domain. Must be a name nothing else holds: a CNAME there (Google Workspace parks `mail.` on ghs.googlehosted.com) cannot share the name with the MX + TXT SES needs."
+  type        = string
+  default     = "mail"
+}
+
 locals {
   email_enabled = var.messaging_email_domain != ""
 
   email_domain         = var.messaging_email_domain
   email_reply_domain   = "${var.messaging_reply_subdomain}.${var.messaging_email_domain}"
   email_from_address   = "${var.messaging_email_from_local_part}@${var.messaging_email_domain}"
-  email_mail_from      = "mail.${var.messaging_email_domain}"
+  email_mail_from      = "${var.messaging_mail_from_subdomain}.${var.messaging_email_domain}"
   email_inbound_prefix = "messaging/inbound-email/"
   email_config_set     = "${var.project}-${var.environment}-messaging"
   email_rule_set       = "${var.project}-${var.environment}-messaging"

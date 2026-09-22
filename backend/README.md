@@ -170,7 +170,14 @@ into its `conversation` documents (M15) and reads the messaging internal
 routes for the backfill — see `services/search/DEPLOY.md`; a rolled-back
 messaging leaves those documents stale, not broken.
 
-### Email over SES (M17/M18 — `infra/dev/email.tf`, not yet applied)
+### Email over SES (M17/M18 — `infra/dev/email.tf`)
+
+Applied on dev 2026-09-22 with `messaging_email_domain = "surelockkey.com"`,
+`messaging_email_from_local_part = "system"` and `messaging_mail_from_subdomain
+= "ses"` (the DNS zone is in the same account; `mail.surelockkey.com` is Google
+Workspace's Gmail CNAME, so the MAIL FROM lives on `ses.`). The tfvars are
+local (`*.auto.tfvars` is gitignored) — re-create them before the next plan or
+it will tear the email resources down.
 
 Email history and new mail sit in the same conversation thread as SMS
 (design §5, variant A). Everything in `email.tf` is gated on
@@ -182,7 +189,7 @@ domain (O12). No code path requires it either — without `MESSAGING_EMAIL_FROM`
 | Resource | Name | Notes |
 |---|---|---|
 | SES domain identity + Easy DKIM | `<domain>` | `aws_sesv2_email_identity`; verifies once the three DKIM CNAMEs resolve |
-| SES MAIL FROM | `mail.<domain>` | SPF alignment for DMARC; falls back to SES's own on MX failure |
+| SES MAIL FROM | `<var.messaging_mail_from_subdomain>.<domain>` (default `mail.`) | SPF alignment for DMARC; falls back to SES's own on MX failure. Pick a name nothing else holds — a CNAME there cannot share the name with the MX + TXT |
 | SES configuration set | `bitcrm-dev-messaging` | event destination → SNS `bitcrm-dev-messaging-email-events` (Send, Reject, Bounce, Complaint, Delivery, Open, Click, RenderingFailure, DeliveryDelay) |
 | SNS + SQS | `bitcrm-dev-messaging-email-events` + `-dlq` | SES events → message status; permanent bounce / complaint → `OPTOUT#email#` |
 | SES receipt rule set + rule | `bitcrm-dev-messaging` / `…-inbound` | recipients `<reply>.<domain>`; S3 action into the app bucket under `messaging/inbound-email/`, notifying SNS `bitcrm-dev-messaging-inbound-email`. **Activating it makes it the account's one active rule set in the region** |
@@ -205,7 +212,8 @@ Rollout, once the owner has decided the domain (O12):
 
 1. `cd infra/dev && terraform plan -var messaging_email_domain=<domain> -out tfplan`
    (add `-var messaging_reply_subdomain=…` / `-var messaging_email_from_local_part=…`
-   to change the defaults `reply` / `office`). Expect only the resources
+   / `-var messaging_mail_from_subdomain=…` to change the defaults `reply` /
+   `office` / `mail`). Expect only the resources
    above plus the SSM parameters and two in-place updates of the messaging
    task role policy. Put the variables in a `*.auto.tfvars` so later plans
    keep them. Then `terraform apply tfplan`.
@@ -213,8 +221,8 @@ Rollout, once the owner has decided the domain (O12):
    prints, at the domain's registrar / zone (the identity stays *pending*
    until the DKIM CNAMEs resolve; SES checks for up to 72 h):
    - three `CNAME` `<token>._domainkey.<domain>` → `<token>.dkim.amazonses.com` (DKIM),
-   - `MX mail.<domain>` → `10 feedback-smtp.us-east-1.amazonses.com` and
-     `TXT mail.<domain>` → `v=spf1 include:amazonses.com ~all` (MAIL FROM / SPF),
+   - `MX <mailfrom>.<domain>` → `10 feedback-smtp.us-east-1.amazonses.com` and
+     `TXT <mailfrom>.<domain>` → `v=spf1 include:amazonses.com ~all` (MAIL FROM / SPF),
    - `MX <reply>.<domain>` → `10 inbound-smtp.us-east-1.amazonaws.com` (replies into the inbox),
    - `TXT _dmarc.<domain>` → `v=DMARC1; p=none; rua=mailto:office@<domain>` (tighten to `quarantine` later).
    If the domain is a subdomain of `tech-slk.com` the records can go into the
