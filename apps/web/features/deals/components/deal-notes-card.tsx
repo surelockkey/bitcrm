@@ -1,5 +1,6 @@
 "use client";
 
+import { cloneElement, useId } from "react";
 import { Lock } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,7 @@ export function DealNotesCard({
 
       {editable ? (
         <div className="space-y-3">
-          <Field label="Note">
+          <Field label="Job note">
             <Textarea rows={3} value={notes} placeholder="Notes visible to the team…" onChange={(e) => onNotesChange(e.target.value)} />
           </Field>
           <Field label="Dispatcher note" hint="Internal — technicians can't edit this.">
@@ -38,7 +39,7 @@ export function DealNotesCard({
         </div>
       ) : (
         <div className="space-y-3">
-          <NoteBlock label="Note" value={notes} />
+          <NoteBlock label="Job note" value={notes} />
           <NoteBlock label="Dispatcher note" value={internalNotes} tone="warn" icon={<Lock className="size-3" />} />
           <p className="text-[11px] text-muted-foreground">Notes are managed by dispatch.</p>
         </div>
@@ -47,13 +48,34 @@ export function DealNotesCard({
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/**
+ * The hint sits outside the label and is attached with `aria-describedby`:
+ * inside it, "Internal — technicians can't edit this." became part of the
+ * field's name, so the two notes were no longer told apart by name.
+ */
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactElement<{ id?: string; "aria-describedby"?: string }>;
+}) {
+  const id = useId();
+  const hintId = `${id}-hint`;
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
-      {children}
-      {hint ? <span className="mt-1 block text-[11px] text-muted-foreground">{hint}</span> : null}
-    </label>
+    <div className="block">
+      <label htmlFor={id} className="mb-1 block text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
+      {cloneElement(children, { id, ...(hint ? { "aria-describedby": hintId } : {}) })}
+      {hint ? (
+        <span id={hintId} className="mt-1 block text-[11px] text-muted-foreground">
+          {hint}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
