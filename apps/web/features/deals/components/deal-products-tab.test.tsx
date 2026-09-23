@@ -74,6 +74,7 @@ const deal: Deal = {
 };
 
 const line = (over: Partial<DealProduct> = {}): DealProduct => ({
+  lineId: "line-1",
   productId: "p1",
   name: "Kwikset Deadbolt",
   sku: "KW-1",
@@ -126,7 +127,8 @@ describe("DealProductsTab (editable items)", () => {
 
     await u.click(screen.getByRole("button", { name: /remove kwikset deadbolt/i }));
 
-    expect(mocks.remove).toHaveBeenCalledWith("p1");
+    // The line is addressed by its own id, not by the product it names.
+    expect(mocks.remove).toHaveBeenCalledWith("line-1");
     expect(lastDialog().open).toBe(false);
     expect(lastDialog().editing).toBeUndefined();
   });
@@ -153,7 +155,7 @@ describe("DealProductsTab (taxes)", () => {
     expect(box).toBeChecked();
     await u.click(box);
 
-    expect(mocks.setTaxable).toHaveBeenCalledWith({ productId: "p1", taxable: false });
+    expect(mocks.setTaxable).toHaveBeenCalledWith({ lineId: "line-1", taxable: false });
     expect(lastDialog().open).toBe(false);
   });
 

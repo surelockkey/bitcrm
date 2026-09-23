@@ -53,6 +53,7 @@ const deadbolt = product({});
 const schlage = product({ id: "p2", sku: "SC-2", name: "Schlage Lever", priceClient: 60 });
 
 const editingLine: DealProduct = {
+  lineId: "line-1",
   productId: "p1",
   name: "Kwikset Deadbolt",
   sku: "KW-1",
@@ -100,7 +101,7 @@ describe("AddProductDialog (edit mode)", () => {
     expect(screen.getByDisplayValue("40")).toBeInTheDocument(); // negotiated price
   });
 
-  it("saves an in-place edit through replace, keyed by the original product", async () => {
+  it("saves an in-place edit through replace, keyed by the line", async () => {
     const u = user();
     render(dialog(editingLine));
 
@@ -109,7 +110,7 @@ describe("AddProductDialog (edit mode)", () => {
 
     expect(mocks.replace).toHaveBeenCalledTimes(1);
     expect(mocks.replace.mock.calls[0][0]).toMatchObject({
-      productId: "p1",
+      lineId: "line-1",
       body: {
         productId: "p1",
         quantity: 3,
@@ -137,7 +138,7 @@ describe("AddProductDialog (edit mode)", () => {
 
     expect(mocks.replace).toHaveBeenCalledTimes(1);
     expect(mocks.replace.mock.calls[0][0]).toMatchObject({
-      productId: "p1", // the line being replaced
+      lineId: "line-1", // the line being edited — a swap keeps its id
       body: { productId: "p2", priceClient: 60, fulfillment: "sourced" },
     });
   });

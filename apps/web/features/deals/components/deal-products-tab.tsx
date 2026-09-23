@@ -127,7 +127,7 @@ export function DealProductsTab({
             <tbody>
               {items.map((p) => (
                 <tr
-                  key={p.productId}
+                  key={p.lineId}
                   className={cn("border-b last:border-0", canEdit && "cursor-pointer hover:bg-accent/30")}
                   onClick={canEdit ? () => setEditing(p) : undefined}
                 >
@@ -156,7 +156,7 @@ export function DealProductsTab({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          markOrdered.mutate({ productId: p.productId, ordered: !p.orderedAt });
+                          markOrdered.mutate({ lineId: p.lineId, ordered: !p.orderedAt });
                         }}
                         disabled={markOrdered.isPending}
                         className={cn(
@@ -177,7 +177,7 @@ export function DealProductsTab({
                       checked={p.taxable !== false}
                       disabled={!canEdit}
                       onCheckedChange={(v) =>
-                        setTaxable.mutate({ productId: p.productId, taxable: v === true })
+                        setTaxable.mutate({ lineId: p.lineId, taxable: v === true })
                       }
                       aria-label={`${p.name} is taxable`}
                     />
@@ -186,7 +186,7 @@ export function DealProductsTab({
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.productId); }}
+                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.lineId); }}
                         disabled={remove.isPending}
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${p.name}`}
