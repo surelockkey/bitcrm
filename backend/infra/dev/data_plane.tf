@@ -17,11 +17,15 @@ locals {
     contacts = { gsis = [
       { name = "CompanyIndex", n = 1 },
     ] }
+    # StatusScheduleIndex keys the visit date under each status
+    # (STATUS#<s> / <date|UNSCHED>#<slot|~>#DEAL#<id>), so the jobs list, the
+    # board and the schedule read a window of days instead of the whole table.
     deals = { gsis = [
       { name = "StageIndex", n = 1 },
       { name = "TechIndex", n = 2 },
       { name = "ContactIndex", n = 3 },
       { name = "DispatcherIndex", n = 4 },
+      { name = "StatusScheduleIndex", n = 5 },
     ] }
     # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
     # own history; AllCallsIndex is the global time-ordered log the calls page

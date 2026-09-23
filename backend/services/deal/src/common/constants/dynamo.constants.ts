@@ -3,6 +3,14 @@ export const DEALS_GSI1_NAME = 'StageIndex';
 export const DEALS_GSI2_NAME = 'TechIndex';
 export const DEALS_GSI3_NAME = 'ContactIndex';
 export const DEALS_GSI4_NAME = 'DispatcherIndex';
+/**
+ * GSI5PK = STATUS#<superStatus>, GSI5SK = <scheduledDate|UNSCHED>#<slotStart|~>#DEAL#<id>.
+ * The visit date as a key: the jobs list, the board and the schedule read a
+ * window of days per status instead of the whole table. Written by
+ * `statusScheduleKeys()` on every create / scheduling update, and by the
+ * Workiz importer with the same shape.
+ */
+export const DEALS_GSI5_NAME = 'StatusScheduleIndex';
 
 // Job attachments (photos/files): PK=DEAL#<id>, SK=ATTACH#<attachmentId>.
 export const DEAL_ATTACHMENT_SK_PREFIX = 'ATTACH#';

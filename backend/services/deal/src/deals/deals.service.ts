@@ -16,6 +16,7 @@ import {
 } from '@bitcrm/shared';
 import {
   JobSuperStatus,
+  SUPER_STATUS_ORDER,
   TERMINAL_SUPER_STATUSES,
   CLOSED_SUPER_STATUSES,
   DataScope,
@@ -37,7 +38,13 @@ import {
   DealEventType,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
-import { DealsRepository, type DealFilters, type DealUpdate } from './deals.repository';
+import {
+  DealsRepository,
+  type DealFilters,
+  type DealUpdate,
+  type ScheduleWindow,
+  type SortDir,
+} from './deals.repository';
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
@@ -527,7 +534,24 @@ export class DealsService {
       // status index answers, and an `assigned_only` caller must still see
       // just their own jobs in it.
       techId: query.techId,
+      subStatusId: query.subStatusId || undefined,
+      hourFrom: this.parseHour(query.hourFrom, 'hourFrom'),
+      hourTo: this.parseHour(query.hourTo, 'hourTo'),
     };
+
+    // A visit-date window, the undated tab or a schedule sort: the schedule
+    // index answers, one status or all of them merged.
+    const window = this.parseScheduleWindow(query);
+    if (window) {
+      const statuses = query.superStatus
+        ? [query.superStatus]
+        : window.unscheduled
+          // An undated closed job is not a tab anywhere — Workiz shows none.
+          ? SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s))
+          : SUPER_STATUS_ORDER;
+      const dir: SortDir = query.dir === 'desc' ? 'desc' : 'asc';
+      return this.repository.findBySchedule(statuses, window, limit, query.cursor, filters, dir);
+    }
 
     // The most selective key picks the index; the technician, when present,
     // rides along as a filter (see `DealFilters.techId`). The tech index is
@@ -557,6 +581,39 @@ export class DealsService {
    * attribute); "#K4T9ZW"/"k4t9zw" → random 6-char code, uppercased. Anything
    * else (names, partial words) is not a Job ID search.
    */
+  /**
+   * The schedule window of a list query, or undefined when the query does
+   * not touch the schedule index. Days are `YYYY-MM-DD`; `scheduledFrom`
+   * alone is that one day; a span is capped at 31 days so no request can
+   * page a whole status partition by accident.
+   */
+  private parseScheduleWindow(query: ListDealsQueryDto): ScheduleWindow | undefined {
+    const unscheduled = query.unscheduled === true || query.unscheduled === 'true';
+    const from = this.parseDay(query.scheduledFrom, 'scheduledFrom');
+    const to = this.parseDay(query.scheduledTo, 'scheduledTo') ?? from;
+    if (!unscheduled && !from && query.sort !== 'schedule') return undefined;
+    if (from && to) {
+      if (to < from) throw new BadRequestException('scheduledTo is before scheduledFrom');
+      const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+      if (days > 30) throw new BadRequestException('The visit-date window is at most 31 days');
+    }
+    return { from, to, unscheduled };
+  }
+
+  private parseDay(value: string | undefined, field: string): string | undefined {
+    if (!value) return undefined;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+      throw new BadRequestException(`${field} must be a YYYY-MM-DD date`);
+    }
+    return value;
+  }
+
+  private parseHour(value: string | undefined, field: string): string | undefined {
+    if (!value) return undefined;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new BadRequestException(`${field} must be HH:MM`);
+    return value;
+  }
+
   private parseDealNumberSearch(search?: string): string | number | undefined {
     if (!search) return undefined;
     const token = search.replace(/^#/, '');
