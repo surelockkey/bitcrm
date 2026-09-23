@@ -52,6 +52,9 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 // Catalog widgets fetch via react-query; stub them so the page renders without
 // a QueryClient. None are relevant to the single-save flow.
+// The catalogs the page now asks for up front have their own test; here they
+// are simply in, so the page renders.
+vi.mock("../job-page-catalogs", () => ({ useJobPageCatalogs: () => ({ ready: true }) }));
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 // Interactive stubs: a click drives the field's onChange so a test can prove the
