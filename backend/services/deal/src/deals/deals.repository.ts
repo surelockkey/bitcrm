@@ -23,6 +23,7 @@ import {
   DEALS_GSI2_NAME,
   DEALS_GSI3_NAME,
   DEALS_GSI4_NAME,
+  DEALS_GSI5_NAME,
 } from '../common/constants/dynamo.constants';
 import { generateDealNumberCode } from './deal-number.util';
 
@@ -30,6 +31,45 @@ export interface PaginatedResult {
   items: Deal[];
   nextCursor?: string;
 }
+
+/** A window on the schedule index: a span of visit days, or the undated ones. */
+export interface ScheduleWindow {
+  /** YYYY-MM-DD, inclusive. */
+  from?: string;
+  /** YYYY-MM-DD, inclusive. */
+  to?: string;
+  /** Only deals with no `scheduledDate`. Wins over `from` / `to`. */
+  unscheduled?: boolean;
+}
+
+export type SortDir = 'asc' | 'desc';
+
+/** The sort key of an undated deal — 'U' sorts after every digit, so they come last ascending. */
+const UNSCHEDULED = 'UNSCHED';
+
+/**
+ * The StatusScheduleIndex keys of a deal, plus `slotStart` — the `HH:MM`
+ * the visit opens with, kept as its own attribute so an hour-of-day filter
+ * is one BETWEEN. An all-day or slotless visit sorts under `~`, after the
+ * timed ones of that day. The Workiz importer writes the very same shape.
+ */
+export function statusScheduleKeys(deal: {
+  id: string;
+  superStatus: JobSuperStatus;
+  scheduledDate?: string;
+  scheduledTimeSlot?: string;
+  allDay?: boolean;
+}): { GSI5PK: string; GSI5SK: string; slotStart: string | undefined } {
+  const slotStart = !deal.allDay && deal.scheduledTimeSlot ? deal.scheduledTimeSlot.slice(0, 5) : undefined;
+  return {
+    GSI5PK: `STATUS#${deal.superStatus}`,
+    GSI5SK: `${deal.scheduledDate || UNSCHEDULED}#${slotStart ?? '~'}#DEAL#${deal.id}`,
+    slotStart,
+  };
+}
+
+/** The deal attributes the schedule index is computed from. */
+const SCHEDULE_KEY_FIELDS: ReadonlySet<string> = new Set(['superStatus', 'scheduledDate', 'scheduledTimeSlot', 'allDay']);
 
 /** Secondary (non-index) filters applied on top of the primary query/scan. */
 export interface DealFilters {
@@ -44,6 +84,16 @@ export interface DealFilters {
   dealNumber?: string | number;
   /** Billing: jobs with at least one line item and no invoice yet. */
   needsInvoice?: boolean;
+  /**
+   * Only deals this technician is assigned to. On the status / contact /
+   * dispatcher indexes it is a `contains(assignedTechIds)` filter; on the
+   * tech index it is the key itself and is ignored.
+   */
+  techId?: string;
+  subStatusId?: string;
+  /** Hour-of-day window on `slotStart` (`HH:MM`, inclusive). Undated / all-day visits never match. */
+  hourFrom?: string;
+  hourTo?: string;
 }
 
 /**
@@ -139,6 +189,21 @@ export class DealsRepository {
         values[`:tag${i}`] = t;
       });
     }
+    // The technician narrows any index that is not already keyed by them —
+    // this is how `assigned_only` holds on the status / contact / dispatcher
+    // queries instead of only on the tech index.
+    if (filters?.techId) {
+      parts.push('contains(#assignedTechIds, :techId)');
+      names['#assignedTechIds'] = 'assignedTechIds';
+      values[':techId'] = filters.techId;
+    }
+    if (filters?.subStatusId) eq('subStatusId', filters.subStatusId);
+    if (filters?.hourFrom || filters?.hourTo) {
+      names['#slotStart'] = 'slotStart';
+      values[':hourFrom'] = filters.hourFrom ?? '00:00';
+      values[':hourTo'] = filters.hourTo ?? '23:59';
+      parts.push('#slotStart BETWEEN :hourFrom AND :hourTo');
+    }
     return { expression: parts.join(' AND '), names, values };
   }
 
@@ -158,6 +223,13 @@ export class DealsRepository {
     if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     if (filters?.needsInvoice && (!(deal.itemCount && deal.itemCount > 0) || deal.invoiceId)) return false;
+    if (filters?.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
+    if (filters?.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
+    if (filters?.hourFrom || filters?.hourTo) {
+      const { slotStart } = statusScheduleKeys(deal);
+      if (!slotStart) return false;
+      if (slotStart < (filters.hourFrom ?? '00:00') || slotStart > (filters.hourTo ?? '23:59')) return false;
+    }
     return true;
   }
 
@@ -175,6 +247,7 @@ export class DealsRepository {
           GSI3SK: `${deal.createdAt}#DEAL#${deal.id}`,
           GSI4PK: `DISPATCHER#${deal.assignedDispatcherId}`,
           GSI4SK: `${deal.createdAt}#DEAL#${deal.id}`,
+          ...statusScheduleKeys(deal),
           ...deal,
         },
         ConditionExpression: 'attribute_not_exists(PK)',
@@ -219,6 +292,164 @@ export class DealsRepository {
       items: (result.Items || []).map((i) => this.toDeal(i)),
       nextCursor: this.encodeCursor(result.LastEvaluatedKey),
     };
+  }
+
+  /**
+   * Deals in visit-date order, from the StatusScheduleIndex: one status is
+   * one query; several statuses are one query each, merged in key order
+   * with a per-status cursor (a `{status: lastKey}` map, base64url) so every
+   * partition resumes exactly after its last consumed row. Each partition is
+   * asked for a full page and only the merged head is kept — a few rows over
+   * the fetch, never a partition read past what the page needs.
+   */
+  async findBySchedule(
+    superStatuses: JobSuperStatus[],
+    window: ScheduleWindow,
+    limit: number,
+    cursor?: string,
+    filters?: DealFilters,
+    dir: SortDir = 'asc',
+  ): Promise<PaginatedResult> {
+    const f = this.dealFilterExpression(filters);
+    const key = this.scheduleKeyCondition(window);
+    const cursors = this.decodeStatusCursors(cursor, superStatuses);
+
+    const pages = await Promise.all(
+      superStatuses.map(async (status) => {
+        // 'done' marks a partition already read to its end on an earlier page.
+        if (cursors[status] === 'done') {
+          return { status, items: [] as Record<string, unknown>[], lastEvaluatedKey: undefined as Record<string, unknown> | undefined };
+        }
+        const result = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: DEALS_GSI5_NAME,
+            KeyConditionExpression: key.expression,
+            FilterExpression: f.expression,
+            ExpressionAttributeNames: f.names,
+            ExpressionAttributeValues: { ':pk': `STATUS#${status}`, ...key.values, ...f.values },
+            ScanIndexForward: dir === 'asc',
+            Limit: limit,
+            ExclusiveStartKey: cursors[status] as Record<string, unknown> | undefined,
+          }),
+        );
+        return { status, items: result.Items ?? [], lastEvaluatedKey: result.LastEvaluatedKey };
+      }),
+    );
+
+    if (superStatuses.length === 1) {
+      const [page] = pages;
+      return {
+        items: page.items.map((i) => this.toDeal(i)),
+        nextCursor: page.lastEvaluatedKey ? this.encodeStatusCursors({ [page.status]: page.lastEvaluatedKey }) : undefined,
+      };
+    }
+
+    // k-way merge on GSI5SK; each status keeps its own position.
+    const heads = pages.map((p) => ({ ...p, pos: 0 }));
+    const taken: Record<string, unknown>[] = [];
+    const before = (a: string, b: string) => (dir === 'asc' ? a < b : a > b);
+    while (taken.length < limit) {
+      let best: (typeof heads)[number] | undefined;
+      for (const h of heads) {
+        if (h.pos >= h.items.length) continue;
+        if (!best || before(h.items[h.pos].GSI5SK as string, best.items[best.pos].GSI5SK as string)) best = h;
+      }
+      if (!best) break;
+      taken.push(best.items[best.pos]);
+      best.pos += 1;
+    }
+
+    const next: Record<string, unknown> = {};
+    let anyLeft = false;
+    for (const h of heads) {
+      if (h.pos >= h.items.length) {
+        // Everything fetched was consumed (or nothing came back): resume where
+        // DynamoDB stopped — which also steps past a page the filter emptied —
+        // or close the partition when it read to its end.
+        if (!h.lastEvaluatedKey) {
+          next[h.status] = 'done';
+          continue;
+        }
+        next[h.status] = h.lastEvaluatedKey;
+      } else {
+        // Part of the fetch made the page: resume right after the last consumed
+        // row, or from the same start when none of this partition was taken.
+        next[h.status] = h.pos > 0 ? this.indexKeyOf(h.items[h.pos - 1]) : (cursors[h.status] ?? null);
+      }
+      anyLeft = true;
+    }
+    return {
+      items: taken.map((i) => this.toDeal(i)),
+      nextCursor: anyLeft ? this.encodeStatusCursors(next) : undefined,
+    };
+  }
+
+  /**
+   * How many deals of one status fall in a schedule window, with the same
+   * filters the list applies — a `Select: COUNT` walked to the end of the
+   * range. It reads every row of the range, so the caller keeps the range
+   * bounded (a closed status without a window is never counted).
+   */
+  async countBySchedule(superStatus: JobSuperStatus, window: ScheduleWindow, filters?: DealFilters): Promise<number> {
+    const f = this.dealFilterExpression(filters);
+    const key = this.scheduleKeyCondition(window);
+    let count = 0;
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI5_NAME,
+          KeyConditionExpression: key.expression,
+          FilterExpression: f.expression,
+          ExpressionAttributeNames: f.names,
+          ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...key.values, ...f.values },
+          Select: 'COUNT',
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      count += result.Count ?? 0;
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+    return count;
+  }
+
+  /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
+  private scheduleKeyCondition(window: ScheduleWindow): { expression: string; values: Record<string, unknown> } {
+    if (window.unscheduled) {
+      return { expression: 'GSI5PK = :pk AND begins_with(GSI5SK, :unsched)', values: { ':unsched': `${UNSCHEDULED}#` } };
+    }
+    if (window.from || window.to) {
+      // '#~~' sits above both a timed ('#09:00#…') and an all-day ('#~#…') row of that day.
+      return {
+        expression: 'GSI5PK = :pk AND GSI5SK BETWEEN :from AND :to',
+        values: { ':from': `${window.from ?? '0000-00-00'}#`, ':to': `${window.to ?? '9999-12-31'}#~~` },
+      };
+    }
+    return { expression: 'GSI5PK = :pk', values: {} };
+  }
+
+  /** The ExclusiveStartKey a GSI5 row resumes from: table keys plus index keys. */
+  private indexKeyOf(item: Record<string, unknown>): Record<string, unknown> {
+    return { PK: item.PK, SK: item.SK, GSI5PK: item.GSI5PK, GSI5SK: item.GSI5SK };
+  }
+
+  private encodeStatusCursors(cursors: Record<string, unknown>): string {
+    return Buffer.from(JSON.stringify(cursors)).toString('base64url');
+  }
+
+  /**
+   * A per-status cursor map; a plain single-status cursor from before is also
+   * accepted for that one status. A `null` entry means "from the start".
+   */
+  private decodeStatusCursors(cursor: string | undefined, statuses: JobSuperStatus[]): Record<string, unknown> {
+    const decoded = this.decodeCursor(cursor);
+    if (!decoded) return {};
+    if ('PK' in decoded && statuses.length === 1) return { [statuses[0]]: decoded };
+    const out: Record<string, unknown> = {};
+    for (const s of statuses) if (decoded[s] != null) out[s] = decoded[s];
+    return out;
   }
 
   /**
@@ -603,6 +834,11 @@ export class DealsRepository {
     };
   }
 
+  /** The deals of a set of ids, in the order asked; missing ones are absent. */
+  async findByIds(ids: string[]): Promise<Deal[]> {
+    return this.batchGetDeals(ids);
+  }
+
   private async batchGetDeals(ids: string[]): Promise<Deal[]> {
     if (!ids.length) return [];
     const deals: Deal[] = [];
@@ -677,6 +913,34 @@ export class DealsRepository {
       }),
     );
 
+    // The schedule index key is built from four attributes, and a partial
+    // update knows only the ones it carries — so it is restamped from the
+    // row as it stands after the write, in a second, cheap write that only
+    // scheduling / status changes pay for.
+    if (Object.keys(attrs).some((k) => SCHEDULE_KEY_FIELDS.has(k))) {
+      return this.restampScheduleKeys(id, result.Attributes!);
+    }
+    return this.toDeal(result.Attributes!);
+  }
+
+  private async restampScheduleKeys(id: string, row: Record<string, unknown>): Promise<Deal> {
+    const keys = statusScheduleKeys(this.toDeal(row));
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        UpdateExpression: keys.slotStart
+          ? 'SET GSI5PK = :gsi5pk, GSI5SK = :gsi5sk, #slotStart = :slotStart'
+          : 'SET GSI5PK = :gsi5pk, GSI5SK = :gsi5sk REMOVE #slotStart',
+        ExpressionAttributeNames: { '#slotStart': 'slotStart' },
+        ExpressionAttributeValues: {
+          ':gsi5pk': keys.GSI5PK,
+          ':gsi5sk': keys.GSI5SK,
+          ...(keys.slotStart ? { ':slotStart': keys.slotStart } : {}),
+        },
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
     return this.toDeal(result.Attributes!);
   }
 

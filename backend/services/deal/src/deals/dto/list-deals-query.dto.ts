@@ -77,6 +77,59 @@ export class ListDealsQueryDto {
   @IsIn(['true', 'false', true, false])
   needsInvoice?: string | boolean;
 
+  // ---- the schedule window (StatusScheduleIndex) --------------------------
+
+  @ApiPropertyOptional({
+    example: '2026-09-21',
+    description:
+      'First visit day of the window (YYYY-MM-DD, inclusive). With `scheduledTo` at most 31 days; alone = that one day. ' +
+      'Reads the schedule index in visit order; without `superStatus` every status is merged.',
+  })
+  @IsOptional()
+  @IsString()
+  scheduledFrom?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-27', description: 'Last visit day of the window (inclusive).' })
+  @IsOptional()
+  @IsString()
+  scheduledTo?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description: 'Only jobs with no visit date. Without `superStatus` covers the open statuses.',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false', true, false])
+  unscheduled?: string | boolean;
+
+  @ApiPropertyOptional({
+    enum: ['schedule', 'created'],
+    description: '`schedule` = visit date, soonest first (undated last); `created` = the default, newest first.',
+  })
+  @IsOptional()
+  @IsIn(['schedule', 'created'])
+  sort?: 'schedule' | 'created';
+
+  @ApiPropertyOptional({ enum: ['asc', 'desc'] })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  dir?: 'asc' | 'desc';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  subStatusId?: string;
+
+  @ApiPropertyOptional({ example: '08:00', description: 'Earliest visit start (HH:MM). Undated / all-day visits never match.' })
+  @IsOptional()
+  @IsString()
+  hourFrom?: string;
+
+  @ApiPropertyOptional({ example: '12:00', description: 'Latest visit start (HH:MM).' })
+  @IsOptional()
+  @IsString()
+  hourTo?: string;
+
   @ApiPropertyOptional({ default: 20 })
   @IsOptional()
   @Type(() => Number)

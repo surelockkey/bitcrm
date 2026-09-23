@@ -389,6 +389,14 @@ export class ContactsService {
     return out;
   }
 
+  /** The contacts a page of some list shows, in the order asked, duplicates folded. */
+  async findByIds(ids: string[]): Promise<Contact[]> {
+    const unique = [...new Set(ids)];
+    const found = await this.repository.findByIds(unique);
+    const byId = new Map(found.map((c) => [c.id, c]));
+    return unique.map((id) => byId.get(id)).filter((c): c is Contact => Boolean(c));
+  }
+
   async findManyByPhone(
     phones: string[],
   ): Promise<Record<string, ContactPhoneMatch>> {

@@ -18,6 +18,7 @@ import { ListContactsQueryDto } from './dto/list-contacts-query.dto';
 import { FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
 import { MergeContactsDto } from './dto/merge-contacts.dto';
 import { LookupContactsByPhonesDto } from './dto/lookup-contacts-by-phones.dto';
+import { LookupContactsByIdsDto } from './dto/lookup-contacts-by-ids.dto';
 import { LookupPartiesByIdsDto } from './dto/lookup-parties-by-ids.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
@@ -157,6 +158,20 @@ export class ContactsController {
   async findOrCreate(@Body() dto: FindOrCreateContactDto) {
     const data = await this.contactsService.findOrCreate(dto);
     return { success: true, data };
+  }
+
+  @Post('by-ids')
+  @RequirePermission('contacts', 'view')
+  @ApiOperation({
+    summary: 'The contacts of a set of ids',
+    description:
+      '**Guard:** `contacts.view` permission required. At most 100 ids; ids that no longer exist are absent. ' +
+      'This is how a server-paged list (jobs, calls) names the clients on the page it shows. ' +
+      'Numbers are masked unless the caller also holds `contacts.view_numbers`.',
+  })
+  async findByIds(@Body() dto: LookupContactsByIdsDto, @ResolvedPerms() perms: ResolvedPermissions) {
+    const contacts = await this.contactsService.findByIds(dto.ids);
+    return { success: true, data: maskPhonesEach(contacts, maySeeNumbers(perms)) };
   }
 
   @Post('internal/by-phones')

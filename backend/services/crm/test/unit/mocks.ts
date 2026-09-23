@@ -38,6 +38,7 @@ export function createMockContactsRepository() {
   return {
     create: jest.fn(),
     findById: jest.fn(),
+    findByIds: jest.fn(),
     findByPhone: jest.fn(),
     findByCompany: jest.fn(),
     findAll: jest.fn(),

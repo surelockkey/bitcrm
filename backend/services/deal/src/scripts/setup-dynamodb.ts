@@ -37,6 +37,8 @@ async function main() {
           { AttributeName: 'GSI3SK', AttributeType: 'S' },
           { AttributeName: 'GSI4PK', AttributeType: 'S' },
           { AttributeName: 'GSI4SK', AttributeType: 'S' },
+          { AttributeName: 'GSI5PK', AttributeType: 'S' },
+          { AttributeName: 'GSI5SK', AttributeType: 'S' },
         ],
         GlobalSecondaryIndexes: [
           {
@@ -68,6 +70,14 @@ async function main() {
             KeySchema: [
               { AttributeName: 'GSI4PK', KeyType: 'HASH' },
               { AttributeName: 'GSI4SK', KeyType: 'RANGE' },
+            ],
+            Projection: { ProjectionType: 'ALL' },
+          },
+          {
+            IndexName: 'StatusScheduleIndex',
+            KeySchema: [
+              { AttributeName: 'GSI5PK', KeyType: 'HASH' },
+              { AttributeName: 'GSI5SK', KeyType: 'RANGE' },
             ],
             Projection: { ProjectionType: 'ALL' },
           },
