@@ -11,6 +11,11 @@ export const DEALS_GSI4_NAME = 'DispatcherIndex';
  * Workiz importer with the same shape.
  */
 export const DEALS_GSI5_NAME = 'StatusScheduleIndex';
+/**
+ * GSI6PK = CLOSED#<YYYY-MM>, GSI6SK = <closedAt>#DEAL#<id> — sparse, closed deals
+ * only, one partition a month: the report's "By: Job closed" window.
+ */
+export const DEALS_GSI6_NAME = 'ClosedIndex';
 
 // Job attachments (photos/files): PK=DEAL#<id>, SK=ATTACH#<attachmentId>.
 export const DEAL_ATTACHMENT_SK_PREFIX = 'ATTACH#';

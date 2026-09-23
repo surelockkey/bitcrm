@@ -33,7 +33,8 @@ describe('DealsRepository.countBySchedule', () => {
     const first = dynamoDb.client.send.mock.calls[0][0].input;
     expect(first.IndexName).toBe('StatusScheduleIndex');
     expect(first.Select).toBe('COUNT');
-    expect(first.KeyConditionExpression).toBe('GSI5PK = :pk AND GSI5SK BETWEEN :from AND :to');
+    expect(first.KeyConditionExpression).toBe('#pk = :pk AND #sk BETWEEN :from AND :to');
+    expect(first.ExpressionAttributeNames['#pk']).toBe('GSI5PK');
     expect(first.FilterExpression).toContain('#jobTypeId = :jobTypeId');
     expect(first.Limit).toBeUndefined();
     const second = dynamoDb.client.send.mock.calls[1][0].input;
@@ -65,6 +66,7 @@ describe('DealsService.counts', () => {
       done: 100,
       canceled: 200,
       unscheduled: 3,
+      total: 318,
     });
     // Six statuses in the window + four open statuses undated.
     expect((repo as any).countBySchedule).toHaveBeenCalledTimes(10);
@@ -100,7 +102,7 @@ describe('DealsService.counts', () => {
     const service = serviceWith(repo, cache);
     const counts = await service.counts({ superStatus: JobSuperStatus.DONE, limit: 5, cursor: 'abc' } as any, caller);
     expect(Object.keys(counts).sort()).toEqual(
-      ['canceled', 'done', 'done_pending_approval', 'in_progress', 'pending', 'submitted', 'unscheduled'].sort(),
+      ['canceled', 'done', 'done_pending_approval', 'in_progress', 'pending', 'submitted', 'unscheduled', 'total'].sort(),
     );
   });
 

@@ -45,12 +45,19 @@ import {
   type DealUpdate,
   type ScheduleWindow,
   type SortDir,
+  type DayWindow,
 } from './deals.repository';
 
 /** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
-export type DealCounts = Record<JobSuperStatus, number | null> & { unscheduled: number };
+export type DealCounts = Record<JobSuperStatus, number | null> & {
+  unscheduled: number;
+  /** Every status summed — `null` when any of them could not be counted. */
+  total: number | null;
+};
 
 const COUNTS_TTL_SECONDS = 30;
+/** A report window — created or closed — spans at most a quarter. */
+const REPORT_WINDOW_MAX_DAYS = 92;
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
@@ -534,6 +541,19 @@ export class DealsService {
       }
     }
 
+    // The report's other two dates: a span of creation days is the status
+    // index's own sort key; a span of closing days is the sparse closed
+    // index, where a status is a filter.
+    const report = this.parseReportWindows(query);
+    if (report) {
+      const dir: SortDir = query.dir === 'asc' ? 'asc' : 'desc';
+      if (report.created) {
+        const statuses = query.superStatus ? [query.superStatus] : SUPER_STATUS_ORDER;
+        return this.repository.findByCreated(statuses, report.created, limit, query.cursor, filters, dir);
+      }
+      return this.repository.findByClosed(report.closed!, limit, query.cursor, { ...filters, superStatus: query.superStatus }, dir);
+    }
+
     // A visit-date window, the undated tab or a schedule sort: the schedule
     // index answers, one status or all of them merged.
     const window = this.parseScheduleWindow(query);
@@ -657,29 +677,43 @@ export class DealsService {
    */
   async counts(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): Promise<DealCounts> {
     const filters = this.listFilters(query, caller, dataScope);
-    const window = this.parseScheduleWindow({ ...query, unscheduled: undefined, sort: undefined }) ?? {};
+    const report = this.parseReportWindows(query);
+    const window = report ? {} : (this.parseScheduleWindow({ ...query, unscheduled: undefined, sort: undefined }) ?? {});
     const bounded = Boolean(window.from);
     const open = SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s));
 
     const cacheKey = `deal-counts:${createHash('sha1')
-      .update(JSON.stringify({ filters, window, scope: dataScope === 'assigned_only' ? caller.id : null }))
+      .update(JSON.stringify({ filters, window, report, scope: dataScope === 'assigned_only' ? caller.id : null }))
       .digest('hex')}`;
     const cached = await this.cache.getJson<DealCounts>(cacheKey);
     if (cached) return cached;
 
-    const [byStatus, undated] = await Promise.all([
-      Promise.all(
-        SUPER_STATUS_ORDER.map(async (status) =>
-          !bounded && CLOSED_SUPER_STATUSES.has(status)
-            ? null
-            : this.repository.countBySchedule(status, { from: window.from, to: window.to }, filters),
+    let byStatus: (number | null)[];
+    let undated = 0;
+    if (report?.created) {
+      byStatus = await Promise.all(SUPER_STATUS_ORDER.map((s) => this.repository.countByCreated(s, report.created!, filters)));
+    } else if (report?.closed) {
+      byStatus = await Promise.all(
+        SUPER_STATUS_ORDER.map((s) => this.repository.countByClosed(report.closed!, { ...filters, superStatus: s })),
+      );
+    } else {
+      const [statuses, undatedByStatus] = await Promise.all([
+        Promise.all(
+          SUPER_STATUS_ORDER.map(async (status) =>
+            !bounded && CLOSED_SUPER_STATUSES.has(status)
+              ? null
+              : this.repository.countBySchedule(status, { from: window.from, to: window.to }, filters),
+          ),
         ),
-      ),
-      Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
-    ]);
+        Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
+      ]);
+      byStatus = statuses;
+      undated = undatedByStatus.reduce((a, b) => a + b, 0);
+    }
 
     const result = Object.fromEntries(SUPER_STATUS_ORDER.map((s, i) => [s, byStatus[i]])) as DealCounts;
-    result.unscheduled = undated.reduce((a, b) => a + b, 0);
+    result.unscheduled = undated;
+    result.total = byStatus.some((n) => n === null) ? null : byStatus.reduce<number>((a, b) => a + (b ?? 0), 0);
     await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
     return result;
   }
@@ -701,6 +735,32 @@ export class DealsService {
       if (days > 30) throw new BadRequestException('The visit-date window is at most 31 days');
     }
     return { from, to, unscheduled };
+  }
+
+  /**
+   * The report's creation or closing window, or undefined when neither is
+   * asked for. A quarter at most: the page cost does not grow with the span,
+   * but the counts read every row in it. Two different dates at once is a
+   * contradiction and is refused.
+   */
+  private parseReportWindows(query: ListDealsQueryDto): { created?: DayWindow; closed?: DayWindow } | undefined {
+    const created = this.parseDayWindow(query.createdFrom, query.createdTo, 'created');
+    const closed = this.parseDayWindow(query.closedFrom, query.closedTo, 'closed');
+    const asked = [created && 'created', closed && 'closed', query.scheduledFrom && 'scheduled'].filter(Boolean);
+    if (asked.length > 1) throw new BadRequestException(`One date window at a time: ${asked.join(', ')} were given`);
+    if (created) return { created };
+    if (closed) return { closed };
+    return undefined;
+  }
+
+  private parseDayWindow(fromRaw: string | undefined, toRaw: string | undefined, name: string): DayWindow | undefined {
+    const from = this.parseDay(fromRaw, `${name}From`);
+    const to = this.parseDay(toRaw, `${name}To`) ?? from;
+    if (!from) return undefined;
+    if (to! < from) throw new BadRequestException(`${name}To is before ${name}From`);
+    const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+    if (days > REPORT_WINDOW_MAX_DAYS - 1) throw new BadRequestException(`The ${name} window is at most ${REPORT_WINDOW_MAX_DAYS} days`);
+    return { from, to };
   }
 
   private parseDay(value: string | undefined, field: string): string | undefined {
