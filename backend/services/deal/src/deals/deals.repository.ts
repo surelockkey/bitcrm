@@ -984,7 +984,7 @@ export class DealsRepository {
    * `DEALNUM#<code>` marker row guarded with attribute_not_exists. A collision
    * (the code already reserved) regenerates and retries; anything else rethrows.
    */
-  async reserveDealNumber(): Promise<string> {
+  async reserveDealNumber(dealId?: string): Promise<string> {
     const MAX_ATTEMPTS = 5;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const code = generateDealNumberCode();
@@ -992,7 +992,9 @@ export class DealsRepository {
         await this.dynamoDb.client.send(
           new PutCommand({
             TableName: this.tableName,
-            Item: { PK: `DEALNUM#${code}`, SK: 'UNIQUE' },
+            // The reservation carries the deal it belongs to, so a Job ID
+            // search is one GetItem (`findIdByNumber`) and never a scan.
+            Item: { PK: `DEALNUM#${code}`, SK: 'UNIQUE', ...(dealId ? { dealId } : {}) },
             ConditionExpression: 'attribute_not_exists(PK)',
           }),
         );
@@ -1003,6 +1005,19 @@ export class DealsRepository {
       }
     }
     throw new Error(`Could not reserve a unique deal number after ${MAX_ATTEMPTS} attempts`);
+  }
+
+  /**
+   * The deal a Job ID code reserves: its id; `null` when no such code was
+   * ever reserved; `undefined` when the reservation predates the link and
+   * the caller has to fall back to a filtered read.
+   */
+  async findIdByNumber(code: string): Promise<string | null | undefined> {
+    const result = await this.dynamoDb.client.send(
+      new GetCommand({ TableName: this.tableName, Key: { PK: `DEALNUM#${code.toUpperCase()}`, SK: 'UNIQUE' } }),
+    );
+    if (!result.Item) return null;
+    return (result.Item.dealId as string | undefined) ?? undefined;
   }
 
   private toDeal(item: Record<string, unknown>): Deal {

@@ -413,6 +413,8 @@ describe('DealsService', () => {
 
     it('should parse a "#K4T9ZW" search into a code dealNumber filter', async () => {
       repo.findAll.mockResolvedValue(mockResult);
+      // A reservation from before the link: the filtered read is the fallback.
+      repo.findIdByNumber.mockResolvedValue(undefined);
       await service.list({ search: '#K4T9ZW' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
@@ -423,6 +425,7 @@ describe('DealsService', () => {
 
     it('should uppercase a bare lowercase code search', async () => {
       repo.findAll.mockResolvedValue(mockResult);
+      repo.findIdByNumber.mockResolvedValue(undefined);
       await service.list({ search: 'k4t9zw' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
@@ -431,14 +434,12 @@ describe('DealsService', () => {
       );
     });
 
-    it('should NOT treat a pure-letter word as a dealNumber filter', async () => {
-      repo.findAll.mockResolvedValue(mockResult);
-      await service.list({ search: 'SMITHS' } as any, caller);
-      expect(repo.findAll).toHaveBeenCalledWith(
-        20,
-        undefined,
-        expect.objectContaining({ dealNumber: undefined }),
-      );
+    it('a six-letter word is looked up as a code first — Workiz codes can be letters only', async () => {
+      repo.findIdByNumber.mockResolvedValue(null);
+      const result = await service.list({ search: 'SMITHS' } as any, caller);
+      expect(repo.findIdByNumber).toHaveBeenCalledWith('SMITHS');
+      expect(result.items).toEqual([]);
+      expect(repo.findAll).not.toHaveBeenCalled();
     });
 
     it('should pass cursor', async () => {
