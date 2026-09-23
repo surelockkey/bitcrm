@@ -27,4 +27,14 @@ export class DealsCacheService {
   async invalidate(id: string): Promise<void> {
     await this.redis.client.del(`${PREFIX}${id}`);
   }
+
+  /** A short-lived JSON value under its own key — the tab counts, for one. */
+  async getJson<T>(key: string): Promise<T | null> {
+    const data = await this.redis.client.get(key);
+    return data ? (JSON.parse(data) as T) : null;
+  }
+
+  async setJson(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+    await this.redis.client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+  }
 }

@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   Injectable,
   Logger,
@@ -45,6 +46,11 @@ import {
   type ScheduleWindow,
   type SortDir,
 } from './deals.repository';
+
+/** The jobs-list tab numbers; a closed status is `null` when no window bounds it. */
+export type DealCounts = Record<JobSuperStatus, number | null> & { unscheduled: number };
+
+const COUNTS_TTL_SECONDS = 30;
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
@@ -510,34 +516,7 @@ export class DealsService {
     // coerce — a string Limit makes DynamoDB throw SerializationException.
     const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
 
-    // DataScope enforcement
-    if (dataScope === 'assigned_only' && !query.techId) {
-      query.techId = caller.id;
-    }
-
-    // Secondary filters applied on top of whichever index we query.
-    const search = query.search?.trim();
-    const filters: DealFilters = {
-      jobTypeId: query.jobTypeId,
-      sourceId: query.sourceId,
-      businessProfileId: query.businessProfileId || undefined,
-      serviceArea: query.serviceArea,
-      clientType: query.clientType,
-      priority: query.priority,
-      tagIds: query.tagIds
-        ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
-        : undefined,
-      dealNumber: this.parseDealNumberSearch(search),
-      needsInvoice:
-        query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
-      // Carried on every index, not only the tech one: with `superStatus` the
-      // status index answers, and an `assigned_only` caller must still see
-      // just their own jobs in it.
-      techId: query.techId,
-      subStatusId: query.subStatusId || undefined,
-      hourFrom: this.parseHour(query.hourFrom, 'hourFrom'),
-      hourTo: this.parseHour(query.hourTo, 'hourTo'),
-    };
+    const filters = this.listFilters(query, caller, dataScope);
 
     // A visit-date window, the undated tab or a schedule sort: the schedule
     // index answers, one status or all of them merged.
@@ -581,6 +560,77 @@ export class DealsService {
    * attribute); "#K4T9ZW"/"k4t9zw" → random 6-char code, uppercased. Anything
    * else (names, partial words) is not a Job ID search.
    */
+  /**
+   * The secondary filters of a list query, applied on top of whichever index
+   * answers. Shared by `list()` and `counts()` so the tabs count exactly what
+   * the table shows. Mutates `query.techId` under `assigned_only`, as the
+   * index choice in `list()` relies on it.
+   */
+  private listFilters(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): DealFilters {
+    // DataScope enforcement
+    if (dataScope === 'assigned_only' && !query.techId) {
+      query.techId = caller.id;
+    }
+
+    const search = query.search?.trim();
+    return {
+      jobTypeId: query.jobTypeId,
+      sourceId: query.sourceId,
+      businessProfileId: query.businessProfileId || undefined,
+      serviceArea: query.serviceArea,
+      clientType: query.clientType,
+      priority: query.priority,
+      tagIds: query.tagIds
+        ? query.tagIds.split(',').map((t) => t.trim()).filter(Boolean)
+        : undefined,
+      dealNumber: this.parseDealNumberSearch(search),
+      needsInvoice:
+        query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
+      // Carried on every index, not only the tech one: with `superStatus` the
+      // status index answers, and an `assigned_only` caller must still see
+      // just their own jobs in it.
+      techId: query.techId,
+      subStatusId: query.subStatusId || undefined,
+      hourFrom: this.parseHour(query.hourFrom, 'hourFrom'),
+      hourTo: this.parseHour(query.hourTo, 'hourTo'),
+    };
+  }
+
+  /**
+   * The numbers on the jobs-list tabs: one per super-status plus
+   * `unscheduled`, under the same filters and window as the list. A closed
+   * status without a window would count its whole partition, so it answers
+   * `null` instead. Cached thirty seconds per filter set and caller scope.
+   */
+  async counts(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): Promise<DealCounts> {
+    const filters = this.listFilters(query, caller, dataScope);
+    const window = this.parseScheduleWindow({ ...query, unscheduled: undefined, sort: undefined }) ?? {};
+    const bounded = Boolean(window.from);
+    const open = SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s));
+
+    const cacheKey = `deal-counts:${createHash('sha1')
+      .update(JSON.stringify({ filters, window, scope: dataScope === 'assigned_only' ? caller.id : null }))
+      .digest('hex')}`;
+    const cached = await this.cache.getJson<DealCounts>(cacheKey);
+    if (cached) return cached;
+
+    const [byStatus, undated] = await Promise.all([
+      Promise.all(
+        SUPER_STATUS_ORDER.map(async (status) =>
+          !bounded && CLOSED_SUPER_STATUSES.has(status)
+            ? null
+            : this.repository.countBySchedule(status, { from: window.from, to: window.to }, filters),
+        ),
+      ),
+      Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
+    ]);
+
+    const result = Object.fromEntries(SUPER_STATUS_ORDER.map((s, i) => [s, byStatus[i]])) as DealCounts;
+    result.unscheduled = undated.reduce((a, b) => a + b, 0);
+    await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
+    return result;
+  }
+
   /**
    * The schedule window of a list query, or undefined when the query does
    * not touch the schedule index. Days are `YYYY-MM-DD`; `scheduledFrom`

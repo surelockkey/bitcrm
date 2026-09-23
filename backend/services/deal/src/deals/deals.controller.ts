@@ -75,6 +75,26 @@ export class DealsController {
     };
   }
 
+  @Get('counts')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'How many deals fall under each jobs-list tab',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced. Takes the same filters as the list ' +
+      '(`scheduledFrom/To`, `hourFrom/To`, `techId`, `jobTypeId`, `serviceArea`, `tagIds`, `subStatusId`, …; ' +
+      '`superStatus`, `cursor` and `limit` are ignored) and answers one number per super-status plus `unscheduled` ' +
+      '(the undated open jobs). Without a visit-date window the closed statuses (`done`, `canceled`) are `null` — ' +
+      'counting them would read their whole partitions. Cached for thirty seconds.',
+  })
+  async counts(
+    @Query() query: ListDealsQueryDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.counts(query, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
   @Get('qualified-techs')
   @RequirePermission('deals', 'edit')
   @ApiOperation({

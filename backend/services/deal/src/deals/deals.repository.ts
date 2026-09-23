@@ -385,6 +385,36 @@ export class DealsRepository {
     };
   }
 
+  /**
+   * How many deals of one status fall in a schedule window, with the same
+   * filters the list applies — a `Select: COUNT` walked to the end of the
+   * range. It reads every row of the range, so the caller keeps the range
+   * bounded (a closed status without a window is never counted).
+   */
+  async countBySchedule(superStatus: JobSuperStatus, window: ScheduleWindow, filters?: DealFilters): Promise<number> {
+    const f = this.dealFilterExpression(filters);
+    const key = this.scheduleKeyCondition(window);
+    let count = 0;
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI5_NAME,
+          KeyConditionExpression: key.expression,
+          FilterExpression: f.expression,
+          ExpressionAttributeNames: f.names,
+          ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...key.values, ...f.values },
+          Select: 'COUNT',
+          ExclusiveStartKey: lastKey,
+        }),
+      );
+      count += result.Count ?? 0;
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+    return count;
+  }
+
   /** The key condition of a schedule window: a day span, the undated ones, or the whole partition. */
   private scheduleKeyCondition(window: ScheduleWindow): { expression: string; values: Record<string, unknown> } {
     if (window.unscheduled) {
