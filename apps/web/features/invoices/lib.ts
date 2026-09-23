@@ -1,23 +1,22 @@
 import { PaymentTerms, type Invoice, type InvoiceStatus } from "@bitcrm/types";
 import { addDaysYmd, formatYmd } from "@/features/billing/dates";
-import { toneClasses } from "@/lib/theme/tone";
 
 export const INVOICE_STATUS_META: Record<InvoiceStatus, { label: string; className: string }> = {
   no_amount: {
     label: "No amount",
-    className: toneClasses("neutral"),
+    className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
   },
   due: {
     label: "Due",
-    className: toneClasses("warning"),
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
   },
   overdue: {
     label: "Overdue",
-    className: toneClasses("destructive"),
+    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
   },
   paid: {
     label: "Paid",
-    className: toneClasses("success"),
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   },
 };
 

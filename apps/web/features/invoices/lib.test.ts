@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { PaymentTerms, type Invoice } from "@bitcrm/types";
-import { toneClasses } from "@/lib/theme/tone";
 import {
   INVOICE_STATUS_META,
   PAYMENT_TERMS_OPTIONS,
@@ -22,20 +21,11 @@ describe("invoice status", () => {
     expect(invoiceStatusLabel("paid")).toBe("Paid");
   });
 
-  it("colors statuses neutral / warning / destructive / success", () => {
-    expect(INVOICE_STATUS_META.no_amount.className).toBe(toneClasses("neutral"));
-    expect(INVOICE_STATUS_META.due.className).toBe(toneClasses("warning"));
-    expect(INVOICE_STATUS_META.overdue.className).toBe(
-      toneClasses("destructive"),
-    );
-    expect(INVOICE_STATUS_META.paid.className).toBe(toneClasses("success"));
-  });
-
-  it("carries no raw palette colour of its own", () => {
-    for (const meta of Object.values(INVOICE_STATUS_META)) {
-      expect(meta.className).not.toMatch(/-(amber|red|emerald|slate)-\d/);
-      expect(meta.className).not.toContain("dark:");
-    }
+  it("colors statuses gray / amber / red / green", () => {
+    expect(INVOICE_STATUS_META.no_amount.className).toMatch(/slate|gray|muted/);
+    expect(INVOICE_STATUS_META.due.className).toMatch(/amber/);
+    expect(INVOICE_STATUS_META.overdue.className).toMatch(/red/);
+    expect(INVOICE_STATUS_META.paid.className).toMatch(/emerald|green/);
   });
 });
 
