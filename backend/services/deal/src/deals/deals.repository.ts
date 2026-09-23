@@ -138,6 +138,10 @@ export interface DealFilters {
    */
   techId?: string;
   subStatusId?: string;
+  /** The client's company (a CRM company id) — the report's "company" filter. */
+  companyId?: string;
+  /** Who created the job — the report's "creator" filter. */
+  createdBy?: string;
   /** On an index not keyed by status (the closed index), the status is a filter. */
   superStatus?: JobSuperStatus;
   /** Hour-of-day window on `slotStart` (`HH:MM`, inclusive). Undated / all-day visits never match. */
@@ -248,6 +252,8 @@ export class DealsRepository {
     }
     if (filters?.subStatusId) eq('subStatusId', filters.subStatusId);
     if (filters?.superStatus) eq('superStatus', filters.superStatus);
+    if (filters?.companyId) eq('companyId', filters.companyId);
+    if (filters?.createdBy) eq('createdBy', filters.createdBy);
     if (filters?.hourFrom || filters?.hourTo) {
       names['#slotStart'] = 'slotStart';
       values[':hourFrom'] = filters.hourFrom ?? '00:00';
@@ -276,6 +282,8 @@ export class DealsRepository {
     if (filters?.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
     if (filters?.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
     if (filters?.superStatus && deal.superStatus !== filters.superStatus) return false;
+    if (filters?.companyId && deal.companyId !== filters.companyId) return false;
+    if (filters?.createdBy && deal.createdBy !== filters.createdBy) return false;
     if (filters?.hourFrom || filters?.hourTo) {
       const { slotStart } = statusScheduleKeys(deal);
       if (!slotStart) return false;

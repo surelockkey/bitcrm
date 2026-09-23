@@ -629,6 +629,8 @@ export class DealsService {
     if (filters.clientType && deal.clientType !== filters.clientType) return false;
     if (filters.priority && deal.priority !== filters.priority) return false;
     if (filters.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
+    if (filters.companyId && deal.companyId !== filters.companyId) return false;
+    if (filters.createdBy && deal.createdBy !== filters.createdBy) return false;
     if (filters.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     return true;
   }
@@ -664,6 +666,8 @@ export class DealsService {
       // just their own jobs in it.
       techId: query.techId,
       subStatusId: query.subStatusId || undefined,
+      companyId: query.companyId || undefined,
+      createdBy: query.createdBy || undefined,
       hourFrom: this.parseHour(query.hourFrom, 'hourFrom'),
       hourTo: this.parseHour(query.hourTo, 'hourTo'),
     };

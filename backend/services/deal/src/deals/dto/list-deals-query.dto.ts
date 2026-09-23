@@ -153,6 +153,16 @@ export class ListDealsQueryDto {
   @IsString()
   subStatusId?: string;
 
+  @ApiPropertyOptional({ description: "The client's company (CRM company id)." })
+  @IsOptional()
+  @IsString()
+  companyId?: string;
+
+  @ApiPropertyOptional({ description: 'Who created the job (user id).' })
+  @IsOptional()
+  @IsString()
+  createdBy?: string;
+
   @ApiPropertyOptional({ example: '08:00', description: 'Earliest visit start (HH:MM). Undated / all-day visits never match.' })
   @IsOptional()
   @IsString()
