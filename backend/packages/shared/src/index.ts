@@ -2,6 +2,7 @@
 export { DynamoDbModule } from './dynamodb/dynamodb.module';
 export { DynamoDbService } from './dynamodb/dynamodb.service';
 export { scanPage } from './dynamodb/scan-page';
+export { compressionMiddleware, shouldCompress, COMPRESSION_THRESHOLD } from './http/compression';
 export type {
   ScanPageOptions,
   ScanPageResult,

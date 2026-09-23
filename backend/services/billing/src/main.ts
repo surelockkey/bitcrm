@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../.env') });
 
-import { initTracing, installGracefulShutdown, runBootstrap } from '@bitcrm/shared';
+import { compressionMiddleware, initTracing, installGracefulShutdown, runBootstrap } from '@bitcrm/shared';
 initTracing('billing-service');
 
 import { NestFactory } from '@nestjs/core';
@@ -32,6 +32,8 @@ async function bootstrap() {
   // `/portal/:token` is the redirect for portal links sent before the portal had its own domain.
   app.setGlobalPrefix('api/billing', { exclude: ['portal/:token'] });
   app.enableCors();
+  // Gzip on the way out: 190 KB of catalogs was over a second of pure transfer.
+  app.use(compressionMiddleware());
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 

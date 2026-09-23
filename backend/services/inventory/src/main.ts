@@ -2,10 +2,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../.env') });
 
-import { initTracing,
-  installGracefulShutdown,
-  runBootstrap,
-} from '@bitcrm/shared';
+import { compressionMiddleware, initTracing, installGracefulShutdown, runBootstrap } from '@bitcrm/shared';
 initTracing('inventory-service');
 
 import { NestFactory } from '@nestjs/core';
@@ -22,6 +19,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/inventory');
   app.enableCors();
+  // Gzip on the way out: 190 KB of catalogs was over a second of pure transfer.
+  app.use(compressionMiddleware());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
