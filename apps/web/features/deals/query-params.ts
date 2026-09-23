@@ -31,6 +31,14 @@ export interface DealsListParams {
   unscheduled?: boolean;
   scheduledFrom?: string;
   scheduledTo?: string;
+  /** The report's other two dates — one window at a time. */
+  createdFrom?: string;
+  createdTo?: string;
+  closedFrom?: string;
+  closedTo?: string;
+  sourceId?: string;
+  companyId?: string;
+  createdBy?: string;
   hourFrom?: string;
   hourTo?: string;
   techId?: string;

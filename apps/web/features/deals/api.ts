@@ -13,7 +13,11 @@ import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./sch
 import type { DealCountsParams, DealsListParams } from "./query-params";
 
 /** One number per super-status plus the undated open jobs; `null` where the server would not count. */
-export type DealCounts = Record<JobSuperStatus, number | null> & { unscheduled: number };
+export type DealCounts = Record<JobSuperStatus, number | null> & {
+  unscheduled: number;
+  /** Every status summed — `null` when any of them was not counted. */
+  total: number | null;
+};
 
 const PAGE = 100;
 

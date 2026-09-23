@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ExternalLink, Loader2, Search } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
@@ -55,13 +55,16 @@ export function LinkJobDialog({
   // address) is a search-service question, hydrated in one call.
   const byCode = useDealsPage({ search: query.trim().toUpperCase(), limit: 5 }, searching && isCode);
   const found = useGlobalSearch(searching && !isCode ? query : "", { types: ["deal"], mode: "full", limit: 40 });
-  const hitIds = useMemo(() => (found.data?.hits ?? []).map((h) => h.entityId), [found.data]);
+  const hitIds = (found.data?.hits ?? []).map((h) => h.entityId);
   const byText = useDealsByIds(hitIds, searching && !isCode);
 
-  const deals: Deal[] = useMemo(() => {
-    if (!searching) return clientContactId ? (clientJobs.data?.pages[0]?.data ?? []) : (openJobs.data ?? []);
-    return isCode ? (byCode.data?.pages[0]?.data ?? []) : (byText.data ?? []);
-  }, [searching, clientContactId, clientJobs.data, openJobs.data, isCode, byCode.data, byText.data]);
+  const deals: Deal[] = !searching
+    ? clientContactId
+      ? (clientJobs.data?.pages[0]?.data ?? [])
+      : (openJobs.data ?? [])
+    : isCode
+      ? (byCode.data?.pages[0]?.data ?? [])
+      : (byText.data ?? []);
   const isLoading = searching
     ? isCode
       ? byCode.isLoading
@@ -69,8 +72,7 @@ export function LinkJobDialog({
     : clientContactId
       ? clientJobs.isLoading
       : openJobs.isLoading;
-  const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
-  const { map: contacts } = useContactsByIds(contactIds);
+  const { map: contacts } = useContactsByIds(deals.map((d) => d.contactId));
   const shown = deals;
   const ranked = [...shown].sort((a, b) => {
     // Within a search, this client's jobs still come first — the rest of the

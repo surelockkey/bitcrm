@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import { SUPER_STATUS_ORDER } from "@bitcrm/types";
@@ -27,9 +27,13 @@ import {
 } from "@/components/ui/table";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { useCompanyMap } from "@/features/clients/hooks";
+import { useCompanyMap, useContactsByIds } from "@/features/clients/hooks";
 import { formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
-import { useContactMap, useDeals, useUserMap } from "@/features/deals/hooks";
+import { getContactsByIds } from "@/features/clients/api";
+import { useDealCounts, useDealsPage, useUserMap } from "@/features/deals/hooks";
+import { fetchAllDeals } from "@/features/deals/api";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { reportCountsParams, reportListParams, type JobsReportState, type ReportSort } from "../query-params";
 import { dealClientName, formatSchedule, superStatusLabel } from "@/features/deals/lib";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
@@ -42,12 +46,11 @@ import { activeJobStatuses, useJobStatusName } from "@/features/job-statuses/lib
 import { useJobTags } from "@/features/job-tags/hooks";
 import { activeJobTags } from "@/features/job-tags/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
-import { sortJobs, type JobSort } from "@/features/deals/lib";
+import { sortJobs } from "@/features/deals/lib";
 import {
   datePresetRange,
   filterJobsReport,
   jobsReportCsv,
-  paginate,
   type DatePreset,
   type JobsReportDateField,
 } from "../lib";
@@ -168,11 +171,11 @@ function Pager({
  * date range driven by a chosen date field, top+bottom pagination and CSV
  * export. Everything is computed client-side over the loaded jobs.
  */
+/** A report export drains the window page by page; past this many rows it stops and says so. */
+const EXPORT_MAX_ROWS = 5000;
+
 export function JobsReportPage() {
   const { can } = usePermissions();
-  const { data: dealsData, isLoading } = useDeals();
-  const deals = useMemo(() => dealsData ?? [], [dealsData]);
-  const { map: contactMap } = useContactMap();
   const { map: userMap } = useUserMap();
   const { map: companyMap } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
@@ -180,6 +183,7 @@ export function JobsReportPage() {
   const jobSourcesQuery = useJobSources();
   const jobStatusesQuery = useJobStatuses();
   const jobTagsQuery = useJobTags();
+  const { data: serviceAreasData } = useServiceAreas();
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
   const externalCompanyName = useExternalCompanyName();
@@ -195,69 +199,88 @@ export function JobsReportPage() {
   const [sourceId, setSourceId] = useState(ALL);
   const [serviceArea, setServiceArea] = useState(ALL);
   const [companyId, setCompanyId] = useState(ALL);
-
   const todayIso = new Date().toISOString().slice(0, 10);
   const [dateField, setDateField] = useState<JobsReportDateField>("createdAt");
-  // "All time" by default — a fresh report should show everything;
-  // the Workiz-style weekly window is one click away in the presets.
-  const [preset, setPreset] = useState<DatePreset>("all");
+  // Workiz opens its report on this week; the window is never open-ended —
+  // after the import "all time" is the whole table, and no page reads that.
+  const [preset, setPreset] = useState<DatePreset>("this_week");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const range = preset === "custom"
     ? { from: customFrom || undefined, to: customTo || undefined }
     : datePresetRange(preset, todayIso);
-
+  const from = range.from ?? todayIso;
+  const to = range.to ?? from;
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(50);
-  const [sortSel, setSortSel] = useState("none");
-  // Time-of-day window, matched against the slot start on any date.
+  const [sortSel, setSortSel] = useState<ReportSort>("none");
+  // Time-of-day window, matched against the visit's slot start.
   const [hourFrom, setHourFrom] = useState("");
   const [hourTo, setHourTo] = useState("");
+
+  // `from` / `to` are derived from the preset each render, so the state is
+  // built plainly and the React Compiler memoises what it can.
+  const state: JobsReportState = {
+    dateField,
+    from,
+    to,
+    search,
+    sort: sortSel,
+    size,
+    superStatus: superStatus === ALL ? undefined : (superStatus as Deal["superStatus"]),
+    subStatusId: subStatusId === ALL ? undefined : subStatusId,
+    techId: techId === ALL ? undefined : techId,
+    createdBy: createdBy === ALL ? undefined : createdBy,
+    tagId: tagId === ALL ? undefined : tagId,
+    jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
+    sourceId: sourceId === ALL ? undefined : sourceId,
+    serviceArea: serviceArea === ALL ? undefined : serviceArea,
+    companyId: companyId === ALL ? undefined : companyId,
+    hourFrom: hourFrom || undefined,
+    hourTo: hourTo || undefined,
+  };
+  const listParams = reportListParams(state);
+  const countsParams = reportCountsParams(state);
+
+  // The server pages the window in the order of the date it is "By:"; the
+  // pager walks those pages, fetching the next one when it is asked for.
+  const dealsQuery = useDealsPage(listParams);
+  const countsQuery = useDealCounts(countsParams);
+  const loadedPages = dealsQuery.data?.pages ?? [];
+  const isLoading = dealsQuery.isLoading;
+  useEffect(() => {
+    if (page > loadedPages.length && dealsQuery.hasNextPage && !dealsQuery.isFetchingNextPage) {
+      void dealsQuery.fetchNextPage();
+    }
+  }, [page, loadedPages.length, dealsQuery]);
+  const current = loadedPages[Math.min(page, Math.max(loadedPages.length, 1)) - 1];
+  const pageDeals = useMemo(() => current?.data ?? [], [current]);
+
+  const contactIds = useMemo(() => pageDeals.map((d) => d.contactId), [pageDeals]);
+  const { map: contactMap } = useContactsByIds(contactIds);
 
   const searchableFields = useMemo(
     () => (customFieldDefs ?? []).filter((f) => f.searchable),
     [customFieldDefs],
   );
+  // A job code went to the server; any other text narrows the page on
+  // screen. The hour sorts are settled here too — the server's order is the
+  // date the window is on.
+  const narrowed =
+    search.trim() && !listParams.search
+      ? filterJobsReport(pageDeals, { search: search.trim() }, contactMap, searchableFields)
+      : pageDeals;
+  const rows =
+    sortSel === "hour_asc" || sortSel === "hour_desc"
+      ? sortJobs(narrowed, { key: "hour", dir: sortSel === "hour_asc" ? "asc" : "desc" }, dateField)
+      : narrowed;
 
-  const filtered = useMemo(
-    () =>
-      filterJobsReport(
-        deals,
-        {
-          search: search || undefined,
-          superStatus: superStatus === ALL ? undefined : (superStatus as Deal["superStatus"]),
-          subStatusId: subStatusId === ALL ? undefined : subStatusId,
-          techId: techId === ALL ? undefined : techId,
-          createdBy: createdBy === ALL ? undefined : createdBy,
-          tagId: tagId === ALL ? undefined : tagId,
-          jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
-          sourceId: sourceId === ALL ? undefined : sourceId,
-          serviceArea: serviceArea === ALL ? undefined : serviceArea,
-          companyId: companyId === ALL ? undefined : companyId,
-          dateField,
-          dateFrom: range.from,
-          dateTo: range.to,
-          hourFrom: hourFrom || undefined,
-          hourTo: hourTo || undefined,
-          // The hour window reads the same timestamp as the "By:" switch.
-          hourBasis: dateField,
-        },
-        contactMap,
-        searchableFields,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- range derives from preset/custom values
-    [deals, search, superStatus, subStatusId, techId, createdBy, tagId, jobTypeId, sourceId, serviceArea, companyId, dateField, preset, customFrom, customTo, hourFrom, hourTo, contactMap, searchableFields],
-  );
-
-  const sorted = useMemo(() => {
-    if (sortSel === "none") return filtered;
-    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
-    return sortJobs(filtered, { key, dir }, dateField);
-  }, [filtered, sortSel, dateField]);
-
-  const p = paginate(sorted, page, size);
-  const from = p.total === 0 ? 0 : (p.page - 1) * size + 1;
-  const to = Math.min(p.page * size, p.total);
+  const total = countsQuery.data?.total ?? null;
+  const pages = total === null ? Math.max(loadedPages.length + (dealsQuery.hasNextPage ? 1 : 0), 1) : Math.max(1, Math.ceil(total / size));
+  const p = { page: Math.min(page, pages), pages, total: total ?? loadedPages.reduce((n, pg) => n + pg.data.length, 0) };
+  const fromRow = p.total === 0 ? 0 : (p.page - 1) * size + 1;
+  const toRow = Math.min(p.page * size, p.total);
+  const [exporting, setExporting] = useState(false);
 
   if (!can("reports", "view")) return <NoAccess entity="reports" />;
 
@@ -266,60 +289,73 @@ export function JobsReportPage() {
     return u ? `${u.firstName} ${u.lastName}`.trim() : "—";
   };
 
-  const areas = [...new Set(deals.map((d) => d.serviceArea).filter(Boolean))].sort();
+  const areas = (serviceAreasData ?? []).filter((a) => a.active).map((a) => a.name).sort();
   const users = [...userMap.values()].map((u) => ({
     value: u.id,
     label: `${u.firstName} ${u.lastName}`.trim() || u.id,
   }));
 
-  const exportCsv = () => {
-    const csv = jobsReportCsv(
-      sorted.map((d) => {
-        const c = contactMap.get(d.contactId);
-        return {
-          "Job #": String(d.dealNumber),
-          Client: dealClientName(d, c),
-          Type: jobTypeName(d.jobTypeId),
-          Created: d.createdAt,
-          Scheduled: d.scheduledDate ?? "",
-          Phone: c ? (primaryPhone(c) ?? "") : "",
-          Email: c ? (primaryEmail(c) ?? "") : "",
-          Status: superStatusLabel(d.superStatus),
-          "Sub-status": d.subStatusId ? subStatusName(d.subStatusId) : "",
-          Tech: d.assignedTechIds.map((t) => personName(t)).join("; "),
-          Address: d.address?.street ?? "",
-          City: d.address?.city ?? "",
-          State: d.address?.state ?? "",
-          "Service area": d.serviceArea,
-          Total: money(d.actualTotal ?? d.estimatedTotal),
-          Source: sourceName(d.sourceId),
-          "External company": d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "",
-        };
-      }),
-    );
-    if (typeof URL.createObjectURL !== "function") return;
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `jobs-report-${todayIso}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      // The whole window, page by page, up to the cap — and everyone it names.
+      const all = (await fetchAllDeals({ ...listParams, limit: 100 })).slice(0, EXPORT_MAX_ROWS);
+      const ids = [...new Set(all.map((d) => d.contactId))];
+      const contacts = new Map(contactMap);
+      for (let i = 0; i < ids.length; i += 100) {
+        for (const c of await getContactsByIds(ids.slice(i, i + 100))) contacts.set(c.id, c);
+      }
+      const csv = jobsReportCsv(
+        all.map((d) => {
+          const c = contacts.get(d.contactId);
+          return {
+            "Job #": String(d.dealNumber),
+            Client: dealClientName(d, c),
+            Type: jobTypeName(d.jobTypeId),
+            Created: d.createdAt,
+            Scheduled: d.scheduledDate ?? "",
+            Closed: d.closedAt ?? "",
+            Phone: c ? (primaryPhone(c) ?? "") : "",
+            Email: c ? (primaryEmail(c) ?? "") : "",
+            Status: superStatusLabel(d.superStatus),
+            "Sub-status": d.subStatusId ? subStatusName(d.subStatusId) : "",
+            Tech: d.assignedTechIds.map((t) => personName(t)).join("; "),
+            Address: d.address?.street ?? "",
+            City: d.address?.city ?? "",
+            State: d.address?.state ?? "",
+            Zip: d.address?.zip ?? "",
+            "Service area": d.serviceArea,
+            Total: money(d.actualTotal ?? d.estimatedTotal),
+            Source: sourceName(d.sourceId),
+            "External company": d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "",
+          };
+        }),
+      );
+      if (typeof URL.createObjectURL !== "function") return;
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `jobs-report-${todayIso}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   };
-
   const pager = (withSize: boolean) => (
     <Pager
       page={p.page}
       pages={p.pages}
       total={p.total}
-      from={from}
-      to={to}
+      from={fromRow}
+      to={toRow}
       onPage={setPage}
       size={withSize ? size : undefined}
       onSize={withSize ? (s) => { setSize(s); setPage(1); } : undefined}
       right={
         withSize ? (
-          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={exportCsv}>
-            <Download className="size-3.5" /> Export
+          <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => void exportCsv()} disabled={exporting}>
+            <Download className="size-3.5" /> {exporting ? "Exporting…" : "Export"}
           </Button>
         ) : undefined
       }
@@ -363,7 +399,6 @@ export function JobsReportPage() {
             <option value="last_week">Last week</option>
             <option value="this_month">This month</option>
             <option value="last_month">Last month</option>
-            <option value="all">All time</option>
             <option value="custom">Custom</option>
           </select>
           <DateTimeRangePicker
@@ -409,7 +444,7 @@ export function JobsReportPage() {
           aria-label="Sort jobs"
           className="h-9 rounded-md border bg-transparent px-2 text-sm"
           value={sortSel}
-          onChange={(e) => { setSortSel(e.target.value); setPage(1); }}
+          onChange={(e) => { setSortSel(e.target.value as ReportSort); setPage(1); }}
         >
           <option value="none">Sort: default</option>
           <option value="day_asc">Day &#8593;</option>
@@ -459,7 +494,7 @@ export function JobsReportPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {p.rows.map((d) => {
+              {rows.map((d) => {
                 const c = contactMap.get(d.contactId);
                 const phone = c ? primaryPhone(c) : undefined;
                 return (
@@ -499,7 +534,7 @@ export function JobsReportPage() {
               })}
             </TableBody>
           </Table>
-          {p.rows.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">No jobs match the filters.</p>
           ) : null}
         </div>
