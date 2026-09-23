@@ -42,6 +42,7 @@ export const caller = (scope: DataScope = DataScope.ALL, over: Partial<JwtUser> 
 });
 
 export const dealProduct = (over: Partial<DealProduct> = {}): DealProduct => ({
+  lineId: 'line-1',
   productId: 'p-1',
   name: 'Rekey cylinder',
   sku: 'RK-1',
