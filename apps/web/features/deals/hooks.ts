@@ -26,6 +26,7 @@ import * as api from "./api";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
 import type { DealCountsParams, DealsListParams } from "./query-params";
+import { windowRequests, type DealsWindow } from "./window";
 
 /* ------------------------------------------------------------- queries */
 
@@ -43,6 +44,30 @@ export function useDeals(
     // Opt-in only — every existing caller omits it and still fetches on mount.
     // "My jobs" waits for the signed-in technician's id, so it never asks for
     // the whole board on its way to asking for one technician's.
+    enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * A board or a schedule: the whole of a bounded window, kept fresh by
+ * polling. The window is a handful of bounded requests (`windowRequests`),
+ * drained and merged — a deal reached from two of them is kept once.
+ */
+export function useDealsWindow(window: DealsWindow, options: { poll?: boolean; enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: queryKeys.deals.window(window),
+    queryFn: async () => {
+      const pages = await Promise.all(windowRequests(window).map((req) => api.fetchAllDeals(req)));
+      const seen = new Set<string>();
+      const out: Deal[] = [];
+      for (const d of pages.flat()) {
+        if (seen.has(d.id)) continue;
+        seen.add(d.id);
+        out.push(d);
+      }
+      return out;
+    },
+    refetchInterval: options.poll ? DEALS_POLL_MS : false,
     enabled: options.enabled ?? true,
   });
 }

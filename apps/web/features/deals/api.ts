@@ -74,13 +74,12 @@ function toSearchParams(params: Record<string, string | number | boolean | undef
 }
 
 /**
- * Walk every page. The list barely filters server-side and has no text search,
- * so we load the active set and filter/search/group client-side. A scan page
- * can be empty while a cursor still exists — loop until `nextCursor` is gone.
+ * Walk every page of one bounded list — a window of days, or one open
+ * status. Never call it for an unbounded query: after the import a closed
+ * status is hundreds of thousands of rows. A scan page can be empty while a
+ * cursor still exists — loop until `nextCursor` is gone.
  */
-export async function fetchAllDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string } = {},
-): Promise<Deal[]> {
+export async function fetchAllDeals(params: DealsListParams = {}): Promise<Deal[]> {
   const out: Deal[] = [];
   let cursor: string | undefined;
   do {
