@@ -242,7 +242,29 @@ describe('UsersRepository', () => {
       const input = dbClient.send.mock.calls[0][0].input;
       expect(input.FilterExpression).toContain('begins_with(PK, :pk)');
       expect(input.ExpressionAttributeValues[':pk']).toBe('USER#');
-      expect(input.Limit).toBe(20);
+    });
+
+    it('reads more rows than the page, because the filter throws most of them away', async () => {
+      dbClient.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20);
+
+      // The table also holds job types, service areas, commissions and tech
+      // profiles; asking for exactly 20 rows once returned a handful of users.
+      expect(dbClient.send.mock.calls[0][0].input.Limit).toBeGreaterThan(20);
+    });
+
+    it('keeps reading until the page is full', async () => {
+      const user = (id: string) => ({ PK: `USER#${id}`, SK: 'METADATA', id });
+      dbClient.send
+        .mockResolvedValueOnce({ Items: [user('a')], LastEvaluatedKey: { PK: 'p1' } })
+        .mockResolvedValueOnce({ Items: [user('b')], LastEvaluatedKey: { PK: 'p2' } })
+        .mockResolvedValueOnce({ Items: [user('c')] });
+
+      const result = await repository.findAll(3);
+
+      expect(result.items.map((u) => u.id)).toEqual(['a', 'b', 'c']);
+      expect(result.nextCursor).toBeUndefined();
     });
   });
 

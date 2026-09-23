@@ -7,7 +7,7 @@ import {
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { type User, UserStatus } from '@bitcrm/types';
 import { USERS_TABLE, GSI1_NAME, GSI2_NAME } from './constants/dynamo.constants';
 
@@ -132,20 +132,32 @@ export class UsersRepository {
     return userId ? this.findById(userId) : null;
   }
 
+  /**
+   * The table holds far more than users — a technician's job types, service
+   * areas, commission rows and profile all share it — so a filtered Scan reads
+   * mostly rows it will throw away. `scanPage` keeps reading until the page is
+   * full; asking DynamoDB for `limit` once returned nine users out of a
+   * hundred rows read, and every screen resolving a name through the directory
+   * fell back to "Unknown".
+   */
   async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: USERS_TABLE,
-        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-        ExpressionAttributeValues: { ':pk': 'USER#', ':sk': 'METADATA' },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: USERS_TABLE,
+            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+            ExpressionAttributeValues: { ':pk': 'USER#', ':sk': 'METADATA' },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toUser),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toUser),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 
@@ -154,25 +166,29 @@ export class UsersRepository {
     limit: number,
     cursor?: string,
   ): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: USERS_TABLE,
-        FilterExpression:
-          'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':pk': 'USER#',
-          ':sk': 'METADATA',
-          ':status': status,
-        },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: USERS_TABLE,
+            FilterExpression:
+              'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+            ExpressionAttributeNames: { '#status': 'status' },
+            ExpressionAttributeValues: {
+              ':pk': 'USER#',
+              ':sk': 'METADATA',
+              ':status': status,
+            },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toUser),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toUser),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 

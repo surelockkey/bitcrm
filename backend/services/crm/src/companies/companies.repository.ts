@@ -7,7 +7,7 @@ import {
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { CrmStatus, type Company } from '@bitcrm/types';
 import {
   COMPANIES_TABLE,
@@ -133,24 +133,28 @@ export class CompaniesRepository {
     limit: number,
     cursor?: string,
   ): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-        ExpressionAttributeValues: {
-          ':pk': 'COMPANY#',
-          ':sk': 'METADATA',
-          ':status': CrmStatus.ACTIVE,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: this.tableName,
+            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+            ExpressionAttributeValues: {
+              ':pk': 'COMPANY#',
+              ':sk': 'METADATA',
+              ':status': CrmStatus.ACTIVE,
+            },
+            ExpressionAttributeNames: { '#status': 'status' },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toCompany),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toCompany),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 

@@ -1,6 +1,13 @@
 // DynamoDB
 export { DynamoDbModule } from './dynamodb/dynamodb.module';
 export { DynamoDbService } from './dynamodb/dynamodb.service';
+export { scanPage } from './dynamodb/scan-page';
+export type {
+  ScanPageOptions,
+  ScanPageResult,
+  ScanReadInput,
+  ScanReadOutput,
+} from './dynamodb/scan-page';
 
 // Redis
 export { RedisModule } from './redis/redis.module';

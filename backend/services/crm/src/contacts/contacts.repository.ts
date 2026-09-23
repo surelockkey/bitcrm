@@ -8,7 +8,7 @@ import {
   DeleteCommand,
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { CrmStatus, type Contact, type Address } from '@bitcrm/types';
 import {
   CONTACTS_TABLE,
@@ -157,24 +157,28 @@ export class ContactsRepository {
   ): Promise<PaginatedResult> {
     const statusFilter = filters?.status || CrmStatus.ACTIVE;
 
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-        ExpressionAttributeValues: {
-          ':pk': 'CONTACT#',
-          ':sk': 'METADATA',
-          ':status': statusFilter,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: this.tableName,
+            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+            ExpressionAttributeValues: {
+              ':pk': 'CONTACT#',
+              ':sk': 'METADATA',
+              ':status': statusFilter,
+            },
+            ExpressionAttributeNames: { '#status': 'status' },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toContact),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toContact),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 
