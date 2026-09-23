@@ -16,18 +16,12 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
-import { useContactMap, useDeals, useUserMap } from "../hooks";
-import {
-  filterDeals,
-  jobTabLabel,
-  matchesTab,
-  tabCounts,
-  JOB_TABS,
-  type DealFilter,
-  type JobTab,
-  sortJobs,
-  type JobSort,
-} from "../lib";
+import { useDealCounts, useDealsPage, useUserMap } from "../hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
+import { useAllTechnicians } from "@/features/technicians/hooks";
+import { useServiceAreas } from "@/features/service-areas/hooks";
+import { toCountsParams, toListParams, type JobsListState, type JobsSort } from "../query-params";
+import { filterDeals, jobTabLabel, JOB_TABS, type JobTab, sortJobs } from "../lib";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
@@ -45,16 +39,6 @@ const ALL = "all";
 
 export function DealsPage() {
   const { can, isTechnician } = usePermissions();
-  const dealsQuery = useDeals();
-  const { map: contactMap } = useContactMap();
-  // The technicians actually on these deals. A viewer who may not list users
-  // resolves exactly these ids rather than getting an empty map and uuids.
-  const techIdsOnDeals = useMemo(() => {
-    const ids = new Set<string>();
-    for (const d of dealsQuery.data ?? []) d.assignedTechIds.forEach((t) => ids.add(t));
-    return [...ids];
-  }, [dealsQuery.data]);
-  const { map: userMap } = useUserMap(techIdsOnDeals);
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
   const customFieldsQuery = useCustomFields();
@@ -67,7 +51,7 @@ export function DealsPage() {
   const [tagId, setTagId] = useState(ALL);
   const [companyId, setCompanyId] = useState(ALL);
   const { data: companies } = useBusinessProfiles();
-  const [sortSel, setSortSel] = useState("none");
+  const [sortSel, setSortSel] = useState<JobsSort>("none");
   // Range filters: one calendar range for the days, plus a time-of-day window.
   const [dayRange, setDayRange] = useState<DateTimeRange>({});
   const [hourFrom, setHourFrom] = useState("");
@@ -77,42 +61,59 @@ export function DealsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const visibleFields = useJobFieldsStore((s) => s.visible);
 
-  const deals = dealsQuery.data ?? [];
-
-  // Techs that actually appear on deals, resolved to names — the tech filter.
-  const techOptions = useMemo(() => {
-    const ids = new Set<string>();
-    deals.forEach((d) => d.assignedTechIds.forEach((t) => ids.add(t)));
-    return [...ids]
-      .map((id) => {
-        const u = userMap.get(id);
-        return { value: id, label: u ? `${u.firstName} ${u.lastName}`.trim() : id };
-      })
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [deals, userMap]);
-
-  // Distinct service areas present on deals — the area filter.
-  const areaOptions = useMemo(() => {
-    const set = new Set<string>();
-    deals.forEach((d) => d.serviceArea && set.add(d.serviceArea));
-    return [...set].sort().map((a) => ({ value: a, label: a }));
-  }, [deals]);
-
-  // Everything except the status tab — so tab counts reflect the active filters.
-  const baseFilter: DealFilter = useMemo(
+  // The toolbar, as the server is asked for it: the tab picks the status (or
+  // the undated jobs), the rest are filters, the sort is the visit order.
+  const listState: JobsListState = useMemo(
     () => ({
-      search: search || undefined,
-      dateFrom: dateFrom || undefined,
-      dateTo: dateTo || undefined,
-      hourFrom: hourFrom || undefined,
-      hourTo: hourTo || undefined,
+      tab,
+      search,
       techId: techId === ALL ? undefined : techId,
       jobTypeId: jobTypeId === ALL ? undefined : jobTypeId,
       serviceArea: serviceArea === ALL ? undefined : serviceArea,
       tagId: tagId === ALL ? undefined : tagId,
       businessProfileId: companyId === ALL ? undefined : companyId,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+      hourFrom: hourFrom || undefined,
+      hourTo: hourTo || undefined,
+      sort: sortSel,
     }),
-    [search, techId, jobTypeId, serviceArea, tagId, companyId, dateFrom, dateTo, hourFrom, hourTo],
+    [tab, search, techId, jobTypeId, serviceArea, tagId, companyId, dateFrom, dateTo, hourFrom, hourTo, sortSel],
+  );
+  const listParams = useMemo(() => toListParams(listState), [listState]);
+  const countsParams = useMemo(() => toCountsParams(listState), [listState]);
+
+  const dealsQuery = useDealsPage(listParams);
+  const countsQuery = useDealCounts(countsParams);
+  const deals = useMemo(() => dealsQuery.data?.pages.flatMap((p) => p.data) ?? [], [dealsQuery.data]);
+
+  // Only the clients and technicians of the rows on screen are resolved.
+  const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
+  const { map: contactMap } = useContactsByIds(contactIds);
+  const techIdsOnDeals = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of deals) d.assignedTechIds.forEach((t) => ids.add(t));
+    return [...ids];
+  }, [deals]);
+  // The tech filter lists the roster, not whoever happens to be on this page.
+  const { profiles: technicians } = useAllTechnicians();
+  const { map: userMap } = useUserMap([...techIdsOnDeals, ...technicians.map((t) => t.userId)]);
+  const techOptions = useMemo(
+    () =>
+      technicians
+        .map(({ userId }) => {
+          const u = userMap.get(userId);
+          return { value: userId, label: u ? `${u.firstName} ${u.lastName}`.trim() : userId };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [technicians, userMap],
+  );
+
+  // The area filter is the catalog, as Workiz offers it.
+  const { data: serviceAreas } = useServiceAreas();
+  const areaOptions = useMemo(
+    () => (serviceAreas ?? []).filter((a) => a.active).map((a) => ({ value: a.name, label: a.name })),
+    [serviceAreas],
   );
 
   // Searchable custom-field definitions let free-text search match their answers.
@@ -121,18 +122,19 @@ export function DealsPage() {
     [customFieldsQuery.data],
   );
 
-  const base = useMemo(
-    () => filterDeals(deals, baseFilter, contactMap, searchableFields),
-    [deals, baseFilter, contactMap, searchableFields],
-  );
-  const counts = useMemo(() => tabCounts(base), [base]);
+  // A job code went to the server; any other text narrows the rows on screen
+  // (name, area, custom answers) until the search service takes it over.
   const visible = useMemo(() => {
-    const rows = base.filter((d) => matchesTab(d, tab));
-    // Default: the board reads soonest upcoming → latest (unscheduled last).
-    if (sortSel === "none") return sortJobs(rows, { key: "schedule", dir: "asc" });
-    const [key, dir] = sortSel.split("_") as [JobSort["key"], JobSort["dir"]];
-    return sortJobs(rows, { key, dir });
-  }, [base, tab, sortSel]);
+    const q = search.trim();
+    const rows = q && !listParams.search ? filterDeals(deals, { search: q }, contactMap, searchableFields) : deals;
+    // The server already orders by day; the hour sorts are settled here.
+    if (sortSel === "hour_asc" || sortSel === "hour_desc") {
+      return sortJobs(rows, { key: "hour", dir: sortSel === "hour_asc" ? "asc" : "desc" });
+    }
+    return rows;
+  }, [deals, search, listParams.search, contactMap, searchableFields, sortSel]);
+
+  const counts = countsQuery.data;
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -171,7 +173,7 @@ export function DealsPage() {
           aria-label="Sort jobs"
           className="h-9 rounded-md border bg-transparent px-2 text-sm"
           value={sortSel}
-          onChange={(e) => setSortSel(e.target.value)}
+          onChange={(e) => setSortSel(e.target.value as JobsSort)}
         >
           <option value="none">Sort: Soonest first</option>
           <option value="day_asc">Day &#8593;</option>
@@ -214,7 +216,7 @@ export function DealsPage() {
                   active ? "bg-brand/10 text-brand" : "bg-muted text-muted-foreground",
                 )}
               >
-                {counts[t]}
+                {counts?.[t] ?? (counts ? "—" : "…")}
               </span>
             </button>
           );
@@ -240,7 +242,22 @@ export function DealsPage() {
             }
           />
         ) : (
-          <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} visibleFields={visibleFields} />
+          <>
+            <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} visibleFields={visibleFields} />
+            {dealsQuery.hasNextPage ? (
+              <div className="flex items-center justify-center gap-3 py-4">
+                <span className="text-xs text-muted-foreground">Showing {deals.length}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void dealsQuery.fetchNextPage()}
+                  disabled={dealsQuery.isFetchingNextPage}
+                >
+                  {dealsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
 

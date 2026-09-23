@@ -25,6 +25,27 @@ export function useContacts(companyId?: string) {
   });
 }
 
+/**
+ * The contacts behind the rows on screen — a jobs page, a calls page — as a
+ * map by id. Sorted and de-duplicated so the key is stable; nothing is asked
+ * for an empty list.
+ */
+export function useContactsByIds(ids: string[]) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort(), [ids]);
+  const q = useQuery({
+    queryKey: queryKeys.contacts.byIds(wanted),
+    queryFn: () => api.getContactsByIds(wanted),
+    enabled: wanted.length > 0,
+    staleTime: 60_000,
+  });
+  const map = useMemo(() => {
+    const m = new Map<string, Contact>();
+    for (const c of q.data ?? []) m.set(c.id, c);
+    return m;
+  }, [q.data]);
+  return { map, isLoading: q.isLoading };
+}
+
 export function useContact(id: string) {
   return useQuery({
     queryKey: queryKeys.contacts.detail(id),

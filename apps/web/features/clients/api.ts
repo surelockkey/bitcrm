@@ -43,6 +43,10 @@ export async function fetchAllContacts(companyId?: string): Promise<Contact[]> {
   return out;
 }
 
+/** The contacts a page of some list shows, masked like any other contact route; missing ids are absent. */
+export const getContactsByIds = (ids: string[]): Promise<Contact[]> =>
+  ids.length ? http.post<Contact[]>("/crm/contacts/by-ids", { ids }) : Promise.resolve([]);
+
 export const getContact = (id: string): Promise<Contact> =>
   http.get<Contact>(`/crm/contacts/${id}`);
 

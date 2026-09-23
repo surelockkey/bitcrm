@@ -25,6 +25,7 @@ import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
+import type { DealCountsParams, DealsListParams } from "./query-params";
 
 /* ------------------------------------------------------------- queries */
 
@@ -43,6 +44,31 @@ export function useDeals(
     // "My jobs" waits for the signed-in technician's id, so it never asks for
     // the whole board on its way to asking for one technician's.
     enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * The jobs page: one server-ordered page at a time, the next one on
+ * request. Fifty rows a page, as Workiz shows them; the toolbar state is the
+ * key, so a filter change starts a fresh first page.
+ */
+export function useDealsPage(params: DealsListParams, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.deals.page(params),
+    queryFn: ({ pageParam }) => api.listDeals({ ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled,
+  });
+}
+
+/** The tab numbers, under the same filters as the page; the server caches them thirty seconds. */
+export function useDealCounts(params: DealCountsParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.deals.counts(params),
+    queryFn: () => api.getDealCounts(params),
+    staleTime: 30_000,
+    enabled,
   });
 }
 
