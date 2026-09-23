@@ -82,7 +82,6 @@ vi.mock("@/features/deals/hooks", () => ({
     mocks.countsParams.push(params);
     return { data: { total: mocks.deals.length }, isLoading: false };
   },
-  useContactMap: () => ({ map: new Map([[contact.id, contact]]) }),
   useUserMap: () => ({ map: new Map() }),
 }));
 vi.mock("@/features/job-types/lib", () => ({

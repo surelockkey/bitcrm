@@ -116,6 +116,8 @@ export const queryKeys = {
     detail: (id: string) => ["contacts", "detail", id] as const,
     byPhone: (phone: string) => ["contacts", "by-phone", phone] as const,
     byIds: (ids: string[]) => ["contacts", "by-ids", ids] as const,
+    /** The server-paged Contacts list (optionally one company's people). */
+    page: (companyId?: string) => ["contacts", "page", companyId] as const,
   },
 
   companies: {

@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCompanyMap } from "@/features/clients/hooks";
 import { formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
-import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../hooks";
+import { useDealProducts, useUnassignTech, useUserMap } from "../hooks";
+import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
@@ -24,7 +25,6 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
   const jobTypeName = useJobTypeName();
   const jobSourceName = useJobSourceName();
   const externalCompanyName = useExternalCompanyName();
-  const { map: contactMap } = useContactMap();
   const { map: companyMap } = useCompanyMap();
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(deal.id);
@@ -33,7 +33,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
   const [assignOpen, setAssignOpen] = useState(false);
   const hasCustomFields = applicableFields(customFieldDefs, deal.jobTypeId).length > 0;
 
-  const contact = contactMap.get(deal.contactId);
+  const { data: contact } = useContact(deal.contactId);
   const company = deal.companyId ? companyMap.get(deal.companyId) : undefined;
   const total = dealTotal(products ?? []);
 

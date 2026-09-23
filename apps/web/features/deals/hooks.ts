@@ -9,16 +9,13 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type {
-  Contact,
   Deal,
   DealProduct,
   DocumentDiscount,
-  JobSuperStatus,
   User,
 } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
-import { fetchAllContacts } from "@/features/clients/api";
 import { getUserNames } from "@/features/users/api";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { fetchAllUsers } from "@/features/technicians/api";
@@ -32,21 +29,6 @@ import { windowRequests, type DealsWindow } from "./window";
 
 /** Dispatch board polls so the map stays live (story 4.01). */
 export const DEALS_POLL_MS = 30_000;
-
-export function useDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string } = {},
-  options: { poll?: boolean; enabled?: boolean } = {},
-) {
-  return useQuery({
-    queryKey: queryKeys.deals.list(params),
-    queryFn: () => api.fetchAllDeals(params),
-    refetchInterval: options.poll ? DEALS_POLL_MS : false,
-    // Opt-in only — every existing caller omits it and still fetches on mount.
-    // "My jobs" waits for the signed-in technician's id, so it never asks for
-    // the whole board on its way to asking for one technician's.
-    enabled: options.enabled ?? true,
-  });
-}
 
 /**
  * A board or a schedule: the whole of a bounded window, kept fresh by
@@ -174,20 +156,6 @@ export function useSuggestedTechs(
 }
 
 /* --------------------------------------------------------------- joins */
-
-/** contactId → Contact, shared with the Clients cache. */
-export function useContactMap() {
-  const q = useQuery({
-    queryKey: queryKeys.contacts.list({ companyId: undefined }),
-    queryFn: () => fetchAllContacts(),
-  });
-  const map = useMemo(() => {
-    const m = new Map<string, Contact>();
-    for (const c of q.data ?? []) m.set(c.id, c);
-    return m;
-  }, [q.data]);
-  return { map, isLoading: q.isLoading };
-}
 
 /** userId → User (technicians + dispatchers), shared with the Technicians cache. */
 /**

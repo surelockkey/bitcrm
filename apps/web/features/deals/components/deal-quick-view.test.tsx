@@ -90,10 +90,12 @@ const deal: Deal = {
   businessProfileName: "KeyPro",
 };
 
+vi.mock("@/features/clients/hooks", () => ({
+  useContact: (id: string) => ({ data: id === contact.id ? contact : undefined, isLoading: false }),
+}));
 vi.mock("../hooks", () => ({
   useDeal: () => ({ data: deal, isLoading: false }),
   useDealProducts: () => ({ data: [] }),
-  useContactMap: () => ({ map: new Map([[contact.id, contact]]) }),
   useUserMap: () => ({ map: new Map() }),
   useUpdateDeal: () => ({ mutate: vi.fn() }),
   useSetDealTags: () => ({ mutate: vi.fn() }),
