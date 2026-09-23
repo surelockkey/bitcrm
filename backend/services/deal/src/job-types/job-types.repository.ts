@@ -9,6 +9,7 @@ import {
 import { DynamoDbService } from '@bitcrm/shared';
 import { type JobType } from '@bitcrm/types';
 import { DEALS_TABLE, DEALS_GSI1_NAME } from '../common/constants/dynamo.constants';
+import { isReferencedByDeal, equals } from '../common/utils/is-referenced';
 import {
   JOB_TYPE_PK_PREFIX,
   JOB_TYPE_SK,
@@ -85,16 +86,7 @@ export class JobTypesRepository {
    * `Limit: 1` because only existence matters, never the count.
    */
   async isReferencedByDeal(id: string): Promise<boolean> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: DEALS_TABLE,
-        FilterExpression: '#jobTypeId = :id',
-        ExpressionAttributeNames: { '#jobTypeId': 'jobTypeId' },
-        ExpressionAttributeValues: { ':id': id },
-        Limit: 1,
-      }),
-    );
-    return (result.Items?.length ?? 0) > 0;
+    return isReferencedByDeal(this.dynamoDb.client, DEALS_TABLE, equals('jobTypeId', id));
   }
 
   async remove(id: string): Promise<void> {

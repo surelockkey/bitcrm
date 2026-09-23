@@ -51,7 +51,8 @@ describe('JobSourcesRepository', () => {
     expect(await repository.isReferencedByDeal('jt-1')).toBe(true);
 
     const input = dynamoDb.client.send.mock.calls[0][0].input;
-    expect(input.FilterExpression).toContain('#sourceId = :id');
+    expect(input.FilterExpression).toContain('= :id');
+    expect(Object.values(input.ExpressionAttributeNames)).toContain('sourceId');
     expect(input.ExpressionAttributeValues[':id']).toBe('jt-1');
   });
 

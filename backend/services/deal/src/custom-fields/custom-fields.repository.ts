@@ -9,6 +9,7 @@ import {
 import { DynamoDbService } from '@bitcrm/shared';
 import { type CustomFieldDefinition } from '@bitcrm/types';
 import { DEALS_TABLE, DEALS_GSI1_NAME } from '../common/constants/dynamo.constants';
+import { isReferencedByDeal, mapKeyExists } from '../common/utils/is-referenced';
 import {
   CUSTOM_FIELD_PK_PREFIX,
   CUSTOM_FIELD_SK,
@@ -87,15 +88,7 @@ export class CustomFieldsRepository {
    * reference test. `Limit: 1` because only existence matters, never the count.
    */
   async isReferencedByDeal(id: string): Promise<boolean> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: DEALS_TABLE,
-        FilterExpression: 'attribute_exists(#cf.#fid)',
-        ExpressionAttributeNames: { '#cf': 'customFields', '#fid': id },
-        Limit: 1,
-      }),
-    );
-    return (result.Items?.length ?? 0) > 0;
+    return isReferencedByDeal(this.dynamoDb.client, DEALS_TABLE, mapKeyExists('customFields', id));
   }
 
   async remove(id: string): Promise<void> {
