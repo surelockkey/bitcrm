@@ -556,6 +556,17 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             </Select>
           </Field>
         </div>
+
+        {/* The job's note belongs with the job, the way Workiz shows it —
+            a dispatcher reads what the job is about without scrolling past
+            the schedule and the team. Saved by the page's single Save. */}
+        <DealNotesCard
+          notes={dealDraft.notes}
+          internalNotes={dealDraft.internalNotes}
+          editable={canEdit && !isTechnician}
+          onNotesChange={(v) => setDeal({ notes: v })}
+          onInternalNotesChange={(v) => setDeal({ internalNotes: v })}
+        />
       </Section>
 
       {/* Team — inline assign (Workiz-style): pick techs who can do the job,
@@ -590,17 +601,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           />
         </Section>
       ))}
-
-      {/* Notes — directly editable; the single Save below persists them */}
-      <div className="lg:col-span-2">
-        <DealNotesCard
-          notes={dealDraft.notes}
-          internalNotes={dealDraft.internalNotes}
-          editable={canEdit && !isTechnician}
-          onNotesChange={(v) => setDeal({ notes: v })}
-          onInternalNotesChange={(v) => setDeal({ internalNotes: v })}
-        />
-      </div>
 
       </div>
 
