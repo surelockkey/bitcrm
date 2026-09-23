@@ -364,9 +364,9 @@ export class DealsService {
       });
     }
 
-    const dealNumber = await this.repository.reserveDealNumber();
-    const now = new Date().toISOString();
     const id = randomUUID();
+    const dealNumber = await this.repository.reserveDealNumber(id);
+    const now = new Date().toISOString();
 
     // Plain object for DynamoDB marshalling, geocoded if the caller sent no coords.
     const address = await this.resolveAddress(dto.address);
@@ -518,6 +518,22 @@ export class DealsService {
 
     const filters = this.listFilters(query, caller, dataScope);
 
+    // A Job ID code is one lookup on its reservation, then the deal itself,
+    // checked against the tab and filters it was searched under. Only a
+    // reservation from before the link (or an old sequential number) still
+    // takes the filtered read below.
+    if (typeof filters.dealNumber === 'string') {
+      const dealId = await this.repository.findIdByNumber(filters.dealNumber);
+      if (dealId === null) return { items: [], nextCursor: undefined };
+      if (dealId) {
+        const deals = await this.repository.findByIds([dealId]);
+        return {
+          items: deals.filter((d) => this.matchesListQuery(d, query, filters)),
+          nextCursor: undefined,
+        };
+      }
+    }
+
     // A visit-date window, the undated tab or a schedule sort: the schedule
     // index answers, one status or all of them merged.
     const window = this.parseScheduleWindow(query);
@@ -577,6 +593,24 @@ export class DealsService {
     return deals.filter(
       (d) => d.status === DealStatus.ACTIVE && (dataScope !== 'assigned_only' || d.assignedTechIds.includes(caller.id)),
     );
+  }
+
+  /** Does one deal belong on the page this query describes — its tab, its keys, its filters? */
+  private matchesListQuery(deal: Deal, query: ListDealsQueryDto, filters: DealFilters): boolean {
+    if (deal.status !== DealStatus.ACTIVE) return false;
+    if (query.superStatus && deal.superStatus !== query.superStatus) return false;
+    if (query.contactId && deal.contactId !== query.contactId) return false;
+    if (query.dispatcherId && deal.assignedDispatcherId !== query.dispatcherId) return false;
+    if (filters.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
+    if (filters.jobTypeId && deal.jobTypeId !== filters.jobTypeId) return false;
+    if (filters.sourceId && deal.sourceId !== filters.sourceId) return false;
+    if (filters.businessProfileId && deal.businessProfileId !== filters.businessProfileId) return false;
+    if (filters.serviceArea && deal.serviceArea !== filters.serviceArea) return false;
+    if (filters.clientType && deal.clientType !== filters.clientType) return false;
+    if (filters.priority && deal.priority !== filters.priority) return false;
+    if (filters.subStatusId && deal.subStatusId !== filters.subStatusId) return false;
+    if (filters.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
+    return true;
   }
 
   /**
