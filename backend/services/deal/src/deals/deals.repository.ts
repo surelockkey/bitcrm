@@ -531,7 +531,7 @@ export class DealsRepository {
             IndexName: read.indexName,
             KeyConditionExpression: read.keyCondition,
             FilterExpression: f.expression,
-            ExpressionAttributeNames: { ...f.names, '#pk': read.pkAttr, '#sk': read.skAttr },
+            ExpressionAttributeNames: this.expressionNames(read.keyCondition, f.names, read.pkAttr, read.skAttr),
             ExpressionAttributeValues: { ':pk': partition.pk, ...read.keyValues, ...f.values },
             ScanIndexForward: dir === 'asc',
             Limit: limit,
@@ -590,6 +590,25 @@ export class DealsRepository {
     };
   }
 
+  /**
+   * The names an index read declares. DynamoDB rejects the whole request
+   * when `ExpressionAttributeNames` holds a name no expression uses, and a
+   * key condition without a range (the jobs list with no date window) never
+   * mentions `#sk`.
+   */
+  private expressionNames(
+    keyCondition: string,
+    filterNames: Record<string, string>,
+    pkAttr: string,
+    skAttr: string,
+  ): Record<string, string> {
+    return {
+      ...filterNames,
+      '#pk': pkAttr,
+      ...(keyCondition.includes('#sk') ? { '#sk': skAttr } : {}),
+    };
+  }
+
   /** A `Select: COUNT` over every partition of a read, each walked to the end of its range. */
   private async countOn(
     indexName: string,
@@ -612,7 +631,7 @@ export class DealsRepository {
               IndexName: indexName,
               KeyConditionExpression: keyCondition,
               FilterExpression: f.expression,
-              ExpressionAttributeNames: { ...f.names, '#pk': pkAttr, '#sk': skAttr },
+              ExpressionAttributeNames: this.expressionNames(keyCondition, f.names, pkAttr, skAttr),
               ExpressionAttributeValues: { ':pk': pk, ...keyValues, ...f.values },
               Select: 'COUNT',
               ExclusiveStartKey: lastKey,
