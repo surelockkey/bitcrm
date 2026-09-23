@@ -26,6 +26,9 @@ locals {
       { name = "ContactIndex", n = 3 },
       { name = "DispatcherIndex", n = 4 },
       { name = "StatusScheduleIndex", n = 5 },
+      # ClosedIndex is sparse — closed deals only, one partition a month
+      # (CLOSED#<YYYY-MM> / <closedAt>#DEAL#<id>) — for the report's "By: Job closed".
+      { name = "ClosedIndex", n = 6 },
     ] }
     # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
     # own history; AllCallsIndex is the global time-ordered log the calls page
