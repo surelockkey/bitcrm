@@ -1,5 +1,5 @@
 /**
- * Stamp the StatusScheduleIndex keys onto every deal METADATA row.
+ * Stamp the StatusScheduleIndex and ClosedIndex keys onto every deal METADATA row.
  *
  * WHY
  * ---
@@ -34,7 +34,7 @@ config({ path: resolve(__dirname, '../../../../.env') });
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { STAGE_TO_SUPER_STATUS, JobSuperStatus, type DealStage } from '@bitcrm/types';
-import { statusScheduleKeys } from '../deals/deals.repository';
+import { closedIndexKeys, statusScheduleKeys } from '../deals/deals.repository';
 
 const TABLE = process.env.DEALS_TABLE || 'BitCRM_Deals';
 const APPLY = process.argv.includes('--apply');
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
         TableName: TABLE,
         FilterExpression: 'SK = :meta AND begins_with(PK, :deal)',
         ExpressionAttributeValues: { ':meta': 'METADATA', ':deal': 'DEAL#' },
-        ProjectionExpression: 'PK, SK, id, superStatus, stage, scheduledDate, scheduledTimeSlot, allDay, GSI5PK, GSI5SK, slotStart',
+        ProjectionExpression: 'PK, SK, id, superStatus, stage, scheduledDate, scheduledTimeSlot, allDay, closedAt, GSI5PK, GSI5SK, GSI6PK, GSI6SK, slotStart',
         ExclusiveStartKey: lastKey,
       }),
     );
@@ -82,27 +82,39 @@ async function main(): Promise<void> {
         scheduledTimeSlot: item.scheduledTimeSlot as string | undefined,
         allDay: item.allDay as boolean | undefined,
       });
-      const current = { GSI5PK: item.GSI5PK, GSI5SK: item.GSI5SK, slotStart: item.slotStart };
-      if (current.GSI5PK === keys.GSI5PK && current.GSI5SK === keys.GSI5SK && current.slotStart === keys.slotStart) {
+      const closed = closedIndexKeys({ id: item.id as string, closedAt: item.closedAt as string | undefined });
+      const same =
+        item.GSI5PK === keys.GSI5PK &&
+        item.GSI5SK === keys.GSI5SK &&
+        item.slotStart === keys.slotStart &&
+        item.GSI6PK === closed?.GSI6PK &&
+        item.GSI6SK === closed?.GSI6SK;
+      if (same) {
         skipped += 1;
         continue;
       }
       stamped += 1;
-      console.log(`${APPLY ? 'stamp' : 'would stamp'} ${item.PK}: ${keys.GSI5SK}`);
+      console.log(`${APPLY ? 'stamp' : 'would stamp'} ${item.PK}: ${keys.GSI5SK}${closed ? ` / ${closed.GSI6SK}` : ''}`);
       if (!APPLY) continue;
+      const sets = ['GSI5PK = :pk', 'GSI5SK = :sk'];
+      const removes: string[] = [];
+      const values: Record<string, unknown> = { ':pk': keys.GSI5PK, ':sk': keys.GSI5SK };
+      if (keys.slotStart) {
+        sets.push('#slotStart = :slotStart');
+        values[':slotStart'] = keys.slotStart;
+      } else removes.push('#slotStart');
+      if (closed) {
+        sets.push('GSI6PK = :cpk', 'GSI6SK = :csk');
+        values[':cpk'] = closed.GSI6PK;
+        values[':csk'] = closed.GSI6SK;
+      } else removes.push('GSI6PK', 'GSI6SK');
       await client.send(
         new UpdateCommand({
           TableName: TABLE,
           Key: { PK: item.PK, SK: item.SK },
-          UpdateExpression: keys.slotStart
-            ? 'SET GSI5PK = :pk, GSI5SK = :sk, #slotStart = :slotStart'
-            : 'SET GSI5PK = :pk, GSI5SK = :sk REMOVE #slotStart',
+          UpdateExpression: `SET ${sets.join(', ')}${removes.length ? ` REMOVE ${removes.join(', ')}` : ''}`,
           ExpressionAttributeNames: { '#slotStart': 'slotStart' },
-          ExpressionAttributeValues: {
-            ':pk': keys.GSI5PK,
-            ':sk': keys.GSI5SK,
-            ...(keys.slotStart ? { ':slotStart': keys.slotStart } : {}),
-          },
+          ExpressionAttributeValues: values,
           ConditionExpression: 'attribute_exists(PK)',
         }),
       );

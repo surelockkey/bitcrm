@@ -115,6 +115,39 @@ export class ListDealsQueryDto {
   @IsIn(['asc', 'desc'])
   dir?: 'asc' | 'desc';
 
+  // ---- the report windows: "By: Job created" / "By: Job closed" ----------
+
+  @ApiPropertyOptional({
+    example: '2026-09-01',
+    description:
+      'First creation day of the window (YYYY-MM-DD, inclusive), with `createdTo` at most 92 days; alone = that day. ' +
+      'Reads the status index by creation time, newest first; without `superStatus` every status is merged. ' +
+      'Cannot be combined with a scheduled or closed window.',
+  })
+  @IsOptional()
+  @IsString()
+  createdFrom?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-30' })
+  @IsOptional()
+  @IsString()
+  createdTo?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-09-01',
+    description:
+      'First closing day of the window (YYYY-MM-DD, inclusive), with `closedTo` at most 92 days. Reads the closed ' +
+      'index (Done / Canceled only), newest first; `superStatus` narrows it.',
+  })
+  @IsOptional()
+  @IsString()
+  closedFrom?: string;
+
+  @ApiPropertyOptional({ example: '2026-09-30' })
+  @IsOptional()
+  @IsString()
+  closedTo?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

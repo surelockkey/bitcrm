@@ -134,7 +134,9 @@ describe('DealsRepository.findBySchedule — one status', () => {
     await repository.findBySchedule([JobSuperStatus.SUBMITTED], { from: '2026-09-21', to: '2026-09-27' }, 50);
     const input = dynamoDb.client.send.mock.calls[0][0].input;
     expect(input.IndexName).toBe('StatusScheduleIndex');
-    expect(input.KeyConditionExpression).toBe('GSI5PK = :pk AND GSI5SK BETWEEN :from AND :to');
+    expect(input.KeyConditionExpression).toBe('#pk = :pk AND #sk BETWEEN :from AND :to');
+    expect(input.ExpressionAttributeNames['#pk']).toBe('GSI5PK');
+    expect(input.ExpressionAttributeNames['#sk']).toBe('GSI5SK');
     expect(input.ExpressionAttributeValues[':pk']).toBe('STATUS#submitted');
     expect(input.ExpressionAttributeValues[':from']).toBe('2026-09-21#');
     // Everything on the 27th, timed ('#09:00…') and all-day ('#~…'), sits below '#~~'.
@@ -153,14 +155,14 @@ describe('DealsRepository.findBySchedule — one status', () => {
   it('unscheduled is a begins_with on UNSCHED#', async () => {
     await repository.findBySchedule([JobSuperStatus.PENDING], { unscheduled: true }, 50);
     const input = dynamoDb.client.send.mock.calls[0][0].input;
-    expect(input.KeyConditionExpression).toBe('GSI5PK = :pk AND begins_with(GSI5SK, :unsched)');
+    expect(input.KeyConditionExpression).toBe('#pk = :pk AND begins_with(#sk, :unsched)');
     expect(input.ExpressionAttributeValues[':unsched']).toBe('UNSCHED#');
   });
 
   it('no window at all reads the whole status partition in schedule order', async () => {
     await repository.findBySchedule([JobSuperStatus.SUBMITTED], {}, 50, undefined, undefined, 'desc');
     const input = dynamoDb.client.send.mock.calls[0][0].input;
-    expect(input.KeyConditionExpression).toBe('GSI5PK = :pk');
+    expect(input.KeyConditionExpression).toBe('#pk = :pk');
     expect(input.ScanIndexForward).toBe(false);
   });
 
