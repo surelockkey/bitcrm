@@ -279,3 +279,42 @@ describe('DealsRepository.findBySchedule — several statuses merged', () => {
     expect(page.items.map((d) => d.id)).toEqual(['p2', 's2']);
   });
 });
+
+describe("DealsRepository — the expression names DynamoDB is given", () => {
+  /**
+   * DynamoDB rejects the whole request when `ExpressionAttributeNames` holds
+   * a name no expression uses ("Value provided in ExpressionAttributeNames
+   * unused in expressions"). The jobs list without a date window — the very
+   * first thing the page asks for — has no `#sk` in its key condition.
+   */
+  const usedNames = (input: { KeyConditionExpression: string; FilterExpression?: string }) => {
+    const text = `${input.KeyConditionExpression} ${input.FilterExpression ?? ""}`;
+    return new Set(text.match(/#[A-Za-z0-9_]+/g) ?? []);
+  };
+
+  it("declares no name the expressions do not use, with or without a window", async () => {
+    for (const window of [{}, { from: "2026-09-23", to: "2026-09-23" }, { unscheduled: true }]) {
+      const dynamoDb = createMockDynamoDbService();
+      const repository = new DealsRepository(dynamoDb as any);
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+      await repository.findBySchedule([JobSuperStatus.SUBMITTED], window, 50, undefined, { jobTypeId: "jt" });
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      const used = usedNames(input);
+      for (const name of Object.keys(input.ExpressionAttributeNames ?? {})) {
+        expect({ window, name, used: [...used] }).toEqual({ window, name, used: expect.arrayContaining([name]) });
+      }
+    }
+  });
+
+  it("countBySchedule declares no unused name either", async () => {
+    const dynamoDb = createMockDynamoDbService();
+    const repository = new DealsRepository(dynamoDb as any);
+    dynamoDb.client.send.mockResolvedValue({ Count: 0 });
+    await repository.countBySchedule(JobSuperStatus.SUBMITTED, {}, undefined);
+    const input = dynamoDb.client.send.mock.calls[0][0].input;
+    const used = usedNames(input);
+    for (const name of Object.keys(input.ExpressionAttributeNames ?? {})) {
+      expect([...used]).toContain(name);
+    }
+  });
+});
