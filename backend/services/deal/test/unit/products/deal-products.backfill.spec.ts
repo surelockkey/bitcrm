@@ -25,8 +25,8 @@ describe('DealProductsBackfill', () => {
 
   it("stamps fulfillment='sourced' on every row missing it", async () => {
     repository.listRowsMissingFulfillment.mockResolvedValue([
-      { dealId: 'deal-1', productId: 'a' },
-      { dealId: 'deal-2', productId: 'b' },
+      { dealId: 'deal-1', lineKey: 'a' },
+      { dealId: 'deal-2', lineKey: 'b' },
     ]);
 
     await backfill.onModuleInit();

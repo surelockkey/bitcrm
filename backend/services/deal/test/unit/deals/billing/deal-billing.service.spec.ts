@@ -250,8 +250,8 @@ describe('DealBillingService', () => {
       current = createMockDeal({ assignedTechIds: ['t1'] });
       products.findByDeal
         .mockResolvedValueOnce([
-          createMockDealProduct({ productId: 'old', quantity: 2, fulfillment: 'sourced', sourceTechId: 't1' }),
-          createMockDealProduct({ productId: 'svc-old', fulfillment: 'service' }),
+          createMockDealProduct({ lineId: 'line-old', productId: 'old', quantity: 2, fulfillment: 'sourced', sourceTechId: 't1' }),
+          createMockDealProduct({ lineId: 'line-svc', productId: 'svc-old', fulfillment: 'service' }),
         ])
         .mockResolvedValue([createMockDealProduct({ productId: 'p1' })]);
 
@@ -274,8 +274,9 @@ describe('DealBillingService', () => {
         containerId: 't1',
         items: [{ productId: 'p1', productName: 'Deadbolt', quantity: 3 }],
       }));
-      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'old');
-      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'svc-old');
+      // Lines are removed by their own id — neither survives this sync.
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'line-old');
+      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'line-svc');
       const written = products.addProduct.mock.calls.map((c) => c[1]);
       expect(written).toEqual([
         expect.objectContaining({ productId: 'p1', quantity: 3, fulfillment: 'sourced', sourceTechId: 't1', taxable: true }),

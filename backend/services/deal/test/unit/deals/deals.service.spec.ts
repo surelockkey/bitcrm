@@ -1462,10 +1462,11 @@ describe('DealsService', () => {
         containerId: 'tech-1',
         items: [expect.objectContaining({ productId: 'product-2', quantity: 2 })],
       }));
-      // …and the row moves to the new product id.
-      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+      // …and the same line now names the new product: it is keyed by its own
+      // id, so nothing is removed and nothing pointing at it is orphaned.
+      expect(products.removeProduct).not.toHaveBeenCalled();
       expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
-        productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
+        lineId: 'line-1', productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
       }));
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
     });
@@ -1573,17 +1574,19 @@ describe('DealsService', () => {
       expect(http.restoreStock).not.toHaveBeenCalled();
     });
 
-    it('rejects swapping onto a product that is already a line on the deal', async () => {
+    it('allows a product that is already on another line — a job may carry it twice', async () => {
+      // Under the old key (one line per product) this was refused; a Workiz
+      // job routinely carries the same part on two lines, at two prices.
       mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
-      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
-        createMockDealProduct({ productId, sourceTechId: 'tech-1' }),
+      products.findProduct.mockImplementation(async (_d: string, lineKey: string) =>
+        createMockDealProduct({ lineId: lineKey, productId: 'product-9', sourceTechId: 'tech-1' }),
       );
 
-      await expect(
-        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
-      ).rejects.toThrow(BadRequestException);
-      expect(http.restoreStock).not.toHaveBeenCalled();
-      expect(products.addProduct).not.toHaveBeenCalled();
+      await service.replaceProduct('deal-1', 'line-7', dto as any, caller);
+
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        lineId: 'line-7', productId: 'product-2',
+      }));
     });
 
     it('rejects a sourced replacement whose tech is not on the deal', async () => {

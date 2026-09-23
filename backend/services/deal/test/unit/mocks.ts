@@ -49,6 +49,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
 
 export function createMockDealProduct(overrides?: Partial<DealProduct>): DealProduct {
   return {
+    lineId: 'line-1',
     productId: 'product-1',
     name: 'Kwikset Deadbolt',
     sku: 'KW-DB-001',

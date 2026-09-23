@@ -1875,15 +1875,10 @@ export class DealsService {
     }
 
     const fulfillment: DealProductFulfillment = dto.fulfillment ?? 'sourced';
-    const isSwap = dto.productId !== productId;
-
-    // A deal keys one line per product — swapping onto a product that already
-    // has its own line would silently merge the two rows.
-    if (isSwap && (await this.productsRepo.findProduct(id, dto.productId))) {
-      throw new BadRequestException(
-        `"${dto.name}" is already on this deal — edit that line instead`,
-      );
-    }
+    // "Swap" means the line now names a different product. The line itself is
+    // the same row either way — it is keyed by its own id — so a job may well
+    // end up carrying one product on two lines, as a Workiz job does.
+    const isSwap = dto.productId !== existing.productId;
 
     const product = await this.validateProductFulfillment(dto, fulfillment);
 
@@ -1946,10 +1941,10 @@ export class DealsService {
     const taxable = dto.taxable ?? (isSwap ? product.taxable : existing.taxable) ?? true;
     const description = dto.description ?? (isSwap ? undefined : existing.description);
 
-    if (isSwap) {
-      await this.productsRepo.removeProduct(id, productId);
-    }
     await this.productsRepo.addProduct(id, {
+      // The same line, rewritten: a swap changes what it names, not which
+      // line it is, so every reference to it stays pointed at this row.
+      lineId: existing.lineId,
       productId: dto.productId,
       name: dto.name,
       sku: dto.sku,

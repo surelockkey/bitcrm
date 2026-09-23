@@ -22,7 +22,7 @@ import {
 import { DealsRepository, type DealUpdate } from '../deals.repository';
 import { DealsCacheService } from '../deals-cache.service';
 import { DealsService } from '../deals.service';
-import { DealProductsRepository } from '../../products/deal-products.repository';
+import { DealProductsRepository, type DealProductDraft } from '../../products/deal-products.repository';
 import { TimelineRepository } from '../../timeline/timeline.repository';
 import { InternalHttpService } from '../../common/services/internal-http.service';
 import { TaxRatesService } from '../../tax-rates/tax-rates.service';
@@ -246,7 +246,7 @@ export class DealBillingService {
     const stockMeta = { dealId: id, performedBy: actor.id, performedByName: actor.name };
     const applied: StockMove[] = [];
     const now = new Date().toISOString();
-    const rows: DealProduct[] = [];
+    const rows: DealProductDraft[] = [];
     let writing = false;
 
     try {
@@ -274,6 +274,9 @@ export class DealBillingService {
 
         const previous = existingById.get(line.productId);
         rows.push({
+          // A synced line that names the same product stays the same line,
+          // so nothing pointing at it is orphaned by a re-sync.
+          ...(previous && { lineId: previous.lineId }),
           productId: line.productId,
           name: line.name,
           sku: line.sku,
@@ -296,9 +299,9 @@ export class DealBillingService {
       }
 
       writing = true;
-      const keep = new Set(rows.map((r) => r.productId));
+      const keep = new Set(rows.map((r) => r.lineId).filter(Boolean));
       for (const line of existing) {
-        if (!keep.has(line.productId)) await this.productsRepo.removeProduct(id, line.productId);
+        if (!keep.has(line.lineId)) await this.productsRepo.removeProduct(id, line.lineId);
       }
       for (const row of rows) await this.productsRepo.addProduct(id, row);
     } catch (error) {
@@ -506,11 +509,11 @@ export class DealBillingService {
   }
 
   /** Best-effort: put the job's original lines back after a failed rewrite. */
-  private async restoreRows(id: string, original: DealProduct[], written: DealProduct[]): Promise<void> {
+  private async restoreRows(id: string, original: DealProduct[], written: DealProductDraft[]): Promise<void> {
     try {
-      const originalIds = new Set(original.map((p) => p.productId));
+      const originalIds = new Set(original.map((p) => p.lineId));
       for (const row of written) {
-        if (!originalIds.has(row.productId)) await this.productsRepo.removeProduct(id, row.productId);
+        if (row.lineId && !originalIds.has(row.lineId)) await this.productsRepo.removeProduct(id, row.lineId);
       }
       for (const row of original) await this.productsRepo.addProduct(id, row);
     } catch (err) {
