@@ -8,7 +8,7 @@ import {
   UpdateCommand,
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import {
   DealStatus,
   JobSuperStatus,
@@ -771,20 +771,28 @@ export class DealsRepository {
   ): Promise<PaginatedResult> {
     const f = this.dealFilterExpression(filters, filters?.status || DealStatus.ACTIVE);
 
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND ${f.expression}`,
-        ExpressionAttributeValues: { ':pk': 'DEAL#', ':sk': 'METADATA', ...f.values },
-        ExpressionAttributeNames: f.names,
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    // Only a fraction of this table is jobs: a job's own partition also holds
+    // its line items, assignments and history, and every catalog lives here
+    // besides. DynamoDB caps `Limit` on rows READ and filters afterwards, so
+    // asking for 50 came back with one job. `scanPage` fills the page.
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: this.tableName,
+            FilterExpression: `begins_with(PK, :pk) AND SK = :sk AND ${f.expression}`,
+            ExpressionAttributeValues: { ':pk': 'DEAL#', ':sk': 'METADATA', ...f.values },
+            ExpressionAttributeNames: f.names,
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map((i) => this.toDeal(i)),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map((i) => this.toDeal(i)),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 

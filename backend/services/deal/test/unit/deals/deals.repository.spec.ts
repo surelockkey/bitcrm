@@ -426,6 +426,30 @@ describe('DealsRepository', () => {
       expect(command.input.ExpressionAttributeValues[':active']).toBe(DealStatus.ACTIVE);
     });
 
+    it('reads more rows than the page, because the table is mostly not deals', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20);
+
+      // A job's partition also holds its line items, assignments and history,
+      // and the table holds every catalog besides. Asking DynamoDB for 50 rows
+      // came back with one job.
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Limit).toBeGreaterThan(20);
+    });
+
+    it('keeps reading until the page is full', async () => {
+      const row = (id: string) => ({ ...createMockDeal(), id, PK: `DEAL#${id}`, SK: 'METADATA' });
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [row('d1')], LastEvaluatedKey: { PK: 'p1' } })
+        .mockResolvedValueOnce({ Items: [row('d2')], LastEvaluatedKey: { PK: 'p2' } })
+        .mockResolvedValueOnce({ Items: [row('d3')] });
+
+      const result = await repository.findAll(3);
+
+      expect(result.items.map((d) => d.id)).toEqual(['d1', 'd2', 'd3']);
+      expect(result.nextCursor).toBeUndefined();
+    });
+
     it('should return mapped deal items', async () => {
       const deal = createMockDeal();
       dynamoDb.client.send.mockResolvedValue({
