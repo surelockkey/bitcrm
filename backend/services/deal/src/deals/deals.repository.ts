@@ -463,14 +463,23 @@ export class DealsRepository {
     limit: number,
     cursor?: string,
     filters?: DealFilters,
+    window?: Pick<ScheduleWindow, 'from' | 'to'>,
+    dir: SortDir = 'desc',
   ): Promise<PaginatedResult> {
+    // GSI2SK is `<scheduledDate>#DEAL#<id>` (an ISO stamp for an undated
+    // assignment), so a span of days is a plain key range; '~' sits above
+    // any suffix of the last day.
+    const bounded = Boolean(window?.from || window?.to);
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: this.tableName,
         IndexName: DEALS_GSI2_NAME,
-        KeyConditionExpression: 'GSI2PK = :pk',
-        ExpressionAttributeValues: { ':pk': `TECH#${techId}` },
-        ScanIndexForward: false,
+        KeyConditionExpression: bounded ? 'GSI2PK = :pk AND GSI2SK BETWEEN :from AND :to' : 'GSI2PK = :pk',
+        ExpressionAttributeValues: {
+          ':pk': `TECH#${techId}`,
+          ...(bounded ? { ':from': window?.from ?? '0000-00-00', ':to': `${window?.to ?? '9999-12-31'}~` } : {}),
+        },
+        ScanIndexForward: dir === 'asc',
         Limit: limit,
         ExclusiveStartKey: this.decodeCursor(cursor),
       }),
