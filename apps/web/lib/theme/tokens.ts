@@ -52,6 +52,16 @@ export const LIGHT = {
   info: "#3589e9",
   infoForeground: "#ffffff",
 
+  // Text for the tinted status pills. The base colours above are fills — the
+  // Workiz orange is 1.98:1 on white — so each tone gets the same hue pushed
+  // dark enough to read. lib/theme/tone.ts is the only thing that uses these.
+  neutral: "#64748b",
+  neutralText: "#48555c",
+  infoText: "#1b5fae",
+  successText: "#136b12",
+  warningText: "#8a5a00",
+  destructiveText: "#a02525",
+
   // Lines. Deliberately fainter than the 3:1 non-text guideline — Workiz grid
   // rules are this light, and darkening them reads as a different product.
   border: "#dfe2e3",
@@ -105,6 +115,14 @@ export const DARK: Record<TokenName, string> = {
   info: "#4d97ec",
   infoForeground: "#14181a",
 
+  // Same hues, lifted instead of deepened: a dark card needs light ink.
+  neutral: "#7d8b96",
+  neutralText: "#a3b0b5",
+  infoText: "#7bb4f2",
+  successText: "#5fdc97",
+  warningText: "#ffcf80",
+  destructiveText: "#ff9a9a",
+
   border: "#2c3437",
   input: "#343d41",
   ring: "#4d97ec",
@@ -133,6 +151,16 @@ export const BODY_TEXT_PAIRS: ReadonlyArray<[TokenName, TokenName]> = [
   ["sidebarForeground", "sidebar"],
   ["sidebarAccentForeground", "sidebarAccent"],
   ["topbarForeground", "topbar"],
+  ["neutralText", "card"],
+  ["neutralText", "background"],
+  ["infoText", "card"],
+  ["infoText", "background"],
+  ["successText", "card"],
+  ["successText", "background"],
+  ["warningText", "card"],
+  ["warningText", "background"],
+  ["destructiveText", "card"],
+  ["destructiveText", "background"],
 ];
 
 /** Button labels and focus rings: 3:1 is the bar for large and non-text. */
