@@ -523,19 +523,27 @@ export class DealsService {
       dealNumber: this.parseDealNumberSearch(search),
       needsInvoice:
         query.needsInvoice === true || query.needsInvoice === 'true' ? true : undefined,
+      // Carried on every index, not only the tech one: with `superStatus` the
+      // status index answers, and an `assigned_only` caller must still see
+      // just their own jobs in it.
+      techId: query.techId,
     };
 
+    // The most selective key picks the index; the technician, when present,
+    // rides along as a filter (see `DealFilters.techId`). The tech index is
+    // last so that a technician asking for one client's jobs gets that
+    // client's, not their whole roster.
     if (query.superStatus) {
       return this.repository.findBySuperStatus(query.superStatus, limit, query.cursor, filters);
     }
-    if (query.techId) {
-      return this.repository.findByTech(query.techId, limit, query.cursor, filters);
+    if (query.contactId) {
+      return this.repository.findByContact(query.contactId, limit, query.cursor, filters);
     }
     if (query.dispatcherId) {
       return this.repository.findByDispatcher(query.dispatcherId, limit, query.cursor, filters);
     }
-    if (query.contactId) {
-      return this.repository.findByContact(query.contactId, limit, query.cursor, filters);
+    if (query.techId) {
+      return this.repository.findByTech(query.techId, limit, query.cursor, filters);
     }
 
     return this.repository.findAll(limit, query.cursor, {

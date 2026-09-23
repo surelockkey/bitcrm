@@ -44,6 +44,12 @@ export interface DealFilters {
   dealNumber?: string | number;
   /** Billing: jobs with at least one line item and no invoice yet. */
   needsInvoice?: boolean;
+  /**
+   * Only deals this technician is assigned to. On the status / contact /
+   * dispatcher indexes it is a `contains(assignedTechIds)` filter; on the
+   * tech index it is the key itself and is ignored.
+   */
+  techId?: string;
 }
 
 /**
@@ -139,6 +145,14 @@ export class DealsRepository {
         values[`:tag${i}`] = t;
       });
     }
+    // The technician narrows any index that is not already keyed by them —
+    // this is how `assigned_only` holds on the status / contact / dispatcher
+    // queries instead of only on the tech index.
+    if (filters?.techId) {
+      parts.push('contains(#assignedTechIds, :techId)');
+      names['#assignedTechIds'] = 'assignedTechIds';
+      values[':techId'] = filters.techId;
+    }
     return { expression: parts.join(' AND '), names, values };
   }
 
@@ -158,6 +172,7 @@ export class DealsRepository {
     if (filters?.dealNumber !== undefined && String(deal.dealNumber) !== String(filters.dealNumber)) return false;
     if (filters?.tagIds?.length && !filters.tagIds.every((t) => deal.tagIds.includes(t))) return false;
     if (filters?.needsInvoice && (!(deal.itemCount && deal.itemCount > 0) || deal.invoiceId)) return false;
+    if (filters?.techId && !deal.assignedTechIds.includes(filters.techId)) return false;
     return true;
   }
 
