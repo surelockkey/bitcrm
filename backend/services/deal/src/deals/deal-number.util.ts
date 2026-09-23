@@ -24,8 +24,13 @@ export function generateDealNumberCode(): string {
   }
 }
 
-/** True when a search token looks like a random Job ID code (not a legacy number or a name). */
+/**
+ * True when a search token looks like a Job ID code: six letters or digits.
+ * Our own codes always mix the two, but the Workiz codes carried over do
+ * not (49 059 are letters only, 34 digits only), and a search must find
+ * every one of them.
+ */
 export function isDealNumberCode(value: string): boolean {
   const v = value.toUpperCase();
-  return v.length === DEAL_NUMBER_LENGTH && /^[A-Z0-9]+$/.test(v) && HAS_LETTER.test(v) && HAS_DIGIT.test(v);
+  return v.length === DEAL_NUMBER_LENGTH && /^[A-Z0-9]+$/.test(v);
 }

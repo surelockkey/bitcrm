@@ -233,6 +233,10 @@ export function createMockDealsRepository() {
     // Echoes the given time — "this open was the first" — unless a test says otherwise.
     markAssignmentSeen: jest.fn().mockImplementation(async (_d: string, _t: string, at: string) => at),
     recordAssignmentDelivery: jest.fn().mockResolvedValue(undefined),
+    findIdByNumber: jest.fn(),
+    findByIds: jest.fn(),
+    findBySchedule: jest.fn(),
+    countBySchedule: jest.fn(),
   };
 }
 
