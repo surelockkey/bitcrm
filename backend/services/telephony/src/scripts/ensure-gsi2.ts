@@ -25,7 +25,7 @@ import {
   CALLS_TABLE,
   CALLS_GSI2_NAME,
   CALLS_GSI3_NAME,
-  ALL_CALLS_PK,
+  allCallsPk,
   allCallsSk,
 } from '../common/constants/dynamo.constants';
 
@@ -139,9 +139,12 @@ async function backfill(
     } = await doc.send(
       new ScanCommand({
         TableName: CALLS_TABLE,
+        // Rows that never had the index, and rows still on the single
+        // `CALL#ALL` partition it used to be — both are re-pointed at the
+        // month they happened in.
         FilterExpression:
-          'begins_with(PK, :call) AND SK = :meta AND attribute_not_exists(GSI2PK)',
-        ExpressionAttributeValues: { ':call': 'CALL#', ':meta': 'METADATA' },
+          'begins_with(PK, :call) AND SK = :meta AND (attribute_not_exists(GSI2PK) OR GSI2PK = :legacy)',
+        ExpressionAttributeValues: { ':call': 'CALL#', ':meta': 'METADATA', ':legacy': 'CALL#ALL' },
         ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
       }),
     );
@@ -164,7 +167,7 @@ async function backfill(
           UpdateExpression: 'SET GSI2PK = :pk, GSI2SK = :sk',
           ConditionExpression: 'attribute_exists(PK)',
           ExpressionAttributeValues: {
-            ':pk': ALL_CALLS_PK,
+            ':pk': allCallsPk(startedAt),
             ':sk': allCallsSk(startedAt, callSid),
           },
         }),

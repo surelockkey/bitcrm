@@ -41,7 +41,7 @@ const item = (sid: string, over: Partial<CallRecord> = {}) => ({
 });
 
 describe('CallsRepository.list (GSI2 query assembly)', () => {
-  it('queries the all-calls index newest-first with the partition key', async () => {
+  it('queries the all-calls index newest-first, one month at a time', async () => {
     const { repo, sent } = makeRepo([{ Items: [item('CA1')] }]);
     await repo.list({}, undefined, 25);
 
@@ -49,7 +49,8 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     expect(input.IndexName).toBe('AllCallsIndex');
     expect(input.ScanIndexForward).toBe(false);
     expect(input.KeyConditionExpression).toContain('GSI2PK = :allPk');
-    expect(input.ExpressionAttributeValues[':allPk']).toBe('CALL#ALL');
+    // The log is partitioned by month; the walk opens on the current one.
+    expect(input.ExpressionAttributeValues[':allPk']).toMatch(/^CALL#\d{4}-\d{2}$/);
     // internal receiving legs are always hidden from the log
     expect(input.FilterExpression).toBe('attribute_not_exists(internalLegOf)');
   });
@@ -144,7 +145,8 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
 
     expect(sent).toHaveLength(3);
     expect(res.items.map((c) => c.callSid)).toEqual(['CA1', 'CA2', 'CA3']);
-    expect(res.nextCursor).toBeUndefined(); // last page exhausted
+    // The month it filled up in is finished, but earlier months remain.
+    expect(res.nextCursor).toBeDefined();
   });
 
   it('returns a cursor that resumes exactly where the page ended', async () => {
@@ -161,8 +163,8 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
 
   it('stops walking after a bounded number of internal pages and hands back a cursor', async () => {
     // A tag nobody has used yet matches nothing: every internal page is read
-    // and thrown away. Unbounded this is ~18,000 sequential Queries in one
-    // HTTP request over the 1.8M-row CALL#ALL partition.
+    // and thrown away. Unbounded this is thousands of sequential Queries in
+    // one HTTP request, across every month the log holds.
     const { repo, sent } = makeRepo([
       { Items: [], LastEvaluatedKey: { PK: 'CALL#CAx' } },
     ]);
@@ -175,7 +177,8 @@ describe('CallsRepository.list (GSI2 query assembly)', () => {
     const resumed = JSON.parse(
       Buffer.from(res.nextCursor as string, 'base64url').toString(),
     );
-    expect(resumed).toEqual({ PK: 'CALL#CAx' });
+    expect(resumed.key).toEqual({ PK: 'CALL#CAx' });
+    expect(resumed.month).toMatch(/^\d{4}-\d{2}$/);
   });
 
   it('stops early with a synthesized cursor when the limit fills mid-page', async () => {

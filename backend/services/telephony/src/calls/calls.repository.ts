@@ -6,7 +6,8 @@ import {
   CALLS_GSI1_NAME,
   CALLS_GSI2_NAME,
   CALLS_GSI3_NAME,
-  ALL_CALLS_PK,
+  allCallsPk,
+  monthsDescending,
   callPk,
   agentGsiPk,
   partyGsiPk,
@@ -254,7 +255,7 @@ export class CallsRepository {
       ':callSid': rec.callSid,
       ':startedAt': rec.startedAt,
       ':updatedAt': rec.updatedAt,
-      ':gsi2pk': ALL_CALLS_PK,
+      ':gsi2pk': allCallsPk(rec.startedAt),
       ':gsi2sk': allCallsSk(rec.startedAt, rec.callSid),
     };
 
@@ -596,72 +597,122 @@ export class CallsRepository {
     const { keyCondition, filterExpression, names, values } =
       this.buildListQuery(filter);
 
+    // Newest month first; a cursor says which month the last page stopped in,
+    // and the walk carries on from there into the earlier ones.
+    const resume = this.decodeListCursor(cursor);
+    const all = monthsDescending(filter.dateFrom, filter.dateTo);
+    const months = resume ? all.slice(all.indexOf(resume.month)) : all;
+
     const items: CallRecord[] = [];
-    let exclusiveStartKey = this.decodeCursor(cursor);
+    let exclusiveStartKey = resume?.key;
+    let queries = 0;
 
-    for (let pages = 1; ; pages++) {
-      const res = await this.dynamoDb.client.send(
-        new QueryCommand({
-          TableName: this.tableName,
-          IndexName: CALLS_GSI2_NAME,
-          KeyConditionExpression: keyCondition,
-          ...(filterExpression && { FilterExpression: filterExpression }),
-          ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
-          ExpressionAttributeValues: values,
-          ScanIndexForward: false,
-          Limit: QUERY_PAGE_SIZE,
-          ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
-        }),
-      );
+    for (const month of months) {
+      for (;;) {
+        queries += 1;
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            ...(filterExpression && { FilterExpression: filterExpression }),
+            ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ScanIndexForward: false,
+            Limit: QUERY_PAGE_SIZE,
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
 
-      const page = (res.Items ?? []).map(hydrate);
-      const room = limit - items.length;
-      items.push(...page.slice(0, room));
-      const truncatedMidPage = page.length > room;
-      const lastEvaluatedKey = res.LastEvaluatedKey;
+        const page = (res.Items ?? []).map(hydrate);
+        const room = limit - items.length;
+        items.push(...page.slice(0, room));
+        const truncatedMidPage = page.length > room;
+        const lastEvaluatedKey = res.LastEvaluatedKey;
 
-      if (items.length >= limit) {
-        // When we cut a page short, resume from the last item actually
-        // returned (not LastEvaluatedKey) so the remainder isn't skipped.
-        const resumeKey = truncatedMidPage
-          ? this.keyOf(items[items.length - 1])
-          : lastEvaluatedKey;
-        return { items, nextCursor: this.encodeCursor(resumeKey) };
+        if (items.length >= limit) {
+          // When we cut a page short, resume from the last item actually
+          // returned (not LastEvaluatedKey) so the remainder isn't skipped.
+          const resumeKey = truncatedMidPage
+            ? this.keyOf(items[items.length - 1])
+            : lastEvaluatedKey;
+          return {
+            items,
+            nextCursor: resumeKey
+              ? this.encodeListCursor({ month, key: resumeKey })
+              : this.nextMonthCursor(months, month),
+          };
+        }
+
+        if (!lastEvaluatedKey) break;
+        exclusiveStartKey = lastEvaluatedKey;
+
+        // A selective filter matches nothing for page after page; hand the
+        // caller what was found and let them decide whether to keep walking.
+        if (queries >= MAX_QUERY_PAGES) {
+          return { items, nextCursor: this.encodeListCursor({ month, key: lastEvaluatedKey }) };
+        }
       }
-      if (!lastEvaluatedKey) return { items };
-      // Budget spent with the page unfilled: hand back the resume key rather
-      // than keep walking the log inside one request.
-      if (pages >= MAX_QUERY_PAGES) {
-        return { items, nextCursor: this.encodeCursor(lastEvaluatedKey) };
+
+      exclusiveStartKey = undefined;
+      if (queries >= MAX_QUERY_PAGES) {
+        return { items, nextCursor: this.nextMonthCursor(months, month) };
       }
-      exclusiveStartKey = lastEvaluatedKey;
     }
+
+    return { items };
+  }
+
+  /** Where the walk resumes once a month is finished: the next one, or nowhere. */
+  private nextMonthCursor(months: string[], month: string): string | undefined {
+    const next = months[months.indexOf(month) + 1];
+    return next ? this.encodeListCursor({ month: next }) : undefined;
+  }
+
+  private encodeListCursor(at: { month: string; key?: Record<string, unknown> }): string {
+    return Buffer.from(JSON.stringify(at)).toString('base64url');
+  }
+
+  private decodeListCursor(
+    cursor?: string,
+  ): { month: string; key?: Record<string, unknown> } | undefined {
+    if (!cursor) return undefined;
+    const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    // A cursor from before the log was partitioned by month carries only a
+    // DynamoDB key; the walk starts at the newest month with it.
+    return typeof decoded?.month === 'string' ? decoded : undefined;
   }
 
   /** Live (non-terminal) calls in the recent window, newest first. */
   async listLive(now: number = Date.now()): Promise<CallRecord[]> {
     const skFrom = new Date(now - LIVE_WINDOW_MS).toISOString();
-    const values: Record<string, unknown> = {
-      ':allPk': ALL_CALLS_PK,
-      ':skFrom': skFrom,
-    };
+    const values: Record<string, unknown> = { ':skFrom': skFrom };
     const statusKeys = LIVE_STATUSES.map((s, i) => {
       values[`:live${i}`] = s;
       return `:live${i}`;
     });
 
-    const res = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: CALLS_GSI2_NAME,
-        KeyConditionExpression: 'GSI2PK = :allPk AND GSI2SK >= :skFrom',
-        FilterExpression: `#status IN (${statusKeys.join(', ')}) AND attribute_not_exists(internalLegOf)`,
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: values,
-        ScanIndexForward: false,
-      }),
+    // The window is short, but just after midnight on the 1st it reaches
+    // back into the previous month — so both partitions are read.
+    const pages = await Promise.all(
+      monthsDescending(skFrom, new Date(now).toISOString()).map((month) =>
+        this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: 'GSI2PK = :allPk AND GSI2SK >= :skFrom',
+            FilterExpression: `#status IN (${statusKeys.join(', ')}) AND attribute_not_exists(internalLegOf)`,
+            ExpressionAttributeNames: { '#status': 'status' },
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ScanIndexForward: false,
+          }),
+        ),
+      ),
     );
-    return (res.Items ?? []).map(hydrate);
+    return pages
+      .flatMap((res) => res.Items ?? [])
+      .map(hydrate)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
   /**
@@ -716,7 +767,8 @@ export class CallsRepository {
     values: Record<string, unknown>;
   } {
     const names: Record<string, string> = {};
-    const values: Record<string, unknown> = { ':allPk': ALL_CALLS_PK };
+    // `:allPk` is filled in per month by the walk in `list()`.
+    const values: Record<string, unknown> = {};
 
     let keyCondition = 'GSI2PK = :allPk';
     if (filter.dateFrom && filter.dateTo) {
@@ -801,7 +853,7 @@ export class CallsRepository {
     return {
       PK: callPk(rec.callSid),
       SK: 'METADATA',
-      GSI2PK: ALL_CALLS_PK,
+      GSI2PK: allCallsPk(rec.startedAt),
       GSI2SK: allCallsSk(rec.startedAt, rec.callSid),
     };
   }
