@@ -6,6 +6,7 @@ import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ContactType } from '@bitcrm/types';
 import { ContactAddressDto } from './address.dto';
+import { MAX_CONTACT_ADDRESSES } from './create-contact.dto';
 
 export class UpdateContactDto {
   @ApiPropertyOptional({ example: 'Jane' })
@@ -48,7 +49,9 @@ export class UpdateContactDto {
   @ApiPropertyOptional({ type: [ContactAddressDto] })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(MAX_CONTACT_ADDRESSES, {
+    message: `A contact can hold at most ${MAX_CONTACT_ADDRESSES} addresses`,
+  })
   @ValidateNested({ each: true })
   @Type(() => ContactAddressDto)
   addresses?: ContactAddressDto[];

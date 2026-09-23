@@ -7,6 +7,15 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ContactType, ContactSource } from '@bitcrm/types';
 import { ContactAddressDto } from './address.dto';
 
+/**
+ * How many service addresses one contact may carry. Not a business rule —
+ * a client keeps every address it has (import decision B2) — but a DynamoDB
+ * item is capped at 400 KB, and an address costs roughly 200 bytes stored.
+ * 1 500 leaves the largest client known (about 1 016 addresses) comfortable
+ * room and still keeps the record a third under the ceiling.
+ */
+export const MAX_CONTACT_ADDRESSES = 1500;
+
 export class CreateContactDto {
   @ApiPropertyOptional({
     description:
@@ -55,7 +64,9 @@ export class CreateContactDto {
   @ApiPropertyOptional({ type: [ContactAddressDto] })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(MAX_CONTACT_ADDRESSES, {
+    message: `A contact can hold at most ${MAX_CONTACT_ADDRESSES} addresses`,
+  })
   @ValidateNested({ each: true })
   @Type(() => ContactAddressDto)
   addresses?: ContactAddressDto[];
