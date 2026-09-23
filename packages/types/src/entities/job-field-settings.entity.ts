@@ -13,7 +13,8 @@ export const JOB_REQUIRABLE_FIELDS = [
   { id: 'source', label: 'Job source' },
   { id: 'externalCompany', label: 'External company' },
   { id: 'scheduled', label: 'Scheduled date' },
-  { id: 'description', label: 'Job description' },
+  // Workiz calls this the job note, and so do the people migrating from it.
+  { id: 'description', label: 'Job note' },
   { id: 'poNumber', label: 'PO number' },
   { id: 'tags', label: 'Tags' },
 ] as const;

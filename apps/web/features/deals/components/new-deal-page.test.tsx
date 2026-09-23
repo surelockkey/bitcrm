@@ -186,7 +186,9 @@ describe("NewDealPage — admin-required fields", () => {
     expect(mocks.createDeal).not.toHaveBeenCalled();
     // One always-visible summary in the footer…
     expect(
-      screen.getByText(/Missing required: Job source, Job description/),
+      // "Job note" is what Workiz calls this field, and what people ask for by
+      // name; "Job description" sent them looking for a field that was there.
+      screen.getByText(/Missing required: Job source, Job note/),
     ).toBeInTheDocument();
     // …and an inline "Required" mark on each offending field.
     expect(screen.getAllByText("Required")).toHaveLength(2);
