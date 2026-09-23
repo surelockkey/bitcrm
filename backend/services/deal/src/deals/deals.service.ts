@@ -522,13 +522,19 @@ export class DealsService {
     // index answers, one status or all of them merged.
     const window = this.parseScheduleWindow(query);
     if (window) {
+      const dir: SortDir = query.dir === 'desc' ? 'desc' : 'asc';
+      // A technician's days are a key range on the tech index — one
+      // partition, already in visit order — unless a status tab or the
+      // undated tab makes it a schedule-index question.
+      if (query.techId && window.from && !window.unscheduled && !query.superStatus && !query.contactId && !query.dispatcherId) {
+        return this.repository.findByTech(query.techId, limit, query.cursor, filters, window, dir);
+      }
       const statuses = query.superStatus
         ? [query.superStatus]
         : window.unscheduled
           // An undated closed job is not a tab anywhere — Workiz shows none.
           ? SUPER_STATUS_ORDER.filter((s) => !CLOSED_SUPER_STATUSES.has(s))
           : SUPER_STATUS_ORDER;
-      const dir: SortDir = query.dir === 'desc' ? 'desc' : 'asc';
       return this.repository.findBySchedule(statuses, window, limit, query.cursor, filters, dir);
     }
 
