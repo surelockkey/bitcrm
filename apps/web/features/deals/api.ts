@@ -276,25 +276,25 @@ export const addDealProduct = (id: string, body: AddProductValues): Promise<{ ad
  */
 export const replaceDealProduct = (
   id: string,
-  productId: string,
+  lineId: string,
   body: AddProductValues,
 ): Promise<{ updated: true }> =>
-  http.put<{ updated: true }>(`/deals/${id}/products/${productId}`, body);
+  http.put<{ updated: true }>(`/deals/${id}/products/${lineId}`, body);
 
 export const removeDealProduct = (
   id: string,
-  productId: string,
+  lineId: string,
 ): Promise<{ removed: true }> =>
-  http.delete<{ removed: true }>(`/deals/${id}/products/${productId}`);
+  http.delete<{ removed: true }>(`/deals/${id}/products/${lineId}`);
 
 /** Mark a to-order line as ordered (or clear it). */
 export const markDealProductOrdered = (
   id: string,
-  productId: string,
+  lineId: string,
   ordered: boolean,
 ): Promise<{ ordered: boolean }> =>
   http.patch<{ ordered: boolean }>(
-    `/deals/${id}/products/${productId}/ordered`,
+    `/deals/${id}/products/${lineId}/ordered`,
     { ordered },
   );
 
@@ -319,7 +319,7 @@ export const setDealDiscount = (id: string, discount: DocumentDiscount | null): 
 /** Toggle whether the job's tax applies to one line. */
 export const setDealProductTaxable = (
   id: string,
-  productId: string,
+  lineId: string,
   taxable: boolean,
 ): Promise<DealProduct> =>
-  http.patch<DealProduct>(`/deals/${id}/products/${productId}/taxable`, { taxable });
+  http.patch<DealProduct>(`/deals/${id}/products/${lineId}/taxable`, { taxable });

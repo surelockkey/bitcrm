@@ -147,7 +147,7 @@ export function AddProductDialog({
             onBack={() => { setPicked(null); setChangingItem(true); }}
             onAdd={(v) => {
               if (editing) {
-                replace.mutate({ productId: editing.productId, body: v }, { onSuccess: close });
+                replace.mutate({ lineId: editing.lineId, body: v }, { onSuccess: close });
               } else {
                 add.mutate(v, { onSuccess: close });
               }

@@ -528,8 +528,8 @@ export function useAddProduct(id: string) {
 export function useReplaceProduct(id: string) {
   const invalidate = useInvalidateDealBilling(id);
   return useMutation({
-    mutationFn: ({ productId, body }: { productId: string; body: AddProductValues }) =>
-      api.replaceDealProduct(id, productId, body),
+    mutationFn: ({ lineId, body }: { lineId: string; body: AddProductValues }) =>
+      api.replaceDealProduct(id, lineId, body),
     onSuccess: () => {
       invalidate();
       toast.success("Item updated");
@@ -541,7 +541,7 @@ export function useReplaceProduct(id: string) {
 export function useRemoveProduct(id: string) {
   const invalidate = useInvalidateDealBilling(id);
   return useMutation({
-    mutationFn: (productId: string) => api.removeDealProduct(id, productId),
+    mutationFn: (lineId: string) => api.removeDealProduct(id, lineId),
     onSuccess: () => {
       invalidate();
       toast.success("Product removed");
@@ -553,8 +553,8 @@ export function useRemoveProduct(id: string) {
 export function useMarkProductOrdered(id: string) {
   const invalidate = useInvalidateDeal(id);
   return useMutation({
-    mutationFn: ({ productId, ordered }: { productId: string; ordered: boolean }) =>
-      api.markDealProductOrdered(id, productId, ordered),
+    mutationFn: ({ lineId, ordered }: { lineId: string; ordered: boolean }) =>
+      api.markDealProductOrdered(id, lineId, ordered),
     onSuccess: (_data, { ordered }) => {
       invalidate();
       toast.success(ordered ? "Marked as ordered" : "Marked as not ordered");
@@ -607,13 +607,13 @@ export function useSetProductTaxable(id: string) {
   const invalidate = useInvalidateDealBilling(id);
   const key = queryKeys.deals.products(id);
   return useMutation({
-    mutationFn: ({ productId, taxable }: { productId: string; taxable: boolean }) =>
-      api.setDealProductTaxable(id, productId, taxable),
-    onMutate: async ({ productId, taxable }) => {
+    mutationFn: ({ lineId, taxable }: { lineId: string; taxable: boolean }) =>
+      api.setDealProductTaxable(id, lineId, taxable),
+    onMutate: async ({ lineId, taxable }) => {
       await qc.cancelQueries({ queryKey: key });
       const previous = qc.getQueryData<DealProduct[]>(key);
       qc.setQueryData<DealProduct[]>(key, (old) =>
-        old?.map((p) => (p.productId === productId ? { ...p, taxable } : p)),
+        old?.map((p) => (p.lineId === lineId ? { ...p, taxable } : p)),
       );
       return { previous };
     },

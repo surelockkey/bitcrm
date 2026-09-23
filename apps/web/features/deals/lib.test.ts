@@ -86,6 +86,7 @@ function cfDef(over: Partial<CustomFieldDefinition> = {}): CustomFieldDefinition
 
 function product(over: Partial<DealProduct> = {}): DealProduct {
   return {
+    lineId: "line-1",
     productId: "p1",
     name: "Deadbolt",
     sku: "LOCK-1",
