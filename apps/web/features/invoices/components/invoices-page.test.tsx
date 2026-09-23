@@ -16,8 +16,8 @@ vi.mock("next/link", () => ({
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => mocks.canView }),
 }));
-vi.mock("@/features/deals/hooks", () => ({
-  useContactMap: () => ({ map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false }),
+vi.mock("@/features/clients/hooks", () => ({
+  useContactsByIds: () => ({ map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false }),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "t1") }));
 vi.mock("sonner", () => ({ toast }));

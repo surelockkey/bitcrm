@@ -20,7 +20,7 @@ import { ClientCallsLog } from "@/features/calls/components/client-calls-log";
 import { useCompany, useCompanyMap, useContact } from "@/features/clients/hooks";
 import { extensionOf, formatAddress, formatPhoneWithExtension } from "@/features/clients/lib";
 import { StageBadge } from "@/features/deals/components/deal-badges";
-import { useDeals, useUserMap } from "@/features/deals/hooks";
+import { useDealsPage, useDealsWindow, useUserMap } from "@/features/deals/hooks";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { CallClientButton } from "@/features/telephony/components/call-client-button";
@@ -118,19 +118,30 @@ function QuickActions({
   );
 }
 
+/** Whose jobs a card lists: a client's (an index), a teammate's open ones, or a company's open ones. */
+type JobsSource = { contactId: string } | { companyId: string } | { techId: string };
+
 /**
- * The client's jobs, newest scheduled first. The deals list carries no
- * client filter server-side, so this reads the active set the Jobs page
- * already caches and narrows it here.
+ * The jobs behind a party, newest first. A client's come straight off the
+ * contact index; a teammate's and a company's are their open work — the
+ * company narrowed on the page, as no index keys jobs by company yet.
  */
-function JobsList({ match, newJobHref }: { match: (d: Deal) => boolean; newJobHref?: string }) {
+function JobsList({ source, newJobHref }: { source: JobsSource; newJobHref?: string }) {
   const { can } = usePermissions();
-  const { data: deals, isLoading } = useDeals();
+  const contactId = "contactId" in source ? source.contactId : undefined;
+  const byContact = useDealsPage({ contactId, limit: 20 }, Boolean(contactId));
+  const open = useDealsWindow(
+    { techId: "techId" in source ? source.techId : undefined },
+    { enabled: !contactId },
+  );
+  const isLoading = contactId ? byContact.isLoading : open.isLoading;
+  const deals = contactId
+    ? (byContact.data?.pages[0]?.data ?? [])
+    : (open.data ?? []).filter((d) => ("companyId" in source ? d.companyId === source.companyId : true));
   const { data: jobTypes } = useJobTypes();
   if (!can("deals")) return null;
   const typeName = new Map((jobTypes ?? []).map((t) => [t.id, t.name] as const));
-  const jobs = (deals ?? [])
-    .filter(match)
+  const jobs = [...deals]
     .sort((a, b) => (b.scheduledDate ?? b.createdAt ?? "").localeCompare(a.scheduledDate ?? a.createdAt ?? ""))
     .slice(0, 8);
 
@@ -223,7 +234,7 @@ function ContactCard({ contactId, onText }: { contactId: string; onText?: () => 
           </Link>
         </Row>
       ) : null}
-      <JobsList match={(d) => d.contactId === contact.id} newJobHref={`/deals/new?contactId=${encodeURIComponent(contact.id)}`} />
+      <JobsList source={{ contactId: contact.id }} newJobHref={`/deals/new?contactId=${encodeURIComponent(contact.id)}`} />
       <div>
         <SectionLabel icon={PhoneCall}>Calls</SectionLabel>
         <ClientCallsLog contactId={contact.id} />
@@ -264,7 +275,7 @@ function CompanyCard({ companyId, onText }: { companyId: string; onText?: () => 
           ))}
         </Row>
       ) : null}
-      <JobsList match={(d) => d.companyId === company.id} />
+      <JobsList source={{ companyId: company.id }} />
       <div>
         <SectionLabel icon={PhoneCall}>Calls</SectionLabel>
         <ClientCallsLog contactId={company.id} kind="company" />
@@ -293,7 +304,7 @@ function UserCard({ userId, title, onText }: { userId: string; title: string; on
           <div className="truncate">{u.email}</div>
         </Row>
       ) : null}
-      <JobsList match={(d) => d.assignedTechIds?.includes(userId)} />
+      <JobsList source={{ techId: userId }} />
     </div>
   );
 }

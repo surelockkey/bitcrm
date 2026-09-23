@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap } from "@/features/deals/hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
@@ -70,8 +70,8 @@ export function EstimatesPage() {
 function EstimatesTable({ status }: { status?: EstimateStatus }) {
   const router = useRouter();
   const q = useEstimateList({ status, limit: PAGE_SIZE });
-  const { map: contacts } = useContactMap();
   const rows: Estimate[] = useMemo(() => q.data?.pages.flatMap((p) => p.items) ?? [], [q.data]);
+  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {

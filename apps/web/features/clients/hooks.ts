@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ClientType, Company, Contact, CompanyDocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
+import { useGlobalSearch } from "@/features/search/use-global-search";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import type {
@@ -18,11 +19,58 @@ import { contactName } from "./lib";
 /* ---------------------------------------------------------------- contacts */
 
 /** All contacts (optionally scoped to a company) — loaded for client-side search. */
-export function useContacts(companyId?: string) {
-  return useQuery({
-    queryKey: queryKeys.contacts.list({ companyId }),
-    queryFn: () => api.fetchAllContacts(companyId),
+
+/**
+ * The contacts list a page at a time — the CRM pages it by cursor, and the
+ * Contacts page asks for the next page on request. Never the whole table.
+ */
+export function useContactsPage(companyId?: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.contacts.page(companyId),
+    queryFn: ({ pageParam }) => api.listContacts(companyId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled,
   });
+}
+
+/**
+ * Contacts matching typed text — a name, a phone, an email — answered by
+ * the search service and hydrated in one call, masked like any contact
+ * route. Idle (empty data, not loading) below two characters.
+ */
+export function useContactSearch(query: string, limit = 50) {
+  const found = useGlobalSearch(query, { types: ["contact"], mode: "full", limit });
+  const ids = (found.data?.hits ?? []).map((h) => h.entityId);
+  const hydrated = useContactsByIds(ids);
+  const data = useMemo(() => ids.map((id) => hydrated.map.get(id)).filter((c): c is Contact => Boolean(c)), [ids, hydrated.map]);
+  return {
+    data,
+    isLoading: found.isSearching || (ids.length > 0 && hydrated.isLoading),
+    /** True while the text is too short to search. */
+    tooShort: found.tooShort,
+  };
+}
+
+/**
+ * The contacts behind the rows on screen — a jobs page, a calls page — as a
+ * map by id. Sorted and de-duplicated so the key is stable; nothing is asked
+ * for an empty list.
+ */
+export function useContactsByIds(ids: string[]) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort(), [ids]);
+  const q = useQuery({
+    queryKey: queryKeys.contacts.byIds(wanted),
+    queryFn: () => api.getContactsByIds(wanted),
+    enabled: wanted.length > 0,
+    staleTime: 60_000,
+  });
+  const map = useMemo(() => {
+    const m = new Map<string, Contact>();
+    for (const c of q.data ?? []) m.set(c.id, c);
+    return m;
+  }, [q.data]);
+  return { map, isLoading: q.isLoading };
 }
 
 export function useContact(id: string) {

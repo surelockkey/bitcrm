@@ -50,6 +50,12 @@ export const queryKeys = {
   deals: {
     all: () => ["deals"] as const,
     list: (filters?: unknown) => ["deals", "list", filters] as const,
+    /** One server-paged list (the jobs page); invalidated with the rest of `all()`. */
+    page: (params?: unknown) => ["deals", "page", params] as const,
+    /** A bounded window a board / schedule holds whole (dispatch, schedule). */
+    window: (window?: unknown) => ["deals", "window", window] as const,
+    counts: (params?: unknown) => ["deals", "counts", params] as const,
+    byIds: (ids: string[]) => ["deals", "by-ids", ids] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,
@@ -109,6 +115,9 @@ export const queryKeys = {
     list: (filters?: unknown) => ["contacts", "list", filters] as const,
     detail: (id: string) => ["contacts", "detail", id] as const,
     byPhone: (phone: string) => ["contacts", "by-phone", phone] as const,
+    byIds: (ids: string[]) => ["contacts", "by-ids", ids] as const,
+    /** The server-paged Contacts list (optionally one company's people). */
+    page: (companyId?: string) => ["contacts", "page", companyId] as const,
   },
 
   companies: {

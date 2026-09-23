@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap } from "@/features/deals/hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
@@ -175,8 +175,8 @@ export function InvoicesPage() {
 function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0] }) {
   const router = useRouter();
   const q = useInvoiceList(params);
-  const { map: contacts } = useContactMap();
   const rows: Invoice[] = useMemo(() => q.data?.pages.flatMap((p) => p.items) ?? [], [q.data]);
+  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {

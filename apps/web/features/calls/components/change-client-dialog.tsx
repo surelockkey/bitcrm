@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useContacts } from "@/features/clients/hooks";
+import { useContactSearch } from "@/features/clients/hooks";
 import { contactName, formatPhone } from "@/features/clients/lib";
 import { useSetCallParty } from "../hooks";
 import { counterparty, formatEndpoint, type CallRecord } from "../lib";
@@ -35,7 +35,8 @@ export function ChangeClientDialog({
 }) {
   const [query, setQuery] = useState("");
   const setParty = useSetCallParty();
-  const { data: contacts, isLoading } = useContacts();
+  // The search service answers the typed text; below two characters it is empty.
+  const { data: contacts, isLoading } = useContactSearch(query);
 
   if (!call) return null;
 
@@ -44,10 +45,7 @@ export function ChangeClientDialog({
   const side: "from" | "to" =
     call.fromParty?.kind === "user" ? "to" : "from";
 
-  const q = query.trim().toLowerCase();
-  const matches = (contacts ?? []).filter((c) =>
-    `${contactName(c)} ${c.phones.join(" ")}`.toLowerCase().includes(q),
-  );
+  const matches = contacts;
 
   const choose = (contactId: string) => {
     setParty.mutate(

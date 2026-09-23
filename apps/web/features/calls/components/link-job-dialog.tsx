@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ExternalLink, Loader2, Search } from "lucide-react";
+import type { Deal } from "@bitcrm/types";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useDeals, useContactMap } from "@/features/deals/hooks";
+import { useDealsByIds, useDealsPage, useDealsWindow } from "@/features/deals/hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
+import { useGlobalSearch } from "@/features/search/use-global-search";
+import { JOB_CODE } from "@/features/deals/query-params";
 import { stageLabel } from "@/features/deals/lib";
 import { formatAddress } from "@/features/clients/lib";
 import { useLinkCallToDeal } from "../hooks";
@@ -37,29 +41,39 @@ export function LinkJobDialog({
 }) {
   const [query, setQuery] = useState("");
   const link = useLinkCallToDeal();
-  const { data: deals, isLoading } = useDeals();
-  const { map: contacts } = useContactMap();
-
   const client = call ? counterparty(call) : null;
   const clientContactId = client?.kind === "contact" ? client.id : undefined;
-
   const q = query.trim().toLowerCase();
   const searching = q.length > 0;
+  const isCode = JOB_CODE.test(query.trim());
 
-  // Untyped, the list is this client's jobs alone. An unidentified caller has
-  // no client to narrow by, so it falls back to the workspace's latest.
-  const shown = searching
-    ? (deals ?? []).filter((d) => {
-        const contact = contacts.get(d.contactId);
-        const name = contact ? `${contact.firstName} ${contact.lastName}` : "";
-        return `${d.dealNumber ?? ""} ${name} ${formatAddress(d.address)}`
-          .toLowerCase()
-          .includes(q);
-      })
+  // Untyped: this client's latest jobs off the contact index — or, for a
+  // caller nobody has identified, the workspace's open jobs, newest first.
+  const clientJobs = useDealsPage({ contactId: clientContactId, limit: 40 }, Boolean(clientContactId) && !searching);
+  const openJobs = useDealsWindow({}, { enabled: !clientContactId && !searching });
+  // Typed: a Job ID goes straight to the server; anything else (a name, an
+  // address) is a search-service question, hydrated in one call.
+  const byCode = useDealsPage({ search: query.trim().toUpperCase(), limit: 5 }, searching && isCode);
+  const found = useGlobalSearch(searching && !isCode ? query : "", { types: ["deal"], mode: "full", limit: 40 });
+  const hitIds = (found.data?.hits ?? []).map((h) => h.entityId);
+  const byText = useDealsByIds(hitIds, searching && !isCode);
+
+  const deals: Deal[] = !searching
+    ? clientContactId
+      ? (clientJobs.data?.pages[0]?.data ?? [])
+      : (openJobs.data ?? [])
+    : isCode
+      ? (byCode.data?.pages[0]?.data ?? [])
+      : (byText.data ?? []);
+  const isLoading = searching
+    ? isCode
+      ? byCode.isLoading
+      : found.isSearching || byText.isLoading
     : clientContactId
-      ? (deals ?? []).filter((d) => d.contactId === clientContactId)
-      : (deals ?? []);
-
+      ? clientJobs.isLoading
+      : openJobs.isLoading;
+  const { map: contacts } = useContactsByIds(deals.map((d) => d.contactId));
+  const shown = deals;
   const ranked = [...shown].sort((a, b) => {
     // Within a search, this client's jobs still come first — the rest of the
     // workspace is there to be reached, not to bury the likely answer.

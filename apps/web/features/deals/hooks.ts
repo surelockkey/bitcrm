@@ -9,40 +9,84 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type {
-  Contact,
   Deal,
   DealProduct,
   DocumentDiscount,
-  JobSuperStatus,
   User,
 } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage, getMissingCloseFields } from "@/lib/api/errors";
-import { fetchAllContacts } from "@/features/clients/api";
 import { getUserNames } from "@/features/users/api";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { fetchAllUsers } from "@/features/technicians/api";
 import * as api from "./api";
 import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
+import type { DealCountsParams, DealsListParams } from "./query-params";
+import { windowRequests, type DealsWindow } from "./window";
 
 /* ------------------------------------------------------------- queries */
 
 /** Dispatch board polls so the map stays live (story 4.01). */
 export const DEALS_POLL_MS = 30_000;
 
-export function useDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string } = {},
-  options: { poll?: boolean; enabled?: boolean } = {},
-) {
+/**
+ * A board or a schedule: the whole of a bounded window, kept fresh by
+ * polling. The window is a handful of bounded requests (`windowRequests`),
+ * drained and merged — a deal reached from two of them is kept once.
+ */
+export function useDealsWindow(window: DealsWindow, options: { poll?: boolean; enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: queryKeys.deals.list(params),
-    queryFn: () => api.fetchAllDeals(params),
+    queryKey: queryKeys.deals.window(window),
+    queryFn: async () => {
+      const pages = await Promise.all(windowRequests(window).map((req) => api.fetchAllDeals(req)));
+      const seen = new Set<string>();
+      const out: Deal[] = [];
+      for (const d of pages.flat()) {
+        if (seen.has(d.id)) continue;
+        seen.add(d.id);
+        out.push(d);
+      }
+      return out;
+    },
     refetchInterval: options.poll ? DEALS_POLL_MS : false,
-    // Opt-in only — every existing caller omits it and still fetches on mount.
-    // "My jobs" waits for the signed-in technician's id, so it never asks for
-    // the whole board on its way to asking for one technician's.
     enabled: options.enabled ?? true,
+  });
+}
+
+/**
+ * The jobs page: one server-ordered page at a time, the next one on
+ * request. Fifty rows a page, as Workiz shows them; the toolbar state is the
+ * key, so a filter change starts a fresh first page.
+ */
+export function useDealsPage(params: DealsListParams, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.deals.page(params),
+    queryFn: ({ pageParam }) => api.listDeals({ ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+    enabled,
+  });
+}
+
+/** A set of deals by id — a search result hydrated in one call. Nothing is asked for an empty list. */
+export function useDealsByIds(ids: string[], enabled = true) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean), [ids]);
+  return useQuery({
+    queryKey: queryKeys.deals.byIds(wanted),
+    queryFn: () => api.getDealsByIds(wanted),
+    enabled: enabled && wanted.length > 0,
+    staleTime: 30_000,
+  });
+}
+
+/** The tab numbers, under the same filters as the page; the server caches them thirty seconds. */
+export function useDealCounts(params: DealCountsParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.deals.counts(params),
+    queryFn: () => api.getDealCounts(params),
+    staleTime: 30_000,
+    enabled,
   });
 }
 
@@ -112,20 +156,6 @@ export function useSuggestedTechs(
 }
 
 /* --------------------------------------------------------------- joins */
-
-/** contactId → Contact, shared with the Clients cache. */
-export function useContactMap() {
-  const q = useQuery({
-    queryKey: queryKeys.contacts.list({ companyId: undefined }),
-    queryFn: () => fetchAllContacts(),
-  });
-  const map = useMemo(() => {
-    const m = new Map<string, Contact>();
-    for (const c of q.data ?? []) m.set(c.id, c);
-    return m;
-  }, [q.data]);
-  return { map, isLoading: q.isLoading };
-}
 
 /** userId → User (technicians + dispatchers), shared with the Technicians cache. */
 /**

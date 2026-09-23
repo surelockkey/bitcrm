@@ -4,7 +4,7 @@ import { Building2, Phone, User, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { formatPhone } from "@/lib/phone";
-import { useContacts, useCompanies } from "@/features/clients/hooks";
+import { useContactSearch, useCompanies } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { listTransferTargets } from "../api";
 
@@ -40,7 +40,7 @@ export function DialerDirectory({
   const qDigits = digits(query);
   const enabled = q.length >= 2;
 
-  const { data: contacts } = useContacts();
+  const { data: contacts } = useContactSearch(query);
   const { data: companies } = useCompanies();
   const { data: teammates } = useQuery({
     queryKey: queryKeys.telephony.transferTargets(),

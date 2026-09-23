@@ -52,11 +52,11 @@ function mockApi() {
     http.get("*/deals", () =>
       HttpResponse.json({ success: true, data: [DEAL], pagination: { count: 1 } }),
     ),
-    http.get("*/contacts", () =>
+    // The page names only the contacts of the rows it holds.
+    http.post("*/contacts/by-ids", () =>
       HttpResponse.json({
         success: true,
         data: [{ id: "contact-1", firstName: "Ada", lastName: "Lovelace", phones: [], emails: [] }],
-        pagination: { count: 1 },
       }),
     ),
     http.get("*/users/technicians/calendar-events", () =>
@@ -115,6 +115,22 @@ describe("SchedulePage", () => {
     await waitFor(() =>
       expect(screen.getByText(/#101 · Ada Lovelace/)).toBeInTheDocument(),
     );
+  });
+
+  it("asks the server for the day it shows, not the whole table", async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get("*/deals", ({ request }) => {
+        urls.push(request.url);
+        return HttpResponse.json({ success: true, data: [DEAL], pagination: { count: 1 } });
+      }),
+    );
+    render(<SchedulePage />, { wrapper });
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+    const q = new URL(urls[0]).searchParams;
+    expect(q.get("scheduledFrom")).toBe(today);
+    expect(q.get("scheduledTo")).toBe(today);
+    expect(q.get("sort")).toBe("schedule");
   });
 
   it("shows the manager-only Add time off action", async () => {

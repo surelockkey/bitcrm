@@ -10,6 +10,14 @@ import type {
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
+import type { DealCountsParams, DealsListParams } from "./query-params";
+
+/** One number per super-status plus the undated open jobs; `null` where the server would not count. */
+export type DealCounts = Record<JobSuperStatus, number | null> & {
+  unscheduled: number;
+  /** Every status summed — `null` when any of them was not counted. */
+  total: number | null;
+};
 
 const PAGE = 100;
 
@@ -39,24 +47,43 @@ export interface QualifiedTech {
 
 /* -------------------------------------------------------------------- list */
 
-export function listDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string; cursor?: string } = {},
-): Promise<PaginatedResponse<Deal>> {
-  const q = new URLSearchParams({ limit: String(PAGE) });
-  if (params.superStatus) q.set("superStatus", params.superStatus);
-  if (params.techId) q.set("techId", params.techId);
-  if (params.cursor) q.set("cursor", params.cursor);
+/**
+ * One page of the jobs list, as the server orders it. Every parameter is
+ * optional and only the ones given travel; the server refuses a visit-date
+ * window wider than 31 days.
+ */
+export function listDeals(params: DealsListParams = {}): Promise<PaginatedResponse<Deal>> {
+  const q = toSearchParams({ limit: PAGE, ...params });
   return apiFetchPaginated<Deal>(`/deals?${q}`);
 }
 
+/** The numbers on the jobs-list tabs, under the list's filters. A closed status without a window is `null`. */
+export const getDealCounts = (params: DealCountsParams = {}): Promise<DealCounts> => {
+  const q = toSearchParams(params);
+  return http.get<DealCounts>(q.size ? `/deals/counts?${q}` : "/deals/counts");
+};
+
+/** Hydrate a set of ids (a search result) in one call; the ones the caller may not see are absent. */
+export const getDealsByIds = (ids: string[]): Promise<Deal[]> =>
+  ids.length ? http.post<Deal[]>("/deals/by-ids", { ids }) : Promise.resolve([]);
+
+/** Only the parameters that carry a value make it onto the wire. */
+function toSearchParams(params: Record<string, string | number | boolean | undefined>): URLSearchParams {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === "" || v === false) continue;
+    q.set(k, String(v));
+  }
+  return q;
+}
+
 /**
- * Walk every page. The list barely filters server-side and has no text search,
- * so we load the active set and filter/search/group client-side. A scan page
- * can be empty while a cursor still exists — loop until `nextCursor` is gone.
+ * Walk every page of one bounded list — a window of days, or one open
+ * status. Never call it for an unbounded query: after the import a closed
+ * status is hundreds of thousands of rows. A scan page can be empty while a
+ * cursor still exists — loop until `nextCursor` is gone.
  */
-export async function fetchAllDeals(
-  params: { superStatus?: JobSuperStatus; techId?: string } = {},
-): Promise<Deal[]> {
+export async function fetchAllDeals(params: DealsListParams = {}): Promise<Deal[]> {
   const out: Deal[] = [];
   let cursor: string | undefined;
   do {

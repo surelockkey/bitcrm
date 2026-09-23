@@ -27,21 +27,8 @@ export function listContacts(
   return apiFetchPaginated<Contact>(`/crm/contacts?${q}`);
 }
 
-/**
- * Walk every page. The list endpoint has no text search, so we load all
- * contacts and filter client-side. A scan page can be empty while a cursor
- * still exists, so loop until `nextCursor` is gone — never trust `count`.
- */
-export async function fetchAllContacts(companyId?: string): Promise<Contact[]> {
-  const out: Contact[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await listContacts(companyId, cursor);
-    out.push(...page.data);
-    cursor = page.pagination.nextCursor;
-  } while (cursor);
-  return out;
-}
+export const getContactsByIds = (ids: string[]): Promise<Contact[]> =>
+  ids.length ? http.post<Contact[]>("/crm/contacts/by-ids", { ids }) : Promise.resolve([]);
 
 export const getContact = (id: string): Promise<Contact> =>
   http.get<Contact>(`/crm/contacts/${id}`);

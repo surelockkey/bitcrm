@@ -34,7 +34,8 @@ import { JobStatusSelect } from "@/features/job-statuses/components/job-status-s
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
-import { useDeal, useDealProducts, useContactMap, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
+import { useDeal, useDealProducts, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
+import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
@@ -69,13 +70,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function QuickViewBody({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
-  const { map: contactMap } = useContactMap();
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(dealId);
   const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
   const jobTypeName = useJobTypeName();
   const { data: customFieldDefs } = useCustomFields();
+  // Asked for before the early return, as every hook must be; it waits for
+  // the deal to name its client.
+  const { data: contact } = useContact(deal?.contactId ?? "");
 
   if (isLoading || !deal) {
     return (
@@ -85,7 +88,6 @@ function QuickViewBody({ dealId }: { dealId: string }) {
     );
   }
 
-  const contact = contactMap.get(deal.contactId);
   const phone = contact ? primaryPhone(contact) : undefined;
   const email = contact ? primaryEmail(contact) : undefined;
   const productsTotal = products ? dealTotal(products) : undefined;

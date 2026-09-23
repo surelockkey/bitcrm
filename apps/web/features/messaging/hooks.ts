@@ -12,12 +12,11 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Contact, InboxCounters, PaginatedResponse } from "@bitcrm/types";
+import type { InboxCounters, PaginatedResponse } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { fetchAllContacts } from "@/features/clients/api";
-import { useCompanyMap } from "@/features/clients/hooks";
+import { useCompanyMap, useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { useUserMap } from "@/features/deals/hooks";
 import * as api from "./api";
@@ -231,23 +230,23 @@ export function usePartyNames(conversations: InboxConversation[]): PartyNames {
         .map((c) => c.partyId as string),
     [conversations],
   );
-  const needContacts = conversations.some((c) => c.partyKind === "contact");
+  // Only the clients these threads belong to — the inbox holds a few pages.
+  const contactIds = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.partyKind === "contact" && c.partyId)
+        .map((c) => c.partyId as string),
+    [conversations],
+  );
   const needCompanies = conversations.some((c) => c.partyKind === "company");
 
-  const contacts = useQuery({
-    queryKey: queryKeys.contacts.list({ companyId: undefined }),
-    queryFn: () => fetchAllContacts(),
-    enabled: needContacts && can("contacts"),
-    staleTime: 60_000,
-  });
+  const contacts = useContactsByIds(can("contacts") ? contactIds : []);
   const companies = useCompanyMap();
   const users = useUserMap(userIds);
 
   // Small maps rebuilt per render — the inbox holds at most a few pages.
   const contactMap = new Map<string, string>();
-  for (const c of (contacts.data as Contact[] | undefined) ?? []) {
-    contactMap.set(c.id, contactName(c));
-  }
+  for (const [id, c] of contacts.map) contactMap.set(id, contactName(c));
   const companyMap = new Map<string, string>();
   if (needCompanies) for (const [id, co] of companies.map) companyMap.set(id, co.title);
   const userMap = new Map<string, string>();

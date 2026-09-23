@@ -13,8 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContacts, useCompanyMap } from "../hooks";
-import { searchContacts } from "../lib";
+import { useContactsPage, useContactSearch, useCompanyMap } from "../hooks";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
 import { MergeContactsDialog } from "./merge-contacts-dialog";
@@ -26,13 +25,19 @@ export function ContactsPage() {
   const [creating, setCreating] = useState(false);
   const [merging, setMerging] = useState(false);
 
-  const contactsQuery = useContacts();
+  // Untyped: the list a page at a time, as the CRM pages it. Typed: the
+  // search service answers, hydrated in one call — never the whole table.
+  const searching = search.trim().length >= 2;
+  const pageQuery = useContactsPage(undefined, !searching);
+  const found = useContactSearch(searching ? search : "");
   const { map: companyMap } = useCompanyMap();
 
-  const filtered = useMemo(
-    () => searchContacts(contactsQuery.data ?? [], search),
-    [contactsQuery.data, search],
+  const loaded = useMemo(
+    () => pageQuery.data?.pages.flatMap((p) => p.data) ?? [],
+    [pageQuery.data],
   );
+  const filtered = searching ? found.data : loaded;
+  const isLoading = searching ? found.isLoading : pageQuery.isLoading;
 
   if (!can("contacts", "view")) return <NoAccess entity="contacts" />;
 
@@ -71,12 +76,14 @@ export function ContactsPage() {
           />
         </div>
         <span className="ml-auto text-sm text-muted-foreground">
-          {filtered.length} {filtered.length === 1 ? "contact" : "contacts"}
+          {searching
+            ? `${filtered.length} ${filtered.length === 1 ? "match" : "matches"}`
+            : `Showing ${filtered.length}`}
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {contactsQuery.isLoading ? (
+        {isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -85,14 +92,28 @@ export function ContactsPage() {
             hint={search ? "Try a different search." : "Create your first contact to get started."}
           />
         ) : (
-          <ContactsTable contacts={filtered} companyMap={companyMap} />
+          <>
+            <ContactsTable contacts={filtered} companyMap={companyMap} />
+            {!searching && pageQuery.hasNextPage ? (
+              <div className="flex justify-center py-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void pageQuery.fetchNextPage()}
+                  disabled={pageQuery.isFetchingNextPage}
+                >
+                  {pageQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
 
       <MergeContactsDialog
         open={merging}
         onOpenChange={setMerging}
-        contacts={contactsQuery.data ?? []}
+        contacts={loaded}
       />
 
       <Dialog open={creating} onOpenChange={setCreating}>

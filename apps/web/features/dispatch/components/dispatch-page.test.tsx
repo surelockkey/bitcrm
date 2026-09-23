@@ -117,11 +117,11 @@ function mockApi() {
         pagination: { count: 2 },
       }),
     ),
-    http.get("*/contacts", () =>
+    // The page names only the contacts of the rows it holds.
+    http.post("*/contacts/by-ids", () =>
       HttpResponse.json({
         success: true,
         data: [{ id: "contact-1", firstName: "Ada", lastName: "Lovelace", phones: [], emails: [] }],
-        pagination: { count: 1 },
       }),
     ),
     http.get("*/users", () =>
@@ -172,6 +172,21 @@ describe("DispatchPage", () => {
 
     expect(await screen.findByTestId("job-row-deal-1")).toBeInTheDocument();
     expect(screen.getByTestId("job-row-deal-2")).toBeInTheDocument();
+  });
+
+  it("with no date picked, asks only for the open statuses — never the closed ones whole", async () => {
+    const urls: string[] = [];
+    server.use(
+      http.get("*/deals", ({ request }) => {
+        urls.push(request.url);
+        return HttpResponse.json({ success: true, data: [LOCATED, UNLOCATED], pagination: { count: 2 } });
+      }),
+    );
+    render(<DispatchPage />, { wrapper });
+    await screen.findByTestId("job-row-deal-1");
+    const statuses = urls.map((u) => new URL(u).searchParams.get("superStatus"));
+    expect(statuses).toEqual(["submitted", "in_progress", "pending", "done_pending_approval"]);
+    for (const u of urls) expect(new URL(u).searchParams.has("scheduledFrom")).toBe(false);
   });
 
   it("marks the matching pin when a list row is hovered", async () => {

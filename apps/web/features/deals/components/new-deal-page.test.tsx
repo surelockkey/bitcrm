@@ -59,6 +59,7 @@ const contact: Contact = {
 
 vi.mock("@/features/clients/hooks", () => ({
   useContact: (id: string) => ({ data: id ? contact : undefined }),
+  useContactSearch: () => ({ data: [], isLoading: false }),
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: mocks.createContact, isPending: false }),
   useUpdateContact: () => ({ mutate: mocks.updateContact, isPending: false }),
@@ -68,7 +69,6 @@ vi.mock("@/features/clients/hooks", () => ({
 vi.mock("../hooks", () => ({
   useCreateDeal: () => ({ mutate: mocks.createDeal, isPending: false }),
   // The extracted ClientPicker searches the loaded contact book.
-  useContactMap: () => ({ map: new Map() }),
 }));
 vi.mock("@/features/calls/hooks", () => ({
   useLinkCallToDeal: () => ({ mutate: mocks.linkCall, isPending: false }),

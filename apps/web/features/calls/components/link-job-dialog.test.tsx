@@ -35,9 +35,44 @@ const deals = [
   },
 ];
 
+const hooks = vi.hoisted(() => ({
+  pageCalls: [] as { params: Record<string, unknown>; enabled: boolean }[],
+  searchCalls: [] as string[],
+  hitIds: [] as string[],
+}));
+
+// The three bounded sources: this client's page off the contact index, a
+// Job ID page, and a text search hydrated by id. Each answers from the
+// same fixture, narrowed the way the server would narrow it.
 vi.mock("@/features/deals/hooks", () => ({
-  useDeals: () => ({ data: deals, isLoading: false }),
-  useContactMap: () => ({
+  useDealsPage: (params: Record<string, unknown>, enabled = true) => {
+    hooks.pageCalls.push({ params, enabled });
+    const data = !enabled
+      ? []
+      : params.contactId
+        ? deals.filter((d) => d.contactId === params.contactId)
+        : params.search
+          ? deals.filter((d) => d.dealNumber === params.search)
+          : [];
+    return { data: { pages: [{ data, pagination: { count: data.length } }] }, isLoading: false };
+  },
+  useDealsWindow: (_w: unknown, opts: { enabled?: boolean } = {}) => ({
+    data: opts.enabled === false ? [] : deals,
+    isLoading: false,
+  }),
+  useDealsByIds: (ids: string[], enabled = true) => ({
+    data: enabled ? deals.filter((d) => ids.includes(d.id)) : [],
+    isLoading: false,
+  }),
+}));
+vi.mock("@/features/search/use-global-search", () => ({
+  useGlobalSearch: (q: string) => {
+    hooks.searchCalls.push(q);
+    return { data: q ? { hits: hooks.hitIds.map((entityId) => ({ entityId })) } : undefined, isSearching: false };
+  },
+}));
+vi.mock("@/features/clients/hooks", () => ({
+  useContactsByIds: () => ({
     map: new Map([
       ["c1", { id: "c1", firstName: "Jane", lastName: "Roe" }],
       ["c2", { id: "c2", firstName: "Peter", lastName: "Novak" }],
@@ -74,7 +109,12 @@ const jobRows = () =>
     .filter((t) => t.includes("#"));
 
 describe("LinkJobDialog", () => {
-  beforeEach(() => linkMutate.mockClear());
+  beforeEach(() => {
+    linkMutate.mockClear();
+    hooks.pageCalls = [];
+    hooks.searchCalls = [];
+    hooks.hitIds = [];
+  });
 
   it("opens on this client's jobs, latest first, without typing", () => {
     render(<LinkJobDialog call={call} onClose={vi.fn()} />);
@@ -87,24 +127,33 @@ describe("LinkJobDialog", () => {
     expect(screen.queryByText(/#2000/)).not.toBeInTheDocument();
   });
 
-  it("reaches every job once a search is typed", async () => {
+  it("reaches every job once a search is typed — a name goes to the search service", async () => {
     const u = userEvent.setup();
+    hooks.hitIds = ["d-other"];
     render(<LinkJobDialog call={call} onClose={vi.fn()} />);
-
     await u.type(screen.getByRole("textbox"), "novak");
-
+    expect(hooks.searchCalls).toContain("novak");
     const rows = jobRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toContain("#2000");
   });
 
-  it("keeps this client's jobs above the rest of a broad search", async () => {
+  it("a Job ID goes straight to the server, not to the search service", async () => {
     const u = userEvent.setup();
     render(<LinkJobDialog call={call} onClose={vi.fn()} />);
+    await u.type(screen.getByRole("textbox"), "k4t9zw");
+    const codeCall = hooks.pageCalls.find((c) => c.enabled && c.params.search === "K4T9ZW");
+    expect(codeCall).toBeDefined();
+    // The partial strings on the way were text; the finished code is not.
+    expect(hooks.searchCalls).not.toContain("k4t9zw");
+  });
 
-    // Matches all three by city/state — d-other is the most recent overall.
-    await u.type(screen.getByRole("textbox"), "az");
-
+  it("keeps this client's jobs above the rest of a broad search", async () => {
+    const u = userEvent.setup();
+    // The search answers all three, the stranger's first by relevance.
+    hooks.hitIds = ["d-other", "d-new", "d-old"];
+    render(<LinkJobDialog call={call} onClose={vi.fn()} />);
+    await u.type(screen.getByRole("textbox"), "arizona");
     const rows = jobRows();
     expect(rows).toHaveLength(3);
     expect(rows[0]).toContain("#1042");

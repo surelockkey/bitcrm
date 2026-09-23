@@ -9,10 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { isValidPhone, MAX_EXTENSION_LENGTH, normalizeExtension } from "@/lib/phone";
-import { useContactByPhone, useCompanyMap, useCreateCompany } from "@/features/clients/hooks";
+import { useContactByPhone, useContactSearch, useCompanyMap, useCreateCompany } from "@/features/clients/hooks";
 import { CompanyPickerDialog } from "@/features/clients/components/company-picker-dialog";
 import { contactName, formatPhone, primaryPhone, searchContacts } from "@/features/clients/lib";
-import { useContactMap } from "../hooks";
 
 const MIN_QUERY = 3;
 const MAX_SUGGESTIONS = 8;
@@ -54,7 +53,6 @@ export function ClientPicker({
 }) {
   const [query, setQuery] = useState(initialPhone ?? "");
   const [listOpen, setListOpen] = useState(true);
-  const { map: contactMap } = useContactMap();
   const { map: companyMap, companies } = useCompanyMap();
   const createCompany = useCreateCompany();
 
@@ -109,9 +107,11 @@ export function ClientPicker({
   const companyNames = new Map(
     [...companyMap.values()].map((co) => [co.id, co.title] as [string, string]),
   );
+  // The search service finds them; the same ranking as before orders them.
+  const found = useContactSearch(trimmed.length >= MIN_QUERY ? trimmed : "", MAX_SUGGESTIONS * 2);
   const matches =
     trimmed.length >= MIN_QUERY
-      ? searchContacts([...contactMap.values()], trimmed, companyNames).slice(0, MAX_SUGGESTIONS)
+      ? searchContacts(found.data, trimmed, companyNames).slice(0, MAX_SUGGESTIONS)
       : [];
 
   const draftOpen = !contact && trimmed.length >= MIN_QUERY && matches.length === 0;

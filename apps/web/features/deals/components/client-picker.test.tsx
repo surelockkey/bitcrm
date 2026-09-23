@@ -36,12 +36,12 @@ const marcus = contact({
   companyId: "co-1",
 });
 
-vi.mock("../hooks", () => ({
-  useContactMap: () => ({ map: new Map([[jane.id, jane], [marcus.id, marcus]]) }),
-}));
+
 
 const acme = { id: "co-1", title: "Acme Storage" };
 vi.mock("@/features/clients/hooks", () => ({
+  // Suggestions come from the search service; the picker ranks what it answers.
+  useContactSearch: (q: string) => ({ data: q ? [jane, marcus] : [], isLoading: false }),
   useContactByPhone: () => ({ data: null, isFetching: false }),
   useCreateContact: () => ({ mutate: createContactMutate, isPending: false }),
   useCreateCompany: () => ({ mutate: createCompanyMutate, isPending: false }),

@@ -31,10 +31,27 @@ vi.mock("@/features/auth/use-permissions", () => ({
 // The page and table read catalogs/data via react-query; pin them all so this
 // renders without a QueryClient and focuses on the fields UI.
 vi.mock("../hooks", () => ({
-  useDeals: () => ({ data: mocks.deals, isLoading: false, isError: false }),
-  useContactMap: () => ({ map: mocks.contactMap }),
+  useDealsPage: (params: unknown) => ({
+    ...(mocks.pageParams.push(params) && {}),
+    data: { pages: [{ data: mocks.deals, pagination: { count: mocks.deals.length } }], pageParams: [] },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    isFetchingNextPage: false,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(),
+    refetch: vi.fn(),
+  }),
+  useDealCounts: () => ({ data: mocks.counts, isLoading: false }),
   useUserMap: () => ({ map: new Map() }),
 }));
+vi.mock("@/features/clients/hooks", () => ({
+  useContactsByIds: () => ({ map: mocks.contactMap, isLoading: false }),
+}));
+vi.mock("@/features/technicians/hooks", () => ({
+  useAllTechnicians: () => ({ profiles: [], isLoading: false }),
+}));
+vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/lib", () => ({
   activeJobTypes: () => [],
@@ -116,7 +133,13 @@ const deal: Deal = {
 const mocks = vi.hoisted(() => ({
   deals: [] as unknown[],
   contactMap: new Map<string, unknown>(),
+  counts: { submitted: 1, in_progress: 0, pending: 0, done_pending_approval: 0, done: 1, canceled: 0, unscheduled: 0 } as Record<
+    string,
+    number | null
+  >,
+  pageParams: [] as unknown[],
 }));
+const lastPageParams = () => mocks.pageParams[mocks.pageParams.length - 1] as Record<string, unknown>;
 mocks.deals = [deal];
 mocks.contactMap = new Map([[contact.id, contact]]);
 
@@ -125,54 +148,22 @@ beforeEach(() => {
   useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE } });
 });
 
-describe("DealsPage ordering — soonest upcoming first", () => {
+// Ordering and the day / hour windows are the server's now (see
+// deals-page-paging.test.tsx for what the page asks for); the hour sorts
+// are the one thing still settled on the page.
+describe("DealsPage hour sort — settled within the loaded rows", () => {
   afterEach(() => {
     mocks.deals = [deal];
   });
 
-  it("orders jobs soonest → latest by default, unscheduled last", () => {
+  it("Hour ↓ puts the later slot first", () => {
     mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
-      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
-      { ...deal, id: "d3", dealNumber: "C33333", scheduledDate: undefined },
+      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" },
+      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" },
     ];
     render(<DealsPage />);
-
-    const rows = screen.getAllByRole("row").slice(1);
-    expect(rows[0].textContent).toContain("B22222");
-    expect(rows[1].textContent).toContain("A11111");
-    expect(rows[2].textContent).toContain("C33333");
-  });
-
-  it("breaks same-day ties by the slot start", () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "15:00-16:00" },
-      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "07:00-08:00" },
-    ];
-    render(<DealsPage />);
-
-    const rows = screen.getAllByRole("row").slice(1);
-    expect(rows[0].textContent).toContain("B22222");
-    expect(rows[1].textContent).toContain("A11111");
-  });
-
-  it("still lets the toolbar override with day/hour sorts", () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
-      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
-    ];
-    render(<DealsPage />);
-
-    const firstDataRow = () => screen.getAllByRole("row")[1];
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
-      target: { value: "hour_desc" },
-    });
-    expect(firstDataRow().textContent).toContain("A11111");
-
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), {
-      target: { value: "day_asc" },
-    });
-    expect(firstDataRow().textContent).toContain("B22222");
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort jobs" }), { target: { value: "hour_desc" } });
+    expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
   });
 });
 
@@ -186,11 +177,7 @@ describe("DealsPage date filtering — schedule only", () => {
     mocks.deals = [deal];
   });
 
-  it("has no date-basis switch — the day range reads the schedule", () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", createdAt: "2026-08-10T12:00:00.000Z" },
-      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-10", createdAt: "2026-08-18T12:00:00.000Z" },
-    ];
+  it("has no date-basis switch — the day range is the visit-date window the server is asked for", () => {
     render(<DealsPage />);
 
     expect(screen.queryByLabelText("Date basis")).not.toBeInTheDocument();
@@ -201,8 +188,7 @@ describe("DealsPage date filtering — schedule only", () => {
     fireEvent.click(dayButton("18"));
     fireEvent.click(dayButton("18"));
 
-    expect(screen.getByText(/A11111/)).toBeInTheDocument();
-    expect(screen.queryByText(/B22222/)).not.toBeInTheDocument();
+    expect(lastPageParams()).toMatchObject({ scheduledFrom: "2026-08-18", scheduledTo: "2026-08-18" });
   });
 
   it("offers only Today as a one-click range — a job board has no past to filter", () => {
@@ -216,31 +202,6 @@ describe("DealsPage date filtering — schedule only", () => {
     }
   });
 
-  it("narrows the table by a day range and an hour range", () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", scheduledDate: "2026-08-18", scheduledTimeSlot: "08:00-09:00" },
-      { ...deal, id: "d2", dealNumber: "B22222", scheduledDate: "2026-08-20", scheduledTimeSlot: "14:00-15:00" },
-    ];
-    render(<DealsPage />);
-
-    expect(screen.getByText(/A11111/)).toBeInTheDocument();
-    expect(screen.getByText(/B22222/)).toBeInTheDocument();
-
-    // One calendar, one range: pick the 18th twice to close a same-day range.
-    const dayButton = (day: string) =>
-      screen.getAllByRole("button", { name: day }).find((b) => b.classList.contains("size-8"))!;
-    fireEvent.click(screen.getByRole("button", { name: "Days" }));
-    fireEvent.click(dayButton("18"));
-    fireEvent.click(dayButton("18"));
-    expect(screen.getByText(/A11111/)).toBeInTheDocument();
-    expect(screen.queryByText(/B22222/)).not.toBeInTheDocument();
-
-    // …reset days, then the hour range keeps only the afternoon job.
-    fireEvent.click(screen.getByRole("button", { name: "Clear date filter" }));
-    fireEvent.change(screen.getByLabelText("From hour"), { target: { value: "12:00" } });
-    expect(screen.queryByText(/A11111/)).not.toBeInTheDocument();
-    expect(screen.getByText(/B22222/)).toBeInTheDocument();
-  });
 });
 
 describe("DealsPage overdue marker", () => {
@@ -358,18 +319,12 @@ describe("DealsPage company filter", () => {
     mocks.deals = [deal];
   });
 
-  it("narrows the table to one company", async () => {
-    mocks.deals = [
-      { ...deal, id: "d1", dealNumber: "A11111", businessProfileId: "bp-default" },
-      { ...deal, id: "d2", dealNumber: "B22222", businessProfileId: "bp-2" },
-    ];
+  it("narrows the list to one company — as a server parameter", async () => {
     const u = userEvent.setup();
     render(<DealsPage />);
-    expect(screen.getAllByRole("row")).toHaveLength(3);
+    expect(lastPageParams()).not.toHaveProperty("businessProfileId");
     await u.click(screen.getByRole("combobox", { name: "Company filter" }));
     await u.click(await screen.findByRole("option", { name: "KeyPro" }));
-    const rows = screen.getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].textContent).toContain("B22222");
+    expect(lastPageParams()).toMatchObject({ businessProfileId: "bp-2" });
   });
 });

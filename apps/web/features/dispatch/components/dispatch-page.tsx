@@ -15,7 +15,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap, useDeals, useReorderDeals, useUserMap } from "@/features/deals/hooks";
+import { useDealsWindow, useReorderDeals, useUserMap } from "@/features/deals/hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians, useTechnicianLocations } from "@/features/technicians/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
@@ -139,8 +140,15 @@ export function DispatchPage() {
     setSelectedId(null);
   }, [layer]);
 
-  const query = useDeals({}, { poll: true });
-  const { map: contacts } = useContactMap();
+  // The board holds the open jobs of every date, or every job of the chosen
+  // days — a closed job is only read inside a date window.
+  const boardWindow = useMemo(() => {
+    const { from, to } = datePresetRange(datePreset, todayISO());
+    return { from, to, statuses: statusGroups };
+  }, [datePreset, statusGroups]);
+  const query = useDealsWindow(boardWindow, { poll: true });
+  const contactIds = useMemo(() => (query.data ?? []).map((d) => d.contactId), [query.data]);
+  const { map: contacts } = useContactsByIds(contactIds);
   const { map: users } = useUserMap();
   // Technician profiles are manager+ only — firing the query regardless would
   // 403 on every load for a dispatcher who can see the map but not the roster.
