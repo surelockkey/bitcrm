@@ -6,19 +6,35 @@ import { broadcast, onMessage } from "./tab-coordinator";
  * so nobody is left offering a call that has ended. It must also be harmless in
  * a browser without BroadcastChannel, because the phone still has to work there.
  */
+/**
+ * Delivery is a task, not synchronous. Waiting a fixed tick for it is a race the
+ * suite loses under load, so wait for the message itself and let the timeout be
+ * the failure.
+ */
+function nextMessage(channel: BroadcastChannel, ms = 2000) {
+  return new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no message within ${ms}ms`)), ms);
+    channel.addEventListener(
+      "message",
+      (e: MessageEvent) => {
+        clearTimeout(timer);
+        resolve(e.data);
+      },
+      { once: true },
+    );
+  });
+}
+
 describe("tab-coordinator", () => {
   beforeEach(() => vi.resetModules());
 
   it("delivers a message to another tab", async () => {
     const other = new BroadcastChannel("bitcrm-softphone");
-    const seen: unknown[] = [];
-    other.addEventListener("message", (e: MessageEvent) => seen.push(e.data));
+    const arrived = nextMessage(other);
 
     broadcast({ type: "call-changed" });
-    // Delivery is a task, not synchronous.
-    await new Promise((r) => setTimeout(r, 0));
 
-    expect(seen).toEqual([{ type: "call-changed" }]);
+    expect(await arrived).toEqual({ type: "call-changed" });
     other.close();
   });
 
