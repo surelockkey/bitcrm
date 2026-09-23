@@ -77,12 +77,16 @@ export const queryKeys = {
   jobTypes: {
     all: () => ["job-types"] as const,
     list: () => ["job-types", "list"] as const,
+    /** Only what a picker can offer — cached apart from the full catalog. */
+    active: () => ["job-types", "list", "active"] as const,
     detail: (id: string) => ["job-types", "detail", id] as const,
   },
 
   jobSources: {
     all: () => ["job-sources"] as const,
     list: () => ["job-sources", "list"] as const,
+    /** Only what a picker can offer — cached apart from the full catalog. */
+    active: () => ["job-sources", "list", "active"] as const,
     detail: (id: string) => ["job-sources", "detail", id] as const,
   },
 

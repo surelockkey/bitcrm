@@ -1,7 +1,7 @@
 "use client";
 
-import { useJobTypes } from "@/features/job-types/hooks";
-import { useJobSources } from "@/features/job-sources/hooks";
+import { useActiveJobTypes } from "@/features/job-types/active-hooks";
+import { useActiveJobSources } from "@/features/job-sources/active-hooks";
 import { useExternalCompanies } from "@/features/external-companies/hooks";
 import { useActiveBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useCustomFields } from "@/features/custom-fields/hooks";
@@ -25,8 +25,8 @@ import { useJobTags } from "@/features/job-tags/hooks";
  */
 export function useJobPageCatalogs(): { ready: boolean } {
   const queries = [
-    useJobTypes(),
-    useJobSources(),
+    useActiveJobTypes(),
+    useActiveJobSources(),
     useExternalCompanies(),
     useActiveBusinessProfiles(),
     useCustomFields(),

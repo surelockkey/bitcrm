@@ -7,7 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useJobSources } from "../hooks";
+import { useJobSource } from "../hooks";
+import { useActiveJobSources } from "../active-hooks";
 import { activeJobSources } from "../lib";
 
 // Radix Select items can't hold an empty string, so "no source" uses a sentinel.
@@ -32,13 +33,16 @@ export function JobSourceSelect({
   placeholder?: string;
   disabled?: boolean;
 }) {
-  const { data } = useJobSources();
+  // Only what can be offered: 690 sources came over from Workiz and 239 are
+  // still offered, and the rest were weight on every job page.
+  const { data } = useActiveJobSources();
   const active = activeJobSources(data);
 
-  const selectedArchived =
-    value && !active.some((t) => t.id === value)
-      ? (data ?? []).find((t) => t.id === value)
-      : undefined;
+  // A job may still point at an archived source; fetch just that one so the
+  // field shows its name instead of going blank.
+  const needsArchived = Boolean(value) && !active.some((t) => t.id === value);
+  const { data: archived } = useJobSource(value ?? "", needsArchived);
+  const selectedArchived = needsArchived ? archived : undefined;
 
   return (
     <Select

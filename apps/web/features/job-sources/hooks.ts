@@ -15,7 +15,9 @@ import * as api from "./api";
 export function useJobSources() {
   return useQuery({
     queryKey: queryKeys.jobSources.list(),
-    queryFn: api.listJobSources,
+    // Called with no argument on purpose: React Query would pass its own
+    // context as `activeOnly` and quietly ask for the picker's short list.
+    queryFn: () => api.listJobSources(),
     staleTime: 5 * 60_000,
   });
 }

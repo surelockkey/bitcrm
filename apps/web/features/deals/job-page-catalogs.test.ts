@@ -20,8 +20,8 @@ const spy = (name: string) => () => {
   return state;
 };
 
-vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: spy("jobTypes") }));
-vi.mock("@/features/job-sources/hooks", () => ({ useJobSources: spy("jobSources") }));
+vi.mock("@/features/job-types/active-hooks", () => ({ useActiveJobTypes: spy("jobTypes") }));
+vi.mock("@/features/job-sources/active-hooks", () => ({ useActiveJobSources: spy("jobSources") }));
 vi.mock("@/features/external-companies/hooks", () => ({ useExternalCompanies: spy("externalCompanies") }));
 vi.mock("@/features/business-profiles/hooks", () => ({ useActiveBusinessProfiles: spy("businessProfiles") }));
 vi.mock("@/features/custom-fields/hooks", () => ({ useCustomFields: spy("customFields") }));
