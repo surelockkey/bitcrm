@@ -69,13 +69,24 @@ export class JobTypesRepository {
     return result.Item ? this.toEntity(result.Item) : null;
   }
 
-  async listAll(): Promise<JobType[]> {
+  /**
+   * `activeOnly` is what a picker needs. 898 job types came over from Workiz
+   * and 21 of them are still active; sending the archived 877 to draw a
+   * dropdown cost a second of every job page.
+   */
+  async listAll(options: { activeOnly?: boolean } = {}): Promise<JobType[]> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: DEALS_TABLE,
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': JOB_TYPE_GSI1PK },
+        ...(options.activeOnly
+          ? {
+              FilterExpression: '#active = :true',
+              ExpressionAttributeNames: { '#active': 'active' },
+              ExpressionAttributeValues: { ':pk': JOB_TYPE_GSI1PK, ':true': true },
+            }
+          : { ExpressionAttributeValues: { ':pk': JOB_TYPE_GSI1PK } }),
       }),
     );
     return (result.Items || []).map((i) => this.toEntity(i));

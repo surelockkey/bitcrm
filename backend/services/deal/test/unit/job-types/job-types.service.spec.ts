@@ -95,5 +95,22 @@ describe('JobTypesService', () => {
       const list = await service.list();
       expect(list.map((j) => j.name)).toEqual(['A', 'A2', 'B']);
     });
+
+    /**
+     * A picker wants the types someone can still choose. Of 898 migrated from
+     * Workiz only 21 are active — sending all of them cost a dispatcher a
+     * second on every job page, to draw a list of twenty-one.
+     */
+    it('asks the table for only the active ones when that is all the caller needs', async () => {
+      repo.listAll.mockResolvedValue([]);
+      await service.list({ activeOnly: true });
+      expect(repo.listAll).toHaveBeenCalledWith({ activeOnly: true });
+    });
+
+    it('still lists everything when nothing is asked of it', async () => {
+      repo.listAll.mockResolvedValue([]);
+      await service.list();
+      expect(repo.listAll).toHaveBeenCalledWith({ activeOnly: false });
+    });
   });
 });

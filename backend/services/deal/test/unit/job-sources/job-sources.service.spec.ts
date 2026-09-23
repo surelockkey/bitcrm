@@ -96,4 +96,19 @@ describe('JobSourcesService', () => {
       expect(list.map((j) => j.name)).toEqual(['A', 'A2', 'B']);
     });
   });
+
+  describe('list, for a picker', () => {
+    /** 690 sources came over from Workiz; 239 are still offered. */
+    it('asks the table for only the active ones when that is all the caller needs', async () => {
+      repo.listAll.mockResolvedValue([]);
+      await service.list({ activeOnly: true });
+      expect(repo.listAll).toHaveBeenCalledWith({ activeOnly: true });
+    });
+
+    it('still lists everything when nothing is asked of it', async () => {
+      repo.listAll.mockResolvedValue([]);
+      await service.list();
+      expect(repo.listAll).toHaveBeenCalledWith({ activeOnly: false });
+    });
+  });
 });

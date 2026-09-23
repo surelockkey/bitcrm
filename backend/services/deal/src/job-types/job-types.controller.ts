@@ -1,6 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param,
-} from '@nestjs/common';
+  Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -30,10 +29,11 @@ export class JobTypesController {
   @RequirePermission('job_types', 'view')
   @ApiOperation({
     summary: 'List all job types',
-    description: '**Guard:** `job_types.view`. Includes archived types; filter on `active` for pickers.',
+    description:
+      '**Guard:** `job_types.view`. Includes archived types by default; `?active=true` returns only the ones a picker can offer.',
   })
-  async list() {
-    const data = await this.service.list();
+  async list(@Query('active') active?: string) {
+    const data = await this.service.list({ activeOnly: active === 'true' });
     return { success: true, data };
   }
 

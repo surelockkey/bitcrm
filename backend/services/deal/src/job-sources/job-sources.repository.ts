@@ -69,13 +69,23 @@ export class JobSourcesRepository {
     return result.Item ? this.toEntity(result.Item) : null;
   }
 
-  async listAll(): Promise<JobSource[]> {
+  /**
+   * `activeOnly` is what a picker needs: 690 sources came over from Workiz and
+   * 239 are still offered, so the rest are weight on every job page.
+   */
+  async listAll(options: { activeOnly?: boolean } = {}): Promise<JobSource[]> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: DEALS_TABLE,
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': JOB_SOURCE_GSI1PK },
+        ...(options.activeOnly
+          ? {
+              FilterExpression: '#active = :true',
+              ExpressionAttributeNames: { '#active': 'active' },
+              ExpressionAttributeValues: { ':pk': JOB_SOURCE_GSI1PK, ':true': true },
+            }
+          : { ExpressionAttributeValues: { ':pk': JOB_SOURCE_GSI1PK } }),
       }),
     );
     return (result.Items || []).map((i) => this.toEntity(i));
