@@ -107,6 +107,43 @@ export interface Deal {
   poNumber?: string;
   /** User-defined field answers, keyed by CustomFieldDefinition id (not name). */
   customFields?: Record<string, CustomFieldValue>;
+
+  /* ---------------------------------------------- carried over from Workiz */
+  /*
+   * A migrated job keeps what a person reads on it. Workiz issued three
+   * identifiers per job; `dealNumber` holds the code, and the other two live
+   * here. The money a job carried stays out until invoices are built — the
+   * importer stores those attributes, nothing reads them yet.
+   */
+
+  /** `workiz:job:<id>` — the record this job was migrated from. */
+  externalId?: string;
+  /** Workiz's own numeric job id. */
+  workizId?: number;
+  /** Workiz's per-account job serial. Not unique: 835 numbers repeat across 1 682 jobs. */
+  jobSerial?: number;
+  /** The Workiz service-address (`prop`) this visit was booked against. */
+  propId?: string;
+  /** IANA zone the visit's times were entered in; absent = the workspace's own. */
+  jobTimezone?: string;
+  /** This job began as a lead and was converted. */
+  converted?: boolean;
+  conversionDate?: string;
+  /** Calls were linked to this job in Workiz. */
+  hasCalls?: boolean;
+  /** A technician opened it in Workiz. */
+  seen?: boolean;
+  /** How many attachments Workiz held — the files themselves arrive with the media stream. */
+  filesCount?: number;
+  /** Last time Workiz sent this job out, and last time its progress moved. */
+  lastSent?: string;
+  lastProgress?: string;
+  /** Contact details as they stood on the job, which may differ from the client record. */
+  emailAddress?: string;
+  clientCompanyName?: string;
+  /** Numbers the job itself carried, first one primary; extensions keyed by number. */
+  phones?: string[];
+  phoneExtensions?: Record<string, string>;
   /**
    * Per-job override of the client's display name — set when a client edit on
    * the job is saved with "Just here" instead of being applied to the contact
