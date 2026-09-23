@@ -52,7 +52,7 @@ export interface DealsListParams {
 export type DealCountsParams = Omit<DealsListParams, "superStatus" | "unscheduled" | "sort" | "dir" | "limit" | "cursor" | "search">;
 
 /** Six characters of letters and digits, the way a Job ID is typed. */
-const JOB_CODE = /^[A-Z0-9]{6}$/i;
+export const JOB_CODE = /^[A-Z0-9]{6}$/i;
 
 /** The filters shared by the list and its tab counts. */
 function sharedFilters(state: JobsListState): DealCountsParams {

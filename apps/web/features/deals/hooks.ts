@@ -87,6 +87,17 @@ export function useDealsPage(params: DealsListParams, enabled = true) {
   });
 }
 
+/** A set of deals by id — a search result hydrated in one call. Nothing is asked for an empty list. */
+export function useDealsByIds(ids: string[], enabled = true) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean), [ids]);
+  return useQuery({
+    queryKey: queryKeys.deals.byIds(wanted),
+    queryFn: () => api.getDealsByIds(wanted),
+    enabled: enabled && wanted.length > 0,
+    staleTime: 30_000,
+  });
+}
+
 /** The tab numbers, under the same filters as the page; the server caches them thirty seconds. */
 export function useDealCounts(params: DealCountsParams, enabled = true) {
   return useQuery({

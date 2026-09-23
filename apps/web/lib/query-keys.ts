@@ -55,6 +55,7 @@ export const queryKeys = {
     /** A bounded window a board / schedule holds whole (dispatch, schedule). */
     window: (window?: unknown) => ["deals", "window", window] as const,
     counts: (params?: unknown) => ["deals", "counts", params] as const,
+    byIds: (ids: string[]) => ["deals", "by-ids", ids] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
     qualifiedTechs: (id: string) => ["deals", id, "qualified-techs"] as const,

@@ -83,7 +83,9 @@ describe("useMyJobs", () => {
     const { result } = renderHook(() => useMyJobs("2026-09-16"), { wrapper: wrapper(newClient()) });
 
     await waitFor(() => expect(result.current.groups[0]?.deals).toHaveLength(1));
-    expect(seen).toEqual(["t1"]);
+    // Every bounded read — the open statuses and the day — is the technician's own.
+    expect(seen.length).toBeGreaterThan(0);
+    expect(new Set(seen)).toEqual(new Set(["t1"]));
     expect(result.current.groups[0].key).toBe("today");
     expect(result.current.ready).toBe(true);
   });
