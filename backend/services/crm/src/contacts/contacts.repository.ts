@@ -6,6 +6,7 @@ import {
   UpdateCommand,
   TransactWriteCommand,
   DeleteCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
 import { CrmStatus, type Contact, type Address } from '@bitcrm/types';
@@ -83,6 +84,26 @@ export class ContactsRepository {
 
     if (!result.Item) return null;
     return this.toContact(result.Item);
+  }
+
+  /**
+   * The contacts of a set of ids, in whatever order DynamoDB answers; ids
+   * that no longer exist are simply absent. BatchGet takes 100 keys a call,
+   * and keys it leaves unprocessed under load are asked again.
+   */
+  async findByIds(ids: string[]): Promise<Contact[]> {
+    const out: Contact[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      let keys = ids.slice(i, i + 100).map((id) => ({ PK: `CONTACT#${id}`, SK: 'METADATA' }));
+      while (keys.length) {
+        const res = await this.dynamoDb.client.send(
+          new BatchGetCommand({ RequestItems: { [this.tableName]: { Keys: keys } } }),
+        );
+        for (const item of res.Responses?.[this.tableName] ?? []) out.push(this.toContact(item));
+        keys = (res.UnprocessedKeys?.[this.tableName]?.Keys ?? []) as typeof keys;
+      }
+    }
+    return out;
   }
 
   async findByPhone(normalizedPhone: string): Promise<Contact | null> {

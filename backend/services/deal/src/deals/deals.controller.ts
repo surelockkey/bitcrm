@@ -10,6 +10,7 @@ import {
   Query,
   BadRequestException,
   NotFoundException,
+  HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
@@ -21,6 +22,7 @@ import { MoveStatusDto } from './dto/move-status.dto';
 import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
+import { DealsByIdsDto } from './dto/deals-by-ids.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
 import { AssignTechsDto } from './dto/assign-techs.dto';
@@ -92,6 +94,25 @@ export class DealsController {
     @ResolvedPerms() perms: ResolvedPermissions,
   ) {
     const data = await this.dealsService.counts(query, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
+  @Post('by-ids')
+  @HttpCode(200)
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'The deals of a set of ids',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced — under `assigned_only` only the caller’s ' +
+      'own deals come back. At most 100 ids; deleted or missing ones are absent. This is how a search result or a ' +
+      'board delta is hydrated in one call.',
+  })
+  async findByIds(
+    @Body() dto: DealsByIdsDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.findByIds(dto.ids, user, perms?.dataScope?.deals);
     return { success: true, data };
   }
 

@@ -834,6 +834,11 @@ export class DealsRepository {
     };
   }
 
+  /** The deals of a set of ids, in the order asked; missing ones are absent. */
+  async findByIds(ids: string[]): Promise<Deal[]> {
+    return this.batchGetDeals(ids);
+  }
+
   private async batchGetDeals(ids: string[]): Promise<Deal[]> {
     if (!ids.length) return [];
     const deals: Deal[] = [];

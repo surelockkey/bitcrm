@@ -561,6 +561,19 @@ export class DealsService {
    * else (names, partial words) is not a Job ID search.
    */
   /**
+   * A set of deals by id — how a search result or a board delta is hydrated
+   * in one call. Deleted rows are dropped, and under `assigned_only` so is
+   * anything the caller is not assigned to.
+   */
+  async findByIds(ids: string[], caller: JwtUser, dataScope?: string): Promise<Deal[]> {
+    const unique = [...new Set(ids)];
+    const deals = await this.repository.findByIds(unique);
+    return deals.filter(
+      (d) => d.status === DealStatus.ACTIVE && (dataScope !== 'assigned_only' || d.assignedTechIds.includes(caller.id)),
+    );
+  }
+
+  /**
    * The secondary filters of a list query, applied on top of whichever index
    * answers. Shared by `list()` and `counts()` so the tabs count exactly what
    * the table shows. Mutates `query.techId` under `assigned_only`, as the
