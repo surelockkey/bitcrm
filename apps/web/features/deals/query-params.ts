@@ -79,12 +79,12 @@ function sharedFilters(state: JobsListState): DealCountsParams {
   return out;
 }
 
-export function toListParams(state: JobsListState): DealsListParams {
+export function toListParams(state: JobsListState, size = JOBS_PAGE_SIZE): DealsListParams {
   const out: DealsListParams = {
     ...sharedFilters(state),
     sort: "schedule",
     dir: state.sort === "day_desc" ? "desc" : "asc",
-    limit: JOBS_PAGE_SIZE,
+    limit: size,
   };
   if (state.tab === "unscheduled") out.unscheduled = true;
   else out.superStatus = state.tab;

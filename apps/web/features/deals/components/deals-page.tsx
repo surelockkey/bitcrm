@@ -16,6 +16,10 @@ import {
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 import { useDealCounts, useDealsPage, useUserMap } from "../hooks";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
@@ -80,12 +84,20 @@ export function DealsPage() {
     }),
     [tab, search, techId, jobTypeId, serviceArea, tagId, companyId, dateFrom, dateTo, hourFrom, hourTo, sortSel],
   );
-  const listParams = useMemo(() => toListParams(listState), [listState]);
+  const [pageSize, setPageSize] = usePageSize("jobs");
+  const listParams = useMemo(() => toListParams(listState, pageSize), [listState, pageSize]);
   const countsParams = useMemo(() => toCountsParams(listState), [listState]);
 
   const dealsQuery = useDealsPage(listParams);
   const countsQuery = useDealCounts(countsParams);
-  const deals = useMemo(() => dealsQuery.data?.pages.flatMap((p) => p.data) ?? [], [dealsQuery.data]);
+  // Одна сторінка, а не все пройдене: таблиця показує рівно те, що просили,
+  // і клієнтів під неї резолвимо теж лише на цю сторінку.
+  const pager = usePager(pagedSource(dealsQuery), {
+    size: pageSize,
+    total: countsQuery.data?.[tab] ?? undefined,
+    resetKey: JSON.stringify(listParams),
+  });
+  const deals = pager.items;
 
   // Only the clients and technicians of the rows on screen are resolved.
   const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
@@ -244,19 +256,7 @@ export function DealsPage() {
         ) : (
           <>
             <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} visibleFields={visibleFields} />
-            {dealsQuery.hasNextPage ? (
-              <div className="flex items-center justify-center gap-3 py-4">
-                <span className="text-xs text-muted-foreground">Showing {deals.length}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void dealsQuery.fetchNextPage()}
-                  disabled={dealsQuery.isFetchingNextPage}
-                >
-                  {dealsQuery.isFetchingNextPage ? "Loading…" : "Load more"}
-                </Button>
-              </div>
-            ) : null}
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>

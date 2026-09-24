@@ -27,6 +27,12 @@ describe("toListParams — the jobs page asks the server for exactly what it sho
     });
   });
 
+  it("asks for as many rows as the reader chose to see", () => {
+    // «По скільки» вибирає людина під таблицею; сторінка лише передає це далі,
+    // інакше вибір 100 нічого не міняв би у запиті.
+    expect(toListParams(base, 100)).toMatchObject({ limit: 100 });
+  });
+
   it("the unscheduled tab asks for the undated jobs, no status", () => {
     expect(toListParams({ ...base, tab: "unscheduled" })).toEqual({
       unscheduled: true,

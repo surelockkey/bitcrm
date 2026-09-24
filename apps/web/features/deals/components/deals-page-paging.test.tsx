@@ -189,12 +189,37 @@ describe("DealsPage — paging", () => {
   it("offers the next page when there is one, and asks for it on click", () => {
     mocks.hasNextPage = true;
     render(<DealsPage />);
-    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(mocks.fetchNextPage).toHaveBeenCalled();
+  });
+
+  it("numbers the page it holds and the one the cursor can still open", () => {
+    mocks.hasNextPage = true;
+    render(<DealsPage />);
+    expect(screen.getByRole("button", { name: "Page 1" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Page 2" })).toBeInTheDocument();
   });
 
   it("says nothing about more pages when the list is complete", () => {
     render(<DealsPage />);
-    expect(screen.queryByRole("button", { name: /Load more/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+  });
+
+  it("counts the rows on screen against the number the server counted", () => {
+    render(<DealsPage />);
+    // 207 — це лічильник вкладки Submitted, тобто скільки всього робіт за фільтром.
+    expect(screen.getByText("Showing 1–2 of 207")).toBeInTheDocument();
+  });
+
+  it("the chosen row count is what the server is asked for, and it is remembered", () => {
+    const { unmount } = render(<DealsPage />);
+    fireEvent.click(screen.getByRole("combobox", { name: /rows per page/i }));
+    fireEvent.click(screen.getByRole("option", { name: "100" }));
+    expect(lastPageParams()).toMatchObject({ limit: 100 });
+
+    unmount();
+    mocks.pageParams = [];
+    render(<DealsPage />);
+    expect(lastPageParams()).toMatchObject({ limit: 100 });
   });
 });
