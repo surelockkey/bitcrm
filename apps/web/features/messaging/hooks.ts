@@ -16,7 +16,7 @@ import type { InboxCounters, PaginatedResponse } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useCompanyMap, useContactsByIds } from "@/features/clients/hooks";
+import { useCompaniesByIds, useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { useUserMap } from "@/features/deals/hooks";
 import * as api from "./api";
@@ -238,17 +238,23 @@ export function usePartyNames(conversations: InboxConversation[]): PartyNames {
         .map((c) => c.partyId as string),
     [conversations],
   );
-  const needCompanies = conversations.some((c) => c.partyKind === "company");
+  const companyIds = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.partyKind === "company" && c.partyId)
+        .map((c) => c.partyId as string),
+    [conversations],
+  );
 
   const contacts = useContactsByIds(can("contacts") ? contactIds : []);
-  const companies = useCompanyMap();
+  const companies = useCompaniesByIds(companyIds);
   const users = useUserMap(userIds);
 
   // Small maps rebuilt per render — the inbox holds at most a few pages.
   const contactMap = new Map<string, string>();
   for (const [id, c] of contacts.map) contactMap.set(id, contactName(c));
   const companyMap = new Map<string, string>();
-  if (needCompanies) for (const [id, co] of companies.map) companyMap.set(id, co.title);
+  for (const [id, co] of companies.map) companyMap.set(id, co.title);
   const userMap = new Map<string, string>();
   for (const [id, u] of users.map) {
     userMap.set(id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || id);

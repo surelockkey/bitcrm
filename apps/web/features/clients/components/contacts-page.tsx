@@ -17,7 +17,7 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactsPage, useContactSearch, useCompanyMap } from "../hooks";
+import { useContactsPage, useContactSearch, useCompaniesByIds } from "../hooks";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
 import { MergeContactsDialog } from "./merge-contacts-dialog";
@@ -35,10 +35,13 @@ export function ContactsPage() {
   const [pageSize, setPageSize] = usePageSize("contacts");
   const pageQuery = useContactsPage(undefined, !searching, pageSize);
   const found = useContactSearch(searching ? search : "");
-  const { map: companyMap } = useCompanyMap();
 
   const pager = usePager(pagedSource(pageQuery), { resetKey: String(pageSize) });
   const filtered = searching ? found.data : pager.items;
+  // Назви компаній — лише тих, що в рядках на екрані.
+  const { map: companyMap } = useCompaniesByIds(
+    useMemo(() => filtered.map((c) => c.companyId).filter((id): id is string => !!id), [filtered]),
+  );
   // Пошук дублікатів дивиться на все, що встигли погортати, а не на одну
   // сторінку: два записи однієї людини рідко стоять поруч.
   const loaded = useMemo(

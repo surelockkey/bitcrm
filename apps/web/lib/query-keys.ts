@@ -128,6 +128,7 @@ export const queryKeys = {
     all: () => ["companies"] as const,
     list: (filters?: unknown) => ["companies", "list", filters] as const,
     detail: (id: string) => ["companies", "detail", id] as const,
+    byIds: (ids: string[]) => ["companies", "by-ids", ids] as const,
     contacts: (id: string) => ["companies", id, "contacts"] as const,
     documents: (id: string) => ["companies", id, "documents"] as const,
   },

@@ -168,6 +168,8 @@ export function useCompany(id: string) {
   return useQuery({
     queryKey: queryKeys.companies.detail(id),
     queryFn: () => api.getCompany(id),
+    // Порожній id — це «компанії немає», а не запит на `/crm/companies/`.
+    enabled: !!id,
   });
 }
 
@@ -176,6 +178,28 @@ export function useCompanyContacts(id: string) {
     queryKey: queryKeys.companies.contacts(id),
     queryFn: () => api.getCompanyContacts(id),
   });
+}
+
+/**
+ * The companies behind the rows on screen, as a map by id. Sorted and
+ * de-duplicated so the key is stable; nothing is asked for an empty list.
+ * A list screen names its companies with this — `useCompanyMap` reads every
+ * company in the account, which after the import is nine thousand of them.
+ */
+export function useCompaniesByIds(ids: string[]) {
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort(), [ids]);
+  const q = useQuery({
+    queryKey: queryKeys.companies.byIds(wanted),
+    queryFn: () => api.getCompaniesByIds(wanted),
+    enabled: wanted.length > 0,
+    staleTime: 60_000,
+  });
+  const map = useMemo(() => {
+    const m = new Map<string, Company>();
+    for (const c of q.data ?? []) m.set(c.id, c);
+    return m;
+  }, [q.data]);
+  return { map, isLoading: wanted.length > 0 && q.isLoading };
 }
 
 /** id → Company, for resolving a contact's company name/type across the UI. */

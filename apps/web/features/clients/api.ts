@@ -85,6 +85,10 @@ export async function fetchAllCompanies(clientType?: ClientType): Promise<Compan
   return out;
 }
 
+/** The companies of a page of rows, in one call — never the whole table. */
+export const getCompaniesByIds = (ids: string[]): Promise<Company[]> =>
+  ids.length ? http.post<Company[]>("/crm/companies/by-ids", { ids }) : Promise.resolve([]);
+
 export const getCompany = (id: string): Promise<Company> =>
   http.get<Company>(`/crm/companies/${id}`);
 
