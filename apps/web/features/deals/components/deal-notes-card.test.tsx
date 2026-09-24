@@ -3,38 +3,37 @@ import { render, screen } from "@testing-library/react";
 import { DealNotesCard } from "./deal-notes-card";
 
 /**
- * The job's own note is what Workiz calls the job note, and what dispatchers
- * ask for by that name. Labelled just "Note" beside "Dispatcher note", it read
- * as if only the dispatcher one existed — people looked for the job note on
- * the card and did not find it.
+ * One note, the way Workiz has it. The second, "dispatcher-only" box was ours
+ * alone: Workiz's equivalent is a custom field the team made themselves
+ * ("Manager Note", in their Dispatchers group), and our own field was empty on
+ * all 80,034 imported jobs. Two boxes only made people wonder which one the
+ * job note was.
  */
 const props = {
   notes: "#14ST/ needs to make a key for safe",
-  internalNotes: "",
   onNotesChange: vi.fn(),
-  onInternalNotesChange: vi.fn(),
 };
 
 describe("DealNotesCard", () => {
-  it("names the job's own note the way Workiz does", () => {
+  it("names the job's note the way Workiz does", () => {
     render(<DealNotesCard {...props} editable />);
     expect(screen.getByText("Job note")).toBeInTheDocument();
   });
 
-  it("keeps the dispatcher's internal note distinct", () => {
-    render(<DealNotesCard {...props} editable />);
-    expect(screen.getByText("Dispatcher note")).toBeInTheDocument();
+  it("offers one box, not two", () => {
+    const { container } = render(<DealNotesCard {...props} editable />);
+    expect(container.querySelectorAll("textarea")).toHaveLength(1);
+    expect(screen.queryByText("Dispatcher note")).toBeNull();
   });
 
-  it("shows the job note to someone who cannot edit it", () => {
+  it("shows the note to someone who cannot edit it", () => {
     render(<DealNotesCard {...props} editable={false} />);
     expect(screen.getByText("Job note")).toBeInTheDocument();
     expect(screen.getByText(/needs to make a key for safe/)).toBeInTheDocument();
   });
 
-  it("puts the job's text in the job note, not in the dispatcher one", () => {
+  it("holds the job's text", () => {
     render(<DealNotesCard {...props} editable />);
     expect(screen.getByLabelText("Job note")).toHaveValue(props.notes);
-    expect(screen.getByLabelText("Dispatcher note")).toHaveValue("");
   });
 });

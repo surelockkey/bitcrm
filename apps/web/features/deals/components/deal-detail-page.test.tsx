@@ -248,7 +248,7 @@ beforeEach(() => {
 // Radix dialogs set pointer-events on <body> while open; skip the check in jsdom.
 const user = () => userEvent.setup({ pointerEventsCheck: 0 });
 
-const poInput = () => screen.getByPlaceholderText(/notes visible to the team/i);
+const poInput = () => screen.getByPlaceholderText(/what needs doing/i);
 const firstNameInput = () => screen.getByDisplayValue("Jane");
 const saveButton = () => screen.getByRole("button", { name: "Save" });
 const jobsLink = () => screen.getByRole("link", { name: /jobs/i });
@@ -366,11 +366,13 @@ describe("DealDetailPage (editable, single save)", () => {
     expect(screen.queryAllByRole("button", { name: /save/i })).toHaveLength(1);
   });
 
-  it("notes are directly editable — textareas immediately, no Edit button", () => {
+  it("the note is directly editable — one textarea immediately, no Edit button", () => {
     render(<DealDetailPage dealId="d1" />);
 
-    expect(screen.getByPlaceholderText(/notes visible to the team/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/internal dispatcher notes/i)).toBeInTheDocument();
+    // One note, as Workiz has it: the second, dispatcher-only box was ours
+    // alone and empty on every imported job.
+    expect(screen.getByPlaceholderText(/what needs doing/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/internal dispatcher notes/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /edit/i })).toBeNull();
   });
 

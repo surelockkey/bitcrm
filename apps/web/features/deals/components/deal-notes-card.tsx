@@ -1,46 +1,46 @@
 "use client";
 
 import { cloneElement, useId } from "react";
-import { Lock } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 /**
- * Deal notes. Dispatchers / management edit both the shared note and an
- * internal (dispatcher-only) note; technicians see them read-only. The card is
- * dumb: it renders the parent's draft values and reports keystrokes back — the
- * job page's single Save button persists them (trimmed there).
+ * The job's note — one box, the way Workiz has it.
+ *
+ * There used to be a second, dispatcher-only box. That was ours alone: what
+ * Workiz's teams use for the same thing is a custom field they made themselves
+ * ("Manager Note", in their Dispatchers group), and our own field was empty on
+ * all 80,034 imported jobs. Two boxes only left people wondering which one the
+ * job note was.
+ *
+ * The card is dumb: it renders the parent's draft value and reports keystrokes
+ * back — the job page's single Save persists it (trimmed there).
  */
 export function DealNotesCard({
   notes,
-  internalNotes,
   editable,
   onNotesChange,
-  onInternalNotesChange,
 }: {
   notes: string;
-  internalNotes: string;
   editable: boolean;
   onNotesChange: (v: string) => void;
-  onInternalNotesChange: (v: string) => void;
 }) {
   return (
     <section className="rounded-xl border bg-card p-4">
       <h2 className="mb-3 text-sm font-semibold">Notes</h2>
 
       {editable ? (
-        <div className="space-y-3">
-          <Field label="Job note">
-            <Textarea rows={3} value={notes} placeholder="Notes visible to the team…" onChange={(e) => onNotesChange(e.target.value)} />
-          </Field>
-          <Field label="Dispatcher note" hint="Internal — technicians can't edit this.">
-            <Textarea rows={3} value={internalNotes} placeholder="Internal dispatcher notes…" onChange={(e) => onInternalNotesChange(e.target.value)} />
-          </Field>
-        </div>
+        <Field label="Job note">
+          <Textarea
+            rows={4}
+            value={notes}
+            placeholder="What needs doing…"
+            onChange={(e) => onNotesChange(e.target.value)}
+          />
+        </Field>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           <NoteBlock label="Job note" value={notes} />
-          <NoteBlock label="Dispatcher note" value={internalNotes} tone="warn" icon={<Lock className="size-3" />} />
           <p className="text-[11px] text-muted-foreground">Notes are managed by dispatch.</p>
         </div>
       )}
@@ -82,23 +82,14 @@ function Field({
 function NoteBlock({
   label,
   value,
-  tone,
-  icon,
 }: {
   label: string;
   value?: string;
-  tone?: "warn";
-  icon?: React.ReactNode;
 }) {
   return (
     <div>
-      <div
-        className={cn(
-          "mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide",
-          tone === "warn" ? "text-amber-600 dark:text-amber-500" : "text-muted-foreground",
-        )}
-      >
-        {label} {icon}
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
       </div>
       <p className={cn("whitespace-pre-wrap text-sm", value ? "text-foreground/90" : "text-muted-foreground/60 italic")}>
         {value?.trim() ? value : "—"}

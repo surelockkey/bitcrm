@@ -562,10 +562,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
             the schedule and the team. Saved by the page's single Save. */}
         <DealNotesCard
           notes={dealDraft.notes}
-          internalNotes={dealDraft.internalNotes}
           editable={canEdit && !isTechnician}
           onNotesChange={(v) => setDeal({ notes: v })}
-          onInternalNotesChange={(v) => setDeal({ internalNotes: v })}
         />
       </Section>
 
