@@ -23,7 +23,10 @@ const record = (over: Partial<CallRecord> = {}): CallRecord => ({
   ...over,
 });
 
-function makeController(over: Partial<Record<string, unknown>> = {}) {
+function makeController(
+  over: Partial<Record<string, unknown>> = {},
+  s3Over: Partial<Record<string, unknown>> = {},
+) {
   const subject = new Subject<CallEvent>();
   const calls = {
     list: jest.fn().mockResolvedValue({ items: [record()], nextCursor: 'cur2' }),
@@ -80,6 +83,10 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     listOnline: jest.fn().mockResolvedValue([]),
     ...(over.presence as object),
   } as unknown as import('../../src/presence/presence.service').PresenceService;
+  const s3 = {
+    getObjectBuffer: jest.fn().mockResolvedValue(null),
+    ...s3Over,
+  } as unknown as import('@bitcrm/shared').S3Service;
   const controller = new CallsController(
     calls,
     bus,
@@ -92,6 +99,7 @@ function makeController(over: Partial<Record<string, unknown>> = {}) {
     bridge,
     presence,
     CONFIG,
+    s3,
   );
   return {
     controller,
@@ -637,6 +645,50 @@ describe('CallsController — correcting the party', () => {
 describe('CallsController.recording proxy', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  /**
+   * A call migrated from Workiz has no Twilio recording: asking Twilio for its
+   * sid gets nothing back, which is why imported calls played silence. Its
+   * audio was pulled out of Workiz into our own bucket, and `recordingKey` is
+   * where it lives.
+   */
+  it('serves an imported recording from our bucket, not from Twilio', async () => {
+    const get = jest.fn().mockResolvedValue({ body: Buffer.from([1, 2, 3]), contentType: 'audio/wav' });
+    const { controller } = makeController(
+      { getBySid: jest.fn().mockResolvedValue(record({ recordingKey: 'calls/CA1/recording.wav' })) },
+      { getObjectBuffer: get },
+    );
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const { res } = makeRes();
+
+    await controller.recording('CA1', res as never);
+
+    expect(get).toHaveBeenCalledWith('calls/CA1/recording.wav');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still goes to Twilio for a call we made ourselves', async () => {
+    const get = jest.fn();
+    const { controller } = makeController(
+      { getBySid: jest.fn().mockResolvedValue(record({ recordingSid: 'RE123' })) },
+      { getObjectBuffer: get },
+    );
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({ start: (c) => c.close() }),
+      headers: new Headers({ 'content-type': 'audio/mpeg' }),
+    } as never);
+    const { res } = makeRes();
+    // The Twilio branch pipes a stream into the response; the fake needs the
+    // stream hooks `pipe` looks for.
+    (res as any).emit = jest.fn();
+    (res as any).once = jest.fn();
+    (res as any).removeListener = jest.fn();
+
+    await controller.recording('CA1', res as never);
+
+    expect(get).not.toHaveBeenCalled();
   });
 
   it('404s when the call has no recording', async () => {

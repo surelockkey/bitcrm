@@ -125,6 +125,12 @@ export interface CallRecord {
   flowPath?: CallFlowStepRecord[];
   recordingSid?: string;
   recordingDurationSeconds?: number;
+  /**
+   * Where the audio of an imported call lives in our own bucket. A call that
+   * came over from Workiz has no Twilio recording, so its sid resolves to
+   * nothing there; this is what is played instead.
+   */
+  recordingKey?: string;
   /** Secondary leg sids (customer participant / agent ring legs). */
   childSids?: string[];
   /** System users involved: who called / answered / listened / joined, when. */
@@ -272,6 +278,7 @@ export class CallsRepository {
       ['conferenceSid', rec.conferenceSid],
       ['flowName', rec.flowName],
       ['recordingSid', rec.recordingSid],
+      ['recordingKey', rec.recordingKey],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
       ['internalLegOf', rec.internalLegOf],
       // NOTE: a field added to CallRecord but forgotten here is dropped on

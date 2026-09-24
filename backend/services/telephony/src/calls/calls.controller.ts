@@ -14,12 +14,11 @@ import {
   Post,
   Put,
   Query,
-  Res,
-} from '@nestjs/common';
+  Res, Optional } from '@nestjs/common';
 import { type Response } from 'express';
 import { Readable } from 'stream';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { CurrentUser, RequirePermission } from '@bitcrm/shared';
+import { CurrentUser, RequirePermission, S3Service } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { Inject } from '@nestjs/common';
 import { CallsService } from './calls.service';
@@ -144,6 +143,9 @@ export class CallsController {
     private readonly bridge: BridgeService,
     private readonly presence: PresenceService,
     @Inject(TELEPHONY_CONFIG) private readonly config: TelephonyConfig,
+    // Optional: only imported calls keep their audio here, and a service
+    // without storage configured must still boot.
+    @Optional() private readonly s3?: S3Service,
   ) {}
 
   /**
@@ -523,6 +525,17 @@ export class CallsController {
   })
   async recording(@Param('sid') sid: string, @Res() res: Response) {
     const call = await this.callsService.getBySid(sid);
+
+    // A call imported from Workiz has no Twilio recording — its audio was
+    // pulled into our own bucket, and that is what gets played.
+    if (call?.recordingKey) {
+      const object = await this.s3?.getObjectBuffer(call.recordingKey);
+      if (!object) throw new NotFoundException('No recording for this call');
+      res.set({ 'Content-Type': object.contentType ?? 'audio/wav', 'Content-Length': String(object.body.length) });
+      res.end(object.body);
+      return;
+    }
+
     if (!call?.recordingSid) {
       throw new NotFoundException('No recording for this call');
     }

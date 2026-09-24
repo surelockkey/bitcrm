@@ -7,8 +7,7 @@ import {
   LoggerModule,
   MetricsModule,
   HealthModule,
-  ConnectivityModule,
-} from '@bitcrm/shared';
+  ConnectivityModule, StorageModule } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { TelephonyModule } from './telephony/telephony.module';
 import { PresenceModule } from './presence/presence.module';
@@ -27,6 +26,9 @@ import { CALL_FLOWS_TABLE } from './call-flows/call-flows.constants';
 @Module({
   imports: [
     LoggerModule.forRoot({ serviceName: 'telephony-service' }),
+    // Imported calls keep their audio in our bucket: Workiz will not be
+    // there to serve it, and Twilio never had it.
+    StorageModule,
     MetricsModule.forRoot({ serviceName: 'telephony-service' }),
     HealthModule.forRoot({
       dynamoTables: [CALLS_TABLE, CALL_GROUPS_TABLE, CALL_FLOWS_TABLE],
