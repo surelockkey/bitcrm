@@ -28,6 +28,7 @@ import { ContactsService } from '../contacts/contacts.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { ListCompaniesQueryDto } from './dto/list-companies-query.dto';
+import { LookupCompaniesByIdsDto } from './dto/lookup-companies-by-ids.dto';
 import { ListContactsQueryDto } from '../contacts/dto/list-contacts-query.dto';
 
 @ApiTags('Companies')
@@ -69,6 +70,24 @@ export class CompaniesController {
       data: maskPhonesEach(result.items, maySeeNumbers(perms)),
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
     };
+  }
+
+  @Post('by-ids')
+  @RequirePermission('companies', 'view')
+  @ApiOperation({
+    summary: 'The companies of a set of ids',
+    description:
+      '**Guard:** `companies.view` permission required. At most 100 ids; ids that no longer exist ' +
+      'are absent. This is how a server-paged list (contacts, jobs) names the companies on the page ' +
+      'it shows, instead of reading the whole table. Numbers are masked unless the caller also holds ' +
+      '`companies.view_numbers`.',
+  })
+  async findByIds(
+    @Body() dto: LookupCompaniesByIdsDto,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const companies = await this.companiesService.findByIds(dto.ids);
+    return { success: true, data: maskPhonesEach(companies, maySeeNumbers(perms)) };
   }
 
   @Get(':id')

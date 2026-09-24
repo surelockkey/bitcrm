@@ -179,4 +179,34 @@ describe('CompaniesService', () => {
       expect(cache.invalidate).toHaveBeenCalledWith('company-1');
     });
   });
+
+  describe('findByIds', () => {
+    it('names the companies of one page of rows in a single call', async () => {
+      // Сторінка клієнтів показує назву компанії в кожному рядку. Доти веб
+      // тягнув усі 9 001 компанію заради цих назв.
+      const acme = createMockCompany({ id: 'co-1', title: 'Acme' });
+      const globex = createMockCompany({ id: 'co-2', title: 'Globex' });
+      repository.findByIds.mockResolvedValue([globex, acme]);
+
+      const found = await service.findByIds(['co-1', 'co-2']);
+
+      expect(repository.findByIds).toHaveBeenCalledWith(['co-1', 'co-2']);
+      // Порядок — як просили, а не як віддав DynamoDB.
+      expect(found.map((c) => c.id)).toEqual(['co-1', 'co-2']);
+    });
+
+    it('asks once for an id repeated in the page', async () => {
+      repository.findByIds.mockResolvedValue([createMockCompany({ id: 'co-1' })]);
+
+      await service.findByIds(['co-1', 'co-1']);
+
+      expect(repository.findByIds).toHaveBeenCalledWith(['co-1']);
+    });
+
+    it('leaves out an id that no longer exists rather than failing the page', async () => {
+      repository.findByIds.mockResolvedValue([createMockCompany({ id: 'co-1' })]);
+
+      expect(await service.findByIds(['co-1', 'gone'])).toHaveLength(1);
+    });
+  });
 });

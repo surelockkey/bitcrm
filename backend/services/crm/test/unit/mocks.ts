@@ -55,6 +55,7 @@ export function createMockCompaniesRepository() {
   return {
     create: jest.fn(),
     findById: jest.fn(),
+    findByIds: jest.fn().mockResolvedValue([]),
     findByClientType: jest.fn(),
     findAll: jest.fn(),
     update: jest.fn(),

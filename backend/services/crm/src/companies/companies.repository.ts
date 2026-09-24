@@ -6,6 +6,7 @@ import {
   QueryCommand,
   ScanCommand,
   UpdateCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { CrmStatus, type Company } from '@bitcrm/types';
@@ -51,6 +52,26 @@ export class CompaniesRepository {
 
     if (!result.Item) return null;
     return this.toCompany(result.Item);
+  }
+
+  /**
+   * The companies of a set of ids, in one call per hundred. This is how a
+   * server-paged list names the companies of the rows it shows, instead of
+   * reading the whole table to build a map.
+   */
+  async findByIds(ids: string[]): Promise<Company[]> {
+    const out: Company[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      let keys = ids.slice(i, i + 100).map((id) => ({ PK: `COMPANY#${id}`, SK: 'METADATA' }));
+      while (keys.length) {
+        const res = await this.dynamoDb.client.send(
+          new BatchGetCommand({ RequestItems: { [this.tableName]: { Keys: keys } } }),
+        );
+        for (const item of res.Responses?.[this.tableName] ?? []) out.push(this.toCompany(item));
+        keys = (res.UnprocessedKeys?.[this.tableName]?.Keys ?? []) as typeof keys;
+      }
+    }
+    return out;
   }
 
   /* ---------------------------------------------------------- phone index */
