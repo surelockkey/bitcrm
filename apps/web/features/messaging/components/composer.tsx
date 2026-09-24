@@ -449,10 +449,14 @@ export function Composer({
                 <Button
                   type="button"
                   variant="brand"
-                  className="h-10 w-9 rounded-none px-0"
+                  className="h-10 gap-1 rounded-none px-2"
                   aria-label="Send options"
                   disabled={blocked}
                 >
+                  {/* Named, not an anonymous chevron: a dispatcher has to be
+                      able to see what the message goes out as, and that it can
+                      be changed at all. */}
+                  <span className="text-xs font-medium">{SEND_CHANNEL_LABEL[channel]}</span>
                   <ChevronUp className="size-4" />
                 </Button>
               </DropdownMenuTrigger>

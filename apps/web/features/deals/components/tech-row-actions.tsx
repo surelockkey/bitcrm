@@ -78,6 +78,7 @@ export function TechRowActions({
       <TechChatSheet
         techId={techId}
         name={name ?? "Technician"}
+        phone={phone}
         dealId={dealId}
         open={chatOpen}
         onOpenChange={setChatOpen}

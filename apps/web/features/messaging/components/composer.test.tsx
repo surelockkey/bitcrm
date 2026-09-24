@@ -435,4 +435,15 @@ describe("Composer", () => {
     expect(screen.getByTestId("segment-counter")).toHaveTextContent("too long");
     expect(screen.getByRole("button", { name: "Send Text" })).toBeDisabled();
   });
+
+  /**
+   * The channel was chosen behind an unlabelled chevron, so people could not
+   * tell what a message would go out as, let alone that they could change it.
+   * The button says which channel it opens.
+   */
+  it("says which channel the message will go out as", async () => {
+    renderComposer();
+
+    expect(await screen.findByRole("button", { name: /send options/i })).toHaveTextContent(/text|in app|email/i);
+  });
 });
