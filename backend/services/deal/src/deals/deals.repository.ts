@@ -446,9 +446,15 @@ export class DealsRepository {
    * range. It reads every row of the range, so the caller keeps the range
    * bounded (a closed status without a window is never counted).
    */
-  countBySchedule(superStatus: JobSuperStatus, window: ScheduleWindow, filters?: DealFilters): Promise<number> {
+  /** `cap` — стеля: набравши стільки, лічильник спиняється, і число означає «не менше». */
+  countBySchedule(
+    superStatus: JobSuperStatus,
+    window: ScheduleWindow,
+    filters?: DealFilters,
+    cap?: number,
+  ): Promise<number> {
     const key = this.scheduleKeyCondition(window);
-    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters);
+    return this.countOn(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', [`STATUS#${superStatus}`], key.expression, key.values, filters, cap);
   }
 
   /** How many deals of one status were created in a span of days, under the list's filters. */
@@ -618,6 +624,7 @@ export class DealsRepository {
     keyCondition: string,
     keyValues: Record<string, unknown>,
     filters?: DealFilters,
+    cap?: number,
   ): Promise<number> {
     const f = this.dealFilterExpression(filters);
     const counts = await Promise.all(
@@ -639,6 +646,8 @@ export class DealsRepository {
           );
           count += result.Count ?? 0;
           lastKey = result.LastEvaluatedKey;
+          // Стеля перетнута — далі гортати нема сенсу: відповідь уже «не менше».
+          if (cap !== undefined && count >= cap) break;
         } while (lastKey);
         return count;
       }),

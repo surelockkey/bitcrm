@@ -3,7 +3,9 @@
  * `Select: COUNT` queries on the schedule index with the very filters the
  * list uses (web-deals-scale design, step 3). A closed status without a
  * date window would count a whole partition (Canceled ≈ 244 k after the
- * import), so it answers `null` and the UI shows a dash.
+ * import), so it is counted only up to a ceiling: the tab shows the number
+ * while the set is small and "10,000+" once it is not. A dash said nothing
+ * to the one account where every job is Done.
  */
 import { JobSuperStatus } from '@bitcrm/types';
 import { DealsService } from '../../../src/deals/deals.service';
@@ -40,6 +42,29 @@ describe('DealsRepository.countBySchedule', () => {
     const second = dynamoDb.client.send.mock.calls[1][0].input;
     expect(second.ExclusiveStartKey).toEqual({ PK: 'x' });
   });
+
+  it('stops at the ceiling instead of walking a whole partition', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    const repository = new DealsRepository(dynamoDb as any);
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Count: 40, LastEvaluatedKey: { PK: 'x' } })
+      .mockResolvedValueOnce({ Count: 40, LastEvaluatedKey: { PK: 'y' } })
+      .mockResolvedValueOnce({ Count: 40, LastEvaluatedKey: { PK: 'z' } });
+
+    const n = await repository.countBySchedule(JobSuperStatus.DONE, {}, undefined, 50);
+
+    // Дві сторінки перетнули стелю — третьої не питаємо.
+    expect(n).toBe(80);
+    expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts to the end when the set is smaller than the ceiling', async () => {
+    const dynamoDb = createMockDynamoDbService();
+    const repository = new DealsRepository(dynamoDb as any);
+    dynamoDb.client.send.mockResolvedValueOnce({ Count: 7 });
+
+    expect(await repository.countBySchedule(JobSuperStatus.DONE, {}, undefined, 50)).toBe(7);
+  });
 });
 
 describe('DealsService.counts', () => {
@@ -67,6 +92,7 @@ describe('DealsService.counts', () => {
       canceled: 200,
       unscheduled: 3,
       total: 318,
+      atLeast: [],
     });
     // Six statuses in the window + four open statuses undated.
     expect((repo as any).countBySchedule).toHaveBeenCalledTimes(10);
@@ -79,16 +105,40 @@ describe('DealsService.counts', () => {
     ]);
   });
 
-  it('without a window the closed statuses are not counted — they answer null', async () => {
+  it('without a window the closed statuses are counted up to the ceiling', async () => {
     const service = serviceWith(repo, cache);
     const counts = await service.counts({} as any, caller);
-    expect(counts.done).toBeNull();
-    expect(counts.canceled).toBeNull();
+    expect(counts.done).toBe(100);
+    expect(counts.canceled).toBe(200);
     expect(counts.submitted).toBe(10);
     expect(counts.unscheduled).toBe(3);
-    const counted = (repo as any).countBySchedule.mock.calls.map((c: any[]) => c[0]);
-    expect(counted).not.toContain(JobSuperStatus.DONE);
-    expect(counted).not.toContain(JobSuperStatus.CANCELED);
+    // Стеля їде в репозиторій лише для закритих: відкритих статусів мало
+    // за визначенням, вони рахуються до кінця.
+    const calls = (repo as any).countBySchedule.mock.calls;
+    const doneCall = calls.find((c: any[]) => c[0] === JobSuperStatus.DONE);
+    expect(doneCall[3]).toBe(10_000);
+    const openCall = calls.find((c: any[]) => c[0] === JobSuperStatus.SUBMITTED);
+    expect(openCall[3]).toBeUndefined();
+  });
+
+  it('says which numbers are a floor rather than a total', async () => {
+    (repo as any).countBySchedule = jest.fn(async (status: JobSuperStatus) =>
+      status === JobSuperStatus.CANCELED ? 10_000 : 4,
+    );
+    const service = serviceWith(repo, cache);
+
+    const counts = await service.counts({} as any, caller);
+
+    // 10 000 — це «не менше»: стільки нарахували і спинились. Сума, у якій
+    // є такий доданок, теж лише «не менше».
+    expect(counts.canceled).toBe(10_000);
+    expect(counts.atLeast).toEqual([JobSuperStatus.CANCELED, 'total']);
+  });
+
+  it('nothing is a floor while every status was counted to the end', async () => {
+    const service = serviceWith(repo, cache);
+
+    expect((await service.counts({} as any, caller)).atLeast).toEqual([]);
   });
 
   it('the list filters and the data scope apply to the counts too', async () => {
@@ -102,7 +152,7 @@ describe('DealsService.counts', () => {
     const service = serviceWith(repo, cache);
     const counts = await service.counts({ superStatus: JobSuperStatus.DONE, limit: 5, cursor: 'abc' } as any, caller);
     expect(Object.keys(counts).sort()).toEqual(
-      ['canceled', 'done', 'done_pending_approval', 'in_progress', 'pending', 'submitted', 'unscheduled', 'total'].sort(),
+      ['canceled', 'done', 'done_pending_approval', 'in_progress', 'pending', 'submitted', 'unscheduled', 'total', 'atLeast'].sort(),
     );
   });
 

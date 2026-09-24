@@ -53,9 +53,22 @@ export type DealCounts = Record<JobSuperStatus, number | null> & {
   unscheduled: number;
   /** Every status summed — `null` when any of them could not be counted. */
   total: number | null;
+  /**
+   * Statuses whose number is a floor, not a total: counting stopped at the
+   * ceiling. The tab shows "10,000+" for these.
+   */
+  atLeast: (JobSuperStatus | 'total')[];
 };
 
 const COUNTS_TTL_SECONDS = 30;
+/**
+ * How far a closed status is counted without a date window. Counting the
+ * whole partition would read every Canceled job in the account (≈ 244 k
+ * after the import) on every cache miss; stopping here costs a bounded read
+ * and still answers the question the tab is asking — "how many?" — for any
+ * account small enough for the number to matter.
+ */
+const CLOSED_COUNT_CAP = 10_000;
 /** A report window — created or closed — spans at most a quarter. */
 const REPORT_WINDOW_MAX_DAYS = 92;
 import { type SendToTechDto } from './dto/send-to-tech.dto';
@@ -704,9 +717,14 @@ export class DealsService {
       const [statuses, undatedByStatus] = await Promise.all([
         Promise.all(
           SUPER_STATUS_ORDER.map(async (status) =>
-            !bounded && CLOSED_SUPER_STATUSES.has(status)
-              ? null
-              : this.repository.countBySchedule(status, { from: window.from, to: window.to }, filters),
+            this.repository.countBySchedule(
+              status,
+              { from: window.from, to: window.to },
+              filters,
+              // Відкриті статуси малі за визначенням — їх рахуємо до кінця;
+              // закритий без вікна — лише до стелі.
+              !bounded && CLOSED_SUPER_STATUSES.has(status) ? CLOSED_COUNT_CAP : undefined,
+            ),
           ),
         ),
         Promise.all(open.map((status) => this.repository.countBySchedule(status, { unscheduled: true }, filters))),
@@ -715,9 +733,17 @@ export class DealsService {
       undated = undatedByStatus.reduce((a, b) => a + b, 0);
     }
 
-    const result = Object.fromEntries(SUPER_STATUS_ORDER.map((s, i) => [s, byStatus[i]])) as DealCounts;
-    result.unscheduled = undated;
-    result.total = byStatus.some((n) => n === null) ? null : byStatus.reduce<number>((a, b) => a + (b ?? 0), 0);
+    // Число, що вперлося в стелю, — це «не менше»; сума з таким доданком теж.
+    const atLeast: (JobSuperStatus | 'total')[] = SUPER_STATUS_ORDER.filter(
+      (_, i) => (byStatus[i] ?? 0) >= CLOSED_COUNT_CAP,
+    );
+    const total = byStatus.some((n) => n === null) ? null : byStatus.reduce<number>((a, b) => a + (b ?? 0), 0);
+    const result: DealCounts = {
+      ...(Object.fromEntries(SUPER_STATUS_ORDER.map((s, i) => [s, byStatus[i]])) as Record<JobSuperStatus, number | null>),
+      unscheduled: undated,
+      total,
+      atLeast: atLeast.length && total !== null ? [...atLeast, 'total'] : atLeast,
+    };
     await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
     return result;
   }
