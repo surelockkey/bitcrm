@@ -23,6 +23,7 @@ import { fetchAllProducts } from "@/features/inventory/warehouses/api";
 import { useUserMap, useAddProduct, useReplaceProduct } from "../hooks";
 import { fetchTechStock } from "../tech-stock";
 import { formatMoney, isPriceInBand, priceBandApplies, priceRange } from "../lib";
+import { personName } from "../person-name";
 
 export function AddProductDialog({
   dealId,
@@ -161,7 +162,7 @@ export function AddProductDialog({
                 <div className="flex flex-wrap gap-1.5">
                   {techIds.map((id) => {
                     const u = userMap.get(id);
-                    const label = u ? `${u.firstName} ${u.lastName}` : id;
+                    const label = personName(u) ?? "…";
                     return (
                       <button
                         key={id}

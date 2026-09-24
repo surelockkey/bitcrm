@@ -5,6 +5,7 @@ import type { DirectoryUser } from "../hooks";
 import { initials } from "@/features/clients/lib";
 import { cn } from "@/lib/utils";
 import { useUserMap } from "../hooks";
+import { personName } from "../person-name";
 
 interface ChipProps {
   techIds: string[];
@@ -34,7 +35,9 @@ export function TechChips({
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       {techIds.map((id) => {
         const u = userMap.get(id);
-        const name = u ? `${u.firstName} ${u.lastName}`.trim() : id;
+        // A uuid is not a name: while the directory is still on its way the
+        // chip waits rather than printing the id.
+        const name = personName(u);
         return (
           <span
             key={id}
@@ -44,15 +47,17 @@ export function TechChips({
             )}
           >
             <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-bold text-muted-foreground">
-              {initials(u?.firstName ?? name, u?.lastName ?? "")}
+              {initials(u?.firstName ?? "", u?.lastName ?? "")}
             </span>
-            <span className="font-medium">{name}</span>
+            <span className={cn("font-medium", name ? "" : "min-w-16 animate-pulse rounded bg-muted text-transparent")}>
+              {name ?? "\u00a0"}
+            </span>
             {onRemove ? (
               <button
                 type="button"
                 onClick={() => onRemove(id)}
                 className="opacity-60 hover:opacity-100"
-                aria-label={`Remove ${name}`}
+                aria-label={`Remove ${name ?? "technician"}`}
               >
                 <X className="size-3" />
               </button>

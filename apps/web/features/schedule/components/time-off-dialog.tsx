@@ -25,6 +25,7 @@ import { useCreateCalendarEvent } from "../hooks";
 import { calendarEventSchema, toEventInput } from "../schemas";
 import { eventLabel } from "../lib";
 import type { DirectoryUser } from "@/features/deals/hooks";
+import { personName } from "@/features/deals/person-name";
 
 const TYPES = [
   CalendarEventType.TIME_OFF,
@@ -60,7 +61,7 @@ export function TimeOffDialog({
 
   const techName = (id: string) => {
     const u = users.get(id);
-    return u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email : id;
+    return personName(u) ?? "…";
   };
 
   const submit = () => {

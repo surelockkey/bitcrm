@@ -377,7 +377,7 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     const channels = Array.isArray(d.channels) ? (d.channels as SendToTechChannel[]) : [];
     const via = channels.map((c) => SEND_TO_TECH_CHANNEL_LABEL[c] ?? c).join(" & ");
     const who = Array.isArray(d.techIds)
-      ? (d.techIds as string[]).map((id) => lk.userName(id) ?? id).join(", ")
+      ? (d.techIds as string[]).map((id) => lk.userName(id) ?? "…").join(", ")
       : "";
     return [via ? `by ${via}` : "", who].filter(Boolean).join(" · ") || null;
   }

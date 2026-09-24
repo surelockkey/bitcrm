@@ -15,6 +15,7 @@ import {
 import type { ConflictReason } from "../lib";
 import type { RescheduleTarget } from "./day-grid";
 import type { DirectoryUser } from "@/features/deals/hooks";
+import { personName } from "@/features/deals/person-name";
 
 const REASON_LABELS: Record<ConflictReason, string> = {
   double_booked: "overlaps another job",
@@ -41,7 +42,7 @@ export function RescheduleConfirmDialog({
   const techName = (id?: string) => {
     if (!id) return "unassigned";
     const u = users.get(id);
-    return u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email : id;
+    return personName(u) ?? "…";
   };
 
   return (
