@@ -25,7 +25,7 @@ import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
 import { toCountsParams, toListParams, type JobsListState, type JobsSort } from "../query-params";
-import { filterDeals, jobTabLabel, JOB_TABS, type JobTab, sortJobs } from "../lib";
+import { filterDeals, jobTabLabel, JOB_TABS, type JobTab, sortJobs, tabCount } from "../lib";
 import { useBusinessProfiles } from "@/features/business-profiles/hooks";
 import { useJobTypes } from "@/features/job-types/hooks";
 import { activeJobTypes } from "@/features/job-types/lib";
@@ -93,8 +93,8 @@ export function DealsPage() {
   // Одна сторінка, а не все пройдене: таблиця показує рівно те, що просили,
   // і клієнтів під неї резолвимо теж лише на цю сторінку.
   const pager = usePager(pagedSource(dealsQuery), {
-    size: pageSize,
     total: countsQuery.data?.[tab] ?? undefined,
+    totalIsFloor: tab !== "unscheduled" && countsQuery.data?.atLeast?.includes(tab),
     resetKey: JSON.stringify(listParams),
   });
   const deals = pager.items;
@@ -228,7 +228,7 @@ export function DealsPage() {
                   active ? "bg-brand/10 text-brand" : "bg-muted text-muted-foreground",
                 )}
               >
-                {counts?.[t] ?? (counts ? "—" : "…")}
+                {counts ? tabCount(counts, t) : "…"}
               </span>
             </button>
           );

@@ -24,10 +24,11 @@ import { contactName } from "./lib";
  * The contacts list a page at a time — the CRM pages it by cursor, and the
  * Contacts page asks for the next page on request. Never the whole table.
  */
-export function useContactsPage(companyId?: string, enabled = true) {
+export function useContactsPage(companyId?: string, enabled = true, limit?: number) {
   return useInfiniteQuery({
-    queryKey: queryKeys.contacts.page(companyId),
-    queryFn: ({ pageParam }) => api.listContacts(companyId, pageParam),
+    // Розмір сторінки в ключі: сторінки по 25 і по 100 — різні набори.
+    queryKey: [...queryKeys.contacts.page(companyId), limit ?? null],
+    queryFn: ({ pageParam }) => api.listContacts(companyId, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
     enabled,

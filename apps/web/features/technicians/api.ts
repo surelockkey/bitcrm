@@ -86,8 +86,9 @@ export interface SetSensitiveBody {
 export function listTechnicians(
   status?: string,
   cursor?: string,
+  limit = 100,
 ): Promise<PaginatedResponse<TechnicianProfile>> {
-  const q = new URLSearchParams({ limit: "100" });
+  const q = new URLSearchParams({ limit: String(limit) });
   if (status) q.set("status", status);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<TechnicianProfile>(`${BASE}?${q}`);

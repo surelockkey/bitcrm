@@ -20,8 +20,9 @@ const PAGE = 100;
 export function listContacts(
   companyId?: string,
   cursor?: string,
+  limit = PAGE,
 ): Promise<PaginatedResponse<Contact>> {
-  const q = new URLSearchParams({ limit: String(PAGE) });
+  const q = new URLSearchParams({ limit: String(limit) });
   if (companyId) q.set("companyId", companyId);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<Contact>(`/crm/contacts?${q}`);

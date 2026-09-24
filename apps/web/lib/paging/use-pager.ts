@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 /**
  * Сторінки поверх курсорного списку.
@@ -20,10 +20,10 @@ export interface PagedSource<T> {
 }
 
 export interface PagerOptions {
-  /** Скільки рядків на сторінці — те саме число, що пішло в запит як `limit`. */
-  size: number;
   /** Скільки всього рядків, якщо сервер це знає (напр. `/deals/counts`). */
   total?: number;
+  /** `total` — це «не менше»: лічильник сервера спинився на стелі. */
+  totalIsFloor?: boolean;
   /** Змінився — фільтри під списком інші, гортання починається спочатку. */
   resetKey?: string;
 }
@@ -35,6 +35,7 @@ export interface Pager<T> {
   from: number;
   to: number;
   total?: number;
+  totalIsFloor?: boolean;
   canPrev: boolean;
   canNext: boolean;
   isLoading: boolean;
@@ -48,15 +49,16 @@ export interface Pager<T> {
 }
 
 export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T> {
-  const { size, total, resetKey } = options;
+  const { total, totalIsFloor, resetKey } = options;
   const [page, setPage] = useState(1);
 
   // Фільтри під списком змінились — сторінки старого набору більше ні про що
   // не свідчать. Скидання під час рендера, а не в ефекті: інакше кадр
-  // показував би третю сторінку нового набору, якої ще немає.
-  const seenKey = useRef(resetKey);
-  if (seenKey.current !== resetKey) {
-    seenKey.current = resetKey;
+  // показував би третю сторінку нового набору, якої ще немає. Попереднє
+  // значення тримає стан, а не ref: під час рендера ref читати не можна.
+  const [seenKey, setSeenKey] = useState(resetKey);
+  if (seenKey !== resetKey) {
+    setSeenKey(resetKey);
     if (page !== 1) setPage(1);
   }
 
@@ -87,7 +89,11 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
 
   const prev = useCallback(() => setPage((p) => Math.max(1, Math.min(p, loaded) - 1)), [loaded]);
 
-  const from = items.length ? (current - 1) * size + 1 : 0;
+  // Нумерація — за тим, що вже пройдено, а не за розміром сторінки: сервіс,
+  // який фільтрує після читання, віддає коротку сторінку з курсором, і
+  // «номер × розмір» показав би чужі числа.
+  const before = src.pages.slice(0, current - 1).reduce((n, page) => n + page.length, 0);
+  const from = items.length ? before + 1 : 0;
 
   return {
     page: current,
@@ -95,6 +101,7 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
     from,
     to: items.length ? from + items.length - 1 : 0,
     total,
+    totalIsFloor,
     canPrev: current > 1,
     canNext: current < loaded || src.hasNextPage,
     isLoading: src.isLoading,

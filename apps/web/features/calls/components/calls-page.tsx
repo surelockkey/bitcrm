@@ -11,9 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import type { DateTimeRange } from "@/lib/date-range";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCallTags } from "@/features/call-tags/hooks";
@@ -49,12 +53,16 @@ export function CallsPage() {
     [debouncedNumber, direction, status, tagId, range],
   );
 
-  const query = useCallsList(filter);
+  const [pageSize, setPageSize] = usePageSize("calls");
+  const query = useCallsList(filter, pageSize);
+  const pager = usePager(pagedSource(query), {
+    resetKey: JSON.stringify({ filter, pageSize }),
+  });
   const calls = useMemo(() => {
-    // Dedupe across pages: an SSE-driven refetch of page 1 can shift rows that
-    // an older cached page still contains (duplicate React keys otherwise).
+    // Dedupe inside the page: an SSE-driven refetch can shift rows, and the
+    // same call would otherwise land twice under one React key.
     const seen = new Set<string>();
-    return (query.data?.pages.flatMap((p) => p.data) ?? []).filter((call) => {
+    return pager.items.filter((call) => {
       if (seen.has(call.callSid)) return false;
       seen.add(call.callSid);
       return true;
@@ -188,7 +196,9 @@ export function CallsPage() {
                 variant="outline"
                 className="mt-2"
                 disabled={query.isFetchingNextPage}
-                onClick={() => query.fetchNextPage()}
+                // Перехід, а не просто довантаження: інакше прочитана
+                // ділянка лягла б у кеш, а на екрані лишилась би порожня.
+                onClick={() => void pager.next()}
               >
                 {query.isFetchingNextPage ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -209,20 +219,7 @@ export function CallsPage() {
       ) : (
         <>
           <CallsTable calls={calls} />
-          {query.hasNextPage ? (
-            <Button
-              variant="outline"
-              className="mx-auto"
-              disabled={query.isFetchingNextPage}
-              onClick={() => query.fetchNextPage()}
-            >
-              {query.isFetchingNextPage ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                "Load more"
-              )}
-            </Button>
-          ) : null}
+          <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
         </>
       )}
     </div>

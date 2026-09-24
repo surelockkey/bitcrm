@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Merge, Plus, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -12,6 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactsPage, useContactSearch, useCompanyMap } from "../hooks";
 import { ContactsTable } from "./contacts-table";
@@ -28,15 +32,19 @@ export function ContactsPage() {
   // Untyped: the list a page at a time, as the CRM pages it. Typed: the
   // search service answers, hydrated in one call — never the whole table.
   const searching = search.trim().length >= 2;
-  const pageQuery = useContactsPage(undefined, !searching);
+  const [pageSize, setPageSize] = usePageSize("contacts");
+  const pageQuery = useContactsPage(undefined, !searching, pageSize);
   const found = useContactSearch(searching ? search : "");
   const { map: companyMap } = useCompanyMap();
 
+  const pager = usePager(pagedSource(pageQuery), { resetKey: String(pageSize) });
+  const filtered = searching ? found.data : pager.items;
+  // Пошук дублікатів дивиться на все, що встигли погортати, а не на одну
+  // сторінку: два записи однієї людини рідко стоять поруч.
   const loaded = useMemo(
     () => pageQuery.data?.pages.flatMap((p) => p.data) ?? [],
     [pageQuery.data],
   );
-  const filtered = searching ? found.data : loaded;
   const isLoading = searching ? found.isLoading : pageQuery.isLoading;
 
   if (!can("contacts", "view")) return <NoAccess entity="contacts" />;
@@ -94,18 +102,11 @@ export function ContactsPage() {
         ) : (
           <>
             <ContactsTable contacts={filtered} companyMap={companyMap} />
-            {!searching && pageQuery.hasNextPage ? (
-              <div className="flex justify-center py-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void pageQuery.fetchNextPage()}
-                  disabled={pageQuery.isFetchingNextPage}
-                >
-                  {pageQuery.isFetchingNextPage ? "Loading…" : "Load more"}
-                </Button>
-              </div>
-            ) : null}
+            {/* Знайдене пошуковим сервісом приходить одним набором — там
+                гортати нема чого. */}
+            {searching ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+            )}
           </>
         )}
       </div>

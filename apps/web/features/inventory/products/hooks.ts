@@ -14,10 +14,10 @@ import * as api from "./api";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
 
-export function useProducts(filter: ProductFilter) {
+export function useProducts(filter: ProductFilter, limit = 50) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.products.list(filter),
-    queryFn: ({ pageParam }) => api.listProducts(filter, pageParam),
+    queryKey: queryKeys.inventory.products.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listProducts(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

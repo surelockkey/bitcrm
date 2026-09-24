@@ -14,10 +14,10 @@ import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import { enrichStock, summarizeStock } from "@/features/inventory/warehouses/lib";
 import * as api from "./api";
 
-export function useContainersList(department?: string) {
+export function useContainersList(department?: string, limit = 100) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.containers.list(department ?? "all"),
-    queryFn: ({ pageParam }) => api.listContainers(department, pageParam),
+    queryKey: queryKeys.inventory.containers.list(`${department ?? "all"}:${limit}`),
+    queryFn: ({ pageParam }) => api.listContainers(department, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

@@ -19,6 +19,10 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import { useAutomations, useAutomationsAccess, useAutomationRunsFeed } from "../hooks";
 import { OUTCOME_LABEL, formatFiredAt } from "../lib";
 import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 const ALL = "all";
 const PAGE = 50;
@@ -65,9 +69,10 @@ export function AutomationActivityPage() {
   const since = useMemo(() => sinceInstant(sinceKey), [sinceKey]);
 
   const { data: rules, isError: rulesFailed } = useAutomations(canView);
+  const [pageSize, setPageSize] = usePageSize("automation-activity");
   const feed = useAutomationRunsFeed(
     {
-      limit: PAGE,
+      limit: pageSize,
       ...(ruleId === ALL ? {} : { ruleId }),
       ...(outcome === ALL ? {} : { outcome }),
       ...(since ? { since } : {}),
@@ -75,17 +80,19 @@ export function AutomationActivityPage() {
     canView,
   );
 
+  const pager = usePager(pagedSource(feed, (page: { items: AutomationRun[] }) => page.items), {
+    resetKey: JSON.stringify({ ruleId, outcome, sinceKey, pageSize }),
+  });
   const runs = useMemo(() => {
-    // Refetching an infinite query re-reads every page: a firing logged in
-    // between shifts a row from one page onto the next, and the same run then
-    // arrives twice (duplicate React keys, and a reader counting it twice).
+    // Refetching re-reads the page: a firing logged in between can shift a row
+    // and arrive twice (duplicate React keys, and a reader counting it twice).
     const seen = new Set<string>();
-    return (feed.data?.pages.flatMap((p) => p.items) ?? []).filter((run) => {
+    return pager.items.filter((run) => {
       if (seen.has(run.id)) return false;
       seen.add(run.id);
       return true;
     });
-  }, [feed.data]);
+  }, [pager.items]);
   const byId = useMemo(
     () => new Map((rules ?? []).map((rule: AutomationRule) => [rule.id, rule])),
     [rules],
@@ -214,29 +221,17 @@ export function AutomationActivityPage() {
         <EmptyFeed
           narrowed={narrowed}
           feed={feed}
+          onMore={() => void pager.next()}
           onClear={clearFilters}
         />
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
-            {runs.length} {runs.length === 1 ? "firing" : "firings"}
-            {feed.hasNextPage ? " so far" : ""}
-          </p>
           <ul className="space-y-2" data-testid="automation-activity">
             {runs.map((run) => (
               <ActivityRow key={run.id} run={run} name={byId.get(run.ruleId)?.name} namesKnown={namesKnown} />
             ))}
           </ul>
-          {feed.hasNextPage ? (
-            <Button
-              variant="outline"
-              className="mx-auto"
-              disabled={feed.isFetchingNextPage}
-              onClick={() => feed.fetchNextPage()}
-            >
-              {feed.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : "Load more"}
-            </Button>
-          ) : null}
+          <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
         </>
       )}
     </div>
@@ -247,10 +242,13 @@ export function AutomationActivityPage() {
 function EmptyFeed({
   narrowed,
   feed,
+  onMore,
   onClear,
 }: {
   narrowed: boolean;
   feed: ReturnType<typeof useAutomationRunsFeed>;
+  /** Читати далі — і стати на ту сторінку, а не лише покласти її в кеш. */
+  onMore: () => void;
   onClear: () => void;
 }) {
   // An outcome filter is applied after the page is read, so a page can come
@@ -268,7 +266,7 @@ function EmptyFeed({
           size="sm"
           className="mt-2"
           disabled={feed.isFetchingNextPage}
-          onClick={() => feed.fetchNextPage()}
+          onClick={onMore}
         >
           {feed.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : "Keep looking"}
         </Button>

@@ -7,10 +7,10 @@ import { useWarehouses, useContainers } from "@/features/inventory/warehouses/ho
 import { containerLabel } from "@/features/inventory/warehouses/lib";
 import * as api from "./api";
 
-export function useTransfers() {
+export function useTransfers(limit = 50) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.transfers.list(),
-    queryFn: ({ pageParam }) => api.listTransfers(pageParam),
+    queryKey: [...queryKeys.inventory.transfers.list(), limit],
+    queryFn: ({ pageParam }) => api.listTransfers(pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

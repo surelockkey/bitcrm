@@ -19,7 +19,7 @@ function source(pages: number[][], hasNext = true): PagedSource<number> {
 
 describe("usePager", () => {
   it("shows the first page and knows another one is waiting", () => {
-    const { result } = renderHook(() => usePager(source([[1, 2, 3]]), { size: 3 }));
+    const { result } = renderHook(() => usePager(source([[1, 2, 3]]), {}));
 
     expect(result.current.items).toEqual([1, 2, 3]);
     expect(result.current.page).toBe(1);
@@ -28,7 +28,7 @@ describe("usePager", () => {
   });
 
   it("walks forward into a page already fetched", () => {
-    const { result } = renderHook(() => usePager(source([[1, 2], [3, 4]]), { size: 2 }));
+    const { result } = renderHook(() => usePager(source([[1, 2], [3, 4]]), {}));
 
     act(() => void result.current.next());
 
@@ -40,7 +40,7 @@ describe("usePager", () => {
   it("asks for the next page only when it is not in hand yet", async () => {
     let asked = 0;
     const src = { ...source([[1, 2]]), fetchNextPage: async () => { asked += 1; } };
-    const { result } = renderHook(() => usePager(src, { size: 2 }));
+    const { result } = renderHook(() => usePager(src, {}));
 
     await act(async () => { await result.current.next(); });
 
@@ -48,7 +48,7 @@ describe("usePager", () => {
   });
 
   it("goes back without fetching anything", () => {
-    const { result } = renderHook(() => usePager(source([[1, 2], [3, 4]]), { size: 2 }));
+    const { result } = renderHook(() => usePager(source([[1, 2], [3, 4]]), {}));
 
     act(() => void result.current.next());
     act(() => void result.current.prev());
@@ -58,7 +58,7 @@ describe("usePager", () => {
   });
 
   it("jumps straight to a page it has already seen", () => {
-    const { result } = renderHook(() => usePager(source([[1], [2], [3]]), { size: 1 }));
+    const { result } = renderHook(() => usePager(source([[1], [2], [3]]), {}));
 
     act(() => void result.current.goto(3));
 
@@ -68,7 +68,7 @@ describe("usePager", () => {
   it("fetches when the number clicked is the one past the end", async () => {
     let asked = 0;
     const src = { ...source([[1], [2]]), fetchNextPage: async () => { asked += 1; } };
-    const { result } = renderHook(() => usePager(src, { size: 1 }));
+    const { result } = renderHook(() => usePager(src, {}));
 
     await act(async () => { await result.current.goto(3); });
 
@@ -78,7 +78,7 @@ describe("usePager", () => {
   it("ignores a number further out than the cursor can reach", async () => {
     let asked = 0;
     const src = { ...source([[1], [2]]), fetchNextPage: async () => { asked += 1; } };
-    const { result } = renderHook(() => usePager(src, { size: 1 }));
+    const { result } = renderHook(() => usePager(src, {}));
 
     await act(async () => { await result.current.goto(9); });
 
@@ -87,7 +87,7 @@ describe("usePager", () => {
   });
 
   it("counts the rows it is showing, and the whole set when it is known", () => {
-    const { result } = renderHook(() => usePager(source([[1, 2], [3, 4]]), { size: 2, total: 9 }));
+    const { result } = renderHook(() => usePager(source([[1, 2], [3, 4]]), { total: 9 }));
 
     act(() => void result.current.next());
 
@@ -96,9 +96,29 @@ describe("usePager", () => {
     expect(result.current.total).toBe(9);
   });
 
+  it("passes on that the total is a floor, not a count", () => {
+    const { result } = renderHook(() =>
+      usePager(source([[1, 2]]), { total: 10_000, totalIsFloor: true }),
+    );
+
+    expect(result.current.totalIsFloor).toBe(true);
+  });
+
+  it("numbers the rows by what came before, not by the page size", () => {
+    // Сервіс, що фільтрує після читання, віддає коротку сторінку з курсором:
+    // рахувати «номер × розмір» означало б показати «Showing 51–52» там, де
+    // насправді другий і третій рядки.
+    const { result } = renderHook(() => usePager(source([[1], [2, 3]]), {}));
+
+    act(() => void result.current.next());
+
+    expect(result.current.from).toBe(2);
+    expect(result.current.to).toBe(3);
+  });
+
   it("returns to the first page when the filters underneath change", () => {
     const { result, rerender } = renderHook(
-      ({ key }) => usePager(source([[1, 2], [3, 4]]), { size: 2, resetKey: key }),
+      ({ key }) => usePager(source([[1, 2], [3, 4]]), { resetKey: key }),
       { initialProps: { key: "open" } },
     );
 
@@ -109,7 +129,7 @@ describe("usePager", () => {
   });
 
   it("has no next page once the source says the last one is loaded", () => {
-    const { result } = renderHook(() => usePager(source([[1, 2]], false), { size: 2 }));
+    const { result } = renderHook(() => usePager(source([[1, 2]], false), {}));
 
     expect(result.current.canNext).toBe(false);
   });

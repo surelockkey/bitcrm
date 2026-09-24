@@ -21,6 +21,7 @@ import {
   extensionsFromRows,
 } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
+import type { DealCounts } from "./api";
 import type { UpdateDealValues } from "./schemas";
 
 /* ----------------------------------------------------------- super-statuses */
@@ -91,6 +92,17 @@ export const JOB_TABS: JobTab[] = [...SUPER_STATUS_ORDER, "unscheduled"];
 
 export const jobTabLabel = (t: JobTab): string =>
   t === "unscheduled" ? "Unscheduled" : superStatusLabel(t);
+
+/**
+ * Число на вкладці. Сервер рахує закритий статус лише до стелі, тож таке
+ * число — підлога, а не підсумок, і знак про це каже; де він не рахував
+ * нічого, лишається риска.
+ */
+export function tabCount(counts: DealCounts, tab: JobTab): string {
+  const n = counts[tab];
+  if (n === null || n === undefined) return "—";
+  return counts.atLeast?.includes(tab as JobSuperStatus) ? `${n.toLocaleString()}+` : n.toLocaleString();
+}
 
 export function matchesTab(d: Pick<Deal, "superStatus" | "scheduledDate">, tab: JobTab): boolean {
   return tab === "unscheduled" ? !d.scheduledDate : d.superStatus === tab;

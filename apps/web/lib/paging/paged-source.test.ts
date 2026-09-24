@@ -22,6 +22,13 @@ describe("pagedSource", () => {
     expect(pagedSource({ ...query, data: undefined }).pages).toEqual([]);
   });
 
+  it("takes the rows from wherever the service puts them", () => {
+    // Білінг зве їх `items`, решта — `data`.
+    const billing = { ...query, data: { pages: [{ items: [1] }, { items: [2] }] } } as never;
+
+    expect(pagedSource(billing, (p: { items: number[] }) => p.items).pages).toEqual([[1], [2]]);
+  });
+
   it("carries the query's own state through", () => {
     const src = pagedSource({ ...query, isLoading: true, hasNextPage: false });
 

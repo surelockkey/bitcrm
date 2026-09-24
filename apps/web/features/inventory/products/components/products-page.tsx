@@ -33,6 +33,10 @@ import * as api from "../api";
 import { collectCategories, productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
 import { ImportProductsDialog } from "./import-products-dialog";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 export function ProductsPage() {
   const router = useRouter();
@@ -57,11 +61,12 @@ export function ProductsPage() {
     [search, category, type, status],
   );
 
-  const query = useProducts(filter);
-  const products = useMemo(
-    () => query.data?.pages.flatMap((p) => p.data) ?? [],
-    [query.data],
-  );
+  const [pageSize, setPageSize] = usePageSize("inventory-items");
+  const query = useProducts(filter, pageSize);
+  const pager = usePager(pagedSource(query), {
+    resetKey: JSON.stringify({ filter, pageSize }),
+  });
+  const products = pager.items;
   const categories = useMemo(() => collectCategories(products), [products]);
 
   // A category/type filter overrides search+status server-side.
@@ -172,10 +177,9 @@ export function ProductsPage() {
           </SelectContent>
         </Select>
 
-        <span className="ml-auto text-sm text-muted-foreground">
-          {products.length}
-          {query.hasNextPage ? "+" : ""} {products.length === 1 ? "item" : "items"}
-        </span>
+        {/* Скільки видно — каже панель під таблицею; тут це було б число
+            однієї сторінки з виглядом підсумку. */}
+        <span className="ml-auto" />
 
         {can("products", "create") ? (
           <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
@@ -249,19 +253,7 @@ export function ProductsPage() {
               onToggle={toggle}
               onToggleAll={toggleAll}
             />
-            {query.hasNextPage ? (
-              <div className="mt-4 flex justify-center">
-                <Button
-                  variant="outline"
-                  onClick={() => query.fetchNextPage()}
-                  disabled={query.isFetchingNextPage}
-                  className="gap-1.5"
-                >
-                  {query.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Load more
-                </Button>
-              </div>
-            ) : null}
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>

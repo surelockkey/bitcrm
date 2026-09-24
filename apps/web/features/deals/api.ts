@@ -17,6 +17,11 @@ export type DealCounts = Record<JobSuperStatus, number | null> & {
   unscheduled: number;
   /** Every status summed — `null` when any of them was not counted. */
   total: number | null;
+  /**
+   * Statuses whose number is a floor: the server stopped counting at its
+   * ceiling. Shown as "10,000+", because "10,000" would be a claim.
+   */
+  atLeast?: (JobSuperStatus | "total")[];
 };
 
 const PAGE = 100;

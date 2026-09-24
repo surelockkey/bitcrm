@@ -18,10 +18,10 @@ import { useMe } from "@/features/auth/use-me";
 import * as api from "./api";
 import type { UserFilter } from "./api";
 
-export function useUsers(filter: UserFilter) {
+export function useUsers(filter: UserFilter, limit = 50) {
   return useInfiniteQuery({
-    queryKey: queryKeys.users.list(filter),
-    queryFn: ({ pageParam }) => api.listUsers(filter, pageParam),
+    queryKey: queryKeys.users.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listUsers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

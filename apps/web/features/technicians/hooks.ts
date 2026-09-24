@@ -23,10 +23,10 @@ import type {
 
 /* ---- Queries ---- */
 
-export function useTechnicians(status?: string, enabled = true) {
+export function useTechnicians(status?: string, enabled = true, limit = 100) {
   return useInfiniteQuery({
-    queryKey: queryKeys.technicians.list(status ?? "all"),
-    queryFn: ({ pageParam }) => api.listTechnicians(status, pageParam),
+    queryKey: queryKeys.technicians.list(`${status ?? "all"}:${limit}`),
+    queryFn: ({ pageParam }) => api.listTechnicians(status, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
     enabled,

@@ -21,9 +21,10 @@ function toQuery(params: Record<string, string | undefined>): string {
 export function listProducts(
   filter: ProductFilter,
   cursor?: string,
+  limit = 50,
 ): Promise<PaginatedResponse<Product>> {
   return apiFetchPaginated<Product>(
-    `/inventory/products${toQuery({ ...effectiveProductQuery(filter), cursor, limit: "50" })}`,
+    `/inventory/products${toQuery({ ...effectiveProductQuery(filter), cursor, limit: String(limit) })}`,
   );
 }
 

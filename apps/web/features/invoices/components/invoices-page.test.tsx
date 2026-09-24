@@ -69,14 +69,18 @@ beforeEach(() => {
 });
 
 describe("InvoicesPage", () => {
-  it("shows summary widgets and the invoice table, paging with Load more", async () => {
+  it("shows summary widgets and the invoice table, a page at a time", async () => {
     renderWithClient(<InvoicesPage />);
     expect(await screen.findByText("$1,234.50")).toBeInTheDocument();
     const row = await screen.findByRole("row", { name: /#1042/ });
     expect(within(row).getByText("Jane Smith")).toBeInTheDocument();
     expect(within(row).getByText("Unsent")).toBeInTheDocument();
-    await user().click(screen.getByRole("button", { name: /load more/i }));
+
+    await user().click(screen.getByRole("button", { name: "Next page" }));
+
+    // Друга сторінка заступає першу, а не доростає під нею.
     expect(await screen.findByRole("row", { name: /#1043/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /#1042/ })).not.toBeInTheDocument();
   });
 
   it("filters by status when a widget is clicked and opens the job's invoice tab", async () => {

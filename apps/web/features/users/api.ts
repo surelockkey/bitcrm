@@ -28,9 +28,10 @@ function toQuery(params: Record<string, string | undefined>): string {
 export function listUsers(
   filter: UserFilter,
   cursor?: string,
+  limit = 50,
 ): Promise<PaginatedResponse<User>> {
   return apiFetchPaginated<User>(
-    `/users${toQuery({ ...filter, cursor, limit: "50" })}`,
+    `/users${toQuery({ ...filter, cursor, limit: String(limit) })}`,
   );
 }
 

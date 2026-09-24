@@ -12,7 +12,7 @@ describe("usePageSize", () => {
   beforeEach(() => localStorage.clear());
 
   it("offers the sizes the backend can actually serve", () => {
-    expect(PAGE_SIZES).toEqual([25, 50, 100, 200]);
+    expect(PAGE_SIZES).toEqual([25, 50, 100]);
   });
 
   it("starts at fifty", () => {
@@ -32,7 +32,7 @@ describe("usePageSize", () => {
 
   it("keeps each list's choice apart", () => {
     const { result } = renderHook(() => usePageSize("jobs"));
-    act(() => result.current[1](200));
+    act(() => result.current[1](100));
 
     expect(renderHook(() => usePageSize("calls")).result.current[0]).toBe(50);
   });

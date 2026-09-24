@@ -9,8 +9,9 @@ const BASE = "/telephony/calls";
 export function listCalls(
   filter: CallsFilter,
   cursor?: string,
+  limit = 25,
 ): Promise<PaginatedResponse<CallRecord>> {
-  const qs = filterToParams(filter, cursor, 25);
+  const qs = filterToParams(filter, cursor, limit);
   return apiFetchPaginated<CallRecord>(`${BASE}?${qs.toString()}`);
 }
 

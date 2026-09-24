@@ -3,10 +3,11 @@
 import { useCallback, useState } from "react";
 
 /**
- * По скільки рядків вантажити. Стеля — 200: стільки приймає `limit` у
- * списках сервісів, і стільки ще влазить у відповідь DynamoDB на один запит.
+ * По скільки рядків вантажити. Стеля — 100: стільки приймає `limit` у
+ * списках сервісів (`@Max(100)` у їхніх DTO), і просити більше означало б
+ * 400, а не довшу сторінку.
  */
-export const PAGE_SIZES = [25, 50, 100, 200] as const;
+export const PAGE_SIZES = [25, 50, 100] as const;
 
 export const DEFAULT_PAGE_SIZE = 50;
 

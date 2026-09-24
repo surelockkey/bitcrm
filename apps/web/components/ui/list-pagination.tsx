@@ -48,7 +48,9 @@ export function ListPagination<T>({
     >
       <span>
         Showing {range}
-        {pager.total === undefined ? "" : ` of ${pager.total.toLocaleString()}`}
+        {pager.total === undefined
+          ? ""
+          : ` of ${pager.total.toLocaleString()}${pager.totalIsFloor ? "+" : ""}`}
       </span>
 
       {many ? (

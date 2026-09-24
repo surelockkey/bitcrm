@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -35,6 +36,9 @@ import { useCreateInvoice, useInvoiceList, useInvoiceSummary, useJobsNeedingInvo
 import { INVOICE_CHIPS, runSequentially, type InvoiceChip } from "../lib";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { SentBadge } from "./sent-badge";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 const PAGE_SIZE = 50;
 
@@ -174,8 +178,12 @@ export function InvoicesPage() {
 
 function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0] }) {
   const router = useRouter();
-  const q = useInvoiceList(params);
-  const rows: Invoice[] = useMemo(() => q.data?.pages.flatMap((p) => p.items) ?? [], [q.data]);
+  const [pageSize, setPageSize] = usePageSize("invoices");
+  const q = useInvoiceList({ ...params, limit: pageSize });
+  const pager = usePager(pagedSource(q, (page: { items: Invoice[] }) => page.items), {
+    resetKey: JSON.stringify({ params, pageSize }),
+  });
+  const rows: Invoice[] = pager.items;
   const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
@@ -253,13 +261,7 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
           </TableBody>
         </Table>
       </div>
-      {q.hasNextPage ? (
-        <div className="flex justify-center">
-          <Button variant="outline" size="sm" onClick={() => q.fetchNextPage()} disabled={q.isFetchingNextPage}>
-            {q.isFetchingNextPage ? <Loader2 className="animate-spin" /> : null} Load more
-          </Button>
-        </div>
-      ) : null}
+      <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
     </div>
   );
 }

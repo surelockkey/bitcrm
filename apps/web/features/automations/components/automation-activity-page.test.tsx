@@ -91,7 +91,7 @@ describe("AutomationActivityPage", () => {
     expect(within(rows).getByText("On my way")).toBeInTheDocument();
     expect(within(rows).getAllByText("The job was canceled.")).toHaveLength(2);
     expect(within(rows).getAllByRole("link", { name: "Open job d-1" })).toHaveLength(3);
-    expect(screen.getByText("3 firings")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–3")).toBeInTheDocument();
   });
 
   it("gives a firing that sent nothing its reason once, not twice", async () => {
@@ -198,7 +198,7 @@ describe("AutomationActivityPage", () => {
     expect(await screen.findByLabelText("Rule")).toHaveTextContent(`Deleted rule ${GONE}`);
   });
 
-  it("follows the cursor for the next page and keeps what is already listed", async () => {
+  it("follows the cursor to the next page, which takes the place of this one", async () => {
     const user = userEvent.setup();
     feed = (url) =>
       url.searchParams.get("cursor")
@@ -207,31 +207,33 @@ describe("AutomationActivityPage", () => {
     renderPage();
 
     await screen.findByTestId("activity-r-1");
-    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
 
     expect(await screen.findByTestId("activity-r-9")).toBeInTheDocument();
-    expect(screen.getByTestId("activity-r-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-r-1")).not.toBeInTheDocument();
     expect(lastAsked().searchParams.get("cursor")).toBe("page-2");
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled(),
     );
+    // Пройдене нікуди не діло́ся — назад іде без жодного запиту.
+    await user.click(screen.getByRole("button", { name: "Page 1" }));
+    expect(await screen.findByTestId("activity-r-1")).toBeInTheDocument();
   });
 
-  it("lists a run once when two pages overlap", async () => {
+  it("lists a run once when a page carries it twice", async () => {
     const user = userEvent.setup();
-    // What a refetch between pages does: the row at the seam arrives twice.
+    // Те, що робить перечитування між сторінками: рядок зі шва приходить двічі.
     feed = (url) =>
       url.searchParams.get("cursor")
-        ? { items: [page1[2], run({ id: "r-9", ruleId: "rule-2" })] }
+        ? { items: [page1[2], page1[2], run({ id: "r-9", ruleId: "rule-2" })] }
         : { items: page1, nextCursor: "page-2" };
     renderPage();
 
     await screen.findByTestId("activity-r-1");
-    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await user.click(screen.getByRole("button", { name: "Next page" }));
 
     expect(await screen.findByTestId("activity-r-9")).toBeInTheDocument();
     expect(screen.getAllByTestId("activity-r-3")).toHaveLength(1);
-    expect(screen.getByText("4 firings")).toBeInTheDocument();
   });
 
   it("an empty page with a cursor is not an empty feed", async () => {

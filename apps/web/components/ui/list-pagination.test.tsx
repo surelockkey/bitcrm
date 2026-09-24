@@ -43,6 +43,19 @@ describe("ListPagination", () => {
     expect(screen.getByText("Showing 1–50")).toBeInTheDocument();
   });
 
+  it("marks a total that is only a floor", () => {
+    render(
+      <ListPagination
+        pager={pager({ total: 10_000, totalIsFloor: true })}
+        size={50}
+        onSizeChange={noop}
+      />,
+    );
+
+    // Сервер спинив лічильник на стелі: «з 10 000» було б неправдою.
+    expect(screen.getByText("Showing 1–50 of 10,000+")).toBeInTheDocument();
+  });
+
   it("cannot go back from the first page", () => {
     render(<ListPagination pager={pager()} size={50} onSizeChange={noop} />);
 

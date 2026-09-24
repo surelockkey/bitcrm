@@ -56,10 +56,12 @@ function patchCachedCallTags(qc: QueryClient, call: CallRecord) {
  */
 const LIVE_FALLBACK_POLL_MS = 5_000;
 
-export function useCallsList(filter: CallsFilter) {
+export function useCallsList(filter: CallsFilter, limit = 25) {
   return useInfiniteQuery({
-    queryKey: queryKeys.calls.list(filter),
-    queryFn: ({ pageParam }) => api.listCalls(filter, pageParam),
+    // Розмір сторінки — частина ключа: інакше вибір «по 100» читав би кеш,
+    // складений по 25.
+    queryKey: queryKeys.calls.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listCalls(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

@@ -10,8 +10,9 @@ import { http, apiFetchPaginated } from "@/lib/api/http";
 export function listContainers(
   department?: string,
   cursor?: string,
+  limit = 100,
 ): Promise<PaginatedResponse<Container>> {
-  const q = new URLSearchParams({ limit: "100" });
+  const q = new URLSearchParams({ limit: String(limit) });
   if (department) q.set("department", department);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<Container>(`/inventory/containers?${q}`);

@@ -179,6 +179,15 @@ describe("DealsPage — tab counts and clients", () => {
     expect(mocks.countsParams[mocks.countsParams.length - 1]).toEqual({ hourFrom: "09:00" });
   });
 
+  it("says a number the server stopped counting is a floor", () => {
+    // Сервер рахує закритий статус лише до стелі; «10 000» без знака
+    // читалось би як підсумок.
+    mocks.counts = { ...mocks.counts, done: 10_000, atLeast: ["done", "total"] } as never;
+    render(<DealsPage />);
+
+    expect(screen.getByRole("tab", { name: /^Done(?!\s*Pending)/ }).textContent).toContain("10,000+");
+  });
+
   it("resolves only the contacts of the rows it holds", () => {
     render(<DealsPage />);
     expect(mocks.contactIds[mocks.contactIds.length - 1]).toEqual(["c1", "c2"]);

@@ -16,21 +16,26 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useTechnicians, useUserMap, usePendingAssignments } from "../hooks";
 import { TechniciansTable } from "./technicians-table";
 import { AssignmentsQueueDialog } from "./assignments-queue-dialog";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 export function TechniciansPage() {
   const { can } = usePermissions();
   const [status, setStatus] = useState("all");
   const [queueOpen, setQueueOpen] = useState(false);
 
-  const query = useTechnicians(status === "all" ? undefined : status);
+  const [pageSize, setPageSize] = usePageSize("technicians");
+  const query = useTechnicians(status === "all" ? undefined : status, true, pageSize);
   const { data: userMap } = useUserMap();
   const canApprove = can("job_types", "approve");
   const { data: pending } = usePendingAssignments(canApprove);
 
-  const technicians = useMemo(
-    () => query.data?.pages.flatMap((p) => p.data) ?? [],
-    [query.data],
-  );
+  const pager = usePager(pagedSource(query), {
+    resetKey: `${status}:${pageSize}`,
+  });
+  const technicians = pager.items;
   const pendingCount = (pending?.jobTypes.length ?? 0) + (pending?.serviceAreas.length ?? 0);
 
   if (!can("technicians", "view")) {
@@ -86,10 +91,8 @@ export function TechniciansPage() {
           </Button>
         ) : null}
 
-        <span className="ml-auto text-sm text-muted-foreground">
-          {technicians.length}
-          {query.hasNextPage ? "+" : ""} technician{technicians.length === 1 ? "" : "s"}
-        </span>
+        {/* Скільки всього — під таблицею. */}
+        <span className="ml-auto" />
       </div>
 
       <div className="flex-1 px-6 pb-6">
@@ -128,19 +131,7 @@ export function TechniciansPage() {
         ) : (
           <>
             <TechniciansTable technicians={technicians} userMap={userMap ?? new Map()} />
-            {query.hasNextPage ? (
-              <div className="mt-4 flex justify-center">
-                <Button
-                  variant="outline"
-                  onClick={() => query.fetchNextPage()}
-                  disabled={query.isFetchingNextPage}
-                  className="gap-1.5"
-                >
-                  {query.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Load more
-                </Button>
-              </div>
-            ) : null}
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>

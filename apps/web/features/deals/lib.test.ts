@@ -27,6 +27,7 @@ import {
   scheduleRelative,
   JOB_TABS,
   jobTabLabel,
+  tabCount,
   matchesTab,
   tabCounts,
   dealDraftFromDeal,
@@ -323,6 +324,28 @@ describe("status tabs", () => {
     ]);
     expect(jobTabLabel(JobSuperStatus.IN_PROGRESS)).toBe("In Progress");
     expect(jobTabLabel("unscheduled")).toBe("Unscheduled");
+  });
+
+  describe("tabCount — число на вкладці", () => {
+    const counts = {
+      submitted: 207,
+      done: 10_000,
+      canceled: null,
+      atLeast: ["done", "total"],
+    } as never;
+
+    it("reads a counted status as the number it is", () => {
+      expect(tabCount(counts, JobSuperStatus.SUBMITTED)).toBe("207");
+    });
+
+    it("marks a number the server stopped counting", () => {
+      // «10,000» читалось би як підсумок, а це лише стеля лічильника.
+      expect(tabCount(counts, JobSuperStatus.DONE)).toBe("10,000+");
+    });
+
+    it("keeps the dash where the server counted nothing", () => {
+      expect(tabCount(counts, JobSuperStatus.CANCELED)).toBe("—");
+    });
   });
 
   it("matchesTab: super-status by status, unscheduled by missing date", () => {
