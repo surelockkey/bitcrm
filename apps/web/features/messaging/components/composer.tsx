@@ -109,6 +109,7 @@ export function Composer({
   const [subject, setSubject] = useState("");
   /** Undefined until the user picks — the thread's own best channel is the default. */
   const [pickedChannel, setPickedChannel] = useState<SendableMessageChannel | undefined>(undefined);
+  const [channelOpen, setChannelOpen] = useState(false);
   const [templateId, setTemplateId] = useState<string | undefined>(undefined);
   const [attachments, setAttachments] = useState<SendAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -222,8 +223,14 @@ export function Composer({
     }
   };
 
-  const submit = async () => {
+  /**
+   * `pick` is the channel just chosen from the menu: state has not settled by
+   * the time the choice fires the send, so the send must be told which channel
+   * it is, not read it back.
+   */
+  const submit = async (pick?: SendableMessageChannel) => {
     if (!canSubmit) return;
+    const sendChannel = pick ?? channel;
     setSending(true);
     try {
       let body = text.trim();
@@ -249,10 +256,10 @@ export function Composer({
       }
       await onSend({
         clientMessageId: newClientMessageId(),
-        channel,
+        channel: sendChannel,
         body,
-        subject: channel === "email" && subject.trim() ? subject.trim() : undefined,
-        fromNumber: channel === "sms" && from !== "auto" ? from : undefined,
+        subject: sendChannel === "email" && subject.trim() ? subject.trim() : undefined,
+        fromNumber: sendChannel === "sms" && from !== "auto" ? from : undefined,
         dealId,
         templateId,
         attachments: attachments.length ? attachments : undefined,
@@ -429,45 +436,32 @@ export function Composer({
           </div>
         </div>
 
-        {/* Send, as Workiz sends: a round button with a paper plane, and the
-            channel named beside it rather than written into it — "Send Text"
-            made the channel look like part of the button instead of a choice. */}
+        {/* Send, as Workiz sends: one round button with a paper plane. Pressing
+            it asks where the message should go, and choosing is the send —
+            the channel is never guessed on the reader's behalf, and there is
+            nothing else beside the button to explain. */}
         <div className="flex h-10 shrink-0 items-center gap-1">
-          <Button
-            type="button"
-            variant="brand"
-            // Sized, not padded: this repo's guard allows a circle only when it
-            // really is one.
-            className="size-10 shrink-0 rounded-full p-0"
-            disabled={!canSubmit}
-            aria-describedby={noteId}
-            aria-label={SEND_BUTTON_LABEL[channel]}
-            title={SEND_BUTTON_LABEL[channel]}
-            onClick={() => void submit()}
-          >
-            {sending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : unavailable ? (
-              <AlertTriangle className="size-4" />
-            ) : (
-              <Send className="size-4" />
-            )}
-          </Button>
           {hasOptions ? (
-            <DropdownMenu>
+            <DropdownMenu open={channelOpen} onOpenChange={setChannelOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
-                  className="h-10 gap-1 px-2"
-                  aria-label="Send options"
-                  disabled={blocked}
+                  variant="brand"
+                  // Sized, not padded: this repo's guard allows a circle only
+                  // when it really is one.
+                  className="size-10 shrink-0 rounded-full p-0"
+                  disabled={!canSubmit}
+                  aria-describedby={noteId}
+                  aria-label={SEND_BUTTON_LABEL[channel]}
+                  title={SEND_BUTTON_LABEL[channel]}
                 >
-                  {/* Named, not an anonymous chevron: a dispatcher has to be
-                      able to see what the message goes out as, and that it can
-                      be changed at all. */}
-                  <span className="text-xs font-medium">{SEND_CHANNEL_LABEL[channel]}</span>
-                  <ChevronUp className="size-4" />
+                  {sending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : unavailable ? (
+                    <AlertTriangle className="size-4" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" side="top" className="w-72">
@@ -476,7 +470,14 @@ export function Composer({
                     <DropdownMenuLabel>Send as</DropdownMenuLabel>
                     <DropdownMenuRadioGroup
                       value={channel}
-                      onValueChange={(v) => setPickedChannel(v as SendableMessageChannel)}
+                      onValueChange={(v) => {
+                        // Choosing is the send: the menu opened because the
+                        // paper plane was pressed.
+                        const next = v as SendableMessageChannel;
+                        setPickedChannel(next);
+                        setChannelOpen(false);
+                        void submit(next);
+                      }}
                     >
                       {/* Every channel keeps its place: one that cannot be used
                           says so, rather than leaving the reader to wonder. */}

@@ -40,7 +40,7 @@ export function TechChatSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-[820px] max-w-[96vw] flex-col gap-0 p-0 sm:max-w-[820px]"
+        className="flex w-[960px] max-w-[97vw] flex-col gap-0 p-0 sm:max-w-[960px]"
       >
         <SheetHeader className="space-y-2 border-b px-4 py-3">
           <SheetTitle className="text-center text-base">{name}</SheetTitle>

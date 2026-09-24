@@ -142,6 +142,17 @@ function renderComposer(props: Partial<React.ComponentProps<typeof Composer>> = 
   return { onSend };
 }
 
+
+/**
+ * Sending, the way the composer now works: the paper plane opens the choice
+ * and choosing is the send. Anywhere a test used to press "Send Text" once, it
+ * presses the plane and then names the channel.
+ */
+async function sendVia(u: ReturnType<typeof userEvent.setup>, channel: "Text" | "Email" | "In App") {
+  await u.click(screen.getByRole("button", { name: /^send (text|email|in app)$/i }));
+  await u.click(await screen.findByRole("menuitemradio", { name: channel }));
+}
+
 describe("Composer", () => {
   it("looks like Workiz: the box with sparkle and paperclip inside, and a Send Text button", async () => {
     renderComposer();
@@ -149,7 +160,7 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "AI suggestions" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Attach a file" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send Text" })).toBeDisabled();
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     // All three ways out, and the number this text would be sent from.
     expect(await screen.findByText("Send as")).toBeInTheDocument();
     expect(await screen.findByText("Send from")).toBeInTheDocument();
@@ -218,7 +229,7 @@ describe("Composer", () => {
     await waitFor(() => expect(screen.getByLabelText("Message")).toHaveValue("Hi Jane, your tech is on the way."));
     expect(renderCalls[0]).toEqual({ conversationId: "c1", contactId: "ct1" });
 
-    await userEvent.click(screen.getByRole("button", { name: "Send Text" }));
+    await sendVia(userEvent.setup({ pointerEventsCheck: 0 }), "Text");
     await waitFor(() => expect(onSend).toHaveBeenCalled());
     expect(onSend.mock.calls[0][0].templateId).toBe("t1");
   });
@@ -245,7 +256,7 @@ describe("Composer", () => {
     await userEvent.click(await screen.findByText("{{job_date}}"));
     await waitFor(() => expect(box).toHaveValue("See you {{job_date}}"));
 
-    await userEvent.click(screen.getByRole("button", { name: "Send Text" }));
+    await sendVia(userEvent.setup({ pointerEventsCheck: 0 }), "Text");
     await waitFor(() => expect(onSend).toHaveBeenCalled());
     expect(previewCalls[0]).toMatchObject({ body: "See you {{job_date}}", conversationId: "c1", keepMissing: false });
     expect(onSend.mock.calls[0][0].body).toBe("See you Sep 15, Jane");
@@ -253,7 +264,7 @@ describe("Composer", () => {
 
   it("preselects the number the client last heard from behind the chevron and sends it explicitly", async () => {
     const { onSend } = renderComposer();
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     const main = await screen.findByRole("menuitemradio", { name: /\(202\) 555-0100/ });
     expect(main).toHaveAttribute("aria-checked", "true");
     await userEvent.keyboard("{Escape}");
@@ -267,7 +278,7 @@ describe("Composer", () => {
     const { onSend } = renderComposer({
       conversation: { ...conversation, addresses: { phones: ["+14045551234"], emails: ["jane@example.com"] } },
     });
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email" }));
 
     expect(screen.getByRole("button", { name: "Send Email" })).toBeInTheDocument();
@@ -282,7 +293,7 @@ describe("Composer", () => {
     sendOptions({ channels: CLIENT_CHANNELS });
     renderComposer();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     expect(await screen.findByRole("menuitemradio", { name: "Text" })).toBeEnabled();
     expect(await screen.findByRole("menuitemradio", { name: "Email" })).toBeEnabled();
     const inApp = await screen.findByRole("menuitemradio", { name: /^In App — unavailable: In-app messages reach teammates/ });
@@ -333,7 +344,7 @@ describe("Composer", () => {
 
     // The thread can still be mailed, so that is what the control opens on.
     expect(await screen.findByRole("button", { name: "Send Email" })).toBeInTheDocument();
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     expect(await screen.findByRole("menuitemradio", { name: /^Text — unavailable: They replied STOP/ })).toHaveAttribute(
       "aria-disabled",
       "true",
@@ -360,7 +371,7 @@ describe("Composer", () => {
     expect(await screen.findByRole("button", { name: "Send In App" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("send-destination")).toHaveTextContent("To Ann Tech"));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     expect(await screen.findByRole("menuitemradio", { name: "Text" })).toBeEnabled();
     await userEvent.keyboard("{Escape}");
 
@@ -379,11 +390,11 @@ describe("Composer", () => {
       conversation: { ...conversation, addresses: { phones: ["+14045551234"], emails: ["jane@example.com"] } },
     });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email" }));
     await userEvent.type(screen.getByLabelText("Subject"), "Your quote");
 
-    await userEvent.click(screen.getByRole("button", { name: "Send options" }));
+    await userEvent.click(screen.getByRole("button", { name: /^send (text|email|in app)$/i }));
     await userEvent.click(await screen.findByRole("menuitemradio", { name: "Text" }));
     expect(await screen.findByText(/The subject line is kept for the email/)).toBeInTheDocument();
 
@@ -399,14 +410,14 @@ describe("Composer", () => {
       conversation: { ...conversation, addresses: { phones: ["+14045551234"], emails: ["jane@example.com"] } },
     });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^send (text|email|in app)$/i }));
     await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email" }));
     await userEvent.type(screen.getByLabelText("Message"), "attached{Enter}");
 
     expect(onSend).not.toHaveBeenCalled();
     expect(screen.getByTestId("send-destination")).toHaveTextContent("An email needs a subject");
     await userEvent.type(screen.getByLabelText("Subject"), "Your quote");
-    await userEvent.click(screen.getByRole("button", { name: "Send Email" }));
+    await sendVia(userEvent.setup({ pointerEventsCheck: 0 }), "Email");
     await waitFor(() => expect(onSend).toHaveBeenCalled());
     expect(onSend.mock.calls[0][0]).toMatchObject({ channel: "email", subject: "Your quote" });
   });
@@ -437,17 +448,6 @@ describe("Composer", () => {
   });
 
   /**
-   * The channel was chosen behind an unlabelled chevron, so people could not
-   * tell what a message would go out as, let alone that they could change it.
-   * The button says which channel it opens.
-   */
-  it("says which channel the message will go out as", async () => {
-    renderComposer();
-
-    expect(await screen.findByRole("button", { name: /send options/i })).toHaveTextContent(/text|in app|email/i);
-  });
-
-  /**
    * Workiz's picker is three words — Text, Email, In App. Ours spelled the
    * destination out under each one, which is noise on a channel that plainly
    * works. The words are kept for the channel that does NOT work, where they
@@ -457,7 +457,7 @@ describe("Composer", () => {
     const u = userEvent.setup({ pointerEventsCheck: 0 });
     renderComposer();
 
-    await u.click(screen.getByRole("button", { name: /send options/i }));
+    await u.click(screen.getByRole("button", { name: /^send (text|email|in app)$/i }));
 
     const text = await screen.findByRole("menuitemradio", { name: "Text" });
     expect(text).toBeInTheDocument();
@@ -489,7 +489,7 @@ describe("Composer", () => {
     const { onSend } = renderComposer();
 
     await u.type(screen.getByPlaceholderText(/type your message/i), "hello");
-    await u.click(screen.getByRole("button", { name: /send options/i }));
+    await u.click(screen.getByRole("button", { name: /^send (text|email|in app)$/i }));
 
     expect(await screen.findByRole("menuitemradio", { name: "Text" })).toBeInTheDocument();
     expect(onSend).not.toHaveBeenCalled();
