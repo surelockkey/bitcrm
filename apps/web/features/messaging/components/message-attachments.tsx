@@ -4,6 +4,7 @@ import { FileText, Paperclip } from "lucide-react";
 import type { MessageAttachment } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { formatBytes, isImageAttachment } from "../lib";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 
 /**
  * The address a file can be opened from. Imported Workiz media keeps its
@@ -25,6 +26,11 @@ export function MessageAttachments({
   /** Inside a bubble, Workiz shows images as small square thumbnails that open the full picture. */
   thumbnails?: boolean;
 }) {
+  const preview = useFilePreviewStore((st) => st.preview);
+  // Посилання на медіа вже підписане — вікно бере його як є.
+  const open = (a: MessageAttachment, url: string) =>
+    preview({ name: a.fileName, contentType: a.contentType, load: async () => url });
+
   if (!attachments.length) return null;
   return (
     <div className={cn("flex flex-wrap gap-2", align === "end" && "justify-end")}>
@@ -32,11 +38,10 @@ export function MessageAttachments({
         const url = attachmentUrl(a);
         if (isImageAttachment(a) && url) {
           return (
-            <a
+            <button
               key={a.id}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
+              type="button"
+              onClick={() => open(a, url)}
               className="block overflow-hidden rounded-md border bg-background"
               title={a.fileName}
             >
@@ -48,7 +53,7 @@ export function MessageAttachments({
                 loading="lazy"
                 className={thumbnails ? "size-24 object-cover" : "max-h-64 max-w-[16rem] object-cover"}
               />
-            </a>
+            </button>
           );
         }
         const chip = (
@@ -65,15 +70,14 @@ export function MessageAttachments({
           </>
         );
         return url ? (
-          <a
+          <button
             key={a.id}
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
+            type="button"
+            onClick={() => open(a, url)}
             className="inline-flex max-w-64 items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted"
           >
             {chip}
-          </a>
+          </button>
         ) : (
           <span
             key={a.id}

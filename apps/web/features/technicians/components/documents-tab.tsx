@@ -5,7 +5,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileText, Loader2, ShieldAlert, Trash2, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -20,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DocumentType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
@@ -45,34 +44,24 @@ export function DocumentsTab({ technicianId }: { technicianId: string }) {
   const { data: audit } = useAudit(technicianId);
   const { data: userMap } = useUserMap();
   const del = useDeleteDocument();
-  const [viewing, setViewing] = useState<DocumentType | null>(null);
+  const preview = useFilePreviewStore((st) => st.preview);
   const [sensitiveOpen, setSensitiveOpen] = useState(false);
 
   const isSelf = me?.id === technicianId;
   const canUpload = isSelf && can("documents", "upload");
   const canDelete = can("documents", "delete");
 
-  const view = (docType: DocumentType) => {
-    // Open the tab synchronously, inside the click gesture. Opening it after the
-    // `await` below would count as a non-user-initiated popup — browsers block
-    // it and you get a blank (black, in dark mode) tab instead of the document.
-    const tab = window.open("", "_blank");
-    if (tab) tab.opener = null; // keep the noopener guarantee we had before
-    setViewing(docType);
-    void (async () => {
-      try {
+  // Вікно поверх сторінки, як і решта вкладень застосунку.
+  const view = (docType: DocumentType) =>
+    preview({
+      name: docLabel(docType),
+      load: async () => {
         const { downloadUrl } = await api.getDocumentDownloadUrl(technicianId, docType);
-        if (tab) tab.location.replace(downloadUrl);
-        else window.open(downloadUrl, "_blank", "noopener,noreferrer"); // popup blocked outright
+        // Перегляд документа — подія для журналу доступу, як і раніше.
         qc.invalidateQueries({ queryKey: queryKeys.technicians.audit(technicianId) });
-      } catch (e) {
-        tab?.close();
-        toast.error(getApiErrorMessage(e));
-      } finally {
-        setViewing(null);
-      }
-    })();
-  };
+        return downloadUrl;
+      },
+    });
 
   if (isLoading) return <Skeleton className="h-72 w-full" />;
 
@@ -97,8 +86,8 @@ export function DocumentsTab({ technicianId }: { technicianId: string }) {
               <div className="text-xs font-medium">{docLabel(t)}</div>
               {present ? (
                 <div className="flex items-center gap-1">
-                  <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" disabled={viewing === t} onClick={() => view(t)}>
-                    {viewing === t ? <Loader2 className="size-3.5 animate-spin" /> : "View"}
+                  <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => view(t)}>
+                    View
                   </Button>
                   {canDelete ? (
                     <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => del.mutate({ id: technicianId, docType: t })}>

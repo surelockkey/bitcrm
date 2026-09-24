@@ -2,10 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import type { DealAttachmentMeta } from "@bitcrm/types";
 
-const { deleteMutate, updateMutate } = vi.hoisted(() => ({
+const { deleteMutate, updateMutate, downloadUrlFor } = vi.hoisted(() => ({
   deleteMutate: vi.fn(),
   updateMutate: vi.fn(),
+  downloadUrlFor: vi.fn(async () => ({ downloadUrl: "https://s3.example/signed.pdf" })),
 }));
+
+vi.mock("../attachments-api", () => ({ getAttachmentDownloadUrl: downloadUrlFor }));
 
 const photo: DealAttachmentMeta = {
   id: "a-photo",
@@ -48,6 +51,7 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+import { useFilePreviewStore } from "@/features/files/preview-store";
 import { DealAttachmentsTab } from "./deal-attachments-tab";
 
 describe("DealAttachmentsTab — Workiz-style rows", () => {
@@ -137,3 +141,20 @@ describe("DealAttachmentsTab — Workiz-style rows", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+describe("DealAttachmentsTab — opening a file", () => {
+  beforeEach(() => useFilePreviewStore.setState({ file: null }));
+
+  it("shows the file in the preview window, not in another tab", async () => {
+    render(<DealAttachmentsTab dealId="d1" canEdit />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open invoice.pdf" }));
+
+    const opened = useFilePreviewStore.getState().file;
+    expect(opened?.name).toBe("invoice.pdf");
+    expect(opened?.contentType).toBe("application/pdf");
+    // Посилання береться в мить відкриття: підписаний URL живе хвилини.
+    expect(await opened?.load()).toBe("https://s3.example/signed.pdf");
+    expect(downloadUrlFor).toHaveBeenCalledWith("d1", "a-pdf");
+  });
+});
+
