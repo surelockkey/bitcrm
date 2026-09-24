@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Check, ChevronsUpDown, Loader2, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
-import { useSuggestedTechs } from "../hooks";
+import { useSuggestedTechs, useUserMap } from "../hooks";
+import { personName } from "../person-name";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON: Record<IneligibilityReason, string> = {
@@ -48,6 +49,14 @@ export function TechSuggestions({
   const eligible = techs.filter((t) => t.eligible);
   const others = techs.filter((t) => !t.eligible);
   const byId = new Map(techs.map((t) => [t.id, t]));
+  // A technician assigned to a job need not be eligible for it — an imported
+  // one usually is not, having no approved job types yet — so the name comes
+  // from the directory, which knows everyone, and never from the uuid.
+  const { map: directory } = useUserMap(selected);
+  const nameOf = (id: string) => {
+    const t = byId.get(id);
+    return (t ? techName(t) : undefined) ?? personName(directory.get(id));
+  };
 
   const toggle = (id: string) =>
     onChange(selected.includes(id) ? selected.filter((t) => t !== id) : [...selected, id]);
@@ -86,15 +95,17 @@ export function TechSuggestions({
               <span className={hasAddress && selected.length === 0 ? "text-muted-foreground" : ""}>{triggerText}</span>
             ) : (
               selected.map((id) => {
-                const t = byId.get(id);
+                const label = nameOf(id);
                 return (
                   <span key={id} className="inline-flex items-center gap-1 rounded-chip border bg-muted/50 px-2 py-0.5 text-xs">
                     <UserRound className="size-3" />
-                    {t ? techName(t) : id}
+                    <span className={label ? "" : "min-w-14 animate-pulse rounded bg-muted text-transparent"}>
+                      {label ?? "\u00a0"}
+                    </span>
                     <span
                       role="button"
                       tabIndex={0}
-                      aria-label={`Remove ${t ? techName(t) : "technician"}`}
+                      aria-label={`Remove ${label ?? "technician"}`}
                       onClick={(e) => { e.stopPropagation(); toggle(id); }}
                       className="opacity-70 hover:opacity-100"
                     >
