@@ -43,6 +43,7 @@ import {
 } from "../lib";
 import { TechChips } from "./assigned-techs";
 import { TechCell } from "./tech-cell";
+import { noteToText } from "../note-html";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
 
@@ -200,7 +201,7 @@ export function DealsTable({
       case "paymentStatus":
         return <span className="text-sm">{d.paymentStatus ? pretty(d.paymentStatus) : "—"}</span>;
       case "notes":
-        return <span className="block max-w-56 truncate text-sm text-muted-foreground">{d.notes || "—"}</span>;
+        return <span className="block max-w-56 truncate text-sm text-muted-foreground">{noteToText(d.notes) || "—"}</span>;
       case "createdBy":
         return <span className="text-sm">{personName(d.createdBy)}</span>;
       case "createdAt":

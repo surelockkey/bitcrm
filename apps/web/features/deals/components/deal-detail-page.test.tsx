@@ -55,6 +55,13 @@ vi.mock("@/features/auth/use-permissions", () => ({
 // The catalogs the page now asks for up front have their own test; here they
 // are simply in, so the page renders.
 vi.mock("../job-page-catalogs", () => ({ useJobPageCatalogs: () => ({ ready: true }) }));
+// The note is a rich-text editor with its own tests; here it stands in as a
+// plain box, because what these tests are about is the single Save.
+vi.mock("./deal-notes-card", () => ({
+  DealNotesCard: ({ notes, onNotesChange }: { notes: string; onNotesChange: (v: string) => void }) => (
+    <textarea placeholder="What needs doing…" value={notes} onChange={(e) => onNotesChange(e.target.value)} />
+  ),
+}));
 vi.mock("@/features/job-statuses/components/job-status-select", () => ({ JobStatusSelect: () => null }));
 vi.mock("@/features/job-tags/components/job-tag-combobox", () => ({ JobTagCombobox: () => null }));
 // Interactive stubs: a click drives the field's onChange so a test can prove the

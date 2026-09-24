@@ -39,6 +39,7 @@ import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
+import { noteToText } from "../note-html";
 
 export function DealQuickView({
   dealId,
@@ -217,7 +218,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
         {deal.notes ? (
           <Row label="Description">
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{deal.notes}</p>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{noteToText(deal.notes)}</p>
           </Row>
         ) : null}
 

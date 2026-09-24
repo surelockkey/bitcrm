@@ -3,11 +3,14 @@ import { render, screen } from "@testing-library/react";
 import { DealNotesCard } from "./deal-notes-card";
 
 /**
- * One note, the way Workiz has it. The second, "dispatcher-only" box was ours
- * alone: Workiz's equivalent is a custom field the team made themselves
- * ("Manager Note", in their Dispatchers group), and our own field was empty on
- * all 80,034 imported jobs. Two boxes only made people wonder which one the
- * job note was.
+ * The job's note, the way Workiz shows it: one box inside the Job section,
+ * with no heading and no label of its own.
+ *
+ * It used to be a card titled "Notes" holding a field titled "Job note" —
+ * three names for one thing. The second, dispatcher-only box was ours alone
+ * besides: Workiz's equivalent is a custom field the team made themselves
+ * ("Manager Note", in their Dispatchers group), and ours was empty on all
+ * 80,034 imported jobs.
  */
 const props = {
   notes: "#14ST/ needs to make a key for safe",
@@ -15,25 +18,41 @@ const props = {
 };
 
 describe("DealNotesCard", () => {
-  it("names the job's note the way Workiz does", () => {
+  it("is one field under one name", () => {
     render(<DealNotesCard {...props} editable />);
-    expect(screen.getByText("Job note")).toBeInTheDocument();
+
+    expect(screen.getByText("Notes")).toBeInTheDocument();
+    // Not a card called Notes holding a field called Job note: one name.
+    expect(screen.queryByText("Job note")).toBeNull();
+    expect(screen.queryByText("Dispatcher note")).toBeNull();
   });
 
-  it("offers one box, not two", () => {
+  it("is written in, with the toolbar Workiz has", () => {
+    render(<DealNotesCard {...props} editable />);
+
+    expect(screen.getByLabelText("Notes")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bold" })).toBeInTheDocument();
+  });
+
+  it("holds the job's text", () => {
     const { container } = render(<DealNotesCard {...props} editable />);
-    expect(container.querySelectorAll("textarea")).toHaveLength(1);
-    expect(screen.queryByText("Dispatcher note")).toBeNull();
+    expect(container.querySelector(".ProseMirror")?.textContent).toContain("needs to make a key for safe");
   });
 
   it("shows the note to someone who cannot edit it", () => {
     render(<DealNotesCard {...props} editable={false} />);
-    expect(screen.getByText("Job note")).toBeInTheDocument();
     expect(screen.getByText(/needs to make a key for safe/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("holds the job's text", () => {
-    render(<DealNotesCard {...props} editable />);
-    expect(screen.getByLabelText("Job note")).toHaveValue(props.notes);
+  it("still says what it is when there is no note yet", () => {
+    render(<DealNotesCard notes="" editable={false} onNotesChange={vi.fn()} />);
+    expect(screen.getByText("Notes")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("shows a stored rich-text note as words, never as tags", () => {
+    render(<DealNotesCard notes="<p>Ignition <strong>change</strong></p>" editable={false} onNotesChange={vi.fn()} />);
+    expect(screen.getByText("Ignition change")).toBeInTheDocument();
   });
 });

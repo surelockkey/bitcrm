@@ -33,6 +33,15 @@ describe("TechCell", () => {
     expect(screen.getByText("Yeter Mizrahi")).toBeInTheDocument();
   });
 
+  it("never prints a raw id at a dispatcher", () => {
+    // The directory arrives a moment after the jobs do, and a uuid in the Tech
+    // column is worse than nothing: it is unreadable and it looks broken.
+    render(<TechCell deal={deal({ assignedTechIds: ["u-unknown"] })} userMap={map} />);
+
+    expect(screen.queryByText("u-unknown")).toBeNull();
+    expect(screen.getByLabelText("Technician")).toBeInTheDocument();
+  });
+
   it("marks a job that was sent to the technician", () => {
     render(<TechCell deal={deal({ sentToTechAt: "2026-09-24T10:00:00.000Z" })} userMap={map} />);
     expect(screen.getByLabelText("Sent to tech")).toBeInTheDocument();

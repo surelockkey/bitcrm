@@ -29,18 +29,23 @@ export function TechCell({
     <div className="flex flex-col items-start gap-1">
       {techIds.map((id) => {
         const u = userMap.get(id);
-        const name = u ? `${u.firstName} ${u.lastName}`.trim() : id;
+        const name = `${u?.firstName ?? ""} ${u?.lastName ?? ""}`.trim();
+        // The directory arrives a moment after the jobs do. A uuid in this
+        // column is worse than nothing — unreadable, and it looks broken — so
+        // the chip keeps its colour and waits for the name.
         return (
           <span
             key={id}
+            aria-label="Technician"
             className={cn(
               "inline-flex max-w-[190px] items-center truncate rounded px-1.5 py-0.5",
               "text-[11px] font-semibold uppercase tracking-wide text-white",
               techColor(id),
+              name ? "" : "min-w-16 animate-pulse opacity-60",
             )}
-            title={name}
+            title={name || undefined}
           >
-            {name}
+            {name || "\u00a0"}
           </span>
         );
       })}
