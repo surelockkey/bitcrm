@@ -211,4 +211,24 @@ describe("AppSidebar", () => {
 
     expect(screen.queryByLabelText(/unread conversation/)).not.toBeInTheDocument();
   });
+
+  /**
+   * Workiz draws a rule under its logo, so the brand reads as a header rather
+   * than as the first row of the menu.
+   */
+  it("separates the logo from the menu with a rule", () => {
+    renderSidebar();
+
+    const rule = document.querySelector('[data-slot="brand-rule"]');
+    expect(rule).not.toBeNull();
+  });
+
+  it("keeps the rule full width so nothing shifts as the sidebar collapses", () => {
+    renderSidebar();
+
+    const rule = document.querySelector('[data-slot="brand-rule"]');
+    // A margin that changes with the state would make the line jump while the
+    // width animates — the same trap the logo padding avoids.
+    expect(rule?.className).not.toMatch(/group-data-\[collapsible=icon\]:(mx|px|ml|mr)-/);
+  });
 });

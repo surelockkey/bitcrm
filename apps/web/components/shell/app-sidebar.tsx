@@ -79,6 +79,11 @@ export function AppSidebar() {
             BitCRM
           </span>
         </Link>
+        {/* Workiz rules a line under its logo, so the brand reads as a header
+            and not as the first row of the menu. Full width in both states:
+            a margin that changed with the sidebar would make the line jump
+            while the width animates. */}
+        <div data-slot="brand-rule" className="-mx-2 border-b" />
         {can("deals", "create") ? (
           // Workiz's: a yellow dot with a plus and a label on a plain white
           // row, which becomes a bordered oval under the cursor. The yellow
