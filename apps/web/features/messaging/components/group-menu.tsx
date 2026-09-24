@@ -52,7 +52,7 @@ export function GroupMenu({ onSelect }: { onSelect: (conversationId: string) => 
             const title = conversationTitle(g, names);
             return (
               <DropdownMenuItem key={g.id} onSelect={() => onSelect(g.id)}>
-                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-medium text-primary-foreground">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
                   {avatarInitial(title)}
                 </span>
                 <span className="min-w-0 flex-1">

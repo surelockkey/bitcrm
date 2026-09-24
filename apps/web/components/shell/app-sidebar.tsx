@@ -82,7 +82,7 @@ export function AppSidebar() {
         {can("deals", "create") ? (
           <Button
             asChild
-            variant="brand"
+            variant="default"
             className="h-9 w-30 justify-start gap-1.5 overflow-hidden px-2 transition-[width,height] duration-200 ease-linear group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
           >
             <Link href="/deals/new">

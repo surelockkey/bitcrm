@@ -10,7 +10,7 @@ export function InboxNavBadge() {
   if (unread <= 0) return null;
   return (
     <SidebarMenuBadge
-      className="bg-brand text-brand-foreground"
+      className="bg-destructive text-destructive-foreground"
       aria-label={`${unread} unread conversation${unread === 1 ? "" : "s"}`}
     >
       {unread > 99 ? "99+" : unread}

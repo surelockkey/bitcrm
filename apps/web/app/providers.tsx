@@ -22,6 +22,12 @@ setUnauthorizedHandler(() => useAuthStore.getState().clear());
 // is asked for (`NEXT_PUBLIC_RQ_DEVTOOLS=1` in `.env.local`), not shown by default.
 const showQueryDevtools = process.env.NEXT_PUBLIC_RQ_DEVTOOLS === "1";
 
+// Light only, for now. The Workiz palette in lib/theme/tokens.ts is sampled
+// from their screenshots, and they have no dark theme to sample — so there is
+// no `.dark` token block, and the ~212 `dark:` utilities still scattered
+// through the app would fire against light tokens if the class ever appeared.
+// `forcedTheme` keeps that from happening; drop this line and add the block
+// when the dark theme is designed.
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -39,8 +45,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="system"
-      enableSystem
+      forcedTheme="light"
       disableTransitionOnChange
     >
       <QueryClientProvider client={queryClient}>

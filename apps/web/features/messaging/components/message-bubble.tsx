@@ -153,7 +153,7 @@ export function MessageBubble({
         className={cn(
           "relative rounded-2xl px-6 py-4 text-[15px] shadow-xs",
           BUBBLE_WIDTH,
-          outbound ? "bg-primary text-primary-foreground" : "bg-card text-card-foreground",
+          outbound ? "bg-foreground text-background" : "bg-card text-card-foreground",
           failed && "ring-1 ring-destructive/60",
         )}
       >

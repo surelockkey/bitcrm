@@ -1,15 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useTheme } from "next-themes";
 import {
   ChevronDown,
   LogOut,
-  Monitor,
-  Moon,
   Phone,
   Settings,
-  Sun,
   UserRound,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -19,11 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuPortal,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,7 +30,6 @@ function initials(first?: string, last?: string): string {
 
 export function NavUser() {
   const { me, roleName, can } = usePermissions();
-  const { setTheme } = useTheme();
   const signOut = useLogout();
   const setDialerOpen = useSoftphoneStore((s) => s.setDialerOpen);
 
@@ -96,29 +87,6 @@ export function NavUser() {
           </DropdownMenuItem>
         ) : null}
 
-        <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Sun />
-            Theme
-          </DropdownMenuSubTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem onClick={() => setTheme("light")}>
-                <Sun />
-                Light
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setTheme("dark")}>
-                <Moon />
-                Dark
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setTheme("system")}>
-                <Monitor />
-                System
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuPortal>
-        </DropdownMenuSub>
 
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={signOut}>
