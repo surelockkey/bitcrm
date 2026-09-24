@@ -28,7 +28,7 @@ export function QuickReplies({
   if (list.length === 0) return null;
 
   return (
-    <div className={cn("flex items-center gap-3 border-t bg-background px-4 py-2.5", className)} data-testid="quick-replies">
+    <div className={cn("flex items-center gap-2 border-t bg-background px-4 py-2", className)} data-testid="quick-replies">
       <div
         className="flex min-w-0 flex-1 gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         aria-label="Quick replies"
@@ -40,7 +40,7 @@ export function QuickReplies({
             disabled={disabled || pending}
             onClick={() => onPick(t)}
             title={t.messageTemplateTitle}
-            className="shrink-0 rounded-md border border-brand/25 bg-accent px-3 py-1.5 text-[13px] font-medium text-info-text transition-colors hover:border-brand/40 hover:bg-accent/70 disabled:opacity-50"
+            className="shrink-0 rounded-md border border-brand/25 bg-accent px-2.5 py-1 text-xs font-medium text-info-text transition-colors hover:border-brand/40 hover:bg-accent/70 disabled:opacity-50"
           >
             {t.messageTemplateTitle}
           </button>

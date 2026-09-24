@@ -477,4 +477,21 @@ describe("Composer", () => {
     expect(send.className).toMatch(/rounded-full/);
     expect(send.className).toMatch(/size-10/);
   });
+
+  /**
+   * The picker opens above the send button, as Workiz's does. It is not made a
+   * gate in front of sending: every thread has a channel of its own — a
+   * client's is a text, a teammate's is in-app — and making the common send
+   * two clicks would cost more than the rare wrong guess it prevents.
+   */
+  it("opens the choice over the send button, without standing in its way", async () => {
+    const u = userEvent.setup({ pointerEventsCheck: 0 });
+    const { onSend } = renderComposer();
+
+    await u.type(screen.getByPlaceholderText(/type your message/i), "hello");
+    await u.click(screen.getByRole("button", { name: /send options/i }));
+
+    expect(await screen.findByRole("menuitemradio", { name: "Text" })).toBeInTheDocument();
+    expect(onSend).not.toHaveBeenCalled();
+  });
 });
