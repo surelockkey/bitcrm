@@ -268,7 +268,7 @@ describe("Composer", () => {
       conversation: { ...conversation, addresses: { phones: ["+14045551234"], emails: ["jane@example.com"] } },
     });
     await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
-    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email to jane@example.com" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email" }));
 
     expect(screen.getByRole("button", { name: "Send Email" })).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Subject"), "Your quote");
@@ -283,8 +283,8 @@ describe("Composer", () => {
     renderComposer();
 
     await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
-    expect(await screen.findByRole("menuitemradio", { name: "Text to (404) 555-1234" })).toBeEnabled();
-    expect(await screen.findByRole("menuitemradio", { name: "Email to jane@example.com" })).toBeEnabled();
+    expect(await screen.findByRole("menuitemradio", { name: "Text" })).toBeEnabled();
+    expect(await screen.findByRole("menuitemradio", { name: "Email" })).toBeEnabled();
     const inApp = await screen.findByRole("menuitemradio", { name: /^In App — unavailable: In-app messages reach teammates/ });
     expect(inApp).toHaveAttribute("aria-disabled", "true");
   });
@@ -361,7 +361,7 @@ describe("Composer", () => {
     await waitFor(() => expect(screen.getByTestId("send-destination")).toHaveTextContent("To Ann Tech"));
 
     await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
-    expect(await screen.findByRole("menuitemradio", { name: "Text to (404) 555-0002" })).toBeEnabled();
+    expect(await screen.findByRole("menuitemradio", { name: "Text" })).toBeEnabled();
     await userEvent.keyboard("{Escape}");
 
     await userEvent.type(screen.getByLabelText("Message"), "job 1001 is yours{Enter}");
@@ -380,11 +380,11 @@ describe("Composer", () => {
     });
 
     await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
-    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email to jane@example.com" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email" }));
     await userEvent.type(screen.getByLabelText("Subject"), "Your quote");
 
     await userEvent.click(screen.getByRole("button", { name: "Send options" }));
-    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Text to (404) 555-1234" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Text" }));
     expect(await screen.findByText(/The subject line is kept for the email/)).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText("Message"), "quote is on its way{Enter}");
@@ -400,7 +400,7 @@ describe("Composer", () => {
     });
 
     await userEvent.click(await screen.findByRole("button", { name: "Send options" }));
-    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email to jane@example.com" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Email" }));
     await userEvent.type(screen.getByLabelText("Message"), "attached{Enter}");
 
     expect(onSend).not.toHaveBeenCalled();
@@ -445,5 +445,36 @@ describe("Composer", () => {
     renderComposer();
 
     expect(await screen.findByRole("button", { name: /send options/i })).toHaveTextContent(/text|in app|email/i);
+  });
+
+  /**
+   * Workiz's picker is three words — Text, Email, In App. Ours spelled the
+   * destination out under each one, which is noise on a channel that plainly
+   * works. The words are kept for the channel that does NOT work, where they
+   * are the difference between a wrong guess and an explanation.
+   */
+  it("names a working channel and says no more about it", async () => {
+    const u = userEvent.setup({ pointerEventsCheck: 0 });
+    renderComposer();
+
+    await u.click(screen.getByRole("button", { name: /send options/i }));
+
+    const text = await screen.findByRole("menuitemradio", { name: "Text" });
+    expect(text).toBeInTheDocument();
+  });
+
+  /**
+   * Workiz sends with a round yellow button carrying a paper plane, and names
+   * the channel beside it. The button said "Send Text" in words, which made
+   * the channel look like part of the button rather than a choice.
+   */
+  it("sends with one round button, named for anyone who cannot read the icon", async () => {
+    renderComposer();
+
+    const send = await screen.findByRole("button", { name: /^send (text|email|in app)$/i });
+    // Sized, not padded: the repo's own guard allows a circle only when it is
+    // a circle.
+    expect(send.className).toMatch(/rounded-full/);
+    expect(send.className).toMatch(/size-10/);
   });
 });
