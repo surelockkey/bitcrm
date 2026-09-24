@@ -77,3 +77,43 @@ describe("ProductsTable", () => {
     expect(push).toHaveBeenCalledWith("/inventory/items/p1");
   });
 });
+
+/**
+ * Довга назва товару розсувала колонку «Item» на 739 із 1182 пікселів
+ * контейнера — таблиця вилазила за рамку, а браузер, ділячи ширину, стискав
+ * найменшу колонку: галочки з'їжджали на рамку й наліво від неї.
+ */
+describe("ProductsTable — ширина колонок", () => {
+  const longName =
+    "Don-Jo - Mortise Remodeler Kit #109 - 630 - Silver (RPK-109-630) (SLK-12359)";
+
+  it("caps the item column so a long name truncates instead of widening the table", () => {
+    render(
+      <ProductsTable
+        products={[product({ name: longName })]}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByText(longName).closest("td")!;
+    // `truncate` без стелі ширини не робить нічого: комірка просто росте.
+    expect(cell.className).toMatch(/max-w-/);
+  });
+
+  it("keeps the checkbox column at its width when the row is wide", () => {
+    render(
+      <ProductsTable
+        products={[product({ name: longName })]}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        onToggleAll={vi.fn()}
+      />,
+    );
+
+    const head = screen.getByLabelText("Select all").closest("th")!;
+    expect(head.className).toMatch(/min-w-/);
+  });
+});
+

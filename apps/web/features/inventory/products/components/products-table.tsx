@@ -38,7 +38,10 @@ export function ProductsTable({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-9">
+            {/* `w-9` — лише побажання: коли таблиця не влазить, браузер ділить
+                ширину й стискає найвужчу колонку, і галочка налазить на рамку.
+                `min-w-9` тримає її. */}
+            <TableHead className="w-9 min-w-9">
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(c) => onToggleAll(c === true)}
@@ -70,7 +73,10 @@ export function ProductsTable({
                     aria-label={`Select ${p.name}`}
                   />
                 </TableCell>
-                <TableCell>
+                {/* Стеля ширини, без якої `truncate` нижче нічого не робить:
+                    комірка просто росте під найдовшу назву (739 px із 1182
+                    доступних), і таблиця вилазить за рамку. */}
+                <TableCell className="max-w-[26rem]">
                   <div className="flex items-center gap-2.5">
                     <span className="flex size-8 flex-none items-center justify-center rounded-lg border bg-muted text-muted-foreground">
                       {isService(p) ? (
