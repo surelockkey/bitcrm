@@ -35,7 +35,8 @@ export function AssignedTechRow({
   const initial = (user?.firstName ?? user?.lastName ?? "").trim().charAt(0).toUpperCase();
 
   return (
-    <div className={cn("flex items-center gap-2.5 py-1.5", className)}>
+    // `group` so the row's buttons can appear only when it is reached for.
+    <div className={cn("group flex items-center gap-2.5 py-1.5", className)}>
       <span
         data-slot="tech-avatar"
         className={cn(

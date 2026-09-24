@@ -2,6 +2,7 @@
 
 import { useUserMap } from "../hooks";
 import { AssignedTechRow } from "./assigned-tech-row";
+import { TechRowActions } from "./tech-row-actions";
 import { TechSuggestions } from "./tech-suggestions";
 
 /**
@@ -42,7 +43,7 @@ export function TeamSection({
               user={map.get(id)}
               onRemove={canEdit ? (t) => onChange(techIds.filter((x) => x !== t)) : undefined}
             >
-              {actions?.(id)}
+              {actions ? actions(id) : <TechRowActions techId={id} user={map.get(id)} />}
             </AssignedTechRow>
           ))}
         </div>
