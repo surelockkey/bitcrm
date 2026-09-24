@@ -30,11 +30,14 @@ export function TechSuggestions({
   jobTypeId,
   address,
   selected,
+  hideSelected = false,
   onChange,
 }: {
   jobTypeId: string;
   address: { lat?: number; lng?: number };
   selected: string[];
+  /** The team is listed above by TeamSection, so the trigger only invites. */
+  hideSelected?: boolean;
   onChange: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -64,8 +67,8 @@ export function TechSuggestions({
   // Trigger content: disabled ask-for-address, or chips / placeholder.
   const triggerText = !hasAddress
     ? "Enter the address first"
-    : selected.length === 0
-      ? "Select technicians…"
+    : hideSelected || selected.length === 0
+      ? "Assign a tech"
       : "";
 
   const summary = !hasAddress

@@ -84,7 +84,7 @@ import { useJobPageCatalogs } from "../job-page-catalogs";
 import { useAttachments } from "../attachments-hooks";
 import { AssignedTechs } from "./assigned-techs";
 import { SendToTechCard } from "./send-to-tech-card";
-import { TechSuggestions } from "./tech-suggestions";
+import { TeamSection } from "./team-section";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
 import { useResolvedServiceArea } from "@/features/service-areas/hooks";
@@ -570,16 +570,15 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       {/* Team — inline assign (Workiz-style): pick techs who can do the job,
           then hand them the job over the channels they use. */}
       <Section title="Team">
-        {canEdit ? (
-          <TechSuggestions
-            jobTypeId={dealDraft.jobTypeId}
-            address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
-            selected={deal.assignedTechIds}
-            onChange={(ids) => assignTechs.mutate(ids)}
-          />
-        ) : (
-          <AssignedTechs techIds={deal.assignedTechIds} emptyText="Unassigned" />
-        )}
+        {/* One technician per row, as Workiz lists them: the row has somewhere
+            to put what a dispatcher does with that person. */}
+        <TeamSection
+          techIds={deal.assignedTechIds}
+          canEdit={canEdit}
+          onChange={(ids) => assignTechs.mutate(ids)}
+          address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
+          jobTypeId={dealDraft.jobTypeId}
+        />
         <div className="border-t pt-3">
           <SendToTechCard deal={deal} canEdit={canEdit} />
         </div>
