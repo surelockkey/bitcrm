@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { useJobTags } from "../hooks";
-import { jobTagMap, tagColorClasses } from "../lib";
+import { jobTagMap, tagColorClasses, tagSolidClasses } from "../lib";
 
 /**
  * Renders a deal's job tags as colored chips, resolving ids through the catalog.
@@ -13,11 +13,20 @@ export function JobTagChips({
   ids,
   max,
   className,
+  solid = false,
 }: {
   ids: string[] | undefined;
   /** Cap the number shown; the rest collapse into a "+N" chip. */
   max?: number;
   className?: string;
+  /**
+   * The jobs list, the way Workiz shows it: each tag a solid block of its own
+   * colour, in capitals, one under another. A dispatcher scanning the list
+   * reads colour first and words second, and the outlined form recedes too far
+   * to do that. Elsewhere — on the job card, in pickers — the quiet form is
+   * still what belongs.
+   */
+  solid?: boolean;
 }) {
   const { data, isLoading } = useJobTags();
   const map = jobTagMap(data);
@@ -27,7 +36,12 @@ export function JobTagChips({
   const extra = ids.length - shown.length;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-1", className)}>
+    <div
+      className={cn(
+        solid ? "flex flex-col items-start gap-0.5" : "flex flex-wrap items-center gap-1",
+        className,
+      )}
+    >
       {shown.map((id) => {
         const tag = map.get(id);
         // Until the catalog loads, a skeleton beats flashing the raw id.
@@ -38,9 +52,17 @@ export function JobTagChips({
           <span
             key={id}
             className={cn(
-              "inline-flex items-center rounded-chip border px-2 py-0.5 text-[11px] font-medium",
-              tag ? tagColorClasses(tag.color) : "border-border bg-muted/60 text-muted-foreground",
+              "inline-flex max-w-[190px] items-center truncate",
+              solid
+                ? "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                : "rounded-chip border px-2 py-0.5 text-[11px] font-medium",
+              tag
+                ? solid
+                  ? tagSolidClasses(tag.color)
+                  : tagColorClasses(tag.color)
+                : "border-border bg-muted/60 text-muted-foreground",
             )}
+            title={tag?.name ?? id}
           >
             {tag?.name ?? id}
           </span>

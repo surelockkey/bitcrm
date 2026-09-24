@@ -42,6 +42,7 @@ import {
   scheduleMarker,
 } from "../lib";
 import { TechChips } from "./assigned-techs";
+import { TechCell } from "./tech-cell";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
 
@@ -113,11 +114,11 @@ export function DealsTable({
       case "clientType":
         return <span className="text-sm">{pretty(d.clientType)}</span>;
       case "tech":
-        return <TechChips techIds={d.assignedTechIds} userMap={userMap} size="xs" emptyText="—" />;
+        return <TechCell deal={d} userMap={userMap} />;
       case "dispatcher":
         return <span className="text-sm">{personName(d.assignedDispatcherId)}</span>;
       case "tags":
-        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} /> : <span className="text-muted-foreground">—</span>;
+        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} solid /> : <span className="text-muted-foreground">—</span>;
       case "status":
         return (
           <>
