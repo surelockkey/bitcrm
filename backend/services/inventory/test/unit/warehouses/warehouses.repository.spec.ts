@@ -80,3 +80,37 @@ describe('WarehousesRepository (imported rows)', () => {
     expect(warehouse.externalId).toBe('workiz:location:255');
   });
 });
+
+/**
+ * Таблиця інвентарю спільна для товарів, SKU, залишків, фургонів і складів,
+ * тож фільтрований Scan читає здебільшого чуже. `Limit` рахує прочитане, а не
+ * знайдене — без дочитування сторінка складів приходить майже порожньою.
+ */
+describe('WarehousesRepository.findAll', () => {
+  let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
+  let repository: WarehousesRepository;
+
+  beforeEach(() => {
+    dynamoDb = createMockDynamoDbService();
+    repository = new WarehousesRepository(dynamoDb as any);
+  });
+
+  const row = (id: string) => ({
+    ...createMockWarehouse(),
+    id,
+    PK: `WAREHOUSE#${id}`,
+    SK: 'METADATA',
+  });
+
+  it('fills the page across reads', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [row('w1')], LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
+      .mockResolvedValueOnce({ Items: [row('w2')], LastEvaluatedKey: undefined });
+
+    const result = await repository.findAll(3);
+
+    expect(result.items.map((w) => w.id)).toEqual(['w1', 'w2']);
+    expect(result.nextCursor).toBeUndefined();
+  });
+});
+

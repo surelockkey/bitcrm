@@ -121,6 +121,44 @@ describe('ProductsRepository', () => {
       expect(result.nextCursor).toBeUndefined();
     });
 
+    it('fills the page across reads instead of returning what one scan left', async () => {
+      // Таблиця інвентарю тримає не лише товари: SKU#, STOCK#, CONTAINER#,
+      // WAREHOUSE# — усе це Scan читає й викидає фільтром. `Limit` рахує
+      // прочитане, тож на 50 приходило 4 товари, а зі статусом — 2, і сторінка
+      // інвентарю відкривалась майже порожньою.
+      const product = createMockProduct();
+      const row = (id: string) => ({ ...product, id, PK: `PRODUCT#${id}`, SK: 'METADATA' });
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [row('p1')], LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Items: [row('p2')], LastEvaluatedKey: { PK: 'X#2', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Items: [row('p3')], LastEvaluatedKey: undefined });
+
+      const result = await repository.findAll(3);
+
+      expect(result.items.map((p) => p.id)).toEqual(['p1', 'p2', 'p3']);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(3);
+      // Таблиця скінчилась — курсора нема, хоч би якою короткою була остання читка.
+      expect(result.nextCursor).toBeUndefined();
+    });
+
+    it('stops once the page is full, and points the cursor at the last row kept', async () => {
+      const product = createMockProduct();
+      const row = (id: string) => ({ ...product, id, PK: `PRODUCT#${id}`, SK: 'METADATA' });
+      dynamoDb.client.send.mockResolvedValueOnce({
+        Items: [row('p1'), row('p2'), row('p3')],
+        LastEvaluatedKey: { PK: 'X#9', SK: 'METADATA' },
+      });
+
+      const result = await repository.findAll(2);
+
+      expect(result.items.map((p) => p.id)).toEqual(['p1', 'p2']);
+      // Наступна сторінка має початися з p3, а не з того, де спинився Scan.
+      expect(JSON.parse(Buffer.from(result.nextCursor!, 'base64').toString())).toEqual({
+        PK: 'PRODUCT#p2',
+        SK: 'METADATA',
+      });
+    });
+
     it('should return nextCursor when there are more results', async () => {
       const product = createMockProduct();
       const lastKey = { PK: 'PRODUCT#prod-1', SK: 'METADATA' };

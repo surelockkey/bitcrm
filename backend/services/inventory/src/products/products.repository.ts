@@ -10,7 +10,7 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { type Product, ProductType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -201,22 +201,32 @@ export class ProductsRepository {
       expressionValues[':search'] = filters.search;
     }
 
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: INVENTORY_TABLE,
-        FilterExpression: filterExpression,
-        ExpressionAttributeValues: expressionValues,
-        ...(Object.keys(expressionNames).length > 0 && {
-          ExpressionAttributeNames: expressionNames,
-        }),
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
+    // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
+    // throws away, and `Limit` counts what was read, not what survived. Asking
+    // for fifty returned four products (two with a status filter), so the
+    // inventory page opened nearly empty. `scanPage` keeps reading until the
+    // page is full.
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: INVENTORY_TABLE,
+            FilterExpression: filterExpression,
+            ExpressionAttributeValues: expressionValues,
+            ...(Object.keys(expressionNames).length > 0 && {
+              ExpressionAttributeNames: expressionNames,
+            }),
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toProduct),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toProduct),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 

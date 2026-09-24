@@ -6,7 +6,7 @@ import {
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { type Container } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -97,22 +97,30 @@ export class ContainersRepository {
       expressionValues[':dept'] = filters.department;
     }
 
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: INVENTORY_TABLE,
-        FilterExpression: filterExpression,
-        ExpressionAttributeValues: expressionValues,
-        ...(Object.keys(expressionNames).length > 0 && {
-          ExpressionAttributeNames: expressionNames,
-        }),
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    // Спільна таблиця інвентарю: Scan читає й чужі рядки, а `Limit`
+    // рахує прочитане, не знайдене. Без дочитування сторінка приходить
+    // короткою — як було на сторінці інвентарю, де з п'ятдесяти
+    // просимих поверталось кілька.
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+              TableName: INVENTORY_TABLE,
+              FilterExpression: filterExpression,
+              ExpressionAttributeValues: expressionValues,
+              ...(Object.keys(expressionNames).length > 0 && {
+                ExpressionAttributeNames: expressionNames,
+              }),
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toContainer),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toContainer),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 

@@ -123,3 +123,33 @@ describe('ContainersRepository (imported rows)', () => {
     expect(container.accessUserIds).toEqual(['user-4', 'user-9']);
   });
 });
+
+describe('ContainersRepository.findAll', () => {
+  let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
+  let repository: ContainersRepository;
+
+  beforeEach(() => {
+    dynamoDb = createMockDynamoDbService();
+    repository = new ContainersRepository(dynamoDb as any);
+  });
+
+  const row = (id: string) => ({
+    ...createMockContainer(),
+    id,
+    PK: `CONTAINER#${id}`,
+    SK: 'METADATA',
+  });
+
+  // Те саме, що й у товарах: `Limit` рахує прочитані рядки спільної таблиці.
+  it('fills the page across reads', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [row('v1')], LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
+      .mockResolvedValueOnce({ Items: [row('v2')], LastEvaluatedKey: undefined });
+
+    const result = await repository.findAll(3);
+
+    expect(result.items.map((c) => c.id)).toEqual(['v1', 'v2']);
+    expect(result.nextCursor).toBeUndefined();
+  });
+});
+
