@@ -40,7 +40,11 @@ export function TechChatSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="flex w-[960px] max-w-[97vw] flex-col gap-0 p-0 sm:max-w-[960px]"
+        // Wide enough to hold a conversation. The `data-[side=right]` prefix is
+        // not decoration: `SheetContent` caps a right-hand sheet with an
+        // attribute selector, and a plain `sm:max-w-[…]` here loses to it on
+        // specificity, leaving the panel at 384px whatever number is written.
+        className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[640px]"
       >
         <SheetHeader className="space-y-2 border-b px-4 py-3">
           <SheetTitle className="text-center text-base">{name}</SheetTitle>
