@@ -231,4 +231,17 @@ describe("AppSidebar", () => {
     // width animates — the same trap the logo padding avoids.
     expect(rule?.className).not.toMatch(/group-data-\[collapsible=icon\]:(mx|px|ml|mr)-/);
   });
+
+  /**
+   * The rule has to land on the same line as the app header's bottom border,
+   * or the two sit a few pixels apart and the whole top of the screen looks
+   * crooked. The header is h-14 (56px); the sidebar header pads by 8px, so the
+   * brand row must be exactly 48px for the rule to meet it.
+   */
+  it("puts the rule exactly where the header's border is", () => {
+    renderSidebar();
+
+    const brand = screen.getByLabelText("BitCRM home");
+    expect(brand.className).toContain("h-12"); // 48px + the header's p-2 = 56px
+  });
 });

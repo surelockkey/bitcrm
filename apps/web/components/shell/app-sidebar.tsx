@@ -65,7 +65,9 @@ export function AppSidebar() {
             wordmark clips (overflow-hidden) and fades instead of popping. */}
         <Link
           href="/"
-          className="flex items-center gap-2 overflow-hidden px-0.5 py-1.5"
+          // h-12 + the sidebar header's p-2 puts the rule below on the same
+          // line as the app header's bottom border (h-14 = 56px).
+          className="flex h-12 items-center gap-2 overflow-hidden px-0.5"
           aria-label="BitCRM home"
         >
           <Image
