@@ -421,7 +421,10 @@ export function datePresetRange(
  */
 export interface DealDraft {
   address: Address;
+  /** Назва площі — показова: її пише сервер із довідника. */
   serviceArea: string;
+  /** Обрана площа з довідника; "" — нічого не обрано. */
+  serviceAreaId: string;
   jobTypeId: string;
   sourceId: string;
   /** The job's company (business profile id); "" = none/default. */
@@ -462,6 +465,7 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
       lng: d.address?.lng,
     },
     serviceArea: d.serviceArea ?? "",
+    serviceAreaId: d.serviceAreaId ?? "",
     jobTypeId: d.jobTypeId,
     sourceId: d.sourceId ?? "",
     businessProfileId: d.businessProfileId ?? "",
@@ -564,7 +568,14 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   let dirty = false;
 
   if (!sameAddress(draft.address, base.address)) { patch.address = draft.address; dirty = true; }
-  if (draft.serviceArea !== base.serviceArea) { patch.serviceArea = draft.serviceArea; dirty = true; }
+  // Площу шлемо ідентифікатором: назву сервер бере з довідника сам, тож вона
+  // не може розійтися з ним — на відміну від вільного тексту, яким це поле
+  // було на вже створеній роботі. Порожній id — «нічого не обрали», а не
+  // «прибрати площу»: робота без площі не буває.
+  if (draft.serviceAreaId && draft.serviceAreaId !== base.serviceAreaId) {
+    patch.serviceAreaId = draft.serviceAreaId;
+    dirty = true;
+  }
   if (draft.jobTypeId !== base.jobTypeId) { patch.jobTypeId = draft.jobTypeId; dirty = true; }
   if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
   if (draft.allDay !== base.allDay) { patch.allDay = draft.allDay; dirty = true; }

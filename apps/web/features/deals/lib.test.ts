@@ -515,10 +515,31 @@ describe("buildDealPatch", () => {
 
   it("returns only the changed key", () => {
     const d = deal();
-    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "sa-north" });
     expect(patch).not.toBeNull();
-    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
-    expect(patch!.serviceArea).toBe("North GA");
+    expect(Object.keys(patch!)).toEqual(["serviceAreaId"]);
+    expect(patch!.serviceAreaId).toBe("sa-north");
+  });
+
+  it("sends the picked service area by id — the server names it from the catalog", () => {
+    // На створенні площу обирають зі списку; на вже створеній роботі це було
+    // вільне поле, і назва могла розійтися з довідником.
+    const d = deal();
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "sa-north" });
+
+    expect(patch).toEqual({ serviceAreaId: "sa-north" });
+  });
+
+  it("says nothing about the area when the pick did not change", () => {
+    const d = deal({ serviceAreaId: "sa-north" });
+
+    expect(buildDealPatch(d, dealDraftFromDeal(d))).toBeNull();
+  });
+
+  it("never sends an empty area — an address with no answer leaves the job as it is", () => {
+    const d = deal({ serviceAreaId: "sa-north" });
+
+    expect(buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "" })).toBeNull();
   });
 
   it("clears an emptied optional field with undefined (today's commit semantics)", () => {
@@ -608,8 +629,8 @@ describe("custom fields (single-save draft)", () => {
 
   it("keeps customFields out of the patch when only a plain field changed", () => {
     const d = deal({ customFields: { "cf-a": "x" } });
-    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceArea: "North GA" });
-    expect(Object.keys(patch!)).toEqual(["serviceArea"]);
+    const patch = buildDealPatch(d, { ...dealDraftFromDeal(d), serviceAreaId: "sa-north" });
+    expect(Object.keys(patch!)).toEqual(["serviceAreaId"]);
   });
 });
 

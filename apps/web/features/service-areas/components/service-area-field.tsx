@@ -23,12 +23,15 @@ export function ServiceAreaField({
   lat,
   lng,
   value,
+  disabled,
   onChange,
 }: {
   lat?: number;
   lng?: number;
   /** Hand-picked area id; undefined = auto. */
   value?: string;
+  /** The same field stands on a created job, where not everyone may edit it. */
+  disabled?: boolean;
   onChange: (id: string | undefined) => void;
 }) {
   const { data: areas } = useServiceAreas();
@@ -44,6 +47,7 @@ export function ServiceAreaField({
       <Label>Service area</Label>
       <Select
         value={value ?? AUTO}
+        disabled={disabled}
         onValueChange={(v) => onChange(v === AUTO ? undefined : v)}
       >
         <SelectTrigger className="h-9 w-full" aria-label="Service area">

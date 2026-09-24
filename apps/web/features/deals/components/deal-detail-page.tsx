@@ -87,7 +87,8 @@ import { SendToTechCard } from "./send-to-tech-card";
 import { TeamSection } from "./team-section";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
-import { useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { useEffectiveServiceArea, useResolvedServiceArea } from "@/features/service-areas/hooks";
+import { ServiceAreaField } from "@/features/service-areas/components/service-area-field";
 import { DEFAULT_TZ } from "@/lib/timezone";
 import { useUnsavedChanges } from "./use-unsaved-changes";
 import { usePageHistoryLabel } from "@/components/shell/page-history";
@@ -377,6 +378,8 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
   // The job's timezone: its resolved service area's, else Connecticut.
   const { data: jobArea } = useResolvedServiceArea(dealDraft.address.lat, dealDraft.address.lng);
+  // Що дала б адреса, якби площу не обирали руками — відповідь для «Авто».
+  const autoArea = useEffectiveServiceArea(dealDraft.address.lat, dealDraft.address.lng, undefined);
   const jobTz = jobArea?.timezone ?? DEFAULT_TZ;
 
   const dealPatch = buildDealPatch(deal, dealDraft);
@@ -492,10 +495,18 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           clientAddresses={contact?.addresses}
           canEdit={canEdit}
         />
-        <Field label="Service area">
-          <Input className="h-9" value={dealDraft.serviceArea} disabled={!canEdit}
-            onChange={(e) => setDeal({ serviceArea: e.target.value })} />
-        </Field>
+        {/* Той самий вибір, що й на створенні роботи: площа — запис довідника,
+            а не текст. Вільне поле пускало назву, якої в довіднику немає, і
+            робота випадала з фільтрів і звітів за площею. */}
+        <ServiceAreaField
+          lat={dealDraft.address.lat}
+          lng={dealDraft.address.lng}
+          value={dealDraft.serviceAreaId || undefined}
+          disabled={!canEdit}
+          // «Авто» на вже створеній роботі — це конкретна площа, яку дає
+          // адреса: id мусить бути, інакше збереження нічого не змінить.
+          onChange={(id) => setDeal({ serviceAreaId: id ?? autoArea.submitId ?? "" })}
+        />
       </Section>
 
       {/* Schedule */}

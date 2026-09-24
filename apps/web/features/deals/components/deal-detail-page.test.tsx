@@ -93,6 +93,10 @@ vi.mock("./scheduled-block", () => ({
 }));
 vi.mock("@/features/service-areas/hooks", () => ({
   useResolvedServiceArea: () => ({ data: undefined }),
+  // Площа на сторінці — той самий вибір зі списку, що й на створенні.
+  useServiceAreas: () => ({ data: [{ id: "sa-north", name: "North GA", active: true, priority: 1 }] }),
+  useEffectiveServiceArea: () => ({ submitId: "sa-north", source: "auto", area: null, resolvedArea: null, isFetching: false }),
+  useNearestServiceArea: () => ({ data: undefined }),
 }));
 vi.mock("./assigned-techs", () => ({ AssignedTechs: () => null, TechChips: () => null }));
 // The Team section assigns inline via TechSuggestions, which fetches eligible
@@ -525,7 +529,9 @@ describe("DealDetailPage (editable, single save)", () => {
     const u = user();
     render(<DealDetailPage dealId="d1" />);
 
-    await u.type(screen.getByDisplayValue("West Valley"), " North");
+    // Площа — вибір зі списку, той самий, що й на створенні роботи.
+    await u.click(screen.getByRole("combobox", { name: /service area/i }));
+    await u.click(screen.getByRole("option", { name: "North GA" }));
     await u.click(screen.getByRole("button", { name: /set date/i }));
     await u.click(screen.getByRole("button", { name: /pick job type/i }));
     await u.click(screen.getByRole("button", { name: /pick source/i }));
@@ -536,7 +542,8 @@ describe("DealDetailPage (editable, single save)", () => {
     await u.click(saveButton());
     expect(mocks.updateDeal).toHaveBeenCalledTimes(1);
     expect(mocks.updateDeal.mock.calls[0][0]).toEqual({
-      serviceArea: "West Valley North",
+      // Ідентифікатор, а не назва: назву сервер бере з довідника.
+      serviceAreaId: "sa-north",
       scheduledDate: "2026-09-01",
       scheduledEndDate: "2026-09-01",
       jobTypeId: "jt-rekey",
