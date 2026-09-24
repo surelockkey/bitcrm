@@ -25,12 +25,15 @@ export function TechRowActions({
   techId,
   user,
   homeAddress,
+  dealId,
 }: {
   techId: string;
   user:
     | { firstName?: string; lastName?: string; email?: string; phone?: string }
     | undefined;
   homeAddress?: { line1?: string; city?: string; state?: string; zip?: string };
+  /** The job being worked on: it travels with anything sent from here. */
+  dealId?: string;
 }) {
   const [chatOpen, setChatOpen] = useState(false);
   const name = personName(user);
@@ -72,7 +75,13 @@ export function TechRowActions({
       <button type="button" aria-label="Message technician" onClick={() => setChatOpen(true)} className={btn}>
         <MessageSquare className="size-4" />
       </button>
-      <TechChatSheet techId={techId} name={name ?? "Technician"} open={chatOpen} onOpenChange={setChatOpen} />
+      <TechChatSheet
+        techId={techId}
+        name={name ?? "Technician"}
+        dealId={dealId}
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+      />
     </div>
   );
 }

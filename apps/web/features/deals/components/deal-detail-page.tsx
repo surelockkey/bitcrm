@@ -578,6 +578,7 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
           onChange={(ids) => assignTechs.mutate(ids)}
           address={{ lat: dealDraft.address.lat, lng: dealDraft.address.lng }}
           jobTypeId={dealDraft.jobTypeId}
+          dealId={deal.id}
         />
         <div className="border-t pt-3">
           <SendToTechCard deal={deal} canEdit={canEdit} />

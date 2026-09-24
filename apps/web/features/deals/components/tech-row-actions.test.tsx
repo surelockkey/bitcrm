@@ -65,12 +65,20 @@ describe("TechRowActions", () => {
   });
 
   it("opens the chat beside the job, without leaving it", async () => {
-    render(<TechRowActions techId="u1" user={tech} />);
+    render(<TechRowActions techId="u1" user={tech} dealId="d1" />);
 
     await userEvent.click(screen.getByRole("button", { name: "Message technician" }));
 
     expect(screen.getByTestId("tech-chat")).toBeInTheDocument();
     expect(chatProps.last).toMatchObject({ techId: "u1", name: "Reonquez Thompson", open: true });
+  });
+
+  it("sends the job along, so the message lands on the job's feed too", async () => {
+    render(<TechRowActions techId="u1" user={tech} dealId="d1" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Message technician" }));
+
+    expect(chatProps.last).toMatchObject({ dealId: "d1" });
   });
 
   it("keeps the chat shut until it is asked for", () => {

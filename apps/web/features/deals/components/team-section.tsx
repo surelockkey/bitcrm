@@ -18,6 +18,7 @@ export function TeamSection({
   onChange,
   address,
   jobTypeId,
+  dealId,
   actions,
 }: {
   techIds: string[];
@@ -25,6 +26,8 @@ export function TeamSection({
   onChange: (ids: string[]) => void;
   address: { lat?: number; lng?: number };
   jobTypeId: string;
+  /** The job these people are on: it travels with anything sent from here. */
+  dealId?: string;
   /** What this screen offers for one technician — call, message, look up. */
   actions?: (techId: string) => React.ReactNode;
 }) {
@@ -43,7 +46,7 @@ export function TeamSection({
               user={map.get(id)}
               onRemove={canEdit ? (t) => onChange(techIds.filter((x) => x !== t)) : undefined}
             >
-              {actions ? actions(id) : <TechRowActions techId={id} user={map.get(id)} />}
+              {actions ? actions(id) : <TechRowActions techId={id} user={map.get(id)} dealId={dealId} />}
             </AssignedTechRow>
           ))}
         </div>
