@@ -45,12 +45,16 @@ export function TechCell({
         );
       })}
 
-      {deal.sentToTechAt || deal.techConfirmedAt || deal.hasCalls ? (
+      {deal.sentToTechAt || confirmedAt(deal) || deal.hasCalls ? (
         <div className="flex items-center gap-1">
-          {deal.techConfirmedAt ? (
+          {confirmedAt(deal) ? (
             <Mark
               label="Tech confirmed"
-              says={`The technician confirmed this job${when(deal.techConfirmedAt)}`}
+              says={
+                deal.techConfirmedAt
+                  ? `The technician confirmed this job${when(deal.techConfirmedAt)}`
+                  : `The technician opened this job${when(deal.seenByTechAt)}`
+              }
               tone="bg-green-600"
             >
               <Check className="size-2.5" strokeWidth={3} />
@@ -74,6 +78,15 @@ export function TechCell({
       ) : null}
     </div>
   );
+}
+
+/**
+ * The green tick. Workiz has no separate "confirmed" — its tick means the
+ * technician opened the job — so a migrated job earns it by having been seen,
+ * and one confirmed in our own app earns it outright.
+ */
+function confirmedAt(deal: Deal): string | undefined {
+  return deal.techConfirmedAt ?? deal.seenByTechAt;
 }
 
 /** The date part of a tooltip, left out when there is nothing to say. */

@@ -38,6 +38,13 @@ describe("TechCell", () => {
     expect(screen.getByLabelText("Sent to tech")).toBeInTheDocument();
   });
 
+  it("marks a job the technician opened, which is the green tick in Workiz", () => {
+    // Workiz has no separate "confirmed": its tick means the technician saw
+    // the job, and that is what the import brings over.
+    render(<TechCell deal={deal({ seenByTechAt: "2026-09-24T10:05:00.000Z" })} userMap={map} />);
+    expect(screen.getByLabelText("Tech confirmed")).toBeInTheDocument();
+  });
+
   it("marks a job the technician confirmed", () => {
     render(<TechCell deal={deal({ techConfirmedAt: "2026-09-24T10:05:00.000Z" })} userMap={map} />);
     expect(screen.getByLabelText("Tech confirmed")).toBeInTheDocument();
