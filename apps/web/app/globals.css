@@ -41,6 +41,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-table-border: var(--table-border);
   --color-topbar: var(--topbar);
   --color-topbar-foreground: var(--topbar-foreground);
   --color-topbar-border: var(--topbar-border);
@@ -53,6 +54,9 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+  /* Their tag and tech labels are near-square: a 14px-tall chip with about
+     two pixels of corner. Counters and avatars stay round. */
+  --radius-chip: 2px;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -94,8 +98,9 @@
   --warning-text: #8a5a00;
   --destructive-text: #a02525;
   --border: #dfe2e3;
-  --input: #dddddd;
+  --input: #cccccc;
   --ring: #3589e9;
+  --table-border: #cfcfcf;
   --topbar: #f3f6f7;
   --topbar-foreground: #3b4b52;
   --topbar-border: #dfe2e3;

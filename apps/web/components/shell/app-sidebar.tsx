@@ -80,15 +80,23 @@ export function AppSidebar() {
           </span>
         </Link>
         {can("deals", "create") ? (
+          // Workiz's: a yellow dot with a plus and a label on a plain white
+          // row, which becomes a bordered oval under the cursor. The yellow
+          // stays in the dot — the row itself carries none of it.
           <Button
             asChild
-            variant="default"
-            className="h-9 w-30 justify-start gap-1.5 overflow-hidden px-2 transition-[width,height] duration-200 ease-linear group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
+            variant="ghost"
+            className="h-9 w-full justify-start gap-2 overflow-hidden border border-transparent px-1.5 transition-[width,height,border-radius] duration-200 ease-linear hover:rounded-full hover:border-border hover:bg-card group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8"
           >
             <Link href="/deals/new">
-              <Plus className="size-4 shrink-0" />
+              <span
+                data-slot="new-job-dot"
+                className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"
+              >
+                <Plus className="size-4" />
+              </span>
               <span className="whitespace-nowrap transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0">
-                New Job
+                Create New Job
               </span>
             </Link>
           </Button>

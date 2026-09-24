@@ -470,7 +470,7 @@ export function JobsReportPage() {
       <div className="min-w-0 space-y-3 p-6">
         {pager(true)}
 
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="overflow-x-auto border">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">

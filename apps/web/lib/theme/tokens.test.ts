@@ -14,7 +14,7 @@ const WORKIZ = {
   blue: "#3589e9",
   ink: "#3b4b52",
   secondaryInk: "#5e5e5e",
-  border: "#dddddd",
+  inputBorder: "#cccccc",
   selectedRow: "#e5f1ff",
   red: "#be2c2c",
   green: "#198218",
@@ -88,7 +88,7 @@ describe("the theme is Workiz", () => {
   it("keeps the Workiz row borders even though they are faint", () => {
     // Parity beats the 3:1 non-text guideline here: their grid lines are this
     // light, and a darker one would read as a different product.
-    expect(LIGHT.input).toBe(WORKIZ.border);
+    expect(LIGHT.input).toBe(WORKIZ.inputBorder);
     expect(contrastRatio(LIGHT.border, LIGHT.card)).toBeLessThan(3);
   });
 });

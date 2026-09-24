@@ -51,6 +51,10 @@ describe("globals.css is generated from lib/theme/tokens", () => {
     }
   });
 
+  it("exposes the near-square chip radius Workiz uses for labels", () => {
+    expect(block("@theme inline")).toContain("--radius-chip: 2px;");
+  });
+
   it("no longer carries the stock shadcn oklch palette", () => {
     expect(block(":root")).not.toContain("oklch");
   });

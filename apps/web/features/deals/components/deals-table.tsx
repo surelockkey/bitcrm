@@ -216,7 +216,7 @@ export function DealsTable({
   };
 
   return (
-    <div className="overflow-x-auto rounded-xl border">
+    <div className="overflow-x-auto border">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

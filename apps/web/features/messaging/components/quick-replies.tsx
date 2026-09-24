@@ -40,7 +40,7 @@ export function QuickReplies({
             disabled={disabled || pending}
             onClick={() => onPick(t)}
             title={t.messageTemplateTitle}
-            className="shrink-0 rounded-md border border-brand/50 bg-background px-3 py-1.5 text-[13px] font-medium text-brand transition-colors hover:bg-brand/5 disabled:opacity-50"
+            className="shrink-0 rounded-md border border-brand/25 bg-accent px-3 py-1.5 text-[13px] font-medium text-info-text transition-colors hover:border-brand/40 hover:bg-accent/70 disabled:opacity-50"
           >
             {t.messageTemplateTitle}
           </button>

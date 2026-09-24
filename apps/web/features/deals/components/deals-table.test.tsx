@@ -355,3 +355,56 @@ describe("DealsTable", () => {
     expect(screen.getByText("(404) 555-1234 ext. 102")).toBeInTheDocument();
   });
 });
+
+describe("zebra striping", () => {
+  it("greys every other job row, the way the Workiz grid does", () => {
+    const rows = [deal(), { ...deal(), id: "d2" }, { ...deal(), id: "d3" }];
+    const { container } = render(
+      <DealsTable deals={rows} contactMap={contactMap} userMap={userMap} onOpen={vi.fn()} />,
+    );
+    const bodyRows = Array.from(
+      container.querySelectorAll("tbody tr"),
+    ) as HTMLElement[];
+    expect(bodyRows).toHaveLength(3);
+    // The striping lives on the primitive's tbody, so every table gets it.
+    expect(container.querySelector("tbody")?.className).toContain(
+      "[&>tr:nth-child(odd)]:bg-muted",
+    );
+  });
+});
+
+describe("the Workiz grid", () => {
+  function grid() {
+    return render(
+      <DealsTable
+        deals={[deal(), { ...deal(), id: "d2" }]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={vi.fn()}
+      />,
+    ).container;
+  }
+
+  it("rules every column, the way their grid does", () => {
+    // Sampled off their jobs screenshot: a #cfcfcf vertical rule between every
+    // column, in the body and in the header alike.
+    const container = grid();
+    const heads = Array.from(container.querySelectorAll("thead th"));
+    const cells = Array.from(container.querySelectorAll("tbody tr:first-child td"));
+    expect(heads.length).toBeGreaterThan(1);
+    expect(cells.length).toBeGreaterThan(1);
+    for (const el of [...heads, ...cells]) {
+      expect(el.className).toContain("border-r");
+      expect(el.className).toContain("border-table-border");
+      // …except the outer edge, which the wrapper already draws.
+      expect(el.className).toContain("last:border-r-0");
+    }
+  });
+
+  it("sits the header on the grey strip", () => {
+    const container = grid();
+    expect(container.querySelector("thead")?.className).toMatch(
+      /(^|\s)bg-muted(\s|$)/,
+    );
+  });
+});

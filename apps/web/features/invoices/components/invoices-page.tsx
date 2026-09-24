@@ -200,7 +200,7 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -333,7 +333,7 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
           </Button>
         </div>
       ) : null}
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

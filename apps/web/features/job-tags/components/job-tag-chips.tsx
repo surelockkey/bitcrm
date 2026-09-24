@@ -38,7 +38,7 @@ export function JobTagChips({
           <span
             key={id}
             className={cn(
-              "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              "inline-flex items-center rounded-chip border px-2 py-0.5 text-[11px] font-medium",
               tag ? tagColorClasses(tag.color) : "border-border bg-muted/60 text-muted-foreground",
             )}
           >
@@ -47,7 +47,7 @@ export function JobTagChips({
         );
       })}
       {extra > 0 ? (
-        <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center rounded-chip border px-1.5 py-0.5 text-[11px] text-muted-foreground">
           +{extra}
         </span>
       ) : null}

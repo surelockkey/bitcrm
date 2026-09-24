@@ -57,7 +57,7 @@ export function ContainerStockTab({
         <Stat label="Low stock" value={String(summary.lowCount)} warn={summary.lowCount > 0} />
       </div>
 
-      <div className="overflow-hidden rounded-lg border">
+      <div className="overflow-hidden border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

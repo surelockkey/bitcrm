@@ -39,7 +39,7 @@ export function TechChips({
           <span
             key={id}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border bg-muted/50 pr-2",
+              "inline-flex items-center gap-1.5 rounded-chip border bg-muted/50 pr-2",
               size === "xs" ? "text-[11px]" : "text-xs",
             )}
           >

@@ -70,8 +70,11 @@ export const LIGHT = {
   // Lines. Deliberately fainter than the 3:1 non-text guideline — Workiz grid
   // rules are this light, and darkening them reads as a different product.
   border: "#dfe2e3",
-  input: "#dddddd",
+  input: "#cccccc",
   ring: "#3589e9",
+  // The grid rules are their own, darker line: #cfcfcf between every column
+  // of the jobs table. The chrome border disappears at that density.
+  tableBorder: "#cfcfcf",
 
   // Chrome. Their top bar is 56px with a one-pixel rule under it.
   topbar: "#f3f6f7",
@@ -108,6 +111,8 @@ export const BODY_TEXT_PAIRS: ReadonlyArray<[TokenName, TokenName]> = [
   ["warningText", "background"],
   ["destructiveText", "card"],
   ["destructiveText", "background"],
+  // The chat's quick-reply chips: deep blue label on the pale blue row tint.
+  ["infoText", "accent"],
 ];
 
 /** Button labels and focus rings: 3:1 is the bar for large and non-text. */

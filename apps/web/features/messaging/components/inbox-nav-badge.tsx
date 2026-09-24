@@ -10,7 +10,11 @@ export function InboxNavBadge() {
   if (unread <= 0) return null;
   return (
     <SidebarMenuBadge
-      className="bg-destructive text-destructive-foreground"
+      // SidebarMenuBadge repaints its label with the sidebar's accent ink on
+      // peer-hover and when the item is active; both are overridden here so the
+      // red pill keeps white digits instead of going dark-on-red under the
+      // cursor.
+      className="rounded-full bg-destructive text-destructive-foreground peer-hover/menu-button:text-destructive-foreground peer-data-active/menu-button:text-destructive-foreground"
       aria-label={`${unread} unread conversation${unread === 1 ? "" : "s"}`}
     >
       {unread > 99 ? "99+" : unread}

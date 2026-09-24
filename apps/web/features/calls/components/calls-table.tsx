@@ -42,7 +42,7 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
   const [quickViewSid, setQuickViewSid] = useState<string | null>(null);
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="overflow-x-auto border">
       <Table>
         <TableHeader>
           <TableRow>

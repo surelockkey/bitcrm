@@ -95,7 +95,7 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

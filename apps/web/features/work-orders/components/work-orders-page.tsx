@@ -119,7 +119,7 @@ export function WorkOrdersPage() {
             <p className="text-sm">No work orders.</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border">
+          <div className="overflow-hidden border">
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">

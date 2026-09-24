@@ -90,3 +90,15 @@ describe("AppHeader", () => {
     expect(screen.queryByTestId("inbox-header-badge")).toBeNull();
   });
 });
+
+describe("the header strip", () => {
+  it("sits on the grey topbar surface, not on the white content", () => {
+    // Workiz separates the chrome from the content with a light grey band
+    // (#f3f6f7 over a #dfe2e3 rule); white-on-white loses that edge.
+    const { container } = renderHeader();
+    const header = container.querySelector("header");
+    expect(header?.className).toContain("bg-topbar");
+    expect(header?.className).toContain("border-topbar-border");
+    expect(header?.className).not.toContain("bg-background");
+  });
+});

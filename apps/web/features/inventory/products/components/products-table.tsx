@@ -34,7 +34,7 @@ export function ProductsTable({
   const allSelected = products.length > 0 && products.every((p) => selected.has(p.id));
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-hidden border">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

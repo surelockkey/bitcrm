@@ -68,7 +68,7 @@ export function TransfersPage() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div className="inline-flex overflow-hidden rounded-lg border text-xs">
+        <div className="inline-flex overflow-hidden border text-xs">
           {TYPE_CHIPS.map((c, i) => (
             <button
               key={c.value}
@@ -138,7 +138,7 @@ export function TransfersPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-hidden rounded-lg border">
+            <div className="overflow-hidden border">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
