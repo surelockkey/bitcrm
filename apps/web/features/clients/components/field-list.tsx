@@ -57,7 +57,7 @@ export function FieldList({
               <Icon className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="font-mono text-[13px]">{format ? format(v) : v}</span>
               {primaryFirst && i === 0 ? (
-                <span className="rounded-full border border-green-500/40 px-1.5 text-[10px] text-green-600 dark:text-green-500">
+                <span className="rounded-chip border border-green-500/40 px-1.5 text-[10px] text-green-600 dark:text-green-500">
                   primary
                 </span>
               ) : null}

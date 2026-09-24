@@ -78,7 +78,7 @@ export function ContactsTable({
                     <span>
                       {formatPhoneWithExtension(phone, extensionOf(c, phone))}
                       {c.phones.length > 1 ? (
-                        <span className="ml-1 rounded-full border px-1 text-[10px] text-muted-foreground">
+                        <span className="ml-1 rounded-chip border px-1 text-[10px] text-muted-foreground">
                           +{c.phones.length - 1}
                         </span>
                       ) : null}
@@ -92,7 +92,7 @@ export function ContactsTable({
                     <span>
                       {email}
                       {c.emails.length > 1 ? (
-                        <span className="ml-1 rounded-full border px-1 text-[10px]">
+                        <span className="ml-1 rounded-chip border px-1 text-[10px]">
                           +{c.emails.length - 1}
                         </span>
                       ) : null}

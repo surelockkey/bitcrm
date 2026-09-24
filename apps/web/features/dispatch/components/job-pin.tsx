@@ -61,7 +61,7 @@ export function JobPin({
         {seq ? (
           <span
             data-testid={`job-seq-${deal.id}`}
-            className="pointer-events-none absolute -right-1.5 -top-1.5 flex min-w-3.5 items-center justify-center rounded-full border border-white bg-foreground px-1 text-[9px] font-semibold leading-3.5 text-background"
+            className="pointer-events-none absolute -right-1.5 -top-1.5 flex min-w-3.5 items-center justify-center rounded-chip border border-white bg-foreground px-1 text-[9px] font-semibold leading-3.5 text-background"
           >
             {seq}
           </span>

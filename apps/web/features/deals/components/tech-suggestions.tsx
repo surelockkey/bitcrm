@@ -88,7 +88,7 @@ export function TechSuggestions({
               selected.map((id) => {
                 const t = byId.get(id);
                 return (
-                  <span key={id} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs">
+                  <span key={id} className="inline-flex items-center gap-1 rounded-chip border bg-muted/50 px-2 py-0.5 text-xs">
                     <UserRound className="size-3" />
                     {t ? techName(t) : id}
                     <span

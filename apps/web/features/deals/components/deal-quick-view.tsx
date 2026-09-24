@@ -131,7 +131,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
               {phone ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   {contact ? formatPhoneWithExtension(phone, extensionOf(contact, phone)) : formatPhone(phone)}
-                  <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
+                  <span className="rounded-chip bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
                 </div>
               ) : null}
               {deal.address ? (

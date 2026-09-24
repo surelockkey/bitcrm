@@ -106,7 +106,7 @@ export function LivePreview({ ctx, interactive = true }: { ctx: DocumentRenderCo
   return (
     <div className="relative h-full">
       {source && server.isFetching ? (
-        <span className="absolute top-2 right-3 z-10 flex items-center gap-1 rounded-full bg-background/90 px-2 py-0.5 text-[11px] text-muted-foreground shadow-sm">
+        <span className="absolute top-2 right-3 z-10 flex items-center gap-1 rounded-chip bg-background/90 px-2 py-0.5 text-[11px] text-muted-foreground shadow-sm">
           <Loader2 className="size-3 animate-spin" /> Updating
         </span>
       ) : null}

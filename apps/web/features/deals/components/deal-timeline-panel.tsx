@@ -568,7 +568,7 @@ function PanelBody({
               aria-pressed={filter === f.key}
               onClick={() => setFilter(f.key)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                "rounded-chip border px-2.5 py-1 text-xs font-medium transition-colors",
                 filter === f.key
                   ? "border-brand bg-brand/10 text-brand"
                   : "border-transparent bg-muted text-muted-foreground hover:text-foreground",

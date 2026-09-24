@@ -168,7 +168,7 @@ export function AddProductDialog({
                         type="button"
                         onClick={() => { setTechId(id); setPicked(null); }}
                         className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          "rounded-chip border px-2.5 py-1 text-xs transition-colors",
                           id === techId ? "border-primary bg-primary/10 font-medium" : "hover:bg-muted/50",
                         )}
                       >
@@ -220,11 +220,11 @@ export function AddProductDialog({
                         <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
                       </div>
                       {isService ? (
-                        <span className="flex-none rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+                        <span className="flex-none rounded-chip bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
                           Service
                         </span>
                       ) : stockKnown ? (
-                        <span className={cn("flex-none rounded-full px-1.5 py-0.5 text-[10px] font-semibold", avail > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
+                        <span className={cn("flex-none rounded-chip px-1.5 py-0.5 text-[10px] font-semibold", avail > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
                           {avail > 0 ? `In van · ${avail}` : "Not in van"}
                         </span>
                       ) : null}

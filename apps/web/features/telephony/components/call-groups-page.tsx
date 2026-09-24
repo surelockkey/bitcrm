@@ -102,11 +102,11 @@ export function CallGroupsPage() {
                   {group.type === "ring_all" ? "ring all" : "in order"}
                 </span>
                 {group.active ? (
-                  <span className="rounded-full border border-emerald-500/40 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-500">
+                  <span className="rounded-chip border border-emerald-500/40 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-500">
                     active
                   </span>
                 ) : (
-                  <span className="rounded-full border px-1.5 text-[10px] text-muted-foreground">
+                  <span className="rounded-chip border px-1.5 text-[10px] text-muted-foreground">
                     paused
                   </span>
                 )}

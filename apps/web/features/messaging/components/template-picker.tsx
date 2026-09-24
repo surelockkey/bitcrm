@@ -47,7 +47,7 @@ export function TemplatePicker({
         aria-expanded={open}
         aria-label="More replies"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-foreground/60 bg-background px-4 text-[13px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+        className="inline-flex h-9 items-center gap-1.5 rounded-chip border border-foreground/60 bg-background px-4 text-[13px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
       >
         {pending ? <Loader2 className="size-3.5 animate-spin" /> : null}
         More replies

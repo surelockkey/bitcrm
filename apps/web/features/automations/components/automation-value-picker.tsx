@@ -227,7 +227,7 @@ export function AutomationValuePicker({
                 values.map((id, i) => (
                   <span
                     key={id}
-                    className="inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/60 px-2 py-0.5 text-xs"
+                    className="inline-flex max-w-full items-center gap-1 rounded-chip border bg-muted/60 px-2 py-0.5 text-xs"
                   >
                     <span className="truncate">{nameOf(id, i)}</span>
                     {/* A chip's × is a span, not a button: a button inside a

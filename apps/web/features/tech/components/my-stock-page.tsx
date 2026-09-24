@@ -144,7 +144,7 @@ function Chip({ label, tone }: { label: string; tone?: "warn" }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 font-medium",
+        "inline-flex items-center rounded-chip border px-2.5 py-1 font-medium",
         tone === "warn"
           ? "border-amber-500/40 text-amber-600 dark:text-amber-500"
           : "text-muted-foreground",

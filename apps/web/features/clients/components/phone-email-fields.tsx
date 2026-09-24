@@ -114,7 +114,7 @@ export function RepeatableInputs<T extends FieldValues>({
                 />
               ) : null}
               {markPrimary && i === 0 ? (
-                <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                <span className="rounded-chip bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
                   Primary
                 </span>
               ) : null}

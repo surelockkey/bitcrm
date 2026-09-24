@@ -99,7 +99,7 @@ export function JobTagCombobox({
           <span
             key={id}
             className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
+              "inline-flex items-center gap-1 rounded-chip border px-2 py-0.5 text-xs font-medium",
               tag ? tagColorClasses(tag.color) : "border-border bg-muted/60 text-muted-foreground",
             )}
           >
@@ -121,7 +121,7 @@ export function JobTagCombobox({
             type="button"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           >
             <Plus className="size-3" /> Add tag
           </button>
@@ -197,7 +197,7 @@ export function JobTagCombobox({
                           <CommandItem key={tag.id} value={tag.name} onSelect={() => toggle(tag.id)} className="group gap-2">
                             <span
                               className={cn(
-                                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+                                "inline-flex items-center rounded-chip border px-2 py-0.5 text-xs font-medium",
                                 tagColorClasses(tag.color),
                               )}
                             >

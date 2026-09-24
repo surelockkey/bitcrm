@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -115,5 +118,19 @@ describe("page states", () => {
     render(<PortalLoadError onRetry={onRetry} />);
     await userEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(onRetry).toHaveBeenCalled();
+  });
+});
+
+describe("chip shape", () => {
+  it("is a near-square label, not an oval — same rule as the CRM", () => {
+    // The portal shares its look with apps/web, where labels are
+    // `rounded-chip` (2px) and only real circles stay round.
+    const source = readFileSync(
+      join(__dirname, "portal-view.tsx"),
+      "utf8",
+    );
+    const chip = source.split("const chip =")[1].split(";")[0];
+    expect(chip).toContain("rounded-chip");
+    expect(chip).not.toContain("rounded-full");
   });
 });

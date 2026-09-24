@@ -32,7 +32,7 @@ import {
 import { StatusBadge } from "./status-badge";
 
 const chip =
-  "inline-flex h-9 items-center gap-1.5 rounded-full border bg-card px-3 text-[13px] font-medium sm:px-3.5 sm:text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
+  "inline-flex h-9 items-center gap-1.5 rounded-chip border bg-card px-3 text-[13px] font-medium sm:px-3.5 sm:text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
 /** The client-facing portal body — shared by the public page and the staff preview. */
 export function PortalView({ view, onOpen }: { view: PortalViewData; onOpen: (doc: PortalDocumentSummary) => void }) {

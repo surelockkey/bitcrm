@@ -330,7 +330,7 @@ function OptionsCombobox({
       {value.map((opt) => (
         <span
           key={opt}
-          className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
+          className="inline-flex items-center gap-1 rounded-chip border px-2 py-0.5 text-xs font-medium"
         >
           {opt}
           {!disabled ? (
@@ -354,7 +354,7 @@ function OptionsCombobox({
             type="button"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           >
             <Plus className="size-3" /> Add {label}
           </button>

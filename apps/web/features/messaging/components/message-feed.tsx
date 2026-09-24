@@ -146,7 +146,7 @@ export function MessageFeed({
                 <RecapChip />
               </div>
             ) : null}
-            <span className="rounded-full border bg-background px-3.5 py-1 text-xs font-medium text-foreground/80 shadow-xs">
+            <span className="rounded-chip border bg-background px-3.5 py-1 text-xs font-medium text-foreground/80 shadow-xs">
               {group.label}
             </span>
           </div>
@@ -180,7 +180,7 @@ function RecapChip() {
             type="button"
             disabled
             aria-label="Recap conversation"
-            className="inline-flex cursor-default items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-xs font-semibold text-brand shadow-xs"
+            className="inline-flex cursor-default items-center gap-1.5 rounded-chip border bg-background px-3 py-1 text-xs font-semibold text-brand shadow-xs"
           >
             <Sparkles className="size-3.5" /> Recap conversation
           </button>

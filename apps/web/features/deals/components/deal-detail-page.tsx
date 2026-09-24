@@ -263,7 +263,7 @@ export function DealDetailPage({
           >
             {t}
             {t === "attachments" && attachmentCount > 0 ? (
-              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-medium tabular-nums">
+              <span className="inline-flex min-w-5 items-center justify-center rounded-chip bg-muted px-1.5 text-xs font-medium tabular-nums">
                 {attachmentCount}
               </span>
             ) : null}
@@ -805,7 +805,7 @@ function ClientEditor({
 
 function PrimaryBadge() {
   return (
-    <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+    <span className="rounded-chip bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
       Primary
     </span>
   );

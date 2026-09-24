@@ -212,7 +212,7 @@ export function DealsPage() {
               {jobTabLabel(t)}
               <span
                 className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  "rounded-chip px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
                   active ? "bg-brand/10 text-brand" : "bg-muted text-muted-foreground",
                 )}
               >

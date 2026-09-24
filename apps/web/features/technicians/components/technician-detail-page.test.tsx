@@ -388,7 +388,7 @@ describe("TechnicianDetailPage — the blocks below the columns", () => {
       serviceAreas: [],
     };
     render(<TechnicianDetailPage technicianId="t1" />);
-    const chip = screen.getByText("jt-lockout").closest("span.rounded-full") as HTMLElement;
+    const chip = screen.getByText("jt-lockout").closest("span.rounded-chip") as HTMLElement;
     expect(chip).not.toBeNull();
     expect(chip.className).not.toMatch(/green/);
   });

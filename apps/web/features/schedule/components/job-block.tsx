@@ -46,7 +46,7 @@ export function JobBlock({
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onOpenOverflow}
-          className="absolute right-1 bottom-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium hover:bg-muted-foreground/20"
+          className="absolute right-1 bottom-1 rounded-chip bg-muted px-1.5 py-0.5 text-[10px] font-medium hover:bg-muted-foreground/20"
         >
           +{block.overflowCount} more
         </button>

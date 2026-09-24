@@ -30,25 +30,25 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
     // Carried over from Workiz: it never moved BitCRM stock, and its price is
     // whatever Workiz recorded (so the ±15% band leaves it alone).
     return (
-      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+      <span className="rounded-chip bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
         Imported
       </span>
     );
   }
   if (f === "service") {
     return (
-      <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+      <span className="rounded-chip bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
         Service
       </span>
     );
   }
   if (f === "to_order") {
     return product.orderedAt ? (
-      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+      <span className="rounded-chip bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
         Ordered
       </span>
     ) : (
-      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+      <span className="rounded-chip bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
         To order
       </span>
     );

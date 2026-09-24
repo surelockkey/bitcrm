@@ -137,7 +137,7 @@ function AccountCard({
         ) : (
           <>
             <dl className="text-sm">
-              <Row label="Email" value={<span>{me.email} <span className="ml-1 rounded-full border px-1.5 text-[10px] text-muted-foreground">login</span></span>} />
+              <Row label="Email" value={<span>{me.email} <span className="ml-1 rounded-chip border px-1.5 text-[10px] text-muted-foreground">login</span></span>} />
               <Row label="Department" value={me.department || "—"} />
               <Row label="Role" value={roleName} />
               <Row label="Member since" value={formatDate(me.createdAt)} />
