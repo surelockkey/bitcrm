@@ -14,11 +14,10 @@ vi.mock("../hooks", () => ({
 vi.mock("@/features/service-areas/hooks", () => ({
   useResolvedServiceArea: () => resolvedArea,
 }));
-// The row's buttons reach for the router, the softphone and the inbox; they
-// have their own test, and here they are only along for the ride.
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// The row's buttons reach for the softphone and the inbox; they have their own
+// test, and here they are only along for the ride.
 vi.mock("@/features/telephony/softphone-manager", () => ({ startCall: vi.fn() }));
-vi.mock("@/features/messaging/api", () => ({ getConversationByParty: () => Promise.resolve(null) }));
+vi.mock("./tech-chat-sheet", () => ({ TechChatSheet: () => null }));
 
 import { TeamSection } from "./team-section";
 

@@ -2,19 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { push, startCall, conversation } = vi.hoisted(() => ({
-  push: vi.fn(),
+const { startCall, chatProps } = vi.hoisted(() => ({
   startCall: vi.fn(),
-  conversation: { value: null as { id: string } | null },
+  chatProps: { last: null as Record<string, unknown> | null },
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/features/telephony/softphone-manager", () => ({ startCall }));
-vi.mock("@/features/messaging/api", () => ({
-  getConversationByParty: () => Promise.resolve(conversation.value),
+vi.mock("./tech-chat-sheet", () => ({
+  TechChatSheet: (props: Record<string, unknown>) => {
+    chatProps.last = props;
+    return props.open ? <div data-testid="tech-chat" /> : null;
+  },
 }));
 
-import { TechRowActions } from "./tech-row-actions";
+import { TechRowActions, TechDetailsCard } from "./tech-row-actions";
 
 /**
  * What a dispatcher does with the technician on a job, from the job: look them
@@ -31,9 +32,8 @@ const tech = {
 
 describe("TechRowActions", () => {
   beforeEach(() => {
-    push.mockClear();
     startCall.mockClear();
-    conversation.value = null;
+    chatProps.last = null;
   });
 
   it("offers looking up, calling and messaging", () => {
@@ -64,37 +64,47 @@ describe("TechRowActions", () => {
     expect(screen.getByRole("button", { name: "Call technician" })).toBeDisabled();
   });
 
-  it("opens the conversation the technician already has", async () => {
-    conversation.value = { id: "conv-7" };
+  it("opens the chat beside the job, without leaving it", async () => {
     render(<TechRowActions techId="u1" user={tech} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Message technician" }));
 
-    expect(push).toHaveBeenCalledWith("/messages?c=conv-7");
+    expect(screen.getByTestId("tech-chat")).toBeInTheDocument();
+    expect(chatProps.last).toMatchObject({ techId: "u1", name: "Reonquez Thompson", open: true });
   });
 
-  it("opens the team inbox when there is no conversation yet", async () => {
-    conversation.value = null;
+  it("keeps the chat shut until it is asked for", () => {
     render(<TechRowActions techId="u1" user={tech} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Message technician" }));
-
-    expect(push).toHaveBeenCalledWith("/messages?view=team");
+    expect(screen.queryByTestId("tech-chat")).toBeNull();
+    expect(chatProps.last).toMatchObject({ open: false });
   });
 
-  it("shows what is known about the technician", async () => {
+  it("opens its card on hover, not on a click", () => {
     render(<TechRowActions techId="u1" user={tech} />);
+    // Radix mounts the card only once a real pointer arrives, which jsdom has
+    // none of; the card's own words are tested below, on the card itself.
+    expect(screen.getByRole("button", { name: "Technician details" })).toHaveAttribute("data-state", "closed");
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: "Technician details" }));
+});
+
+describe("TechDetailsCard", () => {
+  it("says what is known about the technician", () => {
+    render(
+      <TechDetailsCard name="Reonquez Thompson" phone="+14692451831" email="r@example.com" address="18600 Dallas Pkwy, Dallas, TX" />,
+    );
 
     // A US number reads the way a dispatcher dials it, without the +1.
-    expect(await screen.findByText("(469) 245-1831")).toBeInTheDocument();
+    expect(screen.getByText("(469) 245-1831")).toBeInTheDocument();
     expect(screen.getByText("r@example.com")).toBeInTheDocument();
+    expect(screen.getByText("18600 Dallas Pkwy, Dallas, TX")).toBeInTheDocument();
   });
 
   it("leaves out what it does not know, rather than saying null", () => {
-    // Workiz prints "Notes: null" here; an empty line is not worth a word.
-    render(<TechRowActions techId="u1" user={{ firstName: "Reonquez", lastName: "Thompson" }} />);
-    expect(screen.queryByText(/null/i)).toBeNull();
+    // Workiz prints "Notes: null" in this very card.
+    const { container } = render(<TechDetailsCard name="Reonquez Thompson" />);
+
+    expect(container.textContent).toBe("Reonquez Thompson");
   });
 });
