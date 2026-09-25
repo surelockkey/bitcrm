@@ -56,6 +56,8 @@ export const queryKeys = {
     /** A bounded window a board / schedule holds whole (dispatch, schedule). */
     window: (window?: unknown) => ["deals", "window", window] as const,
     counts: (params?: unknown) => ["deals", "counts", params] as const,
+    /** A period at a glance (dashboard); under `deals` so the live stream refreshes it. */
+    stats: (params?: unknown) => ["deals", "stats", params] as const,
     byIds: (ids: string[]) => ["deals", "by-ids", ids] as const,
     detail: (id: string) => ["deals", "detail", id] as const,
     timeline: (id: string) => ["deals", id, "timeline"] as const,
