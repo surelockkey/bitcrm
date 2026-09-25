@@ -107,6 +107,7 @@ describe('DealsRepository', () => {
         discount: { type: 'percent', value: 10 },
         itemCount: 3,
         invoiceId: 'deal-1',
+        totals: { subtotal: 100, discount: 10, tax: 6.53, total: 96.53, cost: 30 },
       });
       dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...deal } });
 
@@ -120,7 +121,18 @@ describe('DealsRepository', () => {
         discount: { type: 'percent', value: 10 },
         itemCount: 3,
         invoiceId: 'deal-1',
+        totals: { subtotal: 100, discount: 10, tax: 6.53, total: 96.53, cost: 30 },
       });
+    });
+
+    it('reads strongly consistent when asked — a reprice right after a write must see it', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal() } });
+
+      await repository.findById('deal-1', { consistent: true });
+      await repository.findById('deal-1');
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ConsistentRead).toBe(true);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ConsistentRead).toBeUndefined();
     });
 
     it('reads back the technician flow stamps — and their absence on older rows', async () => {

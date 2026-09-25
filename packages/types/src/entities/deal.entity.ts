@@ -15,6 +15,22 @@ import { type DocumentDiscount, type DocumentTaxSource } from '../billing/totals
 export const SEND_TO_TECH_CHANNELS = ['sms', 'email', 'in_app'] as const;
 export type SendToTechChannel = (typeof SEND_TO_TECH_CHANNELS)[number];
 
+/**
+ * What the job is worth, kept on the job so a period can be summed without
+ * reading every job's lines: the shared totals formula over its lines, tax
+ * and discount, plus what those lines cost the company. Refreshed by the deal
+ * service on every line, tax or discount change.
+ */
+export interface DealTotalsSnapshot {
+  subtotal: number;
+  discount: number;
+  tax: number;
+  /** What the client is billed: subtotal − discount + tax. */
+  total: number;
+  /** Σ quantity × company cost over the lines. */
+  cost: number;
+}
+
 export interface Deal {
   id: string;
   /**
@@ -96,6 +112,8 @@ export interface Deal {
   discount?: DocumentDiscount;
   /** Number of line items on the job (kept by the deal service; drives "needs invoice"). */
   itemCount?: number;
+  /** Money snapshot — see `DealTotalsSnapshot`. Absent until the job is first priced or backfilled. */
+  totals?: DealTotalsSnapshot;
   /** Set by the billing service when the job's invoice exists (=== dealId). */
   invoiceId?: string;
   estimatedTotal?: number;

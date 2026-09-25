@@ -41,7 +41,7 @@ export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
-export type { SendToTechChannel } from './entities/deal.entity';
+export type { SendToTechChannel, DealTotalsSnapshot } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export {
   CallGroup,

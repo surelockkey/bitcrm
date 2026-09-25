@@ -315,11 +315,13 @@ export class DealsRepository {
     );
   }
 
-  async findById(id: string): Promise<Deal | null> {
+  /** `consistent` for a read right after a write that must see it (repricing). */
+  async findById(id: string, opts: { consistent?: boolean } = {}): Promise<Deal | null> {
     const result = await this.dynamoDb.client.send(
       new GetCommand({
         TableName: this.tableName,
         Key: { PK: `DEAL#${id}`, SK: 'METADATA' },
+        ...(opts.consistent && { ConsistentRead: true }),
       }),
     );
 
@@ -1313,6 +1315,7 @@ export class DealsRepository {
       taxSource: item.taxSource as Deal['taxSource'] | undefined,
       discount: item.discount as Deal['discount'] | undefined,
       itemCount: item.itemCount as number | undefined,
+      totals: item.totals as Deal['totals'] | undefined,
       invoiceId: item.invoiceId as string | undefined,
       estimatedTotal: item.estimatedTotal as number | undefined,
       actualTotal: item.actualTotal as number | undefined,

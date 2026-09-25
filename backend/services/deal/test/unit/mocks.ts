@@ -244,7 +244,7 @@ export function createMockDealsRepository() {
 export function createMockTimelineRepository() {
   return {
     addEntry: jest.fn(),
-    findByDeal: jest.fn(),
+    findByDeal: jest.fn().mockResolvedValue([]),
     getEntry: jest.fn(),
     updateNote: jest.fn(),
     deleteEntry: jest.fn(),
@@ -255,7 +255,7 @@ export function createMockDealProductsRepository() {
   return {
     addProduct: jest.fn(),
     removeProduct: jest.fn(),
-    findByDeal: jest.fn(),
+    findByDeal: jest.fn().mockResolvedValue([]),
     findProduct: jest.fn(),
     setOrderedAt: jest.fn(),
     setTaxable: jest.fn(),

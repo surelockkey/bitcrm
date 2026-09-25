@@ -75,6 +75,7 @@ import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
+import { dealTotalsSnapshot } from './billing/deal-totals';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
@@ -925,6 +926,7 @@ export class DealsService {
     }
 
     const result = await this.repository.update(id, updates);
+    if (taxChange) await this.refreshTotals(id);
     await this.cache.invalidate(id);
     // Any edit must reach the search index (address, custom fields, notes…).
     this.publishEvent('deal.updated', {
@@ -1017,7 +1019,10 @@ export class DealsService {
     await this.repository.reassignContact(id, contactId);
     // The new client may be tax-exempt (or the old one was).
     const taxChange = await this.reresolveTax(existing, { contactId });
-    if (taxChange) await this.repository.update(id, { ...taxChange.to });
+    if (taxChange) {
+      await this.repository.update(id, { ...taxChange.to });
+      await this.refreshTotals(id);
+    }
     await this.cache.invalidate(id);
     await this.addTimelineEntry(id, TimelineEventType.FIELD_UPDATED, caller, {
       field: 'contactId',
@@ -1055,10 +1060,19 @@ export class DealsService {
     return DealTaxResolver.sameTax(from, to) ? undefined : { from, to };
   }
 
-  /** Keep `Deal.itemCount` (drives "needs invoice") in step with the line rows. */
-  private async syncItemCount(id: string): Promise<void> {
-    const itemCount = await this.productsRepo.countByDeal(id);
-    await this.repository.update(id, { itemCount });
+  /**
+   * Keep `itemCount` (drives "needs invoice") and the money snapshot
+   * (`totals`, summed by the dashboards and reports) in step with the lines,
+   * tax and discount. Call after any of those change, before invalidating;
+   * both reads are strongly consistent so the write just made is priced in.
+   */
+  async refreshTotals(id: string): Promise<void> {
+    const [deal, lines] = await Promise.all([
+      this.repository.findById(id, { consistent: true }),
+      this.productsRepo.findByDeal(id, { consistent: true }),
+    ]);
+    if (!deal) return;
+    await this.repository.update(id, { itemCount: lines.length, totals: dealTotalsSnapshot(deal, lines) });
   }
 
   async softDelete(id: string, caller: JwtUser): Promise<void> {
@@ -1863,7 +1877,7 @@ export class DealsService {
       addedAt: new Date().toISOString(),
     });
 
-    await this.syncItemCount(id);
+    await this.refreshTotals(id);
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_ADDED, caller, {
@@ -1995,7 +2009,7 @@ export class DealsService {
       updatedAt: new Date().toISOString(),
     });
 
-    await this.syncItemCount(id);
+    await this.refreshTotals(id);
     await this.cache.invalidate(id);
 
     // Money/quantity edits, old → new, so the timeline can say exactly what
@@ -2053,7 +2067,7 @@ export class DealsService {
     }
 
     await this.productsRepo.removeProduct(id, productId);
-    await this.syncItemCount(id);
+    await this.refreshTotals(id);
     await this.cache.invalidate(id);
 
     await this.addTimelineEntry(id, TimelineEventType.PRODUCT_REMOVED, caller, {

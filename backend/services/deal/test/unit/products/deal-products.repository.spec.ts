@@ -48,6 +48,18 @@ describe('DealProductsRepository', () => {
       expect(command.input.ExpressionAttributeValues[':pk']).toBe('DEAL#deal-1');
       expect(command.input.ExpressionAttributeValues[':sk']).toBe('PRODUCT#');
     });
+
+    it('reads every page, strongly consistent when asked', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [{ ...createMockDealProduct({ lineId: 'a' }) }], LastEvaluatedKey: { k: 1 } })
+        .mockResolvedValueOnce({ Items: [{ ...createMockDealProduct({ lineId: 'b' }) }] });
+
+      const lines = await repository.findByDeal('deal-1', { consistent: true });
+
+      expect(lines.map((l) => l.lineId)).toEqual(['a', 'b']);
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ConsistentRead).toBe(true);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ k: 1 });
+    });
   });
 
   describe('findProduct', () => {

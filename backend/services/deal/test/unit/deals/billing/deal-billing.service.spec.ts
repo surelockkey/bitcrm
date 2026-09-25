@@ -27,7 +27,7 @@ describe('DealBillingService', () => {
   let resolver: { resolve: jest.Mock; snapshotOf: jest.Mock };
   let jobTypes: { findById: jest.Mock };
   let eligibility: ReturnType<typeof createMockTechnicianEligibilityRepository>;
-  let deals: { findById: jest.Mock };
+  let deals: { findById: jest.Mock; refreshTotals: jest.Mock };
   let sns: ReturnType<typeof createMockSnsPublisherService>;
   let service: DealBillingService;
   const caller = createMockJwtUser({ id: 'u-1', email: 'u@x.com' });
@@ -50,7 +50,7 @@ describe('DealBillingService', () => {
     jobTypes = { findById: jest.fn().mockResolvedValue(createMockJobType({ name: 'Lockout' })) };
     eligibility = createMockTechnicianEligibilityRepository();
     current = createMockDeal();
-    deals = { findById: jest.fn(async () => current) };
+    deals = { findById: jest.fn(async () => current), refreshTotals: jest.fn() };
     sns = createMockSnsPublisherService();
     repo.update.mockImplementation(async (_id: string, attrs: Record<string, unknown>) => {
       const next: Record<string, unknown> = { ...current };
@@ -284,6 +284,7 @@ describe('DealBillingService', () => {
       ]);
       expect(written[1]).not.toHaveProperty('sourceTechId');
       expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ itemCount: 2 }));
+      expect(deals.refreshTotals).toHaveBeenCalledWith('deal-1');
       expect(entries(TimelineEventType.ESTIMATE_SYNCED)[0]).toMatchObject({
         actorId: 'u-1', actorName: 'Ann', details: { estimateNumber: 'AB12CD-1', itemCount: 2 },
       });
@@ -438,6 +439,33 @@ describe('DealBillingService', () => {
         { id: 'a', dealNumber: 'AB12CD', superStatus: 'submitted' },
         { id: 'b', dealNumber: 'ZZ', superStatus: 'submitted', businessProfileId: 'bp-2', businessProfileName: 'Two' },
       ]);
+    });
+  });
+
+  describe('keeps the stored job totals in step', () => {
+    it('after a manual tax', async () => {
+      taxRates.findOptional.mockResolvedValue(createMockTaxRate({ id: 'tax-1', active: true }));
+      await service.setTax('deal-1', 'tax-1', caller);
+      expect(deals.refreshTotals).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('after the tax is re-resolved', async () => {
+      resolver.resolve.mockResolvedValue({ taxSource: 'exempt', taxRateId: null, taxRateName: null, taxRatePercent: null });
+      current = createMockDeal({ taxSource: 'service_area', taxRateId: 'tax-a', taxRatePercent: 8 });
+      await service.autoTax('deal-1', caller);
+      expect(deals.refreshTotals).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('after a discount', async () => {
+      await service.setDiscount('deal-1', { type: 'amount', value: 5 }, caller);
+      expect(deals.refreshTotals).toHaveBeenCalledWith('deal-1');
+    });
+
+    it("after a line's taxable flag flips", async () => {
+      products.findProduct.mockResolvedValue(createMockDealProduct({ taxable: true }));
+      products.setTaxable.mockResolvedValue(createMockDealProduct({ taxable: false }));
+      await service.setProductTaxable('deal-1', 'product-1', false, caller);
+      expect(deals.refreshTotals).toHaveBeenCalledWith('deal-1');
     });
   });
 });

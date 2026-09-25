@@ -151,6 +151,7 @@ export class DealBillingService {
     const from = existing.discount ?? null;
 
     const deal = await this.repository.update(id, { discount: next });
+    await this.deals.refreshTotals(id);
     await this.cache.invalidate(id);
     await this.addEntry(id, TimelineEventType.DISCOUNT_CHANGED, this.actorOf(caller), { from, to: next });
     this.publishEvent('deal.updated', { dealId: id, updatedBy: caller.id });
@@ -168,6 +169,7 @@ export class DealBillingService {
     if (!existing) throw new NotFoundException(`Product ${productId} not found on deal ${id}`);
 
     const line = await this.productsRepo.setTaxable(id, productId, taxable);
+    await this.deals.refreshTotals(id);
     await this.cache.invalidate(id);
     if ((existing.taxable ?? true) !== taxable) {
       await this.addEntry(id, TimelineEventType.TAX_CHANGED, this.actorOf(caller), {
@@ -315,6 +317,7 @@ export class DealBillingService {
       ...taxUpdate,
       ...discountUpdate,
     });
+    await this.deals.refreshTotals(id);
     await this.cache.invalidate(id);
 
     await this.addEntry(id, TimelineEventType.ESTIMATE_SYNCED, actor, {
@@ -387,6 +390,7 @@ export class DealBillingService {
     if (DealTaxResolver.sameTax(from, to)) return existing;
 
     const deal = await this.repository.update(existing.id, { ...to });
+    await this.deals.refreshTotals(existing.id);
     await this.cache.invalidate(existing.id);
     await this.addEntry(existing.id, TimelineEventType.TAX_CHANGED, actor, { from, to, reason });
     this.publishEvent('deal.updated', { dealId: existing.id, updatedBy: actor.id });

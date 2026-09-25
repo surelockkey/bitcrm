@@ -62,19 +62,27 @@ export class DealProductsRepository {
     );
   }
 
-  async findByDeal(dealId: string): Promise<DealProduct[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
-        ExpressionAttributeValues: {
-          ':pk': `DEAL#${dealId}`,
-          ':sk': 'PRODUCT#',
-        },
-      }),
-    );
-
-    return (result.Items || []).map((i) => this.toProduct(i));
+  /** Every line of a deal; `consistent` for a read right after a line write (repricing). */
+  async findByDeal(dealId: string, opts: { consistent?: boolean } = {}): Promise<DealProduct[]> {
+    const lines: DealProduct[] = [];
+    let lastKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+          ExpressionAttributeValues: {
+            ':pk': `DEAL#${dealId}`,
+            ':sk': 'PRODUCT#',
+          },
+          ExclusiveStartKey: lastKey,
+          ...(opts.consistent && { ConsistentRead: true }),
+        }),
+      );
+      lines.push(...(result.Items || []).map((i) => this.toProduct(i)));
+      lastKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (lastKey);
+    return lines;
   }
 
   /** Number of line items on a deal (drives `Deal.itemCount`). */
