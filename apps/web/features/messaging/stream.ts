@@ -1,4 +1,5 @@
-import { openSseStream, type SseStreamOptions, type StreamHandle } from "@/lib/sse-stream";
+import type { SseStreamOptions, StreamHandle } from "@/lib/sse-stream";
+import { openSharedSseStream } from "@/lib/shared-sse-stream";
 import type { MessagingRealtimeEvent } from "./api";
 
 const EVENT_TYPES = new Set<MessagingRealtimeEvent["type"]>([
@@ -28,7 +29,7 @@ export function parseRealtimeFrame(data: string): MessagingRealtimeEvent | null 
 export type StreamOptions = Omit<SseStreamOptions<MessagingRealtimeEvent>, "parse">;
 export type { StreamHandle };
 
-/** The inbox stream (design §7.6): `openSseStream` over the messaging frames. */
+/** The inbox stream (design §7.6), shared by every tab of the browser. */
 export function openMessagingStream(opts: StreamOptions): StreamHandle {
-  return openSseStream({ ...opts, parse: parseRealtimeFrame });
+  return openSharedSseStream("messaging", { ...opts, parse: parseRealtimeFrame });
 }
