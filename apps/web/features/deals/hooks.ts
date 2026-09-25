@@ -24,10 +24,11 @@ import { SEND_TO_TECH_CHANNEL_LABEL } from "./lib";
 import type { CreateDealValues, UpdateDealValues, AddProductValues } from "./schemas";
 import type { DealCountsParams, DealsListParams } from "./query-params";
 import { windowRequests, type DealsWindow } from "./window";
+import { useDealsStreamStore } from "./stream-store";
 
 /* ------------------------------------------------------------- queries */
 
-/** Dispatch board polls so the map stays live (story 4.01). */
+/** Dispatch board polls so the map stays live (story 4.01) — while the live stream is down. */
 export const DEALS_POLL_MS = 30_000;
 
 /**
@@ -36,6 +37,7 @@ export const DEALS_POLL_MS = 30_000;
  * drained and merged — a deal reached from two of them is kept once.
  */
 export function useDealsWindow(window: DealsWindow, options: { poll?: boolean; enabled?: boolean } = {}) {
+  const live = useDealsStreamStore((s) => s.connected);
   return useQuery({
     queryKey: queryKeys.deals.window(window),
     queryFn: async () => {
@@ -49,7 +51,7 @@ export function useDealsWindow(window: DealsWindow, options: { poll?: boolean; e
       }
       return out;
     },
-    refetchInterval: options.poll ? DEALS_POLL_MS : false,
+    refetchInterval: options.poll && !live ? DEALS_POLL_MS : false,
     enabled: options.enabled ?? true,
   });
 }
