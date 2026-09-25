@@ -104,10 +104,11 @@ export class DealsController {
     description:
       '**Guard:** `deals.view` permission required. DataScope enforced. Takes the Jobs report\'s query: exactly one ' +
       'window (`createdFrom/To`, `closedFrom/To` up to 92 days, or `scheduledFrom/To` up to 31) plus its filters, ' +
-      'and answers `DealStats`: counts per super-status over every job in the window; money (revenue, tax, cost, ' +
-      'profit, average sale and per day) and the day series and breakdowns (by tech, creator, job type, source, ' +
-      'service area) over the jobs not canceled. A job shared by techs splits its revenue between them equally. ' +
-      'Every amount is left out without `financials.view`.',
+      'and answers `DealStats` the Workiz Job Statistics way: counts per super-status; money (revenue, tax, cost, ' +
+      'profit = revenue − tax − cost, average sale and profit, per day) over the Done jobs only; a day series ' +
+      '(jobs, canceled, sales, profit) and breakdowns by tech, creator, job type, source, service area, city and ' +
+      'zip, each with all / done / open / canceled and its sales and profit. A job shared by techs counts for each ' +
+      'and splits its money equally. Every amount is left out without `financials.view`.',
   })
   async stats(
     @Query() query: ListDealsQueryDto,

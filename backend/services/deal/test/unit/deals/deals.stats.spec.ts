@@ -19,11 +19,11 @@ describe('DealsService.stats', () => {
     const repo = createMockDealsRepository();
     repo.findByCreated
       .mockResolvedValueOnce({
-        items: [createMockDeal({ id: 'a', createdAt: '2026-09-01T10:00:00.000Z', totals: money(10) })],
+        items: [createMockDeal({ id: 'a', superStatus: JobSuperStatus.DONE, createdAt: '2026-09-01T10:00:00.000Z', totals: money(10) })],
         nextCursor: 'next',
       })
       .mockResolvedValueOnce({
-        items: [createMockDeal({ id: 'b', createdAt: '2026-09-02T10:00:00.000Z', totals: money(5) })],
+        items: [createMockDeal({ id: 'b', superStatus: JobSuperStatus.DONE, createdAt: '2026-09-02T10:00:00.000Z', totals: money(5) })],
       });
 
     const stats = await serviceWith(repo).stats(
@@ -48,7 +48,7 @@ describe('DealsService.stats', () => {
     });
     const stats = await serviceWith(repo).stats({ closedFrom: '2026-09-03' } as any, caller, 'all', { money: false });
     expect(stats.window).toEqual({ by: 'closed', from: '2026-09-03', to: '2026-09-03' });
-    expect(stats.series).toEqual([{ date: '2026-09-03', jobs: 1 }]);
+    expect(stats.series).toEqual([{ date: '2026-09-03', jobs: 1, canceled: 0 }]);
   });
 
   it('keeps an assigned-only caller to their own jobs', async () => {

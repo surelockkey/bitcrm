@@ -3,21 +3,29 @@ import type { JobSuperStatus } from '../enums/deal-stage.enum';
 /** The date a stats window is on — the same "By:" as the Jobs report. */
 export type DealStatsBy = 'created' | 'closed' | 'scheduled';
 
-/** One group of a breakdown (a tech, a creator, a job type…); `key` "" = none set. */
+/** One group of a breakdown (a tech, a source, a zip…); `key` "" = none set. */
 export interface DealStatsBucket {
   key: string;
-  jobs: number;
-  /** Absent without `financials.view`. */
+  all: number;
+  done: number;
+  /** Neither done nor canceled. */
+  open: number;
+  canceled: number;
+  /** Sales of the group's Done jobs; absent without `financials.view`. */
   revenue?: number;
+  profit?: number;
 }
 
 export interface DealStatsDay {
   date: string;
+  /** Jobs on the day that were not canceled. */
   jobs: number;
+  canceled: number;
   revenue?: number;
+  profit?: number;
 }
 
-/** Money over the window's jobs that were not canceled. */
+/** Money over the window's Done jobs — what Workiz counts as sold. */
 export interface DealStatsMoney {
   /** Σ what the client is billed (tax included). */
   revenue: number;
@@ -26,17 +34,18 @@ export interface DealStatsMoney {
   cost: number;
   /** revenue − tax − cost, as commissions count it. */
   profit: number;
-  /** revenue ÷ jobs that brought money. */
+  /** revenue ÷ Done jobs. */
   avgSale: number;
+  /** profit ÷ Done jobs. */
+  avgProfit: number;
   /** revenue ÷ days in the window. */
   avgPerDay: number;
-  pricedJobs: number;
+  doneJobs: number;
 }
 
 /**
  * `GET /deals/stats` — a period at a glance (the dashboard, Job Statistics).
- * Counts cover every job in the window; the breakdowns and the money leave
- * canceled jobs out.
+ * Counts cover every job in the window; the money is its Done jobs'.
  */
 export interface DealStats {
   window: { by: DealStatsBy; from: string; to: string };
@@ -48,4 +57,6 @@ export interface DealStats {
   byJobType: DealStatsBucket[];
   bySource: DealStatsBucket[];
   byServiceArea: DealStatsBucket[];
+  byCity: DealStatsBucket[];
+  byZip: DealStatsBucket[];
 }
