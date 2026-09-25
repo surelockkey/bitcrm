@@ -88,6 +88,22 @@ export class ContactsController {
     return { success: true, data };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('contacts', 'view')
+  @ApiOperation({
+    summary: 'How many contacts the list holds',
+    description:
+      '**Guard:** `contacts.view` permission required. Takes the same filters as the list ' +
+      '(`companyId`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the ' +
+      'row count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling, which ' +
+      'the panel renders as `7+`. Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListContactsQueryDto) {
+    const data = await this.contactsService.count(query);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('contacts', 'view')
   @ApiOperation({

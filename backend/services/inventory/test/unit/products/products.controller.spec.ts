@@ -15,6 +15,7 @@ describe('ProductsController', () => {
     service = {
       create: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       findAll: jest.fn(),
       findById: jest.fn(),
       findBySku: jest.fn(),
@@ -212,6 +213,26 @@ describe('ProductsController', () => {
       await expect(controller.findByIdInternal('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 47, atLeast: false });
+
+      expect(await controller.count({} as never)).toEqual({
+        success: true,
+        data: { total: 47, atLeast: false },
+      });
+    });
+
+    it('passes the list filters through, so the number matches the rows', async () => {
+      service.count.mockResolvedValue({ total: 9, atLeast: false });
+      const query = { category: 'locks', status: 'active' };
+
+      await controller.count(query as never);
+
+      expect(service.count).toHaveBeenCalledWith(query);
     });
   });
 });

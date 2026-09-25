@@ -44,6 +44,21 @@ export class TransfersController {
     };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('transfers', 'view')
+  @ApiOperation({
+    summary: 'How many transfers the list holds',
+    description:
+      '**Guard:** `transfers.view` permission required. Answers `{ total, atLeast }` — the row ' +
+      'count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling and the real ' +
+      'number is higher, which the panel renders as `7+`. Cached for thirty seconds.',
+  })
+  async count() {
+    const data = await this.transfersService.count();
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('transfers', 'view')
   @ApiOperation({ summary: 'Get transfer by ID', description: '**Guard:** `transfers.view` permission required.' })

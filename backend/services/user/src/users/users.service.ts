@@ -15,6 +15,9 @@ import {
   BusinessMetricsService,
   normalizePhone,
   tryNormalizePhone,
+  RedisService,
+  cachedCount,
+  countCacheKey,
 } from '@bitcrm/shared';
 import {
   type User,
@@ -27,6 +30,7 @@ import {
   TECHNICIAN_ROLE_ID,
   UserEventType,
   UserStatus,
+  type ListCount,
 } from '@bitcrm/types';
 import { UsersRepository } from './users.repository';
 import { UsersCacheService } from './users-cache.service';
@@ -79,6 +83,8 @@ function withoutUndefined<T extends object>(o: T): T {
   ) as T;
 }
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
 @Injectable()
 export class UsersService implements OnModuleInit {
   private readonly logger = new Logger(UsersService.name);
@@ -97,6 +103,7 @@ export class UsersService implements OnModuleInit {
     @Optional() private readonly commissionRepository?: CommissionRepository,
     @Optional()
     private readonly assignmentsRepository?: TechnicianAssignmentsRepository,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
@@ -405,6 +412,37 @@ export class UsersService implements OnModuleInit {
 
   async findCurrentUser(caller: JwtUser): Promise<User> {
     return this.findById(caller.id);
+  }
+
+  /**
+   * How many users the list holds — the number behind "Page 2 of 7".
+   *
+   * It branches exactly as `list` does. The role branch needs no count at all:
+   * `findByRoleId` already returns the whole role, so its length is the answer
+   * and an index walk would be waste.
+   */
+  async count(query: ListUsersQueryDto): Promise<ListCount> {
+    const take = async (): Promise<ListCount> => {
+      if (query.roleId) {
+        const items = await this.repository.findByRoleId(query.roleId);
+        return { total: items.length, atLeast: false };
+      }
+      if (query.department) return this.repository.countByDepartment(query.department);
+      if (query.status) return this.repository.countByStatus(query.status);
+      return this.repository.countAll();
+    };
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('users', {
+        roleId: query.roleId,
+        department: query.department,
+        status: query.status,
+      }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async list(query: ListUsersQueryDto) {

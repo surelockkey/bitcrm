@@ -151,5 +151,32 @@ describe('ContainersRepository.findAll', () => {
     expect(result.items.map((c) => c.id)).toEqual(['v1', 'v2']);
     expect(result.nextCursor).toBeUndefined();
   });
-});
 
+  describe('countAll', () => {
+    it('counts without pulling item bodies back', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 12 });
+
+      expect(await repository.countAll()).toEqual({ total: 12, atLeast: false });
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Select).toBe('COUNT');
+    });
+
+    it('counts under the same department filter the list uses', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 3 });
+
+      await repository.countAll({ department: 'locksmith' });
+
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.FilterExpression).toContain('#department = :dept');
+      expect(sent.input.ExpressionAttributeValues[':dept']).toBe('locksmith');
+    });
+
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      expect((await repository.countAll()).atLeast).toBe(true);
+    });
+  });
+});

@@ -6,8 +6,13 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { CALL_TAG_LIMITS, CallEventType } from '@bitcrm/types';
+import {
+  SnsPublisherService, BusinessMetricsService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
+import { CALL_TAG_LIMITS, CallEventType, type ListCount } from '@bitcrm/types';
 import {
   CallsRepository,
   CallTagsConflictError,
@@ -106,6 +111,9 @@ export function isTerminalStatus(status?: CallStatus): boolean {
 /** A partial lifecycle update; callSid is the only required field. */
 export type LifecycleUpdate = Partial<CallRecord> & { callSid: string };
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class CallsService {
   private readonly logger = new Logger(CallsService.name);
@@ -127,6 +135,7 @@ export class CallsService {
      */
     private readonly callTags?: CallTagsService,
     @Optional() private readonly callFlows?: CallFlowsService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
@@ -521,6 +530,23 @@ export class CallsService {
     limit: number,
   ) {
     return this.repo.list(filter, cursor, limit);
+  }
+
+  /**
+   * How many calls the filter selects — the number behind "Page 2 of 7".
+   *
+   * Behind a short cache, and it earns it more than any other list: the log is
+   * the biggest table in the app, and a dispatcher changes filters constantly.
+   */
+  async count(filter: Parameters<CallsRepository['count']>[0]): Promise<ListCount> {
+    const take = () => this.repo.count(filter);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('calls', { ...filter }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   /**

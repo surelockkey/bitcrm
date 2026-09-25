@@ -191,6 +191,22 @@ export class UsersController {
     return { success: true, data };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get("count")
+  @RequirePermission("users", "view")
+  @ApiOperation({
+    summary: "How many users the list holds",
+    description:
+      "**Guard:** `users.view` permission required. Takes the same filters as the list " +
+      "(`roleId`, `department`, `status`; `cursor` and `limit` are ignored) and answers " +
+      "`{ total, atLeast }` — the row count behind \"Page 2 of 7\". `atLeast` means the walk " +
+      "stopped on a ceiling, which the panel renders as `7+`. Cached for thirty seconds.",
+  })
+  async count(@Query() query: ListUsersQueryDto) {
+    const data = await this.usersService.count(query);
+    return { success: true, data };
+  }
+
   @Get(":id")
   @RequirePermission("users", "view")
   @ApiOperation({

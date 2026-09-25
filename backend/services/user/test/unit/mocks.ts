@@ -60,6 +60,9 @@ export function createMockUpdateUserDto(
 
 export function createMockUsersRepository() {
   return {
+    countAll: jest.fn(),
+    countByStatus: jest.fn(),
+    countByDepartment: jest.fn(),
     create: jest.fn(),
     findById: jest.fn(),
     findByRole: jest.fn(),

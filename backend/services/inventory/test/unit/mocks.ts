@@ -87,13 +87,13 @@ export function createMockCreateTransferDto(overrides?: Partial<CreateTransferDt
 
 // Service/Repository mocks
 export function createMockProductsRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn(), countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn() };
 }
 
 export function createMockProductsService() {
   return {
     create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(),
-    findAll: jest.fn(), list: jest.fn(), update: jest.fn(), archive: jest.fn(),
+    findAll: jest.fn(), list: jest.fn(), count: jest.fn(), update: jest.fn(), archive: jest.fn(),
     reactivate: jest.fn(), assertStockable: jest.fn().mockResolvedValue(undefined),
     isStockManaged: jest.fn().mockResolvedValue(true),
     // Default: every item is stock-managed, as it is for products BitCRM wrote.
@@ -119,11 +119,11 @@ export function createMockWarehousesRepository() {
 }
 
 export function createMockContainersRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findByTechnicianId: jest.fn(), findAll: jest.fn(), update: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findByTechnicianId: jest.fn(), findAll: jest.fn(), update: jest.fn() , countAll: jest.fn()};
 }
 
 export function createMockTransfersRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findByEntity: jest.fn(), findAll: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findByEntity: jest.fn(), findAll: jest.fn(), countAll: jest.fn() };
 }
 
 export function createMockStockRepository() {

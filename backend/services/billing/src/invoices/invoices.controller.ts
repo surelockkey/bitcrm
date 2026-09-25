@@ -52,6 +52,22 @@ export class InvoicesController {
     return { success: true, data };
   }
 
+  @Get('count')
+  @RequirePermission('invoices', 'view')
+  @ApiOperation({
+    summary: 'How many invoices the list holds',
+    description:
+      '**Guard:** `invoices.view`. Takes the same filters as the list (`contactId`, `dealId`, ' +
+      '`status`, `from`/`to`, `unsent`; `cursor` and `limit` are ignored) and answers ' +
+      '`{ total, atLeast }` — the row count behind "Page 2 of 7". Under the `assigned_only` ' +
+      'scope `total` is `null`: that page is filtered after the query, so no index walk ' +
+      'answers it and the panel drops the "of N". Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListInvoicesQueryDto, @CallerCtx() caller: Caller) {
+    const data = await this.invoices.count(query, caller);
+    return { success: true, data };
+  }
+
   @Get('summary')
   @RequirePermission('invoices', 'view')
   @ApiOperation({ summary: 'Invoice totals by status', description: '**Guard:** `invoices.view`.' })

@@ -5,7 +5,11 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import {
   type TechnicianProfile,
   type TechnicianProfileStatus,
@@ -120,6 +124,47 @@ export class TechniciansRepository {
       items: (result.Items || []).map(this.toProfile),
       nextCursor: this.encodeCursor(result.LastEvaluatedKey),
     };
+  }
+
+  /**
+   * How many technicians the list holds — the number behind "Page 2 of 7".
+   *
+   * A Query on the technician index with `Select: 'COUNT'`: the key already
+   * selects the rows, so nothing is filtered after the read and no bodies come
+   * back. This is the cheap end of counting.
+   */
+  async countAll(): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: TECHNICIANS_TABLE,
+          IndexName: GSI3_NAME,
+          KeyConditionExpression: 'GSI3PK = :pk',
+          ExpressionAttributeValues: { ':pk': TECHNICIAN_GSI_PK },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  /** The same count under the list's status filter, still key-only. */
+  async countByStatus(status: TechnicianProfileStatus): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: TECHNICIANS_TABLE,
+          IndexName: GSI3_NAME,
+          KeyConditionExpression: 'GSI3PK = :pk AND begins_with(GSI3SK, :sk)',
+          ExpressionAttributeValues: {
+            ':pk': TECHNICIAN_GSI_PK,
+            ':sk': `${status}#`,
+          },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   async listByStatus(

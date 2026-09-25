@@ -48,4 +48,35 @@ describe('TransfersRepository.findAll', () => {
       SK: 'METADATA',
     });
   });
+
+  /**
+   * Скільки всього трансферів — число для «Page 2 of 7». Той самий Scan, що
+   * й у списку, але без тіл рядків і з обмеженим проходом: таблиця інвентарю
+   * спільна, і більшість прочитаного — не трансфери.
+   */
+  describe('countAll', () => {
+    it('counts without pulling item bodies back', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 18 });
+
+      expect(await repository.countAll()).toEqual({ total: 18, atLeast: false });
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Select).toBe('COUNT');
+    });
+
+    it('sums across the walk', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Count: 10, LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Count: 8 });
+
+      expect(await repository.countAll()).toEqual({ total: 18, atLeast: false });
+    });
+
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      expect((await repository.countAll()).atLeast).toBe(true);
+    });
+  });
 });

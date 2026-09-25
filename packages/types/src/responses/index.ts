@@ -1,1 +1,1 @@
-export { ApiResponse, PaginatedResponse } from './api-response';
+export { ApiResponse, PaginatedResponse, ListCount } from './api-response';

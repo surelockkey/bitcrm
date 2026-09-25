@@ -1,3 +1,4 @@
+import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
 import {
   BadRequestException,
   ConflictException,
@@ -18,6 +19,7 @@ import {
   type Invoice,
   type InvoiceStatus,
   type InvoiceView,
+  type ListCount,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
@@ -103,6 +105,9 @@ const sameTotals = (a: DocumentTotals | undefined, b: DocumentTotals) => !!a && 
  * items / tax / discount ARE the job's — the invoice stores only its own
  * fields plus a totals + status snapshot for lists.
  */
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name);
@@ -114,6 +119,7 @@ export class InvoicesService {
     private readonly profiles: BusinessProfileService,
     @Optional() private readonly documents?: DocumentsService,
     @Optional() private readonly events?: BillingEventsPublisher,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   // ---------------------------------------------------------------- create
@@ -227,6 +233,43 @@ export class InvoicesService {
       result = { ...result, items: result.items.filter((i) => mine.has(i.dealId)) };
     }
     return result;
+  }
+
+  /**
+   * How many invoices the filter selects — the number behind "Page 2 of 7".
+   *
+   * A technician scoped to their own jobs gets `null`, not a number: their
+   * page is filtered after the query, so no index walk can answer it, and a
+   * count of everyone's invoices would be a lie on their screen. The panel
+   * then shows "Page 2" and drops the "of N".
+   */
+  async count(
+    query: Omit<InvoiceListFilter, 'limit'> & { dealId?: string },
+    caller: Caller,
+  ): Promise<ListCount> {
+    if (isAssignedOnly(caller, 'invoices')) return { total: null, atLeast: false };
+
+    // One invoice per job: asking about a job is asking whether it has one.
+    if (query.dealId) {
+      const one = await this.repo.get(query.dealId);
+      const matches = one && (!query.status || one.status === query.status);
+      return { total: matches ? 1 : 0, atLeast: false };
+    }
+
+    const take = () => this.repo.count({ ...query, limit: 1 } as InvoiceListFilter);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('invoices', {
+        contactId: query.contactId,
+        status: query.status,
+        from: query.from,
+        to: query.to,
+        unsent: query.unsent,
+      }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async summary(caller: Caller, authorization?: string): Promise<InvoiceSummary> {

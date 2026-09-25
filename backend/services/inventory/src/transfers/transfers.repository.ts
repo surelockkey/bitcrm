@@ -5,7 +5,12 @@ import {
   QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService, scanPage } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { type Transfer } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -147,6 +152,27 @@ export class TransfersRepository {
       items: page.items.map(this.toTransfer),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * How many transfers the list holds — the number behind "Page 2 of 7".
+   *
+   * The same Scan the list runs, with `Select: 'COUNT'` so no bodies travel,
+   * and bounded: the inventory table is shared, so most of what this reads is
+   * not a transfer.
+   */
+  async countAll(): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: INVENTORY_TABLE,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+          ExpressionAttributeValues: { ':pk': 'TRANSFER#', ':sk': 'METADATA' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   private toTransfer(item: Record<string, unknown>): Transfer {
