@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { DashboardPage as Dashboard } from "@/features/dashboard/components/dashboard-page";
+import { PagePlaceholder } from "@/components/shell/page-placeholder";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { TECHNICIAN_HOME } from "@/lib/nav/nav-config";
 
@@ -29,6 +29,10 @@ export default function DashboardPage() {
     );
   }
 
-  // The day the periods end on — UTC, as the Jobs report counts it.
-  return <Dashboard today={new Date().toISOString().slice(0, 10)} />;
+  return (
+    <PagePlaceholder
+      title="Dashboard"
+      description="Your overview and key metrics will appear here."
+    />
+  );
 }
