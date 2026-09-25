@@ -349,4 +349,46 @@ describe('UsersRepository', () => {
       expect(input.UpdateExpression).not.toContain('GSI2PK');
     });
   });
+
+  /**
+   * Скільки всього користувачів — число для «Page 2 of 7».
+   *
+   * Таблиця користувачів спільна: типи робіт техніка, зони, комісії та профіль
+   * лежать поруч із самими записами, тому після імпорту Workiz у ній було
+   * 6787 рядків на 585 користувачів. Прохід обмежений саме через це.
+   */
+  describe('countAll / countByStatus / countByDepartment', () => {
+    it('counts users without pulling bodies back', async () => {
+      dbClient.send.mockResolvedValue({ Count: 585 });
+
+      expect(await repository.countAll()).toEqual({ total: 585, atLeast: false });
+      expect(dbClient.send.mock.calls[0][0].input.Select).toBe('COUNT');
+    });
+
+    it('counts under the list’s status filter', async () => {
+      dbClient.send.mockResolvedValue({ Count: 12 });
+
+      await repository.countByStatus(UserStatus.ACTIVE);
+
+      const sent = dbClient.send.mock.calls[0][0];
+      expect(sent.input.FilterExpression).toContain('#status = :status');
+      expect(sent.input.ExpressionAttributeValues[':status']).toBe(UserStatus.ACTIVE);
+    });
+
+    it('counts a department on the department index', async () => {
+      dbClient.send.mockResolvedValue({ Count: 4 });
+
+      expect(await repository.countByDepartment('HQ')).toEqual({ total: 4, atLeast: false });
+      expect(dbClient.send.mock.calls[0][0].input.ExpressionAttributeValues[':pk']).toBe('DEPT#HQ');
+    });
+
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dbClient.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      expect((await repository.countAll()).atLeast).toBe(true);
+    });
+  });
 });

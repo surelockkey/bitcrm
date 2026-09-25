@@ -13,6 +13,9 @@ import {
   GeocodingService,
   S3Service,
   formatAddress,
+  RedisService,
+  cachedCount,
+  countCacheKey,
 } from '@bitcrm/shared';
 import {
   type JwtUser,
@@ -20,6 +23,7 @@ import {
   type TechnicianHomeAddress,
   type OnboardingStatus,
   UserEventType,
+  type ListCount,
 } from '@bitcrm/types';
 import { TechniciansRepository } from './technicians.repository';
 import { TechniciansCacheService } from './technicians-cache.service';
@@ -41,6 +45,9 @@ const USER_EVENTS_TOPIC = 'user-events';
  */
 const PHOTO_URL_TTL_SECONDS = 3600;
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class TechniciansService {
   private readonly logger = new Logger(TechniciansService.name);
@@ -58,6 +65,7 @@ export class TechniciansService {
     @Optional() private readonly commissionRepository?: CommissionRepository,
     @Optional() private readonly documentsRepository?: DocumentsRepository,
     @Optional() private readonly s3?: S3Service,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async getProfile(id: string, caller: JwtUser): Promise<TechnicianProfile> {
@@ -271,6 +279,32 @@ export class TechniciansService {
       : false;
 
     return deriveOnboardingStatus(profile, { assignmentsApproved, commissionSet });
+  }
+
+  /**
+   * How many technicians the list holds — the number behind "Page 2 of 7".
+   * Same permission gate as the list: a count is a fact about the roster, and
+   * a field technician may not have it either.
+   */
+  async count(query: ListTechniciansQueryDto, caller: JwtUser): Promise<ListCount> {
+    if (!(await this.isPrivilegedCaller(caller))) {
+      throw new ForbiddenException(
+        'You do not have permission to list technicians',
+      );
+    }
+
+    const take = () =>
+      query.status
+        ? this.repository.countByStatus(query.status)
+        : this.repository.countAll();
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('technicians', { status: query.status }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async list(query: ListTechniciansQueryDto, caller: JwtUser) {

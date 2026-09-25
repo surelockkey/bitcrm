@@ -7,7 +7,12 @@ import {
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService, scanPage } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { type User, UserStatus } from '@bitcrm/types';
 import { USERS_TABLE, GSI1_NAME, GSI2_NAME } from './constants/dynamo.constants';
 
@@ -159,6 +164,64 @@ export class UsersRepository {
       items: page.items.map(this.toUser),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * How many users the list holds — the number behind "Page 2 of 7".
+   *
+   * `Select: 'COUNT'` keeps the bodies off the wire, and the walk is bounded:
+   * this is a Scan over a table where a technician's job types, service areas,
+   * commission rows and profile all sit beside the user records, so counting
+   * without a ceiling would read the lot on every page load.
+   */
+  async countAll(): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: USERS_TABLE,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+          ExpressionAttributeValues: { ':pk': 'USER#', ':sk': 'METADATA' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  /** The same count under the list's status filter. */
+  async countByStatus(status: UserStatus): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: USERS_TABLE,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+          ExpressionAttributeNames: { '#status': 'status' },
+          ExpressionAttributeValues: {
+            ':pk': 'USER#',
+            ':sk': 'METADATA',
+            ':status': status,
+          },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  /** One department, on the department index — a Query, so the cheap end. */
+  async countByDepartment(department: string): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: USERS_TABLE,
+          IndexName: GSI2_NAME,
+          KeyConditionExpression: 'GSI2PK = :pk',
+          ExpressionAttributeValues: { ':pk': `DEPT#${department}` },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   async findByStatus(
