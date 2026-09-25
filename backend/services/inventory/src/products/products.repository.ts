@@ -10,7 +10,7 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
-import { DynamoDbService, scanPage } from '@bitcrm/shared';
+import { DynamoDbService, scanPage, countRows, type CountRowsResult } from '@bitcrm/shared';
 import { type Product, ProductType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -177,29 +177,39 @@ export class ProductsRepository {
     };
   }
 
+  /**
+   * The Scan that selects products, shared by the list and its count so the
+   * two can never answer about different populations.
+   */
+  private listFilter(filters?: { status?: string; search?: string }) {
+    let expression = 'begins_with(PK, :pk) AND SK = :sk';
+    const values: Record<string, unknown> = {
+      ':pk': 'PRODUCT#',
+      ':sk': 'METADATA',
+    };
+    const names: Record<string, string> = {};
+
+    if (filters?.status) {
+      expression += ' AND #status = :status';
+      names['#status'] = 'status';
+      values[':status'] = filters.status;
+    }
+
+    if (filters?.search) {
+      expression += ' AND (contains(#name, :search) OR contains(sku, :search))';
+      names['#name'] = 'name';
+      values[':search'] = filters.search;
+    }
+
+    return { expression, values, names };
+  }
+
   async findAll(
     limit: number,
     cursor?: string,
     filters?: { status?: string; search?: string },
   ): Promise<PaginatedResult> {
-    let filterExpression = 'begins_with(PK, :pk) AND SK = :sk';
-    const expressionValues: Record<string, unknown> = {
-      ':pk': 'PRODUCT#',
-      ':sk': 'METADATA',
-    };
-    const expressionNames: Record<string, string> = {};
-
-    if (filters?.status) {
-      filterExpression += ' AND #status = :status';
-      expressionNames['#status'] = 'status';
-      expressionValues[':status'] = filters.status;
-    }
-
-    if (filters?.search) {
-      filterExpression += ' AND (contains(#name, :search) OR contains(sku, :search))';
-      expressionNames['#name'] = 'name';
-      expressionValues[':search'] = filters.search;
-    }
+    const f = this.listFilter(filters);
 
     // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
     // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
@@ -212,10 +222,10 @@ export class ProductsRepository {
         this.dynamoDb.client.send(
           new ScanCommand({
             TableName: INVENTORY_TABLE,
-            FilterExpression: filterExpression,
-            ExpressionAttributeValues: expressionValues,
-            ...(Object.keys(expressionNames).length > 0 && {
-              ExpressionAttributeNames: expressionNames,
+            FilterExpression: f.expression,
+            ExpressionAttributeValues: f.values,
+            ...(Object.keys(f.names).length > 0 && {
+              ExpressionAttributeNames: f.names,
             }),
             ...input,
           }),
@@ -228,6 +238,59 @@ export class ProductsRepository {
       items: page.items.map(this.toProduct),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * How many products the list holds — the number behind "Page 2 of 7".
+   *
+   * `Select: 'COUNT'` keeps the bodies off the wire, and `countRows` bounds
+   * the walk: this is a Scan over a table where most rows are not products, so
+   * an unbounded count would read all of it on every filter change.
+   */
+  /**
+   * A count over one index partition. No Scan and no filter — the key already
+   * selects the rows — so this is the cheap end of counting.
+   */
+  private countOnIndex(indexName: string, keyAttr: string, pk: string): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          IndexName: indexName,
+          KeyConditionExpression: `${keyAttr} = :pk`,
+          ExpressionAttributeValues: { ':pk': pk },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  countByCategory(category: string): Promise<CountRowsResult> {
+    return this.countOnIndex(GSI1_NAME, 'GSI1PK', `CATEGORY#${category}`);
+  }
+
+  countByType(type: string): Promise<CountRowsResult> {
+    return this.countOnIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`);
+  }
+
+  async countAll(filters?: { status?: string; search?: string }): Promise<CountRowsResult> {
+    const f = this.listFilter(filters);
+
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: INVENTORY_TABLE,
+          FilterExpression: f.expression,
+          ExpressionAttributeValues: f.values,
+          ...(Object.keys(f.names).length > 0 && {
+            ExpressionAttributeNames: f.names,
+          }),
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   async update(id: string, attrs: Partial<Product>): Promise<Product> {

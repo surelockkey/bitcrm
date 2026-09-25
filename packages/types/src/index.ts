@@ -438,4 +438,4 @@ export {
 export { JwtUser } from './auth/jwt-user';
 
 // Responses
-export { ApiResponse, PaginatedResponse } from './responses/api-response';
+export { ApiResponse, PaginatedResponse, ListCount } from './responses/api-response';

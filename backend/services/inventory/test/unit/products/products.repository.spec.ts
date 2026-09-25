@@ -395,4 +395,81 @@ describe('ProductsRepository', () => {
       expect(product!.type).toBeUndefined();
     });
   });
+
+  /**
+   * Скільки всього товарів — число для «Page 2 of 7».
+   *
+   * Той самий фільтр, що й у списку, але `Select: 'COUNT'`: тіла рядків не
+   * їдуть по дроту. Прохід обмежений, бо таблиця інвентарю тримає не лише
+   * товари, і розріджений Scan міг би читати її всю.
+   */
+  describe('countAll', () => {
+    it('counts without pulling item bodies back', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 42, LastEvaluatedKey: undefined });
+
+      const result = await repository.countAll();
+
+      expect(result).toEqual({ total: 42, atLeast: false });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.Select).toBe('COUNT');
+    });
+
+    it('counts under the same filter the list uses', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 3 });
+
+      await repository.countAll({ status: 'active', search: 'lock' });
+
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.FilterExpression).toContain('#status = :status');
+      expect(sent.input.FilterExpression).toContain('contains(#name, :search)');
+      expect(sent.input.ExpressionAttributeValues[':status']).toBe('active');
+      expect(sent.input.ExpressionAttributeValues[':search']).toBe('lock');
+    });
+
+    it('sums across the walk', async () => {
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Count: 20, LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Count: 20, LastEvaluatedKey: { PK: 'X#2', SK: 'METADATA' } })
+        .mockResolvedValueOnce({ Count: 7 });
+
+      expect(await repository.countAll()).toEqual({ total: 47, atLeast: false });
+    });
+
+    // Розріджена таблиця не має права коштувати сторінці повного проходу.
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      const result = await repository.countAll();
+
+      expect(result.atLeast).toBe(true);
+      expect(dynamoDb.client.send.mock.calls.length).toBeLessThanOrEqual(20);
+    });
+  });
+
+  /**
+   * Категорія і тип — це Query по індексу з постійним ключем, тому їхній
+   * лічильник дешевий: жодного Scan, самі ключі.
+   */
+  describe('countByCategory / countByType', () => {
+    it('counts a category on the category index', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 9 });
+
+      expect(await repository.countByCategory('locks')).toEqual({ total: 9, atLeast: false });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.Select).toBe('COUNT');
+      expect(sent.input.ExpressionAttributeValues[':pk']).toBe('CATEGORY#locks');
+    });
+
+    it('counts a type on the type index', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 4 });
+
+      expect(await repository.countByType('part')).toEqual({ total: 4, atLeast: false });
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.Select).toBe('COUNT');
+      expect(sent.input.ExpressionAttributeValues[':pk']).toBe('TYPE#part');
+    });
+  });
 });

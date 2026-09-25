@@ -2,6 +2,8 @@
 export { DynamoDbModule } from './dynamodb/dynamodb.module';
 export { DynamoDbService } from './dynamodb/dynamodb.service';
 export { scanPage } from './dynamodb/scan-page';
+export { countRows } from './dynamodb/count-rows';
+export { cachedCount, countCacheKey } from './dynamodb/count-cache';
 export { compressionMiddleware, shouldCompress, COMPRESSION_THRESHOLD } from './http/compression';
 export type {
   ScanPageOptions,
@@ -9,6 +11,13 @@ export type {
   ScanReadInput,
   ScanReadOutput,
 } from './dynamodb/scan-page';
+export type {
+  CountReadInput,
+  CountReadOutput,
+  CountRowsOptions,
+  CountRowsResult,
+} from './dynamodb/count-rows';
+export type { CountCacheClient } from './dynamodb/count-cache';
 
 // Redis
 export { RedisModule } from './redis/redis.module';
