@@ -12,6 +12,7 @@ import type {
   DocumentType,
   User,
   PaginatedResponse,
+  ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
@@ -92,6 +93,14 @@ export function listTechnicians(
   if (status) q.set("status", status);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<TechnicianProfile>(`${BASE}?${q}`);
+}
+
+/** Скільки техніків під цим фільтром — число для «Page 2 of 7». */
+export function countTechnicians(status?: string): Promise<ListCount> {
+  const q = new URLSearchParams();
+  if (status) q.set("status", status);
+  const s = q.toString();
+  return http.get<ListCount>(`${BASE}/count${s ? `?${s}` : ""}`);
 }
 
 export function getProfile(id: string): Promise<TechnicianProfile> {

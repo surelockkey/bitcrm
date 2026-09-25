@@ -23,6 +23,19 @@ import type {
 
 /* ---- Queries ---- */
 
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useTechniciansCount(status?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.technicians.count(status ?? "all"),
+    queryFn: () => api.countTechnicians(status),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
 export function useTechnicians(status?: string, enabled = true, limit = 100) {
   return useInfiniteQuery({
     queryKey: queryKeys.technicians.list(`${status ?? "all"}:${limit}`),

@@ -43,6 +43,14 @@ describe("ListPagination", () => {
     expect(screen.getByText("Showing 1–50")).toBeInTheDocument();
   });
 
+  // Сервер відповів, що числа для цього викликача немає, — це не те саме, що
+  // «не питали», але на екрані виглядає однаково: без «of N».
+  it("says only what it knows when the server could not count", () => {
+    render(<ListPagination pager={pager({ total: null })} size={50} onSizeChange={noop} />);
+
+    expect(screen.getByText("Showing 1–50")).toBeInTheDocument();
+  });
+
   it("marks a total that is only a floor", () => {
     render(
       <ListPagination
@@ -134,5 +142,73 @@ describe("ListPagination", () => {
     );
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  /**
+   * «Page 2 of 7». Номери-кнопки показують лише досяжні сторінки — пройдені
+   * плюс наступну за курсором — тож із них не видно, скільки їх усього. Саме
+   * це число тут і стоїть.
+   */
+  describe("how many pages there are", () => {
+    it("says which page of how many", () => {
+      render(
+        <ListPagination
+          pager={pager({ page: 2, totalPages: 7, totalPagesIsFloor: false })}
+          size={50}
+          onSizeChange={noop}
+        />,
+      );
+
+      expect(screen.getByText("Page 2 of 7")).toBeInTheDocument();
+    });
+
+    it("marks a page count that is only a floor", () => {
+      render(
+        <ListPagination
+          pager={pager({ page: 1, totalPages: 200, totalPagesIsFloor: true })}
+          size={50}
+          onSizeChange={noop}
+        />,
+      );
+
+      expect(screen.getByText("Page 1 of 200+")).toBeInTheDocument();
+    });
+
+    it("thousands are grouped, as the row count is", () => {
+      render(
+        <ListPagination
+          pager={pager({ page: 1, totalPages: 1234 })}
+          size={50}
+          onSizeChange={noop}
+        />,
+      );
+
+      expect(screen.getByText("Page 1 of 1,234")).toBeInTheDocument();
+    });
+
+    // Технік на інвойсах: сервер сказав, що числа для нього немає.
+    it("says which page it is on even when the total is unknown", () => {
+      render(
+        <ListPagination
+          pager={pager({ page: 3, totalPages: undefined })}
+          size={50}
+          onSizeChange={noop}
+        />,
+      );
+
+      expect(screen.getByText("Page 3")).toBeInTheDocument();
+    });
+
+    it("says nothing about pages when there is only one", () => {
+      render(
+        <ListPagination
+          pager={pager({ page: 1, totalPages: 1, window: [1], canNext: false })}
+          size={50}
+          onSizeChange={noop}
+        />,
+      );
+
+      expect(screen.queryByText(/^Page 1/)).not.toBeInTheDocument();
+    });
   });
 });

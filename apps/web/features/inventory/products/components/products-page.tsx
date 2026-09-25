@@ -28,7 +28,7 @@ import { InventoryStatus, ProductType } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useProducts } from "../hooks";
+import { useProducts, useProductsCount } from "../hooks";
 import * as api from "../api";
 import { collectCategories, productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
@@ -63,7 +63,11 @@ export function ProductsPage() {
 
   const [pageSize, setPageSize] = usePageSize("inventory-items");
   const query = useProducts(filter, pageSize);
+  const count = useProductsCount(filter);
   const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const products = pager.items;

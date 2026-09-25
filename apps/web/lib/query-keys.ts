@@ -36,6 +36,7 @@ export const queryKeys = {
     /** Prefix for every filtered list — use for invalidation. */
     lists: () => ["calls", "list"] as const,
     list: (filters?: unknown) => ["calls", "list", filters] as const,
+    count: (filters?: unknown) => ["calls", "count", filters] as const,
     detail: (id: string) => ["calls", "detail", id] as const,
     byParty: (kind: string, id: string) =>
       ["calls", "party", kind, id] as const,
@@ -117,6 +118,7 @@ export const queryKeys = {
   contacts: {
     all: () => ["contacts"] as const,
     list: (filters?: unknown) => ["contacts", "list", filters] as const,
+    count: (filters?: unknown) => ["contacts", "count", filters] as const,
     detail: (id: string) => ["contacts", "detail", id] as const,
     byPhone: (phone: string) => ["contacts", "by-phone", phone] as const,
     byIds: (ids: string[]) => ["contacts", "by-ids", ids] as const,
@@ -143,6 +145,7 @@ export const queryKeys = {
     products: {
       all: () => ["products"] as const,
       list: (filters?: unknown) => ["products", "list", filters] as const,
+      count: (filters?: unknown) => ["products", "count", filters] as const,
       detail: (id: string) => ["products", "detail", id] as const,
       bySku: (sku: string) => ["products", "by-sku", sku] as const,
       photo: (id: string) => ["products", id, "photo"] as const,
@@ -158,6 +161,7 @@ export const queryKeys = {
     containers: {
       all: () => ["containers"] as const,
       list: (filters?: unknown) => ["containers", "list", filters] as const,
+      count: (filters?: unknown) => ["containers", "count", filters] as const,
       mine: () => ["containers", "mine"] as const,
       detail: (id: string) => ["containers", "detail", id] as const,
       stock: (id: string) => ["containers", id, "stock"] as const,
@@ -166,6 +170,7 @@ export const queryKeys = {
     transfers: {
       all: () => ["transfers"] as const,
       list: (filters?: unknown) => ["transfers", "list", filters] as const,
+      count: (filters?: unknown) => ["transfers", "count", filters] as const,
       detail: (id: string) => ["transfers", "detail", id] as const,
     },
   },
@@ -173,6 +178,7 @@ export const queryKeys = {
   users: {
     all: () => ["users"] as const,
     list: (filters?: unknown) => ["users", "list", filters] as const,
+    count: (filters?: unknown) => ["users", "count", filters] as const,
     detail: (id: string) => ["users", "detail", id] as const,
     permissions: (id: string) => ["users", id, "permissions"] as const,
   },
@@ -188,6 +194,7 @@ export const queryKeys = {
   technicians: {
     all: () => ["technicians"] as const,
     list: (filters?: unknown) => ["technicians", "list", filters] as const,
+    count: (filters?: unknown) => ["technicians", "count", filters] as const,
     profile: (id: string) => ["technicians", id, "profile"] as const,
     onboarding: (id: string) => ["technicians", id, "onboarding"] as const,
     assignments: (id: string) => ["technicians", id, "assignments"] as const,
@@ -247,6 +254,7 @@ export const queryKeys = {
     list: () => ["automations", "list"] as const,
     detail: (id: string) => ["automations", "detail", id] as const,
     runs: (id: string) => ["automations", "runs", id] as const,
+    runsCount: (filters?: unknown) => ["automations", "runs", "count", filters] as const,
     /** Every rule's firings in one stream (`GET /automations/runs`). */
     runsFeed: (params?: unknown) => ["automations", "runs-feed", params] as const,
   },
@@ -261,6 +269,7 @@ export const queryKeys = {
   invoices: {
     all: () => ["invoices"] as const,
     list: (params?: unknown) => ["invoices", "list", params] as const,
+    count: (params?: unknown) => ["invoices", "count", params] as const,
     detail: (id: string) => ["invoices", "detail", id] as const,
     byDeal: (dealId: string) => ["invoices", "by-deal", dealId] as const,
     byContact: (contactId: string) => ["invoices", "by-contact", contactId] as const,
@@ -271,6 +280,7 @@ export const queryKeys = {
   estimates: {
     all: () => ["estimates"] as const,
     list: (params?: unknown) => ["estimates", "list", params] as const,
+    count: (params?: unknown) => ["estimates", "count", params] as const,
     detail: (id: string) => ["estimates", "detail", id] as const,
     byDeal: (dealId: string) => ["estimates", "by-deal", dealId] as const,
     byContact: (contactId: string) => ["estimates", "by-contact", contactId] as const,

@@ -15,7 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { User } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useRoles, useUser, useUsers } from "../hooks";
+import { useRoles, useUser, useUsers , useUsersCount } from "../hooks";
 import type { UserFilter } from "../api";
 import { CreateUserSheet } from "./create-user-sheet";
 import { UserDetailSheet } from "./user-detail-sheet";
@@ -45,7 +45,11 @@ export function UsersPage() {
   const usersQuery = useUsers(filter, pageSize);
   const { data: roles } = useRoles();
 
+  const count = useUsersCount(filter);
   const pager = usePager(pagedSource(usersQuery), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const users = pager.items;

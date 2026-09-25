@@ -22,7 +22,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCallTags } from "@/features/call-tags/hooks";
 import { activeCallTags } from "@/features/call-tags/lib";
-import { useCallsList } from "../hooks";
+import { useCallsList , useCallsCount } from "../hooks";
 import { useCallStream } from "../use-call-stream";
 import { STATUS_LABEL, type CallsFilter, type CallStatus } from "../lib";
 import { CallsTable } from "./calls-table";
@@ -55,7 +55,11 @@ export function CallsPage() {
 
   const [pageSize, setPageSize] = usePageSize("calls");
   const query = useCallsList(filter, pageSize);
+  const count = useCallsCount(filter);
   const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const calls = useMemo(() => {

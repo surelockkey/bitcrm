@@ -4,6 +4,7 @@ import type {
   EstimateItem,
   EstimateStatus,
   EstimateWithItems,
+  ListCount,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import { buildEstimateListQuery, normalizeEstimateSummary, type EstimateListParams, type EstimateSummary } from "./lib";
@@ -27,6 +28,13 @@ export interface EstimatePatch {
 
 export const listEstimates = (params: EstimateListParams = {}): Promise<EstimatePage> =>
   http.get<EstimatePage>(`${BASE}${buildEstimateListQuery(params)}`);
+
+/**
+ * Скільки естімейтів під цим фільтром — число для «Page 2 of 7». Для техніка,
+ * що бачить лише свої роботи, сервер чесно повертає `total: null`.
+ */
+export const countEstimates = (params: EstimateListParams = {}): Promise<ListCount> =>
+  http.get<ListCount>(`${BASE}/count${buildEstimateListQuery({ ...params, cursor: undefined })}`);
 
 export async function fetchAllEstimates(params: Omit<EstimateListParams, "cursor"> = {}): Promise<Estimate[]> {
   const out: Estimate[] = [];

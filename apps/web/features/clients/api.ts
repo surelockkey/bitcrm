@@ -4,6 +4,7 @@ import type {
   ClientType,
   CompanyDocumentType,
   PaginatedResponse,
+  ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type {
@@ -63,6 +64,14 @@ export const mergeContacts = (body: MergeContactsBody): Promise<Contact> =>
   http.post<Contact>("/crm/contacts/merge", body);
 
 /* --------------------------------------------------------------- companies */
+
+/** Скільки контактів під цим фільтром — число для «Page 2 of 7». */
+export function countContacts(companyId?: string): Promise<ListCount> {
+  const q = new URLSearchParams();
+  if (companyId) q.set("companyId", companyId);
+  const s = q.toString();
+  return http.get<ListCount>(`/crm/contacts/count${s ? `?${s}` : ""}`);
+}
 
 export function listCompanies(
   clientType?: ClientType,

@@ -25,6 +25,19 @@ export function useInvoiceByDeal(dealId: string, enabled = true) {
   });
 }
 
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useInvoiceCount(params: Omit<InvoiceListParams, "cursor">, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.invoices.count(params),
+    queryFn: () => api.countInvoices(params),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
 export function useInvoiceList(params: Omit<InvoiceListParams, "cursor">, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.invoices.list(params),

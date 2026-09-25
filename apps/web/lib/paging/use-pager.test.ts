@@ -135,6 +135,74 @@ describe("usePager", () => {
   });
 });
 
+
+/**
+ * «Page 2 of 7» — скільки всього сторінок.
+ *
+ * Це `ceil(усього рядків / рядків на сторінці)`. Серверний лічильник спиняється
+ * на стелі й тоді каже «не менше» — сторінок так само «не менше», і панель
+ * пише `7+`. Коли сервер числа не знає (або не може знати для цього
+ * викликача), сторінок теж нема — панель просто мовчить про загальну кількість.
+ */
+describe("usePager — total pages", () => {
+  it("divides the row count by the page size, rounding up", () => {
+    const { result } = renderHook(() =>
+      usePager(source([[1, 2]]), { total: 47, pageSize: 20 }),
+    );
+
+    expect(result.current.totalPages).toBe(3);
+    expect(result.current.totalPagesIsFloor).toBe(false);
+  });
+
+  it("an exact multiple is exactly that many pages", () => {
+    const { result } = renderHook(() =>
+      usePager(source([[1, 2]]), { total: 40, pageSize: 20 }),
+    );
+
+    expect(result.current.totalPages).toBe(2);
+  });
+
+  it("an empty list is still one page, not zero", () => {
+    const { result } = renderHook(() =>
+      usePager(source([[]], false), { total: 0, pageSize: 20 }),
+    );
+
+    expect(result.current.totalPages).toBe(1);
+  });
+
+  it("a count that stopped on its ceiling makes the page count a floor too", () => {
+    const { result } = renderHook(() =>
+      usePager(source([[1, 2]]), { total: 10_000, pageSize: 50, totalIsFloor: true }),
+    );
+
+    expect(result.current.totalPages).toBe(200);
+    expect(result.current.totalPagesIsFloor).toBe(true);
+  });
+
+  // Інвойси й естімейти для техніка: сторінка фільтрується після запиту,
+  // тож сервер чесно каже, що числа немає.
+  it("has no page count when the server could not answer", () => {
+    const { result } = renderHook(() =>
+      usePager(source([[1, 2]]), { total: null, pageSize: 20 }),
+    );
+
+    expect(result.current.totalPages).toBeUndefined();
+  });
+
+  it("has no page count when nothing was asked of the server", () => {
+    const { result } = renderHook(() => usePager(source([[1, 2]]), { pageSize: 20 }));
+
+    expect(result.current.totalPages).toBeUndefined();
+  });
+
+  // Розмір сторінки — те, чим ділять; без нього ділити нема на що.
+  it("has no page count without a page size", () => {
+    const { result } = renderHook(() => usePager(source([[1, 2]]), { total: 47 }));
+
+    expect(result.current.totalPages).toBeUndefined();
+  });
+});
+
 describe("pageWindow", () => {
   it("lists every page in hand plus the one the cursor can still open", () => {
     expect(pageWindow({ loaded: 3, hasNext: true, page: 1 })).toEqual([1, 2, 3, 4]);

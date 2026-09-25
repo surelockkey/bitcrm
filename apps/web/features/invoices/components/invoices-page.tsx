@@ -32,7 +32,7 @@ import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { FilterChip, NoAccess, StatTile } from "@/features/billing/components/list-bits";
 import { createInvoice } from "../api";
-import { useCreateInvoice, useInvoiceList, useInvoiceSummary, useJobsNeedingInvoice } from "../hooks";
+import { useCreateInvoice, useInvoiceList, useInvoiceSummary, useJobsNeedingInvoice , useInvoiceCount } from "../hooks";
 import { INVOICE_CHIPS, runSequentially, type InvoiceChip } from "../lib";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { SentBadge } from "./sent-badge";
@@ -180,7 +180,11 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
   const router = useRouter();
   const [pageSize, setPageSize] = usePageSize("invoices");
   const q = useInvoiceList({ ...params, limit: pageSize });
+  const count = useInvoiceCount(params);
   const pager = usePager(pagedSource(q, (page: { items: Invoice[] }) => page.items), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: JSON.stringify({ params, pageSize }),
   });
   const rows: Invoice[] = pager.items;

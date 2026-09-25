@@ -23,6 +23,18 @@ export function useProducts(filter: ProductFilter, limit = 50) {
   });
 }
 
+/**
+ * Скільки всього товарів під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useProductsCount(filter: ProductFilter) {
+  return useQuery({
+    queryKey: queryKeys.inventory.products.count(filter),
+    queryFn: () => api.countProducts(filter),
+    staleTime: 30_000,
+  });
+}
+
 export function useProduct(id: string) {
   return useQuery({
     queryKey: queryKeys.inventory.products.detail(id),

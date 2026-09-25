@@ -23,7 +23,7 @@ import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { FilterChip, NoAccess } from "@/features/billing/components/list-bits";
-import { useEstimateList, useEstimateSummary } from "../hooks";
+import { useEstimateList, useEstimateSummary , useEstimateCount } from "../hooks";
 import { estimateStatusLabel } from "../lib";
 import { EstimateStatusBadge } from "./estimate-status-badge";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -75,7 +75,11 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
   const router = useRouter();
   const [pageSize, setPageSize] = usePageSize("estimates");
   const q = useEstimateList({ status, limit: pageSize });
+  const count = useEstimateCount({ status });
   const pager = usePager(pagedSource(q, (page: { items: Estimate[] }) => page.items), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: JSON.stringify({ status, pageSize }),
   });
   const rows: Estimate[] = pager.items;

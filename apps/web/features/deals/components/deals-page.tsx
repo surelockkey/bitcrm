@@ -95,6 +95,7 @@ export function DealsPage() {
   const pager = usePager(pagedSource(dealsQuery), {
     total: countsQuery.data?.[tab] ?? undefined,
     totalIsFloor: tab !== "unscheduled" && countsQuery.data?.atLeast?.includes(tab),
+    pageSize,
     resetKey: JSON.stringify(listParams),
   });
   const deals = pager.items;

@@ -7,6 +7,18 @@ import { useWarehouses, useContainers } from "@/features/inventory/warehouses/ho
 import { containerLabel } from "@/features/inventory/warehouses/lib";
 import * as api from "./api";
 
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useTransfersCount() {
+  return useQuery({
+    queryKey: queryKeys.inventory.transfers.count(),
+    queryFn: () => api.countTransfers(),
+    staleTime: 30_000,
+  });
+}
+
 export function useTransfers(limit = 50) {
   return useInfiniteQuery({
     queryKey: [...queryKeys.inventory.transfers.list(), limit],

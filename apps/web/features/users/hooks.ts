@@ -18,6 +18,18 @@ import { useMe } from "@/features/auth/use-me";
 import * as api from "./api";
 import type { UserFilter } from "./api";
 
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useUsersCount(filter: UserFilter) {
+  return useQuery({
+    queryKey: queryKeys.users.count(filter),
+    queryFn: () => api.countUsers(filter),
+    staleTime: 30_000,
+  });
+}
+
 export function useUsers(filter: UserFilter, limit = 50) {
   return useInfiniteQuery({
     queryKey: queryKeys.users.list({ ...filter, limit }),

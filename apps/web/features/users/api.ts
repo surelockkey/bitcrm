@@ -6,6 +6,7 @@ import type {
   PaginatedResponse,
   ResolvedPermissions,
   UserPermissionOverrides,
+  ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
@@ -33,6 +34,11 @@ export function listUsers(
   return apiFetchPaginated<User>(
     `/users${toQuery({ ...filter, cursor, limit: String(limit) })}`,
   );
+}
+
+/** Скільки користувачів під цим фільтром — число для «Page 2 of 7». */
+export function countUsers(filter: UserFilter): Promise<ListCount> {
+  return http.get<ListCount>(`/users/count${toQuery({ ...filter })}`);
 }
 
 export function getUser(id: string): Promise<User> {

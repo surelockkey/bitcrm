@@ -18,7 +18,7 @@ import type { Transfer } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useTransfers, useLocationMap } from "../hooks";
+import { useTransfers, useLocationMap , useTransfersCount } from "../hooks";
 import { filterByType, matchesSearch } from "../lib";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
@@ -52,7 +52,13 @@ export function TransfersPage() {
   const [record, setRecord] = useState<Transfer | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 
-  const pager = usePager(pagedSource(query), { resetKey: String(pageSize) });
+  const count = useTransfersCount();
+  const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: String(pageSize),
+  });
   const transfers = pager.items;
   const visible = useMemo(
     () => filterByType(transfers, type).filter((t) => matchesSearch(t, search, map)),

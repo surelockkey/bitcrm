@@ -1,4 +1,4 @@
-import type { Product, PaginatedResponse } from "@bitcrm/types";
+import type { Product, PaginatedResponse, ListCount } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import { effectiveProductQuery, type ProductFilter } from "./lib";
@@ -25,6 +25,13 @@ export function listProducts(
 ): Promise<PaginatedResponse<Product>> {
   return apiFetchPaginated<Product>(
     `/inventory/products${toQuery({ ...effectiveProductQuery(filter), cursor, limit: String(limit) })}`,
+  );
+}
+
+/** Скільки товарів під цим фільтром — число для «Page 2 of 7». */
+export function countProducts(filter: ProductFilter): Promise<ListCount> {
+  return http.get<ListCount>(
+    `/inventory/products/count${toQuery(effectiveProductQuery(filter))}`,
   );
 }
 

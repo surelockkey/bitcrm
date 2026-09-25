@@ -33,6 +33,19 @@ export function useEstimate(id: string) {
   });
 }
 
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useEstimateCount(params: Omit<EstimateListParams, "cursor">, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.estimates.count(params),
+    queryFn: () => api.countEstimates(params),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
 export function useEstimateList(params: Omit<EstimateListParams, "cursor">, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.estimates.list(params),

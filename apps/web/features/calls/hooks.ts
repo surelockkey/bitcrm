@@ -56,6 +56,18 @@ function patchCachedCallTags(qc: QueryClient, call: CallRecord) {
  */
 const LIVE_FALLBACK_POLL_MS = 5_000;
 
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useCallsCount(filter: CallsFilter) {
+  return useQuery({
+    queryKey: queryKeys.calls.count(filter),
+    queryFn: () => api.countCalls(filter),
+    staleTime: 30_000,
+  });
+}
+
 export function useCallsList(filter: CallsFilter, limit = 25) {
   return useInfiniteQuery({
     // Розмір сторінки — частина ключа: інакше вибір «по 100» читав би кеш,

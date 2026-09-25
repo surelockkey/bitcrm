@@ -48,13 +48,25 @@ export function ListPagination<T>({
     >
       <span>
         Showing {range}
-        {pager.total === undefined
-          ? ""
-          : ` of ${pager.total.toLocaleString()}${pager.totalIsFloor ? "+" : ""}`}
+        {typeof pager.total === "number"
+          ? ` of ${pager.total.toLocaleString()}${pager.totalIsFloor ? "+" : ""}`
+          : ""}
       </span>
 
       {many ? (
         <div className="flex items-center gap-1">
+          {/*
+            Номери-кнопки показують лише досяжні сторінки — пройдені плюс
+            наступну за курсором, — тож із них не видно, скільки їх усього.
+            Це число приходить від лічильника сервера; коли його немає (він
+            не може знати для цього викликача), лишається сама позиція.
+          */}
+          <span className="mr-1 whitespace-nowrap">
+            Page {pager.page.toLocaleString()}
+            {pager.totalPages === undefined
+              ? ""
+              : ` of ${pager.totalPages.toLocaleString()}${pager.totalPagesIsFloor ? "+" : ""}`}
+          </span>
           <Button
             variant="ghost"
             size="icon-sm"

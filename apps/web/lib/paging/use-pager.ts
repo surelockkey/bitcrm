@@ -20,10 +20,17 @@ export interface PagedSource<T> {
 }
 
 export interface PagerOptions {
-  /** Скільки всього рядків, якщо сервер це знає (напр. `/deals/counts`). */
-  total?: number;
+  /**
+   * Скільки всього рядків, якщо сервер це знає (напр. `/deals/counts`).
+   * `null` — сервер відповів, що для цього викликача числа немає: інвойси й
+   * естімейти фільтрують сторінку після запиту для техніка, і жоден обхід
+   * індексу на питання не відповідає.
+   */
+  total?: number | null;
   /** `total` — це «не менше»: лічильник сервера спинився на стелі. */
   totalIsFloor?: boolean;
+  /** Рядків на сторінці — те, на що ділять `total`, щоб дістати сторінки. */
+  pageSize?: number;
   /** Змінився — фільтри під списком інші, гортання починається спочатку. */
   resetKey?: string;
 }
@@ -34,8 +41,15 @@ export interface Pager<T> {
   /** Номер першого рядка сторінки в наскрізній нумерації, з одиниці. */
   from: number;
   to: number;
-  total?: number;
+  total?: number | null;
   totalIsFloor?: boolean;
+  /**
+   * Скільки всього сторінок: `ceil(total / pageSize)`. `undefined`, коли
+   * сервер не знає загальної кількості — панель тоді пише «Page 2» без «of N».
+   */
+  totalPages?: number;
+  /** Сторінок «не менше»: лічильник, з якого їх порахували, спинився на стелі. */
+  totalPagesIsFloor?: boolean;
   canPrev: boolean;
   canNext: boolean;
   isLoading: boolean;
@@ -49,7 +63,7 @@ export interface Pager<T> {
 }
 
 export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T> {
-  const { total, totalIsFloor, resetKey } = options;
+  const { total, totalIsFloor, pageSize, resetKey } = options;
   const [page, setPage] = useState(1);
 
   // Фільтри під списком змінились — сторінки старого набору більше ні про що
@@ -95,6 +109,13 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
   const before = src.pages.slice(0, current - 1).reduce((n, page) => n + page.length, 0);
   const from = items.length ? before + 1 : 0;
 
+  // «Page 2 of 7» — рядки, поділені на розмір сторінки. Порожній список — це
+  // одна сторінка, а не нуль: «Page 1 of 0» не читається як число.
+  const totalPages =
+    typeof total === 'number' && pageSize && pageSize > 0
+      ? Math.max(1, Math.ceil(total / pageSize))
+      : undefined;
+
   return {
     page: current,
     items,
@@ -102,6 +123,8 @@ export function usePager<T>(src: PagedSource<T>, options: PagerOptions): Pager<T
     to: items.length ? from + items.length - 1 : 0,
     total,
     totalIsFloor,
+    totalPages,
+    totalPagesIsFloor: totalPages === undefined ? undefined : Boolean(totalIsFloor),
     canPrev: current > 1,
     canNext: current < loaded || src.hasNextPage,
     isLoading: src.isLoading,

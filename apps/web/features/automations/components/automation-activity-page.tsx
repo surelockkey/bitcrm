@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { useAutomations, useAutomationsAccess, useAutomationRunsFeed } from "../hooks";
+import { useAutomations, useAutomationsAccess, useAutomationRunsFeed , useAutomationRunsFeedCount } from "../hooks";
 import { OUTCOME_LABEL, formatFiredAt } from "../lib";
 import { RunActions, RunLine, RunOutcomeBadge } from "./automation-activity-run";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -80,7 +80,18 @@ export function AutomationActivityPage() {
     canView,
   );
 
+  const count = useAutomationRunsFeedCount(
+    {
+      ...(ruleId === ALL ? {} : { ruleId }),
+      ...(outcome === ALL ? {} : { outcome }),
+      ...(since ? { since } : {}),
+    },
+    canView,
+  );
   const pager = usePager(pagedSource(feed, (page: { items: AutomationRun[] }) => page.items), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: JSON.stringify({ ruleId, outcome, sinceKey, pageSize }),
   });
   const runs = useMemo(() => {

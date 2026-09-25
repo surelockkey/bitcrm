@@ -24,6 +24,19 @@ import { contactName } from "./lib";
  * The contacts list a page at a time — the CRM pages it by cursor, and the
  * Contacts page asks for the next page on request. Never the whole table.
  */
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useContactsCount(companyId?: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.contacts.count(companyId ?? null),
+    queryFn: () => api.countContacts(companyId),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
 export function useContactsPage(companyId?: string, enabled = true, limit?: number) {
   return useInfiniteQuery({
     // Розмір сторінки в ключі: сторінки по 25 і по 100 — різні набори.

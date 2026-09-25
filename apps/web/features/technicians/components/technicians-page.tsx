@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useTechnicians, useUserMap, usePendingAssignments } from "../hooks";
+import { useTechnicians, useUserMap, usePendingAssignments , useTechniciansCount } from "../hooks";
 import { TechniciansTable } from "./technicians-table";
 import { AssignmentsQueueDialog } from "./assignments-queue-dialog";
 import { ListPagination } from "@/components/ui/list-pagination";
@@ -32,7 +32,11 @@ export function TechniciansPage() {
   const canApprove = can("job_types", "approve");
   const { data: pending } = usePendingAssignments(canApprove);
 
+  const count = useTechniciansCount(status === "all" ? undefined : status);
   const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
     resetKey: `${status}:${pageSize}`,
   });
   const technicians = pager.items;

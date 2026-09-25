@@ -15,7 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataScope } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContainersList } from "../hooks";
+import { useContainersList , useContainersCount } from "../hooks";
 import { containerTitle } from "../lib";
 import { ContainersTable } from "./containers-table";
 import { ContainerCreateDialog } from "./container-create-dialog";
@@ -47,7 +47,13 @@ function Fleet() {
   const [department, setDepartment] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const pager = usePager(pagedSource(query), { resetKey: String(pageSize) });
+  const count = useContainersCount();
+  const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: String(pageSize),
+  });
   const containers = pager.items;
   const departments = useMemo(
     () =>

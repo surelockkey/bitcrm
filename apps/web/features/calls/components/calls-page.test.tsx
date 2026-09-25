@@ -25,6 +25,9 @@ vi.mock("../hooks", () => ({
     mocks.listArgs.push(limit);
     return { ...mocks.list, fetchNextPage: mocks.fetchNextPage };
   },
+  // Лічильник сторінок: цим тестам байдуже число, важливо, що панель не падає
+  // без нього.
+  useCallsCount: () => ({ data: undefined }),
 }));
 vi.mock("../use-call-stream", () => ({ useCallStream: () => undefined }));
 vi.mock("@/features/auth/use-permissions", () => ({

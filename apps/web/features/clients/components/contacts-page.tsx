@@ -17,7 +17,7 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactsPage, useContactSearch, useCompaniesByIds } from "../hooks";
+import { useContactsPage, useContactSearch, useCompaniesByIds , useContactsCount } from "../hooks";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
 import { MergeContactsDialog } from "./merge-contacts-dialog";
@@ -36,7 +36,15 @@ export function ContactsPage() {
   const pageQuery = useContactsPage(undefined, !searching, pageSize);
   const found = useContactSearch(searching ? search : "");
 
-  const pager = usePager(pagedSource(pageQuery), { resetKey: String(pageSize) });
+  // Пошук відповідає сервісом пошуку, не сторінками CRM — тоді лічильник
+  // списку ні до чого.
+  const count = useContactsCount(undefined, !searching);
+  const pager = usePager(pagedSource(pageQuery), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: String(pageSize),
+  });
   const filtered = searching ? found.data : pager.items;
   // Назви компаній — лише тих, що в рядках на екрані.
   const { map: companyMap } = useCompaniesByIds(
