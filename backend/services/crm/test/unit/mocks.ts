@@ -36,6 +36,8 @@ export function createMockJwtUser(overrides?: Partial<JwtUser>): JwtUser {
 // Repository mocks
 export function createMockContactsRepository() {
   return {
+    countAll: jest.fn(),
+    countByCompany: jest.fn(),
     create: jest.fn(),
     findById: jest.fn(),
     findByIds: jest.fn(),

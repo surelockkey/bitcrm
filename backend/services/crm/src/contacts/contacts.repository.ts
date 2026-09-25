@@ -8,7 +8,12 @@ import {
   DeleteCommand,
   BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService, scanPage } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { CrmStatus, type Contact, type Address } from '@bitcrm/types';
 import {
   CONTACTS_TABLE,
@@ -180,6 +185,55 @@ export class ContactsRepository {
       items: page.items.map(this.toContact),
       nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * How many contacts the list holds — the number behind "Page 2 of 7".
+   *
+   * The same Scan the list runs, with `Select: 'COUNT'` so no bodies travel.
+   * Bounded, because the contacts table is shared with the PHONE# index items
+   * and a count must not walk all of it on every page load.
+   */
+  async countAll(filters?: { status?: string }): Promise<CountRowsResult> {
+    const statusFilter = filters?.status || CrmStatus.ACTIVE;
+
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+          ExpressionAttributeValues: {
+            ':pk': 'CONTACT#',
+            ':sk': 'METADATA',
+            ':status': statusFilter,
+          },
+          ExpressionAttributeNames: { '#status': 'status' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
+  /** The same count for one company's contacts — a Query, so the cheap end. */
+  async countByCompany(companyId: string): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: CONTACTS_GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          FilterExpression: '#status = :active',
+          ExpressionAttributeValues: {
+            ':pk': `COMPANY#${companyId}`,
+            ':active': CrmStatus.ACTIVE,
+          },
+          ExpressionAttributeNames: { '#status': 'status' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   async update(id: string, attrs: Partial<Contact>): Promise<Contact> {

@@ -6,8 +6,22 @@ import {
   BadRequestException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService, BusinessMetricsService } from '@bitcrm/shared';
-import { ContactSource, ContactType, CrmStatus, type Address, type Contact, type JwtUser } from '@bitcrm/types';
+import {
+  SnsPublisherService,
+  BusinessMetricsService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
+import {
+  ContactSource,
+  ContactType,
+  CrmStatus,
+  type Address,
+  type Contact,
+  type JwtUser,
+  type ListCount,
+} from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import { ContactsRepository } from './contacts.repository';
 import { CompaniesRepository } from '../companies/companies.repository';
@@ -36,6 +50,9 @@ export interface ContactPhoneMatch {
   companyId?: string;
 }
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class ContactsService {
   private readonly logger = new Logger(ContactsService.name);
@@ -48,6 +65,7 @@ export class ContactsService {
     @Optional() private readonly companies?: CompaniesRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
@@ -182,6 +200,26 @@ export class ContactsService {
 
   async findAll(limit: number, cursor?: string) {
     return this.repository.findAll(limit, cursor);
+  }
+
+  /**
+   * How many contacts the list holds — the number behind "Page 2 of 7".
+   * It branches as `list` does, so the panel sizes itself against the rows
+   * actually under it.
+   */
+  async count(query: { companyId?: string }): Promise<ListCount> {
+    const take = () =>
+      query.companyId
+        ? this.repository.countByCompany(query.companyId)
+        : this.repository.countAll();
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('contacts', { companyId: query.companyId }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async update(id: string, dto: UpdateContactDto): Promise<Contact> {
