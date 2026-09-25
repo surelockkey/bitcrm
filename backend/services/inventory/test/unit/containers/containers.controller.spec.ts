@@ -17,6 +17,7 @@ describe('ContainersController', () => {
     service = {
       getMyContainer: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       findAll: jest.fn(),
       findById: jest.fn(),
       getStock: jest.fn(),
@@ -164,6 +165,29 @@ describe('ContainersController', () => {
       await expect(controller.findByIdInternal('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 12, atLeast: false });
+
+      const result = await controller.count({} as never, { id: 'u1' } as never, {
+        resolvedPermissions: { dataScope: { containers: 'all' } },
+      } as never);
+
+      expect(result).toEqual({ success: true, data: { total: 12, atLeast: false } });
+    });
+
+    it('passes the caller’s data scope down, as the list does', async () => {
+      service.count.mockResolvedValue({ total: 1, atLeast: false });
+      const user = { id: 'u1' };
+
+      await controller.count({} as never, user as never, {
+        resolvedPermissions: { dataScope: { containers: 'assigned_only' } },
+      } as never);
+
+      expect(service.count).toHaveBeenCalledWith({}, user, 'assigned_only');
     });
   });
 });

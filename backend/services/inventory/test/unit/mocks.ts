@@ -119,11 +119,11 @@ export function createMockWarehousesRepository() {
 }
 
 export function createMockContainersRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findByTechnicianId: jest.fn(), findAll: jest.fn(), update: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findByTechnicianId: jest.fn(), findAll: jest.fn(), update: jest.fn() , countAll: jest.fn()};
 }
 
 export function createMockTransfersRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findByEntity: jest.fn(), findAll: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findByEntity: jest.fn(), findAll: jest.fn(), countAll: jest.fn() };
 }
 
 export function createMockStockRepository() {

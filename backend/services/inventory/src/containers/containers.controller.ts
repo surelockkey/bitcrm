@@ -61,6 +61,27 @@ export class ContainersController {
     };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('containers', 'view')
+  @ApiOperation({
+    summary: 'How many containers the list holds',
+    description:
+      '**Guard:** `containers.view` permission required. DataScope enforced, as on the list. ' +
+      'Takes the same filters (`department`; `cursor` and `limit` are ignored) and answers ' +
+      '`{ total, atLeast }` — the row count behind "Page 2 of 7". `atLeast` means the walk ' +
+      'stopped on a ceiling, which the panel renders as `7+`. Cached for thirty seconds.',
+  })
+  async count(
+    @Query() query: ListContainersQueryDto,
+    @CurrentUser() user: JwtUser,
+    @Req() req: any,
+  ) {
+    const dataScope = req.resolvedPermissions?.dataScope?.containers;
+    const data = await this.containersService.count(query, user, dataScope);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('containers', 'view')
   @ApiOperation({ summary: 'Get container by ID', description: '**Guard:** `containers.view` permission required.' })

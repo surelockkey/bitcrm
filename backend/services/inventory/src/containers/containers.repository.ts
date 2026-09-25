@@ -6,7 +6,12 @@ import {
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService, scanPage } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { type Container } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -79,23 +84,58 @@ export class ContainersRepository {
     return this.toContainer(items[0]);
   }
 
+  /**
+   * The Scan that selects containers, shared by the list and its count so the
+   * two can never answer about different populations.
+   */
+  private listFilter(filters?: { department?: string }) {
+    let expression = 'begins_with(PK, :pk) AND SK = :sk';
+    const values: Record<string, unknown> = {
+      ':pk': 'CONTAINER#',
+      ':sk': 'METADATA',
+    };
+    const names: Record<string, string> = {};
+
+    if (filters?.department) {
+      expression += ' AND #department = :dept';
+      names['#department'] = 'department';
+      values[':dept'] = filters.department;
+    }
+
+    return { expression, values, names };
+  }
+
+  /**
+   * How many containers the list holds — the number behind "Page 2 of 7".
+   * Bounded: the inventory table is shared, so most of what this reads is not
+   * a container.
+   */
+  async countAll(filters?: { department?: string }): Promise<CountRowsResult> {
+    const f = this.listFilter(filters);
+
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: INVENTORY_TABLE,
+          FilterExpression: f.expression,
+          ExpressionAttributeValues: f.values,
+          ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
+  }
+
   async findAll(
     limit: number,
     cursor?: string,
     filters?: { department?: string },
   ): Promise<PaginatedResult> {
-    let filterExpression = 'begins_with(PK, :pk) AND SK = :sk';
-    const expressionValues: Record<string, unknown> = {
-      ':pk': 'CONTAINER#',
-      ':sk': 'METADATA',
-    };
-    const expressionNames: Record<string, string> = {};
-
-    if (filters?.department) {
-      filterExpression += ' AND #department = :dept';
-      expressionNames['#department'] = 'department';
-      expressionValues[':dept'] = filters.department;
-    }
+    const f = this.listFilter(filters);
+    const filterExpression = f.expression;
+    const expressionValues = f.values;
+    const expressionNames = f.names;
 
     // Спільна таблиця інвентарю: Scan читає й чужі рядки, а `Limit`
     // рахує прочитане, не знайдене. Без дочитування сторінка приходить
