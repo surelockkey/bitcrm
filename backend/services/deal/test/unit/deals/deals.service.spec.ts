@@ -176,6 +176,15 @@ describe('DealsService', () => {
       expect(repo.create).toHaveBeenCalled();
     });
 
+    it('announces the new deal like any other write', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(dto as any, caller);
+
+      expect(cache.invalidate).toHaveBeenCalledWith(result.id);
+    });
+
     it('persists a platinum work-order link and PO number', async () => {
       repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);

@@ -497,6 +497,8 @@ export class DealsService {
     this.businessMetrics?.entityCreated.inc({ entity_type: 'deal' });
 
     await this.addTimelineEntry(deal.id, TimelineEventType.CREATED, caller, {});
+    // Nothing is cached yet; this is for the live boards (see invalidate).
+    await this.cache.invalidate(deal.id);
 
     this.publishEvent('deal.created', {
       dealId: deal.id,

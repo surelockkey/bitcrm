@@ -4,10 +4,12 @@ import { createMockRedisService, createMockDeal } from '../mocks';
 describe('DealsCacheService', () => {
   let cache: DealsCacheService;
   let redis: ReturnType<typeof createMockRedisService>;
+  let events: { dealChanged: jest.Mock };
 
   beforeEach(() => {
     redis = createMockRedisService();
-    cache = new DealsCacheService(redis as any);
+    events = { dealChanged: jest.fn() };
+    cache = new DealsCacheService(redis as any, events as any);
   });
 
   describe('get', () => {
@@ -53,6 +55,14 @@ describe('DealsCacheService', () => {
       await cache.invalidate('deal-1');
 
       expect(redis.client.del).toHaveBeenCalledWith('deal:deal-1');
+    });
+
+    it('announces the change to open browsers — every write to a deal ends here', async () => {
+      redis.client.del.mockResolvedValue(1);
+
+      await cache.invalidate('deal-1');
+
+      expect(events.dealChanged).toHaveBeenCalledWith('deal-1');
     });
   });
 });
