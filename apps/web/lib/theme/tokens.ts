@@ -86,6 +86,10 @@ export const LIGHT = {
   sidebarAccentForeground: "#3b4b52",
   sidebarBorder: "#dfe2e3",
   sidebarRing: "#3589e9",
+  // A chart's second series, beside `brand` as the first. Not sampled from
+  // Workiz (its charts are Google's defaults): the dataviz reference orange,
+  // validated against brand for CVD and normal-vision separation.
+  chart2: "#eb6834",
 } as const satisfies Record<string, string>;
 
 /** Pairs that carry running text: WCAG AA, 4.5:1. */

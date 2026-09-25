@@ -2,50 +2,47 @@
 
 import Link from "next/link";
 import {
-  Banknote,
+  Activity,
   BarChart3,
   Barcode,
   Briefcase,
   Building2,
-  CalendarCheck,
-  CircleDollarSign,
-  ClipboardCheck,
-  Clock,
-  Cog,
+  Calculator,
   CreditCard,
+  Globe,
   Package,
   Paperclip,
   Percent,
   Phone,
   Receipt,
   ReceiptText,
-  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { usePermissions } from "@/features/auth/use-permissions";
 
-/** The Workiz reports catalog, in its on-screen order. `href` = built. */
+/**
+ * The Workiz reports this business keeps, in Workiz's on-screen order
+ * (Performance Pay, Sales, Tips, Leads, Expenses, Timesheets, Tasks,
+ * Equipment and Service Plans are not used here). `href` = built.
+ */
 export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] = [
   { name: "Jobs", icon: Briefcase, href: "/reports/jobs" },
-  { name: "Tips", icon: Wallet },
-  { name: "Job Statistics", icon: BarChart3 },
-  { name: "Leads Report", icon: Banknote },
+  { name: "Job Statistics", icon: BarChart3, href: "/reports/job-statistics" },
   { name: "Payments", icon: CreditCard },
-  { name: "Expenses", icon: CircleDollarSign },
-  { name: "Estimates", icon: Paperclip },
-  { name: "Invoices", icon: Receipt },
+  { name: "Activity", icon: Activity },
+  // Workiz opens these two on the pages of the same name.
+  { name: "Estimates", icon: Paperclip, href: "/estimates" },
+  { name: "Invoices", icon: Receipt, href: "/invoices" },
   { name: "Aging invoices", icon: ReceiptText },
-  { name: "Timesheets", icon: Clock },
   { name: "Items and services", icon: Barcode },
+  { name: "Website requests", icon: Globe },
   { name: "Tax", icon: Percent },
   { name: "Call Tracking", icon: Phone },
   { name: "Inventory Usage", icon: Package },
   { name: "Franchise Report", icon: Building2 },
-  { name: "Tasks", icon: ClipboardCheck },
-  { name: "Equipment", icon: Cog },
-  { name: "Service Plans", icon: CalendarCheck },
+  { name: "Commissions (Legacy)", icon: Calculator },
 ];
 
 /**

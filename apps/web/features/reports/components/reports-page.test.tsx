@@ -13,26 +13,26 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 import { ReportsPage, REPORT_TILES } from "./reports-page";
 
+/** The Workiz reports this business keeps, in Workiz's on-screen order. */
 const WORKIZ_REPORTS = [
   "Jobs",
-  "Tips",
   "Job Statistics",
-  "Leads Report",
   "Payments",
-  "Expenses",
+  "Activity",
   "Estimates",
   "Invoices",
   "Aging invoices",
-  "Timesheets",
   "Items and services",
+  "Website requests",
   "Tax",
   "Call Tracking",
   "Inventory Usage",
   "Franchise Report",
-  "Tasks",
-  "Equipment",
-  "Service Plans",
+  "Commissions (Legacy)",
 ];
+
+/** Workiz reports this business does not use — no tile for them. */
+const DROPPED = ["Performance Pay", "Sales", "Tips", "Leads Report", "Expenses", "Timesheets", "Tasks", "Equipment", "Service Plans"];
 
 describe("ReportsPage", () => {
   beforeEach(() => {
@@ -40,7 +40,7 @@ describe("ReportsPage", () => {
     perms.view = true;
   });
 
-  it("shows every Workiz report tile", () => {
+  it("shows the kept Workiz reports, in order, and none of the dropped ones", () => {
     render(<ReportsPage />);
 
     for (const name of WORKIZ_REPORTS) {
@@ -48,16 +48,24 @@ describe("ReportsPage", () => {
         screen.queryByRole("button", { name }) ?? screen.getByRole("link", { name }),
       ).toBeInTheDocument();
     }
-    expect(REPORT_TILES).toHaveLength(WORKIZ_REPORTS.length);
+    expect(REPORT_TILES.map((t) => t.name)).toEqual(WORKIZ_REPORTS);
+    for (const name of DROPPED) expect(screen.queryByText(name)).toBeNull();
+  });
+
+  it("opens Estimates and Invoices on their own pages, as Workiz does", () => {
+    render(<ReportsPage />);
+    expect(screen.getByRole("link", { name: "Estimates" })).toHaveAttribute("href", "/estimates");
+    expect(screen.getByRole("link", { name: "Invoices" })).toHaveAttribute("href", "/invoices");
   });
 
   it("the Jobs tile opens the built report; unbuilt tiles say they're coming", () => {
     render(<ReportsPage />);
 
     expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute("href", "/reports/jobs");
+    expect(screen.getByRole("link", { name: "Job Statistics" })).toHaveAttribute("href", "/reports/job-statistics");
 
-    fireEvent.click(screen.getByRole("button", { name: "Tips" }));
-    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Tips"));
+    fireEvent.click(screen.getByRole("button", { name: "Franchise Report" }));
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Franchise Report"));
   });
 
   it("blocks users without the reports permission", () => {

@@ -178,7 +178,7 @@ function RankedList({
   money: boolean;
 }) {
   const top = rows.slice(0, LIST_ROWS);
-  const max = Math.max(1, ...top.map((r) => (money ? (r.revenue ?? 0) : r.jobs)));
+  const max = Math.max(1, ...top.map((r) => (money ? (r.revenue ?? 0) : r.all)));
   return (
     <Widget title={title}>
       {top.length === 0 ? (
@@ -186,13 +186,13 @@ function RankedList({
       ) : (
         <ul className="flex flex-col gap-2">
           {top.map((r) => {
-            const value = money ? (r.revenue ?? 0) : r.jobs;
+            const value = money ? (r.revenue ?? 0) : r.all;
             return (
               <li key={r.key} className="flex flex-col gap-1">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate">{bucketLabel(r.key, names)}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {r.jobs} {r.jobs === 1 ? "job" : "jobs"}
+                    {r.all} {r.all === 1 ? "job" : "jobs"}
                     {money && <span className="ml-2 font-medium text-foreground">{compactMoney(r.revenue ?? 0)}</span>}
                   </span>
                 </div>

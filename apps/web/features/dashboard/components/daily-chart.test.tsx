@@ -43,3 +43,33 @@ describe("DailyChart", () => {
     expect(screen.getByText("No data to display.")).toBeInTheDocument();
   });
 });
+
+describe("DailyChart — a second series to compare", () => {
+  const pair = [
+    { date: "2026-09-01", value: 100, compare: 40 },
+    { date: "2026-09-02", value: 50, compare: 10 },
+  ];
+
+  it("puts both columns side by side on one scale, with a legend naming them", () => {
+    render(
+      <DailyChart title="Sales and profit" days={pair} format={(v) => `$${v}`} series={["Sales", "Profit"]} />,
+    );
+    expect(screen.getAllByTestId("daily-bar")).toHaveLength(2);
+    const compare = screen.getAllByTestId("daily-bar-compare");
+    expect(compare).toHaveLength(2);
+    expect(Number(compare[0].getAttribute("data-height"))).toBeCloseTo(40, 2);
+    const legend = screen.getByRole("list", { name: "Legend" });
+    expect(within(legend).getByText("Sales")).toBeInTheDocument();
+    expect(within(legend).getByText("Profit")).toBeInTheDocument();
+  });
+
+  it("tells both values of the day", () => {
+    render(
+      <DailyChart title="Sales and profit" days={pair} format={(v) => `$${v}`} series={["Sales", "Profit"]} />,
+    );
+    fireEvent.mouseEnter(screen.getAllByTestId("daily-hit")[0]);
+    const tip = screen.getByRole("tooltip");
+    expect(tip).toHaveTextContent("Sales $100");
+    expect(tip).toHaveTextContent("Profit $40");
+  });
+});

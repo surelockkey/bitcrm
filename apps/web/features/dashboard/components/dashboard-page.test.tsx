@@ -20,14 +20,16 @@ const stats = (money: boolean): DealStats => ({
     byStatus: { submitted: 1, in_progress: 1, done: 1, pending: 0, done_pending_approval: 0, canceled: 1 },
   },
   ...(money && {
-    money: { revenue: 12_940, tax: 900, cost: 3000, profit: 9040, avgSale: 4313.33, avgPerDay: 1848.57, pricedJobs: 3 },
+    money: { revenue: 12_940, tax: 900, cost: 3000, profit: 9040, avgSale: 12_940, avgProfit: 9040, avgPerDay: 1848.57, doneJobs: 1 },
   }),
-  series: [{ date: "2026-09-25", jobs: 3, ...(money && { revenue: 12_940 }) }],
-  byTech: [{ key: "t1", jobs: 2, ...(money && { revenue: 9000 }) }],
-  byCreator: [{ key: "d1", jobs: 3, ...(money && { revenue: 12_940 }) }],
-  byJobType: [{ key: "jt1", jobs: 3 }],
-  bySource: [{ key: "", jobs: 3 }],
-  byServiceArea: [{ key: "North", jobs: 3 }],
+  series: [{ date: "2026-09-25", jobs: 3, canceled: 1, ...(money && { revenue: 12_940, profit: 9040 }) }],
+  byTech: [{ key: "t1", all: 2, done: 2, open: 0, canceled: 0, ...(money && { revenue: 9000 }) }],
+  byCreator: [{ key: "d1", all: 3, done: 3, open: 0, canceled: 0, ...(money && { revenue: 12_940 }) }],
+  byJobType: [{ key: "jt1", all: 3, done: 3, open: 0, canceled: 0 }],
+  bySource: [{ key: "", all: 3, done: 3, open: 0, canceled: 0 }],
+  byServiceArea: [{ key: "North", all: 3, done: 3, open: 0, canceled: 0 }],
+  byCity: [],
+  byZip: [],
 });
 
 const useDealStats = vi.hoisted(() => vi.fn());
