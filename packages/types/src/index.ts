@@ -439,3 +439,10 @@ export { JwtUser } from './auth/jwt-user';
 
 // Responses
 export { ApiResponse, PaginatedResponse, ListCount } from './responses/api-response';
+export type {
+  DealStats,
+  DealStatsBy,
+  DealStatsBucket,
+  DealStatsDay,
+  DealStatsMoney,
+} from './responses/deal-stats';

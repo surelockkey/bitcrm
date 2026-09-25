@@ -27,6 +27,7 @@ import {
   ProductType,
   type Address,
   type Deal,
+  type DealStats,
   type ServiceArea,
   type DealProductFulfillment,
   type Product,
@@ -71,11 +72,14 @@ const COUNTS_TTL_SECONDS = 30;
 const CLOSED_COUNT_CAP = 10_000;
 /** A report window — created or closed — spans at most a quarter. */
 const REPORT_WINDOW_MAX_DAYS = 92;
+/** 20 000 jobs — far past a quarter of this business; a guard, not a limit anyone meets. */
+const STATS_MAX_PAGES = 200;
 import { type SendToTechDto } from './dto/send-to-tech.dto';
 import { type RecordSentToTechDto } from './dto/record-sent-to-tech.dto';
 import { isDealNumberCode } from './deal-number.util';
 import { DealsCacheService } from './deals-cache.service';
 import { dealTotalsSnapshot } from './billing/deal-totals';
+import { aggregateDealStats, type DealStatsWindow } from './stats/deal-stats';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
 import { InternalHttpService } from '../common/services/internal-http.service';
@@ -611,6 +615,37 @@ export class DealsService {
       status: query.status,
       ...filters,
     });
+  }
+
+  /**
+   * A window of jobs at a glance (`GET /deals/stats`): the list itself —
+   * same window, filters and data scope as the Jobs report, so the two can
+   * never disagree — read to its end and aggregated. Exactly one window.
+   */
+  async stats(
+    query: ListDealsQueryDto,
+    caller: JwtUser,
+    dataScope: string | undefined,
+    opts: { money: boolean },
+  ): Promise<DealStats> {
+    const window = this.statsWindow(query);
+    const deals: Deal[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < STATS_MAX_PAGES; page++) {
+      const result = await this.list({ ...query, limit: 100, cursor } as ListDealsQueryDto, caller, dataScope);
+      deals.push(...result.items);
+      cursor = result.nextCursor;
+      if (!cursor) break;
+    }
+    if (cursor) this.logger.warn(`stats: window ${window.by} ${window.from}..${window.to} stopped at ${deals.length} jobs`);
+    return aggregateDealStats(deals, window, opts);
+  }
+
+  private statsWindow(query: ListDealsQueryDto): DealStatsWindow {
+    if (query.createdFrom) return { by: 'created', from: query.createdFrom, to: query.createdTo || query.createdFrom };
+    if (query.closedFrom) return { by: 'closed', from: query.closedFrom, to: query.closedTo || query.closedFrom };
+    if (query.scheduledFrom) return { by: 'scheduled', from: query.scheduledFrom, to: query.scheduledTo || query.scheduledFrom };
+    throw new BadRequestException('A window is required: createdFrom, closedFrom or scheduledFrom');
   }
 
   /**

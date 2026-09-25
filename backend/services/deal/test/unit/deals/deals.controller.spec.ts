@@ -30,6 +30,7 @@ describe('DealsController', () => {
       getTechDeals: jest.fn(),
       updatePaymentStatus: jest.fn(),
       findAll: jest.fn(),
+      stats: jest.fn(),
     };
 
     const module = await Test.createTestingModule({
@@ -371,6 +372,32 @@ describe('DealsController', () => {
       await expect(controller.getByIdInternal('missing')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('stats', () => {
+    const query = { createdFrom: '2026-09-01' } as any;
+    const caller = createMockJwtUser();
+
+    it('shows the money only to a caller with financials.view', async () => {
+      service.stats.mockResolvedValue({ jobs: { total: 0 } });
+
+      await controller.stats(query, caller, {
+        dataScope: { deals: 'all' },
+        permissions: { financials: { view: true } },
+      } as any);
+      await controller.stats(query, caller, { dataScope: { deals: 'assigned_only' }, permissions: {} } as any);
+
+      expect(service.stats).toHaveBeenNthCalledWith(1, query, caller, 'all', { money: true });
+      expect(service.stats).toHaveBeenNthCalledWith(2, query, caller, 'assigned_only', { money: false });
+    });
+
+    it('wraps the result', async () => {
+      service.stats.mockResolvedValue({ jobs: { total: 3 } });
+      await expect(controller.stats(query, caller, { permissions: {} } as any)).resolves.toEqual({
+        success: true,
+        data: { jobs: { total: 3 } },
+      });
     });
   });
 });

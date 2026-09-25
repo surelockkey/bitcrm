@@ -213,6 +213,8 @@ export function createMockDealsRepository() {
     findByTech: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findByContact: jest.fn(),
     findByDispatcher: jest.fn(),
+    findByCreated: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
+    findByClosed: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findAll: jest.fn(),
     update: jest.fn(),
     reassignContact: jest.fn(),

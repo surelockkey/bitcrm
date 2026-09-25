@@ -97,6 +97,28 @@ export class DealsController {
     return { success: true, data };
   }
 
+  @Get('stats')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'A window of jobs at a glance — the dashboard and Job Statistics',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced. Takes the Jobs report\'s query: exactly one ' +
+      'window (`createdFrom/To`, `closedFrom/To` up to 92 days, or `scheduledFrom/To` up to 31) plus its filters, ' +
+      'and answers `DealStats`: counts per super-status over every job in the window; money (revenue, tax, cost, ' +
+      'profit, average sale and per day) and the day series and breakdowns (by tech, creator, job type, source, ' +
+      'service area) over the jobs not canceled. A job shared by techs splits its revenue between them equally. ' +
+      'Every amount is left out without `financials.view`.',
+  })
+  async stats(
+    @Query() query: ListDealsQueryDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const money = perms?.permissions?.financials?.view === true;
+    const data = await this.dealsService.stats(query, user, perms?.dataScope?.deals, { money });
+    return { success: true, data };
+  }
+
   @Post('by-ids')
   @HttpCode(200)
   @RequirePermission('deals', 'view')

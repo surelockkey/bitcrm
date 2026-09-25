@@ -41,6 +41,10 @@ export const RESOURCE_REGISTRY = {
   custom_fields: ['view', 'create', 'edit', 'delete'],
   work_orders: ['view', 'create', 'edit', 'delete'],
   commission: ['view', 'edit'],
+  // Money across the business — revenue, profit, cost on the dashboard and
+  // the job reports (Workiz: "view financial data"). Without it those show
+  // counts only; the server leaves every amount out.
+  financials: ['view'],
   documents: ['view', 'upload', 'delete'],
   // Telephony call history + live supervision. `view` gates the calls list,
   // call detail and recording playback; `join` gates live listen/join.
