@@ -335,6 +335,48 @@ export class CallsController {
     };
   }
 
+  @Get('count')
+  @RequirePermission('calls', 'view')
+  @ApiOperation({
+    summary: 'How many calls the filter selects',
+    description:
+      '**Guard:** `calls.view` permission required. Takes the same filters as the list ' +
+      '(`direction`, `status`, `agentId`, `number`, `numbers`, `dateFrom`/`dateTo`, `origin`, ' +
+      '`tagId`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
+      'count behind "Page 2 of 7". The log reaches back years, so the walk is bounded: ' +
+      '`atLeast` means it stopped on that budget and the real number is higher, which the ' +
+      'panel renders as `7+`. Narrow with `dateFrom`/`dateTo` for an exact one. ' +
+      'Cached for thirty seconds.',
+  })
+  async count(
+    @Query('direction') direction?: string,
+    @Query('status') status?: string,
+    @Query('agentId') agentId?: string,
+    @Query('number') number?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('numbers') numbers?: string,
+    @Query('origin') origin?: string,
+    @Query('tagId') tagId?: string,
+  ) {
+    const parsedNumbers = numbers
+      ? numbers.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 20)
+      : undefined;
+    const data = await this.callsService.count({
+      direction,
+      status,
+      agentId,
+      number,
+      numbers: parsedNumbers,
+      dateFrom,
+      dateTo,
+      origin,
+      tagId,
+    });
+    return { success: true, data };
+  }
+
+
   @Get('by-party/:kind/:id')
   @RequirePermission('calls', 'view')
   @ApiOperation({

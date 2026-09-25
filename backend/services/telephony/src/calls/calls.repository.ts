@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import {
   CALLS_TABLE,
   CALLS_GSI1_NAME,
@@ -229,6 +232,13 @@ const QUERY_PAGE_SIZE = 100;
  * found plus `nextCursor` and decides whether to keep walking.
  */
 const MAX_QUERY_PAGES = 20;
+
+/**
+ * The read budget of one count. Generous next to a list page — a count reads
+ * no bodies — but finite: the log reaches back years, and a page load must
+ * not walk all of it.
+ */
+const MAX_COUNT_QUERIES = 60;
 
 @Injectable()
 export class CallsRepository {
@@ -688,6 +698,52 @@ export class CallsRepository {
     // A cursor from before the log was partitioned by month carries only a
     // DynamoDB key; the walk starts at the newest month with it.
     return typeof decoded?.month === 'string' ? decoded : undefined;
+  }
+
+  /**
+   * How many calls the filter selects — the number behind "Page 2 of 7".
+   *
+   * The same month walk the list does, with `Select: 'COUNT'`: no bodies come
+   * back, only the tally per month. The log is the largest list in the app and
+   * reaches back to {@link CALLS_MIN_MONTH}, so the walk is bounded the same
+   * way `list` is. Out of budget, the answer is a floor and the panel says
+   * `7+` rather than lie or spend the page's time.
+   */
+  async count(filter: ListCallsFilter): Promise<CountRowsResult> {
+    const { keyCondition, filterExpression, names, values } =
+      this.buildListQuery(filter);
+    const months = monthsDescending(filter.dateFrom, filter.dateTo);
+
+    let total = 0;
+    let queries = 0;
+
+    for (const month of months) {
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+
+      for (;;) {
+        if (queries >= MAX_COUNT_QUERIES) return { total, atLeast: true };
+        queries += 1;
+
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            ...(filterExpression && { FilterExpression: filterExpression }),
+            ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            Select: 'COUNT',
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
+
+        total += res.Count ?? 0;
+        if (!res.LastEvaluatedKey) break;
+        exclusiveStartKey = res.LastEvaluatedKey;
+      }
+    }
+
+    return { total, atLeast: false };
   }
 
   /** Live (non-terminal) calls in the recent window, newest first. */
