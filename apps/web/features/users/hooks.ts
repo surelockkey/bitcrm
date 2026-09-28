@@ -203,3 +203,51 @@ export function useReactivateUser() {
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
 }
+
+/* ---------------------------------------------------- two-step sign-in */
+
+/** Your own switch: text a code to the phone on your profile. */
+export function useStartMyMfa() {
+  return useMutation({ mutationFn: () => api.startMyMfa() });
+}
+
+/** Your own switch: the code came back, so it goes on. */
+export function useConfirmMyMfa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => api.confirmMyMfa(code),
+    onSuccess: (user) => {
+      qc.setQueryData(queryKeys.me(), user);
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      toast.success("Two-step sign-in is on");
+    },
+  });
+}
+
+export function useDisableMyMfa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.disableMyMfa(),
+    onSuccess: (user) => {
+      qc.setQueryData(queryKeys.me(), user);
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      toast.success("Two-step sign-in is off");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}
+
+/** An admin's switch for someone else. */
+export function useSetUserMfa() {
+  const qc = useQueryClient();
+  const { data: me } = useMe();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setUserMfa(id, enabled),
+    onSuccess: (user, { enabled }) => {
+      qc.invalidateQueries({ queryKey: queryKeys.users.all() });
+      if (user.id === me?.id) qc.setQueryData(queryKeys.me(), user);
+      toast.success(enabled ? "Two-step sign-in switched on" : "Two-step sign-in switched off");
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+}

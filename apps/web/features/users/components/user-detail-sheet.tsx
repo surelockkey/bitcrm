@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { Switch } from "@/components/ui/switch";
+import { UserTwoStepSwitch } from "./user-two-step-switch";
 import {
   Select,
   SelectContent,
@@ -260,6 +261,9 @@ export function UserDetailSheet({
                     </FormItem>
                   )}
                 />
+                {/* Saves on its own: an admin switching off a lost phone should
+                    not have to save the rest of the profile to do it. */}
+                <UserTwoStepSwitch user={user} canEdit={canEdit} />
                 {canEditProfileTab ? (
                   <div className="flex justify-end">
                     <Button type="submit" variant="brand" disabled={updateUser.isPending} className="gap-1.5">

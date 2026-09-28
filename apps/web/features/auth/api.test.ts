@@ -31,7 +31,7 @@ describe("auth api", () => {
       newPassword: "Password1",
       session: "sess-123",
     });
-    expect(res.idToken).toBe("id-tok");
+    expect(res).toMatchObject({ idToken: "id-tok" });
   });
 
   it("setNewPassword throws on an expired session", async () => {

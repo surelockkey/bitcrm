@@ -61,6 +61,25 @@ export function updateMyPhone(phone: string): Promise<User> {
   return http.put<User>("/users/me", { phone });
 }
 
+/** Two-step sign-in, step one: text a code to the phone on your profile. */
+export function startMyMfa(): Promise<{ destination: string }> {
+  return http.post<{ destination: string }>("/users/me/mfa/start");
+}
+
+/** Step two: the code came back — switch it on. */
+export function confirmMyMfa(code: string): Promise<User> {
+  return http.post<User>("/users/me/mfa/confirm", { code });
+}
+
+export function disableMyMfa(): Promise<User> {
+  return http.delete<User>("/users/me/mfa");
+}
+
+/** An admin's switch for someone else (`users.edit`). */
+export function setUserMfa(id: string, enabled: boolean): Promise<User> {
+  return http.put<User>(`/users/${id}/mfa`, { enabled });
+}
+
 export function assignRole(id: string, roleId: string): Promise<User> {
   return http.put<User>(`/users/${id}/role`, { roleId });
 }

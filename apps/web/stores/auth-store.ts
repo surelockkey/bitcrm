@@ -33,8 +33,15 @@ interface AuthState {
    */
   pendingEmail: string | null;
   challengeSession: string | null;
+  /**
+   * Two-step sign-in in progress: the password was right and a code has been
+   * texted to `destination` (a masked phone). The tokens wait on the server
+   * until the code comes back. Not persisted — a reload starts over.
+   */
+  mfaChallenge: { session: string; destination: string } | null;
   setSession: (tokens: TokenPayload) => void;
   setChallenge: (email: string, session: string) => void;
+  setMfaChallenge: (challenge: { session: string; destination: string } | null) => void;
   clear: () => void;
 }
 
@@ -44,6 +51,7 @@ export const useAuthStore = create<AuthState>()(
       session: null,
       pendingEmail: null,
       challengeSession: null,
+      mfaChallenge: null,
       setSession: (tokens) =>
         set({
           session: {
@@ -55,13 +63,20 @@ export const useAuthStore = create<AuthState>()(
           },
           pendingEmail: null,
           challengeSession: null,
+          mfaChallenge: null,
         }),
       setChallenge: (pendingEmail, challengeSession) =>
         set({ pendingEmail, challengeSession }),
+      setMfaChallenge: (mfaChallenge) => set({ mfaChallenge }),
       clear: () =>
-        set({ session: null, pendingEmail: null, challengeSession: null }),
+        set({ session: null, pendingEmail: null, challengeSession: null, mfaChallenge: null }),
     }),
-    { name: "bitcrm.auth" },
+    {
+      name: "bitcrm.auth",
+      // The code step is not worth resuming after a reload: its server-side
+      // challenge lives five minutes, and a fresh sign-in is one form away.
+      partialize: ({ session, pendingEmail, challengeSession }) => ({ session, pendingEmail, challengeSession }),
+    },
   ),
 );
 

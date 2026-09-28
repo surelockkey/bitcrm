@@ -19,6 +19,8 @@ import {
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { loginSchema, type LoginValues } from "@/features/auth/schemas";
 import { useLogin } from "@/features/auth/hooks";
+import { useAuthStore } from "@/stores/auth-store";
+import { MfaCodeStep } from "./mfa-code-step";
 
 export function LoginForm() {
   const form = useForm<LoginValues>({
@@ -26,6 +28,15 @@ export function LoginForm() {
     defaultValues: { email: "", password: "" },
   });
   const mutation = useLogin();
+  const mfa = useAuthStore((s) => s.mfaChallenge);
+
+  if (mfa) {
+    return (
+      <AuthCard>
+        <MfaCodeStep destination={mfa.destination} />
+      </AuthCard>
+    );
+  }
 
   return (
     <AuthCard>
