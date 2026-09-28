@@ -1,5 +1,7 @@
 import type {
   CallFlowSeries,
+  CallsDashboardBundle,
+  DealDashboardBundle,
   DashboardJobsNow,
   DashboardSales,
   DashboardScoreboard,
@@ -61,3 +63,14 @@ export const getJobsNow = (): Promise<DashboardJobsNow> => http.get<DashboardJob
 /** The newest four calls of the whole log, named and masked as the log is. */
 export const getRecentCalls = (): Promise<CallRecord[]> =>
   http.get<CallRecord[]>("/telephony/calls/stats/recent");
+
+/**
+ * What the dashboard opens with: every deal widget the reader may see, in one
+ * answer. The server leaves out any widget the role does not hold.
+ */
+export const getDealBundle = (window: DayWindow, day: string): Promise<DealDashboardBundle> =>
+  http.get<DealDashboardBundle>(`/deals/stats/dashboard?${new URLSearchParams({ ...window, day })}`);
+
+/** The call widgets, likewise. */
+export const getCallsBundle = (window: DayWindow): Promise<CallsDashboardBundle> =>
+  http.get<CallsDashboardBundle>(`/telephony/calls/stats/dashboard?${new URLSearchParams({ ...window })}`);

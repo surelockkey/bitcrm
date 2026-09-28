@@ -4,7 +4,8 @@ import { useCallback, useState } from "react";
 import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import * as api from "./api";
-import { localDay, rangeWindow, type DashboardRange } from "./jobs-by-status";
+import { useDashboardReady } from "./bundle-context";
+import { DEFAULT_RANGE, localDay, rangeWindow, type DashboardRange } from "./jobs-by-status";
 
 /**
  * The server builds these snapshots once a night, so the browser has no
@@ -22,12 +23,14 @@ const SNAPSHOT_GC_MS = 30 * 60_000;
  */
 function useSnapshot<T>(queryKey: QueryKey, fetch: (opts?: api.SnapshotRequest) => Promise<T>) {
   const client = useQueryClient();
+  const ready = useDashboardReady();
   const [rebuilding, setRebuilding] = useState(false);
   const query = useQuery({
     queryKey,
     queryFn: () => fetch(undefined),
     staleTime: SNAPSHOT_STALE_MS,
     gcTime: SNAPSHOT_GC_MS,
+    enabled: ready,
   });
   const key = JSON.stringify(queryKey);
   const refetch = useCallback(async () => {
@@ -40,7 +43,12 @@ function useSnapshot<T>(queryKey: QueryKey, fetch: (opts?: api.SnapshotRequest) 
     // `fetch` is a module-level function per widget; the key names the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, key]);
-  return { ...query, isFetching: query.isFetching || rebuilding, refetch };
+  return {
+    ...query,
+    isLoading: query.isLoading || (!ready && query.data === undefined),
+    isFetching: query.isFetching || rebuilding,
+    refetch,
+  };
 }
 
 /**
@@ -68,28 +76,67 @@ export function useRangeWidget<T>(
   return useSnapshot(queryKeys.dashboard.widget(name, window), (opts) => fetch(window, opts));
 }
 
+/** A live widget: read as it is, but still held back while the bundle is on its way. */
+function useLive<T>(queryKey: QueryKey, queryFn: () => Promise<T>) {
+  const ready = useDashboardReady();
+  const query = useQuery({ queryKey, queryFn, staleTime: 30_000, enabled: ready });
+  return { ...query, isLoading: query.isLoading || (!ready && query.data === undefined) };
+}
+
 /** "Today", on the account's calendar — live, not a snapshot. */
 export function useToday(now: Date) {
   const day = localDay(now);
-  return useQuery({
-    queryKey: queryKeys.dashboard.widget("today", day),
-    queryFn: () => api.getToday(day),
-    staleTime: 30_000,
-  });
+  return useLive(queryKeys.dashboard.widget("today", day), () => api.getToday(day));
 }
 
 export function useJobsNow() {
-  return useQuery({
-    queryKey: queryKeys.dashboard.widget("jobs-now"),
-    queryFn: api.getJobsNow,
-    staleTime: 30_000,
-  });
+  return useLive(queryKeys.dashboard.widget("jobs-now"), api.getJobsNow);
 }
 
 export function useRecentCalls() {
+  return useLive(queryKeys.dashboard.widget("recent-calls"), api.getRecentCalls);
+}
+
+/**
+ * The dashboard's opening read: two requests — one per service — instead of
+ * one per card. Each answer is laid into the cache entry of the card that
+ * shows it, under exactly the key that card's own hook asks with, so when the
+ * cards are let go they find their data and paint together.
+ *
+ * The two services settle independently: one failing leaves the other's
+ * cards filled, and the failed ones simply fetch on their own.
+ */
+export function useDashboardBundle(now: Date) {
+  const client = useQueryClient();
+  const window = rangeWindow(DEFAULT_RANGE, now);
+  const day = localDay(now);
   return useQuery({
-    queryKey: queryKeys.dashboard.widget("recent-calls"),
-    queryFn: api.getRecentCalls,
-    staleTime: 30_000,
+    queryKey: queryKeys.dashboard.widget("bundle", { window, day }),
+    queryFn: async () => {
+      const [deal, calls] = await Promise.allSettled([api.getDealBundle(window, day), api.getCallsBundle(window)]);
+      const seed = (key: QueryKey, data: unknown) => {
+        if (data !== undefined) client.setQueryData(key, data);
+      };
+      if (deal.status === "fulfilled") {
+        const d = deal.value;
+        seed(queryKeys.dashboard.widget("sales", window), d.sales);
+        seed(queryKeys.dashboard.widget("top-sources", window), d.topSources);
+        seed(queryKeys.dashboard.widget("top-job-types", window), d.topJobTypes);
+        seed(queryKeys.dashboard.widget("service-areas", window), d.serviceAreas);
+        seed(queryKeys.dashboard.widget("tech-scoreboard", window), d.techScoreboard);
+        seed(queryKeys.dashboard.widget("dispatch-scoreboard", window), d.dispatchScoreboard);
+        seed(queryKeys.dashboard.widget("today", day), d.today);
+        seed(queryKeys.dashboard.widget("jobs-now"), d.jobsNow);
+        seed(queryKeys.dashboard.jobsByStatus(window), d.jobsByStatus);
+      }
+      if (calls.status === "fulfilled") {
+        seed(queryKeys.dashboard.widget("top-call-flows", window), calls.value.topCallFlows);
+        seed(queryKeys.dashboard.widget("recent-calls"), calls.value.recentCalls);
+      }
+      return { at: Date.now() };
+    },
+    staleTime: SNAPSHOT_STALE_MS,
+    gcTime: SNAPSHOT_GC_MS,
+    retry: false,
   });
 }

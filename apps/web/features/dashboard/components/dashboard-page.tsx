@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import type { Action } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
+import { DashboardReady } from "../bundle-context";
+import { useDashboardBundle } from "../hooks";
 import {
   DispatchScoreboardCard,
   JobsNowCard,
@@ -33,6 +36,11 @@ import { JobsByStatusCard } from "./jobs-by-status-card";
  */
 export function DashboardPage() {
   const { can } = usePermissions();
+  // One read per service for everything the page opens with; the cards wait
+  // for it and then fill together. If it fails they are let go all the same,
+  // and each fetches on its own — slower, never stuck.
+  const [now] = useState(() => new Date());
+  const bundle = useDashboardBundle(now);
   const sees = (action: Action<"dashboard">) => can("dashboard", action);
   // A widget the reader may not see is not rendered at all — not greyed out.
   // Its data endpoint refuses them too, so a card here would only ever show an
@@ -59,7 +67,9 @@ export function DashboardPage() {
   return (
     <div className="flex-1 p-4 md:p-6">
       {widgets.length ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">{widgets}</div>
+        <DashboardReady.Provider value={!bundle.isPending}>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">{widgets}</div>
+        </DashboardReady.Provider>
       ) : (
         <p className="py-16 text-center text-sm text-muted-foreground">
           No widgets are shared with your role yet.

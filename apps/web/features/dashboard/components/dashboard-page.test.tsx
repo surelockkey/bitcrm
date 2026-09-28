@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderWithClient } from "@/test/render-with-client";
+import { useDashboardReady } from "../bundle-context";
 import { DashboardPage } from "./dashboard-page";
 
 const grants: Record<string, boolean> = { "dashboard.view_jobs_by_status": true };
@@ -11,9 +12,14 @@ vi.mock("@/features/auth/use-permissions", () => ({
   }),
 }));
 
+const bundle = { isPending: false };
+vi.mock("../hooks", () => ({ useDashboardBundle: () => bundle }));
+
 vi.mock("./dashboard-widgets", () => {
   const stub = (id: string) => {
-    const Stub = ({ className }: { className?: string }) => <div data-testid={id} className={className} />;
+    const Stub = ({ className }: { className?: string }) => (
+      <div data-testid={id} className={className} data-ready={String(useDashboardReady())} />
+    );
     Stub.displayName = id;
     return Stub;
   };
@@ -33,7 +39,7 @@ vi.mock("./dashboard-widgets", () => {
 
 vi.mock("./jobs-by-status-card", () => ({
   JobsByStatusCard: ({ className }: { className?: string }) => (
-    <div data-testid="jobs-by-status" className={className} />
+    <div data-testid="jobs-by-status" className={className} data-ready={String(useDashboardReady())} />
   ),
 }));
 
@@ -121,5 +127,20 @@ describe("DashboardPage", () => {
     ]);
     for (const [, action] of WIDGETS) grants[`dashboard.${action}`] = false;
     grants["financials.view"] = false;
+  });
+
+  // Картки чекають на пакет і заповнюються разом, а не по одній.
+  it("holds every card while the opening bundle is on its way, then lets them all go", () => {
+    grants["dashboard.view_top_sources"] = true;
+    bundle.isPending = true;
+    const { unmount } = renderWithClient(<DashboardPage />);
+    expect(screen.getByTestId("top-sources").dataset.ready).toBe("false");
+    expect(screen.getByTestId("jobs-by-status").dataset.ready).toBe("false");
+    unmount();
+
+    bundle.isPending = false;
+    renderWithClient(<DashboardPage />);
+    expect(screen.getByTestId("top-sources").dataset.ready).toBe("true");
+    grants["dashboard.view_top_sources"] = false;
   });
 });
