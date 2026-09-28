@@ -66,6 +66,20 @@ export const RESOURCE_REGISTRY = {
   estimates: ['view', 'create', 'edit', 'delete', 'send', 'sync'],
   // Settings → Documents: PDF templates + business profile.
   document_templates: ['view', 'edit'],
+  /**
+   * Dashboard widgets, one action per widget.
+   *
+   * Visibility rides the permission matrix rather than a second ACL of its
+   * own: the grant is already resolved per user, cached in Redis and enforced
+   * by `PermissionGuard` in every service, so a widget hidden from a role is
+   * one whose **data endpoint refuses that role** — not one the browser
+   * declines to paint. Widening the matrix is the price; a viewer opening
+   * DevTools and getting the numbers anyway is what it buys.
+   *
+   * `view` is the dashboard itself; each widget then has its own action under
+   * it. A new widget adds an action here and a grant in both role-seed files.
+   */
+  dashboard: ['view', 'view_jobs_by_status'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

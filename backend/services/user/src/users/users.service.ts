@@ -18,6 +18,7 @@ import {
   RedisService,
   cachedCount,
   countCacheKey,
+  type CountRowsResult,
 } from '@bitcrm/shared';
 import {
   type User,
@@ -422,7 +423,9 @@ export class UsersService implements OnModuleInit {
    * and an index walk would be waste.
    */
   async count(query: ListUsersQueryDto): Promise<ListCount> {
-    const take = async (): Promise<ListCount> => {
+    // `CountRowsResult`, not `ListCount`: the directory always has a number,
+    // and `cachedCount` will not take the nullable form that billing needs.
+    const take = async (): Promise<CountRowsResult> => {
       if (query.roleId) {
         const items = await this.repository.findByRoleId(query.roleId);
         return { total: items.length, atLeast: false };

@@ -123,11 +123,15 @@ export class DealsController {
 
   // Before `:id`, or the parameter route swallows it.
   @Get('stats/jobs-by-status')
-  @RequirePermission('deals', 'view')
+  // The widget's own grant, not `deals.view`: hiding a dashboard widget from a
+  // role has to mean its data endpoint refuses that role, or the numbers are
+  // one DevTools tab away.
+  @RequirePermission('dashboard', 'view_jobs_by_status')
   @ApiOperation({
     summary: 'Jobs created per day, by state — the dashboard chart',
     description:
-      '**Guard:** `deals.view` permission required. One row per calendar day of `from`..`to` ' +
+      '**Guard:** `dashboard.view_jobs_by_status` — the widget\'s own grant, so a role that ' +
+      'cannot see the card cannot fetch its numbers either. One row per calendar day of `from`..`to` ' +
       '(inclusive, `YYYY-MM-DD`), counting jobs by the day they were **created** and the state ' +
       'they are in **now**. Three buckets: `canceled`, `done`, and `open` — everything not yet ' +
       'closed, `done_pending_approval` included, since it is still awaiting sign-off. Days with ' +
