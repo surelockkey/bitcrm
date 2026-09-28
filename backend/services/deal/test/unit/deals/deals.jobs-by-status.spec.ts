@@ -23,7 +23,7 @@ describe('DealsService.jobsByStatus', () => {
     const store = new Map<string, string>();
     const cache = {
       getJson: jest.fn(async (k: string) => (store.has(k) ? JSON.parse(store.get(k)!) : null)),
-      setJson: jest.fn(async (k: string, v: unknown) => {
+      setJson: jest.fn(async (k: string, v: unknown, _ttl?: number) => {
         store.set(k, JSON.stringify(v));
       }),
     };
@@ -137,5 +137,35 @@ describe('DealsService.jobsByStatus', () => {
     await expect(
       service.jobsByStatus({ from: '2026-09-16', to: '2026-09-14' }),
     ).rejects.toThrow();
+  });
+
+  describe('snapshots', () => {
+    it('is kept a whole day — the nightly run builds it', async () => {
+      const { service, cache } = make();
+
+      await service.jobsByStatus(window);
+
+      expect(cache.setJson.mock.calls[0][2]).toBeGreaterThanOrEqual(24 * 3600);
+    });
+
+    it('says when it was computed, and a cached read keeps that moment', async () => {
+      const { service } = make();
+
+      const first = await service.jobsByStatus(window);
+      const again = await service.jobsByStatus(window);
+
+      expect(Date.parse(first.computedAt!)).not.toBeNaN();
+      expect(again.computedAt).toBe(first.computedAt);
+    });
+
+    it('fresh rebuilds it', async () => {
+      const { service, repository } = make();
+
+      await service.jobsByStatus(window);
+      await service.jobsByStatus(window, { fresh: true });
+
+      // Six statuses per build.
+      expect(repository.countCreatedByDay).toHaveBeenCalledTimes(12);
+    });
   });
 });

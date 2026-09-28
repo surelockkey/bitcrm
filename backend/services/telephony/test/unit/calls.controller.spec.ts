@@ -1091,8 +1091,10 @@ describe('CallsController — dashboard widgets', () => {
     const { controller } = makeController({ topFlows });
 
     const res = await controller.topFlows('2026-09-14', '2026-09-28');
+    await controller.topFlows('2026-09-14', '2026-09-28', '1');
 
-    expect(topFlows).toHaveBeenCalledWith({ from: '2026-09-14', to: '2026-09-28' });
+    expect(topFlows).toHaveBeenNthCalledWith(1, { from: '2026-09-14', to: '2026-09-28' }, { fresh: false });
+    expect(topFlows).toHaveBeenNthCalledWith(2, { from: '2026-09-14', to: '2026-09-28' }, { fresh: true });
     expect(res).toEqual({ success: true, data: { days: [], flows: [], atLeast: false } });
   });
 

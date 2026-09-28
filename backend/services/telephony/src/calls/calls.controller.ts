@@ -554,10 +554,16 @@ export class CallsController {
       '**Guard:** `dashboard.view_top_call_flows`. `from`..`to` are whole days (YYYY-MM-DD, inclusive, at ' +
       'most 92). Every day of the window is present, zeros included; the eight busiest flows come back, ' +
       'busiest first. Only calls that entered a flow count — outbound calls never do. `atLeast` means the ' +
-      'walk stopped on its read budget. Cached for thirty seconds.',
+      'walk stopped on its read budget. Served from a snapshot built nightly at 3 AM Eastern and kept ' +
+      'until the next (`computedAt`); `refresh=1` rebuilds it.',
   })
-  async topFlows(@Query('from') from?: string, @Query('to') to?: string) {
-    return { success: true, data: await this.callsService.topFlows({ from, to }) };
+  async topFlows(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('refresh') refresh?: string,
+  ) {
+    const fresh = refresh === '1' || refresh === 'true';
+    return { success: true, data: await this.callsService.topFlows({ from, to }, { fresh }) };
   }
 
   @Get('stats/recent')

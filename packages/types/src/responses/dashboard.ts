@@ -18,6 +18,8 @@ export interface DashboardShare {
 
 export interface DashboardShares {
   slices: DashboardShare[];
+  /** When the snapshot these numbers come from was computed (ISO). */
+  computedAt?: string;
 }
 
 /** One day of "Sales": what the day's Done jobs were billed, and what was left of it. */
@@ -35,6 +37,8 @@ export interface DashboardSales {
   days: DashboardSalesDay[];
   total: number;
   net: number;
+  /** When the snapshot these numbers come from was computed (ISO). */
+  computedAt?: string;
 }
 
 /** A row of a scoreboard — a technician or a dispatcher (the job's creator). */
@@ -51,6 +55,8 @@ export interface DashboardScoreRow {
 
 export interface DashboardScoreboard {
   rows: DashboardScoreRow[];
+  /** When the snapshot these numbers come from was computed (ISO). */
+  computedAt?: string;
 }
 
 /** "Jobs": how many jobs stand in each unclosed state right now. */
@@ -75,4 +81,6 @@ export interface CallFlowSeries {
   flows: { name: string; counts: number[] }[];
   /** The walk stopped on its read budget: the counts are floors. */
   atLeast: boolean;
+  /** When the snapshot these numbers come from was computed (ISO). */
+  computedAt?: string;
 }

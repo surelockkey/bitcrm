@@ -27,6 +27,7 @@ describe('DealDashboardService', () => {
   function make(result: DealStats = statsFor()) {
     const deals = {
       stats: jest.fn(async () => result),
+      jobsByStatus: jest.fn(async () => ({ days: [], atLeast: false, computedAt: '2026-09-28T07:00:00.000Z' })),
       counts: jest.fn(async () => ({
         submitted: 2, pending: 3, in_progress: 1, done_pending_approval: 4, done: 50, canceled: 6,
         unscheduled: 0, total: 66, atLeast: [],
@@ -35,7 +36,7 @@ describe('DealDashboardService', () => {
     const store = new Map<string, string>();
     const cache = {
       getJson: jest.fn(async (k: string) => (store.has(k) ? JSON.parse(store.get(k)!) : null)),
-      setJson: jest.fn(async (k: string, v: unknown) => void store.set(k, JSON.stringify(v))),
+      setJson: jest.fn(async (k: string, v: unknown, _ttl?: number) => void store.set(k, JSON.stringify(v))),
     };
     const jobTypes = { list: jest.fn(async () => [{ id: 't1', name: 'New Car key' }]) };
     const jobSources = { list: jest.fn(async () => [{ id: 's1', name: 'SURE TX PLATINUM' }]) };
@@ -196,6 +197,96 @@ describe('DealDashboardService', () => {
 
       expect(deals.counts).toHaveBeenCalledWith({}, caller, 'all');
       expect(out.byStatus).toEqual({ submitted: 2, pending: 3, in_progress: 1, done_pending_approval: 4 });
+    });
+  });
+
+  /**
+   * Знімки. Нічний прогін будує агрегат кожного вікна наперед, і він живе до
+   * наступного прогону — тож відкриття дашборда читає готове, а не рахує
+   * квартал робіт на очах у користувача. «updated» показує, коли знімок
+   * зроблено; кнопка оновлення перераховує його.
+   */
+  describe('snapshots', () => {
+    it('an aggregate is kept a whole day, not thirty seconds', async () => {
+      const { service, cache } = make();
+
+      await service.shares('source', window, caller);
+
+      const ttl = cache.setJson.mock.calls[0][2] as number;
+      expect(ttl).toBeGreaterThanOrEqual(24 * 3600);
+    });
+
+    it('every widget says when its numbers were computed, and the cache keeps that moment', async () => {
+      const { service } = make();
+
+      const first = await service.shares('source', window, caller);
+      const again = await service.sales(window, caller);
+      const board = await service.scoreboard('tech', window, caller, true);
+
+      expect(Date.parse(first.computedAt!)).not.toBeNaN();
+      expect(board.computedAt).toBe(again.computedAt);
+    });
+
+    it('fresh recomputes even when a snapshot is there, and replaces it', async () => {
+      const { service, deals } = make();
+
+      await service.shares('source', window, caller);
+      await service.shares('source', window, caller, { fresh: true });
+      await service.shares('source', window, caller);
+
+      expect(deals.stats).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('warm — the nightly run', () => {
+    // 08:00 in New York on Sep 28.
+    const now = new Date('2026-09-28T12:00:00Z');
+
+    it('builds every range the widgets offer, for both windows and both audiences', async () => {
+      const { service, deals } = make();
+
+      await service.warm(now);
+
+      const asked = deals.stats.mock.calls.map((c) => {
+        const [q, , scope, opts] = c as unknown as [Record<string, string>, unknown, string, { money: boolean }];
+        const by = q.createdFrom ? 'created' : 'closed';
+        return `${by}:${q[`${by}From`]}:${q[`${by}To`]}:${opts.money}:${scope}`;
+      });
+      expect(asked.sort()).toEqual(
+        [
+          'closed:2026-08-29:2026-09-28:false:all',
+          'closed:2026-08-29:2026-09-28:true:all',
+          'closed:2026-09-14:2026-09-28:false:all',
+          'closed:2026-09-14:2026-09-28:true:all',
+          'closed:2026-09-21:2026-09-28:false:all',
+          'closed:2026-09-21:2026-09-28:true:all',
+          'created:2026-08-29:2026-09-28:false:all',
+          'created:2026-09-14:2026-09-28:false:all',
+          'created:2026-09-21:2026-09-28:false:all',
+        ].sort(),
+      );
+    });
+
+    it('recomputes rather than trusting yesterday’s snapshot', async () => {
+      const { service, deals } = make();
+
+      await service.shares('source', { from: '2026-09-14', to: '2026-09-28' }, caller);
+      await service.warm(now);
+
+      // The one already cached is built again: 9 by the warm, 1 before it.
+      expect(deals.stats).toHaveBeenCalledTimes(10);
+    });
+
+    it('builds the Jobs By Status series too', async () => {
+      const { service, deals } = make();
+
+      await service.warm(now);
+
+      expect(deals.jobsByStatus.mock.calls.map((c) => c as unknown[])).toEqual([
+        [{ from: '2026-09-21', to: '2026-09-28' }, { fresh: true }],
+        [{ from: '2026-09-14', to: '2026-09-28' }, { fresh: true }],
+        [{ from: '2026-08-29', to: '2026-09-28' }, { fresh: true }],
+      ]);
     });
   });
 });

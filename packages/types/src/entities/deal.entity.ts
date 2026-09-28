@@ -237,6 +237,8 @@ export interface JobsByStatusSeries {
   days: JobsByStatusDay[];
   /** A walk stopped on its read budget: the counts are floors, not totals. */
   atLeast: boolean;
+  /** When this series was computed (ISO) — the nightly snapshot, or a refresh. */
+  computedAt?: string;
 }
 
 /** An id with the name to print for it. Nothing else — see `JobsListIncluded`. */

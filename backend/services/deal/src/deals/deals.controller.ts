@@ -22,7 +22,7 @@ import { MoveStatusDto } from './dto/move-status.dto';
 import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
-import { JobsByStatusQueryDto } from './dto/jobs-by-status-query.dto';
+import { splitRefresh, WidgetWindowQueryDto } from './dashboard/widget-window-query.dto';
 import { DealsByIdsDto } from './dto/deals-by-ids.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
@@ -144,10 +144,11 @@ export class DealsController {
       'closed, `done_pending_approval` included, since it is still awaiting sign-off. Days with ' +
       'no jobs come back as zeros so the axis steps evenly. The window is capped at 92 days. ' +
       '`atLeast` means a walk stopped on its read budget and the counts are floors. ' +
-      'Cached for thirty seconds.',
+      'Served from a snapshot built nightly at 3 AM Eastern (`computedAt`); `refresh=1` rebuilds it.',
   })
-  async jobsByStatus(@Query() query: JobsByStatusQueryDto) {
-    const data = await this.dealsService.jobsByStatus(query);
+  async jobsByStatus(@Query() query: WidgetWindowQueryDto) {
+    const { window, opts } = splitRefresh(query);
+    const data = await this.dealsService.jobsByStatus(window, opts);
     return { success: true, data };
   }
 

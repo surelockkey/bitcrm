@@ -51,7 +51,7 @@ describe('DealDashboardController', () => {
 
     await controller.sales(window, user, withMoney);
 
-    expect(service.sales).toHaveBeenCalledWith(window, user);
+    expect(service.sales).toHaveBeenCalledWith(window, user, { fresh: false });
   });
 
   it('a scoreboard carries amounts only with financials.view', async () => {
@@ -60,8 +60,8 @@ describe('DealDashboardController', () => {
     await controller.techScoreboard(window, user, noMoney);
     await controller.dispatchScoreboard(window, user, withMoney);
 
-    expect(service.scoreboard).toHaveBeenNthCalledWith(1, 'tech', window, user, false);
-    expect(service.scoreboard).toHaveBeenNthCalledWith(2, 'dispatch', window, user, true);
+    expect(service.scoreboard).toHaveBeenNthCalledWith(1, 'tech', window, user, false, { fresh: false });
+    expect(service.scoreboard).toHaveBeenNthCalledWith(2, 'dispatch', window, user, true, { fresh: false });
   });
 
   it('today leaves the sales out without financials.view', async () => {
@@ -80,5 +80,18 @@ describe('DealDashboardController', () => {
     await controller.serviceAreas(window, user);
 
     expect(service.shares.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['source', 'jobType', 'serviceArea']);
+  });
+
+  // Кнопка ↻ на картці: перерахувати знімок, а не прочитати нічний.
+  it('refresh=1 rebuilds the snapshot; its absence reads it', async () => {
+    const { controller, service } = make();
+
+    await controller.topSources({ ...window, refresh: '1' }, user);
+    await controller.topSources(window, user);
+    await controller.sales({ ...window, refresh: '1' }, user, withMoney);
+
+    expect(service.shares).toHaveBeenNthCalledWith(1, 'source', window, user, { fresh: true });
+    expect(service.shares).toHaveBeenNthCalledWith(2, 'source', window, user, { fresh: false });
+    expect(service.sales).toHaveBeenCalledWith(window, user, { fresh: true });
   });
 });

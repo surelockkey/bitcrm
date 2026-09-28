@@ -464,3 +464,10 @@ export type {
   DashboardShares,
   DashboardToday,
 } from './responses/dashboard';
+export {
+  DASHBOARD_RANGES,
+  DASHBOARD_TIMEZONE,
+  dashboardDay,
+  dashboardWindow,
+  msUntilDailyAt,
+} from './dashboard/time';

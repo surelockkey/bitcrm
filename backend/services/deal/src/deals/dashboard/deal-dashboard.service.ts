@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { DASHBOARD_RANGES, dashboardWindow } from '@bitcrm/types';
 import type {
   DashboardJobsNow,
   DashboardSales,
@@ -19,8 +20,11 @@ import { jobsNowOf, salesOf, scoreboardOf, todayOf, topShares } from '../stats/d
 
 /** The same ceiling as every report window; the widgets offer at most thirty days. */
 const WINDOW_MAX_DAYS = 92;
-/** As long as the other dashboard counts are held. */
-const AGGREGATE_TTL_SECONDS = 30;
+/**
+ * A snapshot lives until the next nightly run replaces it, with slack for a
+ * run that starts late. Past that it expires rather than be served forever.
+ */
+export const SNAPSHOT_TTL_SECONDS = 26 * 3600;
 
 export type ShareDimension = 'source' | 'jobType' | 'serviceArea';
 export type ScoreboardKind = 'tech' | 'dispatch';
@@ -30,7 +34,26 @@ interface DayWindow {
   to: string;
 }
 
+/** `fresh` rebuilds the snapshot instead of reading it — the card's refresh button. */
+export interface SnapshotOptions {
+  fresh?: boolean;
+}
+
+interface Snapshot {
+  stats: DealStats;
+  computedAt: string;
+}
+
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** "Today" is the day so far, so it is read live rather than from a snapshot. */
+const TODAY_TTL_SECONDS = 30;
+
+/**
+ * Who the nightly run reads as. The aggregate is always read under the `all`
+ * scope, so the caller only has to be somebody; this one is never a person.
+ */
+const SYSTEM_CALLER = { id: 'system:dashboard-snapshot' } as JwtUser;
 
 /**
  * The dashboard's job widgets. Each one is a slice of `/deals/stats` — the
@@ -43,9 +66,14 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
  *
  * Two windows, because Workiz uses two: the pies count work by the day it was
  * **created** (where did the jobs come from), and anything with money in it
- * counts Done jobs by the day they **closed** (a sale is a Done job). The
- * aggregate for each is cached for thirty seconds, since five widgets on one
- * page ask for the same window.
+ * counts Done jobs by the day they **closed** (a sale is a Done job).
+ *
+ * **Snapshots, not live reads.** An aggregate is a read of every job in the
+ * window, and nobody should watch that happen when they open the dashboard.
+ * So each one is a snapshot: built ahead of time by the nightly run
+ * (`warm`), kept until the next, and carrying the moment it was computed —
+ * the "updated 3:00 AM" on the card, as in Workiz. A window nobody warmed is
+ * built on first ask and kept the same way; the refresh button rebuilds it.
  */
 @Injectable()
 export class DealDashboardService {
@@ -57,20 +85,26 @@ export class DealDashboardService {
     private readonly http: InternalHttpService,
   ) {}
 
-  async shares(dimension: ShareDimension, window: DayWindow, caller: JwtUser): Promise<DashboardShares> {
-    const stats = await this.aggregate('created', checked(window), caller, false);
-    if (dimension === 'serviceArea') return { slices: topShares(stats.byServiceArea, {}) };
+  async shares(
+    dimension: ShareDimension,
+    window: DayWindow,
+    caller: JwtUser,
+    opts: SnapshotOptions = {},
+  ): Promise<DashboardShares> {
+    const { stats, computedAt } = await this.aggregate('created', checked(window), caller, false, opts);
+    if (dimension === 'serviceArea') return { slices: topShares(stats.byServiceArea, {}), computedAt };
     if (dimension === 'jobType') {
       const names = Object.fromEntries((await this.jobTypes.list()).map((t) => [t.id, t.name]));
-      return { slices: topShares(stats.byJobType, names) };
+      return { slices: topShares(stats.byJobType, names), computedAt };
     }
     const names = Object.fromEntries((await this.jobSources.list()).map((s) => [s.id, s.name]));
-    return { slices: topShares(stats.bySource, names) };
+    return { slices: topShares(stats.bySource, names), computedAt };
   }
 
   /** Only ever called with `financials.view` — the route refuses anyone else. */
-  async sales(window: DayWindow, caller: JwtUser): Promise<DashboardSales> {
-    return salesOf(await this.aggregate('closed', checked(window), caller, true));
+  async sales(window: DayWindow, caller: JwtUser, opts: SnapshotOptions = {}): Promise<DashboardSales> {
+    const { stats, computedAt } = await this.aggregate('closed', checked(window), caller, true, opts);
+    return { ...salesOf(stats), computedAt };
   }
 
   async scoreboard(
@@ -78,24 +112,27 @@ export class DealDashboardService {
     window: DayWindow,
     caller: JwtUser,
     money: boolean,
+    opts: SnapshotOptions = {},
   ): Promise<DashboardScoreboard> {
-    const stats = await this.aggregate('closed', checked(window), caller, money);
+    const { stats, computedAt } = await this.aggregate('closed', checked(window), caller, money, opts);
     const buckets = kind === 'tech' ? stats.byTech : stats.byCreator;
     const ranked = scoreboardOf(buckets, {}, money);
     // Named after ranking: only the people on the board are looked up, not
     // everyone who closed something in the window.
     const people = await this.http.getUserNames(ranked.map((r) => r.id));
     const names = Object.fromEntries(people.map((p) => [p.id, `${p.firstName} ${p.lastName}`.trim()]));
-    return { rows: ranked.map((r) => ({ ...r, name: names[r.id] ?? r.name })) };
+    return { rows: ranked.map((r) => ({ ...r, name: names[r.id] ?? r.name })), computedAt };
   }
 
   async today(day: string, caller: JwtUser, money: boolean): Promise<DashboardToday> {
     const window = checked({ from: day, to: day });
+    // Today is read live — thirty seconds, not a snapshot: its whole point is
+    // the day so far, and one day of jobs is a small read.
     const [closed, created] = await Promise.all([
-      this.aggregate('closed', window, caller, money),
-      this.aggregate('created', window, caller, false),
+      this.aggregate('closed', window, caller, money, { ttlSeconds: TODAY_TTL_SECONDS }),
+      this.aggregate('created', window, caller, false, { ttlSeconds: TODAY_TTL_SECONDS }),
     ]);
-    return todayOf(closed, created);
+    return todayOf(closed.stats, created.stats);
   }
 
   /** Right now, not a window: the same counts the jobs board's tabs show. */
@@ -104,23 +141,47 @@ export class DealDashboardService {
     return jobsNowOf(counts as unknown as Record<JobSuperStatus, number | null>);
   }
 
+  /**
+   * The nightly run: every range the widgets offer, ending today in the
+   * account's time zone, rebuilt for both windows and both audiences — plus
+   * the Jobs By Status series. One at a time: it runs at 3 AM, and there is
+   * no one to hurry for, only a table not to hammer.
+   */
+  async warm(now: Date, caller: JwtUser = SYSTEM_CALLER): Promise<void> {
+    const fresh = { fresh: true };
+    for (const days of DASHBOARD_RANGES) {
+      const window = dashboardWindow(days, now);
+      await this.aggregate('created', window, caller, false, fresh);
+      await this.aggregate('closed', window, caller, true, fresh);
+      await this.aggregate('closed', window, caller, false, fresh);
+    }
+    for (const days of DASHBOARD_RANGES) {
+      await this.deals.jobsByStatus(dashboardWindow(days, now), fresh);
+    }
+  }
+
   private async aggregate(
     by: 'created' | 'closed',
     window: DayWindow,
     caller: JwtUser,
     money: boolean,
-  ): Promise<DealStats> {
+    opts: SnapshotOptions & { ttlSeconds?: number } = {},
+  ): Promise<Snapshot> {
     // Money is in the key: an aggregate built for someone without
     // `financials.view` has no amounts, and one built with them must never
     // be handed to someone without.
     const key = `deal-dash:${by}:${window.from}:${window.to}:${money ? 'money' : 'counts'}`;
-    const cached = await this.cache.getJson<DealStats>(key);
-    if (cached) return cached;
+    if (!opts.fresh) {
+      const cached = await this.cache.getJson<Snapshot>(key);
+      // A value from before snapshots is a bare aggregate; rebuild it.
+      if (cached?.stats && cached.computedAt) return cached;
+    }
 
     const query = { [`${by}From`]: window.from, [`${by}To`]: window.to } as unknown as ListDealsQueryDto;
     const stats = await this.deals.stats(query, caller, 'all', { money });
-    await this.cache.setJson(key, stats, AGGREGATE_TTL_SECONDS);
-    return stats;
+    const snapshot = { stats, computedAt: new Date().toISOString() };
+    await this.cache.setJson(key, snapshot, opts.ttlSeconds ?? SNAPSHOT_TTL_SECONDS);
+    return snapshot;
   }
 }
 

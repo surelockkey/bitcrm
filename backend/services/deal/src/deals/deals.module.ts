@@ -29,6 +29,7 @@ import { DealBillingService } from './billing/deal-billing.service';
 import { DealTaxResolver } from './billing/deal-tax.resolver';
 import { DealDashboardController } from './dashboard/deal-dashboard.controller';
 import { DealDashboardService } from './dashboard/deal-dashboard.service';
+import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.scheduler';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
@@ -52,6 +53,7 @@ import { DealDashboardService } from './dashboard/deal-dashboard.service';
     DealTaxResolver,
     DealBillingService,
     DealDashboardService,
+    DashboardSnapshotScheduler,
   ],
   exports: [DealsService, DealsEventHandler],
 })

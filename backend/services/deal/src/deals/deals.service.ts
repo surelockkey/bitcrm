@@ -82,6 +82,9 @@ const CLOSED_COUNT_CAP = 10_000;
  */
 const JOBS_BY_STATUS_MAX_DAYS = 92;
 
+/** Until the next nightly run, with slack — as the other dashboard snapshots. */
+const DASHBOARD_SNAPSHOT_TTL_SECONDS = 26 * 3600;
+
 /** Every day from `from` to `to` inclusive; empty when the window runs backwards. */
 function daysBetween(from: string, to: string): string[] {
   const out: string[] = [];
@@ -842,7 +845,10 @@ export class DealsService {
    * Every day of the window is present, zeros included: the axis steps evenly,
    * and a missing day would shift every one after it.
    */
-  async jobsByStatus(window: { from: string; to: string }): Promise<JobsByStatusSeries> {
+  async jobsByStatus(
+    window: { from: string; to: string },
+    opts: { fresh?: boolean } = {},
+  ): Promise<JobsByStatusSeries> {
     const days = daysBetween(window.from, window.to);
     if (!days.length) {
       throw new BadRequestException('The window must start on or before it ends');
@@ -853,9 +859,13 @@ export class DealsService {
       );
     }
 
+    // A snapshot, like the dashboard's other widgets: built by the nightly
+    // run, kept until the next, rebuilt on `fresh` (the refresh button).
     const cacheKey = `deal-by-day:${window.from}:${window.to}`;
-    const cached = await this.cache.getJson<JobsByStatusSeries>(cacheKey);
-    if (cached) return cached;
+    if (!opts.fresh) {
+      const cached = await this.cache.getJson<JobsByStatusSeries>(cacheKey);
+      if (cached?.computedAt) return cached;
+    }
 
     // One query per status, not one per cell: the created index is already
     // partitioned by status and sorted by the moment, so a whole window comes
@@ -889,8 +899,9 @@ export class DealsService {
     const result: JobsByStatusSeries = {
       days: days.map((d) => rows.get(d)!),
       atLeast: perStatus.some((p) => p.atLeast),
+      computedAt: new Date().toISOString(),
     };
-    await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
+    await this.cache.setJson(cacheKey, result, DASHBOARD_SNAPSHOT_TTL_SECONDS);
     return result;
   }
 

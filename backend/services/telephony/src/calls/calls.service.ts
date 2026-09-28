@@ -12,7 +12,14 @@ import {
   cachedCount,
   countCacheKey,
 } from '@bitcrm/shared';
-import { CALL_TAG_LIMITS, CallEventType, type CallFlowSeries, type ListCount } from '@bitcrm/types';
+import {
+  CALL_TAG_LIMITS,
+  CallEventType,
+  DASHBOARD_RANGES,
+  dashboardWindow,
+  type CallFlowSeries,
+  type ListCount,
+} from '@bitcrm/types';
 import {
   CallsRepository,
   CallTagsConflictError,
@@ -117,6 +124,8 @@ const COUNT_TTL_SECONDS = 30;
 /** The longest "Top Call Flows" window — the same quarter every report is held to. */
 const FLOW_WINDOW_MAX_DAYS = 92;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** A "Top Call Flows" snapshot lives until the next nightly run, with slack. */
+const FLOW_SNAPSHOT_TTL_SECONDS = 26 * 3600;
 
 @Injectable()
 export class CallsService {
@@ -555,10 +564,17 @@ export class CallsService {
 
   /**
    * The dashboard's "Top Call Flows": calls per flow per day over a window of
-   * whole days (at most a quarter). Held thirty seconds in Redis, like the
-   * log's counts — the dashboard refreshes its widgets together.
+   * whole days (at most a quarter).
+   *
+   * A snapshot, not a live read: walking a month of the call log is not
+   * something to do while someone waits for the dashboard. The nightly run
+   * (`warmFlows`) builds each range ahead of time and it is kept until the
+   * next; `computedAt` says when. `fresh` — the card's refresh — rebuilds it.
    */
-  async topFlows(window: { from?: string; to?: string }): Promise<CallFlowSeries> {
+  async topFlows(
+    window: { from?: string; to?: string },
+    opts: { fresh?: boolean } = {},
+  ): Promise<CallFlowSeries> {
     const { from, to } = window;
     if (!from || !to || !DAY.test(from) || !DAY.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
       throw new BadRequestException('from and to are YYYY-MM-DD days');
@@ -570,13 +586,24 @@ export class CallsService {
     }
 
     const key = `calls:top-flows:${from}:${to}`;
-    const hit = await this.redis?.client.get(key);
-    if (hit) return JSON.parse(hit) as CallFlowSeries;
+    if (!opts.fresh) {
+      const hit = await this.redis?.client.get(key);
+      const cached = hit ? (JSON.parse(hit) as CallFlowSeries) : null;
+      // A value from before snapshots carries no moment; rebuild it.
+      if (cached?.computedAt) return cached;
+    }
 
     const { byFlow, atLeast } = await this.repo.flowCallsByDay({ from, to });
-    const series = callFlowSeries(byFlow, { from, to }, atLeast);
-    await this.redis?.client.set(key, JSON.stringify(series), 'EX', COUNT_TTL_SECONDS);
+    const series = { ...callFlowSeries(byFlow, { from, to }, atLeast), computedAt: new Date().toISOString() };
+    await this.redis?.client.set(key, JSON.stringify(series), 'EX', FLOW_SNAPSHOT_TTL_SECONDS);
     return series;
+  }
+
+  /** The nightly run: every range the widget offers, ending today in New York, one at a time. */
+  async warmFlows(now: Date): Promise<void> {
+    for (const days of DASHBOARD_RANGES) {
+      await this.topFlows(dashboardWindow(days, now), { fresh: true });
+    }
   }
 
   /**
