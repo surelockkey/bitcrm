@@ -27,13 +27,16 @@ import { BusinessProfilesClientModule } from '../common/services/business-profil
 import { DealBillingController } from './billing/deal-billing.controller';
 import { DealBillingService } from './billing/deal-billing.service';
 import { DealTaxResolver } from './billing/deal-tax.resolver';
+import { DealDashboardController } from './dashboard/deal-dashboard.controller';
+import { DealDashboardService } from './dashboard/deal-dashboard.service';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
   // Attachments and billing controllers before Deals so their `/:id/...` and
   // `internal/:id/...` routes are matched ahead of DealsController's; the
-  // live stream too, or `GET /:id` would take `/stream`.
-  controllers: [DealEventsController, DealAttachmentsController, DealBillingController, DealsController],
+  // live stream too, or `GET /:id` would take `/stream`; the dashboard's
+  // `stats/*` too, ahead of the `:id/…` routes.
+  controllers: [DealEventsController, DealAttachmentsController, DealBillingController, DealDashboardController, DealsController],
   providers: [
     DealsService,
     DealsRepository,
@@ -48,6 +51,7 @@ import { DealTaxResolver } from './billing/deal-tax.resolver';
     DealAttachmentsRepository,
     DealTaxResolver,
     DealBillingService,
+    DealDashboardService,
   ],
   exports: [DealsService, DealsEventHandler],
 })

@@ -139,6 +139,45 @@ describe('InternalHttpService', () => {
     });
   });
 
+  /**
+   * Names of the people on a dashboard scoreboard. A handful at a time, one
+   * lookup each on user-service's internal route; names only, and never fatal —
+   * a person it cannot name is simply left out.
+   */
+  describe('getUserNames', () => {
+    it('looks each distinct id up on the internal user route', async () => {
+      userGet.mockResolvedValue({ data: { data: { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' } } });
+
+      await service.getUserNames(['u-1', 'u-1', '']);
+
+      expect(userGet).toHaveBeenCalledTimes(1);
+      expect(userGet.mock.calls[0][0]).toBe('/api/users/internal/u-1');
+      expect(userGet.mock.calls[0][1].timeout).toBeGreaterThan(0);
+    });
+
+    it('copies out the names and nothing else', async () => {
+      userGet.mockResolvedValue({
+        data: { data: { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz', email: 'd@x.com', phone: '+1404' } },
+      });
+
+      expect(await service.getUserNames(['u-1'])).toEqual([{ id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' }]);
+    });
+
+    it('a user it cannot fetch is left out, the rest still come back', async () => {
+      userGet.mockImplementation(async (path: string) => {
+        if (path.endsWith('u-2')) throw new Error('404');
+        return { data: { data: { id: 'u-1', firstName: 'Tess', lastName: '' } } };
+      });
+
+      expect(await service.getUserNames(['u-1', 'u-2'])).toEqual([{ id: 'u-1', firstName: 'Tess', lastName: '' }]);
+    });
+
+    it('asks for nothing when there are no ids', async () => {
+      expect(await service.getUserNames([])).toEqual([]);
+      expect(userGet).not.toHaveBeenCalled();
+    });
+  });
+
   describe('listAssignableTechnicians', () => {
     it('returns the assignable technicians from user service', async () => {
       const techs = [{ technicianId: 'tech-1', assignable: true, jobTypeIds: ['jt-1'], serviceAreaIds: ['sa-1'] }];

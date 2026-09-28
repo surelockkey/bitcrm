@@ -746,6 +746,64 @@ export class CallsRepository {
     return { total, atLeast: false };
   }
 
+  /**
+   * How many calls went through each call flow on each day of a window — the
+   * tally behind the dashboard's "Top Call Flows".
+   *
+   * The same month walk as `count`, but the day and the flow have to come
+   * back, so two attributes are projected rather than `Select: 'COUNT'`. Only
+   * calls that entered a flow are read (outbound calls never do), and the
+   * internal leg is left out as it is everywhere. Bounded like `count`; out of
+   * budget the tally is a floor.
+   */
+  async flowCallsByDay(window: {
+    from: string;
+    to: string;
+  }): Promise<{ byFlow: Record<string, Record<string, number>>; atLeast: boolean }> {
+    const { keyCondition, filterExpression, names, values } = this.buildListQuery({
+      dateFrom: window.from,
+      dateTo: window.to,
+    });
+    const filter = ['attribute_exists(flowName)', filterExpression].filter(Boolean).join(' AND ');
+    const byFlow: Record<string, Record<string, number>> = {};
+    let queries = 0;
+
+    for (const month of monthsDescending(window.from, window.to)) {
+      let exclusiveStartKey: Record<string, unknown> | undefined;
+
+      for (;;) {
+        if (queries >= MAX_COUNT_QUERIES) return { byFlow, atLeast: true };
+        queries += 1;
+
+        const res = await this.dynamoDb.client.send(
+          new QueryCommand({
+            TableName: this.tableName,
+            IndexName: CALLS_GSI2_NAME,
+            KeyConditionExpression: keyCondition,
+            FilterExpression: filter,
+            ProjectionExpression: 'flowName, startedAt',
+            ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+            ExpressionAttributeValues: { ...values, ':allPk': `CALL#${month}` },
+            ...(exclusiveStartKey && { ExclusiveStartKey: exclusiveStartKey }),
+          }),
+        );
+
+        for (const item of res.Items ?? []) {
+          const flow = typeof item.flowName === 'string' ? item.flowName : '';
+          const day = typeof item.startedAt === 'string' ? item.startedAt.slice(0, 10) : '';
+          if (!flow || !day) continue;
+          const row = (byFlow[flow] ??= {});
+          row[day] = (row[day] ?? 0) + 1;
+        }
+
+        if (!res.LastEvaluatedKey) break;
+        exclusiveStartKey = res.LastEvaluatedKey;
+      }
+    }
+
+    return { byFlow, atLeast: false };
+  }
+
   /** Live (non-terminal) calls in the recent window, newest first. */
   async listLive(now: number = Date.now()): Promise<CallRecord[]> {
     const skFrom = new Date(now - LIVE_WINDOW_MS).toISOString();

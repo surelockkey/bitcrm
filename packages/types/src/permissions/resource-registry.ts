@@ -79,7 +79,20 @@ export const RESOURCE_REGISTRY = {
    * `view` is the dashboard itself; each widget then has its own action under
    * it. A new widget adds an action here and a grant in both role-seed files.
    */
-  dashboard: ['view', 'view_jobs_by_status'],
+  dashboard: [
+    'view',
+    'view_jobs_by_status',
+    'view_sales',
+    'view_top_sources',
+    'view_top_job_types',
+    'view_service_areas',
+    'view_top_call_flows',
+    'view_dispatch_scoreboard',
+    'view_tech_scoreboard',
+    'view_recent_calls',
+    'view_jobs',
+    'view_today',
+  ],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

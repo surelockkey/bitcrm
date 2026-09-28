@@ -1068,3 +1068,51 @@ describe('CallsController.startBridge — choosing which end rings', () => {
     ).rejects.toThrow(BadRequestException);
   });
 });
+
+/**
+ * Два віджети дашборда в телефонії. Кожен — за своїм грантом
+ * `dashboard.view_*`, а не `calls.view`: прихований від ролі віджет не має
+ * віддавати дані й через DevTools (US-03-03).
+ */
+describe('CallsController — dashboard widgets', () => {
+  const { PERMISSION_KEY } = jest.requireActual('@bitcrm/shared') as { PERMISSION_KEY: string };
+
+  it.each([
+    ['topFlows', 'view_top_call_flows'],
+    ['recentForDashboard', 'view_recent_calls'],
+  ])('%s is guarded by dashboard.%s', (method, action) => {
+    const handler = (CallsController.prototype as unknown as Record<string, object>)[method];
+
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'dashboard', action });
+  });
+
+  it('top flows hands the window to the service', async () => {
+    const topFlows = jest.fn().mockResolvedValue({ days: [], flows: [], atLeast: false });
+    const { controller } = makeController({ topFlows });
+
+    const res = await controller.topFlows('2026-09-14', '2026-09-28');
+
+    expect(topFlows).toHaveBeenCalledWith({ from: '2026-09-14', to: '2026-09-28' });
+    expect(res).toEqual({ success: true, data: { days: [], flows: [], atLeast: false } });
+  });
+
+  it('recent calls are the newest four of the whole log, named', async () => {
+    const { controller, calls } = makeController();
+
+    const res = await controller.recentForDashboard(USER);
+
+    expect(calls.list).toHaveBeenCalledWith({}, undefined, 4);
+    expect(res.data).toHaveLength(1);
+  });
+
+  it('recent calls mask client numbers for a viewer without contacts.view_numbers', async () => {
+    const { controller } = makeController({
+      list: jest.fn().mockResolvedValue({ items: [record({ from: '+14045551234', direction: 'inbound' })] }),
+      permissions: { maySeeClientNumbers: jest.fn().mockResolvedValue(false) },
+    });
+
+    const res = await controller.recentForDashboard(USER);
+
+    expect(JSON.stringify(res.data)).not.toContain('4045551234');
+  });
+});

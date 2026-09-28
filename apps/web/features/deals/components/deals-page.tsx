@@ -181,12 +181,16 @@ export function DealsPage() {
   // so there is nothing left to wait for: the jobs answer, and the frame they
   // paint is already complete.
   //
-  // Still latched, and set during render rather than in an effect (as
-  // `usePager` does with its reset): once real rows have been shown they must
-  // never be replaced by the skeleton again.
-  const [painted, setPainted] = useState(false);
-  if (!painted && !dealsQuery.isLoading) setPainted(true);
-  const firstPaintPending = !painted;
+  // Latched per list, and set during render rather than in an effect (as
+  // `usePager` does with its reset). Per list, not once per mount: every tab
+  // and every filter set is its own query key and so starts with no rows at
+  // all. A latch that survived a tab switch sent the page straight past the
+  // skeleton into "No jobs", which then filled in a moment later — the empty
+  // state is an answer, and it was the wrong one.
+  const listKey = JSON.stringify(listParams);
+  const [painted, setPainted] = useState<string | null>(null);
+  if (painted !== listKey && !dealsQuery.isLoading) setPainted(listKey);
+  const firstPaintPending = painted !== listKey;
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 

@@ -24,6 +24,9 @@ import {
 const CONTACT_NAMES_MAX_IDS = 100;
 /** The jobs list renders without the names, so it never waits long for them. */
 const CONTACT_NAMES_TIMEOUT_MS = 3_000;
+/** A scoreboard's rows — more than that is not a glance. */
+const USER_NAMES_MAX_IDS = 20;
+const USER_NAMES_TIMEOUT_MS = 3_000;
 
 /**
  * A technician's eligibility as user-service reports it. Carries the display
@@ -139,6 +142,38 @@ export class InternalHttpService {
       this.logger.warn(`Failed to load names for ${unique.length} contacts: ${error.message}`);
       return [];
     }
+  }
+
+  /**
+   * Names of a handful of users — the people on a dashboard scoreboard.
+   *
+   * One lookup each on user-service's internal route, all at once: a board
+   * holds five people, and user-service has no batch route for names. Names
+   * only, rebuilt field by field; a user it cannot fetch is left out rather
+   * than failing the board, which then shows the row without a name.
+   */
+  async getUserNames(ids: string[]): Promise<PersonName[]> {
+    const unique = [...new Set(ids.filter(Boolean))].slice(0, USER_NAMES_MAX_IDS);
+    const rows = await Promise.all(
+      unique.map(async (id): Promise<PersonName | null> => {
+        try {
+          const response = await this.userClient.get(`/api/users/internal/${id}`, {
+            timeout: USER_NAMES_TIMEOUT_MS,
+          });
+          const user = response.data?.data;
+          if (!user || typeof user.id !== 'string') return null;
+          return {
+            id: user.id,
+            firstName: typeof user.firstName === 'string' ? user.firstName : '',
+            lastName: typeof user.lastName === 'string' ? user.lastName : '',
+          };
+        } catch (error: any) {
+          this.logger.warn(`Failed to load the name of user ${id}: ${error.message}`);
+          return null;
+        }
+      }),
+    );
+    return rows.filter((row): row is PersonName => row !== null);
   }
 
   /** Full company (tax exemption, title). Null when it doesn't exist. */

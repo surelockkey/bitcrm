@@ -39,16 +39,18 @@ const mocks = vi.hoisted(() => ({
   userMapIds: [] as (string[] | undefined)[],
   /** The directory that never answers — the table must not wait for it. */
   directoryLoading: false,
+  /** The jobs query is in flight and has nothing yet — a tab switch. */
+  listLoading: false,
 }));
 
 vi.mock("../hooks", () => ({
   useDealsPage: (params: unknown) => {
     mocks.pageParams.push(params);
     return {
-      data: { pages: mocks.pages, pageParams: [] },
-      isLoading: false,
+      data: mocks.listLoading ? undefined : { pages: mocks.pages, pageParams: [] },
+      isLoading: mocks.listLoading,
       isError: false,
-      isFetching: false,
+      isFetching: mocks.listLoading,
       isFetchingNextPage: false,
       hasNextPage: mocks.hasNextPage,
       fetchNextPage: mocks.fetchNextPage,
@@ -339,5 +341,32 @@ describe("DealsPage — contacts only where contact data is shown", () => {
     expect(mocks.contactCalls[mocks.contactCalls.length - 1]?.enabled).toBe(false);
     fireEvent.change(screen.getByPlaceholderText(/Search job/), { target: { value: "jane" } });
     expect(mocks.contactCalls[mocks.contactCalls.length - 1]?.enabled).toBe(true);
+  });
+});
+
+/**
+ * Перемикання вкладки.
+ *
+ * Кожна вкладка — свій ключ запиту, тож у неї спершу немає жодного рядка.
+ * Засувка першого показу не має це переживати: інакше сторінка провалюється
+ * повз скелет одразу в «немає робіт», і читач бачить порожньо, а за мить —
+ * роботи. Скелет тієї самої форми чесніший і не рухає верстку.
+ */
+describe("DealsPage — switching tabs", () => {
+  it("shows the table shell, not “no jobs”, while a tab is still loading", async () => {
+    mocks.listLoading = true;
+    render(<DealsPage />);
+
+    expect(screen.queryByText(/No jobs/i)).toBeNull();
+    expect(await screen.findByRole("status", { name: "Loading jobs" })).toBeInTheDocument();
+    mocks.listLoading = false;
+  });
+
+  it("still says so when a tab has genuinely finished with nothing", async () => {
+    mocks.pages = [{ data: [], pagination: { count: 0 } }];
+    render(<DealsPage />);
+
+    expect(await screen.findByText(/No jobs/i)).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading jobs" })).toBeNull();
   });
 });

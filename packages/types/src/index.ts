@@ -453,3 +453,14 @@ export type {
   DealStatsDay,
   DealStatsMoney,
 } from './responses/deal-stats';
+export type {
+  CallFlowSeries,
+  DashboardJobsNow,
+  DashboardSales,
+  DashboardSalesDay,
+  DashboardScoreboard,
+  DashboardScoreRow,
+  DashboardShare,
+  DashboardShares,
+  DashboardToday,
+} from './responses/dashboard';
