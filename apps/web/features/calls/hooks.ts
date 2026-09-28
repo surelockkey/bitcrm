@@ -183,11 +183,22 @@ export function useActiveCall(enabled: boolean) {
   });
 }
 
-export function useCallDetail(sid: string) {
+/**
+ * One call, with the row it was opened from as a seed.
+ *
+ * The log already carries the whole record — the list endpoint resolves the
+ * party names itself — and the detail endpoint answers the same question for
+ * one call. Waiting on it while holding the answer is what made the side
+ * panel feel slow, so the row is drawn at once and the request only refreshes
+ * it. `placeholderData`, not `initialData`: the seed is a good answer, not a
+ * cached one, so it never stands in for a real fetch.
+ */
+export function useCallDetail(sid: string, seed?: CallRecord) {
   return useQuery({
     queryKey: queryKeys.calls.detail(sid),
     queryFn: () => api.getCall(sid),
     // Callers pass "" when there is no call in hand yet.
     enabled: !!sid,
+    placeholderData: seed,
   });
 }

@@ -265,6 +265,9 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
 
       <CallQuickView
         callSid={quickViewSid}
+        // The row is already in hand — the panel draws it at once instead of
+        // waiting for the detail request to say the same thing.
+        call={quickViewSid ? calls.find((c) => c.callSid === quickViewSid) : undefined}
         open={!!quickViewSid}
         onOpenChange={(open) => !open && setQuickViewSid(null)}
       />

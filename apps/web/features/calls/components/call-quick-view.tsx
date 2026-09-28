@@ -24,6 +24,7 @@ import {
   formatDuration,
   formatEndpoint,
   newJobHref,
+  type CallRecord,
 } from "../lib";
 import { CallAssociations } from "./call-associations";
 import { CallPartyCell } from "./call-party-cell";
@@ -38,10 +39,13 @@ import { RecordingPlayer } from "./recording-player";
  */
 export function CallQuickView({
   callSid,
+  call,
   open,
   onOpenChange,
 }: {
   callSid: string | null;
+  /** The row this was opened from, drawn immediately while the detail loads. */
+  call?: CallRecord;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -52,7 +56,7 @@ export function CallQuickView({
         className="flex w-[440px] max-w-[94vw] flex-col gap-0 p-0 sm:max-w-[440px]"
       >
         {open && callSid ? (
-          <QuickViewBody callSid={callSid} />
+          <QuickViewBody callSid={callSid} seed={call} />
         ) : (
           <SheetTitle className="sr-only">Call</SheetTitle>
         )}
@@ -78,11 +82,14 @@ function Row({
   );
 }
 
-function QuickViewBody({ callSid }: { callSid: string }) {
-  const { data: call, isLoading } = useCallDetail(callSid);
+function QuickViewBody({ callSid, seed }: { callSid: string; seed?: CallRecord }) {
+  const { data: call } = useCallDetail(callSid, seed);
   const sourceName = useJobSourceName();
 
-  if (isLoading || !call) {
+  // Only when there is nothing to draw. A refresh in flight over a call we
+  // already have is not a reason to take it off the screen — the seed from the
+  // row is a real answer, and `isLoading` alone would throw it away.
+  if (!call) {
     // The panel's own shape, not a spinner in the middle of it: the header
     // sits where the header will sit, so the title does not drop into place
     // from the centre of the sheet when the call answers.
