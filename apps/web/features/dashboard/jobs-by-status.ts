@@ -1,4 +1,4 @@
-import type { JobsByStatusDay } from "@bitcrm/types";
+import { dashboardDay, dashboardWindow, type JobsByStatusDay } from "@bitcrm/types";
 
 /**
  * The windows the "Jobs By Status" card offers.
@@ -19,16 +19,13 @@ export type DashboardRange = (typeof RANGE_PRESETS)[number]["days"];
 /** Every windowed widget opens on the last thirty days. */
 export const DEFAULT_RANGE: DashboardRange = 30;
 
-/** `YYYY-MM-DD` in the viewer's own calendar, not UTC. */
+/**
+ * `YYYY-MM-DD` on the account's calendar — Eastern, where the business is.
+ * Not the viewer's zone: the nightly snapshots are built on that calendar,
+ * and a window named in another zone would miss them.
+ */
 export function localDay(at: Date): string {
-  // `en-CA` formats as ISO and the formatter reads the local zone — which is
-  // the point: at 8pm in New York the UTC date is already tomorrow, and the
-  // axis must not jump a day in the evening.
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(at);
+  return dashboardDay(at);
 }
 
 /**
@@ -37,12 +34,10 @@ export function localDay(at: Date): string {
  * N is how far back it reaches, and **both ends are included** — so "Last 14
  * Days" draws fifteen bar groups, Sep 14th through Sep 28th. That is what
  * Workiz does; it reads as "back to a fortnight ago", today included, and is
- * not an off-by-one.
+ * not an off-by-one. The same function builds the server's snapshots.
  */
 export function rangeWindow(days: number, now: Date = new Date()): { from: string; to: string } {
-  const start = new Date(now);
-  start.setDate(start.getDate() - days);
-  return { from: localDay(start), to: localDay(now) };
+  return dashboardWindow(days, now);
 }
 
 /** How many of each state across the window. */

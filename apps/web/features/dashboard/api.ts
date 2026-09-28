@@ -15,13 +15,23 @@ export interface DayWindow {
   to: string;
 }
 
+/** `refresh` rebuilds the server's snapshot instead of reading the nightly one. */
+export interface SnapshotRequest {
+  refresh?: boolean;
+}
+
+function windowQuery(window: DayWindow, opts?: SnapshotRequest): URLSearchParams {
+  const q = new URLSearchParams({ ...window });
+  if (opts?.refresh) q.set("refresh", "1");
+  return q;
+}
+
 /**
  * Скільки робіт створено кожного дня вікна і в якому вони стані зараз.
- * Сервер тримає відповідь тридцять секунд і сам обмежує вікно 92 днями.
+ * Сервер віддає нічний знімок (computedAt) і сам обмежує вікно 92 днями.
  */
-export function getJobsByStatus(window: DayWindow): Promise<JobsByStatusSeries> {
-  const q = new URLSearchParams({ ...window });
-  return http.get<JobsByStatusSeries>(`/deals/stats/jobs-by-status?${q}`);
+export function getJobsByStatus(window: DayWindow, opts?: SnapshotRequest): Promise<JobsByStatusSeries> {
+  return http.get<JobsByStatusSeries>(`/deals/stats/jobs-by-status?${windowQuery(window, opts)}`);
 }
 
 /*
@@ -30,8 +40,8 @@ export function getJobsByStatus(window: DayWindow): Promise<JobsByStatusSeries> 
  */
 const windowed =
   <T>(path: string) =>
-  (window: DayWindow): Promise<T> =>
-    http.get<T>(`${path}?${new URLSearchParams({ ...window })}`);
+  (window: DayWindow, opts?: SnapshotRequest): Promise<T> =>
+    http.get<T>(`${path}?${windowQuery(window, opts)}`);
 
 /** Only with `financials.view` as well — the server refuses anyone else. */
 export const getSales = windowed<DashboardSales>("/deals/stats/sales");

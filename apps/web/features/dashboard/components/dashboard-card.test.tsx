@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithClient } from "@/test/render-with-client";
+import { updatedAtLabel } from "../jobs-by-status";
 import { DashboardCard, type WidgetQuery } from "./dashboard-card";
 
 const grants: Record<string, boolean> = { "roles.edit": true };
@@ -85,5 +86,17 @@ describe("DashboardCard", () => {
     renderWithClient(card(query()));
     expect(screen.getByRole("button", { name: "Top Sources options" })).toBeDisabled();
     grants["roles.edit"] = true;
+  });
+
+  // Знімок будується вночі: «updated» — це коли його порахували, а не коли
+  // браузер його забрав, інакше вранці там стояло б «9:15» замість «3:00».
+  it("says when the snapshot was computed, not when it was fetched", () => {
+    const computedAt = "2026-09-28T07:00:00.000Z";
+    renderWithClient(
+      <DashboardCard title="Top Sources" help="h" action="view_top_sources" query={{ ...query(), data: { computedAt } } as never}>
+        {() => <p>body</p>}
+      </DashboardCard>,
+    );
+    expect(screen.getByText(`updated ${updatedAtLabel(new Date(computedAt))}`)).toBeInTheDocument();
   });
 });

@@ -291,7 +291,7 @@ export function TodayCard({ className }: CardProps) {
     <DashboardCard
       className={className}
       title="Today"
-      help="Your calendar day so far: what the jobs finished today sold, how many were done or canceled, and how many were created."
+      help="Today so far, on Eastern time: what the jobs finished today sold, how many were done or canceled, and how many were created."
       action="view_today"
       query={query}
     >

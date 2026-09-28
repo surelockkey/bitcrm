@@ -64,13 +64,17 @@ export function DashboardCard<T>({
 }) {
   const { can } = usePermissions();
   const [managing, setManaging] = useState(false);
+  // A snapshot says when it was computed — the nightly run's 3 AM, or the
+  // last refresh. Anything read live falls back to when it arrived.
+  const computedAt = (query.data as { computedAt?: string } | undefined)?.computedAt;
+  const updatedAt = computedAt ? Date.parse(computedAt) : query.dataUpdatedAt;
 
   return (
     <WidgetCard
       className={className}
       title={title}
       help={help}
-      updatedAt={query.dataUpdatedAt ? updatedAtLabel(new Date(query.dataUpdatedAt)) : undefined}
+      updatedAt={updatedAt ? updatedAtLabel(new Date(updatedAt)) : undefined}
       isRefreshing={query.isFetching && !query.isLoading}
       onRefresh={() => void query.refetch()}
       menu={

@@ -26,6 +26,16 @@ describe("rangeWindow", () => {
     expect(rangeWindow(7, today)).toEqual({ from: "2026-09-21", to: "2026-09-28" });
   });
 
+  // Той самий календар, що в нічного знімка на сервері: інакше вікно
+  // глядача в Далласі о 23:00 мало б інший ключ і промахувалось повз знімок.
+  it("is the New York day, whatever the viewer's zone", () => {
+    // 02:30 UTC on the 29th is 22:30 on the 28th in New York.
+    expect(rangeWindow(7, new Date("2026-09-29T02:30:00.000Z"))).toEqual({
+      from: "2026-09-21",
+      to: "2026-09-28",
+    });
+  });
+
   it("crosses a month boundary", () => {
     expect(rangeWindow(7, new Date("2026-10-03T09:00:00.000Z"))).toEqual({
       from: "2026-09-26",
