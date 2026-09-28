@@ -130,7 +130,7 @@ vi.mock("@/features/roles/hooks", () => ({
 }));
 
 vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [] }) }));
-vi.mock("@/features/job-types/lib", () => ({ useJobTypeName: () => (id: string) => id }));
+vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, useJobTypeName: () => (id: string) => id }));
 
 // Heavy neighbours, each with its own tests: only their presence matters here.
 vi.mock("@/features/messaging/components/text-button", () => ({

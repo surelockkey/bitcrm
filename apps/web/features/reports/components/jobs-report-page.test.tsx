@@ -82,9 +82,10 @@ vi.mock("@/features/deals/hooks", () => ({
     mocks.countsParams.push(params);
     return { data: { total: mocks.deals.length }, isLoading: false };
   },
-  useUserMap: () => ({ map: new Map() }),
+  useUserMap: () => ({ map: new Map(), isLoading: false }),
 }));
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => () => "Lockout",
   activeJobTypes: () => [],
 }));

@@ -34,6 +34,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) => id ?? "—",
 }));
 
@@ -96,7 +97,7 @@ vi.mock("@/features/clients/hooks", () => ({
 vi.mock("../hooks", () => ({
   useDeal: () => ({ data: deal, isLoading: false }),
   useDealProducts: () => ({ data: [] }),
-  useUserMap: () => ({ map: new Map() }),
+  useUserMap: () => ({ map: new Map(), isLoading: false }),
   useUpdateDeal: () => ({ mutate: vi.fn() }),
   useSetDealTags: () => ({ mutate: vi.fn() }),
   useMoveStatus: () => ({ mutate: vi.fn() }),

@@ -5,7 +5,6 @@ import { Briefcase, Search, TriangleAlert } from "lucide-react";
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -35,7 +34,7 @@ import { useCustomFields } from "@/features/custom-fields/hooks";
 import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import { toLocalParts, type DateTimeRange } from "@/lib/date-range";
 import { useJobFieldsStore } from "../fields-store";
-import { DealsTable } from "./deals-table";
+import { DealsTable, DealsTableSkeleton } from "./deals-table";
 import { DealQuickView } from "./deal-quick-view";
 import { FieldsMenu } from "./fields-menu";
 
@@ -102,7 +101,7 @@ export function DealsPage() {
 
   // Only the clients and technicians of the rows on screen are resolved.
   const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
-  const { map: contactMap } = useContactsByIds(contactIds);
+  const { map: contactMap, isLoading: clientsLoading } = useContactsByIds(contactIds);
   const techIdsOnDeals = useMemo(() => {
     const ids = new Set<string>();
     for (const d of deals) d.assignedTechIds.forEach((t) => ids.add(t));
@@ -110,7 +109,10 @@ export function DealsPage() {
   }, [deals]);
   // The tech filter lists the roster, not whoever happens to be on this page.
   const { profiles: technicians } = useAllTechnicians();
-  const { map: userMap } = useUserMap([...techIdsOnDeals, ...technicians.map((t) => t.userId)]);
+  const { map: userMap, isLoading: namesLoading } = useUserMap([
+    ...techIdsOnDeals,
+    ...technicians.map((t) => t.userId),
+  ]);
   const techOptions = useMemo(
     () =>
       technicians
@@ -148,6 +150,29 @@ export function DealsPage() {
   }, [deals, search, listParams.search, contactMap, searchableFields, sortSel]);
 
   const counts = countsQuery.data;
+
+  // Hold the first paint until the names are in too.
+  //
+  // The page fires several independent queries — the jobs, the tab counts, the
+  // user directory, the technician roster, the catalogs. The jobs win, being
+  // the smallest and best indexed, so the table used to paint from them alone
+  // and fill in technicians a beat later. Four partial frames read as the grid
+  // twitching; one complete frame does not.
+  //
+  // Latched, and set during render rather than in an effect (as `usePager`
+  // does with its reset): once real rows have been shown they must never be
+  // replaced by the skeleton again. Without that a technician — whose name
+  // lookup cannot even start until the jobs name the ids it should fetch —
+  // would watch the table appear, vanish and come back.
+  //
+  // Client names still cost a second round trip: they live in crm, and the
+  // request for them cannot be sent until the jobs say which ids to ask for.
+  // Waiting is the honest trade until the list side-loads them (see the note
+  // on `useContactsByIds` above); a name that pops in half a second late is
+  // what this page was reported for.
+  const [painted, setPainted] = useState(false);
+  if (!painted && !dealsQuery.isLoading && !namesLoading && !clientsLoading) setPainted(true);
+  const firstPaintPending = !painted;
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
 
@@ -223,13 +248,18 @@ export function DealsPage() {
               )}
             >
               {jobTabLabel(t)}
+              {/*
+                The counts arrive after the tabs are painted. A chip that grows
+                from "…" to a number nudges every tab to its right, so it holds
+                room for a four-digit count from the first frame.
+              */}
               <span
                 className={cn(
-                  "rounded-chip px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  "inline-flex min-w-7 justify-center rounded-chip px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
                   active ? "bg-brand/10 text-brand" : "bg-muted text-muted-foreground",
                 )}
               >
-                {counts ? tabCount(counts, t) : "…"}
+                {counts ? tabCount(counts, t) : "\u00a0"}
               </span>
             </button>
           );
@@ -238,8 +268,8 @@ export function DealsPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-auto p-6">
-        {dealsQuery.isLoading ? (
-          <Skeleton className="h-64 w-full" />
+        {firstPaintPending ? (
+          <DealsTableSkeleton visibleFields={visibleFields} />
         ) : dealsQuery.isError ? (
           <DealsError onRetry={() => dealsQuery.refetch()} isRetrying={dealsQuery.isFetching} />
         ) : visible.length === 0 ? (
@@ -256,7 +286,14 @@ export function DealsPage() {
           />
         ) : (
           <>
-            <DealsTable deals={visible} contactMap={contactMap} userMap={userMap} onOpen={(d: Deal) => setOpenId(d.id)} visibleFields={visibleFields} />
+            <DealsTable
+              deals={visible}
+              contactMap={contactMap}
+              userMap={userMap}
+              namesLoading={namesLoading}
+              onOpen={(d: Deal) => setOpenId(d.id)}
+              visibleFields={visibleFields}
+            />
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}

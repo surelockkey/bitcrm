@@ -10,6 +10,7 @@ import {
 
 // Resolve job-type ids without a QueryClient/live catalog.
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => () => "Lockout",
 }));
 

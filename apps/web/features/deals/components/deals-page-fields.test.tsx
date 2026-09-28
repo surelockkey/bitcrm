@@ -43,7 +43,7 @@ vi.mock("../hooks", () => ({
     refetch: vi.fn(),
   }),
   useDealCounts: () => ({ data: mocks.counts, isLoading: false }),
-  useUserMap: () => ({ map: new Map() }),
+  useUserMap: () => ({ map: new Map(), isLoading: false }),
 }));
 vi.mock("@/features/clients/hooks", () => ({
   useContactsByIds: () => ({ map: mocks.contactMap, isLoading: false }),
@@ -54,6 +54,7 @@ vi.mock("@/features/technicians/hooks", () => ({
 vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   activeJobTypes: () => [],
   useJobTypeName: () => () => "Lockout",
 }));

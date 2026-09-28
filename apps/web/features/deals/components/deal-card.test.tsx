@@ -20,6 +20,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 // The card resolves job-type ids to names via the catalog hook; stub it so the
 // test doesn't need a QueryClient or a live catalog.
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) =>
     id === "jt-lockout" ? "Lockout" : (id ?? "—"),
 }));

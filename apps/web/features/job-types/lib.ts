@@ -25,6 +25,17 @@ export function useJobTypeName(): (id: string | undefined) => string {
   return (id) => jobTypeName(id, data);
 }
 
+/**
+ * Whether the catalog is still in flight.
+ *
+ * A table that prints `jobTypeName()` before it lands shows "Unknown type" and
+ * then rewrites itself — a statement, and the wrong one. Callers that care
+ * render a placeholder while this is true.
+ */
+export function useJobTypesLoading(): boolean {
+  return useJobTypes().isLoading;
+}
+
 /** Active types only, sorted for pickers (priority desc, then name). */
 export function activeJobTypes(jobTypes: JobType[] | undefined): JobType[] {
   return (jobTypes ?? [])

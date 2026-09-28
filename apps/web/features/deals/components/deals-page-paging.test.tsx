@@ -50,7 +50,7 @@ vi.mock("../hooks", () => ({
     mocks.countsParams.push(params);
     return { data: mocks.counts, isLoading: false };
   },
-  useUserMap: () => ({ map: new Map() }),
+  useUserMap: () => ({ map: new Map(), isLoading: false }),
 }));
 vi.mock("@/features/clients/hooks", () => ({
   useContactsByIds: (ids: string[]) => {
@@ -65,7 +65,7 @@ vi.mock("@/features/service-areas/hooks", () => ({
   useServiceAreas: () => ({ data: [{ id: "a1", name: "Phoenix", active: true }] }),
 }));
 vi.mock("@/features/job-types/hooks", () => ({ useJobTypes: () => ({ data: [] }) }));
-vi.mock("@/features/job-types/lib", () => ({ activeJobTypes: () => [], useJobTypeName: () => () => "Lockout" }));
+vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, activeJobTypes: () => [], useJobTypeName: () => () => "Lockout" }));
 vi.mock("@/features/job-tags/hooks", () => ({ useJobTags: () => ({ data: [] }) }));
 vi.mock("@/features/job-tags/lib", () => ({ activeJobTags: () => [] }));
 vi.mock("@/features/job-tags/components/job-tag-chips", () => ({ JobTagChips: () => null }));

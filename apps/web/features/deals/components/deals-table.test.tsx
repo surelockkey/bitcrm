@@ -12,10 +12,11 @@ import {
 } from "@bitcrm/types";
 import type { Contact, Deal, User } from "@bitcrm/types";
 import { DEFAULT_VISIBLE, JOB_FIELDS, type VisibleFields } from "../fields";
-import { DealsTable } from "./deals-table";
+import { DealsTable, DealsTableSkeleton } from "./deals-table";
 
 // Resolve job-type ids to names without a QueryClient/live catalog.
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) =>
     id === "jt-lockout" ? "Lockout" : (id ?? "—"),
 }));
@@ -406,5 +407,80 @@ describe("the Workiz grid", () => {
     expect(container.querySelector("thead")?.className).toMatch(
       /(^|\s)bg-muted(\s|$)/,
     );
+  });
+});
+
+/**
+ * Сітка не має смикатись між першим і другим кадром.
+ *
+ * Дві причини були: авто-розкладка таблиці переміряла колонки, коли приїжджали
+ * імена техніків і клієнтів, а клітинки з іменами показували «—», яке потім
+ * ставало текстом. Обидві — видимий стрибок під курсором.
+ */
+describe("DealsTable — a stable first frame", () => {
+  it("lays the columns out at declared widths, not by content", () => {
+    const { container } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={() => {}} />,
+    );
+    expect(container.querySelector("table")?.className).toContain("table-fixed");
+  });
+
+  it("declares a width for the job number and every visible column", () => {
+    const { container } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={() => {}} />,
+    );
+    const cols = [...container.querySelectorAll("colgroup col")];
+    const headers = container.querySelectorAll("thead th");
+    expect(cols).toHaveLength(headers.length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  });
+
+  // «—» — це відповідь, і хибна: поставити її, а через кадр замінити іменем,
+  // і є той самий стрибок.
+  it("holds a line for a dispatcher whose name has not landed yet", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={contactMap}
+        userMap={new Map()}
+        namesLoading
+        onOpen={() => {}}
+        visibleFields={{ dispatcher: true }}
+      />,
+    );
+    expect(container.querySelector("tbody .animate-pulse")).toBeTruthy();
+  });
+
+  it("says “—” once the lookup is done and there is genuinely nobody", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={contactMap}
+        userMap={new Map()}
+        onOpen={() => {}}
+        visibleFields={{ dispatcher: true }}
+      />,
+    );
+    expect(container.querySelector("tbody .animate-pulse")).toBeNull();
+    expect(container.querySelector("tbody")?.textContent).toContain("—");
+  });
+});
+
+describe("DealsTableSkeleton", () => {
+  it("has the same header and column widths as the table it stands in for", () => {
+    const { container: real } = render(
+      <DealsTable deals={[deal()]} contactMap={contactMap} userMap={userMap} onOpen={() => {}} />,
+    );
+    const { container: shell } = render(<DealsTableSkeleton />);
+
+    const widths = (c: Element) =>
+      [...c.querySelectorAll("colgroup col")].map((x) => (x as HTMLElement).style.width);
+    expect(widths(shell)).toEqual(widths(real));
+    expect(shell.querySelectorAll("thead th")).toHaveLength(real.querySelectorAll("thead th").length);
+  });
+
+  it("fills the space with rows rather than one short block", () => {
+    const { container } = render(<DealsTableSkeleton rows={12} />);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(12);
   });
 });

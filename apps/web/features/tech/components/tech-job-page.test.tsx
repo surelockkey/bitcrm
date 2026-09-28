@@ -28,7 +28,7 @@ vi.mock("@/features/deals/hooks", () => ({
 
 const contactData = vi.hoisted(() => ({ value: undefined as Contact | undefined }));
 vi.mock("@/features/clients/hooks", () => ({ useContact: () => ({ data: contactData.value }) }));
-vi.mock("@/features/job-types/lib", () => ({ useJobTypeName: () => () => "Lockout" }));
+vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, useJobTypeName: () => () => "Lockout" }));
 vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "On site" }));
 vi.mock("@/features/telephony/components/call-client-button", () => ({
   CallClientButton: () => <button type="button">Call client</button>,
