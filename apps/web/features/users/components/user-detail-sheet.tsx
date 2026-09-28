@@ -263,7 +263,7 @@ export function UserDetailSheet({
                 />
                 {/* Saves on its own: an admin switching off a lost phone should
                     not have to save the rest of the profile to do it. */}
-                <UserTwoStepSwitch user={user} canEdit={canEdit} />
+                <UserTwoStepSwitch user={user} canEdit={canEditProfileTab} />
                 {canEditProfileTab ? (
                   <div className="flex justify-end">
                     <Button type="submit" variant="brand" disabled={updateUser.isPending} className="gap-1.5">

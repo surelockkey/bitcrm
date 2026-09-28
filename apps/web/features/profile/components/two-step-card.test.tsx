@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -8,9 +8,10 @@ import { server } from "@/test/msw/server";
 import { TwoStepCard } from "./two-step-card";
 
 /**
- * Two-step sign-in on your own profile: a code texted to the phone above
- * after the password. Switching it on is proved — the code has to come back
- * from that phone — and switching it off is one click.
+ * Two-step sign-in on your own profile: a code texted to your phone after
+ * the password. One switch, an On / Off you can read at a glance, and —
+ * when there is no phone yet — the phone is added right here rather than
+ * leaving a greyed-out control that explains itself in small print.
  */
 const me = (extra: Partial<User> = {}): User => ({
   id: "u-1",
@@ -27,25 +28,30 @@ const me = (extra: Partial<User> = {}): User => ({
   ...extra,
 });
 
-const calls: { method: string; path: string; body?: unknown }[] = [];
+const calls: { path: string; body?: unknown }[] = [];
 
 beforeEach(() => {
   calls.length = 0;
   server.use(
+    http.put("*/users/me", async ({ request }) => {
+      const body = (await request.json()) as { phone: string };
+      calls.push({ path: "phone", body });
+      return HttpResponse.json({ success: true, data: me({ phone: "+15412830739" }) });
+    }),
     http.post("*/users/me/mfa/start", () => {
-      calls.push({ method: "POST", path: "start" });
-      return HttpResponse.json({ success: true, data: { destination: "•••• 1234" } });
+      calls.push({ path: "start" });
+      return HttpResponse.json({ success: true, data: { destination: "•••• 0739" } });
     }),
     http.post("*/users/me/mfa/confirm", async ({ request }) => {
       const body = (await request.json()) as { code: string };
-      calls.push({ method: "POST", path: "confirm", body });
+      calls.push({ path: "confirm", body });
       if (body.code !== "123456") {
         return HttpResponse.json({ success: false, message: "That code is not right." }, { status: 400 });
       }
       return HttpResponse.json({ success: true, data: me({ smsMfaEnabled: true }) });
     }),
     http.delete("*/users/me/mfa", () => {
-      calls.push({ method: "DELETE", path: "me/mfa" });
+      calls.push({ path: "off" });
       return HttpResponse.json({ success: true, data: me({ smsMfaEnabled: false }) });
     }),
   );
@@ -60,47 +66,69 @@ function renderCard(user: User) {
   );
 }
 
+const toggle = () => screen.getByRole("switch", { name: /two-step sign-in/i });
+const status = () => screen.getByTestId("two-step-status");
+
 describe("TwoStepCard", () => {
-  it("asks for a phone first when there is none to text", () => {
-    renderCard(me({ phone: undefined }));
-
-    expect(screen.getByText(/add your phone/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /turn on/i })).toBeDisabled();
-  });
-
-  it("switches on only once the texted code comes back", async () => {
+  it("reads Off, with a switch that is not greyed out", () => {
     renderCard(me());
 
-    await userEvent.click(screen.getByRole("button", { name: /turn on/i }));
-    expect(await screen.findByText(/•••• 1234/)).toBeInTheDocument();
-    expect(calls.map((c) => c.path)).toEqual(["start"]);
+    expect(status()).toHaveTextContent(/^off$/i);
+    expect(toggle()).not.toBeChecked();
+    expect(toggle()).toBeEnabled();
+  });
 
-    await userEvent.type(screen.getByLabelText(/code/i), "123456");
+  it("reads On, naming the phone the codes go to", () => {
+    renderCard(me({ smsMfaEnabled: true }));
+
+    expect(status()).toHaveTextContent(/^on$/i);
+    expect(toggle()).toBeChecked();
+    expect(screen.getByText(/1234/)).toBeInTheDocument();
+  });
+
+  it("switches on once the texted code comes back", async () => {
+    renderCard(me());
+
+    await userEvent.click(toggle());
+    await userEvent.type(await screen.findByLabelText(/code/i), "123456");
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
-    expect(await screen.findByText(/two-step sign-in is on/i)).toBeInTheDocument();
-    expect(calls.find((c) => c.path === "confirm")?.body).toEqual({ code: "123456" });
+    await waitFor(() => expect(status()).toHaveTextContent(/^on$/i));
+    expect(calls.map((c) => c.path)).toEqual(["start", "confirm"]);
   });
 
-  it("says so for a wrong code and stays off", async () => {
+  it("stays off for a wrong code, and says why", async () => {
     renderCard(me());
-    await userEvent.click(screen.getByRole("button", { name: /turn on/i }));
+
+    await userEvent.click(toggle());
     await userEvent.type(await screen.findByLabelText(/code/i), "000000");
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
     expect(await screen.findByText(/not right/i)).toBeInTheDocument();
-    expect(screen.queryByText(/two-step sign-in is on/i)).toBeNull();
+    expect(status()).toHaveTextContent(/^off$/i);
   });
 
-  it("shows it on, with the phone codes go to, and switches it off", async () => {
+  // No phone yet: the switch still works — it asks for the phone right here.
+  it("asks for the phone in the card when there is none, then texts it", async () => {
+    renderCard(me({ phone: undefined }));
+    expect(toggle()).toBeEnabled();
+
+    await userEvent.click(toggle());
+    const form = await screen.findByTestId("two-step-phone");
+    await userEvent.type(within(form).getByRole("textbox"), "5412830739");
+    await userEvent.click(within(form).getByRole("button", { name: /send code/i }));
+
+    expect(await screen.findByLabelText(/code/i)).toBeInTheDocument();
+    expect(calls.map((c) => c.path)).toEqual(["phone", "start"]);
+    expect(calls[0].body).toEqual({ phone: expect.stringContaining("5412830739") });
+  });
+
+  it("switches off in one click", async () => {
     renderCard(me({ smsMfaEnabled: true }));
 
-    expect(screen.getByText(/two-step sign-in is on/i)).toBeInTheDocument();
-    expect(screen.getByText(/1234/)).toBeInTheDocument();
+    await userEvent.click(toggle());
 
-    await userEvent.click(screen.getByRole("button", { name: /turn off/i }));
-
-    await waitFor(() => expect(calls.map((c) => c.path)).toContain("me/mfa"));
-    expect(await screen.findByRole("button", { name: /turn on/i })).toBeInTheDocument();
+    await waitFor(() => expect(status()).toHaveTextContent(/^off$/i));
+    expect(calls.map((c) => c.path)).toEqual(["off"]);
   });
 });
