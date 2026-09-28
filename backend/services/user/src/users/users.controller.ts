@@ -176,6 +176,21 @@ export class UsersController {
     return { success: true, data };
   }
 
+  @Post("internal/names-by-ids")
+  @Internal()
+  @ApiOperation({
+    summary: "Internal: resolve user ids to names",
+    description:
+      "**Guard:** Internal only (`x-internal-secret` required). The service-to-service " +
+      "twin of `POST /by-ids`: messaging-service names the teammates of a page of the " +
+      "inbox with it, and holds no user token to call the public route with. Same cap " +
+      "(200 ids), same answer — `{ id, firstName, lastName }` and nothing else.",
+  })
+  async internalNamesByIds(@Body() dto: LookupUserNamesDto) {
+    const data = await this.usersService.namesByIds(dto.userIds ?? []);
+    return { success: true, data };
+  }
+
   // Catch-all internal param — MUST stay after every static `internal/*` route.
   @Get("internal/:id")
   @Internal()

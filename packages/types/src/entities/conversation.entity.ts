@@ -135,3 +135,30 @@ export interface ConversationParticipant extends ConversationMember {
 
 /** Largest membership one group may have — one TransactWriteItems minus the header row. */
 export const CONVERSATION_GROUP_MAX_MEMBERS = 99;
+
+/** An id with the name to print for it — a contact, a company or a teammate. */
+export interface PartyName {
+  id: string;
+  name: string;
+}
+
+/**
+ * The parties a page of the inbox refers to, sent **with** that page instead
+ * of fetched again once the browser has read the ids out of it.
+ *
+ * Why it exists: a conversation stores only `partyKind` / `partyId`, so the
+ * list painted every row with the number and filled in the names a beat
+ * later, after three more round trips (contacts, companies, users).
+ *
+ * **Names only, deliberately.** crm masks a client's numbers per caller and
+ * this block is built from internal routes that mask nothing, so a number
+ * here would route around `contacts.view_numbers`. It follows the inbox's
+ * own gates too: contacts only for `contacts.view`, companies only for
+ * `companies.view` — the side-load changes when a name arrives, not who
+ * gets it.
+ */
+export interface ConversationListIncluded {
+  contacts: PartyName[];
+  companies: PartyName[];
+  users: PartyName[];
+}

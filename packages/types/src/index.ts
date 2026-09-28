@@ -244,6 +244,8 @@ export type {
   ConversationMember,
   ConversationMemberRole,
   ConversationParticipant,
+  ConversationListIncluded,
+  PartyName,
 } from './entities/conversation.entity';
 export {
   MESSAGE_ATTACHMENT_LIMIT,
