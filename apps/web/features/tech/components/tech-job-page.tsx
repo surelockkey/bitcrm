@@ -6,7 +6,7 @@ import { ChevronLeft, Loader2, MapPin, Navigation, StickyNote } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
 import { useContact } from "@/features/clients/hooks";
 import { useAddNote, useDeal } from "@/features/deals/hooks";
 import { dealClientName, isUrgent } from "@/features/deals/lib";
@@ -28,7 +28,7 @@ import { TechPhotoCapture } from "./tech-photo-capture";
  * custom fields, the full history) stays on the office job page, a tap away.
  */
 export function TechJobPage({ dealId }: { dealId: string }) {
-  const { can } = usePermissions();
+  const denied = useDenied();
   const { data: deal, isLoading, isError } = useDeal(dealId);
   const { data: contact } = useContact(deal?.contactId ?? "");
   const jobTypeName = useJobTypeName();
@@ -36,7 +36,7 @@ export function TechJobPage({ dealId }: { dealId: string }) {
   const addNote = useAddNote(dealId);
   const [note, setNote] = useState("");
 
-  if (!can("deals", "view")) return <NoAccess entity="jobs" />;
+  if (denied("deals", "view")) return <NoAccess entity="jobs" />;
 
   if (isLoading) {
     return (

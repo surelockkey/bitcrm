@@ -6,6 +6,7 @@ import { renderWithClient } from "@/test/render-with-client";
 import { NavUser } from "./nav-user";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     me: { firstName: "Dana", lastName: "Ruiz", email: "dana@example.com" },
     roleName: "Dispatcher",

@@ -44,6 +44,7 @@ vi.mock("next/link", () => ({
 // Permissions flip per describe: read-only proves the client link is not gated
 // behind edit permissions; editable exercises the single-save flow.
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string) => (resource === "contacts" ? mocks.perms.contacts : mocks.perms.deals),
     isTechnician: false,

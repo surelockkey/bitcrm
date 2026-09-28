@@ -54,6 +54,7 @@ const fx = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     me: { id: state.meId, firstName: "Mo", lastName: "Grant", email: "mo@slk", roleId: "role-admin" },
     isTechnician: state.isTechnician,

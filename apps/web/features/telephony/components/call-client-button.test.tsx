@@ -30,6 +30,7 @@ vi.mock("../softphone-store", () => ({
     sel({ status: mocks.status, setActiveNumber: mocks.setActiveNumber }),
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("../numbers-hooks", () => ({

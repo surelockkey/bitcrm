@@ -59,6 +59,9 @@ const contact: Contact = {
 };
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => () => !mocks.perms,
   usePermissions: () => ({ can: () => mocks.perms }),
 }));
 vi.mock("@/features/deals/hooks", () => ({

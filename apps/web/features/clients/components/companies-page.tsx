@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useCompanies } from "../hooks";
 import { clientTypeLabel, searchCompanies } from "../lib";
 import { CompaniesTable } from "./companies-table";
@@ -31,7 +31,8 @@ const ALL = "all";
 
 export function CompaniesPage() {
   const router = useRouter();
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const [search, setSearch] = useState("");
   const [type, setType] = useState<string>(ALL);
   const [creating, setCreating] = useState(false);
@@ -44,7 +45,7 @@ export function CompaniesPage() {
     return searchCompanies(scoped, search);
   }, [companiesQuery.data, type, search]);
 
-  if (!can("companies", "view")) return <NoAccess entity="companies" />;
+  if (denied("companies", "view")) return <NoAccess entity="companies" />;
 
   return (
     <div className="flex flex-1 flex-col">

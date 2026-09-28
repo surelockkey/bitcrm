@@ -15,6 +15,7 @@ const push = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (_r: string, a: string) => (a === "view" ? true : state.canEditUsers),
   }),

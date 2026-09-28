@@ -7,6 +7,7 @@ import { DashboardPage } from "./dashboard-page";
 const grants: Record<string, boolean> = { "dashboard.view_jobs_by_status": true };
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string, action: string) => grants[`${resource}.${action}`] ?? false,
   }),

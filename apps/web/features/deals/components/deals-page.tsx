@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { EmptyState, NoAccess } from "@/features/clients/components/contacts-page";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -42,7 +42,8 @@ import { FieldsMenu } from "./fields-menu";
 const ALL = "all";
 
 export function DealsPage() {
-  const { can, isTechnician } = usePermissions();
+  const { isTechnician  } = usePermissions();
+  const denied = useDenied();
   const jobTypesQuery = useJobTypes();
   const jobTagsQuery = useJobTags();
   const customFieldsQuery = useCustomFields();
@@ -192,7 +193,7 @@ export function DealsPage() {
   if (painted !== listKey && !dealsQuery.isLoading) setPainted(listKey);
   const firstPaintPending = painted !== listKey;
 
-  if (!can("deals", "view")) return <NoAccess entity="deals" />;
+  if (denied("deals", "view")) return <NoAccess entity="deals" />;
 
   return (
     <div className="flex flex-1 flex-col">

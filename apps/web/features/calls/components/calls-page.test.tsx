@@ -31,6 +31,7 @@ vi.mock("../hooks", () => ({
 }));
 vi.mock("../use-call-stream", () => ({ useCallStream: () => undefined }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("@/features/call-tags/hooks", () => ({ useCallTags: () => ({ data: [] }) }));

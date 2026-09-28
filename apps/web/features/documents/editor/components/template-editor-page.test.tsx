@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
 
 let canEdit = true;
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (_r: string, action = "view") => action === "view" || canEdit,
     me: { id: "me" },

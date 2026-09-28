@@ -10,7 +10,7 @@ import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DAY_END, DAY_START, toIsoInstant, toLocalParts } from "@/lib/date-range";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useUserMap } from "@/features/deals/hooks";
 import { personName } from "@/features/deals/person-name";
@@ -56,7 +56,8 @@ type Area = "metro" | "city" | "zip";
  * otherwise. Workiz's pies are left out: the table ranks the same numbers.
  */
 export function JobStatisticsPage({ today }: { today: string }) {
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const money = can("financials");
 
   const [by, setBy] = useState<DealStatsBy>("closed");
@@ -78,7 +79,7 @@ export function JobStatisticsPage({ today }: { today: string }) {
   const areas = (useServiceAreas().data ?? []).filter((a) => a.active).map((a) => a.name).sort();
   const tags = activeJobTags(useJobTags().data);
 
-  if (!can("reports", "view") || !can("deals")) return <NoAccess entity="reports" />;
+  if (denied("reports", "view") || denied("deals")) return <NoAccess entity="reports" />;
 
   const toggleTag = (id: string) =>
     setTagIds((cur) => (cur.includes(id) ? cur.filter((t) => t !== id) : [...cur, id]));

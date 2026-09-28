@@ -21,6 +21,7 @@ vi.mock("@/stores/ui-store", () => ({
 // The inbox button reads permissions and the unread counters; neither has a
 // provider here, so both are handed in.
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, isTechnician: false, isLoading: false }),
 }));
 const countersMock = vi.fn(() => ({ data: undefined as { unreadConversations: number } | undefined }));

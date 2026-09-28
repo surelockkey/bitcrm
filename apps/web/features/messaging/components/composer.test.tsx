@@ -12,6 +12,7 @@ import { Composer } from "./composer";
 type OnSend = (body: SendMessageBody) => Promise<unknown>;
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, me: { id: "me" }, isLoading: false, isTechnician: false }),
 }));
 

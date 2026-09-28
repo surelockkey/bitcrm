@@ -30,6 +30,7 @@ vi.mock("@/components/ui/sheet", () => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 

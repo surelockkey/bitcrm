@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { NoAccess } from "@/features/clients/components/contacts-page";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
 
 /**
  * The Workiz reports this business keeps, in Workiz's on-screen order
@@ -50,8 +50,8 @@ export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] =
  * being built — every tile is mocked and says so when clicked.
  */
 export function ReportsPage() {
-  const { can } = usePermissions();
-  if (!can("reports", "view")) return <NoAccess entity="reports" />;
+  const denied = useDenied();
+  if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
   return (
     <div className="flex flex-1 flex-col">

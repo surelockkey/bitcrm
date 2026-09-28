@@ -6,6 +6,10 @@ import { JobStatisticsPage } from "./job-statistics-page";
 
 const perms = vi.hoisted(() => ({ granted: new Set<string>() }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => (resource: string, action = "view") =>
+    !perms.granted.has(`${resource}.${action}`),
   usePermissions: () => ({
     can: (resource: string, action = "view") => perms.granted.has(`${resource}.${action}`),
     isLoading: false,

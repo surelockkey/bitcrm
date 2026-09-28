@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useCompanyMap, useContactsByIds } from "@/features/clients/hooks";
 import { formatPhone, primaryEmail, primaryPhone } from "@/features/clients/lib";
@@ -175,7 +175,7 @@ function Pager({
 const EXPORT_MAX_ROWS = 5000;
 
 export function JobsReportPage() {
-  const { can } = usePermissions();
+  const denied = useDenied();
   const { map: userMap } = useUserMap();
   const { map: companyMap } = useCompanyMap();
   const { data: customFieldDefs } = useCustomFields();
@@ -282,7 +282,7 @@ export function JobsReportPage() {
   const toRow = Math.min(p.page * size, p.total);
   const [exporting, setExporting] = useState(false);
 
-  if (!can("reports", "view")) return <NoAccess entity="reports" />;
+  if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
   const personName = (id?: string) => {
     const u = id ? userMap.get(id) : undefined;

@@ -25,7 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
@@ -45,7 +45,8 @@ const PAGE_SIZE = 50;
 type View = "invoices" | "needs";
 
 export function InvoicesPage() {
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const canView = can("invoices", "view");
   const [view, setView] = useState<View>("invoices");
   const [chip, setChip] = useState<InvoiceChip>("all");
@@ -54,7 +55,9 @@ export function InvoicesPage() {
   const [to, setTo] = useState("");
   const summary = useInvoiceSummary(canView);
 
-  if (!canView) return <NoAccess what="invoices" />;
+  // `canView` still gates the query — it must not fetch on a maybe.
+  // The refusal is the other way round: only once the answer is in.
+  if (denied("invoices", "view")) return <NoAccess what="invoices" />;
 
   const s = summary.data;
   const pick = (next: InvoiceChip) => {

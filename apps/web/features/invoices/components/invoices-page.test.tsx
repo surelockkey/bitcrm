@@ -14,6 +14,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => () => !mocks.canView,
   usePermissions: () => ({ can: () => mocks.canView }),
 }));
 vi.mock("@/features/clients/hooks", () => ({

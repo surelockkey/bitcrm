@@ -7,6 +7,7 @@ import type { AutomationRule } from "@bitcrm/types";
 import type { ChainNode } from "./types";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, me: { id: "me" }, isLoading: false, isTechnician: false }),
 }));
 

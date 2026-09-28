@@ -16,7 +16,7 @@ import {
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsPage, useContactSearch, useCompaniesByIds , useContactsCount } from "../hooks";
 import { ContactsTable } from "./contacts-table";
 import { ContactForm } from "./contact-form";
@@ -24,7 +24,8 @@ import { MergeContactsDialog } from "./merge-contacts-dialog";
 
 export function ContactsPage() {
   const router = useRouter();
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -58,7 +59,7 @@ export function ContactsPage() {
   );
   const isLoading = searching ? found.isLoading : pageQuery.isLoading;
 
-  if (!can("contacts", "view")) return <NoAccess entity="contacts" />;
+  if (denied("contacts", "view")) return <NoAccess entity="contacts" />;
 
   return (
     <div className="flex flex-1 flex-col">

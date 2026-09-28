@@ -16,6 +16,7 @@ import {
 
 const grants: Record<string, boolean> = {};
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string, action: string) => grants[`${resource}.${action}`] ?? false,
   }),

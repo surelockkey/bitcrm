@@ -8,6 +8,7 @@ import { usePortalUrlStore } from "../store";
 
 const perms = vi.hoisted(() => ({ send: true }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string, action = "view") =>
       action === "send" ? perms.send : resource === "contacts",

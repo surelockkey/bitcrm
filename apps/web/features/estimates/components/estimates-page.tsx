@@ -17,7 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
@@ -33,12 +33,15 @@ import { usePager } from "@/lib/paging/use-pager";
 const PAGE_SIZE = 50;
 
 export function EstimatesPage() {
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const canView = can("estimates", "view");
   const [status, setStatus] = useState<EstimateStatus | "all">("all");
   const summary = useEstimateSummary(canView);
 
-  if (!canView) return <NoAccess what="estimates" />;
+  // `canView` still gates the query — it must not fetch on a maybe.
+  // The refusal is the other way round: only once the answer is in.
+  if (denied("estimates", "view")) return <NoAccess what="estimates" />;
 
   const chip = (value: EstimateStatus | "all", label: string) => {
     const b = summary.data?.[value];

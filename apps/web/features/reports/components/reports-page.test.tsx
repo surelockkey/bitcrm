@@ -9,6 +9,9 @@ const { toast, perms } = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => perms.view }),
+  // This suite is the one that asserts the refusal, so it mirrors `can`
+  // rather than declaring nobody is ever refused.
+  useDenied: () => () => !perms.view,
 }));
 
 import { ReportsPage, REPORT_TILES } from "./reports-page";

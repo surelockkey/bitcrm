@@ -25,6 +25,7 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, isTechnician: false }),
 }));
 

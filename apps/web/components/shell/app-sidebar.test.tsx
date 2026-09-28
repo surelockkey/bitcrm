@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({
 
 const permissionsMock = vi.fn();
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => permissionsMock(),
 }));
 

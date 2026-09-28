@@ -7,7 +7,7 @@ import type { PortalDocumentSummary } from "@bitcrm/types";
 import { PortalDocumentViewer, PortalSkeleton, PortalView, type DocumentLoaders } from "@bitcrm/portal-ui";
 import { Button } from "@/components/ui/button";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/billing/components/list-bits";
 import { getEstimateHtml, getEstimatePdfUrl } from "@/features/estimates/api";
 import { getInvoiceHtml, getInvoicePdfUrl } from "@/features/invoices/api";
@@ -15,7 +15,7 @@ import { usePortalPreview } from "../hooks";
 
 /** Staff preview of a client's portal (includes unsent documents). Same UI as the client's page. */
 export function PortalPreviewPage({ contactId }: { contactId: string }) {
-  const { can } = usePermissions();
+  const denied = useDenied();
   const q = usePortalPreview(contactId);
   const [open, setOpen] = useState<PortalDocumentSummary | null>(null);
   // Staff read documents with their own session; the client's page does the same by token.
@@ -28,7 +28,7 @@ export function PortalPreviewPage({ contactId }: { contactId: string }) {
     [],
   );
 
-  if (!can("contacts")) return <NoAccess what="client portals" />;
+  if (denied("contacts")) return <NoAccess what="client portals" />;
 
   return (
     <div className="flex flex-1 flex-col">

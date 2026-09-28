@@ -22,6 +22,7 @@ const seenRanges: number[] = [];
 
 const grants: Record<string, boolean> = { "roles.edit": true };
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (resource: string, action: string) => grants[`${resource}.${action}`] ?? false,
   }),
