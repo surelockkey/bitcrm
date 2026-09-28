@@ -125,6 +125,9 @@ class UpdateCallTagsDto {
   remove?: string[];
 }
 
+/** Rows on the dashboard's "Recent Calls" — Workiz shows four. */
+const DASHBOARD_RECENT_CALLS = 4;
+
 @ApiTags('Telephony')
 @ApiBearerAuth()
 @Controller('calls')
@@ -538,6 +541,38 @@ export class CallsController {
     return {
       success: true,
       data: maskCalls(await this.withNames(data), await this.maySeeNumbers(user)),
+    };
+  }
+
+  @Get('stats/top-flows')
+  // The widget's own grant, not `calls.view`: hiding a dashboard widget from
+  // a role has to mean its endpoint refuses that role (US-03-03).
+  @RequirePermission('dashboard', 'view_top_call_flows')
+  @ApiOperation({
+    summary: '"Top Call Flows" — calls per call flow per day',
+    description:
+      '**Guard:** `dashboard.view_top_call_flows`. `from`..`to` are whole days (YYYY-MM-DD, inclusive, at ' +
+      'most 92). Every day of the window is present, zeros included; the eight busiest flows come back, ' +
+      'busiest first. Only calls that entered a flow count — outbound calls never do. `atLeast` means the ' +
+      'walk stopped on its read budget. Cached for thirty seconds.',
+  })
+  async topFlows(@Query('from') from?: string, @Query('to') to?: string) {
+    return { success: true, data: await this.callsService.topFlows({ from, to }) };
+  }
+
+  @Get('stats/recent')
+  @RequirePermission('dashboard', 'view_recent_calls')
+  @ApiOperation({
+    summary: '"Recent Calls" — the newest four calls of the whole log',
+    description:
+      '**Guard:** `dashboard.view_recent_calls`. The global log\'s first four rows, named the way the ' +
+      'log names them; client numbers are masked without `contacts.view_numbers`, as in the log.',
+  })
+  async recentForDashboard(@CurrentUser() user: JwtUser) {
+    const { items } = await this.callsService.list({}, undefined, DASHBOARD_RECENT_CALLS);
+    return {
+      success: true,
+      data: maskCalls(await this.withNames(items), await this.maySeeNumbers(user)),
     };
   }
 

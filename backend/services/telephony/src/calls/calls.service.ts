@@ -12,7 +12,7 @@ import {
   cachedCount,
   countCacheKey,
 } from '@bitcrm/shared';
-import { CALL_TAG_LIMITS, CallEventType, type ListCount } from '@bitcrm/types';
+import { CALL_TAG_LIMITS, CallEventType, type CallFlowSeries, type ListCount } from '@bitcrm/types';
 import {
   CallsRepository,
   CallTagsConflictError,
@@ -24,6 +24,7 @@ import { DealLinkService } from '../common/deal-link.service';
 import { NumberSettingsRepository } from '../numbers/number-settings.repository';
 import { CallFlowsService } from '../call-flows/call-flows.service';
 import { CallTagsService } from '../call-tags/call-tags.service';
+import { callFlowSeries } from './call-flow-series';
 
 /** What `PATCH /calls/:sid/tags` carries: ids to put on, ids to take off. */
 export interface CallTagsChange {
@@ -113,6 +114,9 @@ export type LifecycleUpdate = Partial<CallRecord> & { callSid: string };
 
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
+/** The longest "Top Call Flows" window — the same quarter every report is held to. */
+const FLOW_WINDOW_MAX_DAYS = 92;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 @Injectable()
 export class CallsService {
@@ -547,6 +551,32 @@ export class CallsService {
       COUNT_TTL_SECONDS,
       take,
     );
+  }
+
+  /**
+   * The dashboard's "Top Call Flows": calls per flow per day over a window of
+   * whole days (at most a quarter). Held thirty seconds in Redis, like the
+   * log's counts — the dashboard refreshes its widgets together.
+   */
+  async topFlows(window: { from?: string; to?: string }): Promise<CallFlowSeries> {
+    const { from, to } = window;
+    if (!from || !to || !DAY.test(from) || !DAY.test(to) || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
+      throw new BadRequestException('from and to are YYYY-MM-DD days');
+    }
+    if (to < from) throw new BadRequestException('The window must start on or before it ends');
+    const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
+    if (days > FLOW_WINDOW_MAX_DAYS) {
+      throw new BadRequestException(`The window is limited to ${FLOW_WINDOW_MAX_DAYS} days`);
+    }
+
+    const key = `calls:top-flows:${from}:${to}`;
+    const hit = await this.redis?.client.get(key);
+    if (hit) return JSON.parse(hit) as CallFlowSeries;
+
+    const { byFlow, atLeast } = await this.repo.flowCallsByDay({ from, to });
+    const series = callFlowSeries(byFlow, { from, to }, atLeast);
+    await this.redis?.client.set(key, JSON.stringify(series), 'EX', COUNT_TTL_SECONDS);
+    return series;
   }
 
   /**
