@@ -115,6 +115,8 @@ describe("TwoStepCard", () => {
 
     await userEvent.click(toggle());
     const form = await screen.findByTestId("two-step-phone");
+    // On its way on: the switch says so while the phone is asked for.
+    expect(toggle()).toBeChecked();
     await userEvent.type(within(form).getByRole("textbox"), "5412830739");
     await userEvent.click(within(form).getByRole("button", { name: /send code/i }));
 
