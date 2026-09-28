@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ExternalLink,
-  Loader2,
   PhoneIncoming,
   PhoneOutgoing,
   Plus,
@@ -83,9 +83,23 @@ function QuickViewBody({ callSid }: { callSid: string }) {
   const sourceName = useJobSourceName();
 
   if (isLoading || !call) {
+    // The panel's own shape, not a spinner in the middle of it: the header
+    // sits where the header will sit, so the title does not drop into place
+    // from the centre of the sheet when the call answers.
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      <div role="status" aria-label="Loading call" aria-busy>
+        <SheetHeader className="space-y-0 border-b py-3.5 pl-5 pr-12">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-4 shrink-0 rounded-full" />
+            <Skeleton className="h-5 w-44" />
+          </div>
+          <Skeleton className="mt-1.5 h-4 w-56" />
+        </SheetHeader>
+        <div className="space-y-3 px-5 py-4">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} className="h-4 w-full" />
+          ))}
+        </div>
       </div>
     );
   }

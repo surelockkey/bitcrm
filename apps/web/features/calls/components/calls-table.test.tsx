@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { CallRecord } from "../lib";
-import { CallsTable } from "./calls-table";
+import { CallsTable, CallsTableSkeleton } from "./calls-table";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -52,14 +52,18 @@ vi.mock("./call-tags-cell", () => ({
 
 // The job cell fetches the linked deal; serve a fixture from the cache mock.
 vi.mock("@/features/deals/hooks", () => ({
-  useDeal: (id: string) => ({
-    data:
-      id === "d1"
-        ? { id: "d1", dealNumber: "1042", tagIds: ["t1", "t2"] }
-        : undefined,
-    isLoading: false,
-  }),
+  /** One request for the whole page — the rows must not each fetch their own. */
+  useDealsByIds: (ids: string[]) => {
+    dealsByIdsCalls.push([...ids]);
+    return {
+      data: ids.includes("d1")
+        ? [{ id: "d1", dealNumber: "1042", tagIds: ["t1", "t2"] }]
+        : [],
+      isLoading: false,
+    };
+  },
 }));
+const dealsByIdsCalls: string[][] = [];
 
 const fetchRecordingBlob = vi.fn<(sid: string) => Promise<Blob>>();
 vi.mock("../api", () => ({
@@ -246,5 +250,95 @@ describe("CallsTable recording preview", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Роботи для колонок «Job» і «Job tags».
+ *
+ * Раніше кожен рядок питав свою роботу сам (`useDeal(dealId)`), тож сторінка
+ * на 25 дзвінків робила до 25 окремих запитів — і кожен приходив своєї миті,
+ * через що таблиця наповнювалась ривками. Тепер таблиця питає один раз за всі.
+ */
+describe("CallsTable — one request for the page's jobs", () => {
+  beforeEach(() => {
+    dealsByIdsCalls.length = 0;
+  });
+
+  it("asks for every linked job in a single batch", () => {
+    render(
+      <CallsTable
+        calls={[
+          call({ callSid: "c1", dealId: "d1" }),
+          call({ callSid: "c2", dealId: "d2" }),
+        ]}
+      />,
+    );
+
+    expect(dealsByIdsCalls).toHaveLength(1);
+    expect([...dealsByIdsCalls[0]].sort()).toEqual(["d1", "d2"]);
+  });
+
+  it("asks once for a job two calls share", () => {
+    render(
+      <CallsTable
+        calls={[
+          call({ callSid: "c1", dealId: "d1" }),
+          call({ callSid: "c2", dealId: "d1" }),
+        ]}
+      />,
+    );
+
+    expect(dealsByIdsCalls[0]).toEqual(["d1"]);
+  });
+
+  it("asks for nothing when no call is linked to a job", () => {
+    render(<CallsTable calls={[call({ callSid: "c1" })]} />);
+
+    expect(dealsByIdsCalls[0] ?? []).toEqual([]);
+  });
+
+  it("still names the job it was given", () => {
+    render(<CallsTable calls={[call({ callSid: "c1", dealId: "d1" })]} />);
+
+    expect(screen.getByText("#1042")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Сітка дзвінків не має смикатись на першому кадрі.
+ *
+ * Половину колонок наповнюють власні запити — агент, флоу, джерело, робота та
+ * її теги, — і приходять вони після рядків. Авто-розкладка переміряла б усе
+ * щоразу, коли щось із цього доїжджає.
+ */
+describe("CallsTable — a stable first frame", () => {
+  it("lays the columns out at declared widths, not by content", () => {
+    const { container } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    expect(container.querySelector("table")?.className).toContain("table-fixed");
+  });
+
+  it("declares a width for every column", () => {
+    const { container } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    const cols = [...container.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(container.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  });
+});
+
+describe("CallsTableSkeleton", () => {
+  it("has the same header and widths as the table it stands in for", () => {
+    const { container: real } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    const { container: shell } = render(<CallsTableSkeleton />);
+    const widths = (c: Element) =>
+      [...c.querySelectorAll("colgroup col")].map((x) => (x as HTMLElement).style.width);
+
+    expect(widths(shell)).toEqual(widths(real));
+    expect(shell.querySelectorAll("thead th")).toHaveLength(real.querySelectorAll("thead th").length);
+  });
+
+  it("fills the space with rows rather than a few short bars", () => {
+    const { container } = render(<CallsTableSkeleton rows={12} />);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(12);
   });
 });

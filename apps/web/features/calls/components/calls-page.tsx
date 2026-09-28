@@ -12,7 +12,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ListPagination } from "@/components/ui/list-pagination";
-import { Skeleton } from "@/components/ui/skeleton";
 import { DateTimeRangePicker } from "@/components/ui/date-time-range-picker";
 import type { DateTimeRange } from "@/lib/date-range";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -25,7 +24,7 @@ import { activeCallTags } from "@/features/call-tags/lib";
 import { useCallsList , useCallsCount } from "../hooks";
 import { useCallStream } from "../use-call-stream";
 import { STATUS_LABEL, type CallsFilter, type CallStatus } from "../lib";
-import { CallsTable } from "./calls-table";
+import { CallsTable, CallsTableSkeleton } from "./calls-table";
 import { LiveCalls } from "./live-calls";
 
 const STATUS_OPTIONS = Object.keys(STATUS_LABEL) as CallStatus[];
@@ -174,11 +173,7 @@ export function CallsPage() {
 
       {/* History */}
       {query.isLoading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
+        <CallsTableSkeleton />
       ) : calls.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-14 text-center">
           <Phone className="size-6 text-muted-foreground" />
