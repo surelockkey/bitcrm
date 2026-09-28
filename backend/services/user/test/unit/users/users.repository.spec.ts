@@ -91,6 +91,14 @@ describe('UsersRepository', () => {
       expect((await repository.findById('user-1'))?.fieldTeamMember).toBeUndefined();
     });
 
+    it('reads the two-step sign-in flag back', async () => {
+      const user = createMockUser();
+      dbClient.send.mockResolvedValue({
+        Item: { PK: 'USER#user-1', SK: 'METADATA', ...user, smsMfaEnabled: true },
+      });
+      expect((await repository.findById('user-1'))?.smsMfaEnabled).toBe(true);
+    });
+
     it('leaves the phone undefined for somebody who has not set one', async () => {
       const user = createMockUser();
       dbClient.send.mockResolvedValue({

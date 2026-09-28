@@ -129,6 +129,44 @@ describe('UsersService — personal phone', () => {
     });
   });
 
+  // The second step is proved against one number; a new number has proved
+  // nothing, so it goes off until that one does.
+  describe('two-step sign-in follows the number', () => {
+    const protectedUser = { ...existing, smsMfaEnabled: true };
+
+    it('switches off when your own number changes', async () => {
+      const { service, repository } = makeService({ findById: jest.fn().mockResolvedValue(protectedUser) });
+
+      await service.setPhone('u1', '(541) 283-0739');
+
+      expect(repository.update).toHaveBeenCalledWith('u1', { phone: '+15412830739', smsMfaEnabled: false });
+    });
+
+    it('switches off when your number is cleared', async () => {
+      const { service, repository } = makeService({ findById: jest.fn().mockResolvedValue(protectedUser) });
+
+      await service.setPhone('u1', '');
+
+      expect(repository.update).toHaveBeenCalledWith('u1', { phone: undefined, smsMfaEnabled: false });
+    });
+
+    it('stays on when the same number is saved again', async () => {
+      const { service, repository } = makeService({ findById: jest.fn().mockResolvedValue(protectedUser) });
+
+      await service.setPhone('u1', '(404) 555-1234');
+
+      expect(repository.update).toHaveBeenCalledWith('u1', { phone: '+14045551234' });
+    });
+
+    it('switches off when an admin changes the number', async () => {
+      const { service, repository } = makeService({ findById: jest.fn().mockResolvedValue(protectedUser) });
+
+      await service.update('u1', { phone: '(541) 283-0739' }, {} as never);
+
+      expect(repository.update).toHaveBeenCalledWith('u1', expect.objectContaining({ smsMfaEnabled: false }));
+    });
+  });
+
   describe('update', () => {
     it('normalizes, indexes, and drops the previous number', async () => {
       const { service, repository } = makeService({

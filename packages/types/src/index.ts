@@ -421,7 +421,7 @@ export { RESOURCE_REGISTRY, Resource, Action } from './permissions/resource-regi
 export { CreateUserRequest } from './dto/create-user.dto';
 export { UpdateUserRequest } from './dto/update-user.dto';
 export { ListUsersQuery } from './dto/list-users-query.dto';
-export { LoginRequest, LoginResponse, LoginChallengeResponse } from './dto/login.dto';
+export { LoginRequest, LoginResponse, LoginChallengeResponse, MfaVerifyRequest } from './dto/login.dto';
 export { RefreshTokenRequest, RefreshTokenResponse } from './dto/refresh-token.dto';
 export { ChangePasswordRequest, ChangePasswordResponse } from './dto/change-password.dto';
 export { CreateRoleRequest } from './dto/create-role.dto';

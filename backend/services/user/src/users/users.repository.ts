@@ -365,6 +365,7 @@ export class UsersRepository {
       // Absent on records from before the flag; `isFieldTeamMember` answers
       // from the role for those, so nothing is defaulted here.
       fieldTeamMember: item.fieldTeamMember as boolean | undefined,
+      smsMfaEnabled: item.smsMfaEnabled as boolean | undefined,
       status: item.status as User['status'],
       permissionOverrides: item.permissionOverrides as User['permissionOverrides'],
       createdAt: item.createdAt as string,

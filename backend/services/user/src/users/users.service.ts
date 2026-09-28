@@ -519,7 +519,10 @@ export class UsersService implements OnModuleInit {
   async setPhone(userId: string, raw: string): Promise<User> {
     const existing = await this.findById(userId);
     const phone = await this.applyPhoneChange(userId, existing.phone, raw);
-    const updated = await this.repository.update(userId, { phone });
+    const updated = await this.repository.update(userId, {
+      phone,
+      ...mfaAfterPhoneChange(existing, phone),
+    });
     await this.cache.invalidateUser(userId);
     return updated;
   }
@@ -624,6 +627,7 @@ export class UsersService implements OnModuleInit {
         existingUser.phone,
         dto.phone,
       );
+      Object.assign(attrs, mfaAfterPhoneChange(existingUser, attrs.phone));
     }
 
     const updatedUser = await this.repository.update(id, attrs);
@@ -937,4 +941,15 @@ export class UsersService implements OnModuleInit {
       );
     }
   }
+}
+
+/**
+ * Two-step sign-in is proved against one number. A new number — or none —
+ * has proved nothing, so the second step goes off until the new one does.
+ */
+function mfaAfterPhoneChange(
+  user: Pick<User, 'phone' | 'smsMfaEnabled'>,
+  phone: string | undefined,
+): Partial<User> {
+  return user.smsMfaEnabled && user.phone !== phone ? { smsMfaEnabled: false } : {};
 }
