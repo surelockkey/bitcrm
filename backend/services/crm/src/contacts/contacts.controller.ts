@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser, hasPermission } from '@bitcrm/shared';
-import { type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
+import { type JwtUser, type PersonName, type ResolvedPermissions } from '@bitcrm/types';
 import { ContactsService } from './contacts.service';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
@@ -19,6 +19,7 @@ import { FindOrCreateContactDto } from './dto/find-or-create-contact.dto';
 import { MergeContactsDto } from './dto/merge-contacts.dto';
 import { LookupContactsByPhonesDto } from './dto/lookup-contacts-by-phones.dto';
 import { LookupContactsByIdsDto } from './dto/lookup-contacts-by-ids.dto';
+import { LookupContactNamesByIdsDto } from './dto/lookup-contact-names-by-ids.dto';
 import { LookupPartiesByIdsDto } from './dto/lookup-parties-by-ids.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { ResolvedPerms } from '../common/decorators/resolved-permissions.decorator';
@@ -216,6 +217,44 @@ export class ContactsController {
   })
   async findByRefsInternal(@Body() dto: LookupPartiesByIdsDto) {
     const data = await this.contactsService.findManyByRef(dto.refs);
+    return { success: true, data };
+  }
+
+  /**
+   * Names only, and it must stay that way.
+   *
+   * Every public contact route hands its result through `maskPhones*`, which
+   * blanks the numbers unless the caller holds `contacts.view_numbers`. An
+   * internal route has no caller: `x-internal-secret` authenticates a
+   * *service*, and the service asking (deal-service, side-loading the clients
+   * of a page of jobs) has no permissions of its own to mask against.
+   *
+   * So anything this endpoint returns is unmasked, by construction. Adding a
+   * phone here — however convenient it looks when a grid wants to show one —
+   * would route around `contacts.view_numbers` entirely and hand every holder
+   * of `deals.view` exactly what that grant exists to withhold. A screen that
+   * needs numbers calls `POST /contacts/by-ids`, which masks per caller.
+   */
+  @Post('internal/names-by-ids')
+  @Internal()
+  @ApiOperation({
+    summary: 'Resolve contact ids to names (internal)',
+    description:
+      '**Guard:** Internal service-to-service only (`x-internal-secret` header required). '
+      + 'At most 100 ids; ids that no longer exist are absent rather than an error. '
+      + 'Returns `{ id, firstName, lastName }` and deliberately nothing else — no phones, '
+      + 'no emails, no addresses: this route cannot mask numbers per caller the way the '
+      + 'permission-guarded ones do, so it must never carry them.',
+  })
+  async findNamesByIdsInternal(
+    @Body() dto: LookupContactNamesByIdsDto,
+  ): Promise<{ success: true; data: PersonName[] }> {
+    const contacts = await this.contactsService.findByIds(dto.ids);
+    const data: PersonName[] = contacts.map((c) => ({
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+    }));
     return { success: true, data };
   }
 

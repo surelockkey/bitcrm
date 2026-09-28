@@ -62,7 +62,10 @@ export class DealsController {
   @RequirePermission('deals', 'view')
   @ApiOperation({
     summary: 'List deals with filters and pagination',
-    description: '**Guard:** `deals.view` permission required. DataScope enforced.',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced. The page carries an `included` block — ' +
+      'the names of the technicians and clients its jobs refer to — so the browser does not fetch them in two ' +
+      'further round trips. Names only: numbers and emails stay in crm, which masks them per caller.',
   })
   async list(
     @Query() query: ListDealsQueryDto,
@@ -71,10 +74,14 @@ export class DealsController {
   ) {
     const dataScope = perms?.dataScope?.deals;
     const result = await this.dealsService.list(query, user, dataScope);
+    // The ids are on the page, so this can only start once the page is here —
+    // but both of its sources go out together, and neither can fail the list.
+    const included = await this.dealsService.includedFor(result.items);
     return {
       success: true,
       data: result.items,
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
+      included,
     };
   }
 

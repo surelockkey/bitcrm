@@ -14,6 +14,8 @@ describe('DealsController', () => {
       create: jest.fn(),
       findById: jest.fn(),
       list: jest.fn(),
+      // The names side-loaded with a page of jobs (see deals.list-included.spec).
+      includedFor: jest.fn().mockResolvedValue({ technicians: [], clients: [] }),
       update: jest.fn(),
       softDelete: jest.fn(),
       moveStatus: jest.fn(),

@@ -238,3 +238,32 @@ export interface JobsByStatusSeries {
   /** A walk stopped on its read budget: the counts are floors, not totals. */
   atLeast: boolean;
 }
+
+/** An id with the name to print for it. Nothing else — see `JobsListIncluded`. */
+export interface PersonName {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * The rows a page of jobs refers to, sent **with** that page instead of
+ * fetched again once the browser has read the ids out of it.
+ *
+ * Why it exists: naming the technicians and clients of fifty jobs used to cost
+ * two more round trips, and the one for clients could not even start until the
+ * jobs came back — so the grid painted, then filled in names a beat later.
+ *
+ * **Names only, deliberately.** Numbers and emails are not here and must not
+ * be added: crm masks a contact's numbers for a caller without
+ * `contacts.view_numbers`, deal-service masks nothing, and a side-load that
+ * carried them would hand every holder of `deals.view` exactly what that grant
+ * exists to withhold. A screen that shows numbers asks crm for them, which
+ * masks per caller as it always has.
+ */
+export interface JobsListIncluded {
+  /** Technicians assigned on this page. */
+  technicians: PersonName[];
+  /** Clients of the jobs on this page. */
+  clients: PersonName[];
+}

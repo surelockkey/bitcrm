@@ -7,13 +7,23 @@ import {
 } from '@nestjs/common';
 import axios, { type AxiosInstance } from 'axios';
 import { BusinessMetricsService } from '@bitcrm/shared';
-import { type Company, type Contact, type Product } from '@bitcrm/types';
+import {
+  type Company,
+  type Contact,
+  type PersonName,
+  type Product,
+} from '@bitcrm/types';
 import {
   CRM_SERVICE_URL,
   USER_SERVICE_URL,
   INVENTORY_SERVICE_URL,
   INTERNAL_SERVICE_SECRET,
 } from '../constants/services.constants';
+
+/** What crm's names endpoint accepts in one body, and a page of jobs holds. */
+const CONTACT_NAMES_MAX_IDS = 100;
+/** The jobs list renders without the names, so it never waits long for them. */
+const CONTACT_NAMES_TIMEOUT_MS = 3_000;
 
 /**
  * A technician's eligibility as user-service reports it. Carries the display
@@ -84,6 +94,51 @@ export class InternalHttpService {
   /** Full contact (tax exemption, names, addresses). Null when it doesn't exist. */
   async getContact(contactId: string): Promise<Contact | null> {
     return this.getCrmEntity<Contact>(`/api/crm/contacts/internal/${contactId}`, 'getContact');
+  }
+
+  /**
+   * Names for a set of contact ids — the clients of a page of jobs, side-loaded
+   * with that page instead of fetched once the browser has read the ids out of
+   * it.
+   *
+   * **Names only.** Numbers and emails are not copied out of the answer and
+   * must not be: crm masks a contact's numbers for a caller without
+   * `contacts.view_numbers`, deal-service masks nothing, so a number carried
+   * here would reach every holder of `deals.view`.
+   *
+   * Best effort, like an event publish: the list renders without it, so a crm
+   * that is down, slow or answering nonsense costs an empty array and a
+   * warning, never the page. Ids are deduped and capped at
+   * `CONTACT_NAMES_MAX_IDS`, which is also crm's own limit.
+   */
+  async getContactNames(ids: string[]): Promise<PersonName[]> {
+    const unique = [...new Set(ids.filter(Boolean))].slice(0, CONTACT_NAMES_MAX_IDS);
+    if (!unique.length) return [];
+
+    const timer = this.businessMetrics?.internalHttpDuration.startTimer({ target_service: 'crm', operation: 'getContactNames' });
+    try {
+      const response = await this.crmClient.post(
+        '/api/crm/contacts/internal/names-by-ids',
+        { ids: unique },
+        { timeout: CONTACT_NAMES_TIMEOUT_MS },
+      );
+      timer?.();
+      const rows: unknown = response.data?.data;
+      if (!Array.isArray(rows)) return [];
+      // Rebuilt field by field, never spread: whatever else crm sends stays there.
+      return rows
+        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof (row as { id?: unknown }).id === 'string')
+        .map((row) => ({
+          id: row.id as string,
+          firstName: typeof row.firstName === 'string' ? row.firstName : '',
+          lastName: typeof row.lastName === 'string' ? row.lastName : '',
+        }));
+    } catch (error: any) {
+      timer?.();
+      this.businessMetrics?.internalHttpErrors.inc({ target_service: 'crm', operation: 'getContactNames' });
+      this.logger.warn(`Failed to load names for ${unique.length} contacts: ${error.message}`);
+      return [];
+    }
   }
 
   /** Full company (tax exemption, title). Null when it doesn't exist. */

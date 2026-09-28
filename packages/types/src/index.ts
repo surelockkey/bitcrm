@@ -46,6 +46,8 @@ export type {
   DealTotalsSnapshot,
   JobsByStatusDay,
   JobsByStatusSeries,
+  PersonName,
+  JobsListIncluded,
 } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export {

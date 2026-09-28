@@ -40,6 +40,8 @@ import {
   DealEventType,
   type JobsByStatusSeries,
   type JobsByStatusDay,
+  type JobsListIncluded,
+  type PersonName,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import {
@@ -123,6 +125,13 @@ import { type AddDealProductDto } from './dto/add-deal-product.dto';
 import { type UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { DealTaxResolver, type DealTaxSnapshot } from './billing/deal-tax.resolver';
 import { BusinessProfilesClient } from '../common/services/business-profiles.client';
+
+/**
+ * How many people one page of jobs may name per side. A page is at most 100
+ * rows and crm's names endpoint accepts 100 ids — beyond that the side-load
+ * stops asking rather than grow with the page.
+ */
+const INCLUDED_ID_CAP = 100;
 
 /** Tax snapshot fields: written by resolution, never diffed as plain field edits. */
 const TAX_KEYS = new Set(['taxSource', 'taxRateId', 'taxRateName', 'taxRatePercent']);
@@ -635,6 +644,77 @@ export class DealsService {
       status: query.status,
       ...filters,
     });
+  }
+
+  /**
+   * The names a page of jobs refers to, sent **with** that page.
+   *
+   * Naming the technicians and clients of a page used to cost two more round
+   * trips, and the one for clients could not even start until the jobs came
+   * back — so the grid painted, then filled in names a beat later. Both are
+   * answered here instead: technicians from deal-service's own eligibility
+   * projection (free, no cross-service hop), clients from one internal call
+   * into crm. Only the distinct ids actually on the page are asked for, and
+   * the two go out together.
+   *
+   * **Names only.** No phones, no emails, ever: crm masks a contact's numbers
+   * for a caller without `contacts.view_numbers` and deal-service masks
+   * nothing, so a number carried here would reach every holder of
+   * `deals.view`. A screen that shows numbers asks crm for them.
+   *
+   * Never fails the list, in the same spirit as an event publish: a source
+   * that is down, slow or answering nonsense costs its own array and a
+   * warning, and the page still renders.
+   */
+  async includedFor(deals: Deal[]): Promise<JobsListIncluded> {
+    const techIds = this.distinctIds(deals.flatMap((d) => d.assignedTechIds ?? []));
+    const clientIds = this.distinctIds(deals.map((d) => d.contactId));
+
+    const [technicians, clients] = await Promise.all([
+      this.includedTechnicians(techIds),
+      this.includedClients(clientIds),
+    ]);
+
+    return { technicians, clients };
+  }
+
+  /** Deduped, blank-free and capped — what either source is allowed to be asked. */
+  private distinctIds(ids: Array<string | undefined | null>): string[] {
+    return [...new Set(ids.filter((id): id is string => Boolean(id)))].slice(0, INCLUDED_ID_CAP);
+  }
+
+  private async includedTechnicians(ids: string[]): Promise<PersonName[]> {
+    if (!ids.length) return [];
+    try {
+      const rows = await this.eligibility.getMany(ids);
+      // Rebuilt field by field: the projection also holds a department and a
+      // home address, and `included` carries names and nothing else.
+      return rows.map((row) => ({
+        id: row.technicianId,
+        firstName: row.firstName ?? '',
+        lastName: row.lastName ?? '',
+      }));
+    } catch (error) {
+      this.logger.warn(`Jobs-list side-load: technician names unavailable: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  private async includedClients(ids: string[]): Promise<PersonName[]> {
+    if (!ids.length) return [];
+    try {
+      const rows = await this.internalHttp.getContactNames(ids);
+      // Rebuilt field by field, never spread. Names only: crm masks a contact's
+      // numbers per caller and this side-load cannot, so nothing else passes.
+      return rows.map((row) => ({
+        id: row.id,
+        firstName: row.firstName ?? '',
+        lastName: row.lastName ?? '',
+      }));
+    } catch (error) {
+      this.logger.warn(`Jobs-list side-load: client names unavailable: ${(error as Error).message}`);
+      return [];
+    }
   }
 
   /**

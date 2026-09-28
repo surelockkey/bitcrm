@@ -288,6 +288,8 @@ export function createMockInternalHttpService() {
     restoreStock: jest.fn().mockResolvedValue(undefined),
     getContact: jest.fn().mockResolvedValue(null),
     getCompany: jest.fn().mockResolvedValue(null),
+    // Jobs-list side-load: names of the clients on the page (never numbers).
+    getContactNames: jest.fn().mockResolvedValue([]),
     // Default: the referenced product exists and is a stockable product-type.
     getProduct: jest.fn().mockResolvedValue({
       id: 'product-1',
@@ -402,6 +404,8 @@ export function createMockTechnicianEligibilityRepository() {
   return {
     upsert: jest.fn(),
     get: jest.fn(),
+    // Batched read behind the jobs-list side-load.
+    getMany: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
   };
