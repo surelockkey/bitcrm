@@ -16,6 +16,9 @@ export const RANGE_PRESETS = [
 
 export type DashboardRange = (typeof RANGE_PRESETS)[number]["days"];
 
+/** Every windowed widget opens on the last thirty days. */
+export const DEFAULT_RANGE: DashboardRange = 30;
+
 /** `YYYY-MM-DD` in the viewer's own calendar, not UTC. */
 export function localDay(at: Date): string {
   // `en-CA` formats as ISO and the formatter reads the local zone — which is

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import * as api from "../api";
 import { barPercent, scoreInitial } from "../charts";
 import { useJobsNow, useRangeWidget, useRecentCalls, useToday } from "../hooks";
-import { axisDayLabel, type DashboardRange } from "../jobs-by-status";
+import { axisDayLabel, DEFAULT_RANGE, type DashboardRange } from "../jobs-by-status";
 import { compactMoney } from "../lib";
 import { DailyChart } from "./daily-chart";
 import { DashboardCard } from "./dashboard-card";
@@ -24,7 +24,7 @@ type CardProps = { className?: string };
  * card: it decides the window, the window is the query key, and a clock read
  * on every render would refetch forever.
  */
-function useRange(initial: DashboardRange = 14) {
+function useRange(initial: DashboardRange = DEFAULT_RANGE) {
   const [now] = useState(() => new Date());
   const [range, setRange] = useState<DashboardRange>(initial);
   return { now, range, setRange };

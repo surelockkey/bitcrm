@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useJobsByStatus } from "../hooks";
-import { axisDayLabel, type DashboardRange } from "../jobs-by-status";
+import { axisDayLabel, DEFAULT_RANGE, type DashboardRange } from "../jobs-by-status";
 import { DailyChart } from "./daily-chart";
 import { DashboardCard } from "./dashboard-card";
 
@@ -33,7 +33,7 @@ const HELP =
  */
 export function JobsByStatusCard({ className }: { className?: string }) {
   const [now] = useState(() => new Date());
-  const [range, setRange] = useState<DashboardRange>(14);
+  const [range, setRange] = useState<DashboardRange>(DEFAULT_RANGE);
   const query = useJobsByStatus(range, now);
 
   return (

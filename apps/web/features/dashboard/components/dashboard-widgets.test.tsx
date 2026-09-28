@@ -23,6 +23,7 @@ vi.mock("@/features/auth/use-permissions", () => ({
 
 const answers: Record<string, unknown> = {};
 const seen: string[] = [];
+const seenRanges: number[] = [];
 const q = (data: unknown) => ({
   data,
   isLoading: false,
@@ -33,8 +34,9 @@ const q = (data: unknown) => ({
 });
 
 vi.mock("../hooks", () => ({
-  useRangeWidget: (name: string) => {
+  useRangeWidget: (name: string, _fetch: unknown, range: number) => {
     seen.push(name);
+    seenRanges.push(range);
     return q(answers[name]);
   },
   useToday: () => q(answers.today),
@@ -44,6 +46,7 @@ vi.mock("../hooks", () => ({
 
 beforeEach(() => {
   seen.length = 0;
+  seenRanges.length = 0;
   for (const k of Object.keys(answers)) delete answers[k];
 });
 
@@ -92,6 +95,28 @@ describe("the pies — Top Sources, Top Job Types, Service Areas", () => {
     renderWithClient(<TopSourcesCard />);
     expect(screen.getByText("No data to display.")).toBeInTheDocument();
     expect(screen.queryAllByTestId("pie-slice")).toHaveLength(0);
+  });
+});
+
+describe("every windowed widget opens on the last thirty days", () => {
+  it.each([
+    [TopSourcesCard, "top-sources"],
+    [TopJobTypesCard, "top-job-types"],
+    [ServiceAreasCard, "service-areas"],
+    [SalesCard, "sales"],
+    [TechScoreboardCard, "tech-scoreboard"],
+    [DispatchScoreboardCard, "dispatch-scoreboard"],
+    [TopCallFlowsCard, "top-call-flows"],
+  ])("%o", (Card, name) => {
+    answers[name] = {
+      sales: { days: [], total: 0, net: 0 },
+      "tech-scoreboard": { rows: [] },
+      "dispatch-scoreboard": { rows: [] },
+      "top-call-flows": { days: [], flows: [], atLeast: false },
+    }[name] ?? { slices: [] };
+    renderWithClient(<Card />);
+    expect(seenRanges[0]).toBe(30);
+    expect(screen.getByRole("combobox", { name: "Range" })).toHaveTextContent("Last 30 Days");
   });
 });
 

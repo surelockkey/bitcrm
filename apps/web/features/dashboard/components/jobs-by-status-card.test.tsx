@@ -63,10 +63,10 @@ describe("JobsByStatusCard", () => {
     expect(screen.getAllByTestId("daily-bar")).toHaveLength(6);
   });
 
-  // За замовчуванням — той самий період, що на скриншоті.
-  it("opens on the last fourteen days", () => {
+  // За замовчуванням — останні тридцять днів, як і в решти віджетів.
+  it("opens on the last thirty days", () => {
     renderWithClient(<JobsByStatusCard />);
-    expect(seenRanges[0]).toBe(14);
+    expect(seenRanges[0]).toBe(30);
   });
 
   it("asks for another window when the reader picks one", () => {
