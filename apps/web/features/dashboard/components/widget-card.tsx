@@ -5,6 +5,11 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -38,7 +43,7 @@ export function WidgetCard({
   updatedAt?: string;
   isRefreshing?: boolean;
   onRefresh?: () => void;
-  /** The kebab's contents; the button is hidden when nothing is passed. */
+  /** The kebab's items; the button is there but inert when nothing is passed. */
   menu?: ReactNode;
   /** The widget's own controls — a range picker, say — beside the title row. */
   toolbar?: ReactNode;
@@ -75,12 +80,20 @@ export function WidgetCard({
             </Button>
           ) : null}
 
-          {menu ?? null}
-          {menu === undefined ? (
+          {menu ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label={`${title} options`}>
+                  <MoreVertical />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">{menu}</DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
             <Button variant="ghost" size="icon-sm" aria-label={`${title} options`} disabled>
               <MoreVertical />
             </Button>
-          ) : null}
+          )}
         </div>
       </div>
 

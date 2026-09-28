@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { usePermissions } from "@/features/auth/use-permissions";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -12,6 +14,7 @@ import {
 import { useJobsByStatus } from "../hooks";
 import { RANGE_PRESETS, axisDayLabel, updatedAtLabel, type DashboardRange } from "../jobs-by-status";
 import { DailyChart } from "./daily-chart";
+import { ManageWidgetPermissionsDialog } from "./manage-widget-permissions-dialog";
 import { WidgetCard } from "./widget-card";
 
 /**
@@ -40,6 +43,8 @@ const HELP =
  * inside the render would refetch the chart forever.
  */
 export function JobsByStatusCard({ className }: { className?: string }) {
+  const { can } = usePermissions();
+  const [managing, setManaging] = useState(false);
   const [now] = useState(() => new Date());
   const [range, setRange] = useState<DashboardRange>(14);
   const query = useJobsByStatus(range, now);
@@ -53,6 +58,16 @@ export function JobsByStatusCard({ className }: { className?: string }) {
       updatedAt={query.dataUpdatedAt ? updatedAtLabel(new Date(query.dataUpdatedAt)) : undefined}
       isRefreshing={query.isFetching && !query.isLoading}
       onRefresh={() => void query.refetch()}
+      menu={
+        // Only somebody who can edit roles is offered the audience — the
+        // dialog writes the permission matrix, and the server would refuse
+        // anyone else halfway through.
+        can("roles", "edit") ? (
+          <DropdownMenuItem onSelect={() => setManaging(true)}>
+            Manage permissions
+          </DropdownMenuItem>
+        ) : undefined
+      }
       toolbar={
         <div className="ml-auto">
           <Select
@@ -91,6 +106,12 @@ export function JobsByStatusCard({ className }: { className?: string }) {
           labelOf={axisDayLabel}
         />
       )}
+      <ManageWidgetPermissionsDialog
+        open={managing}
+        onOpenChange={setManaging}
+        action="view_jobs_by_status"
+        label="Jobs By Status"
+      />
     </WidgetCard>
   );
 }

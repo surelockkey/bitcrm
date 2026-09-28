@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithClient } from "@/test/render-with-client";
 import { JobsByStatusCard } from "./jobs-by-status-card";
 
@@ -18,6 +19,13 @@ const state = {
   refetch: vi.fn(),
 };
 const seenRanges: number[] = [];
+
+const grants: Record<string, boolean> = { "roles.edit": true };
+vi.mock("@/features/auth/use-permissions", () => ({
+  usePermissions: () => ({
+    can: (resource: string, action: string) => grants[`${resource}.${action}`] ?? false,
+  }),
+}));
 
 vi.mock("../hooks", () => ({
   useJobsByStatus: (range: number) => {
@@ -85,5 +93,27 @@ describe("JobsByStatusCard", () => {
     renderWithClient(<JobsByStatusCard />);
     expect(screen.getByText("Couldn't load the chart.")).toBeInTheDocument();
     state.isError = false;
+  });
+});
+
+/**
+ * Три крапки: «хто бачить цей віджет». Пропонувати це тому, хто не редагує
+ * ролі, — значить вести його в діалог, який сервер відхилить на збереженні.
+ */
+describe("JobsByStatusCard — the kebab", () => {
+  it("offers managing permissions to somebody who edits roles", async () => {
+    const user = userEvent.setup();
+    renderWithClient(<JobsByStatusCard />);
+    await user.click(screen.getByRole("button", { name: "Jobs By Status options" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Manage permissions" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer it to anyone else", () => {
+    grants["roles.edit"] = false;
+    renderWithClient(<JobsByStatusCard />);
+    expect(screen.getByRole("button", { name: "Jobs By Status options" })).toBeDisabled();
+    grants["roles.edit"] = true;
   });
 });
