@@ -166,6 +166,18 @@ export function DealDetailPage({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* The page scrolls as one, as Workiz's does: the header, the status
+          bar and the tabs ride up with the fields rather than standing over a
+          window that scrolls on its own. Only the Save bar stays pinned.
+          `relative`: the containing block for absolutely-positioned children
+          (Radix's hidden form <select>s) must sit inside the clip chain, or
+          they stretch the document past the viewport — see new-deal-page.
+          The scroller itself is a plain block: were it the flex column, a page
+          taller than the screen would shrink the rows above the fields, and
+          the tab bar (overflow-x) would collapse to nothing. The column inside
+          grows with its content and fills the screen when there is little. */}
+      <div data-testid="job-page-scroll" className="relative min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-full flex-col">
       {/* Only while a call is actually happening — that's the one moment
           "link this call" has a subject. */}
       <LiveCallStrip dealId={dealId} />
@@ -272,40 +284,42 @@ export function DealDetailPage({
         ))}
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col">
         {/* Details stays mounted (just hidden) so its unsaved draft survives a
-            hop to the other tabs. It owns its own scroll region so the Save bar
-            can live in a footer that never scrolls. */}
-        <div className={cn("flex flex-1 flex-col overflow-hidden", tab !== "details" && "hidden")}>
+            hop to the other tabs. It spans the whole height of its content, so
+            the sticky Save bar at its foot stays on screen all the way down. */}
+        <div className={cn("flex flex-1 flex-col", tab !== "details" && "hidden")}>
           <DetailsTab deal={deal} canEdit={canEdit} />
         </div>
         {tab === "items" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-3xl"><DealProductsTab deal={deal} canEdit={canEdit} /></div>
           </div>
         ) : null}
         {tab === "estimates" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-4xl">
               <DealEstimatesTab deal={deal} estimateId={estimateId} onEstimateChange={openEstimate} />
             </div>
           </div>
         ) : null}
         {tab === "invoice" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-4xl"><DealInvoiceTab deal={deal} canEditItems={canEdit} /></div>
           </div>
         ) : null}
         {tab === "attachments" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-5xl"><DealAttachmentsTab dealId={dealId} canEdit={canEdit} /></div>
           </div>
         ) : null}
         {tab === "messages" ? (
-          <div className="relative flex-1 overflow-y-auto p-6">
+          <div className="relative flex-1 p-6">
             <div className="mx-auto max-w-3xl"><DealMessagesTab deal={deal} /></div>
           </div>
         ) : null}
+      </div>
+      </div>
       </div>
 
       {/* Workiz-style hanging history: handle on the right edge, opens the
@@ -465,10 +479,9 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
 
   return (
     <>
-    {/* `relative`: the containing block for absolutely-positioned children
-        (Radix's hidden form <select>s) must sit inside the clip chain, or they
-        stretch the document past the viewport — see new-deal-page. */}
-    <div className="relative flex-1 overflow-y-auto p-6">
+    {/* The page's own scroll region carries these fields; nothing here
+        scrolls on its own. */}
+    <div className="relative flex-1 p-6">
     <div className="grid max-w-5xl grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-2">
       {/* Client */}
       <Section
@@ -627,10 +640,10 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
       ) : null}
       </div>
 
-      {/* One Save for the whole page — a real footer outside the scroll region,
-          so it's always pinned to the bottom; the fields scroll under it. */}
+      {/* One Save for the whole page — sticky to the bottom of the page's
+          scroll region, so it stays on screen while the fields scroll under it. */}
       {canEdit || canEditClient ? (
-        <div className="flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
+        <div className="sticky bottom-0 z-10 flex items-center justify-center gap-2 border-t bg-background px-6 py-4 shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.15)]">
           <Button variant="ghost" size="sm" disabled={!dirty || pending} onClick={reset}>Reset</Button>
           <Button variant="brand" size="sm" className="gap-1.5" disabled={!dirty || pending || !phonesOk} onClick={save}>
             {pending ? <Loader2 className="size-3.5 animate-spin" /> : null} Save

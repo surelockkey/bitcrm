@@ -272,6 +272,37 @@ function fireBeforeUnload(): Event {
   return e;
 }
 
+// The job page scrolls as one page, the way Workiz's does: the header, the
+// status/tags bar and the tabs ride up with the content instead of standing
+// over a scrolling window. Only the Save bar stays put.
+describe("DealDetailPage — scrolling", () => {
+  it("scrolls the header, the status bar and the tabs with the content", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    const page = screen.getByTestId("job-page-scroll");
+    expect(page.className).toMatch(/overflow-y-auto/);
+    expect(page).toContainElement(jobsLink());
+    expect(page).toContainElement(screen.getByRole("button", { name: /^details$/i }));
+    expect(page).toContainElement(screen.getByRole("link", { name: /view client/i }));
+  });
+
+  it("gives the details no scroll region of their own", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    const inner = screen.getByRole("link", { name: /view client/i }).closest(".overflow-y-auto");
+    expect(inner).toBe(screen.getByTestId("job-page-scroll"));
+  });
+
+  it("keeps the Save bar pinned to the bottom while the page scrolls", () => {
+    mocks.perms.deals = true;
+    render(<DealDetailPage dealId="d1" />);
+
+    const bar = saveButton().parentElement as HTMLElement;
+    expect(bar.className).toMatch(/sticky/);
+    expect(bar.className).toMatch(/bottom-0/);
+  });
+});
+
 describe("DealDetailPage (read only)", () => {
   it("links from the job to the client page", () => {
     render(<DealDetailPage dealId="d1" />);
