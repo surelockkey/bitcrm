@@ -12,6 +12,7 @@ import type {
   CustomFieldValue,
   Deal,
   DealProduct,
+  PersonName,
   SendToTechChannel,
 } from "@bitcrm/types";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
 import type { DealCounts } from "./api";
+import { personName } from "./person-name";
 import type { UpdateDealValues } from "./schemas";
 
 /* ----------------------------------------------------------- super-statuses */
@@ -501,12 +503,22 @@ export function clientDraftFromContact(
  * The client name a job displays: its own "Just here" override when one was
  * saved, otherwise the contact's record name.
  */
-export function dealClientName(deal: Deal, contact: Contact | undefined): string {
+export function dealClientName(
+  deal: Deal,
+  contact: Contact | undefined,
+  /**
+   * The name that came with the row (`included.clients`), used when the
+   * contact itself was never fetched — the jobs list only asks crm for
+   * contacts when a column shows their numbers or emails.
+   */
+  sideloaded?: PersonName,
+): string {
   if (deal.clientName) {
     const name = `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim();
     if (name) return name;
   }
-  return contact ? contactName(contact) : "—";
+  if (contact) return contactName(contact);
+  return personName(sideloaded) ?? "—";
 }
 
 const sameAddress = (a: Address, b: Address): boolean =>

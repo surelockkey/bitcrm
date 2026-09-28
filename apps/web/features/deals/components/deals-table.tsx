@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Contact, Deal, User } from "@bitcrm/types";
+import type { Contact, Deal, PersonName, User } from "@bitcrm/types";
 import {
   extensionOf,
   formatAddress,
@@ -111,21 +111,42 @@ const pretty = (v?: string) =>
 
 const money = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "—");
 
+/** No side-loaded names — a stable identity, so it never re-renders the grid. */
+const NO_NAMES: Map<string, PersonName> = new Map();
+
 export function DealsTable({
   deals,
   contactMap,
+  clientNames = NO_NAMES,
   userMap,
   namesLoading = false,
   onOpen,
   visibleFields = DEFAULT_VISIBLE,
 }: {
   deals: Deal[];
+  /**
+   * The contacts behind the rows — the only source of a client's number or
+   * email. Empty when no column shows either: the list then names its clients
+   * from `clientNames` and asks crm for nothing.
+   */
   contactMap: Map<string, Contact>;
+  /**
+   * contactId → the client's name, as it came with the rows
+   * (`included.clients`). Names and nothing else; a number never travels this
+   * way — see `JobsListIncluded`.
+   */
+  clientNames?: Map<string, PersonName>;
+  /**
+   * id → person, for the columns that print one: the technicians came with
+   * the rows, the rest (dispatcher, created-by) from whatever directory the
+   * page already holds.
+   */
   userMap: Map<string, DirectoryUser>;
   /**
-   * The name lookups are still in flight. A cell whose id is present but whose
-   * name has not landed shows a line rather than "—": the dash is an answer,
-   * and replacing it a frame later is the flicker the reader complains about.
+   * The directory lookup is still in flight. A cell whose id is present but
+   * whose name has not landed shows a line rather than "—": the dash is an
+   * answer, and replacing it a frame later is the flicker the reader
+   * complains about.
    */
   namesLoading?: boolean;
   onOpen: (deal: Deal) => void;
@@ -176,7 +197,9 @@ export function DealsTable({
         return (
           <>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{dealClientName(d, contact)}</span>
+              <span className="font-medium">
+                {dealClientName(d, contact, clientNames.get(d.contactId))}
+              </span>
               {isUrgent(d) ? <PriorityFlag /> : null}
             </div>
             {phone ? (
@@ -308,11 +331,11 @@ export function DealsTable({
   return (
     <div className="overflow-x-auto border">
       {/*
-        `table-fixed` with a declared width per column. Client and technician
-        names are resolved by their own queries and land a frame or two after
-        the jobs do; with auto layout every column re-measures when they
-        arrive and the whole grid jumps under the reader's cursor. Fixed
-        widths make the first painted frame the final one.
+        `table-fixed` with a declared width per column. Names now arrive with
+        the rows, but a contact (a number, an email) still lands a frame or
+        two later, and with auto layout every column re-measures when it does
+        — the whole grid jumps under the reader's cursor. Fixed widths make
+        the first painted frame the final one, whatever fills in afterwards.
       */}
       <Table className="table-fixed">
         <colgroup>

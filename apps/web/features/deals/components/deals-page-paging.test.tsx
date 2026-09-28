@@ -23,13 +23,22 @@ vi.mock("@/features/auth/use-permissions", () => ({
 }));
 
 const mocks = vi.hoisted(() => ({
-  pages: [] as { data: unknown[]; pagination: { nextCursor?: string; count: number } }[],
+  pages: [] as {
+    data: unknown[];
+    pagination: { nextCursor?: string; count: number };
+    included?: { technicians: unknown[]; clients: unknown[] };
+  }[],
   counts: {} as Record<string, number | null>,
   fetchNextPage: vi.fn(),
   hasNextPage: false,
   pageParams: [] as unknown[],
   countsParams: [] as unknown[],
-  contactIds: [] as string[][],
+  /** Every (ids, enabled) the page asked the contacts hook for. */
+  contactCalls: [] as { ids: string[]; enabled: boolean }[],
+  /** Every id list the page handed the user directory. */
+  userMapIds: [] as (string[] | undefined)[],
+  /** The directory that never answers — the table must not wait for it. */
+  directoryLoading: false,
 }));
 
 vi.mock("../hooks", () => ({
@@ -50,12 +59,15 @@ vi.mock("../hooks", () => ({
     mocks.countsParams.push(params);
     return { data: mocks.counts, isLoading: false };
   },
-  useUserMap: () => ({ map: new Map(), isLoading: false }),
+  useUserMap: (ids?: string[]) => {
+    mocks.userMapIds.push(ids);
+    return { map: new Map(), isLoading: mocks.directoryLoading };
+  },
 }));
 vi.mock("@/features/clients/hooks", () => ({
-  useContactsByIds: (ids: string[]) => {
-    mocks.contactIds.push(ids);
-    return { map: new Map(), isLoading: false };
+  useContactsByIds: (ids: string[], enabled = true) => {
+    mocks.contactCalls.push({ ids, enabled });
+    return { map: new Map(), isLoading: enabled };
   },
 }));
 vi.mock("@/features/technicians/hooks", () => ({
@@ -105,7 +117,9 @@ beforeEach(() => {
   mocks.hasNextPage = false;
   mocks.pageParams = [];
   mocks.countsParams = [];
-  mocks.contactIds = [];
+  mocks.contactCalls = [];
+  mocks.userMapIds = [];
+  mocks.directoryLoading = false;
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -189,8 +203,12 @@ describe("DealsPage — tab counts and clients", () => {
   });
 
   it("resolves only the contacts of the rows it holds", () => {
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE, phone: true } });
     render(<DealsPage />);
-    expect(mocks.contactIds[mocks.contactIds.length - 1]).toEqual(["c1", "c2"]);
+    expect(mocks.contactCalls[mocks.contactCalls.length - 1]).toEqual({
+      ids: ["c1", "c2"],
+      enabled: true,
+    });
   });
 });
 
@@ -230,5 +248,96 @@ describe("DealsPage — paging", () => {
     mocks.pageParams = [];
     render(<DealsPage />);
     expect(lastPageParams()).toMatchObject({ limit: 100 });
+  });
+});
+
+/**
+ * Імена приїжджають разом із рядками.
+ *
+ * Раніше сторінка тримала перший кадр, доки не приїде весь довідник
+ * користувачів (564 записи заради кількох техніків) і доки не відповість
+ * запит по контактах, який навіть не міг стартувати, поки не приїдуть роботи.
+ * Тепер `GET /deals` віддає `included` — самі імена — тож таблиця малюється
+ * без жодного з цих двох запитів.
+ */
+describe("DealsPage — the names that arrive with the rows", () => {
+  const tech = { id: "t9", firstName: "Ann", lastName: "Lee" };
+  const client = { id: "c1", firstName: "Jane", lastName: "Smith" };
+
+  const withNames = () => {
+    mocks.pages = [
+      {
+        data: [{ ...deal, assignedTechIds: ["t9"] }],
+        pagination: { count: 1 },
+        included: { technicians: [tech], clients: [client] },
+      },
+    ];
+  };
+
+  it("names the technician and the client while the directory is still in flight", () => {
+    withNames();
+    // Neither join has answered: the directory is loading and no contact is
+    // in hand at all. The row must still read as a finished row.
+    mocks.directoryLoading = true;
+    render(<DealsPage />);
+
+    expect(screen.queryByRole("status", { name: "Loading jobs" })).toBeNull();
+    expect(screen.getByLabelText("Technician")).toHaveTextContent("Ann Lee");
+    expect(screen.getByText("Jane Smith")).toBeInTheDocument();
+  });
+
+  it("merges the names of every page the pager holds", () => {
+    withNames();
+    mocks.pages = [
+      ...mocks.pages,
+      {
+        // The second page names its own technician; its client was named on
+        // the first one, and only a lookup merged across both finds her.
+        data: [{ ...deal, id: "d2", dealNumber: "B22222", assignedTechIds: ["t8"] }],
+        pagination: { count: 1 },
+        included: {
+          technicians: [{ id: "t8", firstName: "Bob", lastName: "Poole" }],
+          clients: [],
+        },
+      },
+    ];
+    render(<DealsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
+    expect(screen.getAllByRole("row")[1].textContent).toContain("B22222");
+    expect(screen.getByLabelText("Technician")).toHaveTextContent("Bob Poole");
+    expect(screen.getByText("Jane Smith")).toBeInTheDocument();
+  });
+
+  it("asks the directory only about the roster behind the tech filter, never about the rows", () => {
+    withNames();
+    render(<DealsPage />);
+
+    // `useAllTechnicians` offers t1; t9 is on a row and is named by `included`.
+    expect(mocks.userMapIds[mocks.userMapIds.length - 1]).toEqual(["t1"]);
+  });
+});
+
+describe("DealsPage — contacts only where contact data is shown", () => {
+  it("asks for no contacts while the Phone and Email columns are off", () => {
+    render(<DealsPage />);
+    expect(mocks.contactCalls[mocks.contactCalls.length - 1]?.enabled).toBe(false);
+  });
+
+  it("asks for them the moment a column that shows contact data is on", () => {
+    useJobFieldsStore.setState({ visible: { ...DEFAULT_VISIBLE, email: true } });
+    render(<DealsPage />);
+    expect(mocks.contactCalls[mocks.contactCalls.length - 1]?.enabled).toBe(true);
+  });
+
+  /**
+   * Free text is matched against the client's name, email and number on the
+   * page, so typing is the other moment the contacts are genuinely needed.
+   */
+  it("asks for them when free text narrows the rows on screen", () => {
+    render(<DealsPage />);
+    expect(mocks.contactCalls[mocks.contactCalls.length - 1]?.enabled).toBe(false);
+    fireEvent.change(screen.getByPlaceholderText(/Search job/), { target: { value: "jane" } });
+    expect(mocks.contactCalls[mocks.contactCalls.length - 1]?.enabled).toBe(true);
   });
 });

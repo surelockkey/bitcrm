@@ -3,6 +3,7 @@ import type {
   DealProduct,
   DocumentDiscount,
   DocumentTotals,
+  JobsListIncluded,
   JobSuperStatus,
   SendToTechChannel,
   TimelineEntry,
@@ -53,13 +54,31 @@ export interface QualifiedTech {
 /* -------------------------------------------------------------------- list */
 
 /**
+ * A page of the jobs list: the rows, the cursor, and — beside them — the
+ * names those rows refer to.
+ *
+ * `included` is the side-load (`JobsListIncluded`): the technicians assigned
+ * on this page and the clients of its jobs, **names only**. It exists so the
+ * grid can print a name without a second request per kind of person; the one
+ * for clients could not even start until the jobs came back. Numbers and
+ * emails are deliberately not in it and must not be read from here — crm
+ * masks a contact's numbers per caller, and this envelope does not.
+ *
+ * Optional, because a server that has not shipped it yet simply omits it and
+ * the page falls back to the lookups it always had.
+ */
+export interface DealsListPage extends PaginatedResponse<Deal> {
+  included?: JobsListIncluded;
+}
+
+/**
  * One page of the jobs list, as the server orders it. Every parameter is
  * optional and only the ones given travel; the server refuses a visit-date
  * window wider than 31 days.
  */
-export function listDeals(params: DealsListParams = {}): Promise<PaginatedResponse<Deal>> {
+export function listDeals(params: DealsListParams = {}): Promise<DealsListPage> {
   const q = toSearchParams({ limit: PAGE, ...params });
-  return apiFetchPaginated<Deal>(`/deals?${q}`);
+  return apiFetchPaginated<Deal, DealsListPage>(`/deals?${q}`);
 }
 
 /** The numbers on the jobs-list tabs, under the list's filters. A closed status without a window is `null`. */

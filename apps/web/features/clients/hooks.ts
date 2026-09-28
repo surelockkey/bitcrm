@@ -70,13 +70,18 @@ export function useContactSearch(query: string, limit = 50) {
  * The contacts behind the rows on screen — a jobs page, a calls page — as a
  * map by id. Sorted and de-duplicated so the key is stable; nothing is asked
  * for an empty list.
+ *
+ * `enabled` is for a list that only sometimes needs them. The jobs grid names
+ * its clients from the names that came with the rows, so it asks crm for the
+ * contacts themselves only when a column shows their numbers or emails —
+ * a round trip that cannot even start until the rows come back.
  */
-export function useContactsByIds(ids: string[]) {
+export function useContactsByIds(ids: string[], enabled = true) {
   const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort(), [ids]);
   const q = useQuery({
     queryKey: queryKeys.contacts.byIds(wanted),
     queryFn: () => api.getContactsByIds(wanted),
-    enabled: wanted.length > 0,
+    enabled: enabled && wanted.length > 0,
     staleTime: 60_000,
   });
   const map = useMemo(() => {

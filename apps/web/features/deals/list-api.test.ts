@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JobSuperStatus } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
-import { getDealCounts, getDealsByIds, listDeals } from "./api";
+import { getDealCounts, getDealsByIds, listDeals, type DealsListPage } from "./api";
 
 vi.mock("@/lib/api/http", () => ({
   http: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() },
@@ -40,6 +40,30 @@ describe("listDeals — one page of the jobs list", () => {
       limit: "50",
       cursor: "abc",
     });
+  });
+
+  /**
+   * The names the page prints ride along with the rows: the technicians
+   * assigned on this page and the clients of its jobs, names only. Without
+   * them the grid paid for two more round trips, one of which could not even
+   * start until the jobs came back.
+   */
+  it("hands back the names the server side-loaded beside the rows", async () => {
+    const sent: DealsListPage = {
+      success: true,
+      data: [],
+      pagination: { count: 0 },
+      included: {
+        technicians: [{ id: "t1", firstName: "Ann", lastName: "Lee" }],
+        clients: [{ id: "c1", firstName: "Jane", lastName: "Smith" }],
+      },
+    };
+    vi.mocked(apiFetchPaginated).mockResolvedValue(sent);
+
+    const page = await listDeals();
+
+    expect(page.included?.technicians[0]).toEqual({ id: "t1", firstName: "Ann", lastName: "Lee" });
+    expect(page.included?.clients[0].lastName).toBe("Smith");
   });
 
   it("the undated tab is unscheduled=true", async () => {

@@ -19,7 +19,8 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
-import { useDealCounts, useDealsPage, useUserMap } from "../hooks";
+import { useDealCounts, useDealsPage, useUserMap, type DirectoryUser } from "../hooks";
+import { mergeIncluded } from "../included";
 import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import { useServiceAreas } from "@/features/service-areas/hooks";
@@ -99,30 +100,49 @@ export function DealsPage() {
   });
   const deals = pager.items;
 
-  // Only the clients and technicians of the rows on screen are resolved.
+  // The names the rows refer to travel with them (`included`): the
+  // technicians assigned on the page and the clients of its jobs, names only.
+  // The pager holds several pages at once, so the lookup spans all of them.
+  const names = useMemo(() => mergeIncluded(dealsQuery.data?.pages), [dealsQuery.data]);
+
+  // The contacts are a second round trip that cannot even start until the
+  // jobs come back — and the grid no longer needs one to print a name. So
+  // they are asked for only where a contact is genuinely read: the columns
+  // that show a number or an email, and free text, which is matched against
+  // a client's number and email as well as their name.
   const contactIds = useMemo(() => deals.map((d) => d.contactId), [deals]);
-  const { map: contactMap, isLoading: clientsLoading } = useContactsByIds(contactIds);
-  const techIdsOnDeals = useMemo(() => {
-    const ids = new Set<string>();
-    for (const d of deals) d.assignedTechIds.forEach((t) => ids.add(t));
-    return [...ids];
-  }, [deals]);
-  // The tech filter lists the roster, not whoever happens to be on this page.
+  const narrowsOnPage = search.trim().length > 0 && !listParams.search;
+  const needsContacts = Boolean(visibleFields.phone || visibleFields.email || narrowsOnPage);
+  const { map: contactMap } = useContactsByIds(contactIds, needsContacts);
+
+  // The tech filter lists the roster, not whoever happens to be on this page
+  // — and it is the only thing left on this page that wants the directory.
   const { profiles: technicians } = useAllTechnicians();
-  const { map: userMap, isLoading: namesLoading } = useUserMap([
-    ...techIdsOnDeals,
-    ...technicians.map((t) => t.userId),
-  ]);
+  const rosterIds = useMemo(() => technicians.map((t) => t.userId), [technicians]);
+  const { map: directory, isLoading: directoryLoading } = useUserMap(rosterIds);
   const techOptions = useMemo(
     () =>
       technicians
         .map(({ userId }) => {
-          const u = userMap.get(userId);
+          const u = directory.get(userId);
           return { value: userId, label: u ? `${u.firstName} ${u.lastName}`.trim() : userId };
         })
         .sort((a, b) => a.label.localeCompare(b.label)),
-    [technicians, userMap],
+    [technicians, directory],
   );
+
+  // What the table prints for a person. The technicians came with the rows,
+  // so the Tech column is named on the first frame and never waits for the
+  // 564-row directory; the directory — already in hand for the filter above
+  // — only fills the two opt-in columns `included` does not carry,
+  // Dispatcher and Created by. An id the side-load has no row for (a
+  // technician deal-service has not reconciled yet) resolves to nothing, and
+  // the chip waits rather than printing a uuid.
+  const tableNames = useMemo(() => {
+    const m = new Map<string, DirectoryUser>(directory);
+    for (const [id, person] of names.technicians) m.set(id, person);
+    return m;
+  }, [directory, names]);
 
   // The area filter is the catalog, as Workiz offers it.
   const { data: serviceAreas } = useServiceAreas();
@@ -151,27 +171,21 @@ export function DealsPage() {
 
   const counts = countsQuery.data;
 
-  // Hold the first paint until the names are in too.
+  // Hold the first paint for the jobs, and for nothing else.
   //
-  // The page fires several independent queries — the jobs, the tab counts, the
-  // user directory, the technician roster, the catalogs. The jobs win, being
-  // the smallest and best indexed, so the table used to paint from them alone
-  // and fill in technicians a beat later. Four partial frames read as the grid
-  // twitching; one complete frame does not.
+  // It used to wait for the names too: the whole user directory, and the
+  // contacts, whose request could not even be sent until the jobs said which
+  // ids to ask for. Both were on the critical path, and a grid that paints in
+  // four partial frames reads as twitching — so the page waited, and the
+  // first frame cost a serial round trip. The names come with the rows now,
+  // so there is nothing left to wait for: the jobs answer, and the frame they
+  // paint is already complete.
   //
-  // Latched, and set during render rather than in an effect (as `usePager`
-  // does with its reset): once real rows have been shown they must never be
-  // replaced by the skeleton again. Without that a technician — whose name
-  // lookup cannot even start until the jobs name the ids it should fetch —
-  // would watch the table appear, vanish and come back.
-  //
-  // Client names still cost a second round trip: they live in crm, and the
-  // request for them cannot be sent until the jobs say which ids to ask for.
-  // Waiting is the honest trade until the list side-loads them (see the note
-  // on `useContactsByIds` above); a name that pops in half a second late is
-  // what this page was reported for.
+  // Still latched, and set during render rather than in an effect (as
+  // `usePager` does with its reset): once real rows have been shown they must
+  // never be replaced by the skeleton again.
   const [painted, setPainted] = useState(false);
-  if (!painted && !dealsQuery.isLoading && !namesLoading && !clientsLoading) setPainted(true);
+  if (!painted && !dealsQuery.isLoading) setPainted(true);
   const firstPaintPending = !painted;
 
   if (!can("deals", "view")) return <NoAccess entity="deals" />;
@@ -289,8 +303,9 @@ export function DealsPage() {
             <DealsTable
               deals={visible}
               contactMap={contactMap}
-              userMap={userMap}
-              namesLoading={namesLoading}
+              clientNames={names.clients}
+              userMap={tableNames}
+              namesLoading={directoryLoading}
               onOpen={(d: Deal) => setOpenId(d.id)}
               visibleFields={visibleFields}
             />

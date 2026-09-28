@@ -357,6 +357,61 @@ describe("DealsTable", () => {
   });
 });
 
+/**
+ * Імена приїжджають разом із рядками (`included`), а не окремим запитом.
+ *
+ * Клієнта таблиця називає навіть тоді, коли контакт не завантажений зовсім:
+ * контакти тепер тягнуться лише під колонки, які показують їхні дані.
+ */
+describe("DealsTable — names that came with the rows", () => {
+  const sideloaded = new Map([["c1", { id: "c1", firstName: "Jane", lastName: "Smith" }]]);
+
+  it("names the client from the side-loaded names, with no contact in hand", () => {
+    render(
+      <DealsTable
+        deals={[deal()]}
+        contactMap={new Map()}
+        clientNames={sideloaded}
+        userMap={userMap}
+        onOpen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Jane Smith")).toBeInTheDocument();
+  });
+
+  it("still prefers the name the job itself carries", () => {
+    render(
+      <DealsTable
+        deals={[deal({ clientName: { firstName: "Ivan", lastName: "Koval" } })]}
+        contactMap={new Map()}
+        clientNames={sideloaded}
+        userMap={userMap}
+        onOpen={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Ivan Koval")).toBeInTheDocument();
+    expect(screen.queryByText("Jane Smith")).toBeNull();
+  });
+
+  /**
+   * Side-loaded names are names and nothing else: a number still comes from
+   * the contact, which crm masks per caller.
+   */
+  it("carries no number of its own — the sub-line stays empty without a contact", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[{ ...deal(), phones: ["+14045550199"] }]}
+        contactMap={new Map()}
+        clientNames={sideloaded}
+        userMap={userMap}
+        onOpen={vi.fn()}
+        visibleFields={{ client: true, phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
+  });
+});
+
 describe("zebra striping", () => {
   it("greys every other job row, the way the Workiz grid does", () => {
     const rows = [deal(), { ...deal(), id: "d2" }, { ...deal(), id: "d3" }];
