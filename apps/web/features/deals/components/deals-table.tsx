@@ -162,18 +162,14 @@ export function DealsTable({
 
   const cell = (d: Deal, columnId: string): ReactNode => {
     const contact = contactMap.get(d.contactId);
-    // The job carries the numbers and the address it was taken on — "contact
-    // details as they stood on the job". Read them from the deal, not the
-    // contact record: they are the truth for this job, they need no second
-    // request, and they are there in the first painted frame. The contact is
-    // only a fallback for a row imported without them.
-    const phone = d.phones?.[0] ?? (contact ? primaryPhone(contact) : undefined);
-    const phoneExt = d.phones?.[0]
-      ? (d.phoneExtensions?.[d.phones[0]] ?? "")
-      : contact && phone
-        ? extensionOf(contact, phone)
-        : "";
-    const email = d.emailAddress ?? (contact ? primaryEmail(contact) : undefined);
+    // Phones come from the CONTACT, never from `deal.phones`, even though the
+    // job carries its own copy. crm masks numbers for a caller without
+    // `contacts.view_numbers` (masking IS the absence of that grant); deal
+    // service masks nothing, so reading the job's copy here would hand every
+    // holder of `deals.view` the numbers the grant exists to withhold.
+    const phone = contact ? primaryPhone(contact) : undefined;
+    const phoneExt = contact && phone ? extensionOf(contact, phone) : "";
+    const email = contact ? primaryEmail(contact) : (d.emailAddress ?? undefined);
 
     switch (columnId) {
       case "client":

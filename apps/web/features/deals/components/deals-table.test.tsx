@@ -484,3 +484,64 @@ describe("DealsTableSkeleton", () => {
     expect(container.querySelectorAll("tbody tr")).toHaveLength(12);
   });
 });
+
+/**
+ * Маскування номерів.
+ *
+ * `contacts.view_numbers` ховає клієнтські номери всюди, де вони спливають, —
+ * і на сторінці роботи теж. Маскування — це ВІДСУТНІСТЬ гранту: crm віддає
+ * контакт уже без номерів тому, хто його не має.
+ *
+ * Робота несе власну копію номерів (`deal.phones`), і deal-сервіс їх не
+ * маскує взагалі. Читати їх у цій таблиці означало б роздати номери кожному,
+ * хто має `deals.view`, — тобто обійти грант. Тому джерело тут лише контакт.
+ */
+describe("DealsTable — client numbers", () => {
+  const withJobPhones = () => ({
+    ...deal(),
+    phones: ["+14045550199"],
+    phoneExtensions: { "+14045550199": "77" },
+  });
+
+  it("shows nothing when the contact came back without numbers", () => {
+    // crm already stripped them: this viewer lacks `contacts.view_numbers`.
+    const masked = { ...contact, phones: [] };
+    const { container } = render(
+      <DealsTable
+        deals={[withJobPhones()]}
+        contactMap={new Map([[masked.id, masked]])}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
+    expect(container.querySelector("tbody")?.textContent).toContain("—");
+  });
+
+  it("never falls back to the copy the job carries", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[withJobPhones()]}
+        contactMap={new Map()}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).not.toContain("0199");
+  });
+
+  it("shows the number when the contact does carry it", () => {
+    const { container } = render(
+      <DealsTable
+        deals={[withJobPhones()]}
+        contactMap={contactMap}
+        userMap={userMap}
+        onOpen={() => {}}
+        visibleFields={{ phone: true }}
+      />,
+    );
+    expect(container.querySelector("tbody")?.textContent).toContain("555");
+  });
+});
