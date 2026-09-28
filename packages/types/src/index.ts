@@ -455,6 +455,8 @@ export type {
 } from './responses/deal-stats';
 export type {
   CallFlowSeries,
+  CallsDashboardBundle,
+  DealDashboardBundle,
   DashboardJobsNow,
   DashboardSales,
   DashboardSalesDay,

@@ -289,4 +289,69 @@ describe('DealDashboardService', () => {
       ]);
     });
   });
+
+  /**
+   * Пакет: усе, що дашборд показує при відкритті, одним запитом — щоб картки
+   * з'являлись разом, а не сходинкою з одинадцяти відповідей. Сервер кладе
+   * лише ті віджети, на які в ролі є грант; Sales — ще й з грошима.
+   */
+  describe('bundle', () => {
+    const all = () => true;
+
+    it('carries every widget the caller may see', async () => {
+      const { service } = make();
+
+      const out = await service.bundle(window, '2026-09-28', caller, all, true);
+
+      expect(Object.keys(out).sort()).toEqual(
+        [
+          'dispatchScoreboard',
+          'jobsByStatus',
+          'jobsNow',
+          'sales',
+          'serviceAreas',
+          'techScoreboard',
+          'today',
+          'topJobTypes',
+          'topSources',
+        ].sort(),
+      );
+    });
+
+    it('leaves out a widget the role does not hold', async () => {
+      const { service } = make();
+
+      const out = await service.bundle(window, '2026-09-28', caller, (a) => a !== 'view_top_sources', true);
+
+      expect(out).not.toHaveProperty('topSources');
+      expect(out).toHaveProperty('topJobTypes');
+    });
+
+    it('no Sales without money, even with its grant', async () => {
+      const { service } = make();
+
+      const out = await service.bundle(window, '2026-09-28', caller, all, false);
+
+      expect(out).not.toHaveProperty('sales');
+      expect(out.techScoreboard?.rows.every((r) => r.sales === undefined)).toBe(true);
+    });
+
+    it('nothing at all for a role with no widgets', async () => {
+      const { service, deals } = make();
+
+      await expect(service.bundle(window, '2026-09-28', caller, () => false, true)).resolves.toEqual({});
+      expect(deals.stats).not.toHaveBeenCalled();
+    });
+
+    it('widgets on one window share one aggregate, even asked for at once', async () => {
+      const { service, deals } = make();
+
+      await service.bundle(window, '2026-09-28', caller, all, true);
+
+      // created (pies), closed with money (sales, boards), and the day twice
+      // for Today — not one per widget.
+      const windows = deals.stats.mock.calls.map((c) => JSON.stringify([(c as unknown[])[0], (c as unknown[])[3]]));
+      expect(new Set(windows).size).toBe(windows.length);
+    });
+  });
 });

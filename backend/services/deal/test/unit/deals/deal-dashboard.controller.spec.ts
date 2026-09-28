@@ -20,6 +20,7 @@ describe('DealDashboardController', () => {
       scoreboard: jest.fn(async () => ({ rows: [] })),
       today: jest.fn(async () => ({ jobsDone: 0, jobsCanceled: 0, jobsCreated: 0 })),
       jobsNow: jest.fn(async () => ({ byStatus: {} })),
+      bundle: jest.fn(async () => ({})),
     };
     return { service, controller: new DealDashboardController(service as never) };
   }
@@ -93,5 +94,38 @@ describe('DealDashboardController', () => {
     expect(service.shares).toHaveBeenNthCalledWith(1, 'source', window, user, { fresh: true });
     expect(service.shares).toHaveBeenNthCalledWith(2, 'source', window, user, { fresh: false });
     expect(service.sales).toHaveBeenCalledWith(window, user, { fresh: true });
+  });
+
+  describe('the bundle', () => {
+    it('is guarded by the dashboard itself — each widget inside is checked on its own', () => {
+      const handler = (DealDashboardController.prototype as unknown as Record<string, object>).bundle;
+      expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'dashboard', action: 'view' });
+    });
+
+    it('hands the service the caller’s widget grants and whether they may see money', async () => {
+      const { controller, service } = make();
+      const perms = {
+        permissions: { financials: { view: true }, dashboard: { view: true, view_top_sources: true } },
+      } as never;
+
+      await controller.bundle({ ...window, day: '2026-09-28' }, user, perms);
+
+      const [w, day, who, may, money] = service.bundle.mock.calls[0] as unknown as [
+        unknown, string, unknown, (a: string) => boolean, boolean,
+      ];
+      expect([w, day, who, money]).toEqual([window, '2026-09-28', user, true]);
+      expect(may('view_top_sources')).toBe(true);
+      expect(may('view_sales')).toBe(false);
+    });
+
+    it('Super Admin holds every widget', async () => {
+      const { controller, service } = make();
+      const admin = { isSystemRole: true, roleName: 'Super Admin', permissions: {} } as never;
+
+      await controller.bundle({ ...window, day: '2026-09-28' }, user, admin);
+
+      const may = (service.bundle.mock.calls[0] as unknown as unknown[])[3] as (a: string) => boolean;
+      expect(may('view_sales')).toBe(true);
+    });
   });
 });

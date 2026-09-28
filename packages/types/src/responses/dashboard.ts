@@ -1,4 +1,5 @@
 import type { JobSuperStatus } from '../enums/deal-stage.enum';
+import type { JobsByStatusSeries } from '../entities/deal.entity';
 
 /**
  * One slice of a dashboard pie — "Top Sources", "Top Job Types", "Service
@@ -83,4 +84,28 @@ export interface CallFlowSeries {
   atLeast: boolean;
   /** When the snapshot these numbers come from was computed (ISO). */
   computedAt?: string;
+}
+
+/**
+ * `GET /deals/stats/dashboard` — every deal widget the caller may see, on the
+ * dashboard's opening window, in one answer. A widget the role does not hold
+ * is absent, not empty.
+ */
+export interface DealDashboardBundle {
+  sales?: DashboardSales;
+  topSources?: DashboardShares;
+  topJobTypes?: DashboardShares;
+  serviceAreas?: DashboardShares;
+  techScoreboard?: DashboardScoreboard;
+  dispatchScoreboard?: DashboardScoreboard;
+  today?: DashboardToday;
+  jobsNow?: DashboardJobsNow;
+  jobsByStatus?: JobsByStatusSeries;
+}
+
+/** `GET /telephony/calls/stats/dashboard` — the two call widgets, likewise. */
+export interface CallsDashboardBundle {
+  topCallFlows?: CallFlowSeries;
+  /** The call log's own row shape, named and masked as the log serves it. */
+  recentCalls?: unknown[];
 }

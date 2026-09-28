@@ -1,10 +1,11 @@
 import { Controller, ForbiddenException, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, RequirePermission } from '@bitcrm/shared';
+import { CurrentUser, hasPermission, RequirePermission } from '@bitcrm/shared';
 import type { JwtUser, ResolvedPermissions } from '@bitcrm/types';
 import { ResolvedPerms } from '../../common/decorators/resolved-permissions.decorator';
 import { splitRefresh, WidgetWindowQueryDto } from './widget-window-query.dto';
 import { TodayQueryDto } from './today-query.dto';
+import { DashboardBundleQueryDto } from './dashboard-bundle-query.dto';
 import { DealDashboardService } from './deal-dashboard.service';
 
 const mayMoney = (perms?: ResolvedPermissions): boolean => perms?.permissions?.financials?.view === true;
@@ -30,6 +31,29 @@ const WHOLE_ACCOUNT =
 @Controller('stats')
 export class DealDashboardController {
   constructor(private readonly dashboard: DealDashboardService) {}
+
+  @Get('dashboard')
+  @RequirePermission('dashboard', 'view')
+  @ApiOperation({
+    summary: 'Every deal widget the caller may see, in one answer',
+    description:
+      '**Guard:** `dashboard.view`, and then **each widget\'s own grant** inside: a widget the role does ' +
+      'not hold is absent from the answer, not empty. Sales additionally needs `financials.view`, and ' +
+      'amounts elsewhere are left out without it — the same rules as the single routes. `from`..`to` is ' +
+      'the opening window, `day` is today on the account\'s calendar. What the dashboard loads first, so ' +
+      'its cards paint together; changing one card\'s range still uses that card\'s own route. ' +
+      WHOLE_ACCOUNT,
+  })
+  async bundle(
+    @Query() query: DashboardBundleQueryDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const may = (action: string) => hasPermission(perms, 'dashboard', action);
+    const money = mayMoney(perms) || hasPermission(perms, 'financials', 'view');
+    const window = { from: query.from, to: query.to };
+    return { success: true, data: await this.dashboard.bundle(window, query.day, user, may, money) };
+  }
 
   @Get('sales')
   @RequirePermission('dashboard', 'view_sales')

@@ -6,6 +6,7 @@ import type {
   DashboardScoreboard,
   DashboardShares,
   DashboardToday,
+  DealDashboardBundle,
   DealStats,
   JobSuperStatus,
   JwtUser,
@@ -77,6 +78,13 @@ const SYSTEM_CALLER = { id: 'system:dashboard-snapshot' } as JwtUser;
  */
 @Injectable()
 export class DealDashboardService {
+  /**
+   * Aggregates being built right now, by cache key. The bundle asks for one
+   * window from several widgets at once; on a cold cache each would miss and
+   * build the same aggregate — this makes them wait for the first instead.
+   */
+  private readonly building = new Map<string, Promise<Snapshot>>();
+
   constructor(
     private readonly deals: DealsService,
     private readonly cache: DealsCacheService,
@@ -142,6 +150,43 @@ export class DealDashboardService {
   }
 
   /**
+   * Everything the dashboard opens with, in one answer: each deal widget the
+   * caller holds the grant for, on the opening window. Built from the same
+   * snapshots as the single routes, side by side, so the cards can paint
+   * together instead of one by one as eleven answers trickle in.
+   *
+   * `may` is the caller's grant check for a widget action; Sales also needs
+   * `money`, as its own route does.
+   */
+  async bundle(
+    window: DayWindow,
+    day: string,
+    caller: JwtUser,
+    may: (action: string) => boolean,
+    money: boolean,
+  ): Promise<DealDashboardBundle> {
+    checked(window);
+    const parts: [keyof DealDashboardBundle, () => Promise<unknown>][] = [];
+    const add = (key: keyof DealDashboardBundle, allowed: boolean, load: () => Promise<unknown>) => {
+      if (allowed) parts.push([key, load]);
+    };
+    add('sales', may('view_sales') && money, () => this.sales(window, caller));
+    add('topSources', may('view_top_sources'), () => this.shares('source', window, caller));
+    add('topJobTypes', may('view_top_job_types'), () => this.shares('jobType', window, caller));
+    add('serviceAreas', may('view_service_areas'), () => this.shares('serviceArea', window, caller));
+    add('techScoreboard', may('view_tech_scoreboard'), () => this.scoreboard('tech', window, caller, money));
+    add('dispatchScoreboard', may('view_dispatch_scoreboard'), () =>
+      this.scoreboard('dispatch', window, caller, money),
+    );
+    add('today', may('view_today'), () => this.today(day, caller, money));
+    add('jobsNow', may('view_jobs'), () => this.jobsNow(caller));
+    add('jobsByStatus', may('view_jobs_by_status'), () => this.deals.jobsByStatus(window));
+
+    const values = await Promise.all(parts.map(([, load]) => load()));
+    return Object.fromEntries(parts.map(([key], i) => [key, values[i]])) as DealDashboardBundle;
+  }
+
+  /**
    * The nightly run: every range the widgets offer, ending today in the
    * account's time zone, rebuilt for both windows and both audiences — plus
    * the Jobs By Status series. One at a time: it runs at 3 AM, and there is
@@ -177,11 +222,22 @@ export class DealDashboardService {
       if (cached?.stats && cached.computedAt) return cached;
     }
 
-    const query = { [`${by}From`]: window.from, [`${by}To`]: window.to } as unknown as ListDealsQueryDto;
-    const stats = await this.deals.stats(query, caller, 'all', { money });
-    const snapshot = { stats, computedAt: new Date().toISOString() };
-    await this.cache.setJson(key, snapshot, opts.ttlSeconds ?? SNAPSHOT_TTL_SECONDS);
-    return snapshot;
+    const inFlight = this.building.get(key);
+    if (inFlight) return inFlight;
+
+    const build = (async () => {
+      const query = { [`${by}From`]: window.from, [`${by}To`]: window.to } as unknown as ListDealsQueryDto;
+      const stats = await this.deals.stats(query, caller, 'all', { money });
+      const snapshot = { stats, computedAt: new Date().toISOString() };
+      await this.cache.setJson(key, snapshot, opts.ttlSeconds ?? SNAPSHOT_TTL_SECONDS);
+      return snapshot;
+    })();
+    this.building.set(key, build);
+    try {
+      return await build;
+    } finally {
+      this.building.delete(key);
+    }
   }
 }
 

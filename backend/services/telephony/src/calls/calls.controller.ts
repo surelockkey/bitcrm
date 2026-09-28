@@ -14,12 +14,14 @@ import {
   Post,
   Put,
   Query,
-  Res, Optional } from '@nestjs/common';
+  Res, Optional,
+  Req,
+} from '@nestjs/common';
 import { type Response } from 'express';
 import { Readable } from 'stream';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { CurrentUser, RequirePermission, S3Service } from '@bitcrm/shared';
-import { type JwtUser } from '@bitcrm/types';
+import { CurrentUser, hasPermission, RequirePermission, S3Service } from '@bitcrm/shared';
+import { type CallsDashboardBundle, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import { Inject } from '@nestjs/common';
 import { CallsService } from './calls.service';
 import { CallEventsBus } from './call-events.bus';
@@ -564,6 +566,34 @@ export class CallsController {
   ) {
     const fresh = refresh === '1' || refresh === 'true';
     return { success: true, data: await this.callsService.topFlows({ from, to }, { fresh }) };
+  }
+
+  @Get('stats/dashboard')
+  @RequirePermission('dashboard', 'view')
+  @ApiOperation({
+    summary: 'The call widgets the caller may see, in one answer',
+    description:
+      '**Guard:** `dashboard.view`, and then **each widget\'s own grant** inside — ' +
+      '`dashboard.view_top_call_flows` for `topCallFlows`, `dashboard.view_recent_calls` for ' +
+      '`recentCalls`; a widget the role does not hold is absent. `from`..`to` is the opening window. ' +
+      'What the dashboard loads first, so its cards paint together.',
+  })
+  async dashboardBundle(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @CurrentUser() user: JwtUser,
+    // PermissionGuard has already resolved the caller's grants for this route.
+    @Req() req: { resolvedPermissions?: ResolvedPermissions },
+  ) {
+    const may = (action: string) => hasPermission(req.resolvedPermissions, 'dashboard', action);
+    const data: CallsDashboardBundle = {};
+    const [flows, recent] = await Promise.all([
+      may('view_top_call_flows') ? this.callsService.topFlows({ from, to }) : undefined,
+      may('view_recent_calls') ? this.recentForDashboard(user) : undefined,
+    ]);
+    if (flows) data.topCallFlows = flows;
+    if (recent) data.recentCalls = recent.data;
+    return { success: true, data };
   }
 
   @Get('stats/recent')

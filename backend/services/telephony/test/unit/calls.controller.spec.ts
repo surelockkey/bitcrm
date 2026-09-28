@@ -1118,3 +1118,42 @@ describe('CallsController — dashboard widgets', () => {
     expect(JSON.stringify(res.data)).not.toContain('4045551234');
   });
 });
+
+/**
+ * Пакет дзвінкових віджетів — одним запитом, щоб картки з'являлись разом із
+ * рештою дашборда. Кожен віджет усередині — лише з власним грантом.
+ */
+describe('CallsController — the dashboard bundle', () => {
+  const { PERMISSION_KEY } = jest.requireActual('@bitcrm/shared') as { PERMISSION_KEY: string };
+  const req = (dashboard: Record<string, boolean>) =>
+    ({ resolvedPermissions: { isSystemRole: false, roleName: 'Dispatcher', permissions: { dashboard } } }) as never;
+
+  it('is guarded by the dashboard itself', () => {
+    const handler = (CallsController.prototype as unknown as Record<string, object>).dashboardBundle;
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toEqual({ resource: 'dashboard', action: 'view' });
+  });
+
+  it('carries both call widgets for a role holding both', async () => {
+    const topFlows = jest.fn().mockResolvedValue({ days: [], flows: [], atLeast: false });
+    const { controller, calls } = makeController({ topFlows });
+
+    const res = await controller.dashboardBundle(
+      '2026-09-14', '2026-09-28', USER, req({ view_top_call_flows: true, view_recent_calls: true }),
+    );
+
+    expect(topFlows).toHaveBeenCalledWith({ from: '2026-09-14', to: '2026-09-28' });
+    expect(calls.list).toHaveBeenCalledWith({}, undefined, 4);
+    expect(Object.keys(res.data).sort()).toEqual(['recentCalls', 'topCallFlows']);
+  });
+
+  it('leaves out a widget the role does not hold, and never reads for it', async () => {
+    const topFlows = jest.fn();
+    const { controller, calls } = makeController({ topFlows });
+
+    const res = await controller.dashboardBundle('2026-09-14', '2026-09-28', USER, req({ view_recent_calls: true }));
+
+    expect(topFlows).not.toHaveBeenCalled();
+    expect(Object.keys(res.data)).toEqual(['recentCalls']);
+    expect(calls.list).toHaveBeenCalled();
+  });
+});
