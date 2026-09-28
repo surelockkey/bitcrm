@@ -38,6 +38,8 @@ import {
   type CustomFieldType,
   type DealSentToTechEvent,
   DealEventType,
+  type JobsByStatusSeries,
+  type JobsByStatusDay,
 } from '@bitcrm/types';
 import { randomUUID } from 'crypto';
 import {
@@ -70,6 +72,24 @@ const COUNTS_TTL_SECONDS = 30;
  * account small enough for the number to matter.
  */
 const CLOSED_COUNT_CAP = 10_000;
+
+/**
+ * The longest window "Jobs By Status" will draw. A quarter of daily bars is
+ * already more than a chart can show legibly, and the cap is what stops a
+ * hand-written query from asking the index for a decade.
+ */
+const JOBS_BY_STATUS_MAX_DAYS = 92;
+
+/** Every day from `from` to `to` inclusive; empty when the window runs backwards. */
+function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  const end = new Date(`${to}T00:00:00.000Z`);
+  for (let d = new Date(`${from}T00:00:00.000Z`); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+    if (out.length > 400) break;
+  }
+  return out;
+}
 /** A report window — created or closed — spans at most a quarter. */
 const REPORT_WINDOW_MAX_DAYS = 92;
 /** 20 000 jobs — far past a quarter of this business; a guard, not a limit anyone meets. */
@@ -730,6 +750,70 @@ export class DealsService {
    * status without a window would count its whole partition, so it answers
    * `null` instead. Cached thirty seconds per filter set and caller scope.
    */
+  /**
+   * The dashboard's "Jobs By Status" series: one row per day of the window,
+   * jobs counted by the day they were created and the state they are in now.
+   *
+   * Six statuses fold into the three the chart draws — `canceled` and `done`
+   * stand alone, the other four are `open`, `done_pending_approval` among
+   * them because it is still awaiting sign-off. That is the same split
+   * `CLOSED_SUPER_STATUSES` makes.
+   *
+   * Every day of the window is present, zeros included: the axis steps evenly,
+   * and a missing day would shift every one after it.
+   */
+  async jobsByStatus(window: { from: string; to: string }): Promise<JobsByStatusSeries> {
+    const days = daysBetween(window.from, window.to);
+    if (!days.length) {
+      throw new BadRequestException('The window must start on or before it ends');
+    }
+    if (days.length > JOBS_BY_STATUS_MAX_DAYS) {
+      throw new BadRequestException(
+        `The window is limited to ${JOBS_BY_STATUS_MAX_DAYS} days`,
+      );
+    }
+
+    const cacheKey = `deal-by-day:${window.from}:${window.to}`;
+    const cached = await this.cache.getJson<JobsByStatusSeries>(cacheKey);
+    if (cached) return cached;
+
+    // One query per status, not one per cell: the created index is already
+    // partitioned by status and sorted by the moment, so a whole window comes
+    // back in six reads rather than six per day.
+    const perStatus = await Promise.all(
+      SUPER_STATUS_ORDER.map(async (status) => ({
+        status,
+        ...(await this.repository.countCreatedByDay(status, window)),
+      })),
+    );
+
+    const rows = new Map<string, JobsByStatusDay>(
+      days.map((day) => [day, { day, open: 0, done: 0, canceled: 0 }]),
+    );
+
+    for (const { status, byDay } of perStatus) {
+      const bucket =
+        status === JobSuperStatus.CANCELED
+          ? 'canceled'
+          : status === JobSuperStatus.DONE
+            ? 'done'
+            : 'open';
+      for (const [day, n] of Object.entries(byDay)) {
+        const row = rows.get(day);
+        // A row outside the window can only come from a boundary rounding
+        // difference; it is not the chart's to draw.
+        if (row) row[bucket] += n;
+      }
+    }
+
+    const result: JobsByStatusSeries = {
+      days: days.map((d) => rows.get(d)!),
+      atLeast: perStatus.some((p) => p.atLeast),
+    };
+    await this.cache.setJson(cacheKey, result, COUNTS_TTL_SECONDS);
+    return result;
+  }
+
   async counts(query: ListDealsQueryDto, caller: JwtUser, dataScope?: string): Promise<DealCounts> {
     const filters = this.listFilters(query, caller, dataScope);
     const report = this.parseReportWindows(query);

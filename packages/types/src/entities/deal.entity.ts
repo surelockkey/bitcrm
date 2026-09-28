@@ -216,3 +216,25 @@ export interface Deal {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * One day of the dashboard's "Jobs By Status" chart: how many jobs were
+ * created that day, folded into the three states the chart draws.
+ *
+ * `open` is everything not yet closed — submitted, in progress, pending and
+ * done-pending-approval, which is still awaiting sign-off.
+ */
+export interface JobsByStatusDay {
+  /** `YYYY-MM-DD`. */
+  day: string;
+  open: number;
+  done: number;
+  canceled: number;
+}
+
+export interface JobsByStatusSeries {
+  /** Every day of the window, in order, including the ones with no jobs. */
+  days: JobsByStatusDay[];
+  /** A walk stopped on its read budget: the counts are floors, not totals. */
+  atLeast: boolean;
+}

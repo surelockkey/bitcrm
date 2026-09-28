@@ -85,6 +85,13 @@ export function monthsOf(window: DayWindow): string[] {
 const UNSCHEDULED = 'UNSCHED';
 
 /**
+ * The read budget of one status's day series. A page of index keys is a
+ * megabyte, so this covers a window far larger than the dashboard's; past it
+ * the series is honestly a floor rather than a page load that walks years.
+ */
+const BY_DAY_MAX_READS = 20;
+
+/**
  * The StatusScheduleIndex keys of a deal, plus `slotStart` — the `HH:MM`
  * the visit opens with, kept as its own attribute so an hour-of-day filter
  * is one BETWEEN. An all-day or slotless visit sorts under `~`, after the
@@ -498,6 +505,56 @@ export class DealsRepository {
       };
     }
     return { expression: '#pk = :pk', values: {} };
+  }
+
+  /**
+   * How many deals of one status were created on each day of a window — the
+   * series behind the dashboard's "Jobs By Status".
+   *
+   * The created index is already shaped like the question: partition
+   * `STATUS#<status>`, sort key `<createdAt>#DEAL#<id>`. So one Query per
+   * status answers a whole window, and the day comes off the key's own
+   * prefix — six queries for the chart, not six per day.
+   *
+   * Only the sort key is projected: days are being tallied, not rows, and a
+   * fortnight of deal bodies has no business crossing the wire. The walk is
+   * bounded like every other count here; out of budget the series is a floor
+   * and the panel says so.
+   */
+  async countCreatedByDay(
+    superStatus: JobSuperStatus,
+    window: DayWindow,
+  ): Promise<{ byDay: Record<string, number>; atLeast: boolean }> {
+    const values = this.dayRangeValues(window);
+    const byDay: Record<string, number> = {};
+    let startKey: Record<string, unknown> | undefined;
+    let reads = 0;
+
+    for (;;) {
+      if (reads >= BY_DAY_MAX_READS) return { byDay, atLeast: true };
+      reads += 1;
+
+      const res = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: DEALS_GSI1_NAME,
+          KeyConditionExpression: '#pk = :pk AND #sk BETWEEN :from AND :to',
+          ExpressionAttributeNames: { '#pk': 'GSI1PK', '#sk': 'GSI1SK' },
+          ExpressionAttributeValues: { ':pk': `STATUS#${superStatus}`, ...values },
+          ProjectionExpression: '#sk',
+          ...(startKey && { ExclusiveStartKey: startKey }),
+        }),
+      );
+
+      for (const item of res.Items ?? []) {
+        // `<createdAt>#DEAL#<id>` — the day is the first ten characters.
+        const day = String((item as { GSI1SK?: unknown }).GSI1SK ?? '').slice(0, 10);
+        if (day) byDay[day] = (byDay[day] ?? 0) + 1;
+      }
+
+      if (!res.LastEvaluatedKey) return { byDay, atLeast: false };
+      startKey = res.LastEvaluatedKey;
+    }
   }
 
   /** `<from>` … `<to>~` — a span of days as a range on an ISO-dated sort key. */

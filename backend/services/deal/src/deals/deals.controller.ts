@@ -22,6 +22,7 @@ import { MoveStatusDto } from './dto/move-status.dto';
 import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
+import { JobsByStatusQueryDto } from './dto/jobs-by-status-query.dto';
 import { DealsByIdsDto } from './dto/deals-by-ids.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
@@ -117,6 +118,25 @@ export class DealsController {
   ) {
     const money = perms?.permissions?.financials?.view === true;
     const data = await this.dealsService.stats(query, user, perms?.dataScope?.deals, { money });
+    return { success: true, data };
+  }
+
+  // Before `:id`, or the parameter route swallows it.
+  @Get('stats/jobs-by-status')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'Jobs created per day, by state — the dashboard chart',
+    description:
+      '**Guard:** `deals.view` permission required. One row per calendar day of `from`..`to` ' +
+      '(inclusive, `YYYY-MM-DD`), counting jobs by the day they were **created** and the state ' +
+      'they are in **now**. Three buckets: `canceled`, `done`, and `open` — everything not yet ' +
+      'closed, `done_pending_approval` included, since it is still awaiting sign-off. Days with ' +
+      'no jobs come back as zeros so the axis steps evenly. The window is capped at 92 days. ' +
+      '`atLeast` means a walk stopped on its read budget and the counts are floors. ' +
+      'Cached for thirty seconds.',
+  })
+  async jobsByStatus(@Query() query: JobsByStatusQueryDto) {
+    const data = await this.dealsService.jobsByStatus(query);
     return { success: true, data };
   }
 
