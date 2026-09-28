@@ -181,28 +181,32 @@ export function LineChart({
         </div>
       </div>
 
-      <table className="sr-only" aria-label={title}>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            {series.map((s) => (
-              <th key={s.name} scope="col">
-                {s.name}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {days.map((d, i) => (
-            <tr key={d}>
-              <td>{labelOf(d)}</td>
+      {/* The wrapper is what hides: a table never shrinks below its content,
+          so `sr-only` on the table itself would widen the page. */}
+      <div className="sr-only">
+        <table aria-label={title}>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
               {series.map((s) => (
-                <td key={s.name}>{s.values[i]}</td>
+                <th key={s.name} scope="col">
+                  {s.name}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {days.map((d, i) => (
+              <tr key={d}>
+                <td>{labelOf(d)}</td>
+                {series.map((s) => (
+                  <td key={s.name}>{s.values[i]}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

@@ -149,28 +149,32 @@ export function DailyChart({
           </div>
         </div>
       )}
-      <table className="sr-only" aria-label={title}>
-        <thead>
-          <tr>
-            <th scope="col">Day</th>
-            {series.map((s) => (
-              <th key={s.label} scope="col">
-                {s.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {days.map((d) => (
-            <tr key={d.date}>
-              <td>{labelOf(d.date)}</td>
-              {series.map((s, si) => (
-                <td key={s.label}>{format(valueAt(d, si))}</td>
+      {/* The wrapper is what hides: a table never shrinks below its content,
+          so `sr-only` on the table itself would widen the page. */}
+      <div className="sr-only">
+        <table aria-label={title}>
+          <thead>
+            <tr>
+              <th scope="col">Day</th>
+              {series.map((s) => (
+                <th key={s.label} scope="col">
+                  {s.label}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {days.map((d) => (
+              <tr key={d.date}>
+                <td>{labelOf(d.date)}</td>
+                {series.map((s, si) => (
+                  <td key={s.label}>{format(valueAt(d, si))}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

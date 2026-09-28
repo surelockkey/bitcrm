@@ -89,24 +89,28 @@ export function SharePie({ title, slices }: { title: string; slices: DashboardSh
         })}
       </ul>
 
-      <table className="sr-only" aria-label={title}>
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Jobs</th>
-            <th scope="col">Share</th>
-          </tr>
-        </thead>
-        <tbody>
-          {slices.map((s) => (
-            <tr key={s.key}>
-              <td>{s.name}</td>
-              <td>{s.count}</td>
-              <td>{s.percent}%</td>
+      {/* The wrapper is what hides: a table never shrinks below its content,
+          so `sr-only` on the table itself would widen the page. */}
+      <div className="sr-only">
+        <table aria-label={title}>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Jobs</th>
+              <th scope="col">Share</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {slices.map((s) => (
+              <tr key={s.key}>
+                <td>{s.name}</td>
+                <td>{s.count}</td>
+                <td>{s.percent}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }
