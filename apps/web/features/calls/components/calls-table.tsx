@@ -46,8 +46,8 @@ const COLUMNS = [
   { key: "to", label: "To", width: 180 },
   { key: "status", label: "Status", width: 130 },
   { key: "answeredBy", label: "Answered by", width: 160 },
-  { key: "flow", label: "Call flow", width: 160 },
-  { key: "source", label: "Source", width: 150 },
+  { key: "flow", label: "Call flow", width: 200 },
+  { key: "source", label: "Source", width: 200 },
   { key: "tags", label: "Tags", width: 160 },
   { key: "jobTags", label: "Job tags", width: 160 },
   { key: "job", label: "Job", width: 90 },
@@ -188,13 +188,23 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
                 <TableCell className="text-sm">
                   {answeredBy(call) ?? <Dash />}
                 </TableCell>
-                <TableCell className="text-sm">
+                {/*
+                  Truncated, with the whole value on hover. Call flows and ad
+                  group sources carry names like "SURE TX MCKINNEY (UNIVERSITY)
+                  LSA -", far past any column width worth giving them; under
+                  `table-fixed` an unclipped cell does not widen its column, it
+                  spills over the next one.
+                */}
+                <TableCell className="truncate text-sm" title={call.flowName ?? undefined}>
                   {call.flowName ?? <Dash />}
                 </TableCell>
-                <TableCell className="text-sm">
+                <TableCell
+                  className="truncate text-sm"
+                  title={call.sourceId ? sourceName(call.sourceId) : undefined}
+                >
                   {call.sourceId ? sourceName(call.sourceId) : <Dash />}
                 </TableCell>
-                <TableCell className="min-w-44">
+                <TableCell className="overflow-hidden">
                   <CallTagsCell call={call} inRow />
                 </TableCell>
                 <TableCell>

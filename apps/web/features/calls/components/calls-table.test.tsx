@@ -342,3 +342,34 @@ describe("CallsTableSkeleton", () => {
     expect(container.querySelectorAll("tbody tr")).toHaveLength(12);
   });
 });
+
+/**
+ * Довгі назви флоу й джерел.
+ *
+ * Під `table-fixed` клітинка, що не обрізає вміст, не розширює свою колонку —
+ * вона налазить на сусідню. А назви тут довгі за природою: «SURE TX MCKINNEY
+ * (UNIVERSITY) LSA -» і подібні.
+ */
+describe("CallsTable — long flow and source names", () => {
+  const long = "SURE TX MCKINNEY (UNIVERSITY) LSA - very long indeed";
+
+  it("clips the call flow instead of letting it run into Source", () => {
+    render(<CallsTable calls={[call({ callSid: "CA1", flowName: long })]} />);
+    const cell = screen.getByText(long).closest("td");
+    expect(cell?.className).toContain("truncate");
+  });
+
+  it("keeps the whole flow name available on hover", () => {
+    render(<CallsTable calls={[call({ callSid: "CA1", flowName: long })]} />);
+    expect(screen.getByText(long).closest("td")).toHaveAttribute("title", long);
+  });
+
+  // Ширина колонки задана в colgroup; min-width на клітинці перемагала б її
+  // й розсовувала сусідів.
+  it("lets no cell set a width of its own", () => {
+    const { container } = render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    for (const cell of container.querySelectorAll("tbody td")) {
+      expect(cell.className).not.toMatch(/\bmin-w-/);
+    }
+  });
+});
