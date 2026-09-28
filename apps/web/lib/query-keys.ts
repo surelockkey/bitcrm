@@ -31,6 +31,10 @@ export const queryKeys = {
     list: () => ["call-tags", "list"] as const,
   },
 
+  dashboard: {
+    all: () => ["dashboard"] as const,
+    jobsByStatus: (window?: unknown) => ["dashboard", "jobs-by-status", window] as const,
+  },
   calls: {
     all: () => ["calls"] as const,
     /** Prefix for every filtered list — use for invalidation. */

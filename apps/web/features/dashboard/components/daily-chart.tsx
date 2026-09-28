@@ -2,11 +2,16 @@
 
 import { useState } from "react";
 
+export interface DailySeries {
+  label: string;
+  /** The column's fill, as a background utility — `bg-brand`, `bg-chart2`, … */
+  className: string;
+}
+
 export interface DailyPoint {
   date: string;
-  value: number;
-  /** The second series' value, when `series` names two. */
-  compare?: number;
+  /** One number per series, in the order `series` names them. */
+  values: number[];
 }
 
 /** 1 / 2 / 5 × 10ⁿ at or above `max` — the top of the axis. */
@@ -24,38 +29,47 @@ const dayLabel = (date: string): string =>
  * A column a day, on one scale (dataviz spec: ≤24px columns with a 4px
  * rounded end on a single baseline, a 2px gap, hairline grid, a tooltip on
  * hover and focus, and the same numbers as a table for screen readers).
- * With `series` naming two, each day carries a second column (`compare`)
- * beside the first and a legend names both — never a second axis.
+ *
+ * With more than one series, each day carries a column per series side by
+ * side and a legend names them — never a second axis. Colour is the caller's:
+ * a comparison reaches for the categorical slots (`bg-brand`, `bg-chart2`),
+ * a breakdown by state for the status fills, and neither is generated here,
+ * so a series keeps its colour when a filter drops one of its neighbours.
  */
 export function DailyChart({
   title,
   days,
-  format,
   series,
+  format,
   labelOf = dayLabel,
 }: {
   title: string;
   days: DailyPoint[];
+  /** One entry per column in a day's group; a single entry draws no legend. */
+  series: DailySeries[];
   format: (value: number) => string;
-  series?: [string, string];
   /** A column's label — a day by default; a week or month reads its own. */
   labelOf?: (date: string) => string;
 }) {
   const [active, setActive] = useState<number | null>(null);
-  const pair = !!series;
-  const top = niceMax(Math.max(0, ...days.flatMap((d) => [d.value, pair ? (d.compare ?? 0) : 0])));
-  const empty = days.every((d) => d.value === 0 && (!pair || !d.compare));
+  const many = series.length > 1;
+  const valueAt = (d: DailyPoint, i: number) => d.values[i] ?? 0;
+  const top = niceMax(Math.max(0, ...days.flatMap((d) => series.map((_, i) => valueAt(d, i)))));
+  const empty = days.every((d) => series.every((_, i) => valueAt(d, i) === 0));
   const ticks = [top, top / 2, 0];
   const labelAt = new Set([0, Math.floor((days.length - 1) / 2), days.length - 1]);
+  // One column is allowed to be wide; a group of them has to stay thin enough
+  // that the 2px trench between days still reads as the bigger gap.
+  const barWidth = many ? "max-w-3" : "max-w-6";
 
   return (
     <figure className="flex flex-col gap-2">
-      {series && (
-        <ul aria-label="Legend" className="flex gap-4 text-xs text-muted-foreground">
-          {series.map((name, i) => (
-            <li key={name} className="flex items-center gap-1.5">
-              <span className={`size-2.5 rounded-sm ${i === 0 ? "bg-brand" : "bg-chart2"}`} aria-hidden />
-              {name}
+      {many && (
+        <ul aria-label="Legend" className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+          {series.map((s) => (
+            <li key={s.label} className="flex items-center gap-1.5">
+              <span className={`size-2.5 rounded-sm ${s.className}`} aria-hidden />
+              {s.label}
             </li>
           ))}
         </ul>
@@ -79,12 +93,10 @@ export function DailyChart({
             </div>
             <div className="relative flex h-40 items-end gap-[2px]">
               {days.map((d, i) => {
-                const pct = (d.value / top) * 100;
-                const comparePct = ((d.compare ?? 0) / top) * 100;
                 const dim = { opacity: active === null || active === i ? 1 : 0.55 };
-                const said = pair
-                  ? `${labelOf(d.date)}: ${series![0]} ${format(d.value)}, ${series![1]} ${format(d.compare ?? 0)}`
-                  : `${labelOf(d.date)}: ${format(d.value)}`;
+                const said = `${labelOf(d.date)}: ${series
+                  .map((s, si) => `${s.label} ${format(valueAt(d, si))}`)
+                  .join(", ")}`;
                 return (
                   <div
                     key={d.date}
@@ -97,37 +109,33 @@ export function DailyChart({
                     onFocus={() => setActive(i)}
                     onBlur={() => setActive(null)}
                   >
-                    <div
-                      data-testid="daily-bar"
-                      data-height={Number(pct.toFixed(4))}
-                      className={`w-full rounded-t-[4px] bg-brand ${pair ? "max-w-3" : "max-w-6"}`}
-                      style={{ height: `${pct}%`, ...dim }}
-                    />
-                    {pair && (
-                      <div
-                        data-testid="daily-bar-compare"
-                        data-height={Number(comparePct.toFixed(4))}
-                        className="w-full max-w-3 rounded-t-[4px] bg-chart2"
-                        style={{ height: `${comparePct}%`, ...dim }}
-                      />
-                    )}
+                    {series.map((s, si) => {
+                      const pct = (valueAt(d, si) / top) * 100;
+                      return (
+                        <div
+                          key={s.label}
+                          data-testid="daily-bar"
+                          data-series={s.label}
+                          data-height={Number(pct.toFixed(4))}
+                          className={`w-full rounded-t-[4px] ${barWidth} ${s.className}`}
+                          style={{ height: `${pct}%`, ...dim }}
+                        />
+                      );
+                    })}
                     {active === i && (
                       <div
                         role="tooltip"
                         className="absolute bottom-full z-10 mb-1 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-xs shadow-sm"
                       >
                         <span className="text-muted-foreground">{labelOf(d.date)}</span>{" "}
-                        {pair ? (
-                          <>
-                            <span className="text-foreground">
-                              {series![0]} <span className="font-medium">{format(d.value)}</span>
-                            </span>{" "}
-                            <span className="text-foreground">
-                              {series![1]} <span className="font-medium">{format(d.compare ?? 0)}</span>
+                        {many ? (
+                          series.map((s, si) => (
+                            <span key={s.label} className="text-foreground">
+                              {s.label} <span className="font-medium">{format(valueAt(d, si))}</span>{" "}
                             </span>
-                          </>
+                          ))
                         ) : (
-                          <span className="font-medium text-foreground">{format(d.value)}</span>
+                          <span className="font-medium text-foreground">{format(valueAt(d, 0))}</span>
                         )}
                       </div>
                     )}
@@ -149,16 +157,20 @@ export function DailyChart({
         <thead>
           <tr>
             <th scope="col">Day</th>
-            <th scope="col">{series?.[0] ?? "Value"}</th>
-            {series && <th scope="col">{series[1]}</th>}
+            {series.map((s) => (
+              <th key={s.label} scope="col">
+                {s.label}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {days.map((d) => (
             <tr key={d.date}>
               <td>{labelOf(d.date)}</td>
-              <td>{format(d.value)}</td>
-              {series && <td>{format(d.compare ?? 0)}</td>}
+              {series.map((s, si) => (
+                <td key={s.label}>{format(valueAt(d, si))}</td>
+              ))}
             </tr>
           ))}
         </tbody>

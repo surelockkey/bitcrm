@@ -40,6 +40,9 @@
   --color-destructive-text: var(--destructive-text);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-chart-critical: var(--chart-critical);
+  --color-chart-warning: var(--chart-warning);
+  --color-chart-good: var(--chart-good);
   --color-ring: var(--ring);
   --color-table-border: var(--table-border);
   --color-topbar: var(--topbar);
@@ -100,6 +103,9 @@
   --destructive-text: #a02525;
   --border: #dfe2e3;
   --input: #cccccc;
+  --chart-critical: #c8563f;
+  --chart-warning: #cf9a1f;
+  --chart-good: #45996b;
   --ring: #3589e9;
   --table-border: #cfcfcf;
   --topbar: #f3f6f7;

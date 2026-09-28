@@ -67,6 +67,16 @@ export const LIGHT = {
   warningText: "#8a5a00",
   destructiveText: "#a02525",
 
+  // Chart series, by the state they stand for. Workiz's own "Jobs By Status"
+  // bars sample as #e29483 / #fbf1a3 / #afdbb5, and those three fail on their
+  // own terms: yellow against green measures ΔE 12.2 for *normal* vision,
+  // under the 15 needed to tell two bars in one group apart. These are the
+  // same three hue families stepped until they pass — deeper, not different.
+  // Canceled → critical, Open → warning, Done → good.
+  chartCritical: "#c8563f",
+  chartWarning: "#cf9a1f",
+  chartGood: "#45996b",
+
   // Lines. Deliberately fainter than the 3:1 non-text guideline — Workiz grid
   // rules are this light, and darkening them reads as a different product.
   border: "#dfe2e3",

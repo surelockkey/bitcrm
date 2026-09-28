@@ -244,8 +244,11 @@ function Report({ stats, money }: { stats: DealStats; money: boolean }) {
             <h2 className="text-base font-semibold">Jobs</h2>
             <DailyChart
               title="Jobs and canceled"
-              series={["Jobs", "Canceled"]}
-              days={series.map((d) => ({ date: d.date, value: d.jobs, compare: d.canceled }))}
+              series={[
+                { label: "Jobs", className: "bg-brand" },
+                { label: "Canceled", className: "bg-chart2" },
+              ]}
+              days={series.map((d) => ({ date: d.date, values: [d.jobs, d.canceled] }))}
               format={(v) => v.toLocaleString("en-US")}
               labelOf={grainLabel(grain)}
             />
@@ -255,8 +258,11 @@ function Report({ stats, money }: { stats: DealStats; money: boolean }) {
               <h2 className="text-base font-semibold">Sales</h2>
               <DailyChart
                 title="Sales and profit"
-                series={["Sales", "Profit"]}
-                days={series.map((d) => ({ date: d.date, value: d.revenue ?? 0, compare: d.profit ?? 0 }))}
+                series={[
+                  { label: "Sales", className: "bg-brand" },
+                  { label: "Profit", className: "bg-chart2" },
+                ]}
+                days={series.map((d) => ({ date: d.date, values: [d.revenue ?? 0, d.profit ?? 0] }))}
                 format={compactMoney}
                 labelOf={grainLabel(grain)}
               />
