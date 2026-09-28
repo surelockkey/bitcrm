@@ -91,7 +91,7 @@ describe("JobsByStatusCard", () => {
   it("says so when the chart could not load", () => {
     state.isError = true;
     renderWithClient(<JobsByStatusCard />);
-    expect(screen.getByText("Couldn't load the chart.")).toBeInTheDocument();
+    expect(screen.getByText("Couldn't load this widget.")).toBeInTheDocument();
     state.isError = false;
   });
 });

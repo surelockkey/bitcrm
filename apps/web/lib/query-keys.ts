@@ -34,6 +34,8 @@ export const queryKeys = {
   dashboard: {
     all: () => ["dashboard"] as const,
     jobsByStatus: (window?: unknown) => ["dashboard", "jobs-by-status", window] as const,
+    /** Any other widget: its name and whatever window or day it reads. */
+    widget: (name: string, params?: unknown) => ["dashboard", name, params] as const,
   },
   calls: {
     all: () => ["calls"] as const,

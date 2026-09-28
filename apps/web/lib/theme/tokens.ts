@@ -100,6 +100,17 @@ export const LIGHT = {
   // Workiz (its charts are Google's defaults): the dataviz reference orange,
   // validated against brand for CVD and normal-vision separation.
   chart2: "#eb6834",
+  // Slots 3-8 for charts with more series than two — the pies' four slices,
+  // "Top Call Flows"' eight lines. The dataviz reference order after brand and
+  // chart2, validated as a set: adjacent CVD ΔE ≥ 9.1, normal-vision ≥ 19.6.
+  // Aqua, yellow and magenta sit under 3:1 on white, so every chart that uses
+  // them names its series in a visible legend.
+  chart3: "#1baf7a",
+  chart4: "#eda100",
+  chart5: "#e87ba4",
+  chart6: "#008300",
+  chart7: "#4a3aa7",
+  chart8: "#e34948",
 } as const satisfies Record<string, string>;
 
 /** Pairs that carry running text: WCAG AA, 4.5:1. */

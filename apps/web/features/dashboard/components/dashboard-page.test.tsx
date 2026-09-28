@@ -11,6 +11,26 @@ vi.mock("@/features/auth/use-permissions", () => ({
   }),
 }));
 
+vi.mock("./dashboard-widgets", () => {
+  const stub = (id: string) => {
+    const Stub = ({ className }: { className?: string }) => <div data-testid={id} className={className} />;
+    Stub.displayName = id;
+    return Stub;
+  };
+  return {
+    SalesCard: stub("sales"),
+    TopSourcesCard: stub("top-sources"),
+    TopJobTypesCard: stub("top-job-types"),
+    ServiceAreasCard: stub("service-areas"),
+    TopCallFlowsCard: stub("top-call-flows"),
+    DispatchScoreboardCard: stub("dispatch-scoreboard"),
+    TechScoreboardCard: stub("tech-scoreboard"),
+    RecentCallsCard: stub("recent-calls"),
+    JobsNowCard: stub("jobs-now"),
+    TodayCard: stub("today"),
+  };
+});
+
 vi.mock("./jobs-by-status-card", () => ({
   JobsByStatusCard: ({ className }: { className?: string }) => (
     <div data-testid="jobs-by-status" className={className} />
@@ -42,5 +62,64 @@ describe("DashboardPage", () => {
     expect(screen.queryByTestId("jobs-by-status")).toBeNull();
     expect(screen.getByText("No widgets are shared with your role yet.")).toBeInTheDocument();
     grants["dashboard.view_jobs_by_status"] = true;
+  });
+
+  const WIDGETS: [string, string, string][] = [
+    ["top-sources", "view_top_sources", "md:col-span-1"],
+    ["sales", "view_sales", "md:col-span-2"],
+    ["top-job-types", "view_top_job_types", "md:col-span-1"],
+    ["service-areas", "view_service_areas", "md:col-span-1"],
+    ["top-call-flows", "view_top_call_flows", "xl:col-span-3"],
+    ["dispatch-scoreboard", "view_dispatch_scoreboard", "md:col-span-2"],
+    ["recent-calls", "view_recent_calls", "md:col-span-2"],
+    ["tech-scoreboard", "view_tech_scoreboard", "md:col-span-2"],
+    ["jobs-now", "view_jobs", "md:col-span-1"],
+    ["today", "view_today", "md:col-span-1"],
+  ];
+
+  it.each(WIDGETS)("%s shows with dashboard.%s, spanning %s", (id, action, span) => {
+    grants[`dashboard.${action}`] = true;
+    grants["financials.view"] = true;
+    renderWithClient(<DashboardPage />);
+    expect(screen.getByTestId(id).className).toContain(span);
+    grants[`dashboard.${action}`] = false;
+    grants["financials.view"] = false;
+  });
+
+  it.each(WIDGETS)("%s stays out without dashboard.%s", (id) => {
+    grants["financials.view"] = true;
+    renderWithClient(<DashboardPage />);
+    expect(screen.queryByTestId(id)).toBeNull();
+    grants["financials.view"] = false;
+  });
+
+  // «Sales» — самі гроші: без financials.view сервер відмовить, тож картки нема.
+  it("Sales also needs financials.view", () => {
+    grants["dashboard.view_sales"] = true;
+    renderWithClient(<DashboardPage />);
+    expect(screen.queryByTestId("sales")).toBeNull();
+    grants["dashboard.view_sales"] = false;
+  });
+
+  it("lays them out in Workiz's order", () => {
+    for (const [, action] of WIDGETS) grants[`dashboard.${action}`] = true;
+    grants["financials.view"] = true;
+    const { container } = renderWithClient(<DashboardPage />);
+    const order = [...container.querySelectorAll("[data-testid]")].map((n) => n.getAttribute("data-testid"));
+    expect(order).toEqual([
+      "top-sources",
+      "sales",
+      "top-job-types",
+      "service-areas",
+      "top-call-flows",
+      "dispatch-scoreboard",
+      "recent-calls",
+      "tech-scoreboard",
+      "jobs-now",
+      "today",
+      "jobs-by-status",
+    ]);
+    for (const [, action] of WIDGETS) grants[`dashboard.${action}`] = false;
+    grants["financials.view"] = false;
   });
 });

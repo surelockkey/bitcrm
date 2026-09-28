@@ -1,21 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useJobsByStatus } from "../hooks";
-import { RANGE_PRESETS, axisDayLabel, updatedAtLabel, type DashboardRange } from "../jobs-by-status";
+import { axisDayLabel, type DashboardRange } from "../jobs-by-status";
 import { DailyChart } from "./daily-chart";
-import { ManageWidgetPermissionsDialog } from "./manage-widget-permissions-dialog";
-import { WidgetCard } from "./widget-card";
+import { DashboardCard } from "./dashboard-card";
 
 /**
  * The three states, in the order they stand in each day's group.
@@ -43,61 +32,25 @@ const HELP =
  * inside the render would refetch the chart forever.
  */
 export function JobsByStatusCard({ className }: { className?: string }) {
-  const { can } = usePermissions();
-  const [managing, setManaging] = useState(false);
   const [now] = useState(() => new Date());
   const [range, setRange] = useState<DashboardRange>(14);
   const query = useJobsByStatus(range, now);
-  const days = query.data?.days ?? [];
 
   return (
-    <WidgetCard
+    <DashboardCard
       className={className}
       title="Jobs By Status"
       help={HELP}
-      updatedAt={query.dataUpdatedAt ? updatedAtLabel(new Date(query.dataUpdatedAt)) : undefined}
-      isRefreshing={query.isFetching && !query.isLoading}
-      onRefresh={() => void query.refetch()}
-      menu={
-        // Only somebody who can edit roles is offered the audience — the
-        // dialog writes the permission matrix, and the server would refuse
-        // anyone else halfway through.
-        can("roles", "edit") ? (
-          <DropdownMenuItem onSelect={() => setManaging(true)}>
-            Manage permissions
-          </DropdownMenuItem>
-        ) : undefined
-      }
-      toolbar={
-        <div className="ml-auto">
-          <Select
-            value={String(range)}
-            onValueChange={(v) => setRange(Number(v) as DashboardRange)}
-          >
-            <SelectTrigger size="sm" className="w-38" aria-label="Range">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_PRESETS.map((p) => (
-                <SelectItem key={p.days} value={String(p.days)}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      }
+      action="view_jobs_by_status"
+      query={query}
+      range={range}
+      onRangeChange={setRange}
+      skeletonClassName="h-52"
     >
-      {query.isLoading ? (
-        <Skeleton className="h-52 w-full" />
-      ) : query.isError ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">
-          Couldn&apos;t load the chart.
-        </p>
-      ) : (
+      {(data) => (
         <DailyChart
           title="Jobs by status"
-          days={days.map((d) => ({
+          days={data.days.map((d) => ({
             date: d.day,
             values: SERIES.map((s) => d[s.key]),
           }))}
@@ -106,12 +59,6 @@ export function JobsByStatusCard({ className }: { className?: string }) {
           labelOf={axisDayLabel}
         />
       )}
-      <ManageWidgetPermissionsDialog
-        open={managing}
-        onOpenChange={setManaging}
-        action="view_jobs_by_status"
-        label="Jobs By Status"
-      />
-    </WidgetCard>
+    </DashboardCard>
   );
 }

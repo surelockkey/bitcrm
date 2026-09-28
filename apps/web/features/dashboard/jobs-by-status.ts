@@ -17,7 +17,7 @@ export const RANGE_PRESETS = [
 export type DashboardRange = (typeof RANGE_PRESETS)[number]["days"];
 
 /** `YYYY-MM-DD` in the viewer's own calendar, not UTC. */
-function localDay(at: Date): string {
+export function localDay(at: Date): string {
   // `en-CA` formats as ISO and the formatter reads the local zone — which is
   // the point: at 8pm in New York the UTC date is already tomorrow, and the
   // axis must not jump a day in the evening.

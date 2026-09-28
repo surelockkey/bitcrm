@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { niceMax } from "../charts";
 
 export interface DailySeries {
   label: string;
@@ -12,14 +13,6 @@ export interface DailyPoint {
   date: string;
   /** One number per series, in the order `series` names them. */
   values: number[];
-}
-
-/** 1 / 2 / 5 × 10ⁿ at or above `max` — the top of the axis. */
-function niceMax(max: number): number {
-  if (max <= 0) return 1;
-  const pow = 10 ** Math.floor(Math.log10(max));
-  const step = [1, 2, 5, 10].find((s) => s * pow >= max) ?? 10;
-  return step * pow;
 }
 
 const dayLabel = (date: string): string =>
@@ -42,6 +35,7 @@ export function DailyChart({
   series,
   format,
   labelOf = dayLabel,
+  legend = true,
 }: {
   title: string;
   days: DailyPoint[];
@@ -50,6 +44,8 @@ export function DailyChart({
   format: (value: number) => string;
   /** A column's label — a day by default; a week or month reads its own. */
   labelOf?: (date: string) => string;
+  /** Off when the card names the series itself, as "Sales" does with its totals. */
+  legend?: boolean;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const many = series.length > 1;
@@ -64,7 +60,7 @@ export function DailyChart({
 
   return (
     <figure className="flex flex-col gap-2">
-      {many && (
+      {many && legend && (
         <ul aria-label="Legend" className="flex flex-wrap gap-4 text-xs text-muted-foreground">
           {series.map((s) => (
             <li key={s.label} className="flex items-center gap-1.5">
