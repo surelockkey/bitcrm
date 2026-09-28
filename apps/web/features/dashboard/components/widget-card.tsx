@@ -53,12 +53,16 @@ export function WidgetCard({
   return (
     <Card className={cn("gap-0 overflow-hidden py-0", className)}>
       <div className="flex items-center gap-2 border-b px-5 py-3.5">
-        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+        {/* The title never wraps; in a one-column card it is "updated …" that
+            gives way, truncating before it pushes the title onto two lines. */}
+        <h2 className="shrink-0 whitespace-nowrap text-base font-semibold tracking-tight">{title}</h2>
         {updatedAt ? (
-          <span className="text-xs text-muted-foreground">updated {updatedAt}</span>
+          <span className="min-w-0 truncate text-xs whitespace-nowrap text-muted-foreground">
+            updated {updatedAt}
+          </span>
         ) : null}
 
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label={`About ${title}`}>
