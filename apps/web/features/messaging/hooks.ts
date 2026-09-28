@@ -18,7 +18,7 @@ import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCompaniesByIds, useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
-import { useUserMap } from "@/features/deals/hooks";
+import { getUserNames } from "@/features/users/api";
 import * as api from "./api";
 import type {
   ConversationListFilter,
@@ -36,6 +36,7 @@ import { applyConversation, applyMessage } from "./cache";
 import {
   describeResendError,
   describeSendError,
+  mergeIncludedNames,
   patchMessageInPages,
   removeMessageFromPages,
   replacePendingMessage,
@@ -216,50 +217,58 @@ export function useFlaggedMessages(enabled = true) {
 
 /**
  * Names for the other side of each conversation. The conversation stores
- * only `partyKind` / `partyId`; contacts and companies come from CRM (the
- * catalogs every client screen already caches) and employees from the
- * user directory, through the same restricted-viewer path the job roster
- * uses. Nothing is fetched the viewer may not list.
+ * only `partyKind` / `partyId`; the names come with the inbox pages
+ * themselves (`included`), so whatever a page in the cache has named is
+ * named at once — the rows, the open thread's header, the group menu.
+ *
+ * Only a party no page has named yet (a thread that arrived live over the
+ * stream) is looked up the old way: contacts and companies from CRM, a
+ * teammate by id through `POST /users/by-ids` — never the whole directory.
+ * Nothing is fetched the viewer may not list.
  */
 export function usePartyNames(conversations: InboxConversation[]): PartyNames {
   const { can } = usePermissions();
-  const userIds = useMemo(
-    () =>
-      conversations
-        .filter((c) => c.partyKind === "user" && c.partyId)
-        .map((c) => c.partyId as string),
-    [conversations],
+  const qc = useQueryClient();
+
+  // Read at render: a component re-renders when its own list lands, and by
+  // then the cache holds that list's `included`.
+  const known = mergeIncludedNames(
+    qc
+      .getQueriesData<InfiniteData<api.ConversationListPage>>({
+        queryKey: queryKeys.messaging.conversationLists(),
+      })
+      .flatMap(([, data]) => data?.pages ?? []),
   );
-  // Only the clients these threads belong to — the inbox holds a few pages.
-  const contactIds = useMemo(
-    () =>
+
+  const missing = (kind: InboxConversation["partyKind"], named: Map<string, string>) => [
+    ...new Set(
       conversations
-        .filter((c) => c.partyKind === "contact" && c.partyId)
+        .filter((c) => c.partyKind === kind && c.partyId && !named.has(c.partyId))
         .map((c) => c.partyId as string),
-    [conversations],
-  );
-  const companyIds = useMemo(
-    () =>
-      conversations
-        .filter((c) => c.partyKind === "company" && c.partyId)
-        .map((c) => c.partyId as string),
-    [conversations],
-  );
+    ),
+  ];
+  const contactIds = missing("contact", known.contacts);
+  const companyIds = missing("company", known.companies);
+  const userIds = missing("user", known.users).sort();
 
   const contacts = useContactsByIds(can("contacts") ? contactIds : []);
   const companies = useCompaniesByIds(companyIds);
-  const users = useUserMap(userIds);
+  const users = useQuery({
+    // The key `useUserMap` uses for the same lookup, so the two share a cache.
+    queryKey: ["user-names", userIds],
+    queryFn: () => getUserNames(userIds),
+    enabled: userIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Small maps rebuilt per render — the inbox holds at most a few pages.
-  const contactMap = new Map<string, string>();
-  for (const [id, c] of contacts.map) contactMap.set(id, contactName(c));
-  const companyMap = new Map<string, string>();
-  for (const [id, co] of companies.map) companyMap.set(id, co.title);
-  const userMap = new Map<string, string>();
-  for (const [id, u] of users.map) {
-    userMap.set(id, `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email || id);
+  for (const [id, c] of contacts.map) known.contacts.set(id, contactName(c));
+  for (const [id, co] of companies.map) known.companies.set(id, co.title);
+  for (const u of users.data ?? []) {
+    const name = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
+    if (name) known.users.set(u.id, name);
   }
-  return { contacts: contactMap, companies: companyMap, users: userMap };
+  return known;
 }
 
 /* ------------------------------------------------------------ mutations */

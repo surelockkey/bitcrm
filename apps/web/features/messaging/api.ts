@@ -1,6 +1,7 @@
 import type {
   Conversation,
   ConversationKind,
+  ConversationListIncluded,
   ConversationReadMarker,
   ConversationSendOptions,
   InboxCounters,
@@ -231,15 +232,24 @@ async function nullOn404<T>(promise: Promise<T>): Promise<T | null> {
 
 /* --------------------------------------------------------- conversations */
 
+/**
+ * A page of the inbox. `included` names the page's parties — contacts,
+ * companies, teammates — so the list paints names, not numbers, on its first
+ * frame. Absent from a deploy that predates it.
+ */
+export type ConversationListPage = PaginatedResponse<InboxConversation> & {
+  included?: ConversationListIncluded;
+};
+
 export function listConversations(
   filter: ConversationListFilter,
   cursor?: string,
-): Promise<PaginatedResponse<InboxConversation>> {
+): Promise<ConversationListPage> {
   const qs = new URLSearchParams({ view: filter.view, limit: "50" });
   if (filter.view === "all" && filter.kind) qs.set("kind", filter.kind);
   if (filter.view === "all" && filter.categoryId) qs.set("categoryId", filter.categoryId);
   if (cursor) qs.set("cursor", cursor);
-  return apiFetchPaginated<InboxConversation>(`${BASE}/conversations?${qs.toString()}`);
+  return apiFetchPaginated<InboxConversation, ConversationListPage>(`${BASE}/conversations?${qs.toString()}`);
 }
 
 export const getConversation = (id: string): Promise<ConversationDetail> =>
