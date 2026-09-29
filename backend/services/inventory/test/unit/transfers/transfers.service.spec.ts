@@ -42,6 +42,14 @@ describe('TransfersService', () => {
     inventoryLog = createMockInventoryLogService();
     // Default: the id is not a technician id, so it's treated as a container id.
     containersRepository = { findByTechnicianId: jest.fn().mockResolvedValue(null) };
+    // Default: every location named in a request exists.
+    locationsRepository.findLocation.mockImplementation(async (type: LocationType, id: string) =>
+      createMockLocationSummary({
+        type: type === LocationType.WAREHOUSE ? 'warehouse' : 'container',
+        id,
+        name: id,
+      }),
+    );
     const store = new Map<string, string>();
     const redis = {
       client: {
@@ -173,7 +181,9 @@ describe('TransfersService', () => {
           ? createMockLocationSummary({ type: 'warehouse', id, name: 'Main Warehouse' })
           : createMockLocationSummary({ type: 'container', id, name: "Taras's van" }),
       );
-      productsService.loadForStock.mockResolvedValue(createMockProduct({ sku: 'SKU-001' }));
+      productsService.loadForStock.mockImplementation(async (id: string) =>
+        createMockProduct({ id, name: id === 'prod-1' ? 'Deadbolt' : 'Knob', sku: 'SKU-001' }),
+      );
 
       await service.createTransfer(dto, user);
 
@@ -201,14 +211,95 @@ describe('TransfersService', () => {
       );
     });
 
-    it('falls back to the id when a location has no row to name it', async () => {
-      const dto = createMockCreateTransferDto();
-      locationsRepository.findLocation.mockResolvedValue(null);
+    // Раніше `toId: 'typo'` проходило: одиниці зникали з реального складу і
+    // лягали під ключ без рядка локації — невидимі всім спискам, але в onHand.
+    it('404s when either location has no row, before touching stock', async () => {
+      const dto = createMockCreateTransferDto({ toId: 'typo' });
+      locationsRepository.findLocation.mockImplementation(async (_type: LocationType, id: string) =>
+        id === 'typo' ? null : createMockLocationSummary({ id }),
+      );
 
-      await service.createTransfer(dto, createMockJwtUser());
+      await expect(service.createTransfer(dto, createMockJwtUser())).rejects.toThrow(NotFoundException);
+      expect(stockService.transfer).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
 
-      expect(inventoryLog.record).toHaveBeenCalledWith(
-        expect.objectContaining({ fromName: 'wh-1', toName: 'container-1' }),
+    it('rejects a move from a location to itself', async () => {
+      const dto = createMockCreateTransferDto({
+        fromType: LocationType.CONTAINER,
+        fromId: 'container-1',
+        toType: LocationType.CONTAINER,
+        toId: 'container-1',
+      });
+
+      await expect(service.createTransfer(dto, createMockJwtUser())).rejects.toThrow(BadRequestException);
+      expect(stockService.transfer).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    // Те саме правило, що й на отриманні: некерований товар не має лічильника,
+    // тож його не можна ні прийняти, ні перекинути між локаціями.
+    it('drops non-stock-managed items, reports them, and refuses when none is left', async () => {
+      const tracked = { productId: 'prod-1', productName: 'Deadbolt', quantity: 2 };
+      const untracked = { productId: 'prod-2', productName: 'Shop rag', quantity: 1 };
+      productsService.partitionStockManaged.mockImplementation(async (list: { productId: string }[]) => ({
+        managed: list.filter((i) => i.productId !== 'prod-2'),
+        unmanaged: list.filter((i) => i.productId === 'prod-2'),
+      }));
+
+      const result = await service.createTransfer(
+        createMockCreateTransferDto({ items: [tracked, untracked] }),
+        createMockJwtUser(),
+      );
+
+      expect(stockService.transfer).toHaveBeenCalledWith('WAREHOUSE#wh-1', 'CONTAINER#container-1', [tracked]);
+      expect(result.items).toEqual([tracked]);
+      expect(result.skippedItems).toEqual([untracked]);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ skippedItems: [untracked] }));
+
+      await expect(
+        service.createTransfer(createMockCreateTransferDto({ items: [untracked] }), createMockJwtUser()),
+      ).rejects.toThrow(BadRequestException);
+      expect(stockService.transfer).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries no skippedItems when every item moved', async () => {
+      const result = await service.createTransfer(createMockCreateTransferDto(), createMockJwtUser());
+
+      expect(result).not.toHaveProperty('skippedItems');
+    });
+
+    /**
+     * Назва товару в журналі, у рядку стоку й у переказі — з каталогу, не з
+     * тіла запиту: інакше `productName: 'anything'` потрапляє в searchText і
+     * пошук за справжньою назвою цей рядок губить.
+     */
+    it('names items as the catalog does, keeping the body name only for ids the catalog lacks', async () => {
+      const dto = createMockCreateTransferDto({
+        items: [
+          { productId: 'prod-1', productName: 'anything', quantity: 2 },
+          { productId: 'ghost', productName: 'Ghost part', quantity: 1 },
+        ],
+      });
+      productsService.loadForStock.mockImplementation(async (id: string) =>
+        id === 'prod-1' ? createMockProduct({ id, name: 'Kwikset Deadbolt', sku: 'SKU-001' }) : null,
+      );
+
+      const result = await service.createTransfer(dto, createMockJwtUser());
+
+      const named = [
+        { productId: 'prod-1', productName: 'Kwikset Deadbolt', quantity: 2 },
+        { productId: 'ghost', productName: 'Ghost part', quantity: 1 },
+      ];
+      expect(stockService.transfer).toHaveBeenCalledWith('WAREHOUSE#wh-1', 'CONTAINER#container-1', named);
+      expect(result.items).toEqual(named);
+      expect(inventoryLog.record).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ productId: 'prod-1', productName: 'Kwikset Deadbolt', sku: 'SKU-001' }),
+      );
+      expect(inventoryLog.record).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ productId: 'ghost', productName: 'Ghost part' }),
       );
     });
 
@@ -537,7 +628,9 @@ describe('TransfersService', () => {
     });
 
     it('records stock_received per item with the location name', async () => {
-      productsService.loadForStock.mockResolvedValue(createMockProduct({ sku: 'SKU-001' }));
+      productsService.loadForStock.mockImplementation(async (id: string) =>
+        createMockProduct({ id, name: id === 'prod-1' ? 'Deadbolt' : 'Knob', sku: 'SKU-001' }),
+      );
       const two = [...items, { productId: 'prod-2', productName: 'Knob', quantity: 1 }];
 
       await service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items: two }, user);
@@ -575,14 +668,43 @@ describe('TransfersService', () => {
         unmanaged: list.filter((i) => i.productId === 'prod-2'),
       }));
 
-      await service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items: [...items, untracked] }, user);
+      const result = await service.receiveStock(
+        { toType: LocationType.WAREHOUSE, toId: 'wh-1', items: [...items, untracked] },
+        user,
+      );
       expect(stockService.receive).toHaveBeenCalledWith('WAREHOUSE#wh-1', items);
-      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ items }));
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ items, skippedItems: [untracked] }));
+      // The caller sees what did not move, so the dialog can say so.
+      expect(result.skippedItems).toEqual([untracked]);
 
       await expect(
         service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items: [untracked] }, user),
       ).rejects.toThrow(BadRequestException);
       expect(stockService.receive).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries no skippedItems when every item was received', async () => {
+      const result = await service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items }, user);
+
+      expect(result).not.toHaveProperty('skippedItems');
+    });
+
+    it('stores and logs the catalog name, not the one the body sent', async () => {
+      productsService.loadForStock.mockResolvedValue(
+        createMockProduct({ id: 'prod-1', name: 'Kwikset Deadbolt', sku: 'SKU-001' }),
+      );
+
+      const result = await service.receiveStock(
+        { toType: LocationType.WAREHOUSE, toId: 'wh-1', items: [{ productId: 'prod-1', productName: 'anything', quantity: 5 }] },
+        user,
+      );
+
+      const named = [{ productId: 'prod-1', productName: 'Kwikset Deadbolt', quantity: 5 }];
+      expect(stockService.receive).toHaveBeenCalledWith('WAREHOUSE#wh-1', named);
+      expect(result.items).toEqual(named);
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ productName: 'Kwikset Deadbolt', sku: 'SKU-001' }),
+      );
     });
   });
 
@@ -663,6 +785,29 @@ describe('TransfersService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(repository.create).not.toHaveBeenCalled();
       expect(inventoryLog.record).not.toHaveBeenCalled();
+    });
+
+    it('drops non-stock-managed items and reports them, naming the rest as the catalog does', async () => {
+      const untracked = { productId: 'prod-2', productName: 'Shop rag', quantity: 1 };
+      productsService.partitionStockManaged.mockImplementation(async (list: { productId: string }[]) => ({
+        managed: list.filter((i) => i.productId !== 'prod-2'),
+        unmanaged: list.filter((i) => i.productId === 'prod-2'),
+      }));
+      productsService.loadForStock.mockImplementation(async (id: string) =>
+        id === 'prod-1' ? createMockProduct({ id, name: 'Kwikset Deadbolt' }) : null,
+      );
+
+      const result = await service.returnStock(
+        { fromType: LocationType.CONTAINER, fromId: 'container-1', items: [...items, untracked], reason: ReturnReason.LOST },
+        user,
+      );
+
+      const named = [{ productId: 'prod-1', productName: 'Kwikset Deadbolt', quantity: 2 }];
+      expect(stockService.deduct).toHaveBeenCalledWith('CONTAINER#container-1', named);
+      expect(result.items).toEqual(named);
+      expect(result.skippedItems).toEqual([untracked]);
+      expect(inventoryLog.record).toHaveBeenCalledTimes(1);
+      expect(inventoryLog.record).toHaveBeenCalledWith(expect.objectContaining({ productName: 'Kwikset Deadbolt' }));
     });
   });
 

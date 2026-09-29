@@ -95,29 +95,41 @@ export class TransfersService {
     return container ? container.id : containerOrTechnicianId;
   }
 
-  async createTransfer(dto: CreateTransferDto, user: JwtUser) {
+  /**
+   * Workiz "Transfer": between two locations that both exist — a typo in
+   * `toId` would otherwise take the units off a real location and park them
+   * under a key no list knows. The same item rules as a receive.
+   */
+  async createTransfer(dto: CreateTransferDto, user: JwtUser): Promise<Transfer> {
     const route = `${dto.fromType}->${dto.toType}`;
     if (!VALID_TRANSFER_ROUTES.has(route)) {
       throw new BadRequestException(
         `Invalid transfer route: ${dto.fromType} -> ${dto.toType}`,
       );
     }
+    if (dto.fromType === dto.toType && dto.fromId === dto.toId) {
+      throw new BadRequestException('Source and destination are the same location');
+    }
 
-    await this.productsService.assertStockable(dto.items.map((i) => i.productId));
+    const from = await this.requireLocation(dto.fromType, dto.fromId);
+    const to = await this.requireLocation(dto.toType, dto.toId);
+    const { items, skipped } = await this.stockableItems(dto.items, 'stock transfer');
 
-    const fromPK = locationPK(dto.fromType, dto.fromId);
-    const toPK = locationPK(dto.toType, dto.toId);
+    await this.stockService.transfer(
+      locationPK(dto.fromType, dto.fromId),
+      locationPK(dto.toType, dto.toId),
+      items,
+    );
 
-    await this.stockService.transfer(fromPK, toPK, dto.items);
-
-    const transfer = {
+    const transfer: Transfer = {
       id: randomUUID(),
       type: TransferType.TRANSFER,
       fromType: dto.fromType,
       fromId: dto.fromId,
       toType: dto.toType,
       toId: dto.toId,
-      items: dto.items,
+      items,
+      ...(skipped.length > 0 && { skippedItems: skipped }),
       performedBy: user.id,
       performedByName: user.email,
       notes: dto.notes,
@@ -129,13 +141,13 @@ export class TransfersService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'transfer.created', {
       transferId: transfer.id,
     });
-    await this.recordMovement(InventoryLogAction.STOCK_MOVED, dto.items, {
+    await this.recordMovement(InventoryLogAction.STOCK_MOVED, items, {
       fromType: dto.fromType,
       fromId: dto.fromId,
-      fromName: await this.locationName(dto.fromType, dto.fromId),
+      fromName: from.name,
       toType: dto.toType,
       toId: dto.toId,
-      toName: await this.locationName(dto.toType, dto.toId),
+      toName: to.name,
       userId: user.id,
       userName: user.email,
     });
@@ -148,7 +160,7 @@ export class TransfersService {
    */
   async receiveStock(dto: ReceiveStockDto, user: JwtUser): Promise<Transfer> {
     const location = await this.requireLocation(dto.toType, dto.toId);
-    const items = await this.stockableItems(dto.items, 'stock receive');
+    const { items, skipped } = await this.stockableItems(dto.items, 'stock receive');
 
     await this.stockService.receive(locationPK(dto.toType, dto.toId), items);
 
@@ -160,6 +172,7 @@ export class TransfersService {
       toType: dto.toType,
       toId: dto.toId,
       items,
+      ...(skipped.length > 0 && { skippedItems: skipped }),
       performedBy: user.id,
       performedByName: user.email,
       notes: dto.notes,
@@ -187,7 +200,7 @@ export class TransfersService {
    */
   async returnStock(dto: ReturnStockDto, user: JwtUser): Promise<Transfer> {
     const location = await this.requireLocation(dto.fromType, dto.fromId);
-    const items = await this.stockableItems(dto.items, 'stock return');
+    const { items, skipped } = await this.stockableItems(dto.items, 'stock return');
 
     await this.stockService.deduct(locationPK(dto.fromType, dto.fromId), items);
 
@@ -199,6 +212,7 @@ export class TransfersService {
       toType: null,
       toId: null,
       items,
+      ...(skipped.length > 0 && { skippedItems: skipped }),
       reason: dto.reason,
       performedBy: user.id,
       performedByName: user.email,
@@ -245,25 +259,47 @@ export class TransfersService {
   }
 
   /**
+   * Items as the catalog names them. The stock row, the journal and the audit
+   * log (whose `searchText` the search filter runs against) carry the
+   * product's own name, never one the request body chose; an id the catalog
+   * does not hold keeps what the caller sent. The product was read a moment
+   * ago by the guards, so this is the cache.
+   */
+  private async withCatalogNames<T extends { productId: string; productName: string }>(
+    items: T[],
+  ): Promise<T[]> {
+    const named: T[] = [];
+    for (const item of items) {
+      const product = await this.productsService.loadForStock(item.productId).catch(() => null);
+      named.push(product?.name ? { ...item, productName: product.name } : item);
+    }
+    return named;
+  }
+
+  /**
    * The user-facing movements' guard: services are rejected, untracked items
-   * dropped, and nothing left is a 400 — a silent no-op would hide why the
-   * count did not change.
+   * dropped — and handed back, so the response can say what did not move —
+   * and nothing left is a 400. A silent no-op would hide why the count did
+   * not change.
    */
   private async stockableItems<T extends { productId: string; productName: string }>(
     items: T[],
     action: string,
-  ): Promise<T[]> {
+  ): Promise<{ items: T[]; skipped: T[] }> {
     await this.productsService.assertStockable(items.map((i) => i.productId));
     const managed = await this.onlyStockManaged(items, action);
     if (managed.length === 0) {
       throw new BadRequestException('None of the items are stock-managed');
     }
-    return managed;
+    const skipped = items.filter((item) => !managed.includes(item));
+    return { items: await this.withCatalogNames(managed), skipped };
   }
 
   async deductStock(dto: DeductStockDto) {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
-    const items = await this.onlyStockManaged(dto.items, 'stock deduction');
+    const items = await this.withCatalogNames(
+      await this.onlyStockManaged(dto.items, 'stock deduction'),
+    );
     if (items.length === 0) return;
 
     const containerId = await this.resolveContainerId(dto.containerId);
@@ -303,7 +339,9 @@ export class TransfersService {
   async restoreStock(dto: RestoreStockDto) {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     // Symmetrical with deductStock: what was never deducted is never restored.
-    const items = await this.onlyStockManaged(dto.items, 'stock restore');
+    const items = await this.withCatalogNames(
+      await this.onlyStockManaged(dto.items, 'stock restore'),
+    );
     if (items.length === 0) return;
 
     const containerId = await this.resolveContainerId(dto.containerId);
@@ -348,7 +386,11 @@ export class TransfersService {
     return location;
   }
 
-  /** The name the log shows for a location — its id when it has no row to name it. */
+  /**
+   * The name the log shows for a location on the internal deduct/restore
+   * paths — its id when it has no row to name it (deal-service may name a
+   * container this service never persisted).
+   */
   private async locationName(type: LocationType, id: string): Promise<string> {
     try {
       const location = await this.locationsRepository.findLocation(type, id);
@@ -360,9 +402,10 @@ export class TransfersService {
 
   /**
    * One audit-log line per item. The product is read again — the stock guards
-   * cached it a moment ago — for its SKU and, on a job use or restore, for the
-   * price and cost the "Inventory usage" report values it at. An id this
-   * service never persisted simply has none of those. Never fails the movement.
+   * cached it a moment ago — for its name and SKU and, on a job use or
+   * restore, for the price and cost the "Inventory usage" report values it
+   * at. An id this service never persisted simply has none of those. Never
+   * fails the movement.
    */
   private async recordMovement(
     action: InventoryLogAction,
@@ -378,7 +421,7 @@ export class TransfersService {
       await this.inventoryLog.record({
         action,
         productId: item.productId,
-        productName: item.productName,
+        productName: product?.name ?? item.productName,
         sku: product?.sku,
         quantity: item.quantity,
         ...fields,

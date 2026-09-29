@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type Warehouse,
+  type Transfer,
   type TransferItem,
   type StockItem,
   type JwtUser,
@@ -114,14 +115,15 @@ export class WarehousesService {
 
   /**
    * One receive path: the same checks, journal row and audit log as a receive
-   * into a container. An unknown warehouse is its 404.
+   * into a container. An unknown warehouse is its 404; the transfer comes
+   * back with the items that moved and the ones that did not.
    */
   async receiveStock(
     warehouseId: string,
     items: TransferItem[],
     user: JwtUser,
-  ): Promise<void> {
-    await this.transfersService.receiveStock(
+  ): Promise<Transfer> {
+    return this.transfersService.receiveStock(
       { toType: LocationType.WAREHOUSE, toId: warehouseId, items },
       user,
     );

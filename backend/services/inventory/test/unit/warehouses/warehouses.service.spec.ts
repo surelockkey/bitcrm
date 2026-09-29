@@ -226,17 +226,19 @@ describe('WarehousesService', () => {
    * TransfersService у склад, з тими самими перевірками й журналом.
    */
   describe('receiveStock', () => {
-    it('delegates to the transfers service as a receive into the warehouse', async () => {
+    it('delegates to the transfers service as a receive into the warehouse and answers its transfer', async () => {
       const user = createMockJwtUser();
       const items = [{ productId: 'prod-1', productName: 'Test Product', quantity: 5 }];
-      transfersService.receiveStock.mockResolvedValue(createMockTransfer());
+      const transfer = createMockTransfer();
+      transfersService.receiveStock.mockResolvedValue(transfer);
 
-      await service.receiveStock('wh-1', items, user);
+      const result = await service.receiveStock('wh-1', items, user);
 
       expect(transfersService.receiveStock).toHaveBeenCalledWith(
         { toType: LocationType.WAREHOUSE, toId: 'wh-1', items },
         user,
       );
+      expect(result).toBe(transfer);
     });
 
     it('lets the transfers service answer 404 for an unknown warehouse', async () => {

@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { TransferType } from '@bitcrm/types';
 import { WarehousesController } from 'src/warehouses/warehouses.controller';
 import { WarehousesService } from 'src/warehouses/warehouses.service';
 import {
@@ -7,6 +8,7 @@ import {
   createMockCreateWarehouseDto,
   createMockStockItem,
   createMockJwtUser,
+  createMockTransfer,
 } from '../mocks';
 
 describe('WarehousesController', () => {
@@ -122,14 +124,16 @@ describe('WarehousesController', () => {
   });
 
   describe('receiveStock', () => {
-    it('should return success after receiving stock', async () => {
+    // The RECEIVE transfer comes back so the dialog can show what was skipped.
+    it('should return success with the receive transfer', async () => {
       const user = createMockJwtUser();
       const items = [{ productId: 'prod-1', productName: 'Test Product', quantity: 5 }];
-      service.receiveStock.mockResolvedValue(undefined);
+      const transfer = createMockTransfer({ type: TransferType.RECEIVE });
+      service.receiveStock.mockResolvedValue(transfer);
 
       const result = await controller.receiveStock('wh-1', { items } as any, user);
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual({ success: true, data: transfer });
       expect(service.receiveStock).toHaveBeenCalledWith('wh-1', items, user);
     });
   });

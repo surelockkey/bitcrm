@@ -300,6 +300,15 @@ would invent stock nobody ever counted.
   whose product says `manageStock: false` before touching stock, and leave them
   out of the transfer journal; if nothing is left, no stock call and no journal
   row happen at all. Services are still rejected first, as before.
+- The user-facing movements — `POST /transfers` (transfer), `POST /transfers/receive`
+  and `POST /warehouses/:id/receive` (Workiz "Add to stock"), `POST /transfers/return` —
+  apply the same rule: an item whose product says `manageStock: false` has no
+  counter to move, so it is dropped and listed in the answered transfer's
+  `skippedItems` (absent when nothing was dropped); a request with none left is
+  a 400 "None of the items are stock-managed". Workiz itself offers no "Add to
+  stock" for `manage = 0` items, so the web picker should not offer them either.
+  Item names on the stock row, the journal row and the audit log are always the
+  catalog's, whatever `productName` the body carried.
 - **Absent means managed** — every product BitCRM has written carries no such
   attribute, so nothing about existing data changes.
 - `GET /products?manageStock=true` is Workiz's "inventory products" view:

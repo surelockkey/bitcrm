@@ -96,14 +96,20 @@ export class WarehousesController {
 
   @Post(':id/receive')
   @RequirePermission('warehouses', 'edit')
-  @ApiOperation({ summary: 'Receive stock into warehouse', description: '**Guard:** `warehouses.edit` permission required.' })
+  @ApiOperation({
+    summary: 'Receive stock into warehouse',
+    description:
+      '**Guard:** `warehouses.edit` permission required. The same rules as `POST /transfers/receive` ' +
+      '(404 unknown warehouse, services rejected, non-stock-managed items dropped into ' +
+      '`skippedItems`, none left is a 400). Answers the RECEIVE transfer.',
+  })
   async receiveStock(
     @Param('id') id: string,
     @Body() dto: ReceiveWarehouseStockDto,
     @CurrentUser() user: JwtUser,
   ) {
-    await this.warehousesService.receiveStock(id, dto.items, user);
-    return { success: true };
+    const data = await this.warehousesService.receiveStock(id, dto.items, user);
+    return { success: true, data };
   }
 
   @Get('internal/all')

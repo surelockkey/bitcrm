@@ -28,7 +28,14 @@ export class TransfersController {
 
   @Post()
   @RequirePermission('transfers', 'create')
-  @ApiOperation({ summary: 'Create a transfer between locations', description: '**Guard:** `transfers.create` permission required.' })
+  @ApiOperation({
+    summary: 'Create a transfer between locations',
+    description:
+      '**Guard:** `transfers.create` permission required. Both locations must exist (404 ' +
+      'otherwise) and differ (400); services are rejected and non-stock-managed items dropped ' +
+      'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
+      'Answers the TRANSFER transfer.',
+  })
   async create(@Body() dto: CreateTransferDto, @CurrentUser() user: JwtUser) {
     const data = await this.transfersService.createTransfer(dto, user);
     return { success: true, data };
@@ -40,8 +47,9 @@ export class TransfersController {
     summary: 'Receive stock from the supplier into a warehouse or container',
     description:
       '**Guard:** `transfers.create` permission required. Workiz "Add to stock": the location ' +
-      'must exist (404 otherwise); services are rejected and non-stock-managed items dropped, ' +
-      'a list with none left is a 400. Answers the RECEIVE transfer.',
+      'must exist (404 otherwise); services are rejected and non-stock-managed items dropped ' +
+      'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
+      'Answers the RECEIVE transfer.',
   })
   async receiveStock(@Body() dto: ReceiveStockDto, @CurrentUser() user: JwtUser) {
     const data = await this.transfersService.receiveStock(dto, user);
@@ -54,7 +62,8 @@ export class TransfersController {
     summary: 'Return stock out of a location (recall, damaged, lost)',
     description:
       '**Guard:** `transfers.create` permission required. Stock leaves the location without a ' +
-      'job, with a reason; insufficient stock is a 400. Answers the RETURN transfer.',
+      'job, with a reason; insufficient stock is a 400, non-stock-managed items are dropped ' +
+      'into `skippedItems`. Answers the RETURN transfer.',
   })
   async returnStock(@Body() dto: ReturnStockDto, @CurrentUser() user: JwtUser) {
     const data = await this.transfersService.returnStock(dto, user);
