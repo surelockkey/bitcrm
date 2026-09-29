@@ -427,6 +427,7 @@ export type {
   PaymentRefund,
   RefundStatus,
   PaymentSummary,
+  JobPaymentLedger,
   PaymentSettings,
   PortalPaymentOptions,
   PortalPaymentSession,

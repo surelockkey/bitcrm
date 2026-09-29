@@ -504,6 +504,14 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
   invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
   the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+- **A payment belongs to the JOB, not to the invoice (Workiz).** A job can have
+  payments and no invoice at all (most imported Workiz jobs do): the ledger rows
+  still sit under `INVOICE#<dealId>` with `invoiceId === dealId`, just without
+  an `INVOICE#<dealId>/METADATA` row. `GET/POST /deals/:dealId/payments` (the job's
+  Payments tab) work either way and measure the balance against the job's own
+  total; refund / delete / receipt fall back to the job too. The
+  `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
+  created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a
