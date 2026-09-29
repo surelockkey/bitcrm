@@ -1,7 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { InventoryStatus, LocationType, TransferType } from "@bitcrm/types";
 import type { Container, Transfer, Warehouse } from "@bitcrm/types";
-import { movementMessages, toLocations } from "./lib";
+import {
+  checkQuantity,
+  filterStockRows,
+  locationHint,
+  moveTargets,
+  movementMessages,
+  pageSlice,
+  stockSummary,
+  toLocations,
+  type StockLocation,
+} from "./lib";
 
 function transfer(over: Partial<Transfer> = {}): Transfer {
   return {
@@ -93,5 +103,133 @@ describe("toLocations", () => {
         department: undefined,
       },
     ]);
+  });
+});
+
+describe("stockSummary — the three cards of the Manage stock popup", () => {
+  it("multiplies what is on hand by cost and by price, Workiz-style", () => {
+    expect(stockSummary(369, { costCompany: 20.16, priceClient: 45 })).toEqual({
+      onHand: "369.00",
+      cost: "$7439.04",
+      sale: "$16605.00",
+    });
+  });
+
+  it("rounds to the cent and says zero plainly", () => {
+    expect(stockSummary(3, { costCompany: 0.335, priceClient: 1.1 })).toEqual({
+      onHand: "3.00",
+      cost: "$1.01",
+      sale: "$3.30",
+    });
+    expect(stockSummary(0, { costCompany: 12, priceClient: 30 })).toEqual({
+      onHand: "0.00",
+      cost: "$0.00",
+      sale: "$0.00",
+    });
+  });
+});
+
+describe("checkQuantity", () => {
+  it("takes a whole number from 1 up to what the location holds", () => {
+    expect(checkQuantity("1", 4)).toEqual({ quantity: 1, error: null });
+    expect(checkQuantity(" 4 ", 4)).toEqual({ quantity: 4, error: null });
+    expect(checkQuantity("250")).toEqual({ quantity: 250, error: null });
+  });
+
+  it("says nothing while the field is empty — the button is simply off", () => {
+    expect(checkQuantity("", 4)).toEqual({ quantity: null, error: null });
+  });
+
+  it("refuses more than the location holds", () => {
+    expect(checkQuantity("5", 4)).toEqual({ quantity: null, error: "Only 4 available" });
+  });
+
+  it("refuses zero, negatives and fractions", () => {
+    expect(checkQuantity("0")).toEqual({ quantity: null, error: "Enter 1 or more" });
+    expect(checkQuantity("-2")).toEqual({ quantity: null, error: "Enter 1 or more" });
+    expect(checkQuantity("1.5")).toEqual({ quantity: null, error: "Whole units only" });
+    expect(checkQuantity("abc")).toEqual({ quantity: null, error: "Whole units only" });
+  });
+});
+
+describe("filterStockRows", () => {
+  const rows = [
+    { name: "Main warehouse", description: "Dallas yard" },
+    { name: "Taras's van", description: "Ford Transit" },
+    { name: "Pavlo's van" },
+  ];
+
+  it("matches the name or the description, ignoring case", () => {
+    expect(filterStockRows(rows, "VAN").map((r) => r.name)).toEqual(["Taras's van", "Pavlo's van"]);
+    expect(filterStockRows(rows, "transit").map((r) => r.name)).toEqual(["Taras's van"]);
+  });
+
+  it("keeps every row for a blank search", () => {
+    expect(filterStockRows(rows, "  ")).toBe(rows);
+  });
+});
+
+describe("pageSlice — client paging over the whole list", () => {
+  const rows = Array.from({ length: 93 }, (_, i) => i + 1);
+
+  it("cuts the page and says where it sits", () => {
+    expect(pageSlice(rows, 1, 10)).toEqual({
+      rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      page: 1,
+      pages: 10,
+      from: 1,
+      to: 10,
+      total: 93,
+    });
+    const last = pageSlice(rows, 10, 10);
+    expect(last.rows).toEqual([91, 92, 93]);
+    expect(last).toMatchObject({ from: 91, to: 93, pages: 10 });
+  });
+
+  it("pulls a page past the end back to the last one", () => {
+    expect(pageSlice(rows, 12, 50)).toMatchObject({ page: 2, from: 51, to: 93, pages: 2 });
+  });
+
+  it("has one empty page when there is nothing", () => {
+    expect(pageSlice([], 3, 10)).toEqual({ rows: [], page: 1, pages: 1, from: 0, to: 0, total: 0 });
+  });
+});
+
+describe("moveTargets", () => {
+  const active = InventoryStatus.ACTIVE;
+  const locations: StockLocation[] = [
+    { type: "warehouse", id: "w1", name: "Main", status: active },
+    { type: "warehouse", id: "w2", name: "Old yard", status: InventoryStatus.ARCHIVED },
+    { type: "container", id: "c1", name: "Taras's van", status: active, technicianName: "Taras" },
+    { type: "container", id: "c2", name: "Pavlo's van", status: active, department: "North" },
+    // Same id as a warehouse: only the type tells them apart.
+    { type: "container", id: "w1", name: "Spare van", status: active },
+  ];
+
+  it("offers every other active location, warehouses and containers apart", () => {
+    const t = moveTargets(locations, { type: "container", id: "c1" });
+    expect(t.warehouses.map((l) => l.id)).toEqual(["w1"]);
+    expect(t.containers.map((l) => l.name)).toEqual(["Pavlo's van", "Spare van"]);
+  });
+
+  it("leaves out the source by type and id", () => {
+    const t = moveTargets(locations, { type: "warehouse", id: "w1" });
+    expect(t.warehouses).toEqual([]);
+    expect(t.containers.map((l) => l.name)).toContain("Spare van");
+  });
+});
+
+describe("locationHint", () => {
+  it("names the van's technician and department", () => {
+    expect(
+      locationHint({ type: "container", id: "c1", name: "Van 7", status: InventoryStatus.ACTIVE, technicianName: "Taras", department: "North" }),
+    ).toBe("Taras · North");
+    expect(locationHint({ type: "warehouse", id: "w1", name: "Main", status: InventoryStatus.ACTIVE })).toBe("");
+  });
+
+  it("does not repeat a technician the name already carries", () => {
+    expect(
+      locationHint({ type: "container", id: "c2", name: "Pavlo", status: InventoryStatus.ACTIVE, technicianName: "Pavlo" }),
+    ).toBe("");
   });
 });
