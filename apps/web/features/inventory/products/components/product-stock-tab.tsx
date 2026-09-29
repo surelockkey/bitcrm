@@ -5,14 +5,30 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useProductStock } from "../stock";
+
+/**
+ * The columns, with the width each one starts at — read by both the
+ * `<colgroup>` and the headers, so there is one number to change.
+ */
+const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+  { id: "location", label: "Location", width: 320 },
+  { id: "type", label: "Type", width: 140 },
+  { id: "onHand", label: "On hand", width: 120, className: "text-right" },
+];
+
+const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
+
+/** Its own key: where one item sits is a different table from a warehouse's shelf. */
+const TABLE_KEY = "inventory-product-stock";
 
 export function ProductStockTab({
   productId,
@@ -24,6 +40,7 @@ export function ProductStockTab({
   serviceType: boolean;
 }) {
   const stock = useProductStock(productId, !serviceType);
+  const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
 
   if (serviceType) {
     return (
@@ -87,18 +104,35 @@ export function ProductStockTab({
         />
       ) : (
         <div className="overflow-hidden border">
-          <Table>
+          {/* `table-fixed`: the column decides its width, not the longest
+              warehouse name — and the reader can drag the edge. */}
+          <Table className="table-fixed">
+            <colgroup>
+              {COLUMNS.map((c) => (
+                <col key={c.id} style={{ width: widthOf(c.id) }} />
+              ))}
+            </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>Location</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">On hand</TableHead>
+                {COLUMNS.map((c) => (
+                  <ResizableHead
+                    key={c.id}
+                    columnId={c.id}
+                    label={c.label}
+                    width={widthOf(c.id)}
+                    onResize={(px) => setWidth(c.id, px)}
+                    onReset={reset}
+                    className={c.className}
+                  />
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {stock.rows.map((row) => (
                 <TableRow key={`${row.kind}-${row.id}`} className="hover:bg-muted/40">
-                  <TableCell>
+                  {/* Every cell clips: under fixed layout one that doesn't
+                      spills over the next column instead of widening its own. */}
+                  <TableCell className="overflow-hidden">
                     <div className="flex items-center gap-2.5">
                       <span
                         className={cn(
@@ -124,12 +158,12 @@ export function ProductStockTab({
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     <Badge variant="outline" className="font-normal capitalize">
                       {row.kind}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">
+                  <TableCell className="truncate text-right font-medium tabular-nums">
                     {row.quantity}
                   </TableCell>
                 </TableRow>

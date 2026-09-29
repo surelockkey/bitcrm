@@ -71,3 +71,33 @@ describe("WorkOrdersPage", () => {
     expect(await screen.findByText("No access")).toBeInTheDocument();
   });
 });
+
+/**
+ * Ширину колонок можна тягнути, і вона запам'ятовується.
+ *
+ * Назви клієнтів приходять окремим запитом після рядків: за авто-розкладки
+ * сітка переміряла б себе, коли вони доїдуть. Тому colgroup задає ширину, а
+ * клітинки лише обрізають вміст — своєї ширини жодна не має.
+ */
+describe("WorkOrdersPage — resizable columns", () => {
+  it("lays the registry out at declared widths, not by content", async () => {
+    const { container } = render(<WorkOrdersPage />, { wrapper });
+    await screen.findByText("WO-100");
+    const table = container.querySelector("table") as HTMLTableElement;
+    expect(table.className).toContain("table-fixed");
+    const cols = [...table.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(table.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+    for (const cell of table.querySelectorAll("tbody td")) {
+      expect(cell.className).not.toMatch(/\b(min-w|max-w|w)-/);
+    }
+  });
+
+  it("puts a drag handle on every column", async () => {
+    render(<WorkOrdersPage />, { wrapper });
+    await screen.findByText("WO-100");
+    for (const id of ["woNumber", "client", "date", "amount", "status", "job", "actions"]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
+  });
+});

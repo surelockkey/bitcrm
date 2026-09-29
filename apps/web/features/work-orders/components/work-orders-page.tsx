@@ -15,7 +15,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -33,12 +32,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useCompanies } from "@/features/clients/hooks";
 import { formatDate } from "@/features/users/lib";
 import { useWorkOrders, useCreateWorkOrder, useDeleteWorkOrder } from "../hooks";
 import { workOrderStatusLabel, filterWorkOrders } from "../lib";
 import { workOrderFormSchema, type WorkOrderFormValues } from "../schemas";
+
+/**
+ * Every column of the registry, in order, with the width it starts at.
+ *
+ * `table-fixed` on purpose: the client name comes from the companies request
+ * and lands after the rows, and under auto layout the whole grid re-measures
+ * when it does. Declared once — the colgroup and the headers are both built
+ * from here. There is no page-size preference for this list, so its widths
+ * are remembered under its own name, `work-orders`.
+ */
+const COLUMNS: { id: string; label: string; width: number; right?: boolean }[] = [
+  { id: "woNumber", label: "WO #", width: 160 },
+  { id: "client", label: "Client", width: 240 },
+  { id: "date", label: "Date", width: 130 },
+  { id: "amount", label: "Amount", width: 120 },
+  { id: "status", label: "Status", width: 130 },
+  { id: "job", label: "Job", width: 90 },
+  { id: "actions", label: "Actions", width: 60, right: true },
+];
+
+const COLUMN_WIDTHS: Record<string, number> = Object.fromEntries(
+  COLUMNS.map((c) => [c.id, c.width]),
+);
 
 export function WorkOrdersPage() {
   const { can } = usePermissions();
@@ -54,6 +78,9 @@ export function WorkOrdersPage() {
   const { data: workOrders, isLoading } = useWorkOrders();
   const { data: companies } = useCompanies();
   const del = useDeleteWorkOrder();
+  // The reader's own widths for this list; the declarations only set the
+  // start. Read before the no-access branch below — a hook has no branches.
+  const { widthOf, setWidth, reset } = useColumnWidths("work-orders", COLUMN_WIDTHS);
 
   const companyName = useMemo(() => {
     const m = new Map<string, string>();
@@ -120,34 +147,49 @@ export function WorkOrdersPage() {
           </div>
         ) : (
           <div className="overflow-hidden border">
-            <Table>
+            <Table className="table-fixed">
+              <colgroup>
+                {COLUMNS.map((c) => (
+                  <col key={c.id} style={{ width: widthOf(c.id) }} />
+                ))}
+              </colgroup>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>WO #</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Job</TableHead>
-                  <TableHead className="w-10" />
+                  {COLUMNS.map((c) => (
+                    <ResizableHead
+                      key={c.id}
+                      columnId={c.id}
+                      label={c.label}
+                      width={widthOf(c.id)}
+                      onResize={(px) => setWidth(c.id, px)}
+                      onReset={reset}
+                      className={c.right ? "text-right" : undefined}
+                    >
+                      {/* The delete column is titled for the screen reader and
+                          for the handle beside it, not on screen. */}
+                      {c.id === "actions" ? <span className="sr-only">{c.label}</span> : c.label}
+                    </ResizableHead>
+                  ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((w) => (
                   <TableRow key={w.id}>
-                    <TableCell className="font-medium">{w.woNumber}</TableCell>
-                    <TableCell>{companyName.get(w.companyId) ?? "—"}</TableCell>
-                    <TableCell className="tabular-nums text-muted-foreground">{formatDate(w.date)}</TableCell>
-                    <TableCell className="tabular-nums">{w.amount != null ? `$${w.amount.toLocaleString()}` : "—"}</TableCell>
-                    <TableCell><StatusBadge status={w.status} /></TableCell>
-                    <TableCell>
+                    {/* Under `table-fixed` a cell that does not clip spills
+                        over the next column instead of widening its own. */}
+                    <TableCell className="truncate font-medium">{w.woNumber}</TableCell>
+                    <TableCell className="truncate">{companyName.get(w.companyId) ?? "—"}</TableCell>
+                    <TableCell className="truncate tabular-nums text-muted-foreground">{formatDate(w.date)}</TableCell>
+                    <TableCell className="truncate tabular-nums">{w.amount != null ? `$${w.amount.toLocaleString()}` : "—"}</TableCell>
+                    <TableCell className="overflow-hidden"><StatusBadge status={w.status} /></TableCell>
+                    <TableCell className="truncate">
                       {w.dealId ? (
                         <Link href={`/deals/${w.dealId}`} className="text-primary hover:underline">Open</Link>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="overflow-hidden text-right">
                       {canDelete ? (
                         <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-destructive" onClick={() => del.mutate(w.id)}>
                           <Trash2 className="size-3.5" />

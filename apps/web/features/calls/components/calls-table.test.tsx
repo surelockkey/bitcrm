@@ -374,3 +374,26 @@ describe("CallsTable — long flow and source names", () => {
     }
   });
 });
+
+/**
+ * Ширину колонок можна тягнути, і вона запам'ятовується.
+ *
+ * Заголовок кожної колонки має ручку; скелет — ні: поки таблиці немає,
+ * тягнути нема чого, а ручка в ній була б клікабельною пусткою.
+ */
+describe("CallsTable — resizable columns", () => {
+  const ids = [
+    "expand", "from", "to", "status", "answeredBy", "flow", "source",
+    "tags", "jobTags", "job", "started", "duration", "rec",
+  ];
+
+  it("puts a drag handle on every column header", () => {
+    render(<CallsTable calls={[call({ callSid: "CA1" })]} />);
+    for (const id of ids) expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+  });
+
+  it("draws no handles in the skeleton — there is nothing to resize yet", () => {
+    const { container } = render(<CallsTableSkeleton />);
+    expect(container.querySelectorAll('[data-testid^="resize-"]')).toHaveLength(0);
+  });
+});

@@ -12,10 +12,11 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions, useDenied } from "@/features/auth/use-permissions";
 import { useContactsByIds } from "@/features/clients/hooks";
@@ -31,6 +32,29 @@ import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 
 const PAGE_SIZE = 50;
+
+/**
+ * Every column of the list, in order, with the width it starts at.
+ *
+ * `table-fixed` on purpose: the client name comes from its own contacts
+ * request and lands after the rows, and under auto layout the grid would
+ * re-measure itself when it does. Declared once — the colgroup and the
+ * headers are both built from here, and the reader's own widths are kept
+ * under `estimates`, the same name the page size is saved under.
+ */
+const COLUMNS: { id: string; label: string; width: number; right?: boolean }[] = [
+  { id: "number", label: "Estimate #", width: 130 },
+  { id: "name", label: "Name", width: 220 },
+  { id: "client", label: "Client", width: 200 },
+  { id: "created", label: "Created", width: 120 },
+  { id: "total", label: "Total", width: 120, right: true },
+  { id: "status", label: "Status", width: 130 },
+  { id: "job", label: "Job", width: 110 },
+];
+
+const COLUMN_WIDTHS: Record<string, number> = Object.fromEntries(
+  COLUMNS.map((c) => [c.id, c.width]),
+);
 
 export function EstimatesPage() {
   const { can  } = usePermissions();
@@ -87,6 +111,8 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
   });
   const rows: Estimate[] = pager.items;
   const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
+  // The reader's own widths for this list; the declarations only set the start.
+  const { widthOf, setWidth, reset } = useColumnWidths("estimates", COLUMN_WIDTHS);
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {
@@ -111,16 +137,25 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto border">
-        <Table>
+        <Table className="table-fixed">
+          <colgroup>
+            {COLUMNS.map((c) => (
+              <col key={c.id} style={{ width: widthOf(c.id) }} />
+            ))}
+          </colgroup>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Estimate #</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Job</TableHead>
+              {COLUMNS.map((c) => (
+                <ResizableHead
+                  key={c.id}
+                  columnId={c.id}
+                  label={c.label}
+                  width={widthOf(c.id)}
+                  onResize={(px) => setWidth(c.id, px)}
+                  onReset={reset}
+                  className={c.right ? "text-right" : undefined}
+                />
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -136,13 +171,15 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
                     if (ev.key === "Enter") open(e);
                   }}
                 >
-                  <TableCell className="font-mono font-medium">#{e.number}</TableCell>
-                  <TableCell className="max-w-48 truncate">{e.name || "—"}</TableCell>
-                  <TableCell className="max-w-48 truncate">{c ? contactName(c) : "—"}</TableCell>
-                  <TableCell className="text-muted-foreground tabular-nums">{formatYmd(e.estimateDate || e.createdAt)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatMoney(e.totals?.total ?? 0)}</TableCell>
-                  <TableCell><EstimateStatusBadge status={e.status} /></TableCell>
-                  <TableCell>
+                  {/* Under `table-fixed` a cell that does not clip spills over
+                      the next column instead of widening its own. */}
+                  <TableCell className="truncate font-mono font-medium">#{e.number}</TableCell>
+                  <TableCell className="truncate">{e.name || "—"}</TableCell>
+                  <TableCell className="truncate">{c ? contactName(c) : "—"}</TableCell>
+                  <TableCell className="truncate text-muted-foreground tabular-nums">{formatYmd(e.estimateDate || e.createdAt)}</TableCell>
+                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(e.totals?.total ?? 0)}</TableCell>
+                  <TableCell className="overflow-hidden"><EstimateStatusBadge status={e.status} /></TableCell>
+                  <TableCell className="overflow-hidden">
                     <Link
                       href={`/deals/${e.dealId}`}
                       onClick={(ev) => ev.stopPropagation()}

@@ -7,7 +7,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -26,20 +25,54 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { cn } from "@/lib/utils";
 import { useArchiveWarehouse, useWarehouseStockView } from "../hooks";
 
+/**
+ * The columns, with the width each one starts at — read by both the
+ * `<colgroup>` and the headers, so there is one number to change.
+ */
+const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+  { id: "name", label: "Name", width: 260 },
+  { id: "description", label: "Description", width: 340 },
+  { id: "items", label: "Items", width: 120 },
+  { id: "actions", label: "Actions", width: 140, className: "text-right" },
+];
+
+const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
+
+/** Its own key: warehouses keep their widths apart from vans and items. */
+const TABLE_KEY = "inventory-warehouses";
+
 export function WarehousesTable({ warehouses }: { warehouses: Warehouse[] }) {
+  const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
+
   return (
     <div className="overflow-hidden border">
-      <Table>
+      {/* `table-fixed`: the column decides its width, not the longest
+          description in the list — and the reader can drag the edge. */}
+      <Table className="table-fixed">
+        <colgroup>
+          {COLUMNS.map((c) => (
+            <col key={c.id} style={{ width: widthOf(c.id) }} />
+          ))}
+        </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead>Name</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Items</TableHead>
-            <TableHead className="w-32 text-right">Actions</TableHead>
+            {COLUMNS.map((c) => (
+              <ResizableHead
+                key={c.id}
+                columnId={c.id}
+                label={c.label}
+                width={widthOf(c.id)}
+                onResize={(px) => setWidth(c.id, px)}
+                onReset={reset}
+                className={c.className}
+              />
+            ))}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -65,8 +98,10 @@ function WarehouseRow({ warehouse: w }: { warehouse: Warehouse }) {
       className={cn("cursor-pointer", archived && "opacity-55")}
       onClick={() => router.push(`/inventory/warehouses/${w.id}`)}
     >
-      <TableCell>
-        <div className="font-medium">{w.name}</div>
+      {/* Every cell clips: under fixed layout one that doesn't spills over
+          the next column instead of widening its own. */}
+      <TableCell className="overflow-hidden">
+        <div className="truncate font-medium">{w.name}</div>
         {!isLoading && summary.lowCount > 0 ? (
           <Badge
             variant="outline"
@@ -76,17 +111,17 @@ function WarehouseRow({ warehouse: w }: { warehouse: Warehouse }) {
           </Badge>
         ) : null}
       </TableCell>
-      <TableCell className="max-w-[340px] truncate text-sm text-muted-foreground">
+      <TableCell className="truncate text-sm text-muted-foreground">
         {w.description || w.address || "—"}
       </TableCell>
-      <TableCell className="tabular-nums">
+      <TableCell className="truncate tabular-nums">
         {isLoading ? (
           <Skeleton className="h-4 w-12" />
         ) : (
           summary.totalUnits.toLocaleString()
         )}
       </TableCell>
-      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+      <TableCell className="overflow-hidden text-right" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-end gap-0.5">
           {can("warehouses", "edit") ? (
             <Button
