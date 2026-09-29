@@ -50,6 +50,7 @@ export type {
   JobsListIncluded,
 } from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
+export { DealEquipment, DealEquipmentInput } from './entities/deal-equipment.entity';
 export {
   CallGroup,
   CallGroupChannel,

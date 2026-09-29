@@ -7,6 +7,7 @@ export { CompanyDocument } from './company-document.entity';
 export { Address } from './address.entity';
 export { Deal } from './deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './deal-attachment.entity';
+export { DealEquipment, DealEquipmentInput } from './deal-equipment.entity';
 export {
   CallGroup,
   CallGroupChannel,
