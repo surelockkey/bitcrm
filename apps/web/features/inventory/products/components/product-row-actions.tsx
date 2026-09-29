@@ -1,13 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Archive, MoreHorizontal, Pencil, RotateCcw } from "lucide-react";
+import { Archive, MoreHorizontal, RotateCcw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -26,8 +24,8 @@ import type { Product } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useArchiveProduct, useReactivateProduct } from "../hooks";
 
+/** The kebab: Archive / Restore. Edit and stock have their own buttons beside it. */
 export function ProductRowActions({ product }: { product: Product }) {
-  const router = useRouter();
   const { can } = usePermissions();
   const archive = useArchiveProduct();
   const reactivate = useReactivateProduct();
@@ -36,6 +34,9 @@ export function ProductRowActions({ product }: { product: Product }) {
   const isActive = product.status === InventoryStatus.ACTIVE;
   const canEdit = can("products", "edit");
   const canArchive = can("products", "delete");
+
+  // A kebab that opens onto nothing is worse than no kebab.
+  if (isActive ? !canArchive : !canEdit) return null;
 
   return (
     <>
@@ -56,29 +57,17 @@ export function ProductRowActions({ product }: { product: Product }) {
           className="w-40"
           onClick={(e) => e.stopPropagation()}
         >
-          <DropdownMenuItem onClick={() => router.push(`/inventory/items/${product.id}`)}>
-            <Pencil />
-            {canEdit ? "Edit" : "View"}
-          </DropdownMenuItem>
-          {isActive
-            ? canArchive && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={() => setConfirm(true)}>
-                    <Archive />
-                    Archive
-                  </DropdownMenuItem>
-                </>
-              )
-            : canEdit && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => reactivate.mutate(product.id)}>
-                    <RotateCcw />
-                    Restore
-                  </DropdownMenuItem>
-                </>
-              )}
+          {isActive ? (
+            <DropdownMenuItem variant="destructive" onClick={() => setConfirm(true)}>
+              <Archive />
+              Archive
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={() => reactivate.mutate(product.id)}>
+              <RotateCcw />
+              Restore
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

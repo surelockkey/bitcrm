@@ -6,6 +6,18 @@ const money = z.coerce
   .number({ message: "Enter an amount" })
   .min(0, "Must be 0 or more");
 
+/** An empty number input is "not set", not 0 — z.coerce would read it as 0. */
+const blankAsUnset = (v: unknown) => (v === "" || v === null ? undefined : v);
+
+const reorderLevel = z.preprocess(
+  blankAsUnset,
+  z.coerce
+    .number({ message: "Enter a number" })
+    .int("Whole number")
+    .min(0, "Must be 0 or more")
+    .optional(),
+);
+
 const baseFields = {
   name: z.string().trim().min(1, "Name is required").max(120),
   barcode: z.string().trim().max(64).optional(),
@@ -23,12 +35,19 @@ const baseFields = {
     .number({ message: "Enter a number" })
     .int("Whole number")
     .min(0, "Must be 0 or more"),
+  /** Whether stock is counted (Workiz "Manage stock"). Absent ⇒ true on the server too. */
+  manageStock: z.boolean().default(true),
+  /** Brand catalog id; "" is "No brand". */
+  brandId: z.string().trim().max(64).optional(),
+  reorderLevel,
 };
 
 /** Create requires a SKU (unique, immutable once set). */
 export const createProductSchema = z.object({
   ...baseFields,
   sku: z.string().trim().min(1, "SKU is required").max(64),
+  // A new item with no brand sends none — "" would be stored as a brand id.
+  brandId: baseFields.brandId.transform((v) => v || undefined),
 });
 
 /** Update omits SKU — the backend ignores changes to it. */
@@ -71,7 +90,12 @@ const looseFields = {
   priceClient: z.coerce.number({ message: "Enter an amount" }),
   supplier: z.string().trim().optional(),
   serialTracking: z.boolean(),
+  // Without these the resolver strips them and a change to them is never sent.
+  taxable: z.boolean().default(true),
+  manageStock: z.boolean().default(true),
+  brandId: z.string().trim().optional(),
   minimumStockLevel: z.coerce.number({ message: "Enter a number" }).int("Whole number"),
+  reorderLevel,
 };
 
 /**

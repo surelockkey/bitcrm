@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
 /**
- * Items open as a popup on the Items tab now; an old link to an item's page
- * lands on that popup. `params` is a Promise in Next 16.
+ * The search index links a product hit to `/inventory/products/<id>`, a page
+ * the web never had. Hand it to the item's Edit popup on the Items tab.
  */
 export default async function Page({
   params,
