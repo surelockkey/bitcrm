@@ -189,8 +189,8 @@ export function createMockTransfersService() {
 export function createMockInventoryLogRepository() {
   return {
     create: jest.fn().mockResolvedValue(undefined),
-    queryMonth: jest.fn().mockResolvedValue({ items: [], lastKey: undefined }),
-    queryProduct: jest.fn().mockResolvedValue({ items: [], lastKey: undefined }),
+    queryMonth: jest.fn().mockResolvedValue({ items: [], lastKey: undefined, reads: 1 }),
+    queryProduct: jest.fn().mockResolvedValue({ items: [], lastKey: undefined, reads: 1 }),
     countMonth: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
     countProduct: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
   };

@@ -31,6 +31,8 @@ export interface InventoryLogFilters {
 export interface InventoryLogPage {
   items: InventoryLogEntry[];
   lastKey?: Record<string, unknown>;
+  /** DynamoDB reads this page cost — what the service's budget is charged. */
+  reads: number;
 }
 
 /** Key attributes that must never leak into an entry. */
@@ -66,13 +68,18 @@ export class InventoryLogRepository {
     );
   }
 
-  /** One month partition, newest first, bounded by the window. */
+  /**
+   * One month partition, newest first, bounded by the window. `maxReads` is
+   * what is left of the caller's read budget: a filtered read fills the page
+   * across DynamoDB pages and must not spend more than that.
+   */
   async queryMonth(
     month: string,
     window: InventoryLogWindow,
     filters: InventoryLogFilters,
     limit: number,
     startKey?: Record<string, unknown>,
+    maxReads?: number,
   ): Promise<InventoryLogPage> {
     return this.query(
       {
@@ -83,6 +90,7 @@ export class InventoryLogRepository {
       limit,
       startKey,
       (item) => ({ PK: item.PK, SK: item.SK }),
+      maxReads,
     );
   }
 
@@ -173,7 +181,7 @@ export class InventoryLogRepository {
   /**
    * An unfiltered Query is a page in itself. A filtered one is not — `Limit`
    * caps rows read, the filter runs afterwards — so it fills the page the way
-   * a filtered Scan does.
+   * a filtered Scan does, within the reads it was given.
    */
   private async query(
     base: {
@@ -185,37 +193,45 @@ export class InventoryLogRepository {
     limit: number,
     startKey: Record<string, unknown> | undefined,
     keyOf: (item: Record<string, unknown>) => Record<string, unknown>,
+    maxReads?: number,
   ): Promise<InventoryLogPage> {
     const filter = this.filterParts(filters);
-    const command = (input: { Limit: number; ExclusiveStartKey?: Record<string, unknown> }) =>
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        ...base,
-        ExpressionAttributeValues: { ...base.ExpressionAttributeValues, ...filter.values },
-        ...(filter.expression && {
-          FilterExpression: filter.expression,
-          ExpressionAttributeNames: filter.names,
+    let reads = 0;
+    const read = (input: { Limit: number; ExclusiveStartKey?: Record<string, unknown> }) => {
+      reads += 1;
+      return this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          ...base,
+          ExpressionAttributeValues: { ...base.ExpressionAttributeValues, ...filter.values },
+          ...(filter.expression && {
+            FilterExpression: filter.expression,
+            ExpressionAttributeNames: filter.names,
+          }),
+          ScanIndexForward: false,
+          ...input,
         }),
-        ScanIndexForward: false,
-        ...input,
-      });
+      );
+    };
 
     if (!filter.expression) {
-      const result = await this.dynamoDb.client.send(
-        command({ Limit: limit, ...(startKey ? { ExclusiveStartKey: startKey } : {}) }),
-      );
+      const result = await read({
+        Limit: limit,
+        ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+      });
       return {
         items: (result.Items ?? []).map((item) => this.toEntry(item)),
         lastKey: result.LastEvaluatedKey,
+        reads,
       };
     }
 
-    const page = await scanPage<Record<string, unknown>>(
-      (input) => this.dynamoDb.client.send(command(input)),
-      limit,
-      { startKey, keyOf },
-    );
-    return { items: page.items.map((item) => this.toEntry(item)), lastKey: page.lastKey };
+    const page = await scanPage<Record<string, unknown>>(read, limit, {
+      startKey,
+      keyOf,
+      ...(maxReads !== undefined && { maxReads }),
+    });
+    return { items: page.items.map((item) => this.toEntry(item)), lastKey: page.lastKey, reads };
   }
 
   /**

@@ -114,6 +114,23 @@ describe('InventoryLogRepository', () => {
       expect(input.IndexName).toBeUndefined();
       expect(page.items).toEqual([createMockInventoryLogEntry({ id: 'log-1' })]);
       expect(page.lastKey).toBeUndefined();
+      expect(page.reads).toBe(1);
+    });
+
+    // Дата без часу як `to` — весь той день: рядок о 14:00 має бути нижче межі.
+    it('bounds the window so a row late in the day of `to` still falls inside', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.queryMonth(
+        '2026-09',
+        { from: '2026-09-10T00:00:00.000Z', to: '2026-09-10T23:59:59.999Z' },
+        {},
+        20,
+      );
+
+      const values = dynamoDb.client.send.mock.calls[0][0].input.ExpressionAttributeValues;
+      const rowSK = invlogSortKey('2026-09-10T14:00:00.000Z', 'abc');
+      expect(rowSK >= values[':from'] && rowSK <= values[':to']).toBe(true);
     });
 
     it('hands the last key back and resumes from a start key', async () => {
@@ -160,6 +177,22 @@ describe('InventoryLogRepository', () => {
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
       expect(page.items.map((i) => i.id)).toEqual(['log-1', 'log-2']);
       expect(page.lastKey).toBeUndefined();
+      expect(page.reads).toBe(2);
+    });
+
+    // Сервіс ділить один бюджет читань між місяцями: фільтрований місяць
+    // отримує лише його решту й каже, скільки витратив.
+    it('spends at most the reads it is given on a filtered month and reports them', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Items: [],
+        LastEvaluatedKey: { PK: 'INVLOG#2026-09', SK: 'more' },
+      });
+
+      const page = await repository.queryMonth('2026-09', window, { userId: 'user-1' }, 5, undefined, 3);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(3);
+      expect(page.reads).toBe(3);
+      expect(page.lastKey).toEqual({ PK: 'INVLOG#2026-09', SK: 'more' });
     });
 
     it('cuts an overshooting filtered read to the page and points the key at the last row kept', async () => {

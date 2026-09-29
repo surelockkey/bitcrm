@@ -14,7 +14,9 @@ import { InventoryLogAction } from '@bitcrm/types';
 export class ListInventoryLogQueryDto {
   @ApiPropertyOptional({
     example: '2026-09-01T00:00:00.000Z',
-    description: 'Window start, inclusive. Defaults to the first day of the UTC month of `to`.',
+    description:
+      'Window start, inclusive. Defaults to the first day of the UTC month of `to`. ' +
+      'At most 24 months before `to` (400 otherwise).',
   })
   @IsOptional()
   @IsISO8601()
@@ -22,7 +24,8 @@ export class ListInventoryLogQueryDto {
 
   @ApiPropertyOptional({
     example: '2026-09-29T12:00:00.000Z',
-    description: 'Window end, inclusive. Defaults to now.',
+    description:
+      'Window end, inclusive. A date alone (`2026-09-10`) means the whole of that UTC day. Defaults to now.',
   })
   @IsOptional()
   @IsISO8601()
@@ -56,7 +59,12 @@ export class ListInventoryLogQueryDto {
   @Max(100)
   limit?: number = 20;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'The `nextCursor` of the previous page. It carries the window it was minted under, so ' +
+      '`from`/`to` sent with it are ignored; one minted with or without `productId` fits only ' +
+      'the same kind of read (400 otherwise).',
+  })
   @IsOptional()
   @IsString()
   cursor?: string;
