@@ -14,11 +14,12 @@ import { Label } from "@/components/ui/label";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -45,6 +46,58 @@ import { usePager } from "@/lib/paging/use-pager";
 const PAGE_SIZE = 50;
 
 type View = "invoices" | "needs";
+
+/** One column of a list on this page: what it is called and how wide it starts. */
+interface Col {
+  id: string;
+  label: string;
+  width: number;
+  /** Money and counts read right-aligned. */
+  right?: boolean;
+}
+
+/**
+ * The invoice list's columns, in order, with the width each starts at.
+ *
+ * `table-fixed` on purpose: the client name comes from its own contacts
+ * request and lands a frame after the rows, and under auto layout the whole
+ * grid re-measures when it does. Declared once — the colgroup and the headers
+ * are both built from here, and the reader's own widths are remembered under
+ * `invoices`, the same name the page size is saved under.
+ */
+const INVOICE_COLUMNS: Col[] = [
+  { id: "number", label: "Invoice #", width: 120 },
+  { id: "client", label: "Client", width: 220 },
+  { id: "created", label: "Created", width: 120 },
+  { id: "due", label: "Due date", width: 120 },
+  { id: "total", label: "Total", width: 120, right: true },
+  { id: "balance", label: "Balance", width: 120, right: true },
+  { id: "status", label: "Status", width: 130 },
+  { id: "sent", label: "Sent", width: 110 },
+  { id: "job", label: "Job", width: 90 },
+];
+
+const widthsOf = (columns: Col[]): Record<string, number> =>
+  Object.fromEntries(columns.map((c) => [c.id, c.width]));
+
+const INVOICE_WIDTHS = widthsOf(INVOICE_COLUMNS);
+
+/**
+ * The needs-invoice list's columns. The checkbox and the button at the two
+ * ends only exist for someone who may create an invoice, so the list is built
+ * per reader rather than declared flat.
+ */
+function needsColumns(canCreate: boolean): Col[] {
+  return [
+    ...(canCreate ? [{ id: "select", label: "Select", width: 44 }] : []),
+    { id: "job", label: "Job #", width: 110 },
+    { id: "client", label: "Client", width: 240 },
+    { id: "created", label: "Created", width: 130 },
+    { id: "items", label: "Items", width: 90, right: true },
+    { id: "total", label: "Total", width: 120, right: true },
+    ...(canCreate ? [{ id: "create", label: "Create invoice", width: 160, right: true }] : []),
+  ];
+}
 
 export function InvoicesPage() {
   const { can  } = usePermissions();
@@ -194,6 +247,8 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
   });
   const rows: Invoice[] = pager.items;
   const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
+  // The reader's own widths for this list; the declarations only set the start.
+  const { widthOf, setWidth, reset } = useColumnWidths("invoices", INVOICE_WIDTHS);
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {
@@ -218,18 +273,25 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto border">
-        <Table>
+        <Table className="table-fixed">
+          <colgroup>
+            {INVOICE_COLUMNS.map((c) => (
+              <col key={c.id} style={{ width: widthOf(c.id) }} />
+            ))}
+          </colgroup>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Invoice #</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Due date</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Sent</TableHead>
-              <TableHead>Job</TableHead>
+              {INVOICE_COLUMNS.map((c) => (
+                <ResizableHead
+                  key={c.id}
+                  columnId={c.id}
+                  label={c.label}
+                  width={widthOf(c.id)}
+                  onResize={(px) => setWidth(c.id, px)}
+                  onReset={reset}
+                  className={c.right ? "text-right" : undefined}
+                />
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -245,22 +307,24 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
                     if (e.key === "Enter") open(inv);
                   }}
                 >
-                  <TableCell className="font-mono font-medium">#{inv.number}</TableCell>
-                  <TableCell className="max-w-48 truncate">{c ? contactName(c) : "—"}</TableCell>
-                  <TableCell className="text-muted-foreground tabular-nums">{formatYmd(inv.invoiceDate || inv.createdAt)}</TableCell>
-                  <TableCell className={cn("tabular-nums", inv.status === "overdue" ? "text-red-700 dark:text-red-400" : "text-muted-foreground")}>
+                  {/* Under `table-fixed` a cell that does not clip spills over
+                      the next column instead of widening its own. */}
+                  <TableCell className="truncate font-mono font-medium">#{inv.number}</TableCell>
+                  <TableCell className="truncate">{c ? contactName(c) : "—"}</TableCell>
+                  <TableCell className="truncate text-muted-foreground tabular-nums">{formatYmd(inv.invoiceDate || inv.createdAt)}</TableCell>
+                  <TableCell className={cn("truncate tabular-nums", inv.status === "overdue" ? "text-red-700 dark:text-red-400" : "text-muted-foreground")}>
                     {formatYmd(inv.dueDate)}
                   </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatMoney(inv.totals?.total ?? 0)}</TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">{formatMoney(inv.totals?.balanceDue ?? 0)}</TableCell>
-                  <TableCell className="space-x-1 whitespace-nowrap">
+                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(inv.totals?.total ?? 0)}</TableCell>
+                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(inv.totals?.balanceDue ?? 0)}</TableCell>
+                  <TableCell className="space-x-1 overflow-hidden whitespace-nowrap">
                     <InvoiceStatusBadge status={inv.status} />
                     {isPartiallyPaid(inv.totals?.amountPaid ?? 0, inv.totals?.balanceDue ?? 0) ? (
                       <PartiallyPaidBadge />
                     ) : null}
                   </TableCell>
-                  <TableCell><SentBadge sentAt={inv.sentAt} /></TableCell>
-                  <TableCell>
+                  <TableCell className="overflow-hidden"><SentBadge sentAt={inv.sentAt} /></TableCell>
+                  <TableCell className="overflow-hidden">
                     <Link
                       href={`/deals/${inv.dealId}`}
                       onClick={(e) => e.stopPropagation()}
@@ -287,6 +351,11 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkRunning, setBulkRunning] = useState(false);
   const jobs = useMemo(() => q.data ?? [], [q.data]);
+  const columns = useMemo(() => needsColumns(canCreate), [canCreate]);
+  const defaults = useMemo(() => widthsOf(columns), [columns]);
+  // Saved apart from the invoice list above: a different set of columns, and
+  // widening "Client" here should not narrow it there.
+  const { widthOf, setWidth, reset } = useColumnWidths("invoices-needs", defaults);
   const visibleSelected = jobs.filter((j) => selected.has(j.id)).map((j) => j.id);
   const allChecked = jobs.length > 0 && visibleSelected.length === jobs.length;
 
@@ -350,31 +419,46 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
         </div>
       ) : null}
       <div className="overflow-x-auto border">
-        <Table>
+        <Table className="table-fixed">
+          <colgroup>
+            {columns.map((c) => (
+              <col key={c.id} style={{ width: widthOf(c.id) }} />
+            ))}
+          </colgroup>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              {canCreate ? (
-                <TableHead className="w-8">
-                  <Checkbox
-                    aria-label="Select all jobs"
-                    checked={allChecked ? true : visibleSelected.length ? "indeterminate" : false}
-                    onCheckedChange={(v) => setSelected(v === true ? new Set(jobs.map((j) => j.id)) : new Set())}
-                  />
-                </TableHead>
-              ) : null}
-              <TableHead>Job #</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Items</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              {canCreate ? <TableHead className="w-32" /> : null}
+              {columns.map((c) => (
+                <ResizableHead
+                  key={c.id}
+                  columnId={c.id}
+                  label={c.label}
+                  width={widthOf(c.id)}
+                  onResize={(px) => setWidth(c.id, px)}
+                  onReset={reset}
+                  className={c.right ? "text-right" : undefined}
+                >
+                  {c.id === "select" ? (
+                    <Checkbox
+                      aria-label="Select all jobs"
+                      checked={allChecked ? true : visibleSelected.length ? "indeterminate" : false}
+                      onCheckedChange={(v) => setSelected(v === true ? new Set(jobs.map((j) => j.id)) : new Set())}
+                    />
+                  ) : c.id === "create" ? (
+                    // The button column is titled for the screen reader and
+                    // for the handle beside it, not on screen.
+                    <span className="sr-only">{c.label}</span>
+                  ) : (
+                    c.label
+                  )}
+                </ResizableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
             {jobs.map((j) => (
               <TableRow key={j.id}>
                 {canCreate ? (
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     <Checkbox
                       aria-label={`Select job ${j.dealNumber}`}
                       checked={selected.has(j.id)}
@@ -389,17 +473,17 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
                     />
                   </TableCell>
                 ) : null}
-                <TableCell>
+                <TableCell className="truncate">
                   <Link href={`/deals/${j.id}?tab=items`} className="font-mono font-medium text-primary hover:underline">
                     #{j.dealNumber}
                   </Link>
                 </TableCell>
-                <TableCell className="max-w-48 truncate">{j.clientName || "—"}</TableCell>
-                <TableCell className="text-muted-foreground tabular-nums">{formatYmd(j.createdAt)}</TableCell>
-                <TableCell className="text-right tabular-nums">{j.itemCount}</TableCell>
-                <TableCell className="text-right font-mono tabular-nums">{formatMoney(j.total)}</TableCell>
+                <TableCell className="truncate">{j.clientName || "—"}</TableCell>
+                <TableCell className="truncate text-muted-foreground tabular-nums">{formatYmd(j.createdAt)}</TableCell>
+                <TableCell className="truncate text-right tabular-nums">{j.itemCount}</TableCell>
+                <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(j.total)}</TableCell>
                 {canCreate ? (
-                  <TableCell className="text-right">
+                  <TableCell className="overflow-hidden text-right">
                     <Button
                       variant="outline"
                       size="sm"

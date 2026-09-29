@@ -30,6 +30,7 @@ import {
   Undo2,
   UserMinus,
   UserPlus,
+  Wrench,
   X,
 } from "lucide-react";
 import { TimelineEventType } from "@bitcrm/types";
@@ -86,6 +87,9 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.ATTACHMENT_ADDED]: { icon: Paperclip, label: "File added" },
   [TimelineEventType.ATTACHMENT_RENAMED]: { icon: Paperclip, label: "File renamed" },
   [TimelineEventType.ATTACHMENT_REMOVED]: { icon: FileX, label: "File removed" },
+  [TimelineEventType.EQUIPMENT_ADDED]: { icon: Wrench, label: "Equipment added" },
+  [TimelineEventType.EQUIPMENT_UPDATED]: { icon: Wrench, label: "Equipment updated" },
+  [TimelineEventType.EQUIPMENT_REMOVED]: { icon: Wrench, label: "Equipment removed" },
   // Workiz "Sent to tech by SMS / In App / Email" and "Viewed job in app".
   [TimelineEventType.SENT_TO_TECH]: { icon: Send, label: "Sent to tech" },
   [TimelineEventType.SEEN_BY_TECH]: { icon: Eye, label: "Viewed job in app" },
@@ -380,6 +384,18 @@ function detail(entry: TimelineEntry, lk: Lookups): string | null {
     const name = d.fileName as string | undefined;
     const category = d.category as string | undefined;
     if (name) return category ? `${name} · ${category}` : name;
+  }
+  if (
+    entry.eventType === TimelineEventType.EQUIPMENT_ADDED ||
+    entry.eventType === TimelineEventType.EQUIPMENT_REMOVED
+  ) {
+    const name = d.name as string | undefined;
+    const model = d.model as string | undefined;
+    if (name) return model ? `${name} · ${model}` : name;
+  }
+  if (entry.eventType === TimelineEventType.EQUIPMENT_UPDATED) {
+    const name = d.name as string | undefined;
+    if (name) return name;
   }
   if (entry.eventType === TimelineEventType.SENT_TO_TECH) {
     // Workiz's own wording: "Sent to tech by SMS · Ann Lee, Bob Ray".

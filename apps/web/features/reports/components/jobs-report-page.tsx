@@ -21,10 +21,11 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useCompanyMap, useContactsByIds } from "@/features/clients/hooks";
@@ -57,6 +58,41 @@ import {
 
 const ALL = "__all";
 const PAGE_SIZES = [10, 25, 50, 100];
+
+/**
+ * Every column of the report, in order, with the width it starts at.
+ *
+ * `table-fixed` on purpose: seventeen columns, and the ones that matter are
+ * long by nature — address, email, external company. Each one's clients,
+ * techs and catalogs arrive on their own schedule, and under auto layout the
+ * grid would re-measure itself on every arrival. Declared once — the colgroup
+ * and the headers are both built from here. This list has no page-size
+ * preference, so its widths are remembered under their own name,
+ * `jobs-report`.
+ */
+const COLUMNS: { id: string; label: string; width: number }[] = [
+  { id: "jobNumber", label: "Job #", width: 90 },
+  { id: "client", label: "Client", width: 170 },
+  { id: "tags", label: "Tags", width: 140 },
+  { id: "type", label: "Type", width: 140 },
+  { id: "created", label: "Created", width: 150 },
+  { id: "scheduled", label: "Scheduled", width: 160 },
+  { id: "phone", label: "Phone", width: 140 },
+  { id: "email", label: "Email", width: 200 },
+  { id: "status", label: "Status", width: 140 },
+  { id: "tech", label: "Tech", width: 160 },
+  { id: "address", label: "Address", width: 180 },
+  { id: "city", label: "City", width: 120 },
+  { id: "state", label: "State", width: 80 },
+  { id: "serviceArea", label: "Service area", width: 140 },
+  { id: "total", label: "Total", width: 100 },
+  { id: "source", label: "Source", width: 150 },
+  { id: "externalCompany", label: "External company", width: 180 },
+];
+
+const COLUMN_WIDTHS: Record<string, number> = Object.fromEntries(
+  COLUMNS.map((c) => [c.id, c.width]),
+);
 
 const money = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "—");
 
@@ -281,6 +317,9 @@ export function JobsReportPage() {
   const fromRow = p.total === 0 ? 0 : (p.page - 1) * size + 1;
   const toRow = Math.min(p.page * size, p.total);
   const [exporting, setExporting] = useState(false);
+  // The reader's own widths for this report; the declarations only set the
+  // start. Read before the no-access branch below — a hook has no branches.
+  const { widthOf, setWidth, reset } = useColumnWidths("jobs-report", COLUMN_WIDTHS);
 
   if (denied("reports", "view")) return <NoAccess entity="reports" />;
 
@@ -471,26 +510,24 @@ export function JobsReportPage() {
         {pager(true)}
 
         <div className="overflow-x-auto border">
-          <Table>
+          <Table className="table-fixed">
+            <colgroup>
+              {COLUMNS.map((c) => (
+                <col key={c.id} style={{ width: widthOf(c.id) }} />
+              ))}
+            </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>Job #</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Scheduled</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Tech</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>City</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead>Service area</TableHead>
-                <TableHead>Total</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>External company</TableHead>
+                {COLUMNS.map((c) => (
+                  <ResizableHead
+                    key={c.id}
+                    columnId={c.id}
+                    label={c.label}
+                    width={widthOf(c.id)}
+                    onResize={(px) => setWidth(c.id, px)}
+                    onReset={reset}
+                  />
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -499,34 +536,36 @@ export function JobsReportPage() {
                 const phone = c ? primaryPhone(c) : undefined;
                 return (
                   <TableRow key={d.id} className="align-top">
-                    <TableCell className="font-mono text-xs">
+                    {/* Under `table-fixed` a cell that does not clip spills
+                        over the next column instead of widening its own. */}
+                    <TableCell className="truncate font-mono text-xs">
                       <Link href={`/deals/${d.id}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
                         {d.dealNumber}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-sm font-medium">{dealClientName(d, c)}</TableCell>
-                    <TableCell>{d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={2} /> : "—"}</TableCell>
-                    <TableCell className="text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
-                    <TableCell className="text-sm">{when(d.createdAt)}</TableCell>
-                    <TableCell className="text-sm">{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</TableCell>
-                    <TableCell className="text-sm">{phone ? formatPhone(phone) : "—"}</TableCell>
-                    <TableCell className="text-sm">{c ? (primaryEmail(c) ?? "—") : "—"}</TableCell>
-                    <TableCell className="text-sm">
-                      {superStatusLabel(d.superStatus)}
+                    <TableCell className="truncate text-sm font-medium">{dealClientName(d, c)}</TableCell>
+                    <TableCell className="overflow-hidden">{d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={2} /> : "—"}</TableCell>
+                    <TableCell className="truncate text-sm">{jobTypeName(d.jobTypeId)}</TableCell>
+                    <TableCell className="truncate text-sm">{when(d.createdAt)}</TableCell>
+                    <TableCell className="truncate text-sm">{formatSchedule(d.scheduledDate, d.scheduledTimeSlot)}</TableCell>
+                    <TableCell className="truncate text-sm">{phone ? formatPhone(phone) : "—"}</TableCell>
+                    <TableCell className="truncate text-sm">{c ? (primaryEmail(c) ?? "—") : "—"}</TableCell>
+                    <TableCell className="overflow-hidden text-sm">
+                      <div className="truncate">{superStatusLabel(d.superStatus)}</div>
                       {d.subStatusId ? (
-                        <div className="text-xs text-muted-foreground">{subStatusName(d.subStatusId)}</div>
+                        <div className="truncate text-xs text-muted-foreground">{subStatusName(d.subStatusId)}</div>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="truncate text-sm">
                       {d.assignedTechIds.length ? d.assignedTechIds.map((t) => personName(t)).join(", ") : "—"}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.address?.street ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.address?.city ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.address?.state ?? "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{d.serviceArea || "—"}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{money(d.actualTotal ?? d.estimatedTotal)}</TableCell>
-                    <TableCell className="text-sm">{sourceName(d.sourceId)}</TableCell>
-                    <TableCell className="text-sm">
+                    <TableCell className="truncate text-sm text-muted-foreground">{d.address?.street ?? "—"}</TableCell>
+                    <TableCell className="truncate text-sm text-muted-foreground">{d.address?.city ?? "—"}</TableCell>
+                    <TableCell className="truncate text-sm text-muted-foreground">{d.address?.state ?? "—"}</TableCell>
+                    <TableCell className="truncate text-sm text-muted-foreground">{d.serviceArea || "—"}</TableCell>
+                    <TableCell className="truncate text-sm tabular-nums">{money(d.actualTotal ?? d.estimatedTotal)}</TableCell>
+                    <TableCell className="truncate text-sm">{sourceName(d.sourceId)}</TableCell>
+                    <TableCell className="truncate text-sm">
                       {d.externalCompanyId ? externalCompanyName(d.externalCompanyId) : "—"}
                     </TableCell>
                   </TableRow>

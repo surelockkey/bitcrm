@@ -83,38 +83,66 @@ describe("ProductsTable", () => {
  * Довга назва товару розсувала колонку «Item» на 739 із 1182 пікселів
  * контейнера — таблиця вилазила за рамку, а браузер, ділячи ширину, стискав
  * найменшу колонку: галочки з'їжджали на рамку й наліво від неї.
+ *
+ * Тепер ширину задає колонка, а не вміст: `table-fixed` плюс `<colgroup>` —
+ * і межу можна перетягнути, а таблиця цю ширину пам'ятає.
  */
-describe("ProductsTable — ширина колонок", () => {
+describe("ProductsTable — a stable first frame", () => {
   const longName =
     "Don-Jo - Mortise Remodeler Kit #109 - 630 - Silver (RPK-109-630) (SLK-12359)";
 
-  it("caps the item column so a long name truncates instead of widening the table", () => {
+  const table = (over: Partial<Product> = {}) =>
     render(
       <ProductsTable
-        products={[product({ name: longName })]}
+        products={[product(over)]}
         selected={new Set()}
         onToggle={vi.fn()}
         onToggleAll={vi.fn()}
       />,
-    );
+    ).container;
 
-    const cell = screen.getByText(longName).closest("td")!;
-    // `truncate` без стелі ширини не робить нічого: комірка просто росте.
-    expect(cell.className).toMatch(/max-w-/);
+  it("lays the columns out at declared widths, not by content", () => {
+    expect(table().querySelector("table")?.className).toContain("table-fixed");
   });
 
-  it("keeps the checkbox column at its width when the row is wide", () => {
-    render(
-      <ProductsTable
-        products={[product({ name: longName })]}
-        selected={new Set()}
-        onToggle={vi.fn()}
-        onToggleAll={vi.fn()}
-      />,
-    );
+  it("declares a width for every column", () => {
+    const container = table();
+    const cols = [...container.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(container.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+  });
 
-    const head = screen.getByLabelText("Select all").closest("th")!;
-    expect(head.className).toMatch(/min-w-/);
+  // Ширина живе в одному місці — в колонці. `min-w` на комірці б'є оголошену
+  // ширину й зсуває рядок убік, хоч би що казав `<colgroup>`.
+  it("leaves the width to the column — no cell sets one of its own", () => {
+    const container = table({ name: longName });
+    for (const el of container.querySelectorAll("thead th, tbody td")) {
+      expect(el.className).not.toMatch(/(^|\s)(min-)?w-/);
+    }
+  });
+
+  // Під `table-fixed` комірка, яка не ріже вміст, не розширює колонку — вона
+  // вилазить на сусідню.
+  it("clips every cell rather than letting it spill into the next column", () => {
+    const container = table({ name: longName });
+    for (const td of container.querySelectorAll("tbody td")) {
+      expect(td.className).toMatch(/truncate|overflow-hidden/);
+    }
+  });
+
+  it("offers a drag handle on every header", () => {
+    table();
+    for (const id of [
+      "select",
+      "item",
+      "category",
+      "type",
+      "price",
+      "minStock",
+      "status",
+      "actions",
+    ]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
   });
 });
-

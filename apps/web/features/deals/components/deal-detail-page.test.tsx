@@ -237,6 +237,13 @@ vi.mock("@/features/estimates/components/deal-estimates-tab", () => ({
 }));
 
 // The attachments catalog feeds the tab-bar count; mutable so tests vary it.
+vi.mock("../equipment-hooks", () => ({
+  useEquipment: () => ({ data: [], isLoading: false }),
+  useCreateEquipment: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateEquipment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteEquipment: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 vi.mock("../attachments-hooks", () => ({
   useAttachments: () => ({ data: mocks.attachments, isLoading: false }),
   useUploadAttachment: () => ({ mutate: vi.fn(), isPending: false }),
@@ -361,6 +368,13 @@ describe("DealDetailPage (read only)", () => {
 
     expect(screen.getByRole("button", { name: /send to tech/i })).toBeDisabled();
     expect(screen.getByTestId("send-to-tech")).toBeInTheDocument();
+  });
+
+  it("keeps Workiz's Equipment on the job, under the team", () => {
+    render(<DealDetailPage dealId="d1" />);
+
+    expect(screen.getByText("Equipment")).toBeInTheDocument();
+    expect(screen.getByText("No equipment added")).toBeInTheDocument();
   });
 });
 

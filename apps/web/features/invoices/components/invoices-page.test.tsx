@@ -126,6 +126,49 @@ describe("InvoicesPage", () => {
   });
 });
 
+/**
+ * Ширину колонок можна тягнути, і вона запам'ятовується.
+ *
+ * Розкладка фіксована: клієнти й суми доїжджають своїми запитами, і за
+ * авто-розкладки сітка переміряла б себе на кожен з них. Через те ж жодна
+ * клітинка не сміє задавати свою ширину — вона перемогла б colgroup.
+ */
+describe("InvoicesPage — resizable columns", () => {
+  const expectFixed = (table: HTMLTableElement) => {
+    expect(table.className).toContain("table-fixed");
+    const cols = [...table.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(table.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+    for (const cell of table.querySelectorAll("tbody td")) {
+      expect(cell.className).not.toMatch(/\b(min-w|max-w|w)-/);
+    }
+  };
+
+  it("lays the invoice list out at declared widths, not by content", async () => {
+    const { container } = renderWithClient(<InvoicesPage />);
+    await screen.findByRole("row", { name: /#1042/ });
+    expectFixed(container.querySelector("table") as HTMLTableElement);
+  });
+
+  it("puts a drag handle on every invoice column", async () => {
+    renderWithClient(<InvoicesPage />);
+    await screen.findByRole("row", { name: /#1042/ });
+    for (const id of ["number", "client", "created", "due", "total", "balance", "status", "sent", "job"]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
+  });
+
+  it("does the same for the needs-invoice list", async () => {
+    const { container } = renderWithClient(<InvoicesPage />);
+    await user().click(await screen.findByRole("tab", { name: /needs invoice/i }));
+    await screen.findByText("#2001");
+    expectFixed(container.querySelector("table") as HTMLTableElement);
+    for (const id of ["select", "job", "client", "created", "items", "total", "create"]) {
+      expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+    }
+  });
+});
+
 describe("InvoicesPage — partial payments", () => {
   it("marks a part-paid invoice while its status stays Due", async () => {
     server.use(
