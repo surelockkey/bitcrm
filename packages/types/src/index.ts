@@ -407,7 +407,31 @@ export type {
   DocumentRenderContext,
 } from './entities/document-template.entity';
 export { BILLING_EVENT_TOPIC, BillingEventType } from './events/billing-events';
-export type { InvoiceEvent, EstimateEvent } from './events/billing-events';
+export type { InvoiceEvent, EstimateEvent, PaymentEvent } from './events/billing-events';
+export {
+  PAYMENT_METHODS,
+  ONLINE_PAYMENT_METHODS,
+  PAYMENT_STATUSES,
+  COUNTED_PAYMENT_STATUSES,
+  PAYMENT_SOURCES,
+  REFUND_STATUSES,
+  EMPTY_PAYMENT_SUMMARY,
+  DEFAULT_PAYMENT_SETTINGS,
+  MAX_SURCHARGE_PERCENT,
+} from './entities/payment.entity';
+export type {
+  Payment,
+  PaymentMethod,
+  OnlinePaymentMethod,
+  PaymentStatus,
+  PaymentSource,
+  PaymentRefund,
+  RefundStatus,
+  PaymentSummary,
+  PaymentSettings,
+  PortalPaymentOptions,
+  PortalPaymentSession,
+} from './entities/payment.entity';
 
 // Permissions
 export {

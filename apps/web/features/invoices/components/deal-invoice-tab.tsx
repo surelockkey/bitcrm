@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Eye, FileText, Loader2, MessageSquareText, Send, Trash2, Undo2 } from "lucide-react";
+import { Download, Eye, FileText, Loader2, Mail, MessageSquareText, Send, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { PaymentTerms, type Deal, type InvoiceView } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,11 @@ import { CommitInput, CommitTextarea, DocField } from "@/features/billing/compon
 import { DocumentPreviewDialog } from "@/features/billing/components/document-preview-dialog";
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
-import { SendDocumentDialog } from "@/features/portal/components/send-document-dialog";
+import { useInvoicePayments } from "@/features/payments/hooks";
+import { applyAmountPaid, isPartiallyPaid } from "@/features/payments/lib";
+import { PartiallyPaidBadge } from "@/features/payments/components/payment-status-badge";
+import { InvoicePaymentsSection } from "@/features/payments/components/invoice-payments-section";
+import { SendDocumentDialog, type SendDocumentChannel } from "@/features/portal/components/send-document-dialog";
 import { getInvoiceHtml, getInvoicePdfUrl } from "../api";
 import {
   useCreateInvoice,
@@ -128,9 +132,16 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
   const pdf = useOpenPdf(() => getInvoicePdfUrl(invoice.id));
   const [previewing, setPreviewing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [sendingText, setSendingText] = useState(false);
+  const [sendingVia, setSendingVia] = useState<SendDocumentChannel | null>(null);
   const canText = canSend && can("messages", "send");
   const custom = invoice.paymentTerms === PaymentTerms.CUSTOM;
+  // One ledger query for the page: the summary panel and the payments section
+  // read the same cache entry.
+  const ledger = useInvoicePayments(invoice.id, can("payments"));
+  const paymentSummary = ledger.data?.summary ?? invoice.paymentSummary;
+  const paidTotals = paymentSummary
+    ? applyAmountPaid(invoice.totals, paymentSummary.settled)
+    : invoice.totals;
 
   /** Validate the merged header before sending only what changed. */
   const save = (patch: InvoicePatch) => {
@@ -154,6 +165,9 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-base font-semibold">Invoice #{invoice.number}</h2>
           <InvoiceStatusBadge status={invoice.status} />
+          {isPartiallyPaid(paymentSummary?.settled ?? 0, paidTotals.balanceDue) ? (
+            <PartiallyPaidBadge />
+          ) : null}
           <SentBadge sentAt={invoice.sentAt} />
           <span className="ml-auto text-xs text-muted-foreground">Created {formatYmd(invoice.createdAt)}</span>
         </div>
@@ -231,9 +245,14 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
             </Button>
           ) : null}
           {canText ? (
-            <Button variant="brand" size="sm" onClick={() => setSendingText(true)}>
-              <MessageSquareText /> Send by text
-            </Button>
+            <>
+              <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
+                <MessageSquareText /> Send by text
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setSendingVia("email")}>
+                <Mail /> Send by email
+              </Button>
+            </>
           ) : null}
           {canSend ? <CopyPortalLinkButton contactId={invoice.contactId} /> : null}
           {canDelete ? (
@@ -250,7 +269,14 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
         </div>
       </section>
 
-      <DealProductsTab deal={deal} canEdit={canEditItems} showPayments />
+      <DealProductsTab
+        deal={deal}
+        canEdit={canEditItems}
+        showPayments
+        paymentSummary={paymentSummary}
+      />
+
+      <InvoicePaymentsSection invoice={invoice} dealId={deal.id} />
 
       <DocField label="Invoice notes" htmlFor="invoice-notes">
         <CommitTextarea
@@ -276,8 +302,9 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
 
       {canText ? (
         <SendDocumentDialog
-          open={sendingText}
-          onOpenChange={setSendingText}
+          channel={sendingVia ?? "sms"}
+          open={sendingVia !== null}
+          onOpenChange={(o) => !o && setSendingVia(null)}
           document={{
             kind: "invoice",
             id: invoice.id,
@@ -287,6 +314,7 @@ function InvoiceDetail({ deal, invoice, canEditItems }: { deal: Deal; invoice: I
             dealId: deal.id,
             businessProfileId: deal.businessProfileId,
             alreadySent: !!invoice.sentAt,
+            allowedMethods: invoice.allowedMethods,
           }}
           markSent={() => markSent.mutateAsync({ id: invoice.id, sent: true })}
         />

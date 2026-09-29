@@ -13,6 +13,8 @@
     "@bitcrm/types": "*"
   },
   "peerDependencies": {
+    "@stripe/react-stripe-js": "*",
+    "@stripe/stripe-js": "*",
     "lucide-react": "*",
     "react": "*",
     "react-dom": "*"
@@ -27,5 +29,13 @@
     "jsdom": "~29.1.1",
     "typescript": "^5",
     "vitest": "~4.1.9"
+  },
+  "peerDependenciesMeta": {
+    "@stripe/react-stripe-js": {
+      "optional": true
+    },
+    "@stripe/stripe-js": {
+      "optional": true
+    }
   }
 }

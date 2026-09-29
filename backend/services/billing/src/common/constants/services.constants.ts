@@ -1,6 +1,7 @@
 export const CRM_SERVICE_URL = process.env.CRM_SERVICE_URL || 'http://localhost:4002';
 export const DEAL_SERVICE_URL = process.env.DEAL_SERVICE_URL || 'http://localhost:4003';
 export const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:4001';
+export const MESSAGING_SERVICE_URL = process.env.MESSAGING_SERVICE_URL || 'http://localhost:4007';
 export const INTERNAL_SERVICE_SECRET = process.env.INTERNAL_SERVICE_SECRET || '';
 
 /** Web origin the client-portal links point at. */

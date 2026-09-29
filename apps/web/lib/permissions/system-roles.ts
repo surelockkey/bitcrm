@@ -97,6 +97,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
         view_jobs: true,
         view_today: true,
       },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: scopes(DataScope.ALL),
   },
@@ -151,6 +152,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
         view_jobs: true,
         view_today: true,
       },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: scopes(DataScope.ALL),
   },
@@ -205,6 +207,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
         view_jobs: true,
         view_today: true,
       },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: scopes(DataScope.DEPARTMENT, {
       products: DataScope.ALL,
@@ -268,6 +271,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
         view_jobs: true,
         view_today: true,
       },
+      payments: { view: true, collect: true, refund: false },
     },
     dataScope: scopes(DataScope.DEPARTMENT, {
       products: DataScope.ALL,
@@ -334,6 +338,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
         view_jobs: false,
         view_today: false,
       },
+      payments: { view: true, collect: true, refund: false },
     },
     dataScope: scopes(DataScope.ASSIGNED_ONLY, {
       products: DataScope.ALL,
@@ -345,6 +350,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       tax_rates: DataScope.ALL,
       document_templates: DataScope.ALL,
       dashboard: DataScope.ALL,
+      payments: DataScope.ASSIGNED_ONLY,
     }),
   },
   "role-read-only": {
@@ -398,6 +404,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
         view_jobs: true,
         view_today: true,
       },
+      payments: { view: true, collect: false, refund: false },
     },
     dataScope: scopes(DataScope.ALL),
   },

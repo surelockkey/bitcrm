@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
+  BadgeDollarSign,
   CheckCheck,
   Eye,
   FilePlus2,
@@ -26,6 +27,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Undo2,
   UserMinus,
   UserPlus,
   Wrench,
@@ -102,6 +104,13 @@ const META: Record<TimelineEventType, { icon: typeof Sparkles; label: string }> 
   [TimelineEventType.ESTIMATE_SENT]: { icon: Send, label: "Estimate sent" },
   [TimelineEventType.ESTIMATE_SYNCED]: { icon: FileCheck2, label: "Estimate synced to job" },
   [TimelineEventType.ESTIMATE_DELETED]: { icon: FileX, label: "Estimate deleted" },
+  [TimelineEventType.PAYMENT_RECEIVED]: { icon: BadgeDollarSign, label: "Payment received" },
+  // Taken but not landed yet — an ACH debit in transit.
+  [TimelineEventType.PAYMENT_PENDING]: { icon: BadgeDollarSign, label: "Payment clearing" },
+  [TimelineEventType.PAYMENT_FAILED]: { icon: X, label: "Payment failed" },
+  [TimelineEventType.PAYMENT_REFUNDED]: { icon: Undo2, label: "Payment refunded" },
+  // Settled money pulled back afterwards (ACH return, dispute lost).
+  [TimelineEventType.PAYMENT_REVERSED]: { icon: Undo2, label: "Payment reversed" },
 };
 
 const FIELD_LABEL: Record<string, string> = {

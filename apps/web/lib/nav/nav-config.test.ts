@@ -54,6 +54,21 @@ describe("MAIN_NAV structure", () => {
   });
 });
 
+describe("MAIN_NAV billing", () => {
+  const billing = MAIN_NAV.find((g) => g.label === "Billing")!;
+
+  it("ships the payments report gated on payments.view", () => {
+    const payments = billing.items.find((i) => i.label === "Payments")!;
+    expect(payments).toMatchObject({ href: "/payments", resource: "payments" });
+    expect(payments.status).toBeUndefined();
+  });
+
+  it("hides it from a user who cannot view payments", () => {
+    const items = visibleNavItems(billing.items, (r: Resource) => r === "invoices");
+    expect(items.map((i) => i.label)).toEqual(["Invoices"]);
+  });
+});
+
 describe("visibleNavItems", () => {
   it("keeps available, permitted items and hides coming-soon ones by default", () => {
     const items = visibleNavItems(work.items, () => true);

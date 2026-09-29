@@ -1839,23 +1839,62 @@ describe('DealsService', () => {
     });
   });
 
-  describe('updatePaymentStatus', () => {
-    it('should update deal and add timeline entry', async () => {
+  describe('updatePaymentStatus (billing owns the ledger; the job keeps the flag)', () => {
+    const partial = {
+      paymentStatus: 'partial' as const,
+      amountPaid: 60,
+      invoiceTotal: 250,
+      paidAt: '2026-04-20T15:00:00.000Z',
+      paymentId: 'pay-1',
+    };
+
+    it('records the status billing reports, not a hardcoded `paid`', async () => {
       repo.update.mockResolvedValue(createMockDeal());
 
-      await service.updatePaymentStatus('deal-1', {
-        paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20T15:00:00.000Z',
-      } as any);
+      await service.updatePaymentStatus('deal-1', partial);
 
       expect(repo.update).toHaveBeenCalledWith('deal-1', {
-        paymentStatus: 'paid', actualTotal: 250,
+        paymentStatus: 'partial',
+        amountPaid: 60,
+        actualTotal: 250,
       });
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('writes `actualTotal` as the INVOICE total, never the payment amount', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', { ...partial, amountPaid: 60, invoiceTotal: 250 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ actualTotal: 250 }));
+    });
+
+    it('leaves `actualTotal` alone when billing does not send the invoice total', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', {
+        paymentStatus: 'paid',
+        amountPaid: 250,
+        paymentId: 'pay-1',
+      });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', { paymentStatus: 'paid', amountPaid: 250 });
+    });
+
+    it('lets a reversal push the job back to unpaid', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', { paymentStatus: 'unpaid', amountPaid: 0, invoiceTotal: 250 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', {
+        paymentStatus: 'unpaid',
+        amountPaid: 0,
+        actualTotal: 250,
+      });
+    });
+
+    it('adds a timeline entry naming the payment', async () => {
+      repo.update.mockResolvedValue(createMockDeal());
+      await service.updatePaymentStatus('deal-1', partial);
       expect(timeline.addEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           actorId: 'system',
-          actorName: 'Payment Service',
-          details: expect.objectContaining({ paymentId: 'pay-1', amount: 250 }),
+          actorName: 'Billing',
+          details: expect.objectContaining({ paymentId: 'pay-1', amountPaid: 60, newValue: 'partial' }),
         }),
       );
     });
@@ -1863,9 +1902,7 @@ describe('DealsService', () => {
     it('publishes deal.updated so payment status reaches the search index', async () => {
       repo.update.mockResolvedValue(createMockDeal());
 
-      await service.updatePaymentStatus('deal-1', {
-        paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20T15:00:00.000Z',
-      } as any);
+      await service.updatePaymentStatus('deal-1', partial);
 
       expect(sns.publish).toHaveBeenCalledWith(
         'deal-events',

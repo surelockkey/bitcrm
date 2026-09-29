@@ -93,6 +93,9 @@ export const RESOURCE_REGISTRY = {
     'view_jobs',
     'view_today',
   ],
+  // `collect` takes money (portal sends + offline records); `refund` gives it
+  // back and is deliberately not a technician's to hold.
+  payments: ['view', 'collect', 'refund'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

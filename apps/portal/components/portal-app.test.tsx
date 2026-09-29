@@ -60,3 +60,64 @@ describe("PortalApp", () => {
     expect(await screen.findByRole("heading", { name: "Hi Jane," })).toBeInTheDocument();
   });
 });
+
+const options = {
+  invoiceId: "d1",
+  number: "1042",
+  amountDue: 300,
+  amountPending: 0,
+  currency: "usd",
+  methods: ["card"],
+  allowPartial: true,
+  bankMinimum: 20,
+  surchargePercent: 0,
+  surchargeLabel: "Card processing fee",
+  tipsEnabled: false,
+  tipPresets: [],
+};
+
+const payableView: PortalView = { ...view, invoices: [{ ...view.invoices[0], payable: true }] };
+
+function route(map: Array<[string, unknown]>) {
+  return vi.fn(async (url: string) => {
+    const hit = map.find(([fragment]) => url.includes(fragment));
+    return ok(hit ? hit[1] : view);
+  });
+}
+
+afterEach(() => window.history.replaceState({}, "", "/"));
+
+describe("PortalApp — paying", () => {
+  it("opens the payment panel from the balance card and asks what this invoice accepts", async () => {
+    const f = route([["/payment-options", options], ["portal/tok", payableView]]);
+    vi.stubGlobal("fetch", f);
+    render(<PortalApp token="tok" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /pay \$300\.00 now/i }));
+    expect(await screen.findByLabelText(/amount to pay/i)).toHaveValue("300.00");
+    const urls = f.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls).toContain("https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d1/payment-options");
+  });
+
+  it("picks the payment back up after a redirect, then re-reads the balances", async () => {
+    window.history.replaceState({}, "", "/tok?payment=pay_1&invoice=d1");
+    const f = route([
+      ["/payment/pay_1", { status: "settled", amount: 300, method: "card", receiptSent: true }],
+      ["portal/tok", payableView],
+    ]);
+    vi.stubGlobal("fetch", f);
+    render(<PortalApp token="tok" />);
+
+    expect(await screen.findByText(/payment received/i)).toBeInTheDocument();
+    const portalReads = f.mock.calls.filter((c) => (c as unknown as [string])[0].endsWith("/portal/tok"));
+    expect(portalReads.length).toBe(2);
+  });
+
+  it("cleans the payment id out of the address bar so a refresh doesn't replay it", async () => {
+    window.history.replaceState({}, "", "/tok?payment=pay_1&invoice=d1");
+    vi.stubGlobal("fetch", route([["/payment/pay_1", { status: "settled", amount: 300, method: "card", receiptSent: true }], ["portal/tok", payableView]]));
+    render(<PortalApp token="tok" />);
+    await screen.findByText(/payment received/i);
+    expect(window.location.search).toBe("");
+  });
+});

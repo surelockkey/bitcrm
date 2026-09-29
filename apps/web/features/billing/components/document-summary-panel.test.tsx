@@ -70,6 +70,24 @@ describe("DocumentSummaryPanel", () => {
   it("shows Paid / Balance due only when asked", () => {
     setup({ showPayments: true });
     expect(screen.getByText("Balance due").nextSibling).toHaveTextContent("$45.72");
+    expect(screen.queryByText("Clearing")).toBeNull();
+  });
+
+  it("adds a clearing line while a bank payment is in flight", () => {
+    setup({
+      showPayments: true,
+      paymentSummary: { settled: 50, pending: 20, refunded: 0, paymentCount: 2, hasPending: true },
+    });
+    expect(screen.getByText("Clearing").nextSibling).toHaveTextContent("$20.00");
+    expect(screen.getByText(/not counted until it lands/i)).toBeInTheDocument();
+  });
+
+  it("keeps the ledger out of the way when nothing is clearing", () => {
+    setup({
+      showPayments: true,
+      paymentSummary: { settled: 50, pending: 0, refunded: 0, paymentCount: 1, hasPending: false },
+    });
+    expect(screen.queryByText("Clearing")).toBeNull();
   });
 
   it("removes the discount", async () => {

@@ -59,6 +59,17 @@ export interface ContactDealSummary {
   businessProfileName?: string;
 }
 
+/** Body of `PUT /api/deals/internal/:id/payment-status`. */
+export interface DealPaymentStatusUpdate {
+  paymentStatus: 'unpaid' | 'partial' | 'paid';
+  /** Dollars collected so far (the ledger's counted sum, less refunds). */
+  amountPaid: number;
+  /** The invoice total, so the job's `actualTotal` stays the billed amount. */
+  invoiceTotal?: number;
+  paidAt?: string;
+  paymentId?: string;
+}
+
 export interface ServiceAreaSummary {
   id: string;
   name: string;
@@ -84,6 +95,7 @@ const CATALOG_TTL_MS = 60_000;
  * Deal-service calls (contract §1). Paths used:
  *   GET   /api/deals/internal/:id/billing-view
  *   PUT   /api/deals/internal/:id/products/replace-all
+ *   PUT   /api/deals/internal/:id/payment-status      (denormalised job-board flag)
  *   PATCH /api/deals/internal/:id/invoice-link
  *   POST  /api/deals/internal/:id/timeline
  *   GET   /api/deals/internal/tax-rates                (derived from service areas)
@@ -122,6 +134,20 @@ export class DealClient {
       { method: 'PUT', body, operation: 'replaceAllProducts', timeoutMs: 30_000 },
     );
     return res ?? { items: [], deal: undefined as unknown as Deal };
+  }
+
+  /**
+   * The job board's denormalised payment flag. Billing owns the ledger; deal
+   * keeps only `paymentStatus` + `amountPaid` (and `actualTotal` = the invoice
+   * total, never the payment amount).
+   */
+  async setPaymentStatus(dealId: string, body: DealPaymentStatusUpdate): Promise<void> {
+    await this.http.request(`/api/deals/internal/${encodeURIComponent(dealId)}/payment-status`, {
+      method: 'PUT',
+      body,
+      operation: 'setPaymentStatus',
+      timeoutMs: 5_000,
+    });
   }
 
   async setInvoiceLink(dealId: string, invoiceId: string | null): Promise<void> {

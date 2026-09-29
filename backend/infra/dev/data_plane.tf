@@ -75,16 +75,22 @@ locals {
       enable_pitr = true
     }
     # Billing (billing-service): invoices INVOICE#<dealId>, estimates
-    # ESTIMATE#<id> (+ ITEM#<lineId> rows), document templates, business
-    # profile, template image assets, portal tokens (PORTAL#<sha256>) and
-    # per-deal estimate counters. GSI3 is sparse (estimates only).
+    # ESTIMATE#<id> (+ ITEM#<lineId> rows), the payment ledger
+    # (PAYMENT#<id>/METADATA + an INVOICE#<dealId>/PAYMENT#<createdAt>#<id>
+    # adjacency row, REFUND# rows, STRIPE#<objectId>/POINTER lookups and
+    # WEBHOOK#<eventId> dedupe rows), document templates, business profile,
+    # template image assets, portal tokens (PORTAL#<sha256>) and per-deal
+    # estimate counters. GSI3 is sparse (estimates only).
     billing = {
       gsis = [
-        { name = "ListIndex", n = 1 },    # INVOICES | ESTIMATES | TEMPLATES / <createdAt>
-        { name = "ContactIndex", n = 2 }, # CONTACT#<contactId> / INVOICE#<createdAt> | ESTIMATE#<createdAt>
+        { name = "ListIndex", n = 1 },    # INVOICES | ESTIMATES | TEMPLATES | PAYMENTS / <createdAt>
+        { name = "ContactIndex", n = 2 }, # CONTACT#<contactId> / INVOICE# | ESTIMATE# | PAYMENT#<createdAt>
         { name = "DealIndex", n = 3 },    # DEAL#<dealId> / ESTIMATE#<createdAt>
       ]
-      # Invoices and estimates are client-facing financial records.
+      # Stripe webhook dedupe rows (WEBHOOK#<eventId>) expire after 30 days.
+      # Nothing in the payment ledger itself ever carries `expiresAt`.
+      ttl_attribute = "expiresAt"
+      # Invoices, estimates and payments are client-facing financial records.
       enable_pitr = true
     }
   }

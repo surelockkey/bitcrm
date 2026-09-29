@@ -31,9 +31,11 @@ export const perms = (scope: DataScope = DataScope.ALL, extra: Record<string, Re
     permissions: {
       invoices: { view: true, create: true, edit: true, delete: true, send: true },
       estimates: { view: true, create: true, edit: true, delete: true, send: true, sync: true },
+      payments: { view: true, collect: true, refund: true },
+      settings: { view: true, edit: true },
       ...extra,
     },
-    dataScope: { invoices: scope, estimates: scope, deals: scope },
+    dataScope: { invoices: scope, estimates: scope, deals: scope, payments: scope },
   }) as unknown as ResolvedPermissions;
 
 export const caller = (scope: DataScope = DataScope.ALL, over: Partial<JwtUser> = {}) => ({
@@ -119,6 +121,7 @@ export function mockDealClient() {
     listCustomFields: jest.fn(async (..._a: any[]): Promise<any> => []),
     listNeedsInvoice: jest.fn(async (..._a: any[]): Promise<any> => []),
     listByContact: jest.fn(async (..._a: any[]): Promise<any> => []),
+    setPaymentStatus: jest.fn(async (..._a: any[]): Promise<any> => undefined),
   };
 }
 
@@ -141,7 +144,7 @@ export function mockProfileService(p: BusinessProfile = profile()) {
 }
 
 export function mockEvents() {
-  return { invoice: jest.fn(), estimate: jest.fn() };
+  return { invoice: jest.fn(), estimate: jest.fn(), payment: jest.fn() };
 }
 
 export function mockDocuments() {

@@ -8,6 +8,7 @@ import {
   Download,
   Eye,
   Loader2,
+  Mail,
   MessageSquareText,
   Send,
   Trash2,
@@ -40,7 +41,7 @@ import { DocumentSummaryPanel } from "@/features/billing/components/document-sum
 import { DocumentTemplateSelect } from "@/features/billing/components/document-template-select";
 import { SentBadge } from "@/features/invoices/components/sent-badge";
 import { CopyPortalLinkButton } from "@/features/portal/components/copy-portal-link-button";
-import { SendDocumentDialog } from "@/features/portal/components/send-document-dialog";
+import { SendDocumentDialog, type SendDocumentChannel } from "@/features/portal/components/send-document-dialog";
 import { getEstimateHtml, getEstimatePdfUrl } from "../api";
 import {
   useDeleteEstimate,
@@ -82,7 +83,7 @@ export function EstimateEditor({
   const [previewing, setPreviewing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [sendingText, setSendingText] = useState(false);
+  const [sendingVia, setSendingVia] = useState<SendDocumentChannel | null>(null);
 
   const items = useMemo(() => estimate?.items ?? [], [estimate?.items]);
   const localTotals = useMemo(
@@ -204,9 +205,14 @@ export function EstimateEditor({
             </Button>
           ) : null}
           {canText ? (
-            <Button variant="brand" size="sm" onClick={() => setSendingText(true)}>
-              <MessageSquareText /> Send by text
-            </Button>
+            <>
+              <Button variant="brand" size="sm" onClick={() => setSendingVia("sms")}>
+                <MessageSquareText /> Send by text
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setSendingVia("email")}>
+                <Mail /> Send by email
+              </Button>
+            </>
           ) : null}
           {canSend ? <CopyPortalLinkButton contactId={estimate.contactId} /> : null}
           {canCreate ? (
@@ -305,8 +311,9 @@ export function EstimateEditor({
 
       {canText ? (
         <SendDocumentDialog
-          open={sendingText}
-          onOpenChange={setSendingText}
+          channel={sendingVia ?? "sms"}
+          open={sendingVia !== null}
+          onOpenChange={(o) => !o && setSendingVia(null)}
           document={{
             kind: "estimate",
             id: estimate.id,

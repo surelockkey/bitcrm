@@ -44,7 +44,7 @@ documented surface; keep it in sync when you add a variable.
 | search    | 4005 | `api/search`     | global search — OpenSearch read model + indexer (CQRS) |
 | telephony | 4006 | `api/telephony`  | Twilio softphone: tokens, TwiML, call records, presence, call groups/flows, numbers, job dial-in codes |
 | messaging | 4007 | `api/messaging`  | client inbox + team chat (Workiz Inbox model): conversations, messages (SMS/MMS, email, in-app), templates, opt-outs, settings — Twilio Messages API traffic; telephony stays the owner of the numbers |
-| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10) |
+| billing   | 4008 | `api/billing`    | job invoices + estimates (Workiz model), **the payment ledger + Stripe** (offline payments, portal card/ACH, refunds, webhook), document templates + headless-Chromium PDF rendering (`@bitcrm/document-renderer`), companies (many business profiles, one default — jobs pick one), template images, client-portal API (`/public/portal/:token`, `@Public` + Redis rate limit; the pages are `apps/portal`, see §10) |
 
 ---
 
@@ -201,7 +201,7 @@ display names per table.
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
 | `BitCRM_Messaging` (conversations, messages, pointers, opt-outs, templates, settings, counters) | `MESSAGING_TABLE` | InboxIndex | UnreadIndex | CategoryIndex | JobIndex (+ GSI5 FlagIndex, GSI6 AccountCategoryIndex; TTL on `expiresAt`) |
-| `BitCRM_Billing` (invoices, estimates + lines, templates, companies (business profiles), assets, portal tokens, per-job counters) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | |
+| `BitCRM_Billing` (invoices, estimates + lines, **payments + refunds + Stripe pointers**, templates, companies (business profiles), assets, portal tokens, per-job counters; TTL on `expiresAt` for webhook dedupe rows) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | |
 
 Item shapes are prefix-encoded, e.g.
 
@@ -225,6 +225,14 @@ ESTIMATE#<id>      / METADATA | ITEM#<lineId>   GSI1 ESTIMATES, GSI2 CONTACT#…
 PORTAL#<sha256>    / METADATA        portal token → contactId; CONTACT#<id>/PORTAL_LINK holds the link metadata
 BUSINESS_PROFILE#<id> / METADATA     a company; GSI1 BUSINESS_PROFILES. The legacy SETTINGS/BUSINESS_PROFILE
                                      singleton is migrated lazily into BUSINESS_PROFILE#bp-default on first read
+PAYMENT#<id>       / METADATA        a payment; GSI1 PAYMENTS, GSI2 CONTACT#<id>/PAYMENT#<createdAt>#<id>
+INVOICE#<dealId>   / PAYMENT#<createdAt>#<id>   the SAME payment, adjacent to its invoice — one Query reads a
+                                     job's ledger. Both copies are written in one TransactWrite
+PAYMENT#<id>       / REFUND#<createdAt>#<id>    refunds under their payment (Stripe allows several partials)
+STRIPE#<objectId>  / POINTER         → {paymentId}; one per session / intent / charge id, so a webhook finds
+                                     its payment in ONE read
+WEBHOOK#<eventId>  / METADATA        Stripe event dedupe; `expiresAt` TTL, 30 days
+SETTINGS           / PAYMENTS        the PaymentSettings singleton (never holds a Stripe key)
 CONV#<id>          / MSG#<createdAt>#<msgId>   the feed, paged in the partition; GSI4 JOB#<dealId> when job-linked
 CONVOF#<kind>#<id> / ADDR#<e164|email> / PSID#<sid> / CLIENTMSG#<uuid>   pointers: find-or-create, inbound routing,
                                      webhook dedup, double-submit guard (the last one carries the TTL)
@@ -268,8 +276,8 @@ payload interfaces plus `UserEventType` constants, with `event-contract.spec.ts`
 locking the string values. Publishers and consumers both import them.
 
 Topics: `user-events`, `deal-events`, `contact-events`, `inventory-events`,
-`call-events`, `message-events`, `billing-events`. Consumers: deal-service (`payment.received`,
-`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
+`call-events`, `message-events`, `billing-events`. Consumers: deal-service
+(`contact.merged`, `tech.approved`, `tech.updated`), messaging-service
 (`contact.merged`, `contact.updated` — handlers land with the inbound webhook)
 and search-service (every topic, one `search-index` queue). DLQ
 `maxReceiveCount = 5`.
@@ -489,5 +497,35 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
 - **Texting a document = messaging's `POST /messages`** (Twilio, the client's thread),
   driven by the web app's "Send by text" dialog: mark the document sent FIRST (the
   portal shows sent documents only), then send.
+- **Payments live in billing, and `amountPaid` is a SUM, not a flag.** An
+  invoice's `totals.amountPaid` is the gross of every payment in
+  `COUNTED_PAYMENT_STATUSES` (`settled` + `refunded`) minus `refundedAmount`;
+  `pending` (ACH in transit) never counts. Invoice status stays derived, so a
+  partial payment leaves it `due`/`overdue` and a reversal pushes a `paid`
+  invoice back on its own. Deal keeps only a denormalised `paymentStatus` for
+  the job board, pushed over `PUT /deals/internal/:id/payment-status`.
+- **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
+  gives no ordering guarantee and re-delivers freely, so every status move goes
+  through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a
+  one-way door: a late `payment_intent.succeeded` cannot resurrect a payment the
+  bank already took back. Dedupe is a `WEBHOOK#<event.id>` row, released again
+  if processing throws so the retry lands.
+- **An ACH return arrives as `charge.dispute.created`, not as a failure.** The
+  PaymentIntent stays `succeeded` forever. Reasons `insufficient_funds` /
+  `incorrect_account_details` / `bank_cannot_process` mean the money left:
+  mark the payment `reversed` and say so loudly.
+- **billing's `main.ts` needs `{ rawBody: true }`** and `app.useBodyParser(...)`
+  rather than `app.use(json(...))`, or the Stripe signature cannot be verified.
+  Nest middleware runs AFTER the body parsers, so a `MiddlewareConsumer` cannot
+  recover the bytes. `test/unit/stripe-webhook.http.spec.ts` posts really-signed
+  bytes through a real app to keep that honest.
+- **Money is dollars (2dp) in our types and cents at the Stripe boundary**,
+  converted only in `payments/payment-rules.ts` (`toCents`/`fromCents`). Never
+  round twice. A card surcharge is a payment-time charge on the `Payment` row —
+  it never enters `DocumentTotals`, and it ships OFF (US card-network rules).
+- **Billing boots and works with no Stripe keys.** The `STRIPE_CLIENT` token
+  resolves to `null`, the portal offers no methods, and the offline ledger
+  (cash, cheque, card taken in person) is unaffected. Guard every online path
+  on `StripeService.available` / `.onlineReady`.
 - Plan documents belong in the gitignored `claude-plans/` at the repo root, not
   in `project-info/`.

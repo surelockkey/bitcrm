@@ -310,7 +310,7 @@ describe('DealsController', () => {
     it('should call service.updatePaymentStatus', async () => {
       service.updatePaymentStatus.mockResolvedValue(undefined);
 
-      const dto = { paymentId: 'pay-1', amount: 250, paidAt: '2026-04-20' };
+      const dto = { paymentStatus: 'paid', amountPaid: 250, invoiceTotal: 250, paymentId: 'pay-1' };
       const result = await controller.updatePaymentStatus('deal-1', dto as any);
 
       expect(result).toEqual({ success: true, data: { updated: true } });

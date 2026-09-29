@@ -168,3 +168,22 @@ describe("InvoicesPage — resizable columns", () => {
     }
   });
 });
+
+describe("InvoicesPage — partial payments", () => {
+  it("marks a part-paid invoice while its status stays Due", async () => {
+    server.use(
+      http.get("*/billing/invoices", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            items: [inv({ totals: { ...totals, amountPaid: 40, balanceDue: 60 } })],
+          },
+        }),
+      ),
+    );
+    renderWithClient(<InvoicesPage />);
+    const row = (await screen.findByText("#1042")).closest("tr")!;
+    expect(within(row).getByText("Partially paid")).toBeInTheDocument();
+    expect(within(row).getByText("Due")).toBeInTheDocument();
+  });
+});

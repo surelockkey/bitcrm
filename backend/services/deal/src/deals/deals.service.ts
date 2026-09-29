@@ -2372,10 +2372,22 @@ export class DealsService {
     return count;
   }
 
+  /**
+   * The job board's payment flag, asserted by billing-service from the payment
+   * ledger it owns. Three things matter here:
+   *
+   *  - the status is whatever billing computed (`unpaid` / `partial` / `paid`),
+   *    never a hardcoded `paid` — a reversal or a refund arrives as a status
+   *    that has gone BACKWARDS, and that must stick;
+   *  - `actualTotal` is the amount BILLED, so it is only ever written from
+   *    `invoiceTotal`, never from the payment amount;
+   *  - nothing else on the job is touched.
+   */
   async updatePaymentStatus(id: string, dto: UpdatePaymentStatusDto): Promise<void> {
     await this.repository.update(id, {
-      paymentStatus: 'paid',
-      actualTotal: dto.amount,
+      paymentStatus: dto.paymentStatus,
+      amountPaid: dto.amountPaid,
+      ...(typeof dto.invoiceTotal === 'number' && { actualTotal: dto.invoiceTotal }),
     } as any);
     await this.cache.invalidate(id);
 
@@ -2384,13 +2396,14 @@ export class DealsService {
       dealId: id,
       eventType: TimelineEventType.FIELD_UPDATED,
       actorId: 'system',
-      actorName: 'Payment Service',
+      actorName: 'Billing',
       timestamp: new Date().toISOString(),
       details: {
         field: 'paymentStatus',
-        newValue: 'paid',
-        paymentId: dto.paymentId,
-        amount: dto.amount,
+        newValue: dto.paymentStatus,
+        amountPaid: dto.amountPaid,
+        ...(dto.paymentId && { paymentId: dto.paymentId }),
+        ...(dto.paidAt && { paidAt: dto.paidAt }),
       },
     });
     this.publishEvent('deal.updated', { dealId: id });

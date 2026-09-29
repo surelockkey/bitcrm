@@ -1,5 +1,6 @@
 import type { PaymentTerms } from '../enums/payment-terms.enum';
 import type { DocumentDiscount, DocumentTaxSource, DocumentTotals } from '../billing/totals';
+import type { OnlinePaymentMethod, Payment, PaymentSummary } from './payment.entity';
 
 /**
  * Derived, never set by hand (Workiz):
@@ -35,6 +36,11 @@ export interface Invoice {
   /** Set by send/mark-sent. Unsent documents are hidden from the client portal. */
   sentAt?: string;
   sentBy?: string;
+  /**
+   * Workiz "Let client pay with" — the methods offered on THIS document,
+   * chosen at send time. Absent ⇒ whatever the account settings allow.
+   */
+  allowedMethods?: OnlinePaymentMethod[];
   status: InvoiceStatus;
   /** Last known totals (kept fresh from deal events) for list views. */
   totals: DocumentTotals;
@@ -47,6 +53,9 @@ export interface Invoice {
 /** An invoice with the job's live lines + tax — what the detail screen/PDF use. */
 export interface InvoiceView extends Invoice {
   items: BillingLine[];
+  /** The ledger behind `totals.amountPaid`, newest first. */
+  payments?: Payment[];
+  paymentSummary?: PaymentSummary;
   taxRateId?: string;
   taxRateName?: string;
   taxRatePercent?: number;

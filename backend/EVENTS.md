@@ -257,16 +257,35 @@ gated on `BILLING_EVENTS_TOPIC_ARN`. No consumers yet.
 | `estimate.updated` | `EstimateEvent` | fields / lines / status / sent changed, archived on job cancel |
 | `estimate.deleted` | `EstimateEvent` | estimate deleted (by a user, or with its job) |
 | `estimate.synced` | `EstimateEvent` | the estimate's lines replaced the job's (`sync-to-job`) |
+| `payment.succeeded` | `PaymentEvent` `{paymentId, invoiceId, dealId, contactId, amount, method, status, balanceDue}` | a payment settled: recorded offline, a card taken in the portal, an ACH debit that cleared, or a dispute we won |
+| `payment.pending` | `PaymentEvent` | a bank (ACH) payment was confirmed and is on its way — it does NOT count toward the invoice yet |
+| `payment.failed` | `PaymentEvent` | the card was declined, the bank payment was returned unpaid, or a checkout session expired unfinished |
+| `payment.refunded` | `PaymentEvent` | money was given back — in part (the payment stays `settled`) or in full (`refunded`); also when a mis-keyed offline payment is deleted |
+| `payment.reversed` | `PaymentEvent` | settled money left again: an ACH return or a lost dispute. The PaymentIntent stays `succeeded` at Stripe, so this is the only signal — see below |
 
-Job-history entries for billing actions (`invoice_*`, `estimate_*` timeline
-types) are written through deal-service's `POST /deals/internal/:id/timeline`,
-not via SNS.
+`balanceDue` is the invoice's balance AFTER the event, so a consumer never has
+to re-read the invoice to know where it stands.
+
+**Why `payment.reversed` exists.** An ACH debit can fail days after Stripe has
+reported the PaymentIntent as `succeeded`, and Stripe reports that as
+`charge.dispute.created` (reason `insufficient_funds`,
+`incorrect_account_details`, `bank_cannot_process`) rather than as a failure.
+The intent stays `succeeded` forever. So the payment stops counting, the
+invoice re-derives itself back to `due`/`overdue`, and this event is how
+anything downstream hears about it.
+
+Job-history entries for billing actions (`invoice_*`, `estimate_*`, `payment_*`
+timeline types) are written through deal-service's
+`POST /deals/internal/:id/timeline`, not via SNS. The job board's own
+`paymentStatus` is likewise pushed straight to
+`PUT /deals/internal/:id/payment-status` — there is no `payment.received`
+event and never was a queue for one.
 
 ## Consumers (SQS, gated on `*_QUEUE_URL` + `ENABLE_SQS_CONSUMER=true`)
 - **messaging-service** ← `contact.merged`, `contact.updated` (queue `contact-events-to-messaging`) → `ContactEventsHandler` (`src/contact-events/`): a merge hands the duplicate's thread to the survivor (`CONVOF#`, `partyId`, `ADDR#` rows; when both had a thread the survivor absorbs the addresses and the duplicate's thread is archived — messages are not moved between partitions), an update re-reads the contact from CRM and reconciles `ADDR#` rows + `conversation.addresses`. Also ← **every** deal event (queue `deal-events-to-messaging`, subscribed to the whole topic) → `AutomationDealEventsHandler` (`src/automations/engine/`), which fans each one out to `NewJobSmsService` (the settings `smsFormat` "New job" SMS to the assigned technician's personal phone, once per (job, technician, scheduledDate) via an `AUTOSENT#` marker — `deal.updated` carries no changed fields, so the job is re-read and only a changed `scheduledDate` re-sends) and then to the **rule engine** (`AutomationRuleEngine`): every enabled rule with a runnable `spec` is evaluated against the job, and what fires is claimed once (`AUTORUN#<ruleId>` / `ONCE#<entity>#<occurrence>`), acted on and logged (`RUN#<firedAt>#<id>`). Anything that has to wait — a rule's own delay, a send held by quiet hours, a "1 hour before the job" reminder — is written to `SCHEDULE#<YYYY-MM-DDTHH:MM>` and run by a minute poller (`ENABLE_AUTOMATION_SCHEDULER=true`, one instance; `AUTOMATION_SCHEDULER_INTERVAL_MS`, default 60 s, catching up at most 3 h after a restart). A minute bucket rather than SQS delay hops: a one-day delay is far past SQS's 15-minute maximum, and what is pending stays listable. Also ← `call.completed` (queue `call-events-to-messaging`) → the same engine. Also its own work queues: `messaging-outbound.fifo` (M9), `messaging-media` (M10), the SES-fed `messaging-email-events` / `messaging-inbound-email` (M17–M18; raw SES JSON, read by the service's own poller rather than the shared consumer). Handlers must be idempotent — the consumer does not deduplicate.
 - **billing-service** ← `deal.product_added`, `deal.product_updated`, `deal.product_removed`, `deal.products_replaced`, `deal.updated`, `deal.status_changed`, `deal.deleted` (queue `billing-deal-events`) → `DealEventsHandler` (`src/deal-events/`): line / tax / discount / payment changes re-snapshot the job invoice's totals + derived status (no version bump — `version` guards user edits only); `deal.updated` also re-points the job's estimates when the job moved to another client (the invoice follows in the same refresh); a status change to `canceled` archives the job's estimates that aren't won; `deal.deleted` deletes the job's invoice and estimates. Idempotent.
 - **inventory-service** consumes nothing (container auto-provisioning was removed — containers are created via `POST /containers` and technicians assigned via `PUT /containers/:id`)
-- **deal-service** ← `payment.received`, `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`
+- **deal-service** ← `contact.merged`, **`tech.approved`, `tech.updated`** → `DealsEventHandler`, `TechnicianEligibilityEventHandler`. (A `payment.received` handler used to be registered here; no queue ever carried it and nothing published it, so it is gone — billing pushes the job's payment flag over the internal endpoint instead.)
 - **search-service** ← **all topics** (`deal-events`, `contact-events`, `user-events`, `inventory-events`, `message-events`) via the single `search-index` queue → `IndexerEventHandler` (routes in `services/search/src/indexer/event-routes.ts`). Upsert events trigger a re-fetch of the authoritative entity (internal HTTP) + reindex into OpenSearch; delete events remove the doc. The backfill (internal list endpoints) is the authoritative populator; events keep it fresh. The `conversation` document (M15) is rebuilt from `conversation.updated` and every `message.*` event that names a conversation: the indexer reads `GET /api/messaging/conversations/internal/:id` plus `…/internal/:id/messages?limit=` (last N bodies → `body`), the party from crm / user-service (name → `title`, numbers and emails → `keywords`) and the referenced deals (number → `keywords`, roster → `ownerIds` for `assigned_only`). A contact / company / user edit and a deal roster change also rebuild the conversations that reference them.
 
 ## Topic: `inventory-events` (published by inventory-service)

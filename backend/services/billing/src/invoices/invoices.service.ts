@@ -2,6 +2,7 @@ import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -20,6 +21,9 @@ import {
   type InvoiceStatus,
   type InvoiceView,
   type ListCount,
+  type OnlinePaymentMethod,
+  type Payment,
+  type PaymentSummary,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
@@ -36,6 +40,8 @@ import {
   resolvePaymentTerms,
   termDays,
 } from './invoice-rules';
+import { amountPaidFrom, summarizePayments } from '../payments/payment-rules';
+import { PaymentsRepository } from '../payments/payments.repository';
 import {
   InvoiceExistsError,
   InvoiceVersionConflictError,
@@ -73,6 +79,14 @@ export interface NeedingInvoiceRow {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * The payment ledger, as the invoice needs it. Injected as the repository (not
+ * PaymentsService) so the dependency runs one way and there is no module cycle.
+ */
+export interface PaymentLedgerSource {
+  listByInvoice(invoiceId: string): Promise<Payment[]>;
+}
 
 /**
  * Totals/status/contact are derived from the job. Writing them must not bump
@@ -120,6 +134,7 @@ export class InvoicesService {
     @Optional() private readonly documents?: DocumentsService,
     @Optional() private readonly events?: BillingEventsPublisher,
     @Optional() private readonly redis?: RedisService,
+    @Optional() @Inject(PaymentsRepository) private readonly ledger?: PaymentLedgerSource,
   ) {}
 
   // ---------------------------------------------------------------- create
@@ -145,7 +160,8 @@ export class InvoicesService {
     const { terms } = resolvePaymentTerms(contact, company as never, profile);
     const days = this.daysFor(terms, company as { customTermsDays?: number } | null, profile.defaultCustomTermDays, contact);
     const dueDate = computeDueDate(dueDateBasisDate(profile, { invoiceDate, deal, timezone: tz }), days);
-    const totals = computeInvoiceTotals(view);
+    const amountPaid = await this.ledgerAmountPaid(deal.id);
+    const totals = computeInvoiceTotals(view, { amountPaid });
 
     const invoice: Invoice = {
       id: deal.id,
@@ -156,7 +172,12 @@ export class InvoicesService {
       invoiceDate,
       paymentTerms: terms,
       dueDate,
-      status: deriveInvoiceStatus({ totals, dueDate, today: invoiceDate, paymentStatus: deal.paymentStatus }),
+      status: deriveInvoiceStatus({
+        totals,
+        dueDate,
+        today: invoiceDate,
+        ...(amountPaid === undefined && { paymentStatus: deal.paymentStatus }),
+      }),
       totals,
       version: 1,
       createdBy: caller.user.id,
@@ -196,7 +217,7 @@ export class InvoicesService {
     const view = await this.loadView(invoice.dealId);
     assertDealAccess(caller, 'invoices', view.deal);
     const fresh = await this.refreshSnapshot(invoice, view);
-    return this.toView(fresh, view);
+    return this.toView(fresh, view, await this.ledgerFor(invoice.id));
   }
 
   async getByDeal(dealId: string, caller: Caller): Promise<InvoiceView | null> {
@@ -372,14 +393,15 @@ export class InvoicesService {
       set.dueDate = computeDueDate(basis, days);
     }
 
-    const totals = computeInvoiceTotals(view);
+    const amountPaid = await this.ledgerAmountPaid(invoice.id);
+    const totals = computeInvoiceTotals(view, { amountPaid });
     const tz = await this.timezoneFor(view.deal.serviceAreaId);
     set.totals = totals;
     set.status = deriveInvoiceStatus({
       totals,
       dueDate: (set.dueDate as string | undefined) ?? invoice.dueDate,
       today: todayIn(tz),
-      paymentStatus: view.deal.paymentStatus,
+      ...(amountPaid === undefined && { paymentStatus: view.deal.paymentStatus }),
     });
 
     const updated = await this.writeWithConflict(id, set, remove, invoice.version);
@@ -470,6 +492,67 @@ export class InvoicesService {
     );
   }
 
+  // ------------------------------------------------------------- the ledger
+
+  /**
+   * Re-derives the invoice from the payment ledger's answer. Called by
+   * PaymentsService on EVERY ledger change; `amountPaid` of 0 is meaningful
+   * (a reversal) and pushes the invoice back to `due`/`overdue`.
+   */
+  async applyAmountPaid(invoiceId: string, amountPaid: number): Promise<Invoice | null> {
+    const invoice = await this.repo.get(invoiceId);
+    if (!invoice) return null;
+    const view = await this.deal.getBillingView(invoice.dealId);
+    if (!view) return invoice;
+    const fresh = await this.refreshSnapshot(invoice, view, false, { amountPaid });
+    if (fresh !== invoice) this.events?.invoice(BillingEventType.INVOICE_UPDATED, fresh);
+    return fresh;
+  }
+
+  /** Workiz "Let client pay with" — the methods offered on THIS invoice. */
+  async setAllowedMethods(invoiceId: string, methods: OnlinePaymentMethod[] | null): Promise<Invoice> {
+    const invoice = await this.repo.get(invoiceId);
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    const now = new Date().toISOString();
+    if (methods === null) {
+      return this.repo.update(invoiceId, { updatedAt: now }, ['allowedMethods'], undefined, SNAPSHOT_WRITE);
+    }
+    const unique = [...new Set(methods)];
+    return this.repo.update(invoiceId, { allowedMethods: unique, updatedAt: now }, [], undefined, SNAPSHOT_WRITE);
+  }
+
+  /** The ledger behind `totals.amountPaid`, newest first — `undefined` when unwired. */
+  async ledgerFor(invoiceId: string): Promise<{ payments: Payment[]; summary: PaymentSummary } | undefined> {
+    if (!this.ledger) return undefined;
+    try {
+      const rows = await this.ledger.listByInvoice(invoiceId);
+      return {
+        payments: [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        summary: summarizePayments(rows),
+      };
+    } catch (err) {
+      this.logger.warn(`payment ledger unavailable for invoice ${invoiceId}: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * What the ledger says has been paid, or `undefined` when there is no ledger
+   * row at all — in which case the pre-ledger, deal-driven behaviour stands
+   * (see `computeInvoiceTotals`), so invoices from before payments existed do
+   * not silently flip back to unpaid.
+   */
+  private async ledgerAmountPaid(invoiceId: string): Promise<number | undefined> {
+    if (!this.ledger) return undefined;
+    try {
+      const rows = await this.ledger.listByInvoice(invoiceId);
+      return rows.length ? amountPaidFrom(rows) : undefined;
+    } catch (err) {
+      this.logger.warn(`payment ledger unavailable for invoice ${invoiceId}: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
   // ------------------------------------------------------- events + sweeps
 
   /** deal.product_* / deal.updated: re-snapshot totals + status. */
@@ -523,14 +606,20 @@ export class InvoicesService {
 
   // -------------------------------------------------------------- helpers
 
-  private async refreshSnapshot(invoice: Invoice, view: DealBillingView, bumpAlways = false): Promise<Invoice> {
-    const totals = computeInvoiceTotals(view);
+  private async refreshSnapshot(
+    invoice: Invoice,
+    view: DealBillingView,
+    bumpAlways = false,
+    known?: { amountPaid?: number },
+  ): Promise<Invoice> {
+    const amountPaid = known ? known.amountPaid : await this.ledgerAmountPaid(invoice.id);
+    const totals = computeInvoiceTotals(view, { amountPaid });
     const tz = await this.timezoneFor(view.deal.serviceAreaId);
     const status: InvoiceStatus = deriveInvoiceStatus({
       totals,
       dueDate: invoice.dueDate,
       today: todayIn(tz),
-      paymentStatus: view.deal.paymentStatus,
+      ...(amountPaid === undefined && { paymentStatus: view.deal.paymentStatus }),
     });
     const contactChanged = view.deal.contactId && view.deal.contactId !== invoice.contactId;
     if (!bumpAlways && status === invoice.status && sameTotals(invoice.totals, totals) && !contactChanged) {
@@ -555,11 +644,16 @@ export class InvoicesService {
     }
   }
 
-  private toView(invoice: Invoice, view: DealBillingView): InvoiceView {
+  private toView(
+    invoice: Invoice,
+    view: DealBillingView,
+    ledger?: { payments: Payment[]; summary: PaymentSummary },
+  ): InvoiceView {
     const d = view.deal;
     return {
       ...invoice,
       items: toBillingLines(view),
+      ...(ledger && { payments: ledger.payments, paymentSummary: ledger.summary }),
       ...(d.taxRateId && { taxRateId: d.taxRateId }),
       ...(d.taxRateName && { taxRateName: d.taxRateName }),
       ...(d.taxRatePercent !== undefined && { taxRatePercent: d.taxRatePercent }),

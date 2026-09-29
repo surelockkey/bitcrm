@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -18,8 +18,18 @@ vi.mock("@/features/deals/hooks", () => ({
   useDealProducts: () => ({ data: mocks.products, isLoading: false }),
 }));
 vi.mock("@/features/deals/components/deal-products-tab", () => ({
-  DealProductsTab: ({ showPayments }: { showPayments?: boolean }) => (
-    <div data-testid="job-items" data-payments={String(!!showPayments)} />
+  DealProductsTab: ({
+    showPayments,
+    paymentSummary,
+  }: {
+    showPayments?: boolean;
+    paymentSummary?: { settled: number };
+  }) => (
+    <div
+      data-testid="job-items"
+      data-payments={String(!!showPayments)}
+      data-settled={paymentSummary ? String(paymentSummary.settled) : ""}
+    />
   ),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), message: vi.fn() }));
@@ -142,9 +152,79 @@ describe("DealInvoiceTab — existing invoice", () => {
     }
   });
 
+  it("offers Send by email only to someone who may both send invoices and send messages", async () => {
+    const { unmount } = renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    await screen.findByRole("heading", { name: "Invoice #1042" });
+    expect(screen.queryByRole("button", { name: /send by email/i })).not.toBeInTheDocument();
+    unmount();
+
+    mocks.perms.add("messages.send");
+    try {
+      renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+      await user().click(await screen.findByRole("button", { name: /send by email/i }));
+      expect(await screen.findByRole("heading", { name: /send invoice #1042 by email/i })).toBeInTheDocument();
+    } finally {
+      mocks.perms.delete("messages.send");
+    }
+  });
+
   it("explains that deleting keeps the job's items", async () => {
     renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
     await user().click(await screen.findByRole("button", { name: /delete invoice/i }));
     expect(await screen.findByText(/items stay on the job/i)).toBeInTheDocument();
+  });
+});
+
+describe("DealInvoiceTab — the payment ledger", () => {
+  beforeEach(() => {
+    server.use(
+      http.get("*/billing/invoices/by-deal/d1", () => HttpResponse.json({ success: true, data: invoice })),
+      http.get("*/billing/invoices/d1/payments", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            payments: [
+              {
+                id: "p1", invoiceId: "d1", dealId: "d1", contactId: "c1", amount: 40,
+                currency: "usd", method: "cash", status: "settled", refundedAmount: 0,
+                source: "field", takenBy: "u1", takenAt: "2026-09-20T15:00:00.000Z",
+                version: 1, createdAt: "2026-09-20T15:00:00.000Z", updatedAt: "2026-09-20T15:00:00.000Z",
+              },
+            ],
+            summary: { settled: 40, pending: 0, refunded: 0, paymentCount: 1, hasPending: false },
+          },
+        }),
+      ),
+    );
+    mocks.perms.add("payments.view");
+    mocks.perms.add("payments.collect");
+  });
+
+  afterEach(() => {
+    mocks.perms.delete("payments.view");
+    mocks.perms.delete("payments.collect");
+  });
+
+  it("renders the payments section under the items and feeds the ledger to the totals", async () => {
+    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    expect(await screen.findByRole("heading", { name: "Payments" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("job-items")).toHaveAttribute("data-settled", "40"),
+    );
+  });
+
+  it("marks a part-paid invoice beside its status, which stays Due", async () => {
+    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    await screen.findByRole("heading", { name: "Invoice #1042" });
+    expect(await screen.findAllByText("Partially paid")).not.toHaveLength(0);
+    expect(screen.getByText("Due")).toBeInTheDocument();
+  });
+
+  it("shows nothing about payments to someone without payments.view", async () => {
+    mocks.perms.delete("payments.view");
+    mocks.perms.delete("payments.collect");
+    renderWithClient(<DealInvoiceTab deal={deal} canEditItems />);
+    await screen.findByRole("heading", { name: "Invoice #1042" });
+    expect(screen.queryByRole("heading", { name: "Payments" })).toBeNull();
   });
 });
