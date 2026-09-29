@@ -12,6 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import type { Contact, Deal, PersonName, User } from "@bitcrm/types";
 import {
   extensionOf,
@@ -57,6 +59,17 @@ import type { DirectoryUser } from "@/features/deals/hooks";
  * real rows land into. A `h-64` placeholder followed by a full table is a
  * jump the reader watches happen.
  */
+/** The job number: always first, never hideable, and resizable like the rest. */
+const NUMBER_COLUMN = "jobNumber";
+
+/** Starting widths: the registry's own, plus the job number's. */
+function columnDefaults(columns: { id: string; width: number }[]): Record<string, number> {
+  return Object.fromEntries([
+    ...columns.map((c) => [c.id, c.width] as const),
+    [NUMBER_COLUMN, JOB_NUMBER_WIDTH] as const,
+  ]);
+}
+
 export function DealsTableSkeleton({
   visibleFields = DEFAULT_VISIBLE,
   rows = 12,
@@ -66,14 +79,17 @@ export function DealsTableSkeleton({
 }) {
   const { data: customFieldDefs } = useCustomFields();
   const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
+  // The reader's saved widths, so the shell is the geometry the rows land in.
+  // No handles here: there is nothing to resize until there is a table.
+  const { widthOf } = useColumnWidths("jobs", columnDefaults(columns));
 
   return (
     <div className="overflow-x-auto border" aria-busy role="status" aria-label="Loading jobs">
       <Table className="table-fixed">
         <colgroup>
-          <col style={{ width: JOB_NUMBER_WIDTH }} />
+          <col style={{ width: widthOf(NUMBER_COLUMN) }} />
           {columns.map((c) => (
-            <col key={c.id} style={{ width: c.width }} />
+            <col key={c.id} style={{ width: widthOf(c.id) }} />
           ))}
         </colgroup>
         <TableHeader>
@@ -164,6 +180,8 @@ export function DealsTable({
 
   // Every offerable field (static + active custom), narrowed to what's toggled on.
   const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
+  // The reader's own widths for this table; the registry only sets the start.
+  const { widthOf, setWidth, reset } = useColumnWidths("jobs", columnDefaults(columns));
 
   // A value whose own query has not answered yet. Same height as the text it
   // becomes, so the swap happens in place.
@@ -339,18 +357,31 @@ export function DealsTable({
       */}
       <Table className="table-fixed">
         <colgroup>
-          <col style={{ width: JOB_NUMBER_WIDTH }} />
+          <col style={{ width: widthOf(NUMBER_COLUMN) }} />
           {columns.map((c) => (
-            <col key={c.id} style={{ width: c.width }} />
+            <col key={c.id} style={{ width: widthOf(c.id) }} />
           ))}
         </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="truncate">Job&nbsp;#</TableHead>
+            <ResizableHead
+              columnId={NUMBER_COLUMN}
+              label="Job #"
+              width={widthOf(NUMBER_COLUMN)}
+              onResize={(px) => setWidth(NUMBER_COLUMN, px)}
+              onReset={reset}
+            >
+              Job&nbsp;#
+            </ResizableHead>
             {columns.map((c) => (
-              <TableHead key={c.id} className="truncate">
-                {c.label}
-              </TableHead>
+              <ResizableHead
+                key={c.id}
+                columnId={c.id}
+                label={c.label}
+                width={widthOf(c.id)}
+                onResize={(px) => setWidth(c.id, px)}
+                onReset={reset}
+              />
             ))}
           </TableRow>
         </TableHeader>
