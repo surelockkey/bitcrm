@@ -9,15 +9,18 @@ import {
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
+import { InventoryLogService } from 'src/inventory-log/inventory-log.service';
 import { RedisService, S3Service, SnsPublisherService } from '@bitcrm/shared';
-import { InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
+import { InventoryLogAction, InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import {
   createMockProduct,
   createMockCreateProductDto,
+  createMockJwtUser,
   createMockProductsRepository,
   createMockProductsCacheService,
   createMockS3Service,
   createMockItemCategoriesService,
+  createMockInventoryLogService,
 } from '../mocks';
 
 describe('ProductsService', () => {
@@ -27,6 +30,7 @@ describe('ProductsService', () => {
   let s3: ReturnType<typeof createMockS3Service>;
   let publisher: { publish: jest.Mock };
   let categories: ReturnType<typeof createMockItemCategoriesService>;
+  let inventoryLog: ReturnType<typeof createMockInventoryLogService>;
   let redisStore: Map<string, string>;
 
   beforeEach(async () => {
@@ -35,6 +39,7 @@ describe('ProductsService', () => {
     s3 = createMockS3Service();
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     categories = createMockItemCategoriesService();
+    inventoryLog = createMockInventoryLogService();
     redisStore = new Map<string, string>();
     const redis = {
       client: {
@@ -55,6 +60,7 @@ describe('ProductsService', () => {
         { provide: SnsPublisherService, useValue: publisher },
         { provide: ItemCategoriesService, useValue: categories },
         { provide: RedisService, useValue: redis },
+        { provide: InventoryLogService, useValue: inventoryLog },
       ],
     }).compile();
 
@@ -1011,6 +1017,169 @@ describe('ProductsService', () => {
       await service.count({ brandId: 'b-2' } as never);
 
       expect(repository.countAll).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  /**
+   * Кожна зміна товару лишає рядок у журналі інвентарю — його читає звіт
+   * "Inventory usage". Хто змінив — з JwtUser контролера; без нього 'system'.
+   */
+  describe('audit log', () => {
+    const actor = createMockJwtUser({ id: 'user-7', email: 'tamir@test.com' });
+
+    it('records item_created with the actor', async () => {
+      const result = await service.create(createMockCreateProductDto(), actor);
+
+      expect(inventoryLog.record).toHaveBeenCalledWith({
+        action: InventoryLogAction.ITEM_CREATED,
+        productId: result.id,
+        productName: 'Test Product',
+        sku: 'SKU-001',
+        userId: 'user-7',
+        userName: 'tamir@test.com',
+      });
+    });
+
+    it("falls back to 'system' when no actor is given", async () => {
+      await service.create(createMockCreateProductDto());
+
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: InventoryLogAction.ITEM_CREATED, userId: 'system', userName: 'system' }),
+      );
+    });
+
+    it('records item_updated with the fields that actually changed', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ name: 'Old', priceClient: 25, costCompany: 10 }));
+      repository.update.mockResolvedValue(createMockProduct({ name: 'New', priceClient: 30, costCompany: 10 }));
+
+      await service.update('prod-1', { name: 'New', priceClient: 30, costCompany: 10 } as any, actor);
+
+      expect(inventoryLog.record).toHaveBeenCalledWith({
+        action: InventoryLogAction.ITEM_UPDATED,
+        productId: 'prod-1',
+        productName: 'New',
+        sku: 'SKU-001',
+        changedFields: ['name', 'priceClient'],
+        userId: 'user-7',
+        userName: 'tamir@test.com',
+      });
+    });
+
+    it('records nothing when the update changes nothing, comparing the normalised category', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
+      repository.update.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
+
+      await service.update('prod-1', { name: 'Test Product', category: 'uncategorized' } as any, actor);
+
+      expect(repository.update).toHaveBeenCalledTimes(1);
+      expect(inventoryLog.record).not.toHaveBeenCalled();
+    });
+
+    it('records item_archived and item_restored rather than a plain update', async () => {
+      cache.get.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct({ status: InventoryStatus.ARCHIVED }));
+      await service.archive('prod-1', actor);
+      repository.update.mockResolvedValue(createMockProduct({ status: InventoryStatus.ACTIVE }));
+      await service.reactivate('prod-1', actor);
+
+      expect(inventoryLog.record.mock.calls.map((c) => c[0])).toEqual([
+        expect.objectContaining({ action: InventoryLogAction.ITEM_ARCHIVED, productId: 'prod-1', userId: 'user-7' }),
+        expect.objectContaining({ action: InventoryLogAction.ITEM_RESTORED, productId: 'prod-1', userId: 'user-7' }),
+      ]);
+    });
+
+    it('still writes the product when there is no log service to tell', async () => {
+      const bare = new ProductsService(repository as any, cache as any, s3 as any);
+
+      await bare.create(createMockCreateProductDto(), actor);
+
+      expect(repository.create).toHaveBeenCalledTimes(1);
+    });
+
+    describe('CSV import', () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+
+      it("records item_created per created row as 'csv-import'", async () => {
+        repository.findBySku.mockResolvedValue(null);
+
+        await service.importFromCsv(csv);
+
+        expect(inventoryLog.record).toHaveBeenCalledTimes(1);
+        expect(inventoryLog.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: InventoryLogAction.ITEM_CREATED,
+            productName: 'Lock A',
+            sku: 'SKU-100',
+            userId: 'system',
+            userName: 'csv-import',
+          }),
+        );
+      });
+
+      it('records under the actor when one is given', async () => {
+        repository.findBySku.mockResolvedValue(null);
+
+        await service.importFromCsv(csv, false, actor);
+
+        expect(inventoryLog.record).toHaveBeenCalledWith(
+          expect.objectContaining({ userId: 'user-7', userName: 'tamir@test.com' }),
+        );
+      });
+
+      it('records item_updated for a row matched by SKU, with the changed fields', async () => {
+        const existing = createMockProduct({ id: 'prod-9', sku: 'SKU-100', name: 'Lock A', priceClient: 20 });
+        repository.findBySku.mockResolvedValue(existing);
+        repository.update.mockResolvedValue({ ...existing, priceClient: 25 });
+
+        await service.importFromCsv(csv);
+
+        expect(inventoryLog.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: InventoryLogAction.ITEM_UPDATED,
+            productId: 'prod-9',
+            changedFields: ['priceClient'],
+            userName: 'csv-import',
+          }),
+        );
+      });
+
+      it('records nothing when the row matches the stored product', async () => {
+        const existing = createMockProduct({ id: 'prod-9', sku: 'SKU-100', name: 'Lock A' });
+        repository.findBySku.mockResolvedValue(existing);
+        repository.update.mockResolvedValue(existing);
+
+        await service.importFromCsv(csv);
+
+        expect(inventoryLog.record).not.toHaveBeenCalled();
+      });
+
+      it('records nothing on a dry run', async () => {
+        repository.findBySku.mockResolvedValue(null);
+
+        await service.importFromCsv(csv, true);
+
+        expect(inventoryLog.record).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  /** The stock paths' product read, shared with the guards: null for an unknown id, never a throw. */
+  describe('loadForStock', () => {
+    it('returns null for an unknown id', async () => {
+      cache.get.mockResolvedValue(null);
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.loadForStock('ghost')).resolves.toBeNull();
+    });
+
+    it('serves a cached product without a repository read', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ priceClient: 40 }));
+
+      await expect(service.loadForStock('prod-1')).resolves.toMatchObject({ priceClient: 40 });
+      expect(repository.findById).not.toHaveBeenCalled();
     });
   });
 });

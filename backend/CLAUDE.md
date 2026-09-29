@@ -217,6 +217,9 @@ TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
 CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags)
 CALLTAG#ALL        / CALLTAG#<id>    call-tag catalog — one partition, no GSI keys (never in the log); archive, don't delete
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+INVLOG#<YYYY-MM>   / <createdAt>#<id> inventory audit log (item edits + stock moves), one partition per UTC month —
+                                     never one constant key (the CALL#ALL lesson); walked newest-first, filters on top
+                                     … GSI4 INVLOG#PRODUCT#<productId> / <createdAt>#<id> — one item's history on TransferEntityIndex
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>

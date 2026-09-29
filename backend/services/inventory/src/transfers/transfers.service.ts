@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import {
   BusinessMetricsService,
   SnsPublisherService,
@@ -9,16 +15,25 @@ import {
 import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
+  type InventoryLogEntry,
   type JwtUser,
   type ListCount,
+  type LocationSummary,
+  type Transfer,
+  type TransferItem,
+  InventoryLogAction,
   TransferType,
   LocationType,
 } from '@bitcrm/types';
 import { TransfersRepository } from './transfers.repository';
 import { StockService } from '../stock/stock.service';
+import { LocationsRepository } from '../stock/locations.repository';
 import { ContainersRepository } from '../containers/containers.repository';
 import { ProductsService } from '../products/products.service';
+import { InventoryLogService } from '../inventory-log/inventory-log.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
+import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { ReturnStockDto } from './dto/return-stock.dto';
 import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
 import { ListTransfersQueryDto } from './dto/list-transfers-query.dto';
@@ -27,10 +42,26 @@ const VALID_TRANSFER_ROUTES = new Set([
   `${LocationType.WAREHOUSE}->${LocationType.CONTAINER}`,
   `${LocationType.CONTAINER}->${LocationType.WAREHOUSE}`,
   `${LocationType.CONTAINER}->${LocationType.CONTAINER}`,
+  // Workiz moves stock between stores too.
+  `${LocationType.WAREHOUSE}->${LocationType.WAREHOUSE}`,
 ]);
 
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
+
+/** The stock partition of a location: WAREHOUSE#<id> | CONTAINER#<id>. */
+function locationPK(type: LocationType, id: string): string {
+  return `${type.toUpperCase()}#${id}`;
+}
+
+/** What an audit-log line carries besides the item: where, why, who. */
+type MovementFields = Pick<InventoryLogEntry, 'userId' | 'userName'> &
+  Partial<
+    Pick<
+      InventoryLogEntry,
+      'fromType' | 'fromId' | 'fromName' | 'toType' | 'toId' | 'toName' | 'dealId' | 'reason'
+    >
+  >;
 
 @Injectable()
 export class TransfersService {
@@ -41,6 +72,8 @@ export class TransfersService {
     private readonly stockService: StockService,
     private readonly containersRepository: ContainersRepository,
     private readonly productsService: ProductsService,
+    private readonly locationsRepository: LocationsRepository,
+    @Optional() private readonly inventoryLog?: InventoryLogService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly redis?: RedisService,
@@ -72,8 +105,8 @@ export class TransfersService {
 
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
 
-    const fromPK = `${dto.fromType.toUpperCase()}#${dto.fromId}`;
-    const toPK = `${dto.toType.toUpperCase()}#${dto.toId}`;
+    const fromPK = locationPK(dto.fromType, dto.fromId);
+    const toPK = locationPK(dto.toType, dto.toId);
 
     await this.stockService.transfer(fromPK, toPK, dto.items);
 
@@ -95,6 +128,96 @@ export class TransfersService {
     this.businessMetrics?.stockTransfers.inc({ type: 'transfer' });
     publishInventoryEvent(this.snsPublisher, this.logger, 'transfer.created', {
       transferId: transfer.id,
+    });
+    await this.recordMovement(InventoryLogAction.STOCK_MOVED, dto.items, {
+      fromType: dto.fromType,
+      fromId: dto.fromId,
+      fromName: await this.locationName(dto.fromType, dto.fromId),
+      toType: dto.toType,
+      toId: dto.toId,
+      toName: await this.locationName(dto.toType, dto.toId),
+      userId: user.id,
+      userName: user.email,
+    });
+    return transfer;
+  }
+
+  /**
+   * Workiz "Add to stock": from the supplier into any location that holds
+   * stock. The one receive path — POST /warehouses/:id/receive lands here too.
+   */
+  async receiveStock(dto: ReceiveStockDto, user: JwtUser): Promise<Transfer> {
+    const location = await this.requireLocation(dto.toType, dto.toId);
+    const items = await this.stockableItems(dto.items, 'stock receive');
+
+    await this.stockService.receive(locationPK(dto.toType, dto.toId), items);
+
+    const transfer: Transfer = {
+      id: randomUUID(),
+      type: TransferType.RECEIVE,
+      fromType: LocationType.SUPPLIER,
+      fromId: null,
+      toType: dto.toType,
+      toId: dto.toId,
+      items,
+      performedBy: user.id,
+      performedByName: user.email,
+      notes: dto.notes,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.repository.create(transfer);
+    this.businessMetrics?.stockTransfers.inc({ type: 'receive' });
+    publishInventoryEvent(this.snsPublisher, this.logger, 'transfer.created', {
+      transferId: transfer.id,
+    });
+    await this.recordMovement(InventoryLogAction.STOCK_RECEIVED, items, {
+      toType: dto.toType,
+      toId: dto.toId,
+      toName: location.name,
+      userId: user.id,
+      userName: user.email,
+    });
+    return transfer;
+  }
+
+  /**
+   * Workiz "Return": stock leaves a location without a job — recalled,
+   * damaged or lost. Insufficient stock is the stock row's own 400.
+   */
+  async returnStock(dto: ReturnStockDto, user: JwtUser): Promise<Transfer> {
+    const location = await this.requireLocation(dto.fromType, dto.fromId);
+    const items = await this.stockableItems(dto.items, 'stock return');
+
+    await this.stockService.deduct(locationPK(dto.fromType, dto.fromId), items);
+
+    const transfer: Transfer = {
+      id: randomUUID(),
+      type: TransferType.RETURN,
+      fromType: dto.fromType,
+      fromId: dto.fromId,
+      toType: null,
+      toId: null,
+      items,
+      reason: dto.reason,
+      performedBy: user.id,
+      performedByName: user.email,
+      notes: dto.notes,
+      createdAt: new Date().toISOString(),
+    };
+
+    await this.repository.create(transfer);
+    this.businessMetrics?.stockTransfers.inc({ type: 'return' });
+    publishInventoryEvent(this.snsPublisher, this.logger, 'transfer.created', {
+      transferId: transfer.id,
+    });
+    await this.recordMovement(InventoryLogAction.STOCK_RETURNED, items, {
+      fromType: dto.fromType,
+      fromId: dto.fromId,
+      fromName: location.name,
+      reason: dto.reason,
+      userId: user.id,
+      userName: user.email,
     });
     return transfer;
   }
@@ -121,6 +244,23 @@ export class TransfersService {
     return managed;
   }
 
+  /**
+   * The user-facing movements' guard: services are rejected, untracked items
+   * dropped, and nothing left is a 400 — a silent no-op would hide why the
+   * count did not change.
+   */
+  private async stockableItems<T extends { productId: string; productName: string }>(
+    items: T[],
+    action: string,
+  ): Promise<T[]> {
+    await this.productsService.assertStockable(items.map((i) => i.productId));
+    const managed = await this.onlyStockManaged(items, action);
+    if (managed.length === 0) {
+      throw new BadRequestException('None of the items are stock-managed');
+    }
+    return managed;
+  }
+
   async deductStock(dto: DeductStockDto) {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     const items = await this.onlyStockManaged(dto.items, 'stock deduction');
@@ -140,9 +280,24 @@ export class TransfersService {
       items,
       performedBy: dto.performedBy,
       performedByName: dto.performedByName,
+      dealId: dto.dealId,
+      // Kept for readers written before `dealId` was its own field.
       notes: `Deal: ${dto.dealId}`,
       createdAt: new Date().toISOString(),
     });
+    await this.recordMovement(
+      InventoryLogAction.STOCK_USED,
+      items,
+      {
+        fromType: LocationType.CONTAINER,
+        fromId: containerId,
+        fromName: await this.locationName(LocationType.CONTAINER, containerId),
+        dealId: dto.dealId,
+        userId: dto.performedBy,
+        userName: dto.performedByName,
+      },
+      true,
+    );
   }
 
   async restoreStock(dto: RestoreStockDto) {
@@ -165,9 +320,73 @@ export class TransfersService {
       items,
       performedBy: dto.performedBy,
       performedByName: dto.performedByName,
+      dealId: dto.dealId,
       notes: `Deal: ${dto.dealId}`,
       createdAt: new Date().toISOString(),
     });
+    await this.recordMovement(
+      InventoryLogAction.STOCK_RESTORED,
+      items,
+      {
+        toType: LocationType.CONTAINER,
+        toId: containerId,
+        toName: await this.locationName(LocationType.CONTAINER, containerId),
+        dealId: dto.dealId,
+        userId: dto.performedBy,
+        userName: dto.performedByName,
+      },
+      true,
+    );
+  }
+
+  private async requireLocation(type: LocationType, id: string): Promise<LocationSummary> {
+    const location = await this.locationsRepository.findLocation(type, id);
+    if (!location) {
+      const label = type === LocationType.WAREHOUSE ? 'Warehouse' : 'Container';
+      throw new NotFoundException(`${label} "${id}" not found`);
+    }
+    return location;
+  }
+
+  /** The name the log shows for a location — its id when it has no row to name it. */
+  private async locationName(type: LocationType, id: string): Promise<string> {
+    try {
+      const location = await this.locationsRepository.findLocation(type, id);
+      return location?.name || id;
+    } catch {
+      return id;
+    }
+  }
+
+  /**
+   * One audit-log line per item. The product is read again — the stock guards
+   * cached it a moment ago — for its SKU and, on a job use or restore, for the
+   * price and cost the "Inventory usage" report values it at. An id this
+   * service never persisted simply has none of those. Never fails the movement.
+   */
+  private async recordMovement(
+    action: InventoryLogAction,
+    items: TransferItem[],
+    fields: MovementFields,
+    withUnitValues = false,
+  ): Promise<void> {
+    if (!this.inventoryLog) return;
+    for (const item of items) {
+      const product = await this.productsService
+        .loadForStock(item.productId)
+        .catch(() => null);
+      await this.inventoryLog.record({
+        action,
+        productId: item.productId,
+        productName: item.productName,
+        sku: product?.sku,
+        quantity: item.quantity,
+        ...fields,
+        ...(withUnitValues && product
+          ? { unitPrice: product.priceClient, unitCost: product.costCompany }
+          : {}),
+      });
+    }
   }
 
   async findById(id: string) {

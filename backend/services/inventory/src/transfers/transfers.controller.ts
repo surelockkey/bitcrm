@@ -12,6 +12,8 @@ import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
 import { TransfersService } from './transfers.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
+import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { ReturnStockDto } from './dto/return-stock.dto';
 import { DeductStockDto } from './dto/deduct-stock.dto';
 import { RestoreStockDto } from './dto/restore-stock.dto';
 import { ListTransfersQueryDto } from './dto/list-transfers-query.dto';
@@ -29,6 +31,33 @@ export class TransfersController {
   @ApiOperation({ summary: 'Create a transfer between locations', description: '**Guard:** `transfers.create` permission required.' })
   async create(@Body() dto: CreateTransferDto, @CurrentUser() user: JwtUser) {
     const data = await this.transfersService.createTransfer(dto, user);
+    return { success: true, data };
+  }
+
+  @Post('receive')
+  @RequirePermission('transfers', 'create')
+  @ApiOperation({
+    summary: 'Receive stock from the supplier into a warehouse or container',
+    description:
+      '**Guard:** `transfers.create` permission required. Workiz "Add to stock": the location ' +
+      'must exist (404 otherwise); services are rejected and non-stock-managed items dropped, ' +
+      'a list with none left is a 400. Answers the RECEIVE transfer.',
+  })
+  async receiveStock(@Body() dto: ReceiveStockDto, @CurrentUser() user: JwtUser) {
+    const data = await this.transfersService.receiveStock(dto, user);
+    return { success: true, data };
+  }
+
+  @Post('return')
+  @RequirePermission('transfers', 'create')
+  @ApiOperation({
+    summary: 'Return stock out of a location (recall, damaged, lost)',
+    description:
+      '**Guard:** `transfers.create` permission required. Stock leaves the location without a ' +
+      'job, with a reason; insufficient stock is a 400. Answers the RETURN transfer.',
+  })
+  async returnStock(@Body() dto: ReturnStockDto, @CurrentUser() user: JwtUser) {
+    const data = await this.transfersService.returnStock(dto, user);
     return { success: true, data };
   }
 

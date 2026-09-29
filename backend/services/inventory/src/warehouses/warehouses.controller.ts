@@ -15,7 +15,7 @@ import { type JwtUser } from '@bitcrm/types';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
-import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { ReceiveWarehouseStockDto } from './dto/receive-stock.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { coerceInternalLimit } from '../common/utils/internal-pagination';
@@ -99,7 +99,7 @@ export class WarehousesController {
   @ApiOperation({ summary: 'Receive stock into warehouse', description: '**Guard:** `warehouses.edit` permission required.' })
   async receiveStock(
     @Param('id') id: string,
-    @Body() dto: ReceiveStockDto,
+    @Body() dto: ReceiveWarehouseStockDto,
     @CurrentUser() user: JwtUser,
   ) {
     await this.warehousesService.receiveStock(id, dto.items, user);

@@ -14,14 +14,11 @@ import {
   type JwtUser,
   type ListCount,
   InventoryStatus,
-  TransferType,
   LocationType,
 } from '@bitcrm/types';
 import { WarehousesRepository } from './warehouses.repository';
-import { StockService } from '../stock/stock.service';
 import { StockRepository } from '../stock/stock.repository';
-import { TransfersRepository } from '../transfers/transfers.repository';
-import { ProductsService } from '../products/products.service';
+import { TransfersService } from '../transfers/transfers.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
@@ -35,10 +32,8 @@ export class WarehousesService {
 
   constructor(
     private readonly repository: WarehousesRepository,
-    private readonly stockService: StockService,
     private readonly stockRepository: StockRepository,
-    private readonly transfersRepository: TransfersRepository,
-    private readonly productsService: ProductsService,
+    private readonly transfersService: TransfersService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly redis?: RedisService,
   ) {}
@@ -117,26 +112,18 @@ export class WarehousesService {
     return this.stockRepository.getStockLevels(`WAREHOUSE#${warehouseId}`);
   }
 
+  /**
+   * One receive path: the same checks, journal row and audit log as a receive
+   * into a container. An unknown warehouse is its 404.
+   */
   async receiveStock(
     warehouseId: string,
     items: TransferItem[],
     user: JwtUser,
   ): Promise<void> {
-    await this.findById(warehouseId);
-    await this.productsService.assertStockable(items.map((i) => i.productId));
-    await this.stockService.receive(`WAREHOUSE#${warehouseId}`, items);
-
-    await this.transfersRepository.create({
-      id: randomUUID(),
-      type: TransferType.RECEIVE,
-      fromType: LocationType.SUPPLIER,
-      fromId: null,
-      toType: LocationType.WAREHOUSE,
-      toId: warehouseId,
-      items,
-      performedBy: user.id,
-      performedByName: user.email,
-      createdAt: new Date().toISOString(),
-    });
+    await this.transfersService.receiveStock(
+      { toType: LocationType.WAREHOUSE, toId: warehouseId, items },
+      user,
+    );
   }
 }

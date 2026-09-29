@@ -1,42 +1,35 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { InventoryStatus, TransferType, LocationType } from '@bitcrm/types';
+import { NotFoundException } from '@nestjs/common';
+import { InventoryStatus, LocationType } from '@bitcrm/types';
 import { SnsPublisherService, RedisService } from '@bitcrm/shared';
 import { WarehousesService } from 'src/warehouses/warehouses.service';
 import { WarehousesRepository } from 'src/warehouses/warehouses.repository';
-import { StockService } from 'src/stock/stock.service';
 import { StockRepository } from 'src/stock/stock.repository';
-import { TransfersRepository } from 'src/transfers/transfers.repository';
-import { ProductsService } from 'src/products/products.service';
+import { TransfersService } from 'src/transfers/transfers.service';
 import {
   createMockWarehouse,
   createMockCreateWarehouseDto,
   createMockStockItem,
   createMockJwtUser,
+  createMockTransfer,
   createMockWarehousesRepository,
-  createMockStockService,
   createMockStockRepository,
-  createMockTransfersRepository,
-  createMockProductsService,
+  createMockTransfersService,
 } from '../mocks';
 
 describe('WarehousesService', () => {
   let service: WarehousesService;
   let repository: ReturnType<typeof createMockWarehousesRepository>;
-  let stockService: ReturnType<typeof createMockStockService>;
   let stockRepository: ReturnType<typeof createMockStockRepository>;
-  let transfersRepository: ReturnType<typeof createMockTransfersRepository>;
-  let productsService: ReturnType<typeof createMockProductsService>;
+  let transfersService: ReturnType<typeof createMockTransfersService>;
 
   let publisher: { publish: jest.Mock };
 
   beforeEach(async () => {
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     repository = createMockWarehousesRepository();
-    stockService = createMockStockService();
     stockRepository = createMockStockRepository();
-    transfersRepository = createMockTransfersRepository();
-    productsService = createMockProductsService();
+    transfersService = createMockTransfersService();
 
     const store = new Map<string, string>();
     const redis = {
@@ -53,10 +46,8 @@ describe('WarehousesService', () => {
       providers: [
         WarehousesService,
         { provide: WarehousesRepository, useValue: repository },
-        { provide: StockService, useValue: stockService },
         { provide: StockRepository, useValue: stockRepository },
-        { provide: TransfersRepository, useValue: transfersRepository },
-        { provide: ProductsService, useValue: productsService },
+        { provide: TransfersService, useValue: transfersService },
         { provide: SnsPublisherService, useValue: publisher },
         { provide: RedisService, useValue: redis },
       ],
@@ -230,54 +221,32 @@ describe('WarehousesService', () => {
     });
   });
 
+  /**
+   * Один шлях отримання: POST /warehouses/:id/receive — це receive у
+   * TransfersService у склад, з тими самими перевірками й журналом.
+   */
   describe('receiveStock', () => {
-    it('should call StockService.receive and create transfer record', async () => {
-      const warehouse = createMockWarehouse();
+    it('delegates to the transfers service as a receive into the warehouse', async () => {
       const user = createMockJwtUser();
       const items = [{ productId: 'prod-1', productName: 'Test Product', quantity: 5 }];
-      repository.findById.mockResolvedValue(warehouse);
-      stockService.receive.mockResolvedValue(undefined);
-      transfersRepository.create.mockResolvedValue(undefined);
+      transfersService.receiveStock.mockResolvedValue(createMockTransfer());
 
       await service.receiveStock('wh-1', items, user);
 
-      expect(stockService.receive).toHaveBeenCalledWith('WAREHOUSE#wh-1', items);
-      expect(transfersRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: TransferType.RECEIVE,
-          fromType: LocationType.SUPPLIER,
-          fromId: null,
-          toType: LocationType.WAREHOUSE,
-          toId: 'wh-1',
-          items,
-          performedBy: user.id,
-          performedByName: user.email,
-        }),
+      expect(transfersService.receiveStock).toHaveBeenCalledWith(
+        { toType: LocationType.WAREHOUSE, toId: 'wh-1', items },
+        user,
       );
     });
 
-    it('should throw NotFoundException if warehouse does not exist', async () => {
-      repository.findById.mockResolvedValue(null);
+    it('lets the transfers service answer 404 for an unknown warehouse', async () => {
+      transfersService.receiveStock.mockRejectedValue(
+        new NotFoundException('Warehouse "nonexistent" not found'),
+      );
 
       await expect(
         service.receiveStock('nonexistent', [], createMockJwtUser()),
       ).rejects.toThrow(NotFoundException);
-    });
-
-    it('rejects receiving a service-type product and never touches stock', async () => {
-      const warehouse = createMockWarehouse();
-      const items = [{ productId: 'svc-1', productName: 'Rekey', quantity: 1 }];
-      repository.findById.mockResolvedValue(warehouse);
-      productsService.assertStockable.mockRejectedValueOnce(
-        new BadRequestException('Services cannot be stocked or transferred: Rekey'),
-      );
-
-      await expect(
-        service.receiveStock('wh-1', items, createMockJwtUser()),
-      ).rejects.toThrow(BadRequestException);
-      expect(productsService.assertStockable).toHaveBeenCalledWith(['svc-1']);
-      expect(stockService.receive).not.toHaveBeenCalled();
-      expect(transfersRepository.create).not.toHaveBeenCalled();
     });
   });
 });

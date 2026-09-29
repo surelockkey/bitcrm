@@ -1,19 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
-import { TransferType, LocationType } from '@bitcrm/types';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { InventoryLogAction, ReturnReason, TransferType, LocationType } from '@bitcrm/types';
 import { SnsPublisherService, RedisService } from '@bitcrm/shared';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
+import { LocationsRepository } from 'src/stock/locations.repository';
 import { ContainersRepository } from 'src/containers/containers.repository';
 import { ProductsService } from 'src/products/products.service';
+import { InventoryLogService } from 'src/inventory-log/inventory-log.service';
 import {
   createMockTransfer,
   createMockCreateTransferDto,
   createMockJwtUser,
+  createMockLocationSummary,
+  createMockProduct,
   createMockTransfersRepository,
   createMockStockService,
   createMockProductsService,
+  createMockLocationsRepository,
+  createMockInventoryLogService,
 } from '../mocks';
 
 describe('TransfersService', () => {
@@ -22,6 +28,8 @@ describe('TransfersService', () => {
   let stockService: ReturnType<typeof createMockStockService>;
   let containersRepository: { findByTechnicianId: jest.Mock };
   let productsService: ReturnType<typeof createMockProductsService>;
+  let locationsRepository: ReturnType<typeof createMockLocationsRepository>;
+  let inventoryLog: ReturnType<typeof createMockInventoryLogService>;
 
   let publisher: { publish: jest.Mock };
 
@@ -30,6 +38,8 @@ describe('TransfersService', () => {
     repository = createMockTransfersRepository();
     stockService = createMockStockService();
     productsService = createMockProductsService();
+    locationsRepository = createMockLocationsRepository();
+    inventoryLog = createMockInventoryLogService();
     // Default: the id is not a technician id, so it's treated as a container id.
     containersRepository = { findByTechnicianId: jest.fn().mockResolvedValue(null) };
     const store = new Map<string, string>();
@@ -50,6 +60,8 @@ describe('TransfersService', () => {
         { provide: StockService, useValue: stockService },
         { provide: ContainersRepository, useValue: containersRepository },
         { provide: ProductsService, useValue: productsService },
+        { provide: LocationsRepository, useValue: locationsRepository },
+        { provide: InventoryLogService, useValue: inventoryLog },
         { provide: SnsPublisherService, useValue: publisher },
         { provide: RedisService, useValue: redis },
       ],
@@ -129,7 +141,8 @@ describe('TransfersService', () => {
       expect(stockService.transfer).not.toHaveBeenCalled();
     });
 
-    it('should reject warehouse->warehouse transfers', async () => {
+    // Workiz moves stock between stores too.
+    it('allows warehouse->warehouse transfers', async () => {
       const dto = createMockCreateTransferDto({
         fromType: LocationType.WAREHOUSE,
         fromId: 'wh-1',
@@ -137,9 +150,65 @@ describe('TransfersService', () => {
         toId: 'wh-2',
       });
       const user = createMockJwtUser();
+      stockService.transfer.mockResolvedValue(undefined);
+      repository.create.mockResolvedValue(undefined);
 
-      await expect(service.createTransfer(dto, user)).rejects.toThrow(
-        BadRequestException,
+      const result = await service.createTransfer(dto, user);
+
+      expect(result.type).toBe(TransferType.TRANSFER);
+      expect(stockService.transfer).toHaveBeenCalledWith('WAREHOUSE#wh-1', 'WAREHOUSE#wh-2', dto.items);
+    });
+
+    /** Журнал: кожен рядок руху названий з обох боків, як у Workiz "from Taras's van to Main". */
+    it('records stock_moved per item with both location names', async () => {
+      const dto = createMockCreateTransferDto({
+        items: [
+          { productId: 'prod-1', productName: 'Deadbolt', quantity: 2 },
+          { productId: 'prod-2', productName: 'Knob', quantity: 1 },
+        ],
+      });
+      const user = createMockJwtUser();
+      locationsRepository.findLocation.mockImplementation(async (type: LocationType, id: string) =>
+        type === LocationType.WAREHOUSE
+          ? createMockLocationSummary({ type: 'warehouse', id, name: 'Main Warehouse' })
+          : createMockLocationSummary({ type: 'container', id, name: "Taras's van" }),
+      );
+      productsService.loadForStock.mockResolvedValue(createMockProduct({ sku: 'SKU-001' }));
+
+      await service.createTransfer(dto, user);
+
+      expect(locationsRepository.findLocation).toHaveBeenCalledWith(LocationType.WAREHOUSE, 'wh-1');
+      expect(locationsRepository.findLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'container-1');
+      expect(inventoryLog.record).toHaveBeenCalledTimes(2);
+      expect(inventoryLog.record).toHaveBeenNthCalledWith(1, {
+        action: InventoryLogAction.STOCK_MOVED,
+        productId: 'prod-1',
+        productName: 'Deadbolt',
+        sku: 'SKU-001',
+        quantity: 2,
+        fromType: LocationType.WAREHOUSE,
+        fromId: 'wh-1',
+        fromName: 'Main Warehouse',
+        toType: LocationType.CONTAINER,
+        toId: 'container-1',
+        toName: "Taras's van",
+        userId: user.id,
+        userName: user.email,
+      });
+      expect(inventoryLog.record).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ productId: 'prod-2', quantity: 1 }),
+      );
+    });
+
+    it('falls back to the id when a location has no row to name it', async () => {
+      const dto = createMockCreateTransferDto();
+      locationsRepository.findLocation.mockResolvedValue(null);
+
+      await service.createTransfer(dto, createMockJwtUser());
+
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ fromName: 'wh-1', toName: 'container-1' }),
       );
     });
 
@@ -228,7 +297,93 @@ describe('TransfersService', () => {
     });
   });
 
+  /**
+   * Списання на роботу — те, що звіт "Inventory usage" сумує: робота, хто,
+   * звідки, і ціна з собівартістю на момент списання.
+   */
+  describe('deductStock — journal and audit log', () => {
+    const dto = {
+      containerId: 'container-1',
+      items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 3 }],
+      dealId: 'deal-1',
+      performedBy: 'tech-1',
+      performedByName: 'tech@test.com',
+    };
+
+    it('stamps the deal on the transfer and records stock_used with price and cost', async () => {
+      productsService.loadForStock.mockResolvedValue(
+        createMockProduct({ sku: 'SKU-001', priceClient: 25, costCompany: 10 }),
+      );
+      locationsRepository.findLocation.mockResolvedValue(createMockLocationSummary({ name: "Taras's van" }));
+
+      await service.deductStock(dto as any);
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: TransferType.DEDUCT, dealId: 'deal-1', notes: 'Deal: deal-1' }),
+      );
+      expect(inventoryLog.record).toHaveBeenCalledWith({
+        action: InventoryLogAction.STOCK_USED,
+        productId: 'prod-1',
+        productName: 'Test Product',
+        sku: 'SKU-001',
+        quantity: 3,
+        fromType: LocationType.CONTAINER,
+        fromId: 'container-1',
+        fromName: "Taras's van",
+        dealId: 'deal-1',
+        userId: 'tech-1',
+        userName: 'tech@test.com',
+        unitPrice: 25,
+        unitCost: 10,
+      });
+    });
+
+    it('leaves price and cost off when the product is unknown here', async () => {
+      productsService.loadForStock.mockResolvedValue(null);
+
+      await service.deductStock(dto as any);
+
+      const entry = inventoryLog.record.mock.calls[0][0];
+      expect(entry.action).toBe(InventoryLogAction.STOCK_USED);
+      expect(entry).not.toHaveProperty('unitPrice');
+      expect(entry).not.toHaveProperty('unitCost');
+    });
+  });
+
   describe('restoreStock', () => {
+    it('stamps the deal on the transfer and records stock_restored into the container', async () => {
+      const dto = {
+        containerId: 'container-1',
+        items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 3 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-1',
+        performedByName: 'tech@test.com',
+      };
+      productsService.loadForStock.mockResolvedValue(createMockProduct({ priceClient: 25, costCompany: 10 }));
+      locationsRepository.findLocation.mockResolvedValue(createMockLocationSummary({ name: "Taras's van" }));
+
+      await service.restoreStock(dto as any);
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: TransferType.RESTORE, dealId: 'deal-1', notes: 'Deal: deal-1' }),
+      );
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: InventoryLogAction.STOCK_RESTORED,
+          productId: 'prod-1',
+          quantity: 3,
+          toType: LocationType.CONTAINER,
+          toId: 'container-1',
+          toName: "Taras's van",
+          dealId: 'deal-1',
+          userId: 'tech-1',
+          userName: 'tech@test.com',
+          unitPrice: 25,
+          unitCost: 10,
+        }),
+      );
+    });
+
     it('should call StockService.receive and create RESTORE transfer', async () => {
       const dto = {
         containerId: 'container-1',
@@ -318,6 +473,196 @@ describe('TransfersService', () => {
         BadRequestException,
       );
       expect(productsService.partitionStockManaged).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * "Add to stock" на рядку товару у Workiz: отримати від постачальника в
+   * будь-яку локацію — склад або фургон. Один шлях і для POST /warehouses/:id/receive.
+   */
+  describe('receiveStock', () => {
+    const items = [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 5 }];
+    const user = createMockJwtUser();
+
+    beforeEach(() => {
+      locationsRepository.findLocation.mockResolvedValue(
+        createMockLocationSummary({ type: 'warehouse', id: 'wh-1', name: 'Main Warehouse' }),
+      );
+    });
+
+    it('404s on a location that does not exist and touches nothing', async () => {
+      locationsRepository.findLocation.mockResolvedValue(null);
+
+      await expect(
+        service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'ghost', items }, user),
+      ).rejects.toThrow(NotFoundException);
+      expect(locationsRepository.findLocation).toHaveBeenCalledWith(LocationType.WAREHOUSE, 'ghost');
+      expect(stockService.receive).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('receives into a warehouse and journals a RECEIVE from the supplier', async () => {
+      const result = await service.receiveStock(
+        { toType: LocationType.WAREHOUSE, toId: 'wh-1', items, notes: 'PO 12' },
+        user,
+      );
+
+      expect(productsService.assertStockable).toHaveBeenCalledWith(['prod-1']);
+      expect(stockService.receive).toHaveBeenCalledWith('WAREHOUSE#wh-1', items);
+      expect(result).toMatchObject({
+        type: TransferType.RECEIVE,
+        fromType: LocationType.SUPPLIER,
+        fromId: null,
+        toType: LocationType.WAREHOUSE,
+        toId: 'wh-1',
+        items,
+        notes: 'PO 12',
+        performedBy: user.id,
+        performedByName: user.email,
+      });
+      expect(result.id).toBeDefined();
+      expect(repository.create).toHaveBeenCalledWith(result);
+      expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'transfer.created', {
+        transferId: result.id,
+      });
+    });
+
+    it('receives into a container', async () => {
+      locationsRepository.findLocation.mockResolvedValue(createMockLocationSummary());
+
+      const result = await service.receiveStock({ toType: LocationType.CONTAINER, toId: 'container-1', items }, user);
+
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#container-1', items);
+      expect(result).toMatchObject({ toType: LocationType.CONTAINER, toId: 'container-1' });
+    });
+
+    it('records stock_received per item with the location name', async () => {
+      productsService.loadForStock.mockResolvedValue(createMockProduct({ sku: 'SKU-001' }));
+      const two = [...items, { productId: 'prod-2', productName: 'Knob', quantity: 1 }];
+
+      await service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items: two }, user);
+
+      expect(inventoryLog.record).toHaveBeenCalledTimes(2);
+      expect(inventoryLog.record).toHaveBeenNthCalledWith(1, {
+        action: InventoryLogAction.STOCK_RECEIVED,
+        productId: 'prod-1',
+        productName: 'Deadbolt',
+        sku: 'SKU-001',
+        quantity: 5,
+        toType: LocationType.WAREHOUSE,
+        toId: 'wh-1',
+        toName: 'Main Warehouse',
+        userId: user.id,
+        userName: user.email,
+      });
+    });
+
+    it('rejects a service-type product before touching stock', async () => {
+      productsService.assertStockable.mockRejectedValueOnce(
+        new BadRequestException('Services cannot be stocked or transferred: Rekey'),
+      );
+
+      await expect(
+        service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items }, user),
+      ).rejects.toThrow(BadRequestException);
+      expect(stockService.receive).not.toHaveBeenCalled();
+    });
+
+    it('drops non-stock-managed items, and refuses when none is left', async () => {
+      const untracked = { productId: 'prod-2', productName: 'Shop rag', quantity: 1 };
+      productsService.partitionStockManaged.mockImplementation(async (list: { productId: string }[]) => ({
+        managed: list.filter((i) => i.productId !== 'prod-2'),
+        unmanaged: list.filter((i) => i.productId === 'prod-2'),
+      }));
+
+      await service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items: [...items, untracked] }, user);
+      expect(stockService.receive).toHaveBeenCalledWith('WAREHOUSE#wh-1', items);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ items }));
+
+      await expect(
+        service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items: [untracked] }, user),
+      ).rejects.toThrow(BadRequestException);
+      expect(stockService.receive).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /** "Return" на рядку товару у Workiz: товар іде з локації без роботи, з причиною. */
+  describe('returnStock', () => {
+    const items = [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 2 }];
+    const user = createMockJwtUser();
+
+    beforeEach(() => {
+      locationsRepository.findLocation.mockResolvedValue(createMockLocationSummary({ name: "Taras's van" }));
+    });
+
+    it('404s on a location that does not exist', async () => {
+      locationsRepository.findLocation.mockResolvedValue(null);
+
+      await expect(
+        service.returnStock(
+          { fromType: LocationType.CONTAINER, fromId: 'ghost', items, reason: ReturnReason.LOST },
+          user,
+        ),
+      ).rejects.toThrow(NotFoundException);
+      expect(stockService.deduct).not.toHaveBeenCalled();
+    });
+
+    it('deducts from the location and journals a RETURN with its reason', async () => {
+      const result = await service.returnStock(
+        { fromType: LocationType.CONTAINER, fromId: 'container-1', items, reason: ReturnReason.DAMAGED, notes: 'bent' },
+        user,
+      );
+
+      expect(stockService.deduct).toHaveBeenCalledWith('CONTAINER#container-1', items);
+      expect(result).toMatchObject({
+        type: TransferType.RETURN,
+        fromType: LocationType.CONTAINER,
+        fromId: 'container-1',
+        toType: null,
+        toId: null,
+        items,
+        reason: ReturnReason.DAMAGED,
+        notes: 'bent',
+        performedBy: user.id,
+        performedByName: user.email,
+      });
+      expect(repository.create).toHaveBeenCalledWith(result);
+      expect(publisher.publish).toHaveBeenCalledWith('inventory-events', 'transfer.created', {
+        transferId: result.id,
+      });
+    });
+
+    it('records stock_returned per item with the reason and the source name', async () => {
+      await service.returnStock(
+        { fromType: LocationType.CONTAINER, fromId: 'container-1', items, reason: ReturnReason.RECALL },
+        user,
+      );
+
+      expect(inventoryLog.record).toHaveBeenCalledWith({
+        action: InventoryLogAction.STOCK_RETURNED,
+        productId: 'prod-1',
+        productName: 'Deadbolt',
+        quantity: 2,
+        fromType: LocationType.CONTAINER,
+        fromId: 'container-1',
+        fromName: "Taras's van",
+        reason: ReturnReason.RECALL,
+        userId: user.id,
+        userName: user.email,
+      });
+    });
+
+    it('propagates insufficient stock and writes no transfer', async () => {
+      stockService.deduct.mockRejectedValueOnce(new BadRequestException('Insufficient stock'));
+
+      await expect(
+        service.returnStock(
+          { fromType: LocationType.WAREHOUSE, fromId: 'wh-1', items, reason: ReturnReason.OTHER },
+          user,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.create).not.toHaveBeenCalled();
+      expect(inventoryLog.record).not.toHaveBeenCalled();
     });
   });
 

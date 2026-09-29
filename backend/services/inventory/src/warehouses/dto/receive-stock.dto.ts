@@ -17,7 +17,7 @@ class ReceiveStockItemDto {
   quantity!: number;
 }
 
-export class ReceiveStockDto {
+export class ReceiveWarehouseStockDto {
   @ApiProperty({ type: [ReceiveStockItemDto] })
   @IsArray()
   @ValidateNested({ each: true })

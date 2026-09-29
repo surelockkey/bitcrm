@@ -1,5 +1,44 @@
+import { ReturnReason, TransferType } from '@bitcrm/types';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { createMockTransfer, createMockDynamoDbService } from '../mocks';
+
+/** Рядок руху несе роботу (deduct/restore) і причину (return) — і віддає їх назад. */
+describe('TransfersRepository.findById', () => {
+  let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
+  let repository: TransfersRepository;
+
+  beforeEach(() => {
+    dynamoDb = createMockDynamoDbService();
+    repository = new TransfersRepository(dynamoDb as any);
+  });
+
+  it('reads dealId and reason back off the row', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Item: {
+        ...createMockTransfer({ type: TransferType.RETURN, toType: null, toId: null }),
+        dealId: 'deal-1',
+        reason: ReturnReason.DAMAGED,
+        PK: 'TRANSFER#transfer-1',
+        SK: 'METADATA',
+      },
+    });
+
+    const transfer = await repository.findById('transfer-1');
+
+    expect(transfer).toMatchObject({ dealId: 'deal-1', reason: ReturnReason.DAMAGED });
+  });
+
+  it('leaves them off a row that has none', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Item: { ...createMockTransfer(), PK: 'TRANSFER#transfer-1', SK: 'METADATA' },
+    });
+
+    const transfer = await repository.findById('transfer-1');
+
+    expect(transfer?.dealId).toBeUndefined();
+    expect(transfer?.reason).toBeUndefined();
+  });
+});
 
 /**
  * Рух товару лежить у спільній таблиці інвентарю поруч із товарами, SKU,

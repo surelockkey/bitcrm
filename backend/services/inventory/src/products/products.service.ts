@@ -10,6 +10,8 @@ import { parse } from 'csv-parse/sync';
 import {
   type Product,
   type ProductWithExtras,
+  type JwtUser,
+  InventoryLogAction,
   ProductType,
   InventoryStatus,
   UNCATEGORIZED_CATEGORY,
@@ -27,6 +29,7 @@ import {
 } from '@bitcrm/shared';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
+import { InventoryLogService } from '../inventory-log/inventory-log.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -76,6 +79,35 @@ export interface CsvImportResult {
   errors: Array<{ row: number; message: string }>;
 }
 
+/** Who the audit log names for a change. */
+interface LogActor {
+  userId: string;
+  userName: string;
+}
+
+/** A write with no request user behind it: internal callers and scripts. */
+const SYSTEM_ACTOR: LogActor = { userId: 'system', userName: 'system' };
+/** Rows the CSV importer wrote with no signed-in user handed in. */
+const CSV_IMPORT_ACTOR: LogActor = { userId: 'system', userName: 'csv-import' };
+
+function logActor(actor: JwtUser | undefined, fallback: LogActor): LogActor {
+  return actor ? { userId: actor.id, userName: actor.email } : fallback;
+}
+
+/**
+ * The keys of `attrs` whose value differs from what the product holds — what
+ * an `item_updated` log entry lists. `null` and a missing attribute are the
+ * same absence.
+ */
+export function changedProductFields(existing: Product, attrs: Partial<Product>): string[] {
+  const record = existing as unknown as Record<string, unknown>;
+  return Object.keys(attrs).filter((key) => {
+    const before = JSON.stringify(record[key] ?? null);
+    const after = JSON.stringify((attrs as Record<string, unknown>)[key] ?? null);
+    return before !== after;
+  });
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -87,7 +119,25 @@ export class ProductsService {
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly itemCategories?: ItemCategoriesService,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly inventoryLog?: InventoryLogService,
   ) {}
+
+  /** One audit-log line for an item edit; the log itself never throws. */
+  private async recordItem(
+    action: InventoryLogAction,
+    product: Product,
+    who: LogActor,
+    extra: { changedFields?: string[] } = {},
+  ): Promise<void> {
+    await this.inventoryLog?.record({
+      action,
+      productId: product.id,
+      productName: product.name,
+      sku: product.sku,
+      ...who,
+      ...extra,
+    });
+  }
 
   /**
    * `category` stays required in the API, but the `Uncategorized` sentinel is
@@ -121,7 +171,7 @@ export class ProductsService {
     return rest as T;
   }
 
-  async create(dto: CreateProductDto): Promise<Product> {
+  async create(dto: CreateProductDto, actor?: JwtUser): Promise<Product> {
     const now = new Date().toISOString();
     const product: Product = {
       id: randomUUID(),
@@ -138,6 +188,7 @@ export class ProductsService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.created', {
       productId: product.id,
     });
+    await this.recordItem(InventoryLogAction.ITEM_CREATED, product, logActor(actor, SYSTEM_ACTOR));
     return product;
   }
 
@@ -155,17 +206,17 @@ export class ProductsService {
   }
 
   /**
-   * One read per product for the stock guards, shared between them.
-   * `assertStockable` and `partitionStockManaged` run back to back on every
-   * deduct and every restore; without a shared read that is 2 × GetItem per
-   * distinct product. Unlike `findById` this resolves an unknown id to null
-   * instead of throwing — stock callers may pass ids this service never
-   * persisted.
+   * One read per product for the stock paths, shared between the guards and
+   * the audit log. `assertStockable` and `partitionStockManaged` run back to
+   * back on every deduct and every restore; without a shared read that is
+   * 2 × GetItem per distinct product. Unlike `findById` this resolves an
+   * unknown id to null instead of throwing — stock callers may pass ids this
+   * service never persisted.
    *
    * Cache failures degrade to a plain repository read: these paths worked with
    * no Redis dependency at all before, and must keep working if it is down.
    */
-  private async loadForStockGuard(id: string): Promise<ProductWithExtras | null> {
+  async loadForStock(id: string): Promise<ProductWithExtras | null> {
     try {
       const cached = await this.cache.get(id);
       if (cached) return cached as ProductWithExtras;
@@ -198,7 +249,7 @@ export class ProductsService {
     const uniqueIds = [...new Set(productIds)];
     const serviceNames: string[] = [];
     for (const id of uniqueIds) {
-      const product = await this.loadForStockGuard(id);
+      const product = await this.loadForStock(id);
       if (product?.type === ProductType.SERVICE) {
         serviceNames.push(product.name);
       }
@@ -223,11 +274,11 @@ export class ProductsService {
    * exactly `false`. Everything BitCRM has written carries no such attribute,
    * so this changes nothing for existing data.
    *
-   * Shares `loadForStockGuard` with `assertStockable`, which always runs
+   * Shares `loadForStock` with `assertStockable`, which always runs
    * first, so the product is fetched once per movement rather than twice.
    */
   async isStockManaged(productId: string): Promise<boolean> {
-    const product = await this.loadForStockGuard(productId);
+    const product = await this.loadForStock(productId);
     return product?.manageStock !== false;
   }
 
@@ -312,8 +363,27 @@ export class ProductsService {
     );
   }
 
-  async update(id: string, dto: UpdateProductDto): Promise<Product> {
-    await this.findById(id); // Ensure exists
+  async update(id: string, dto: UpdateProductDto, actor?: JwtUser): Promise<Product> {
+    const { product, changedFields } = await this.applyUpdate(id, dto);
+    // An edit that changed nothing is not a line in the log.
+    if (changedFields.length > 0) {
+      await this.recordItem(InventoryLogAction.ITEM_UPDATED, product, logActor(actor, SYSTEM_ACTOR), {
+        changedFields,
+      });
+    }
+    return product;
+  }
+
+  /**
+   * The write behind update, archive and reactivate, answering which of the
+   * given fields differ from what was stored — compared after the category
+   * normalisation, so "uncategorized" over "Uncategorized" is no change.
+   */
+  private async applyUpdate(
+    id: string,
+    dto: UpdateProductDto,
+  ): Promise<{ product: Product; changedFields: string[] }> {
+    const existing = await this.findById(id); // Ensure exists
     const attrs: Partial<Product> = { ...ProductsService.stripReadOnly(dto) };
     if (typeof dto.category === 'string') {
       attrs.category = await this.prepareCategory(dto.category);
@@ -323,15 +393,19 @@ export class ProductsService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.updated', {
       productId: id,
     });
+    return { product, changedFields: changedProductFields(existing, attrs) };
+  }
+
+  async archive(id: string, actor?: JwtUser): Promise<Product> {
+    const { product } = await this.applyUpdate(id, { status: InventoryStatus.ARCHIVED } as any);
+    await this.recordItem(InventoryLogAction.ITEM_ARCHIVED, product, logActor(actor, SYSTEM_ACTOR));
     return product;
   }
 
-  async archive(id: string): Promise<Product> {
-    return this.update(id, { status: InventoryStatus.ARCHIVED } as any);
-  }
-
-  async reactivate(id: string): Promise<Product> {
-    return this.update(id, { status: InventoryStatus.ACTIVE } as any);
+  async reactivate(id: string, actor?: JwtUser): Promise<Product> {
+    const { product } = await this.applyUpdate(id, { status: InventoryStatus.ACTIVE } as any);
+    await this.recordItem(InventoryLogAction.ITEM_RESTORED, product, logActor(actor, SYSTEM_ACTOR));
+    return product;
   }
 
   async findByBarcode(barcode: string): Promise<Product> {
@@ -381,8 +455,13 @@ export class ProductsService {
     return { downloadUrl };
   }
 
-  async importFromCsv(buffer: Buffer, dryRun = false): Promise<CsvImportResult> {
+  async importFromCsv(
+    buffer: Buffer,
+    dryRun = false,
+    actor?: JwtUser,
+  ): Promise<CsvImportResult> {
     const result: CsvImportResult = { created: 0, updated: 0, errors: [] };
+    const who = logActor(actor, CSV_IMPORT_ACTOR);
 
     let records: any[];
     try {
@@ -417,7 +496,7 @@ export class ProductsService {
 
         if (existing) {
           if (!dryRun) {
-            await this.repository.update(existing.id, {
+            const attrs: Partial<Product> = {
               name: row.name,
               category,
               type,
@@ -436,14 +515,24 @@ export class ProductsService {
               ...(row.supplier && { supplier: row.supplier }),
               ...(row.barcode && { barcode: row.barcode }),
               ...(row.description && { description: row.description }),
-            });
+            };
+            await this.repository.update(existing.id, attrs);
             await this.cache.invalidate(existing.id);
+            const changedFields = changedProductFields(existing, attrs);
+            if (changedFields.length > 0) {
+              await this.recordItem(
+                InventoryLogAction.ITEM_UPDATED,
+                { ...existing, ...attrs },
+                who,
+                { changedFields },
+              );
+            }
           }
           result.updated++;
         } else {
           if (!dryRun) {
             const now = new Date().toISOString();
-            await this.repository.create({
+            const product: Product = {
               id: randomUUID(),
               number: await this.repository.nextNumber(),
               sku: row.sku,
@@ -463,7 +552,9 @@ export class ProductsService {
               status: InventoryStatus.ACTIVE,
               createdAt: now,
               updatedAt: now,
-            });
+            };
+            await this.repository.create(product);
+            await this.recordItem(InventoryLogAction.ITEM_CREATED, product, who);
           }
           result.created++;
         }

@@ -5,11 +5,13 @@ import { ProductsService } from 'src/products/products.service';
 import {
   createMockProduct,
   createMockCreateProductDto,
+  createMockJwtUser,
 } from '../mocks';
 
 describe('ProductsController', () => {
   let controller: ProductsController;
   let service: Record<string, jest.Mock>;
+  const user = createMockJwtUser();
 
   beforeEach(async () => {
     service = {
@@ -21,6 +23,7 @@ describe('ProductsController', () => {
       findBySku: jest.fn(),
       update: jest.fn(),
       archive: jest.fn(),
+      reactivate: jest.fn(),
       importFromCsv: jest.fn(),
       getPhotoUploadUrl: jest.fn(),
       getPhotoDownloadUrl: jest.fn(),
@@ -34,16 +37,17 @@ describe('ProductsController', () => {
     controller = module.get<ProductsController>(ProductsController);
   });
 
+  // Every write hands the caller to the service: the audit log names who did it.
   describe('create', () => {
     it('should return success with created product', async () => {
       const product = createMockProduct();
       const dto = createMockCreateProductDto();
       service.create.mockResolvedValue(product);
 
-      const result = await controller.create(dto);
+      const result = await controller.create(dto, user);
 
       expect(result).toEqual({ success: true, data: product });
-      expect(service.create).toHaveBeenCalledWith(dto);
+      expect(service.create).toHaveBeenCalledWith(dto, user);
     });
   });
 
@@ -91,10 +95,10 @@ describe('ProductsController', () => {
       const product = createMockProduct({ name: 'Updated' });
       service.update.mockResolvedValue(product);
 
-      const result = await controller.update('prod-1', { name: 'Updated' } as any);
+      const result = await controller.update('prod-1', { name: 'Updated' } as any, user);
 
       expect(result).toEqual({ success: true, data: product });
-      expect(service.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' });
+      expect(service.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' }, user);
     });
   });
 
@@ -103,10 +107,22 @@ describe('ProductsController', () => {
       const product = createMockProduct({ status: 'archived' as any });
       service.archive.mockResolvedValue(product);
 
-      const result = await controller.archive('prod-1');
+      const result = await controller.archive('prod-1', user);
 
       expect(result).toEqual({ success: true, data: product });
-      expect(service.archive).toHaveBeenCalledWith('prod-1');
+      expect(service.archive).toHaveBeenCalledWith('prod-1', user);
+    });
+  });
+
+  describe('reactivate', () => {
+    it('should return success with the restored product', async () => {
+      const product = createMockProduct();
+      service.reactivate.mockResolvedValue(product);
+
+      const result = await controller.reactivate('prod-1', user);
+
+      expect(result).toEqual({ success: true, data: product });
+      expect(service.reactivate).toHaveBeenCalledWith('prod-1', user);
     });
   });
 
@@ -116,19 +132,19 @@ describe('ProductsController', () => {
       service.importFromCsv.mockResolvedValue(importResult);
       const file = { buffer: Buffer.from('csv-data') } as Express.Multer.File;
 
-      const result = await controller.importCsv(file);
+      const result = await controller.importCsv(file, undefined, user);
 
       expect(result).toEqual({ success: true, data: importResult });
-      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, false);
+      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, false, user);
     });
 
     it('should pass dryRun=true through when requested', async () => {
       service.importFromCsv.mockResolvedValue({ created: 0, updated: 0, errors: [] });
       const file = { buffer: Buffer.from('csv-data') } as Express.Multer.File;
 
-      await controller.importCsv(file, '1');
+      await controller.importCsv(file, '1', user);
 
-      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, true);
+      expect(service.importFromCsv).toHaveBeenCalledWith(file.buffer, true, user);
     });
   });
 

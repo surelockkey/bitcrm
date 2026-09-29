@@ -1,4 +1,5 @@
 import { TransferType, LocationType } from '../enums/transfer-type.enum';
+import { ReturnReason } from '../enums/return-reason.enum';
 
 export interface TransferItem {
   productId: string;
@@ -17,5 +18,9 @@ export interface Transfer {
   performedBy: string;
   performedByName: string;
   notes?: string;
+  /** The job a `deduct` / `restore` moved stock for. */
+  dealId?: string;
+  /** Why a `return` took the stock out. */
+  reason?: ReturnReason;
   createdAt: string;
 }
