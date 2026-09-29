@@ -15,8 +15,14 @@ import { type Warehouse, type InventoryStatus } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
 import {
   LOCATION_INDEX_PK,
+  locationSearchName,
   locationSortKey,
 } from '../common/constants/locations.constants';
+import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
+import {
+  locationIndexKeysToWrite,
+  type LocationIndexRow,
+} from '../stock/location-index.backfill';
 
 export interface PaginatedResult {
   items: Warehouse[];
@@ -24,20 +30,25 @@ export interface PaginatedResult {
 }
 
 export interface WarehouseListFilters {
-  /** Matched against the lowercased name in the index sort key. */
+  /** Matched against the lowercased name (`searchName`), never the id. */
   search?: string;
   status?: InventoryStatus;
 }
 
-/** Key attributes that must never leak onto an entity or be taken from one. */
+/** Key and derived attributes that must never leak onto an entity or be taken from one. */
 const KEY_ATTRIBUTES = new Set([
   'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+  'searchName',
 ]);
+
+/** A cursor of the list Query names the table keys and the index keys. */
+const LIST_CURSOR_KEYS = ['PK', 'SK', 'GSI1PK', 'GSI1SK'] as const;
 
 /**
  * Warehouse rows in the single BitCRM_Inventory table:
  *   PK = WAREHOUSE#<id>, SK = METADATA
  *   GSI1PK = LOCATION#WAREHOUSE, GSI1SK = <name lowercased>#<id>   (list index, name order)
+ *   searchName = <name lowercased>                                  (what the search filter matches)
  */
 @Injectable()
 export class WarehousesRepository {
@@ -55,6 +66,7 @@ export class WarehousesRepository {
           SK: 'METADATA',
           GSI1PK: LOCATION_INDEX_PK.warehouse,
           GSI1SK: locationSortKey(warehouse.name, warehouse.id),
+          searchName: locationSearchName(warehouse.name),
         },
         ConditionExpression: 'attribute_not_exists(PK)',
       }),
@@ -88,8 +100,10 @@ export class WarehousesRepository {
       values[':status'] = filters.status;
     }
     if (filters?.search?.trim()) {
-      filterParts.push('contains(GSI1SK, :search)');
-      values[':search'] = filters.search.trim().toLowerCase();
+      // Never `contains(GSI1SK, …)`: the sort key ends in the UUID, and a
+      // term of digits or a–f would match the id of nearly every row.
+      filterParts.push('contains(searchName, :search)');
+      values[':search'] = locationSearchName(filters.search);
     }
 
     return {
@@ -119,6 +133,8 @@ export class WarehousesRepository {
     filters?: WarehouseListFilters,
   ): Promise<PaginatedResult> {
     const query = this.listQuery(filters);
+    // Decoded before any read: a stale or foreign cursor is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, LIST_CURSOR_KEYS);
 
     // З фільтром Query, як і Scan, рахує в `Limit` прочитане, а не знайдене,
     // тож сторінку дочитуємо. Курсор на GSI-запиті несе і ключі таблиці, і
@@ -130,18 +146,22 @@ export class WarehousesRepository {
         ),
       limit,
       {
-        startKey: this.decodeCursor(cursor),
+        startKey,
         keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI1PK: i.GSI1PK, GSI1SK: i.GSI1SK }),
       },
     );
 
     return {
       items: page.items.map(this.toWarehouse),
-      nextCursor: this.encodeCursor(page.lastKey),
+      nextCursor: encodeIndexCursor(page.lastKey),
     };
   }
 
-  /** A new name rewrites the list index sort key. */
+  /**
+   * A new name rewrites the list index sort key and the search name. Whatever
+   * changed, a row the list index does not hold (written before the index
+   * existed) leaves here indexed: any edit heals it, not only a rename.
+   */
   async update(id: string, attrs: Partial<Warehouse>): Promise<Warehouse> {
     const setParts: string[] = [];
     const expressionNames: Record<string, string> = {};
@@ -154,6 +174,7 @@ export class WarehousesRepository {
     if (typeof attrs.name === 'string') {
       updates.GSI1PK = LOCATION_INDEX_PK.warehouse;
       updates.GSI1SK = locationSortKey(attrs.name, id);
+      updates.searchName = locationSearchName(attrs.name);
     }
     const immutableKeys = new Set(['id']);
 
@@ -178,7 +199,24 @@ export class WarehousesRepository {
       }),
     );
 
-    return this.toWarehouse(result.Attributes!);
+    const row = result.Attributes!;
+    await this.healIndexKeys(row);
+    return this.toWarehouse(row);
+  }
+
+  /** Give a row the list index keys it lacks — the same decision the backfill script makes. */
+  private async healIndexKeys(row: Record<string, unknown>): Promise<void> {
+    const keys = locationIndexKeysToWrite(row as unknown as LocationIndexRow);
+    if (!keys) return;
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: INVENTORY_TABLE,
+        Key: { PK: row.PK, SK: row.SK },
+        UpdateExpression: 'SET GSI1PK = :pk, GSI1SK = :sk, searchName = :name',
+        ExpressionAttributeValues: { ':pk': keys.GSI1PK, ':sk': keys.GSI1SK, ':name': keys.searchName },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
   }
 
   /**
@@ -201,19 +239,5 @@ export class WarehousesRepository {
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };
-  }
-
-  private encodeCursor(
-    lastEvaluatedKey?: Record<string, unknown>,
-  ): string | undefined {
-    if (!lastEvaluatedKey) return undefined;
-    return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString('base64url');
-  }
-
-  private decodeCursor(
-    cursor?: string,
-  ): Record<string, unknown> | undefined {
-    if (!cursor) return undefined;
-    return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
   }
 }

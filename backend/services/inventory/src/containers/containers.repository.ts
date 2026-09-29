@@ -19,8 +19,14 @@ import {
 } from '../common/constants/dynamo.constants';
 import {
   LOCATION_INDEX_PK,
+  locationSearchName,
   locationSortKey,
 } from '../common/constants/locations.constants';
+import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
+import {
+  locationIndexKeysToWrite,
+  type LocationIndexRow,
+} from '../stock/location-index.backfill';
 
 export interface PaginatedResult {
   items: Container[];
@@ -29,21 +35,26 @@ export interface PaginatedResult {
 
 export interface ContainerListFilters {
   department?: string;
-  /** Matched against the lowercased name in the index sort key. */
+  /** Matched against the lowercased name (`searchName`), never the id. */
   search?: string;
   status?: InventoryStatus;
 }
 
-/** Key attributes that must never leak onto an entity or be taken from one. */
+/** Key and derived attributes that must never leak onto an entity or be taken from one. */
 const KEY_ATTRIBUTES = new Set([
   'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+  'searchName',
 ]);
+
+/** A cursor of the list Query names the table keys and the index keys. */
+const LIST_CURSOR_KEYS = ['PK', 'SK', 'GSI1PK', 'GSI1SK'] as const;
 
 /**
  * Container rows in the single BitCRM_Inventory table:
  *   PK = CONTAINER#<id>, SK = METADATA
  *   GSI1PK = LOCATION#CONTAINER, GSI1SK = <name lowercased>#<id>   (list index, name order)
  *   GSI3PK = OWNER#<technicianId>, GSI3SK = CONTAINER#<id>          (sparse: assigned containers only)
+ *   searchName = <name lowercased>                                   (what the search filter matches)
  */
 @Injectable()
 export class ContainersRepository {
@@ -62,6 +73,7 @@ export class ContainersRepository {
           SK: 'METADATA',
           GSI1PK: LOCATION_INDEX_PK.container,
           GSI1SK: locationSortKey(container.name, container.id),
+          searchName: locationSearchName(container.name),
           // Sparse GSI: only assigned containers appear in the by-technician index.
           ...(container.technicianId
             ? {
@@ -123,8 +135,10 @@ export class ContainersRepository {
       values[':status'] = filters.status;
     }
     if (filters?.search?.trim()) {
-      filterParts.push('contains(GSI1SK, :search)');
-      values[':search'] = filters.search.trim().toLowerCase();
+      // Never `contains(GSI1SK, …)`: the sort key ends in the UUID, and a
+      // term of digits or a–f would match the id of nearly every row.
+      filterParts.push('contains(searchName, :search)');
+      values[':search'] = locationSearchName(filters.search);
     }
 
     return {
@@ -154,6 +168,8 @@ export class ContainersRepository {
     filters?: ContainerListFilters,
   ): Promise<PaginatedResult> {
     const query = this.listQuery(filters);
+    // Decoded before any read: a stale or foreign cursor is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, LIST_CURSOR_KEYS);
 
     // З фільтром Query, як і Scan, рахує в `Limit` прочитане, а не знайдене,
     // тож сторінку дочитуємо. Курсор на GSI-запиті несе і ключі таблиці, і
@@ -165,14 +181,14 @@ export class ContainersRepository {
         ),
       limit,
       {
-        startKey: this.decodeCursor(cursor),
+        startKey,
         keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI1PK: i.GSI1PK, GSI1SK: i.GSI1SK }),
       },
     );
 
     return {
       items: page.items.map(this.toContainer),
-      nextCursor: this.encodeCursor(page.lastKey),
+      nextCursor: encodeIndexCursor(page.lastKey),
     };
   }
 
@@ -180,7 +196,10 @@ export class ContainersRepository {
    * `technicianId: null` unassigns (removes the attribute and the GSI keys, so
    * the container drops out of the by-technician index); a string reassigns and
    * rewrites the GSI keys. `undefined` leaves assignment untouched. A new name
-   * rewrites the list index sort key.
+   * rewrites the list index sort key and the search name.
+   *
+   * Whatever changed, a row the list index does not hold (written before the
+   * index existed) leaves here indexed: any edit heals it, not only a rename.
    */
   async update(
     id: string,
@@ -198,6 +217,7 @@ export class ContainersRepository {
     if (typeof attrs.name === 'string') {
       updates.GSI1PK = LOCATION_INDEX_PK.container;
       updates.GSI1SK = locationSortKey(attrs.name, id);
+      updates.searchName = locationSearchName(attrs.name);
     }
     if (typeof attrs.technicianId === 'string') {
       updates.GSI3PK = `OWNER#${attrs.technicianId}`;
@@ -238,7 +258,24 @@ export class ContainersRepository {
       }),
     );
 
-    return this.toContainer(result.Attributes!);
+    const row = result.Attributes!;
+    await this.healIndexKeys(row);
+    return this.toContainer(row);
+  }
+
+  /** Give a row the list index keys it lacks — the same decision the backfill script makes. */
+  private async healIndexKeys(row: Record<string, unknown>): Promise<void> {
+    const keys = locationIndexKeysToWrite(row as unknown as LocationIndexRow);
+    if (!keys) return;
+    await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: INVENTORY_TABLE,
+        Key: { PK: row.PK, SK: row.SK },
+        UpdateExpression: 'SET GSI1PK = :pk, GSI1SK = :sk, searchName = :name',
+        ExpressionAttributeValues: { ':pk': keys.GSI1PK, ':sk': keys.GSI1SK, ':name': keys.searchName },
+        ConditionExpression: 'attribute_exists(PK)',
+      }),
+    );
   }
 
   /**
@@ -270,19 +307,5 @@ export class ContainersRepository {
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };
-  }
-
-  private encodeCursor(
-    lastEvaluatedKey?: Record<string, unknown>,
-  ): string | undefined {
-    if (!lastEvaluatedKey) return undefined;
-    return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString('base64url');
-  }
-
-  private decodeCursor(
-    cursor?: string,
-  ): Record<string, unknown> | undefined {
-    if (!cursor) return undefined;
-    return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
   }
 }

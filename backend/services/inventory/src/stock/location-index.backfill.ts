@@ -1,5 +1,6 @@
 import {
   LOCATION_INDEX_PK,
+  locationSearchName,
   locationSortKey,
 } from '../common/constants/locations.constants';
 
@@ -12,11 +13,14 @@ export interface LocationIndexRow {
   technicianName?: string;
   GSI1PK?: string;
   GSI1SK?: string;
+  searchName?: string;
 }
 
 export interface LocationIndexKeys {
   GSI1PK: string;
   GSI1SK: string;
+  /** What the list's `search` filter matches — the name alone, never the id. */
+  searchName: string;
 }
 
 const PREFIXES: Array<{ prefix: string; indexPk: string; kind: 'warehouse' | 'container' }> = [
@@ -45,13 +49,45 @@ export function expectedLocationIndexKeys(row: LocationIndexRow): LocationIndexK
         : 'Container'
       : '');
 
-  return { GSI1PK: match.indexPk, GSI1SK: locationSortKey(name, id) };
+  return {
+    GSI1PK: match.indexPk,
+    GSI1SK: locationSortKey(name, id),
+    searchName: locationSearchName(name),
+  };
 }
 
 /** The keys to write, or null when the row already carries them (or is not a location). */
 export function locationIndexKeysToWrite(row: LocationIndexRow): LocationIndexKeys | null {
   const expected = expectedLocationIndexKeys(row);
   if (!expected) return null;
-  if (row.GSI1PK === expected.GSI1PK && row.GSI1SK === expected.GSI1SK) return null;
+  if (
+    row.GSI1PK === expected.GSI1PK &&
+    row.GSI1SK === expected.GSI1SK &&
+    row.searchName === expected.searchName
+  ) {
+    return null;
+  }
   return expected;
+}
+
+/**
+ * The condition the backfill's write carries: the row must still look the way
+ * the scan saw it. A rename that lands between the scan and the write has
+ * already written a newer sort key, and overwriting it would list the location
+ * under its old name until the next rename. The write is skipped instead.
+ */
+export function locationIndexWriteCondition(row: LocationIndexRow): {
+  ConditionExpression: string;
+  ExpressionAttributeValues: Record<string, unknown>;
+} {
+  if (typeof row.GSI1SK === 'string') {
+    return {
+      ConditionExpression: 'attribute_exists(PK) AND GSI1SK = :seen',
+      ExpressionAttributeValues: { ':seen': row.GSI1SK },
+    };
+  }
+  return {
+    ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(GSI1SK)',
+    ExpressionAttributeValues: {},
+  };
 }

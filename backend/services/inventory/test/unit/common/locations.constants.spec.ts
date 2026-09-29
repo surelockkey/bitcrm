@@ -1,5 +1,6 @@
 import {
   LOCATION_INDEX_PK,
+  locationSearchName,
   locationSortKey,
 } from 'src/common/constants/locations.constants';
 
@@ -22,5 +23,12 @@ describe('location index keys', () => {
 
   it('keeps duplicate names apart', () => {
     expect(locationSortKey('Van', 'a')).not.toBe(locationSortKey('Van', 'b'));
+  });
+
+  // Пошук іде по назві, не по ключу сортування: у ключі є UUID, і будь-який
+  // термін із цифр чи a-f ("3", "12", "de") збігався б з id майже кожного рядка.
+  it('searches the trimmed, lowercased name alone — never the id', () => {
+    expect(locationSearchName('  (12) MIKE ')).toBe('(12) mike');
+    expect(locationSearchName('(3) VAN')).not.toContain('#');
   });
 });

@@ -278,6 +278,24 @@ describe('ContainersService', () => {
       expect(result.items).toEqual([]);
     });
 
+    // Технік бачить лише свій фургон, але фільтри мають відповідати на те саме
+    // питання, що й для всіх: "archived" або "zzz" не повертає активний фургон.
+    it('applies status and search to the technician’s own container under assigned_only', async () => {
+      const user = createMockJwtUser({ id: 'tech-1' });
+      const van = createMockContainer({ name: '(12) MIKE', status: InventoryStatus.ACTIVE });
+      repository.findByTechnicianId.mockResolvedValue(van);
+
+      expect(
+        (await service.list({ status: InventoryStatus.ARCHIVED } as any, user, 'assigned_only')).items,
+      ).toEqual([]);
+      expect((await service.list({ search: 'zzz' } as any, user, 'assigned_only')).items).toEqual([]);
+      expect(
+        (await service.list({ search: ' mike', status: InventoryStatus.ACTIVE } as any, user, 'assigned_only'))
+          .items,
+      ).toEqual([van]);
+      expect(repository.findAll).not.toHaveBeenCalled();
+    });
+
     it('should filter by department dataScope', async () => {
       const paginated = { items: [createMockContainer()], nextCursor: undefined };
       const user = createMockJwtUser({ department: 'Atlanta' });
@@ -362,6 +380,26 @@ describe('ContainersService', () => {
 
       expect(await service.count({} as never, { id: 'u1' } as never, 'assigned_only')).toEqual({
         total: 0,
+        atLeast: false,
+      });
+    });
+
+    it('counts the technician’s container under the same status and search the list applies', async () => {
+      repository.findByTechnicianId.mockResolvedValue(
+        createMockContainer({ name: '(12) MIKE', status: InventoryStatus.ACTIVE }),
+      );
+      const user = { id: 'u1' } as never;
+
+      expect(await service.count({ status: InventoryStatus.ARCHIVED } as never, user, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+      expect(await service.count({ search: 'zzz' } as never, user, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+      expect(await service.count({ search: 'MIKE' } as never, user, 'assigned_only')).toEqual({
+        total: 1,
         atLeast: false,
       });
     });
