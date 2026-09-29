@@ -91,19 +91,31 @@ export function computeDueDate(basis: string, days: number): string {
 
 /**
  * The invoice's totals are the job's: its lines, snapshotted tax percent and
- * discount. A job the payment flow marked `paid` counts `actualTotal` (or,
- * absent that, the whole total) as collected.
+ * discount.
+ *
+ * `opts.amountPaid` is the PAYMENT LEDGER's answer (billing owns it, see
+ * `payments/payment-rules.ts`) and wins outright — including when it is 0,
+ * which is how a reversal pushes a paid invoice back to `due`. Only when no
+ * ledger row exists at all does the pre-ledger behaviour apply: a job the
+ * payment flow marked `paid` counts `actualTotal` (or the whole total) as
+ * collected.
  */
-export function computeInvoiceTotals(view: {
-  deal: Pick<Deal, 'taxRatePercent' | 'taxSource' | 'discount' | 'paymentStatus' | 'actualTotal'>;
-  items: Pick<DealProduct, 'quantity' | 'priceClient' | 'taxable'>[];
-}): DocumentTotals {
+export function computeInvoiceTotals(
+  view: {
+    deal: Pick<Deal, 'taxRatePercent' | 'taxSource' | 'discount' | 'paymentStatus' | 'actualTotal'>;
+    items: Pick<DealProduct, 'quantity' | 'priceClient' | 'taxable'>[];
+  },
+  opts: { amountPaid?: number } = {},
+): DocumentTotals {
   const { deal } = view;
   const base = {
     lines: view.items.map((i) => ({ quantity: i.quantity, priceClient: i.priceClient, taxable: i.taxable })),
     taxRatePercent: deal.taxSource === 'exempt' ? 0 : deal.taxRatePercent ?? 0,
     discount: deal.discount ?? undefined,
   };
+  if (typeof opts.amountPaid === 'number') {
+    return calculateDocumentTotals({ ...base, amountPaid: opts.amountPaid });
+  }
   const unpaid = calculateDocumentTotals(base);
   if (deal.paymentStatus !== 'paid') return unpaid;
   const paid = typeof deal.actualTotal === 'number' ? deal.actualTotal : unpaid.total;

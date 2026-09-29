@@ -1,0 +1,79 @@
+import type {
+  Invoice,
+  OnlinePaymentMethod,
+  Payment,
+  PaymentRefund,
+  PaymentSettings,
+  PaymentSummary,
+} from "@bitcrm/types";
+import { http } from "@/lib/api/http";
+import { buildPaymentListQuery, type OfflinePaymentMethod, type PaymentListParams } from "./lib";
+import type { PaymentSettingsBody } from "./schemas";
+
+const BASE = "/billing";
+
+/** One invoice's ledger: the rows, newest first, and what they add up to. */
+export interface InvoiceLedger {
+  payments: Payment[];
+  summary: PaymentSummary;
+}
+
+/** The /payments report page. `summary` covers the whole filtered range, not the page. */
+export interface PaymentPage {
+  items: Payment[];
+  nextCursor?: string;
+  summary?: PaymentSummary;
+}
+
+/** An offline payment keyed in by staff. Online money arrives through Stripe. */
+export interface RecordPaymentBody {
+  amount: number;
+  method: OfflinePaymentMethod;
+  reference?: string;
+  note?: string;
+  takenAt?: string;
+}
+
+export interface RefundBody {
+  /** Absent ⇒ refund everything still refundable. */
+  amount?: number;
+  reason?: string;
+  sendReceipt?: boolean;
+}
+
+/**
+ * Account settings plus whether the workspace's Stripe keys are present. The
+ * API never returns a key itself — only this flag.
+ */
+export interface PaymentSettingsView extends PaymentSettings {
+  stripeConfigured?: boolean;
+}
+
+export const getInvoicePayments = (invoiceId: string): Promise<InvoiceLedger> =>
+  http.get<InvoiceLedger>(`${BASE}/invoices/${invoiceId}/payments`);
+
+export const recordPayment = (invoiceId: string, body: RecordPaymentBody): Promise<Payment> =>
+  http.post<Payment>(`${BASE}/invoices/${invoiceId}/payments`, body);
+
+export const refundPayment = (paymentId: string, body: RefundBody): Promise<PaymentRefund> =>
+  http.post<PaymentRefund>(`${BASE}/payments/${paymentId}/refund`, body);
+
+/** Re-sends the client their receipt for one payment. */
+export const resendReceipt = (paymentId: string): Promise<{ sent: boolean; sentTo?: string }> =>
+  http.post<{ sent: boolean; sentTo?: string }>(`${BASE}/payments/${paymentId}/receipt`);
+
+export const listPayments = (params: PaymentListParams = {}): Promise<PaymentPage> =>
+  http.get<PaymentPage>(`${BASE}/payments${buildPaymentListQuery(params)}`);
+
+export const getPaymentSettings = (): Promise<PaymentSettingsView> =>
+  http.get<PaymentSettingsView>(`${BASE}/payment-settings`);
+
+export const updatePaymentSettings = (body: PaymentSettingsBody): Promise<PaymentSettingsView> =>
+  http.put<PaymentSettingsView>(`${BASE}/payment-settings`, body);
+
+/** Workiz "Let client pay with" — `null` falls back to the account settings. */
+export const setAllowedMethods = (
+  invoiceId: string,
+  methods: OnlinePaymentMethod[] | null,
+): Promise<Invoice> =>
+  http.patch<Invoice>(`${BASE}/invoices/${invoiceId}/allowed-methods`, { methods });

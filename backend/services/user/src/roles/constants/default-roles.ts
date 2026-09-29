@@ -38,6 +38,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: { view: true, create: true, edit: true, delete: true, send: true },
       estimates: { view: true, create: true, edit: true, delete: true, send: true, sync: true },
       document_templates: { view: true, edit: true },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: {
       deals: DataScope.ALL,
@@ -72,6 +73,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: DataScope.ALL,
       estimates: DataScope.ALL,
       document_templates: DataScope.ALL,
+      payments: DataScope.ALL,
     },
     dealStageTransitions: ['*->*'],
     isSystem: true,
@@ -114,6 +116,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: { view: true, create: true, edit: true, delete: true, send: true },
       estimates: { view: true, create: true, edit: true, delete: true, send: true, sync: true },
       document_templates: { view: true, edit: true },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: {
       deals: DataScope.ALL,
@@ -148,6 +151,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: DataScope.ALL,
       estimates: DataScope.ALL,
       document_templates: DataScope.ALL,
+      payments: DataScope.ALL,
     },
     dealStageTransitions: ['*->*'],
     isSystem: true,
@@ -190,6 +194,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: { view: true, create: true, edit: true, delete: false, send: true },
       estimates: { view: true, create: true, edit: true, delete: true, send: true, sync: true },
       document_templates: { view: true, edit: false },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: {
       deals: DataScope.DEPARTMENT,
@@ -224,6 +229,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: DataScope.ALL,
       estimates: DataScope.ALL,
       document_templates: DataScope.ALL,
+      payments: DataScope.ALL,
     },
     dealStageTransitions: ['*->*'],
     isSystem: true,
@@ -266,6 +272,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: { view: true, create: true, edit: true, delete: false, send: true },
       estimates: { view: true, create: true, edit: true, delete: true, send: true, sync: true },
       document_templates: { view: false, edit: false },
+      payments: { view: true, collect: true, refund: false },
     },
     dataScope: {
       deals: DataScope.DEPARTMENT,
@@ -301,6 +308,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: DataScope.ALL,
       estimates: DataScope.ALL,
       document_templates: DataScope.ALL,
+      payments: DataScope.ALL,
     },
     dealStageTransitions: [
       'new_lead->estimate_sent',
@@ -353,6 +361,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: { view: true, create: true, edit: true, delete: false, send: true },
       estimates: { view: true, create: true, edit: true, delete: false, send: true, sync: true },
       document_templates: { view: false, edit: false },
+      payments: { view: true, collect: true, refund: false },
     },
     dataScope: {
       deals: DataScope.ASSIGNED_ONLY,
@@ -387,6 +396,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: DataScope.ASSIGNED_ONLY,
       estimates: DataScope.ASSIGNED_ONLY,
       document_templates: DataScope.ALL,
+      payments: DataScope.ASSIGNED_ONLY,
     },
     dealStageTransitions: [
       'assigned->en_route',
@@ -435,6 +445,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: { view: true, create: false, edit: false, delete: false, send: false },
       estimates: { view: true, create: false, edit: false, delete: false, send: false, sync: false },
       document_templates: { view: false, edit: false },
+      payments: { view: true, collect: false, refund: false },
     },
     dataScope: {
       deals: DataScope.ALL,
@@ -469,6 +480,7 @@ export const DEFAULT_ROLES: Omit<Role, 'createdAt' | 'updatedAt'>[] = [
       invoices: DataScope.ALL,
       estimates: DataScope.ALL,
       document_templates: DataScope.ALL,
+      payments: DataScope.ALL,
     },
     dealStageTransitions: [],
     isSystem: true,

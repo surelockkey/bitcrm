@@ -14,6 +14,14 @@ export default defineConfig({
     css: false,
     include: ["**/*.test.{ts,tsx}"],
     exclude: ["node_modules", ".next"],
+    /**
+     * The default 5s is not enough for the heaviest component tests (the
+     * template editor, the dispatch board, the deals field panel) once several
+     * files render in parallel on a loaded machine: they pass alone and time
+     * out together, which reads as a regression and is not one.
+     */
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
   resolve: {
     alias: {

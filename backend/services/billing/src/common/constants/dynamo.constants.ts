@@ -15,6 +15,10 @@ export const BILLING_TABLE = process.env.BILLING_TABLE || 'BitCRM_Billing';
 //   GSI3 DealIndex      GSI3PK = DEAL#<dealId>              (sparse: estimates only)
 //                       GSI3SK = ESTIMATE#<createdAt>#<id>
 //
+// The payment ledger reuses the same two list indexes: GSI1 `PAYMENTS` for
+// the report page and GSI2 `CONTACT#<id>` / `PAYMENT#…` for a client's
+// payment history, so no fourth index is needed.
+//
 // Tradeoff: the invoice/estimate lists use one constant partition per kind
 // and filter `status` / `sentAt` with a FilterExpression. That is the
 // CALL#ALL pattern CLAUDE.md warns about, accepted here because the volume
@@ -82,10 +86,49 @@ export const portalTokenPk = (tokenHash: string) => `PORTAL#${tokenHash}`;
 export const contactPk = (contactId: string) => `CONTACT#${contactId}`;
 export const PORTAL_LINK_SK = 'PORTAL_LINK';
 
+// ---- payments ----------------------------------------------------------------
+/**
+ * The payment ledger. Every payment is written twice, in one transaction:
+ *
+ *   PAYMENT#<paymentId>  / METADATA                     the canonical row
+ *                          GSI1 PAYMENTS / <createdAt>#<id>
+ *                          GSI2 CONTACT#<contactId> / PAYMENT#<createdAt>#<id>
+ *   INVOICE#<dealId>     / PAYMENT#<createdAt>#<id>     the same payment, adjacent
+ *                                                       to its invoice, so one
+ *                                                       Query reads a job's ledger
+ *   PAYMENT#<paymentId>  / REFUND#<createdAt>#<refundId>
+ *   STRIPE#<objectId>    / POINTER    → {paymentId}; written for the session,
+ *                                       the intent and the charge, so a webhook
+ *                                       finds its payment in ONE read
+ *   WEBHOOK#<eventId>    / METADATA   dedupe, `expiresAt` TTL (30 days)
+ *   SETTINGS            / PAYMENTS    the PaymentSettings singleton
+ */
+export const paymentPk = (paymentId: string) => `PAYMENT#${paymentId}`;
+export const PAYMENT_SK_PREFIX = 'PAYMENT#';
+/** SK of a payment under its invoice partition — time-ordered within the job. */
+export const invoicePaymentSk = (createdAt: string, paymentId: string) =>
+  `${PAYMENT_SK_PREFIX}${createdAt}#${paymentId}`;
+export const PAYMENTS_GSI1PK = 'PAYMENTS';
+
+export const REFUND_SK_PREFIX = 'REFUND#';
+export const refundSk = (createdAt: string, refundId: string) => `${REFUND_SK_PREFIX}${createdAt}#${refundId}`;
+
+/** `STRIPE#<sessionId|paymentIntentId|chargeId>` / POINTER → `{ paymentId }`. */
+export const stripePointerPk = (stripeObjectId: string) => `STRIPE#${stripeObjectId}`;
+export const STRIPE_POINTER_SK = 'POINTER';
+
+/** `WEBHOOK#<stripeEventId>` / METADATA — the dedupe row; expires via `expiresAt`. */
+export const webhookEventPk = (eventId: string) => `WEBHOOK#${eventId}`;
+/** Stripe replays for at most 3 days; 30 covers a replay from the dashboard too. */
+export const WEBHOOK_EVENT_TTL_DAYS = 30;
+
+/** `SETTINGS` / PAYMENTS — the account-wide PaymentSettings singleton. */
+export const PAYMENT_SETTINGS_SK = 'PAYMENTS';
+
 // ---- index keys --------------------------------------------------------------
 export const listSk = (createdAt: string, id: string) => `${createdAt}#${id}`;
 export const contactGsi2Pk = (contactId: string) => `CONTACT#${contactId}`;
-export const contactGsi2Sk = (kind: 'INVOICE' | 'ESTIMATE', createdAt: string, id: string) =>
+export const contactGsi2Sk = (kind: 'INVOICE' | 'ESTIMATE' | 'PAYMENT', createdAt: string, id: string) =>
   `${kind}#${createdAt}#${id}`;
 export const dealGsi3Pk = (dealId: string) => `DEAL#${dealId}`;
 export const dealGsi3Sk = (createdAt: string, id: string) => `ESTIMATE#${createdAt}#${id}`;
@@ -101,6 +144,8 @@ export const KEY_ATTRIBUTES = [
   'GSI3PK',
   'GSI3SK',
   'entityType',
+  // TTL plumbing (webhook dedupe rows) — never part of an entity.
+  'expiresAt',
 ] as const;
 
 /** Removes key attributes from a raw item. */

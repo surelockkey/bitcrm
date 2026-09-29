@@ -91,6 +91,9 @@ describe('billing — cross-service flow', () => {
     token: string;
     deal3: any;
     container: any;
+    /** Step 17's company job, reused by the payments step. */
+    payDealId: string;
+    payTotal: number;
   };
 
   beforeAll(async () => {
@@ -1229,14 +1232,25 @@ describe('billing — cross-service flow', () => {
     const html = await call('GET', `${BILL}/invoices/${d.body.data.id}/html`);
     expect(html.body.data.html).toContain('Net 60');
 
-    // A payment recorded on the job (payment.received → deal.updated) marks the invoice paid.
+    // The job's denormalised payment flag, as billing asserts it from its
+    // ledger: the status billing computed, and `actualTotal` = the INVOICE
+    // total (never the payment amount).
     const total = inv.body.data.totals.total;
+    s.payDealId = d.body.data.id;
+    s.payTotal = total;
     const paid = await call('PUT', `${DEAL}/internal/${d.body.data.id}/payment-status`, {
       auth: false,
       headers: { 'x-internal-secret': process.env.INTERNAL_SERVICE_SECRET! },
-      body: { paymentId: `pay-${RUN}`, amount: total, paidAt: new Date().toISOString() },
+      body: {
+        paymentStatus: 'paid',
+        amountPaid: total,
+        invoiceTotal: total,
+        paidAt: new Date().toISOString(),
+        paymentId: `pay-${RUN}`,
+      },
     });
     expect(paid.status).toBe(200);
+    expect((await call('GET', `${DEAL}/${d.body.data.id}`)).body.data.actualTotal).toBe(total);
     await eventually(
       async () => {
         const list = await call('GET', `${BILL}/invoices?status=paid`);
@@ -1250,5 +1264,121 @@ describe('billing — cross-service flow', () => {
     expect(view.body.data).toMatchObject({ status: 'paid' });
     expect(view.body.data.totals).toMatchObject({ amountPaid: total, balanceDue: 0 });
     expect((await call('GET', `${DEAL}/${d.body.data.id}/totals`)).body.data).toEqual(view.body.data.totals);
+  });
+
+  it('18. the payment ledger: offline payments, partial → paid → refunded, and the guards', async () => {
+    const invoiceId = s.payDealId;
+    const total = s.payTotal;
+
+    // Settings are readable before anything is configured, and never leak a key.
+    const settings = await call('GET', `${BILL}/payment-settings`);
+    expect(settings.status).toBe(200);
+    expect(settings.body.data).toMatchObject({ onlinePaymentsEnabled: false, surchargePercent: 0 });
+    expect(typeof settings.body.data.stripeConfigured).toBe('boolean');
+    expect(JSON.stringify(settings.body.data)).not.toMatch(/sk_live|sk_test|whsec_/);
+
+    const saved = await call('PUT', `${BILL}/payment-settings`, { body: { bankEnabled: true, bankMinimum: 25 } });
+    expect(saved.status).toBe(200);
+    expect(saved.body.data).toMatchObject({ bankEnabled: true, bankMinimum: 25 });
+    expect((await call('PUT', `${BILL}/payment-settings`, { body: { surchargePercent: 5 } })).status).toBe(400);
+
+    // The ledger starts empty; step 17 left the invoice `paid` through the
+    // legacy job flag, which the first real payment supersedes.
+    const empty = await call('GET', `${BILL}/invoices/${invoiceId}/payments`);
+    expect(empty.status).toBe(200);
+    expect(empty.body.data).toMatchObject({ payments: [], summary: { settled: 0, paymentCount: 0 } });
+
+    // A partial cash payment leaves the invoice owing.
+    const part = await call('POST', `${BILL}/invoices/${invoiceId}/payments`, {
+      body: { amount: 50, method: 'cash', reference: `env-${RUN}` },
+    });
+    expect(part.status).toBe(201);
+    expect(part.body.data).toMatchObject({ status: 'settled', amount: 50, method: 'cash', source: 'office' });
+
+    const afterPart = await call('GET', `${BILL}/invoices/${invoiceId}`);
+    expect(afterPart.body.data.status).toBe('due');
+    expect(afterPart.body.data.totals).toMatchObject({ amountPaid: 50, balanceDue: Math.round((total - 50) * 100) / 100 });
+    expect(afterPart.body.data.paymentSummary).toMatchObject({ settled: 50, pending: 0, hasPending: false });
+    await eventually(
+      async () => (await call('GET', `${DEAL}/${invoiceId}`)).body.data.paymentStatus === 'partial',
+      { label: 'job payment status is partial' },
+    );
+
+    // Over the balance is refused, as are an online method and a bad amount.
+    expect((await call('POST', `${BILL}/invoices/${invoiceId}/payments`, { body: { amount: total, method: 'cash' } })).status).toBe(400);
+    expect((await call('POST', `${BILL}/invoices/${invoiceId}/payments`, { body: { amount: 1, method: 'bank' } })).status).toBe(400);
+    expect((await call('POST', `${BILL}/invoices/${invoiceId}/payments`, { body: { amount: 0, method: 'cash' } })).status).toBe(400);
+
+    // The rest, by cheque → paid.
+    const rest = await call('POST', `${BILL}/invoices/${invoiceId}/payments`, {
+      body: { amount: Math.round((total - 50) * 100) / 100, method: 'check', reference: '#1041' },
+    });
+    expect(rest.status).toBe(201);
+    const paidView = await call('GET', `${BILL}/invoices/${invoiceId}`);
+    expect(paidView.body.data.status).toBe('paid');
+    expect(paidView.body.data.totals.balanceDue).toBe(0);
+    await eventually(
+      async () => (await call('GET', `${DEAL}/${invoiceId}`)).body.data.paymentStatus === 'paid',
+      { label: 'job payment status is paid' },
+    );
+
+    // The report covers the whole range, not the page.
+    const report = await call('GET', `${BILL}/payments?limit=1`);
+    expect(report.status).toBe(200);
+    expect(report.body.data.items).toHaveLength(1);
+    expect(report.body.data.summary).toMatchObject({ settled: total, pending: 0, paymentCount: 2 });
+
+    // A partial refund leaves the payment settled and pushes the invoice back.
+    const refund = await call('POST', `${BILL}/payments/${part.body.data.id}/refund`, { body: { amount: 20, reason: 'goodwill' } });
+    expect(refund.status).toBe(200);
+    expect(refund.body.data).toMatchObject({ amount: 20, status: 'succeeded' });
+    expect(refund.body.data.stripeRefundId).toBeUndefined();
+    const afterRefund = await call('GET', `${BILL}/invoices/${invoiceId}`);
+    expect(afterRefund.body.data.status).toBe('due');
+    expect(afterRefund.body.data.totals.amountPaid).toBe(Math.round((total - 20) * 100) / 100);
+    expect((await call('POST', `${BILL}/payments/${part.body.data.id}/refund`, { body: { amount: 999 } })).status).toBe(400);
+
+    // Deleting an offline payment is allowed; the ledger re-derives again.
+    expect((await call('DELETE', `${BILL}/payments/${rest.body.data.id}`)).status).toBe(200);
+    expect((await call('GET', `${BILL}/invoices/${invoiceId}/payments`)).body.data.summary).toMatchObject({ paymentCount: 1 });
+
+    // "Let client pay with" — `[]` (no online payment here) is not `null`.
+    const methods = await call('PATCH', `${BILL}/invoices/${invoiceId}/allowed-methods`, { body: { methods: ['card'] } });
+    expect(methods.status).toBe(200);
+    expect(methods.body.data.allowedMethods).toEqual(['card']);
+    expect((await call('PATCH', `${BILL}/invoices/${invoiceId}/allowed-methods`, { body: { methods: [] } })).body.data.allowedMethods).toEqual([]);
+    expect((await call('PATCH', `${BILL}/invoices/${invoiceId}/allowed-methods`, { body: { methods: null } })).body.data.allowedMethods).toBeUndefined();
+    expect((await call('PATCH', `${BILL}/invoices/${invoiceId}/allowed-methods`, { body: { methods: ['paypal'] } })).status).toBe(400);
+
+    // Without Stripe keys the whole thing still answers — it just offers nothing.
+    const markSent = await call('POST', `${BILL}/invoices/${invoiceId}/mark-sent`, { body: { sent: true } });
+    expect(markSent.status).toBe(200);
+    const link = await call('POST', `${BILL}/portal-links/${markSent.body.data.contactId}/url`);
+    expect(link.status).toBe(201);
+    const options = await call('GET', `${BILL}/public/portal/${link.body.data.token}/invoice/${invoiceId}/payment-options`, { auth: false });
+    expect(options.status).toBe(200);
+    expect(options.body.data.methods).toEqual([]);
+    expect(options.body.data.amountDue).toBeGreaterThan(0);
+    const pay = await call('POST', `${BILL}/public/portal/${link.body.data.token}/invoice/${invoiceId}/pay`, {
+      auth: false,
+      body: { amount: 10, method: 'card' },
+    });
+    expect(pay.status).toBe(503);
+
+    // The webhook is mounted and rejects anything it cannot verify.
+    const hook = await call('POST', `${BILL}/webhooks/stripe`, { auth: false, body: { id: 'evt_x', type: 'payment_intent.succeeded' } });
+    expect(hook.status).toBe(400);
+
+    // Authorization: a technician not on this job cannot read or take money for it.
+    const techList = await call('GET', `${BILL}/invoices/${invoiceId}/payments`, { auth: TECH_AUTH });
+    expect(techList.status).toBe(403);
+    const techRecord = await call('POST', `${BILL}/invoices/${invoiceId}/payments`, {
+      auth: TECH_AUTH,
+      body: { amount: 5, method: 'cash' },
+    });
+    expect(techRecord.status).toBe(403);
+    // …and a technician may never refund.
+    expect((await call('POST', `${BILL}/payments/${part.body.data.id}/refund`, { auth: TECH_AUTH, body: {} })).status).toBe(403);
+    expect(E2E_TECH).toBeTruthy();
   });
 });

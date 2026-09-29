@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type {
   BusinessProfile,
   Estimate,
@@ -9,6 +9,10 @@ import type {
   PortalView,
 } from '@bitcrm/types';
 import { BusinessProfileService } from '../business-profile/business-profile.service';
+import { PaymentSettingsService } from '../payments/payment-settings.service';
+import { summarizePayments, round2 } from '../payments/payment-rules';
+import { PaymentsRepository } from '../payments/payments.repository';
+import { StripeService } from '../payments/stripe/stripe.service';
 import { portalBaseUrl } from '../common/constants/services.constants';
 import { EstimatesService } from '../estimates/estimates.service';
 import { CrmClient } from '../integrations/crm.client';
@@ -46,6 +50,11 @@ export class PortalService {
     private readonly estimates: EstimatesService,
     private readonly profiles: BusinessProfileService,
     @Optional() private readonly deals?: DealClient,
+    // The payment ledger, so a payable invoice can say so in the portal list.
+    // Optional: the portal works unchanged with no payments wiring at all.
+    @Optional() @Inject(PaymentsRepository) private readonly ledger?: PaymentsRepository,
+    @Optional() @Inject(PaymentSettingsService) private readonly paymentSettings?: PaymentSettingsService,
+    @Optional() @Inject(StripeService) private readonly stripe?: StripeService,
   ) {}
 
   async getLink(contactId: string): Promise<PortalLink | null> {
@@ -116,6 +125,24 @@ export class PortalService {
     return source.portalHtml(id);
   }
 
+  /** The contact a portal token belongs to. Throws the same 404 as everything else. */
+  resolveContact(token: string): Promise<string> {
+    return this.resolveToken(token);
+  }
+
+  /**
+   * The token's own, SENT invoice — the gate every public payment route goes
+   * through. Same answer for "not yours", "not sent" and "doesn't exist".
+   */
+  async sentInvoiceFor(token: string, invoiceId: string): Promise<Invoice> {
+    const contactId = await this.resolveToken(token);
+    const invoice = await this.invoices.getStored(invoiceId);
+    if (!invoice || invoice.contactId !== contactId || !invoice.sentAt) {
+      throw new NotFoundException('Document not found');
+    }
+    return invoice;
+  }
+
   /** Resolves the token and proves the document is one of that contact's SENT ones. */
   private async sentDocumentSource(token: string, kind: string, id: string): Promise<InvoiceSource | EstimateSource> {
     const contactId = await this.resolveToken(token);
@@ -174,14 +201,49 @@ export class PortalService {
       const name = companyOf(dealId)?.name;
       return name ? { ...s, companyName: name } : s;
     };
+    const payable = await this.payableFlags(shownInvoices);
     const byDateDesc = (a: PortalDocumentSummary, b: PortalDocumentSummary) => b.date.localeCompare(a.date);
     return {
       business,
       client: { firstName: contact?.firstName ?? '', lastName: contact?.lastName ?? '' },
-      invoices: shownInvoices.map((i) => named(invoiceSummary(i), i.dealId)).sort(byDateDesc),
+      invoices: shownInvoices
+        .map((i) => ({ ...named(invoiceSummary(i), i.dealId), ...(payable.get(i.id) ?? {}) }))
+        .sort(byDateDesc),
       estimates: shownEstimates.map((e) => named(estimateSummary(e), e.dealId)).sort(byDateDesc),
       preview,
     };
+  }
+
+  /**
+   * Which invoices the client can actually pay right now, and what is still
+   * clearing on each. Best effort — a ledger outage must not take the portal
+   * down, it just hides the Pay button.
+   */
+  private async payableFlags(
+    invoices: Invoice[],
+  ): Promise<Map<string, { payable: boolean; amountPending: number; balanceDue: number }>> {
+    const out = new Map<string, { payable: boolean; amountPending: number; balanceDue: number }>();
+    if (!this.ledger || !this.paymentSettings || invoices.length === 0) return out;
+    try {
+      const settings = await this.paymentSettings.get();
+      // Both Stripe keys, or the client would be offered a form that cannot load.
+      const stripeReady = !!this.stripe?.onlineReady;
+      for (const invoice of invoices) {
+        const summary = summarizePayments(await this.ledger.listByInvoice(invoice.id));
+        const balanceDue = round2(Math.max(0, (invoice.totals?.total ?? 0) - summary.settled));
+        const methods = this.paymentSettings.methodsFor(settings, invoice.allowedMethods, stripeReady);
+        out.set(invoice.id, {
+          // Every Pay button in the portal is gated on this: Stripe configured,
+          // the document actually sent, a method allowed, and something owed.
+          payable: methods.length > 0 && balanceDue > 0 && !!invoice.sentAt,
+          amountPending: summary.pending,
+          balanceDue,
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`portal: payment ledger unavailable: ${(err as Error).message}`);
+    }
+    return out;
   }
 
   /** dealId → businessProfileId for the contact's jobs (empty on failure). */

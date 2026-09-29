@@ -21,6 +21,12 @@
 #   TWILIO_MESSAGING_SERVICE_SID / MESSAGING_DEFAULT_SENDER
 #                        - messaging only: the Messaging Service (MG…) every
 #                          outbound SMS goes through, and the fallback sender
+#   STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / STRIPE_PUBLISHABLE_KEY
+#                        - billing only. Without them billing boots and serves
+#                          the OFFLINE payment ledger normally; online payments
+#                          simply report unavailable. An empty GitHub secret
+#                          emits nothing, so it can never overwrite a value
+#                          with "".
 #   GIT_SHA              - commit SHA for /health version reporting
 #
 # All non-secret runtime config is read from SSM Parameter Store under /bitcrm/dev/.
@@ -127,6 +133,9 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg telephony_default_area_caller_id "${TELEPHONY_DEFAULT_AREA_CALLER_ID:-}" \
   --arg twilio_messaging_service_sid "${TWILIO_MESSAGING_SERVICE_SID:-}" \
   --arg messaging_default_sender "${MESSAGING_DEFAULT_SENDER:-}" \
+  --arg stripe_secret_key "${STRIPE_SECRET_KEY:-}" \
+  --arg stripe_webhook_secret "${STRIPE_WEBHOOK_SECRET:-}" \
+  --arg stripe_publishable_key "${STRIPE_PUBLISHABLE_KEY:-}" \
   '
   [
     {name: "NODE_ENV",      value: "production"},
@@ -172,10 +181,17 @@ EXTRA_ENV_JSON=$(jq -n \
       + (if $messaging_default_sender   != "" then [{name: "MESSAGING_DEFAULT_SENDER",     value: $messaging_default_sender}]     else [] end)
     else [] end)
   # Billing renders PDFs with the Alpine chromium the Dockerfile installs for
-  # it, and links clients to the portal on its own domain.
+  # it, links clients to the portal on its own domain, and takes card / ACH
+  # payments through Stripe. The webhook lands on the existing
+  # /api/billing/* ALB rule, so no new routing is needed — but the signing
+  # secret must be here or every delivery is rejected as unsigned. With none
+  # of the three set, billing still boots and the offline ledger works.
   + (if $service == "billing" then
       [{name: "PUPPETEER_EXECUTABLE_PATH", value: "/usr/bin/chromium-browser"}]
       + (if $portal_base_url != "" then [{name: "PORTAL_BASE_URL", value: $portal_base_url}] else [] end)
+      + (if $stripe_secret_key      != "" then [{name: "STRIPE_SECRET_KEY",      value: $stripe_secret_key}]      else [] end)
+      + (if $stripe_webhook_secret  != "" then [{name: "STRIPE_WEBHOOK_SECRET",  value: $stripe_webhook_secret}]  else [] end)
+      + (if $stripe_publishable_key != "" then [{name: "STRIPE_PUBLISHABLE_KEY", value: $stripe_publishable_key}] else [] end)
     else [] end)
   # SQS consumers only poll when explicitly enabled.
   + (if ($service == "deal" or $service == "inventory" or $service == "search" or $service == "messaging" or $service == "billing") then [{name: "ENABLE_SQS_CONSUMER", value: "true"}] else [] end)

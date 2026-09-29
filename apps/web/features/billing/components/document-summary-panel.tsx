@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Pencil, Plus, RotateCcw, ShieldCheck, X } from "lucide-react";
-import type { DocumentDiscount, DocumentTaxSource, DocumentTotals } from "@bitcrm/types";
+import type { DocumentDiscount, DocumentTaxSource, DocumentTotals, PaymentSummary } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,11 @@ export interface DocumentSummaryPanelProps {
   pending?: boolean;
   /** Show the Paid / Balance due rows (invoices). */
   showPayments?: boolean;
+  /**
+   * The invoice's real ledger. Only used to add the "clearing" line — money
+   * taken but not landed is never deducted from the balance.
+   */
+  paymentSummary?: PaymentSummary;
   className?: string;
 }
 
@@ -61,6 +66,7 @@ export function DocumentSummaryPanel({
   exemptLabel,
   pending = false,
   showPayments = false,
+  paymentSummary,
   className,
 }: DocumentSummaryPanelProps) {
   const [editingDiscount, setEditingDiscount] = useState(false);
@@ -223,6 +229,14 @@ export function DocumentSummaryPanel({
       {showPayments ? (
         <>
           <Row label="Paid" value={`−${formatMoney(totals.amountPaid)}`} />
+          {paymentSummary?.hasPending ? (
+            <>
+              <Row label="Clearing" value={formatMoney(paymentSummary.pending)} />
+              <p className="text-[11px] text-muted-foreground">
+                A bank payment is on its way — not counted until it lands.
+              </p>
+            </>
+          ) : null}
           <Row
             label="Balance due"
             value={formatMoney(totals.balanceDue)}

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import {
   Building2,
   ChevronRight,
+  CreditCard,
   FileSpreadsheet,
   FileText,
   Globe,
@@ -35,7 +36,16 @@ const chip =
   "inline-flex h-9 items-center gap-1.5 rounded-full border bg-card px-3 text-[13px] font-medium sm:px-3.5 sm:text-sm transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
 /** The client-facing portal body — shared by the public page and the staff preview. */
-export function PortalView({ view, onOpen }: { view: PortalViewData; onOpen: (doc: PortalDocumentSummary) => void }) {
+export function PortalView({
+  view,
+  onOpen,
+  onPay,
+}: {
+  view: PortalViewData;
+  onOpen: (doc: PortalDocumentSummary) => void;
+  /** Absent wherever paying is not on offer (the staff preview) — no dead buttons. */
+  onPay?: (doc: PortalDocumentSummary) => void;
+}) {
   const owing = outstanding(view.invoices);
   const nothing = view.invoices.length === 0 && view.estimates.length === 0;
   const name = firstNameOf(view.client);
@@ -49,7 +59,9 @@ export function PortalView({ view, onOpen }: { view: PortalViewData; onOpen: (do
         <p className="text-muted-foreground">Here are your documents from {view.business.name}.</p>
       </section>
 
-      {owing.count > 0 ? <BalanceCard {...owing} invoices={view.invoices} onOpen={onOpen} /> : null}
+      {owing.count > 0 ? (
+        <BalanceCard {...owing} invoices={view.invoices} onOpen={onOpen} onPay={onPay} businessName={view.business.name} />
+      ) : null}
 
       {nothing ? (
         <p className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
@@ -131,14 +143,22 @@ function BalanceCard({
   overdue,
   invoices,
   onOpen,
+  onPay,
+  businessName,
 }: {
   total: number;
   count: number;
   overdue: boolean;
   invoices: PortalDocumentSummary[];
   onOpen: (doc: PortalDocumentSummary) => void;
+  onPay?: (doc: PortalDocumentSummary) => void;
+  businessName: string;
 }) {
   const only = count === 1 ? invoices.find(isOwing) : undefined;
+  const clearing = invoices.filter(isOwing).reduce((sum, d) => sum + (d.amountPending ?? 0), 0);
+  // One invoice that takes card or bank gets a button; anything else gets a
+  // sentence, because a button that cannot pay is worse than no button.
+  const payNow = onPay && only?.payable ? only : undefined;
   return (
     <section
       aria-label="Balance due"
@@ -152,12 +172,27 @@ function BalanceCard({
         <p className="font-mono text-3xl font-semibold tracking-tight tabular-nums">{formatMoney(total)}</p>
         <p className="text-sm text-muted-foreground">
           {count === 1 ? "on 1 invoice" : `across ${count} invoices`}
+          {clearing > 0 ? ` · ${formatMoney(clearing)} clearing` : ""}
         </p>
+        {onPay && !payNow ? (
+          <p className="mt-1.5 max-w-xs text-xs text-muted-foreground">
+            {count > 1
+              ? "Open an invoice to pay it online."
+              : `Online payment isn't available for this invoice — please contact ${businessName} to pay.`}
+          </p>
+        ) : null}
       </div>
       {only ? (
-        <button type="button" onClick={() => onOpen(only)} className={primaryButton}>
-          View invoice #{only.number}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-none sm:flex-row">
+          {payNow ? (
+            <button type="button" onClick={() => onPay?.(payNow)} className={primaryButton}>
+              <CreditCard className="size-4" aria-hidden /> Pay {formatMoney(total)} now
+            </button>
+          ) : null}
+          <button type="button" onClick={() => onOpen(only)} className={payNow ? outlineButton : primaryButton}>
+            View invoice #{only.number}
+          </button>
+        </div>
       ) : null}
     </section>
   );

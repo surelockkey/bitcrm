@@ -28,6 +28,10 @@ export interface PortalDocumentSummary {
   sent: boolean;
   /** The job's company, when it differs between documents. */
   companyName?: string;
+  /** True when this document can be paid online right now. */
+  payable?: boolean;
+  /** Taken but still clearing (ACH) — shown as a note, not deducted. */
+  amountPending?: number;
 }
 
 /** GET /api/billing/public/portal/:token */

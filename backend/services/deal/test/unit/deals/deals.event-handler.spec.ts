@@ -12,17 +12,11 @@ describe('DealsEventHandler', () => {
     handler = new DealsEventHandler(service as any);
   });
 
-  describe('handlePaymentReceived', () => {
-    it('should call updatePaymentStatus', async () => {
-      const payload = { dealId: 'deal-1', paymentId: 'pay-1', amount: 100, paidAt: '2026-04-20' };
-      await handler.handlePaymentReceived(payload);
-
-      expect(service.updatePaymentStatus).toHaveBeenCalledWith('deal-1', {
-        paymentId: 'pay-1',
-        amount: 100,
-        paidAt: '2026-04-20',
-      });
-    });
+  it('no longer handles payment.received — billing calls the internal endpoint directly', () => {
+    // No queue ever carried `payment.received` and nothing published it; the
+    // payment ledger lives in billing-service and pushes the job's flag over
+    // `PUT /api/deals/internal/:id/payment-status`.
+    expect((handler as unknown as Record<string, unknown>).handlePaymentReceived).toBeUndefined();
   });
 
   describe('handleContactMerged', () => {

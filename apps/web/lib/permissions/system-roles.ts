@@ -82,6 +82,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       invoices: { ...crud(true, true, true, true), send: true },
       estimates: { ...crud(true, true, true, true), send: true, sync: true },
       document_templates: { view: true, edit: true },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: scopes(DataScope.ALL),
   },
@@ -121,6 +122,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       invoices: { ...crud(true, true, true, true), send: true },
       estimates: { ...crud(true, true, true, true), send: true, sync: true },
       document_templates: { view: true, edit: true },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: scopes(DataScope.ALL),
   },
@@ -160,6 +162,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       invoices: { ...crud(true, true, true, false), send: true },
       estimates: { ...crud(true, true, true, true), send: true, sync: true },
       document_templates: { view: true, edit: false },
+      payments: { view: true, collect: true, refund: true },
     },
     dataScope: scopes(DataScope.DEPARTMENT, {
       products: DataScope.ALL,
@@ -208,6 +211,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       invoices: { ...crud(true, true, true, false), send: true },
       estimates: { ...crud(true, true, true, true), send: true, sync: true },
       document_templates: { view: false, edit: false },
+      payments: { view: true, collect: true, refund: false },
     },
     dataScope: scopes(DataScope.DEPARTMENT, {
       products: DataScope.ALL,
@@ -259,6 +263,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       invoices: { ...crud(true, true, true, false), send: true },
       estimates: { ...crud(true, true, true, false), send: true, sync: true },
       document_templates: { view: false, edit: false },
+      payments: { view: true, collect: true, refund: false },
     },
     dataScope: scopes(DataScope.ASSIGNED_ONLY, {
       products: DataScope.ALL,
@@ -269,6 +274,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       message_templates: DataScope.ALL,
       tax_rates: DataScope.ALL,
       document_templates: DataScope.ALL,
+      payments: DataScope.ASSIGNED_ONLY,
     }),
   },
   "role-read-only": {
@@ -307,6 +313,7 @@ export const SYSTEM_ROLES: Record<string, SystemRole> = {
       invoices: { ...crud(true, false, false, false), send: false },
       estimates: { ...crud(true, false, false, false), send: false, sync: false },
       document_templates: { view: false, edit: false },
+      payments: { view: true, collect: false, refund: false },
     },
     dataScope: scopes(DataScope.ALL),
   },

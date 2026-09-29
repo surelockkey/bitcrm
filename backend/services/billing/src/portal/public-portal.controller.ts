@@ -2,16 +2,9 @@ import { Controller, Get, NotFoundException, Param, Query, Redirect, Req } from 
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '@bitcrm/shared';
 import type { Request } from 'express';
-import { PortalRateLimiter } from './portal-rate-limiter';
+import { PortalRateLimiter, clientIp } from './portal-rate-limiter';
 import { isPlausibleToken } from './portal-token';
 import { PortalService, portalUrl } from './portal.service';
-
-/** Behind nginx/ALB the socket address is the proxy's; the first forwarded hop is the client. */
-function clientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
-  return first || (req.headers['x-real-ip'] as string | undefined) || req.ip || 'unknown';
-}
 
 @ApiTags('Client portal (public)')
 @Controller('public/portal')

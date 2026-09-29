@@ -42,4 +42,11 @@ export enum TimelineEventType {
   ESTIMATE_SENT = 'estimate_sent',
   ESTIMATE_SYNCED = 'estimate_synced',
   ESTIMATE_DELETED = 'estimate_deleted',
+  /** Payments (written by billing through deal's internal timeline endpoint). */
+  PAYMENT_RECEIVED = 'payment_received',
+  PAYMENT_PENDING = 'payment_pending',
+  PAYMENT_FAILED = 'payment_failed',
+  PAYMENT_REFUNDED = 'payment_refunded',
+  /** A settled payment was pulled back — ACH return or a lost dispute. */
+  PAYMENT_REVERSED = 'payment_reversed',
 }

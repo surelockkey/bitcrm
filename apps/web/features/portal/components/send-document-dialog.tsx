@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, MessageSquareText, Send } from "lucide-react";
+import { AlertCircle, Loader2, Mail, MessageSquareText, Send } from "lucide-react";
 import { toast } from "sonner";
-import type { Contact } from "@bitcrm/types";
+import type { Contact, OnlinePaymentMethod } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,8 +16,11 @@ import { useContact } from "@/features/clients/hooks";
 import { sendToParty } from "@/features/messaging/api";
 import { countSegments } from "@/features/messaging/segments";
 import { useCompanyName } from "@/features/business-profiles/hooks";
+import { useSetAllowedMethods } from "@/features/payments/hooks";
+import { sameMethods } from "@/features/payments/lib";
+import { AllowedMethodsField } from "@/features/payments/components/allowed-methods-field";
 import { usePortalLinkUrl } from "../hooks";
-import { defaultSendText } from "../send-message";
+import { defaultSendEmail, defaultSendText } from "../send-message";
 
 /** What the dialog needs to know about the document it sends. */
 export interface SendableDocument {
@@ -28,11 +33,19 @@ export interface SendableDocument {
   /** The job's company, for the "from …" in the text. */
   businessProfileId?: string;
   alreadySent: boolean;
+  /**
+   * Invoices only — the methods this document offers the client. Absent means
+   * "whatever the account allows", which is where an untouched invoice sits.
+   */
+  allowedMethods?: OnlinePaymentMethod[];
 }
 
+/** How the link goes out: a text from the company's number, or an email (SES). */
+export type SendDocumentChannel = "sms" | "email";
+
 /**
- * "Send to the client by text": the portal link goes out over the messaging
- * service (Twilio), from the company's number, into the client's thread.
+ * "Send to the client by text / by email": the portal link goes out over the
+ * messaging service (Twilio SMS or SES email) into the client's thread.
  *
  * Order matters: the client's portal shows SENT documents only, so the
  * document is marked sent first — otherwise the link would open an empty page.
@@ -41,11 +54,13 @@ export interface SendableDocument {
  */
 export function SendDocumentDialog({
   document: doc,
+  channel = "sms",
   open,
   onOpenChange,
   markSent,
 }: {
   document: SendableDocument;
+  channel?: SendDocumentChannel;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Marks the document sent (resolves once it is). Skipped when it already is. */
@@ -54,9 +69,17 @@ export function SendDocumentDialog({
   const contact = useContact(open ? doc.contactId : "");
   const companyName = useCompanyName();
   const link = usePortalLinkUrl(doc.contactId);
+  const email = channel === "email";
   const [text, setText] = useState("");
+  // null = not touched yet: the default subject / the client's first email.
+  const [subjectEdit, setSubject] = useState<string | null>(null);
+  const [toEmailPick, setToEmail] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null = this invoice has never been narrowed, so the account's methods
+  // apply. Ticking a box makes it an explicit list on this document.
+  const [allowed, setAllowed] = useState<OnlinePaymentMethod[] | null>(doc.allowedMethods ?? null);
+  const saveAllowed = useSetAllowedMethods(doc.id, doc.dealId);
   const [replaced, setReplaced] = useState(false);
   const key = useRef<string>("");
   const requested = useRef(false);
@@ -71,7 +94,10 @@ export function SendDocumentDialog({
     requested.current = true;
     key.current = crypto.randomUUID();
     setError(null);
+    setAllowed(doc.allowedMethods ?? null);
     setText("");
+    setSubject(null);
+    setToEmail(null);
     link.mutate(undefined, { onSuccess: (l) => setReplaced(!!l.replaced) });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open
   }, [open]);
@@ -87,20 +113,46 @@ export function SendDocumentDialog({
     if (!open) seeded.current = false;
     if (open && ready && !seeded.current) {
       seeded.current = true;
-      setText(defaultSendText({ kind: doc.kind, number: doc.number, total: doc.total, firstName: c.firstName, businessName: business, url }));
+      const input = { kind: doc.kind, number: doc.number, total: doc.total, firstName: c.firstName, businessName: business, url };
+      setText(email ? defaultSendEmail(input).body : defaultSendText(input));
     }
-  }, [open, ready, c, url, business, doc.kind, doc.number, doc.total]);
+  }, [open, ready, c, url, business, doc.kind, doc.number, doc.total, email]);
 
   const phones = c?.phones ?? [];
+  const emails = c?.emails ?? [];
+  const subject =
+    subjectEdit ??
+    (ready ? defaultSendEmail({ kind: doc.kind, number: doc.number, total: doc.total, businessName: business, url }).subject : "");
+  const toEmail = toEmailPick ?? emails[0] ?? "";
   const hasPhone = phones.length > 0 || (c?.phoneCount ?? 0) > 0;
+  const hasAddress = email ? emails.length > 0 : hasPhone;
   const segments = countSegments(text);
-  const canSend = ready && hasPhone && text.trim().length > 0 && text.includes(url ?? "\0") && !sending;
-  const noun = doc.kind === "invoice" ? "invoice" : "estimate";
+  const canSend =
+    ready &&
+    hasAddress &&
+    (!email || (subject.trim().length > 0 && !!toEmail)) &&
+    text.trim().length > 0 &&
+    text.includes(url ?? "\0") &&
+    !sending;
+  const invoice = doc.kind === "invoice";
+  const noun = invoice ? "invoice" : "estimate";
+  const medium = email ? "email" : "text";
 
   const send = async () => {
     if (!canSend) return;
     setSending(true);
     setError(null);
+    // Before the link goes out: the client's copy has to offer the right
+    // payment methods, or they'd see options this invoice no longer allows.
+    if (invoice && allowed && !sameMethods(allowed, doc.allowedMethods)) {
+      try {
+        await saveAllowed.mutateAsync(allowed);
+      } catch (e) {
+        setError(getApiErrorMessage(e, "Couldn't save the payment options"));
+        setSending(false);
+        return;
+      }
+    }
     try {
       if (!doc.alreadySent) await markSent();
     } catch (e) {
@@ -111,15 +163,16 @@ export function SendDocumentDialog({
     try {
       await sendToParty({
         contactId: doc.contactId,
-        channel: "sms",
+        channel,
         body: text.trim(),
+        ...(email ? { subject: subject.trim(), toAddress: toEmail } : {}),
         clientMessageId: key.current,
         dealId: doc.dealId,
       });
-      toast.success(`Text sent to ${c ? c.firstName : "the client"}`);
+      toast.success(`${email ? "Email" : "Text"} sent to ${c ? c.firstName : "the client"}`);
       onOpenChange(false);
     } catch (e) {
-      const why = getApiErrorMessage(e, "The text couldn't be sent");
+      const why = getApiErrorMessage(e, `The ${medium} couldn't be sent`);
       setError(doc.alreadySent ? why : `${why} The ${noun} is marked as sent, so you can try again.`);
     } finally {
       setSending(false);
@@ -130,7 +183,7 @@ export function SendDocumentDialog({
     <Dialog open={open} onOpenChange={(o) => !sending && onOpenChange(o)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Send {noun} #{doc.number} by text</DialogTitle>
+          <DialogTitle>Send {noun} #{doc.number} by {medium}</DialogTitle>
           <DialogDescription>
             The client gets a link to their portal, where they can read this {noun} and download the PDF.
           </DialogDescription>
@@ -151,23 +204,56 @@ export function SendDocumentDialog({
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="flex items-center gap-2 text-sm">
-              <MessageSquareText className="size-4 flex-none text-muted-foreground" />
+            <div className="flex items-center gap-2 text-sm">
+              {email ? (
+                <Mail className="size-4 flex-none text-muted-foreground" />
+              ) : (
+                <MessageSquareText className="size-4 flex-none text-muted-foreground" />
+              )}
               <span>
                 To <span className="font-medium">{c.firstName} {c.lastName}</span>
-                {phones[0] ? <span className="text-muted-foreground"> · {formatPhone(phones[0])}</span> : null}
+                {!email && phones[0] ? <span className="text-muted-foreground"> · {formatPhone(phones[0])}</span> : null}
+                {email && emails.length === 1 ? <span className="text-muted-foreground"> · {emails[0]}</span> : null}
               </span>
-            </p>
-            {!hasPhone ? (
+              {email && emails.length > 1 ? (
+                <Select value={toEmail} onValueChange={setToEmail} disabled={sending}>
+                  <SelectTrigger size="sm" aria-label="Email address" className="ml-auto max-w-[60%]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emails.map((e) => (
+                      <SelectItem key={e} value={e}>
+                        {e}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+            </div>
+            {!hasAddress ? (
               <p role="alert" className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-sm text-amber-800 dark:text-amber-300">
-                This client has no phone number on file, so there&apos;s nowhere to send a text. Add one to the client first.
+                {email
+                  ? "This client has no email address on file, so there's nowhere to send an email. Add one to the client first."
+                  : "This client has no phone number on file, so there's nowhere to send a text. Add one to the client first."}
               </p>
+            ) : null}
+            {email ? (
+              <div className="space-y-1.5">
+                <label htmlFor="send-subject" className="text-sm font-medium">Subject</label>
+                <Input
+                  id="send-subject"
+                  value={subject}
+                  maxLength={250}
+                  onChange={(e) => setSubject(e.target.value)}
+                  disabled={sending}
+                />
+              </div>
             ) : null}
             <div className="space-y-1.5">
               <label htmlFor="send-text" className="text-sm font-medium">Message</label>
               <Textarea
                 id="send-text"
-                rows={5}
+                rows={email ? 9 : 5}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 disabled={sending}
@@ -177,9 +263,12 @@ export function SendDocumentDialog({
                 <span>
                   {text.includes(url!) ? "Keep the link in the message." : <span className="text-destructive">The message must contain the portal link.</span>}
                 </span>
-                <span className="tabular-nums">{segments.units} chars · {segments.segments} SMS</span>
+                {email ? null : <span className="tabular-nums">{segments.units} chars · {segments.segments} SMS</span>}
               </p>
             </div>
+            {invoice ? (
+              <AllowedMethodsField value={allowed} onChange={setAllowed} disabled={sending} />
+            ) : null}
             {!doc.alreadySent ? (
               <p className="text-xs text-muted-foreground">The {noun} will be marked as sent so the client can open it.</p>
             ) : null}
@@ -202,7 +291,7 @@ export function SendDocumentDialog({
             Cancel
           </Button>
           <Button variant="brand" onClick={send} disabled={!canSend}>
-            {sending ? <Loader2 className="animate-spin" /> : <Send />} Send text
+            {sending ? <Loader2 className="animate-spin" /> : <Send />} Send {medium}
           </Button>
         </DialogFooter>
       </DialogContent>

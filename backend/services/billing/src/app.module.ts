@@ -19,6 +19,8 @@ import { DealEventsModule } from './deal-events/deal-events.module';
 import { EstimatesModule } from './estimates/estimates.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { PaymentsModule } from './payments/payments.module';
+import { StripeModule } from './payments/stripe/stripe.module';
 import { PortalModule } from './portal/portal.module';
 import { TemplateRenderModule } from './templates/template-render.module';
 import { TemplatesModule } from './templates/templates.module';
@@ -73,6 +75,9 @@ const DEAL_EVENTS_QUEUE_URL = process.env.BILLING_DEAL_EVENTS_QUEUE_URL;
         : undefined,
     }),
     IntegrationsModule,
+    // Global `STRIPE_CLIENT`; resolves to null with no STRIPE_SECRET_KEY, and
+    // the service boots and serves the offline ledger exactly as before.
+    StripeModule.forRootAsync(),
     AssetsModule,
     BusinessProfileModule,
     // `POST /templates/render` is registered ahead of the `/templates/:id` routes.
@@ -81,6 +86,9 @@ const DEAL_EVENTS_QUEUE_URL = process.env.BILLING_DEAL_EVENTS_QUEUE_URL;
     InvoicesModule,
     EstimatesModule,
     PortalModule,
+    // Last: its `invoices/:id/payments` and `public/portal/...` routes are
+    // deeper than the ones above and must not shadow them.
+    PaymentsModule,
     DealEventsModule,
   ],
 })

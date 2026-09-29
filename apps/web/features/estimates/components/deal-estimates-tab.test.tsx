@@ -183,6 +183,18 @@ describe("EstimateEditor — sync to job", () => {
     expect(sms).toMatchObject({ contactId: "c1", channel: "sms", dealId: "d1", body: expect.stringContaining("tok_abc") });
   });
 
+  it("offers Send by email beside Send by text, opening the email dialog", async () => {
+    const { unmount } = renderWithClient(<Harness initial="e1" />);
+    await screen.findByRole("button", { name: /sync to job/i });
+    expect(screen.queryByRole("button", { name: /send by email/i })).not.toBeInTheDocument();
+    unmount();
+
+    mocks.perms.add("messages.send");
+    renderWithClient(<Harness initial="e1" />);
+    await user().click(await screen.findByRole("button", { name: /send by email/i }));
+    expect(await screen.findByRole("heading", { name: /send estimate #1042-1 by email/i })).toBeInTheDocument();
+  });
+
   it("disables sync without the sync permission", async () => {
     mocks.perms.delete("estimates.sync");
     renderWithClient(<Harness initial="e1" />);

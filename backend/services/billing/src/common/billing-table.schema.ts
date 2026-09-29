@@ -1,5 +1,11 @@
-import { type CreateTableCommandInput } from '@aws-sdk/client-dynamodb';
+import {
+  type CreateTableCommandInput,
+  type UpdateTimeToLiveCommandInput,
+} from '@aws-sdk/client-dynamodb';
 import { BILLING_GSIS } from './constants/dynamo.constants';
+
+/** TTL attribute — Stripe webhook dedupe rows (`WEBHOOK#<eventId>`) expire after 30 days. */
+export const BILLING_TTL_ATTRIBUTE = 'expiresAt';
 
 /**
  * The DynamoDB shape of the billing table, in one place so the local setup
@@ -30,5 +36,17 @@ export function billingTableDefinition(tableName: string): CreateTableCommandInp
       Projection: { ProjectionType: 'ALL' },
     })),
     BillingMode: 'PAY_PER_REQUEST',
+  };
+}
+
+/**
+ * TTL on `expiresAt`. Only the Stripe webhook dedupe rows carry it: a
+ * `WEBHOOK#<eventId>` row exists to make a replayed delivery a no-op, and
+ * Stripe stops retrying long before 30 days are up. No ledger row ever expires.
+ */
+export function billingTableTtl(tableName: string): UpdateTimeToLiveCommandInput {
+  return {
+    TableName: tableName,
+    TimeToLiveSpecification: { AttributeName: BILLING_TTL_ATTRIBUTE, Enabled: true },
   };
 }

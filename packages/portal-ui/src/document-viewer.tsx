@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Download, ExternalLink, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, CreditCard, Download, ExternalLink, Loader2 } from "lucide-react";
 import type { PortalDocumentSummary } from "@bitcrm/types";
 import { DocumentFrame } from "./document-frame";
-import { cx, documentKindLabel, documentTitle, formatMoney } from "./lib";
+import { cx, documentKindLabel, documentTitle, formatMoney, isOwing } from "./lib";
 import { goTo } from "./navigate";
 import { StatusBadge } from "./status-badge";
 import { useLoad } from "./use-load";
@@ -30,15 +30,18 @@ export function PortalDocumentViewer({
   onClose,
   loaders,
   scope,
+  onPay,
 }: {
   doc: PortalDocumentSummary | null;
   onClose: () => void;
   loaders: DocumentLoaders;
   /** Tells one host's documents from another's (token, or preview contact). */
   scope: string;
+  /** Absent wherever paying is not on offer (the staff preview). */
+  onPay?: (doc: PortalDocumentSummary) => void;
 }) {
   if (!doc) return null;
-  return <Viewer key={`${scope}:${doc.kind}:${doc.id}`} doc={doc} onClose={onClose} loaders={loaders} scope={scope} />;
+  return <Viewer key={`${scope}:${doc.kind}:${doc.id}`} doc={doc} onClose={onClose} loaders={loaders} scope={scope} onPay={onPay} />;
 }
 
 function Viewer({
@@ -46,13 +49,17 @@ function Viewer({
   onClose,
   loaders,
   scope,
+  onPay,
 }: {
   doc: PortalDocumentSummary;
   onClose: () => void;
   loaders: DocumentLoaders;
   scope: string;
+  onPay?: (doc: PortalDocumentSummary) => void;
 }) {
   const title = documentTitle(doc);
+  const owing = isOwing(doc);
+  const payNow = onPay && owing && doc.payable === true;
   const page = useLoad(() => loaders.getHtml(doc), `${scope}:${doc.kind}:${doc.id}`);
   const [busy, setBusy] = useState<"download" | "open" | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -122,8 +129,13 @@ function Viewer({
           </div>
           <StatusBadge doc={doc} />
         </div>
-        <div className="mx-auto flex w-full max-w-4xl gap-2 px-3 pb-2.5 sm:px-5">
-          <button type="button" onClick={download} disabled={busy !== null} className={cx(primaryButton, "flex-1 sm:flex-none")}>
+        <div className="mx-auto flex w-full max-w-4xl flex-wrap gap-2 px-3 pb-2.5 sm:px-5">
+          {payNow ? (
+            <button type="button" onClick={() => onPay(doc)} className={cx(primaryButton, "w-full sm:w-auto")}>
+              <CreditCard className="size-4" aria-hidden /> Pay {formatMoney(doc.balanceDue ?? doc.total)}
+            </button>
+          ) : null}
+          <button type="button" onClick={download} disabled={busy !== null} className={cx(payNow ? outlineButton : primaryButton, "flex-1 sm:flex-none")}>
             {busy === "download" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
             Download PDF
           </button>
@@ -132,6 +144,11 @@ function Viewer({
             Open PDF
           </button>
         </div>
+        {onPay && owing && !payNow ? (
+          <p className="mx-auto max-w-4xl px-3 pb-2 text-xs text-muted-foreground sm:px-5">
+            Online payment isn&apos;t available for this invoice — please contact us to pay.
+          </p>
+        ) : null}
         {pdfError ? (
           <p role="alert" className="mx-auto max-w-4xl px-3 pb-2 text-xs text-destructive sm:px-5">
             {pdfError}

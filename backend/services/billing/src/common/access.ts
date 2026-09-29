@@ -8,7 +8,7 @@ export interface Caller {
   perms?: ResolvedPermissions | null;
 }
 
-export type BillingResource = 'invoices' | 'estimates';
+export type BillingResource = 'invoices' | 'estimates' | 'payments';
 
 /**
  * `assigned_only` for billing documents means "documents of jobs I'm

@@ -8,6 +8,11 @@ export enum BillingEventType {
   ESTIMATE_UPDATED = 'estimate.updated',
   ESTIMATE_DELETED = 'estimate.deleted',
   ESTIMATE_SYNCED = 'estimate.synced',
+  PAYMENT_SUCCEEDED = 'payment.succeeded',
+  PAYMENT_PENDING = 'payment.pending',
+  PAYMENT_FAILED = 'payment.failed',
+  PAYMENT_REFUNDED = 'payment.refunded',
+  PAYMENT_REVERSED = 'payment.reversed',
 }
 
 export interface InvoiceEvent {
@@ -17,6 +22,18 @@ export interface InvoiceEvent {
   number: string;
   status: string;
   total: number;
+}
+
+export interface PaymentEvent {
+  paymentId: string;
+  invoiceId: string;
+  dealId: string;
+  contactId: string;
+  amount: number;
+  method: string;
+  status: string;
+  /** The invoice's remaining balance after this event. */
+  balanceDue: number;
 }
 
 export interface EstimateEvent {

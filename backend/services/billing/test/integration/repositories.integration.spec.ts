@@ -7,6 +7,8 @@ import {
   type Estimate,
   type EstimateItem,
   type Invoice,
+  type Payment,
+  type PaymentRefund,
 } from '@bitcrm/types';
 import { BILLING_TABLE } from 'src/common/constants/dynamo.constants';
 import { InvoiceExistsError, InvoiceVersionConflictError, InvoicesRepository } from 'src/invoices/invoices.repository';
@@ -14,6 +16,7 @@ import { EstimatesRepository } from 'src/estimates/estimates.repository';
 import { TemplateVersionConflictError, TemplatesRepository } from 'src/templates/templates.repository';
 import { PortalRepository } from 'src/portal/portal.repository';
 import { BusinessProfileRepository } from 'src/business-profile/business-profile.repository';
+import { PaymentVersionConflictError, PaymentsRepository } from 'src/payments/payments.repository';
 import { PutCommand } from '@aws-sdk/lib-dynamodb';
 import { BILLING_TEST_TABLE, destroyRawClient, resetTable, testDynamo } from './setup';
 
@@ -43,6 +46,7 @@ describe('billing repositories (integration)', () => {
   const templates = new TemplatesRepository(dynamo);
   const portal = new PortalRepository(dynamo);
   const profiles = new BusinessProfileRepository(dynamo);
+  const payments = new PaymentsRepository(dynamo);
 
   beforeAll(() => {
     expect(BILLING_TABLE).toBe(BILLING_TEST_TABLE);
@@ -238,6 +242,116 @@ describe('billing repositories (integration)', () => {
       expect(await portal.findContactByTokenHash('h2')).toBeNull();
     });
   });
+  describe('payments', () => {
+    const pay = (id: string, over: Partial<Payment> = {}): Payment => ({
+      id,
+      invoiceId: 'd-01',
+      dealId: 'd-01',
+      contactId: 'c1',
+      amount: 50,
+      currency: 'usd',
+      method: 'card',
+      status: 'settled',
+      refundedAmount: 0,
+      source: 'portal',
+      takenBy: 'client',
+      takenAt: `2026-09-2${id.slice(-1)}T10:00:00.000Z`,
+      version: 1,
+      createdAt: `2026-09-2${id.slice(-1)}T10:00:00.000Z`,
+      updatedAt: `2026-09-2${id.slice(-1)}T10:00:00.000Z`,
+      ...over,
+    });
+
+    it('writes both copies in one transaction and reads the ledger next to its invoice', async () => {
+      await payments.create(pay('p-1'));
+      await payments.create(pay('p-2', { amount: 25, status: 'pending', method: 'bank' }));
+
+      expect((await payments.get('p-1'))?.amount).toBe(50);
+      const ledger = await payments.listByInvoice('d-01');
+      expect(ledger.map((p) => p.id)).toEqual(['p-1', 'p-2']);
+      // Storage plumbing never leaks into the entity.
+      expect((ledger[0] as unknown as Record<string, unknown>).PK).toBeUndefined();
+    });
+
+    it('updates BOTH copies atomically and honours expectedVersion', async () => {
+      const created = await payments.create(pay('p-1'));
+      const updated = await payments.update(created, { status: 'reversed', reversedAt: 'now' });
+      expect(updated.status).toBe('reversed');
+      expect(updated.version).toBe(2);
+      // The adjacency row moved with it — a stale copy would silently
+      // resurrect reversed money in the invoice's ledger read.
+      expect((await payments.listByInvoice('d-01'))[0].status).toBe('reversed');
+
+      await expect(payments.update(created, { status: 'settled' }, [], { expectedVersion: 1 })).rejects.toBeInstanceOf(
+        PaymentVersionConflictError,
+      );
+    });
+
+    it('deletes both copies', async () => {
+      const created = await payments.create(pay('p-1'));
+      await payments.delete(created);
+      expect(await payments.get('p-1')).toBeNull();
+      expect(await payments.listByInvoice('d-01')).toEqual([]);
+    });
+
+    it('lists newest first through GSI1 and filters, and by contact through GSI2', async () => {
+      await payments.create(pay('p-1'));
+      await payments.create(pay('p-2', { status: 'pending', method: 'bank' }));
+      await payments.create(pay('p-3', { contactId: 'c2', method: 'cash' }));
+
+      const all = await payments.list({ limit: 10 });
+      expect(all.items.map((p) => p.id)).toEqual(['p-3', 'p-2', 'p-1']);
+      expect((await payments.list({ limit: 10, status: 'pending' })).items.map((p) => p.id)).toEqual(['p-2']);
+      expect((await payments.list({ limit: 10, method: 'cash' })).items.map((p) => p.id)).toEqual(['p-3']);
+      expect((await payments.list({ limit: 10, contactId: 'c2' })).items.map((p) => p.id)).toEqual(['p-3']);
+      expect((await payments.listNonTerminal()).map((p) => p.id)).toEqual(['p-2']);
+      expect((await payments.listAllMatching({ status: 'settled' })).map((p) => p.id).sort()).toEqual(['p-1', 'p-3']);
+    });
+
+    it('claims a Stripe event id exactly once, and can release the claim', async () => {
+      expect(await payments.claimWebhookEvent('evt_1', 'payment_intent.succeeded')).toBe(true);
+      expect(await payments.claimWebhookEvent('evt_1', 'payment_intent.succeeded')).toBe(false);
+      await payments.releaseWebhookEvent('evt_1');
+      expect(await payments.claimWebhookEvent('evt_1', 'payment_intent.succeeded')).toBe(true);
+    });
+
+    it('resolves a payment from any Stripe object id in one read', async () => {
+      await payments.putStripePointer('cs_1', 'p-1');
+      await payments.putStripePointer('pi_1', 'p-1');
+      expect(await payments.findPaymentIdByStripeObject('pi_1')).toBe('p-1');
+      expect(await payments.findPaymentIdByStripeObject('ch_nope')).toBeNull();
+    });
+
+    it('keeps refunds under their payment', async () => {
+      const refund = (id: string): PaymentRefund => ({
+        id,
+        paymentId: 'p-1',
+        invoiceId: 'd-01',
+        amount: 10,
+        status: 'succeeded',
+        refundedBy: 'u1',
+        createdAt: `2026-09-2${id.slice(-1)}T11:00:00.000Z`,
+        updatedAt: `2026-09-2${id.slice(-1)}T11:00:00.000Z`,
+      });
+      await payments.addRefund(refund('r-1'));
+      await payments.addRefund(refund('r-2'));
+      const rows = await payments.listRefunds('p-1');
+      expect(rows.map((r) => r.id)).toEqual(['r-1', 'r-2']);
+      await payments.updateRefund(rows[0], { status: 'failed' });
+      expect((await payments.listRefunds('p-1'))[0].status).toBe('failed');
+    });
+
+    it('falls back to DEFAULT_PAYMENT_SETTINGS until a row is saved', async () => {
+      const defaults = await payments.getSettings();
+      expect(defaults.onlinePaymentsEnabled).toBe(false);
+      expect(defaults.surchargePercent).toBe(0);
+      await payments.putSettings({ ...defaults, bankEnabled: true, bankMinimum: 25 });
+      const saved = await payments.getSettings();
+      expect(saved).toMatchObject({ bankEnabled: true, bankMinimum: 25, cardEnabled: true });
+      expect((saved as unknown as Record<string, unknown>).PK).toBeUndefined();
+    });
+  });
+
   describe('business profiles', () => {
     const bp = (id: string, over: Partial<BusinessProfile> = {}): BusinessProfile => ({
       ...DEFAULT_BUSINESS_PROFILE,

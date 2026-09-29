@@ -254,6 +254,18 @@ export const queryKeys = {
     needingInvoice: () => ["invoices", "needing-invoice"] as const,
   },
 
+  /**
+   * The payment ledger (billing service). `byInvoice` is the rows + summary
+   * behind one invoice; `list` is the /payments report; `settings` is the
+   * account-level singleton the settings page and the send dialog share.
+   */
+  payments: {
+    all: () => ["payments"] as const,
+    list: (params?: unknown) => ["payments", "list", params] as const,
+    byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
+    settings: () => ["payments", "settings"] as const,
+  },
+
   estimates: {
     all: () => ["estimates"] as const,
     list: (params?: unknown) => ["estimates", "list", params] as const,

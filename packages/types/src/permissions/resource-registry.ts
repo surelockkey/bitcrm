@@ -62,6 +62,9 @@ export const RESOURCE_REGISTRY = {
   estimates: ['view', 'create', 'edit', 'delete', 'send', 'sync'],
   // Settings → Documents: PDF templates + business profile.
   document_templates: ['view', 'edit'],
+  // `collect` takes money (portal sends + offline records); `refund` gives it
+  // back and is deliberately not a technician's to hold.
+  payments: ['view', 'collect', 'refund'],
 } as const;
 
 export type Resource = keyof typeof RESOURCE_REGISTRY;

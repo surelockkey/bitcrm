@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicApiError } from "@bitcrm/portal-ui";
-import { getDocumentHtml, getDocumentPdfUrl, getPortal, publicGet } from "./api";
+import { getDocumentHtml, getDocumentPdfUrl, getPaymentOptions, getPaymentStatus, getPortal, publicGet, startPayment } from "./api";
 
 function stubFetch(status: number, body: unknown) {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
@@ -49,5 +49,42 @@ describe("portal endpoints", () => {
       "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d%201/pdf",
       "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d%201/pdf?download=1",
     ]);
+  });
+});
+
+describe("payment endpoints", () => {
+  it("reads the options for one invoice off the token-gated path", async () => {
+    const f = stubFetch(200, { success: true, data: { amountDue: 10 } });
+    await expect(getPaymentOptions("tok", "d 1")).resolves.toEqual({ amountDue: 10 });
+    expect((f.mock.calls[0] as unknown as [string])[0]).toBe(
+      "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d%201/payment-options",
+    );
+  });
+
+  it("posts the amount and method as JSON, with no credentials, and gets a client secret back", async () => {
+    const f = stubFetch(200, { success: true, data: { clientSecret: "cs_1", publishableKey: "pk_1" } });
+    await expect(startPayment("tok", "d1", { amount: 120.5, method: "card" })).resolves.toMatchObject({ clientSecret: "cs_1" });
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/invoice/d1/pay");
+    expect(init.method).toBe("POST");
+    expect(init.credentials).toBe("omit");
+    expect(init.body).toBe(JSON.stringify({ amount: 120.5, method: "card" }));
+    expect(init.headers).toMatchObject({ "Content-Type": "application/json" });
+  });
+
+  it("surfaces a refused payment as a PublicApiError the panel can read", async () => {
+    stubFetch(429, { success: false, message: "Too many attempts. Please wait a minute." });
+    await expect(startPayment("tok", "d1", { amount: 1, method: "card" })).rejects.toMatchObject({
+      status: 429,
+      message: "Too many attempts. Please wait a minute.",
+    });
+  });
+
+  it("polls one payment by id", async () => {
+    const f = stubFetch(200, { success: true, data: { status: "settled" } });
+    await expect(getPaymentStatus("tok", "pay 1")).resolves.toEqual({ status: "settled" });
+    expect((f.mock.calls[0] as unknown as [string])[0]).toBe(
+      "https://api.bitcrm.tech-slk.com/api/billing/public/portal/tok/payment/pay%201",
+    );
   });
 });

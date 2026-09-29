@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
+import { DEFAULT_PAYMENT_SETTINGS } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 
@@ -33,9 +34,39 @@ async function ready(): Promise<HTMLTextAreaElement> {
 }
 let calls: string[];
 let sms: Record<string, unknown> | undefined;
+let allowed: { methods: string[] | null } | undefined;
 
-function handlers(over: { contact?: object; smsStatus?: number; markSentStatus?: number } = {}) {
+const PAYMENT_SETTINGS_OFF = { ...DEFAULT_PAYMENT_SETTINGS };
+const PAYMENT_SETTINGS_ON = {
+  ...DEFAULT_PAYMENT_SETTINGS,
+  onlinePaymentsEnabled: true,
+  cardEnabled: true,
+  bankEnabled: true,
+};
+
+function handlers(
+  over: {
+    contact?: object;
+    smsStatus?: number;
+    markSentStatus?: number;
+    settings?: object | null;
+    allowedStatus?: number;
+  } = {},
+) {
   server.use(
+    http.get("*/billing/payment-settings", () =>
+      HttpResponse.json({
+        success: true,
+        data: over.settings ?? { ...PAYMENT_SETTINGS_OFF, stripeConfigured: false },
+      }),
+    ),
+    http.patch("*/billing/invoices/d1/allowed-methods", async ({ request }) => {
+      allowed = (await request.json()) as { methods: string[] | null };
+      calls.push("allowed-methods");
+      return over.allowedStatus && over.allowedStatus >= 400
+        ? HttpResponse.json({ success: false, message: "Couldn't save the payment options" }, { status: over.allowedStatus })
+        : HttpResponse.json({ success: true, data: { id: "d1" } });
+    }),
     http.get("*/crm/contacts/c1", () => HttpResponse.json({ success: true, data: over.contact ?? contact })),
     http.get("*/billing/business-profiles", () =>
       HttpResponse.json({ success: true, data: [{ id: "bp1", name: "Sure Lock Key", isDefault: true }] }),
@@ -63,13 +94,21 @@ function handlers(over: { contact?: object; smsStatus?: number; markSentStatus?:
   );
 }
 
-function open(props: Partial<{ document: SendableDocument; markSent: () => Promise<unknown> }> = {}) {
+function open(
+  props: Partial<{ document: SendableDocument; markSent: () => Promise<unknown>; channel: "sms" | "email" }> = {},
+) {
   const onOpenChange = vi.fn();
   const markSent = props.markSent ?? vi.fn(async () => {
     await fetch("http://localhost/api/billing/invoices/d1/mark-sent", { method: "POST" }).catch(() => undefined);
   });
   renderWithClient(
-    <SendDocumentDialog document={props.document ?? doc} open onOpenChange={onOpenChange} markSent={markSent} />,
+    <SendDocumentDialog
+      document={props.document ?? doc}
+      channel={props.channel}
+      open
+      onOpenChange={onOpenChange}
+      markSent={markSent}
+    />,
   );
   return { onOpenChange, markSent };
 }
@@ -77,6 +116,7 @@ function open(props: Partial<{ document: SendableDocument; markSent: () => Promi
 beforeEach(() => {
   calls = [];
   sms = undefined;
+  allowed = undefined;
   toast.success.mockClear();
   toast.error.mockClear();
   // A stable idempotency key.
@@ -187,5 +227,134 @@ describe("SendDocumentDialog", () => {
     open();
     expect(await screen.findByText(/couldn't get the client's portal link/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send text/i })).toBeDisabled();
+  });
+});
+
+describe("SendDocumentDialog — by email", () => {
+  const withEmail = { ...contact, emails: ["jane@client.test", "jane.work@client.test"] };
+
+  it("prefills the subject and an email body with the portal link, addressed to the client's first email", async () => {
+    handlers({ contact: withEmail });
+    open({ channel: "email" });
+    const box = await ready();
+    expect(screen.getByRole("heading", { name: /send invoice #1042 by email/i })).toBeInTheDocument();
+    expect((screen.getByLabelText("Subject") as HTMLInputElement).value).toBe("Invoice #1042 from Sure Lock Key");
+    expect(box.value).toMatch(/^Hi Jane,/);
+    expect(screen.getByText(/jane@client\.test/)).toBeInTheDocument();
+    expect(screen.queryByText(/SMS/)).not.toBeInTheDocument();
+  });
+
+  it("marks the invoice sent, then emails the subject and message to the chosen address", async () => {
+    handlers({ contact: withEmail });
+    const order: string[] = [];
+    const { onOpenChange } = open({ channel: "email", markSent: vi.fn(async () => { order.push("mark-sent"); }) });
+    await ready();
+    server.events.on("request:start", ({ request }) => {
+      if (request.url.endsWith("/messaging/messages")) order.push("email");
+    });
+    const subject = screen.getByLabelText("Subject");
+    await user().clear(subject);
+    await user().type(subject, "Your invoice");
+    await user().click(screen.getByRole("button", { name: /send email/i }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(order).toEqual(["mark-sent", "email"]);
+    expect(sms).toMatchObject({
+      contactId: "c1",
+      channel: "email",
+      subject: "Your invoice",
+      toAddress: "jane@client.test",
+      dealId: "d1",
+      body: expect.stringContaining(URL_),
+    });
+    expect(toast.success).toHaveBeenCalledWith("Email sent to Jane");
+  });
+
+  it("needs a subject", async () => {
+    handlers({ contact: withEmail });
+    open({ channel: "email" });
+    await ready();
+    await user().clear(screen.getByLabelText("Subject"));
+    expect(screen.getByRole("button", { name: /send email/i })).toBeDisabled();
+  });
+
+  it("explains a client with no email and disables sending", async () => {
+    handlers();
+    open({ channel: "email" });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no email address on file/i);
+    expect(screen.getByRole("button", { name: /send email/i })).toBeDisabled();
+  });
+
+  it("keeps the dialog open and says why when the email is refused", async () => {
+    handlers({ contact: withEmail });
+    server.use(
+      http.post("*/messaging/messages", () =>
+        HttpResponse.json({ success: false, message: "Email sending is not configured" }, { status: 501 }),
+      ),
+    );
+    const { onOpenChange } = open({ channel: "email", document: { ...doc, alreadySent: true } });
+    await ready();
+    await user().click(screen.getByRole("button", { name: /send email/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not configured/i);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("SendDocumentDialog — let client pay with", () => {
+  it("offers the account's online methods, both ticked, and saves them before the send", async () => {
+    handlers({ settings: { ...PAYMENT_SETTINGS_ON, stripeConfigured: true } });
+    const { onOpenChange } = open({ document: { ...doc, alreadySent: true } });
+    await ready();
+    expect(await screen.findByLabelText("Card")).toBeChecked();
+    expect(screen.getByLabelText("Bank")).toBeChecked();
+
+    await user().click(screen.getByLabelText("Bank"));
+    await user().click(screen.getByRole("button", { name: /send text/i }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(allowed).toEqual({ methods: ["card"] });
+    // The client's copy must carry the right options before the link goes out.
+    expect(calls.indexOf("allowed-methods")).toBeLessThan(calls.indexOf("sms"));
+  });
+
+  it("leaves the invoice alone when the choice is untouched", async () => {
+    handlers({ settings: PAYMENT_SETTINGS_ON });
+    open({ document: { ...doc, alreadySent: true } });
+    await ready();
+    await screen.findByLabelText("Card");
+    await user().click(screen.getByRole("button", { name: /send text/i }));
+    await waitFor(() => expect(sms).toBeDefined());
+    expect(allowed).toBeUndefined();
+  });
+
+  it("starts from what the invoice already allows", async () => {
+    handlers({ settings: PAYMENT_SETTINGS_ON });
+    open({ document: { ...doc, alreadySent: true, allowedMethods: ["bank"] } });
+    await ready();
+    expect(await screen.findByLabelText("Bank")).toBeChecked();
+    expect(screen.getByLabelText("Card")).not.toBeChecked();
+  });
+
+  it("says nothing about paying when the account takes no online payments", async () => {
+    handlers();
+    open({ document: { ...doc, alreadySent: true } });
+    await ready();
+    expect(screen.queryByText(/let client pay with/i)).toBeNull();
+  });
+
+  it("never asks about payment on an estimate", async () => {
+    handlers({ settings: PAYMENT_SETTINGS_ON });
+    open({ document: { ...doc, kind: "estimate", alreadySent: true } });
+    await ready();
+    expect(screen.queryByText(/let client pay with/i)).toBeNull();
+  });
+
+  it("stops and explains when the payment options can't be saved", async () => {
+    handlers({ settings: PAYMENT_SETTINGS_ON, allowedStatus: 500 });
+    const { onOpenChange } = open({ document: { ...doc, alreadySent: true } });
+    await ready();
+    await user().click(await screen.findByLabelText("Bank"));
+    await user().click(screen.getByRole("button", { name: /send text/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/payment options/i);
+    expect(sms).toBeUndefined();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 });

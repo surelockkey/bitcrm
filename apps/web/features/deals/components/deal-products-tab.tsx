@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Check, Loader2, Plus, ShieldCheck, X } from "lucide-react";
 import { calculateDocumentTotals } from "@bitcrm/types";
-import type { Deal, DealProduct } from "@bitcrm/types";
+import type { Deal, DealProduct, PaymentSummary } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useContact } from "@/features/clients/hooks";
 import { DocumentSummaryPanel } from "@/features/billing/components/document-summary-panel";
+import { applyAmountPaid } from "@/features/payments/lib";
 import {
   useDealProducts,
   useDealTotals,
@@ -60,11 +61,18 @@ export function DealProductsTab({
   deal,
   canEdit,
   showPayments = false,
+  paymentSummary,
 }: {
   deal: Deal;
   canEdit: boolean;
   /** Add Paid / Balance due to the summary (the Invoice tab reuses this view). */
   showPayments?: boolean;
+  /**
+   * The invoice's payment ledger, when the Invoice tab has it. It is the
+   * authority on what has been collected — the job snapshot can lag a payment
+   * by a beat.
+   */
+  paymentSummary?: PaymentSummary;
 }) {
   const { data: products, isLoading } = useDealProducts(deal.id);
   const totalsQuery = useDealTotals(deal.id);
@@ -93,7 +101,9 @@ export function DealProductsTab({
       }),
     [items, deal.taxRatePercent, deal.discount],
   );
-  const totals = totalsQuery.data && !totalsQuery.isFetching ? totalsQuery.data : localTotals;
+  const snapshot = totalsQuery.data && !totalsQuery.isFetching ? totalsQuery.data : localTotals;
+  // The ledger, when the Invoice tab has it, restates Paid / Balance due.
+  const totals = paymentSummary ? applyAmountPaid(snapshot, paymentSummary.settled) : snapshot;
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
 
@@ -223,6 +233,7 @@ export function DealProductsTab({
           onDiscountChange={(d) => setDiscount.mutate(d)}
           exemptLabel={contact?.taxExemptReason}
           showPayments={showPayments}
+          paymentSummary={paymentSummary}
         />
       </div>
 

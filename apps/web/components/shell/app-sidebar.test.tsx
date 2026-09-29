@@ -106,11 +106,12 @@ describe("AppSidebar", () => {
     expect(screen.queryByText("Warehouses")).not.toBeInTheDocument();
     // The reports hub is a real page now, not a roadmap stub.
     expect(screen.getByText("Reports")).toBeInTheDocument();
-    // coming-soon, hidden by default:
-    expect(screen.queryByText("Payments")).not.toBeInTheDocument();
-    // Billing is live now.
+    // Billing is live now — payments included.
     expect(screen.getByText("Invoices")).toBeInTheDocument();
     expect(screen.getByText("Estimates")).toBeInTheDocument();
+    expect(screen.getByText("Payments")).toBeInTheDocument();
+    // Still coming-soon, so still hidden by default:
+    expect(screen.queryByText("Commission")).not.toBeInTheDocument();
   });
 
   it("hides groups a user cannot view", () => {

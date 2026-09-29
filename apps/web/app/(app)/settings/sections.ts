@@ -17,6 +17,7 @@ import {
   FileText,
   Building,
   FileStack,
+  CreditCard,
 } from "lucide-react";
 import type { Resource } from "@bitcrm/types";
 
@@ -56,6 +57,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     description: "Invoice and estimate PDF templates.",
     icon: FileStack,
     resource: "document_templates",
+  },
+  {
+    label: "Payments",
+    href: "/settings/payments",
+    description: "How clients pay online — card and bank, part payments, surcharge and tips.",
+    icon: CreditCard,
+    resource: "settings",
   },
   {
     label: "Job Types",

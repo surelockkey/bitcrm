@@ -99,3 +99,33 @@ describe("PortalDocumentViewer", () => {
     expect(document.body.style.overflow).toBe("");
   });
 });
+
+describe("paying from the document", () => {
+  const payable: PortalDocumentSummary = { ...doc, payable: true, balanceDue: 120.5 };
+
+  it("offers Pay now carrying the balance, not the total", async () => {
+    const onPay = vi.fn();
+    render(<PortalDocumentViewer doc={payable} onClose={() => {}} loaders={loaders()} scope="t" onPay={onPay} />);
+    await userEvent.click(screen.getByRole("button", { name: /pay \$120\.50/i }));
+    expect(onPay).toHaveBeenCalledWith(payable);
+  });
+
+  it("says why instead of offering a dead button when online payment is off", () => {
+    render(<PortalDocumentViewer doc={{ ...doc, payable: false }} onClose={() => {}} loaders={loaders()} scope="t" onPay={() => {}} />);
+    expect(screen.queryByRole("button", { name: /^pay/i })).toBeNull();
+    expect(screen.getByText(/online payment isn't available/i)).toBeInTheDocument();
+  });
+
+  it("shows nothing to pay on a settled invoice", () => {
+    render(
+      <PortalDocumentViewer doc={{ ...doc, status: "paid", balanceDue: 0, payable: true }} onClose={() => {}} loaders={loaders()} scope="t" onPay={() => {}} />,
+    );
+    expect(screen.queryByRole("button", { name: /^pay/i })).toBeNull();
+    expect(screen.queryByText(/online payment isn't available/i)).toBeNull();
+  });
+
+  it("stays out of the way in the staff preview", () => {
+    render(<PortalDocumentViewer doc={payable} onClose={() => {}} loaders={loaders()} scope="t" />);
+    expect(screen.queryByRole("button", { name: /^pay/i })).toBeNull();
+  });
+});

@@ -2,13 +2,14 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../../../../.env') });
 
-import { CreateTableCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { CreateTableCommand, DynamoDBClient, UpdateTimeToLiveCommand } from '@aws-sdk/client-dynamodb';
 import { BILLING_TABLE } from '../common/constants/dynamo.constants';
-import { billingTableDefinition } from '../common/billing-table.schema';
+import { billingTableDefinition, billingTableTtl } from '../common/billing-table.schema';
 
 /**
  * Creates the local billing table (PK/SK + ListIndex, ContactIndex,
- * DealIndex). Idempotent. Production is Terraform (`infra/dev/data_plane.tf`).
+ * DealIndex) and enables TTL on `expiresAt` for the Stripe webhook dedupe
+ * rows. Idempotent. Production is Terraform (`infra/dev/data_plane.tf`).
  */
 async function main() {
   const client = new DynamoDBClient({
@@ -24,6 +25,19 @@ async function main() {
   } catch (error: unknown) {
     if (error instanceof Error && error.name === 'ResourceInUseException') {
       console.log(`Table "${BILLING_TABLE}" already exists`);
+    } else {
+      throw error;
+    }
+  }
+
+  try {
+    await client.send(new UpdateTimeToLiveCommand(billingTableTtl(BILLING_TABLE)));
+    console.log(`TTL enabled on "${BILLING_TABLE}".expiresAt`);
+  } catch (error: unknown) {
+    // DynamoDB answers ValidationException when TTL is already enabled (or is
+    // still being enabled from a previous run) — nothing to do in either case.
+    if (error instanceof Error && error.name === 'ValidationException') {
+      console.log(`TTL already enabled on "${BILLING_TABLE}"`);
     } else {
       throw error;
     }

@@ -12,20 +12,24 @@ import { apiReference } from '@scalar/nestjs-api-reference';
 import { HttpExceptionFilter } from '@bitcrm/shared';
 import { Logger } from 'nestjs-pino';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  // Nest's own body parser is replaced so the JSON limit can be raised.
+  // `rawBody: true` keeps the untouched request bytes on `req.rawBody`, which
+  // is the only thing Stripe's webhook signature can be verified against. It
+  // must be an app OPTION: Nest middleware runs after the body parsers, so a
+  // MiddlewareConsumer would only ever see the parsed object.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
-    bodyParser: false,
+    rawBody: true,
   });
   app.useLogger(app.get(Logger));
 
-  // Template saves carry the whole block tree.
-  app.use(json({ limit: '4mb' }));
-  app.use(urlencoded({ extended: true, limit: '1mb' }));
+  // Template saves carry the whole block tree, so the JSON limit is raised —
+  // through `useBodyParser`, which re-registers Nest's OWN parser (rawBody
+  // verify hook included) instead of replacing it with a bare express one.
+  app.useBodyParser('json', { limit: '4mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '1mb' });
   // Client IPs for the portal rate limiter come from X-Forwarded-For.
   app.set('trust proxy', true);
 

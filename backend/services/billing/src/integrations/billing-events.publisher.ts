@@ -7,6 +7,7 @@ import {
   type EstimateEvent,
   type Invoice,
   type InvoiceEvent,
+  type PaymentEvent,
 } from '@bitcrm/types';
 
 /**
@@ -44,6 +45,11 @@ export class BillingEventsPublisher {
       status: estimate.status,
       total: estimate.totals?.total ?? 0,
     };
+    this.publish(type, payload);
+  }
+
+  /** `payment.succeeded|pending|failed|refunded|reversed` — see EVENTS.md. */
+  payment(type: BillingEventType, payload: PaymentEvent): void {
     this.publish(type, payload);
   }
 

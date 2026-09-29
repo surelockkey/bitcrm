@@ -28,6 +28,8 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useContactMap } from "@/features/deals/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
+import { isPartiallyPaid } from "@/features/payments/lib";
+import { PartiallyPaidBadge } from "@/features/payments/components/payment-status-badge";
 import { formatYmd } from "@/features/billing/dates";
 import { FilterChip, NoAccess, StatTile } from "@/features/billing/components/list-bits";
 import { createInvoice } from "../api";
@@ -236,7 +238,12 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{formatMoney(inv.totals?.total ?? 0)}</TableCell>
                   <TableCell className="text-right font-mono tabular-nums">{formatMoney(inv.totals?.balanceDue ?? 0)}</TableCell>
-                  <TableCell><InvoiceStatusBadge status={inv.status} /></TableCell>
+                  <TableCell className="space-x-1 whitespace-nowrap">
+                    <InvoiceStatusBadge status={inv.status} />
+                    {isPartiallyPaid(inv.totals?.amountPaid ?? 0, inv.totals?.balanceDue ?? 0) ? (
+                      <PartiallyPaidBadge />
+                    ) : null}
+                  </TableCell>
                   <TableCell><SentBadge sentAt={inv.sentAt} /></TableCell>
                   <TableCell>
                     <Link

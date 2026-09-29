@@ -117,3 +117,50 @@ describe("page states", () => {
     expect(onRetry).toHaveBeenCalled();
   });
 });
+
+describe("paying from the balance card", () => {
+  const payable = {
+    ...view,
+    invoices: [{ ...view.invoices[0], payable: true }],
+  };
+
+  it("offers Pay now for the one invoice that is payable, alongside viewing it", async () => {
+    const onPay = vi.fn();
+    render(<PortalView view={payable} onOpen={() => {}} onPay={onPay} />);
+    const balance = screen.getByRole("region", { name: "Balance due" });
+    await userEvent.click(within(balance).getByRole("button", { name: /pay \$120\.50 now/i }));
+    expect(onPay).toHaveBeenCalledWith(payable.invoices[0]);
+    expect(within(balance).getByRole("button", { name: /view invoice #1042/i })).toBeInTheDocument();
+  });
+
+  it("says why there is no button rather than showing a dead one", () => {
+    render(<PortalView view={view} onOpen={() => {}} onPay={() => {}} />);
+    const balance = screen.getByRole("region", { name: "Balance due" });
+    expect(within(balance).queryByRole("button", { name: /pay/i })).toBeNull();
+    expect(within(balance).getByText(/online payment isn.t available/i)).toBeInTheDocument();
+  });
+
+  it("points at the individual invoices when several are open", () => {
+    const many = {
+      ...view,
+      invoices: [
+        { ...view.invoices[0], payable: true },
+        { ...view.invoices[0], id: "d2", number: "1043", payable: true },
+      ],
+    };
+    render(<PortalView view={many} onOpen={() => {}} onPay={() => {}} />);
+    const balance = screen.getByRole("region", { name: "Balance due" });
+    expect(within(balance).queryByRole("button", { name: /pay/i })).toBeNull();
+    expect(within(balance).getByText(/open an invoice to pay it/i)).toBeInTheDocument();
+  });
+
+  it("shows no payment control at all in the staff preview", () => {
+    render(<PortalView view={payable} onOpen={() => {}} />);
+    expect(screen.queryByRole("button", { name: /pay/i })).toBeNull();
+  });
+
+  it("notes a bank payment still clearing on the card", () => {
+    render(<PortalView view={{ ...view, invoices: [{ ...view.invoices[0], amountPending: 40 }] }} onOpen={() => {}} />);
+    expect(screen.getByText(/\$40\.00 clearing/i)).toBeInTheDocument();
+  });
+});

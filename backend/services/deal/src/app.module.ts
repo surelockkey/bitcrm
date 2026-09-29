@@ -105,10 +105,8 @@ export class AppModule implements OnModuleInit {
     if (!this.sqsConsumer) return;
 
     if (this.dealsEventHandler) {
-      this.sqsConsumer.registerHandler(
-        'payment.received',
-        (p) => this.dealsEventHandler!.handlePaymentReceived(p),
-      );
+      // No `payment.received`: billing-service owns the payment ledger and
+      // calls `PUT /internal/:id/payment-status` directly.
       this.sqsConsumer.registerHandler(
         'contact.merged',
         (p) => this.dealsEventHandler!.handleContactMerged(p),
