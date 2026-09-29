@@ -197,6 +197,12 @@ jobs:
           TWILIO_API_KEY:         ${{ secrets.TWILIO_API_KEY }}
           TWILIO_API_SECRET:      ${{ secrets.TWILIO_API_SECRET }}
           TWILIO_TWIML_APP_SID:   ${{ secrets.TWILIO_TWIML_APP_SID }}
+          # Stripe — billing only. Absent secrets emit nothing, so billing
+          # still boots and serves the offline payment ledger; online payments
+          # simply report unavailable.
+          STRIPE_SECRET_KEY:      ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET:  ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           TWILIO_CALLER_ID:       ${{ vars.TWILIO_CALLER_ID }}
           # Fallback caller id for server-placed masked legs; per-market numbers
           # live on the service area itself and need no deploy variable.
