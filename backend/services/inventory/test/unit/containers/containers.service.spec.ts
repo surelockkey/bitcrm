@@ -287,6 +287,35 @@ describe('ContainersService', () => {
 
       expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { department: 'Atlanta' });
     });
+
+    it('passes the search term and status through', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: 20, search: 'mike', status: InventoryStatus.ACTIVE } as any);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: undefined,
+        search: 'mike',
+        status: InventoryStatus.ACTIVE,
+      });
+    });
+
+    it('keeps the search under a department scope', async () => {
+      const user = createMockJwtUser({ department: 'Atlanta' });
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list(
+        { limit: 20, department: 'other', search: 'mike' } as any,
+        user,
+        'department',
+      );
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: 'Atlanta',
+        search: 'mike',
+        status: undefined,
+      });
+    });
   });
 
   describe('getStock', () => {
@@ -347,6 +376,27 @@ describe('ContainersService', () => {
       );
 
       expect(repository.countAll).toHaveBeenCalledWith({ department: 'locksmith' });
+    });
+
+    it('counts under the same search and status the list uses', async () => {
+      repository.countAll.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ search: 'mike', status: InventoryStatus.ARCHIVED } as never);
+
+      expect(repository.countAll).toHaveBeenCalledWith({
+        department: undefined,
+        search: 'mike',
+        status: InventoryStatus.ARCHIVED,
+      });
+    });
+
+    it('caches each filter combination on its own', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({ search: 'mike' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(2);
     });
 
     it('answers a repeat from the cache', async () => {

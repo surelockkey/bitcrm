@@ -122,6 +122,8 @@ export class ContainersService {
 
     return this.repository.findAll(query.limit || 20, query.cursor, {
       department,
+      search: query.search,
+      status: query.status,
     });
   }
 
@@ -144,12 +146,13 @@ export class ContainersService {
 
     const department =
       dataScope === 'department' && user ? user.department : query.department;
+    const filters = { department, search: query.search, status: query.status };
 
-    const take = () => this.repository.countAll({ department });
+    const take = () => this.repository.countAll(filters);
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('containers', { department }),
+      countCacheKey('containers', filters),
       COUNT_TTL_SECONDS,
       take,
     );

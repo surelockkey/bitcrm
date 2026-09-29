@@ -1,4 +1,4 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type JwtUser } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type JwtUser } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
@@ -115,7 +115,7 @@ export function createMockS3Service() {
 }
 
 export function createMockWarehousesRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findAll: jest.fn(), update: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findAll: jest.fn(), update: jest.fn(), countAll: jest.fn() };
 }
 
 export function createMockContainersRepository() {
@@ -127,7 +127,21 @@ export function createMockTransfersRepository() {
 }
 
 export function createMockStockRepository() {
-  return { getStockLevel: jest.fn(), getStockLevels: jest.fn(), incrementStock: jest.fn(), decrementStock: jest.fn() };
+  return {
+    getStockLevel: jest.fn(), getStockLevels: jest.fn(), getProductQuantities: jest.fn(),
+    incrementStock: jest.fn(), decrementStock: jest.fn(),
+  };
+}
+
+export function createMockLocationSummary(overrides?: Partial<LocationSummary>): LocationSummary {
+  return {
+    type: 'container', id: 'container-1', name: 'Van 1', status: InventoryStatus.ACTIVE,
+    ...overrides,
+  };
+}
+
+export function createMockLocationsRepository() {
+  return { findLocation: jest.fn(), listAll: jest.fn().mockResolvedValue([]) };
 }
 
 export function createMockStockService() {

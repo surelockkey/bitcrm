@@ -2,16 +2,31 @@ import { Injectable } from '@nestjs/common';
 import {
   GetCommand,
   PutCommand,
-  ScanCommand,
+  QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService, scanPage } from '@bitcrm/shared';
-import { type Warehouse } from '@bitcrm/types';
-import { INVENTORY_TABLE } from '../common/constants/dynamo.constants';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
+import { type Warehouse, type InventoryStatus } from '@bitcrm/types';
+import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
+import {
+  LOCATION_INDEX_PK,
+  locationSortKey,
+} from '../common/constants/locations.constants';
 
 export interface PaginatedResult {
   items: Warehouse[];
   nextCursor?: string;
+}
+
+export interface WarehouseListFilters {
+  /** Matched against the lowercased name in the index sort key. */
+  search?: string;
+  status?: InventoryStatus;
 }
 
 /** Key attributes that must never leak onto an entity or be taken from one. */
@@ -19,6 +34,11 @@ const KEY_ATTRIBUTES = new Set([
   'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
 ]);
 
+/**
+ * Warehouse rows in the single BitCRM_Inventory table:
+ *   PK = WAREHOUSE#<id>, SK = METADATA
+ *   GSI1PK = LOCATION#WAREHOUSE, GSI1SK = <name lowercased>#<id>   (list index, name order)
+ */
 @Injectable()
 export class WarehousesRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -33,6 +53,8 @@ export class WarehousesRepository {
           ...warehouse,
           PK: `WAREHOUSE#${warehouse.id}`,
           SK: 'METADATA',
+          GSI1PK: LOCATION_INDEX_PK.warehouse,
+          GSI1SK: locationSortKey(warehouse.name, warehouse.id),
         },
         ConditionExpression: 'attribute_not_exists(PK)',
       }),
@@ -51,23 +73,66 @@ export class WarehousesRepository {
     return this.toWarehouse(result.Item);
   }
 
-  async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {
-    // Спільна таблиця інвентарю: Scan читає й чужі рядки, а `Limit`
-    // рахує прочитане, не знайдене. Без дочитування сторінка приходить
-    // короткою — як було на сторінці інвентарю, де з п'ятдесяти
-    // просимих поверталось кілька.
+  /**
+   * The Query that selects warehouses, shared by the list and its count so the
+   * two can never answer about different populations.
+   */
+  private listQuery(filters?: WarehouseListFilters) {
+    const filterParts: string[] = [];
+    const values: Record<string, unknown> = { ':pk': LOCATION_INDEX_PK.warehouse };
+    const names: Record<string, string> = {};
+
+    if (filters?.status) {
+      filterParts.push('#status = :status');
+      names['#status'] = 'status';
+      values[':status'] = filters.status;
+    }
+    if (filters?.search?.trim()) {
+      filterParts.push('contains(GSI1SK, :search)');
+      values[':search'] = filters.search.trim().toLowerCase();
+    }
+
+    return {
+      TableName: INVENTORY_TABLE,
+      IndexName: GSI1_NAME,
+      KeyConditionExpression: 'GSI1PK = :pk',
+      ExpressionAttributeValues: values,
+      ...(filterParts.length > 0 && { FilterExpression: filterParts.join(' AND ') }),
+      ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
+    };
+  }
+
+  /** How many warehouses the list holds — the number behind "Page 2 of 7". */
+  async countAll(filters?: WarehouseListFilters): Promise<CountRowsResult> {
+    const query = this.listQuery(filters);
+
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new QueryCommand({ ...query, Select: 'COUNT', ...input }),
+      ),
+    );
+  }
+
+  async findAll(
+    limit: number,
+    cursor?: string,
+    filters?: WarehouseListFilters,
+  ): Promise<PaginatedResult> {
+    const query = this.listQuery(filters);
+
+    // З фільтром Query, як і Scan, рахує в `Limit` прочитане, а не знайдене,
+    // тож сторінку дочитуємо. Курсор на GSI-запиті несе і ключі таблиці, і
+    // ключі індексу.
     const page = await scanPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
-          new ScanCommand({
-              TableName: INVENTORY_TABLE,
-              FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-              ExpressionAttributeValues: { ':pk': 'WAREHOUSE#', ':sk': 'METADATA' },
-            ...input,
-          }),
+          new QueryCommand({ ...query, ScanIndexForward: true, ...input }),
         ),
       limit,
-      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
+      {
+        startKey: this.decodeCursor(cursor),
+        keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI1PK: i.GSI1PK, GSI1SK: i.GSI1SK }),
+      },
     );
 
     return {
@@ -76,12 +141,20 @@ export class WarehousesRepository {
     };
   }
 
+  /** A new name rewrites the list index sort key. */
   async update(id: string, attrs: Partial<Warehouse>): Promise<Warehouse> {
     const setParts: string[] = [];
     const expressionNames: Record<string, string> = {};
     const expressionValues: Record<string, unknown> = {};
 
-    const updates = { ...attrs, updatedAt: new Date().toISOString() };
+    const updates: Record<string, unknown> = {
+      ...attrs,
+      updatedAt: new Date().toISOString(),
+    };
+    if (typeof attrs.name === 'string') {
+      updates.GSI1PK = LOCATION_INDEX_PK.warehouse;
+      updates.GSI1SK = locationSortKey(attrs.name, id);
+    }
     const immutableKeys = new Set(['id']);
 
     for (const [key, value] of Object.entries(updates)) {

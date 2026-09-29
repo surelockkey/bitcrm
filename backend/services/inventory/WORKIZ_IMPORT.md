@@ -34,8 +34,8 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 | SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — |
 | Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — |
 | Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — |
-| Warehouse | `WAREHOUSE#<id>` | `METADATA` | — | — | — | — |
-| Container | `CONTAINER#<id>` | `METADATA` | — | — | — | — |
+| Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — |
+| Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — |
 | Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — |
 
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
@@ -46,6 +46,12 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 - A container with a technician also needs the sparse `OwnerIndex` pair
   `GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>` — both or neither
   (§5.2).
+- `GET /warehouses` and `GET /containers` are a Query over the `LOCATION#…`
+  partition of `CategoryIndex` (name order; the `#<id>` suffix keeps duplicate
+  names apart), so a location row written without `GSI1PK`/`GSI1SK` is not in
+  either list. Rows that predate the index are healed by
+  `npm run backfill:location-index -w backend/services/inventory` (idempotent,
+  upsert-only). The repositories rewrite `GSI1SK` on rename.
 - Deal line items live in the **deal** service's table, not this one:
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>`, no GSI (§3.0).
 

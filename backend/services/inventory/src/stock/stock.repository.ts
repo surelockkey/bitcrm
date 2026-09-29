@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
+  BatchGetCommand,
   GetCommand,
   QueryCommand,
   UpdateCommand,
@@ -40,6 +41,33 @@ export class StockRepository {
     );
 
     return (result.Items || []).map((item) => this.toStockItem(item));
+  }
+
+  /**
+   * How many of one product each of the given locations holds, keyed by the
+   * location PK; a location with no stock row is simply absent. BatchGet takes
+   * 100 keys a call, and keys it leaves unprocessed under load are asked again.
+   */
+  async getProductQuantities(
+    productId: string,
+    entityPKs: string[],
+  ): Promise<Map<string, number>> {
+    const quantities = new Map<string, number>();
+    for (let i = 0; i < entityPKs.length; i += 100) {
+      let keys = entityPKs
+        .slice(i, i + 100)
+        .map((pk) => ({ PK: pk, SK: `STOCK#${productId}` }));
+      while (keys.length) {
+        const res = await this.dynamoDb.client.send(
+          new BatchGetCommand({ RequestItems: { [INVENTORY_TABLE]: { Keys: keys } } }),
+        );
+        for (const item of res.Responses?.[INVENTORY_TABLE] ?? []) {
+          quantities.set(item.PK as string, Number(item.quantity) || 0);
+        }
+        keys = (res.UnprocessedKeys?.[INVENTORY_TABLE]?.Keys ?? []) as typeof keys;
+      }
+    }
+    return quantities;
   }
 
   async incrementStock(

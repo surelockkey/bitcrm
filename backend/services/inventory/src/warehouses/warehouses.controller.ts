@@ -46,6 +46,22 @@ export class WarehousesController {
     };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('warehouses', 'view')
+  @ApiOperation({
+    summary: 'How many warehouses the list holds',
+    description:
+      '**Guard:** `warehouses.view` permission required. Takes the same filters the list does ' +
+      '(`search`, `status`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — ' +
+      'the row count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling, ' +
+      'which the panel renders as `7+`. Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListWarehousesQueryDto) {
+    const data = await this.warehousesService.count(query);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('warehouses', 'view')
   @ApiOperation({ summary: 'Get warehouse by ID', description: '**Guard:** `warehouses.view` permission required.' })

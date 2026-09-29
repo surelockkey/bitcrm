@@ -1,5 +1,10 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { SnsPublisherService } from '@bitcrm/shared';
+import {
+  SnsPublisherService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
@@ -7,6 +12,7 @@ import {
   type TransferItem,
   type StockItem,
   type JwtUser,
+  type ListCount,
   InventoryStatus,
   TransferType,
   LocationType,
@@ -20,6 +26,9 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
 
+/** How long a list count stays good enough. Matches the containers count. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class WarehousesService {
   private readonly logger = new Logger(WarehousesService.name);
@@ -31,6 +40,7 @@ export class WarehousesService {
     private readonly transfersRepository: TransfersRepository,
     private readonly productsService: ProductsService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async create(dto: CreateWarehouseDto): Promise<Warehouse> {
@@ -63,7 +73,24 @@ export class WarehousesService {
   }
 
   async list(query: ListWarehousesQueryDto) {
-    return this.repository.findAll(query.limit || 20, query.cursor);
+    return this.repository.findAll(query.limit || 20, query.cursor, {
+      search: query.search,
+      status: query.status,
+    });
+  }
+
+  /** How many warehouses the list holds — the number behind "Page 2 of 7". */
+  async count(query: ListWarehousesQueryDto): Promise<ListCount> {
+    const filters = { search: query.search, status: query.status };
+
+    const take = () => this.repository.countAll(filters);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('warehouses', filters),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async update(id: string, dto: UpdateWarehouseDto): Promise<Warehouse> {

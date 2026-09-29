@@ -37,3 +37,5 @@ export { CustomFieldDefinition, CustomFieldValue } from './custom-field.entity';
 export { DealProduct } from './deal-product.entity';
 export { TimelineEntry } from './timeline-entry.entity';
 export { CalendarEvent } from './calendar-event.entity';
+export { LocationSummary, LocationSummaryType } from './location-summary.entity';
+export { ProductStock, ProductLocationStock } from './product-stock.entity';

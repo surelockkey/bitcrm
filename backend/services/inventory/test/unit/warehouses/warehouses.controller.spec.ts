@@ -17,6 +17,7 @@ describe('WarehousesController', () => {
     service = {
       create: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       findAll: jest.fn(),
       findById: jest.fn(),
       update: jest.fn(),
@@ -58,6 +59,17 @@ describe('WarehousesController', () => {
         data: [warehouse],
         pagination: { nextCursor: 'abc', count: 1 },
       });
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 3, atLeast: false });
+
+      const result = await controller.count({ search: 'store' } as never);
+
+      expect(result).toEqual({ success: true, data: { total: 3, atLeast: false } });
+      expect(service.count).toHaveBeenCalledWith({ search: 'store' });
     });
   });
 

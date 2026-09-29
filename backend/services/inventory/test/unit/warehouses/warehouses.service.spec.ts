@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryStatus, TransferType, LocationType } from '@bitcrm/types';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService, RedisService } from '@bitcrm/shared';
 import { WarehousesService } from 'src/warehouses/warehouses.service';
 import { WarehousesRepository } from 'src/warehouses/warehouses.repository';
 import { StockService } from 'src/stock/stock.service';
@@ -38,6 +38,17 @@ describe('WarehousesService', () => {
     transfersRepository = createMockTransfersRepository();
     productsService = createMockProductsService();
 
+    const store = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => store.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          store.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WarehousesService,
@@ -47,6 +58,7 @@ describe('WarehousesService', () => {
         { provide: TransfersRepository, useValue: transfersRepository },
         { provide: ProductsService, useValue: productsService },
         { provide: SnsPublisherService, useValue: publisher },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -101,7 +113,10 @@ describe('WarehousesService', () => {
       const result = await service.list({ limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined);
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        search: undefined,
+        status: undefined,
+      });
     });
 
     it('should default limit to 20', async () => {
@@ -109,7 +124,53 @@ describe('WarehousesService', () => {
 
       await service.list({} as any);
 
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined);
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        search: undefined,
+        status: undefined,
+      });
+    });
+
+    it('passes the search term and status through', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: 20, cursor: 'c', search: 'store', status: InventoryStatus.ACTIVE } as any);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, 'c', {
+        search: 'store',
+        status: InventoryStatus.ACTIVE,
+      });
+    });
+  });
+
+  describe('count', () => {
+    it('counts the list under the same filters', async () => {
+      repository.countAll.mockResolvedValue({ total: 3, atLeast: false });
+
+      const result = await service.count({ search: 'store', status: InventoryStatus.ACTIVE } as never);
+
+      expect(result).toEqual({ total: 3, atLeast: false });
+      expect(repository.countAll).toHaveBeenCalledWith({
+        search: 'store',
+        status: InventoryStatus.ACTIVE,
+      });
+    });
+
+    it('answers a repeat from the cache', async () => {
+      repository.countAll.mockResolvedValue({ total: 3, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({} as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('caches each filter combination on its own', async () => {
+      repository.countAll.mockResolvedValue({ total: 3, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({ status: InventoryStatus.ARCHIVED } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(2);
     });
   });
 

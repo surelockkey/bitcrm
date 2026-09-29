@@ -3,7 +3,6 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
-  ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
@@ -12,15 +11,27 @@ import {
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
-import { type Container } from '@bitcrm/types';
+import { type Container, type InventoryStatus } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
+  GSI1_NAME,
   GSI3_NAME,
 } from '../common/constants/dynamo.constants';
+import {
+  LOCATION_INDEX_PK,
+  locationSortKey,
+} from '../common/constants/locations.constants';
 
 export interface PaginatedResult {
   items: Container[];
   nextCursor?: string;
+}
+
+export interface ContainerListFilters {
+  department?: string;
+  /** Matched against the lowercased name in the index sort key. */
+  search?: string;
+  status?: InventoryStatus;
 }
 
 /** Key attributes that must never leak onto an entity or be taken from one. */
@@ -28,6 +39,12 @@ const KEY_ATTRIBUTES = new Set([
   'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
 ]);
 
+/**
+ * Container rows in the single BitCRM_Inventory table:
+ *   PK = CONTAINER#<id>, SK = METADATA
+ *   GSI1PK = LOCATION#CONTAINER, GSI1SK = <name lowercased>#<id>   (list index, name order)
+ *   GSI3PK = OWNER#<technicianId>, GSI3SK = CONTAINER#<id>          (sparse: assigned containers only)
+ */
 @Injectable()
 export class ContainersRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -43,6 +60,8 @@ export class ContainersRepository {
           ...container,
           PK: `CONTAINER#${container.id}`,
           SK: 'METADATA',
+          GSI1PK: LOCATION_INDEX_PK.container,
+          GSI1SK: locationSortKey(container.name, container.id),
           // Sparse GSI: only assigned containers appear in the by-technician index.
           ...(container.technicianId
             ? {
@@ -85,44 +104,46 @@ export class ContainersRepository {
   }
 
   /**
-   * The Scan that selects containers, shared by the list and its count so the
+   * The Query that selects containers, shared by the list and its count so the
    * two can never answer about different populations.
    */
-  private listFilter(filters?: { department?: string }) {
-    let expression = 'begins_with(PK, :pk) AND SK = :sk';
-    const values: Record<string, unknown> = {
-      ':pk': 'CONTAINER#',
-      ':sk': 'METADATA',
-    };
+  private listQuery(filters?: ContainerListFilters) {
+    const filterParts: string[] = [];
+    const values: Record<string, unknown> = { ':pk': LOCATION_INDEX_PK.container };
     const names: Record<string, string> = {};
 
     if (filters?.department) {
-      expression += ' AND #department = :dept';
+      filterParts.push('#department = :dept');
       names['#department'] = 'department';
       values[':dept'] = filters.department;
     }
+    if (filters?.status) {
+      filterParts.push('#status = :status');
+      names['#status'] = 'status';
+      values[':status'] = filters.status;
+    }
+    if (filters?.search?.trim()) {
+      filterParts.push('contains(GSI1SK, :search)');
+      values[':search'] = filters.search.trim().toLowerCase();
+    }
 
-    return { expression, values, names };
+    return {
+      TableName: INVENTORY_TABLE,
+      IndexName: GSI1_NAME,
+      KeyConditionExpression: 'GSI1PK = :pk',
+      ExpressionAttributeValues: values,
+      ...(filterParts.length > 0 && { FilterExpression: filterParts.join(' AND ') }),
+      ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
+    };
   }
 
-  /**
-   * How many containers the list holds — the number behind "Page 2 of 7".
-   * Bounded: the inventory table is shared, so most of what this reads is not
-   * a container.
-   */
-  async countAll(filters?: { department?: string }): Promise<CountRowsResult> {
-    const f = this.listFilter(filters);
+  /** How many containers the list holds — the number behind "Page 2 of 7". */
+  async countAll(filters?: ContainerListFilters): Promise<CountRowsResult> {
+    const query = this.listQuery(filters);
 
     return countRows((input) =>
       this.dynamoDb.client.send(
-        new ScanCommand({
-          TableName: INVENTORY_TABLE,
-          FilterExpression: f.expression,
-          ExpressionAttributeValues: f.values,
-          ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
-          Select: 'COUNT',
-          ...input,
-        }),
+        new QueryCommand({ ...query, Select: 'COUNT', ...input }),
       ),
     );
   }
@@ -130,32 +151,23 @@ export class ContainersRepository {
   async findAll(
     limit: number,
     cursor?: string,
-    filters?: { department?: string },
+    filters?: ContainerListFilters,
   ): Promise<PaginatedResult> {
-    const f = this.listFilter(filters);
-    const filterExpression = f.expression;
-    const expressionValues = f.values;
-    const expressionNames = f.names;
+    const query = this.listQuery(filters);
 
-    // Спільна таблиця інвентарю: Scan читає й чужі рядки, а `Limit`
-    // рахує прочитане, не знайдене. Без дочитування сторінка приходить
-    // короткою — як було на сторінці інвентарю, де з п'ятдесяти
-    // просимих поверталось кілька.
+    // З фільтром Query, як і Scan, рахує в `Limit` прочитане, а не знайдене,
+    // тож сторінку дочитуємо. Курсор на GSI-запиті несе і ключі таблиці, і
+    // ключі індексу.
     const page = await scanPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
-          new ScanCommand({
-              TableName: INVENTORY_TABLE,
-              FilterExpression: filterExpression,
-              ExpressionAttributeValues: expressionValues,
-              ...(Object.keys(expressionNames).length > 0 && {
-                ExpressionAttributeNames: expressionNames,
-              }),
-            ...input,
-          }),
+          new QueryCommand({ ...query, ScanIndexForward: true, ...input }),
         ),
       limit,
-      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
+      {
+        startKey: this.decodeCursor(cursor),
+        keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI1PK: i.GSI1PK, GSI1SK: i.GSI1SK }),
+      },
     );
 
     return {
@@ -167,7 +179,8 @@ export class ContainersRepository {
   /**
    * `technicianId: null` unassigns (removes the attribute and the GSI keys, so
    * the container drops out of the by-technician index); a string reassigns and
-   * rewrites the GSI keys. `undefined` leaves assignment untouched.
+   * rewrites the GSI keys. `undefined` leaves assignment untouched. A new name
+   * rewrites the list index sort key.
    */
   async update(
     id: string,
@@ -182,6 +195,10 @@ export class ContainersRepository {
       ...attrs,
       updatedAt: new Date().toISOString(),
     };
+    if (typeof attrs.name === 'string') {
+      updates.GSI1PK = LOCATION_INDEX_PK.container;
+      updates.GSI1SK = locationSortKey(attrs.name, id);
+    }
     if (typeof attrs.technicianId === 'string') {
       updates.GSI3PK = `OWNER#${attrs.technicianId}`;
       updates.GSI3SK = `CONTAINER#${id}`;

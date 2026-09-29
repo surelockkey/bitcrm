@@ -118,6 +118,8 @@ export { ProductCategory, UNCATEGORIZED_CATEGORY } from './entities/product-cate
 export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { StockItem } from './entities/stock-item.entity';
+export { LocationSummary, LocationSummaryType } from './entities/location-summary.entity';
+export { ProductStock, ProductLocationStock } from './entities/product-stock.entity';
 export {
   TechnicianProfile,
   TechnicianProfileStatus,
