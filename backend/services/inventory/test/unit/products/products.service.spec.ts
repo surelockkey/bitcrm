@@ -160,7 +160,9 @@ describe('ProductsService', () => {
       expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ number: 101 }));
     });
 
-    it('ignores a number or onHand a client tries to send', async () => {
+    // Новий товар нічого не тримає: onHand = 0 від початку, і кожен рух
+    // потім його веде. Без атрибута сума б не велася (ADD створює її як дельту).
+    it('ignores a number or onHand a client tries to send and starts onHand at zero', async () => {
       repository.nextNumber.mockResolvedValue(7);
 
       const result = await service.create({
@@ -170,8 +172,8 @@ describe('ProductsService', () => {
       } as any);
 
       expect(result.number).toBe(7);
-      expect(result.onHand).toBeUndefined();
-      expect(repository.create.mock.calls[0][0]).not.toHaveProperty('onHand');
+      expect(result.onHand).toBe(0);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ onHand: 0 }));
     });
 
     it('keeps manageStock, brandId and reorderLevel from the request', async () => {
@@ -581,6 +583,18 @@ describe('ProductsService', () => {
 
       expect(repository.create).toHaveBeenNthCalledWith(1, expect.objectContaining({ sku: 'SKU-100', number: 11 }));
       expect(repository.create).toHaveBeenNthCalledWith(2, expect.objectContaining({ sku: 'SKU-101', number: 12 }));
+    });
+
+    it('starts each created row at onHand zero', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(null);
+
+      await service.importFromCsv(csv);
+
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ onHand: 0 }));
     });
 
     it('does not spend a number on an update or a dry run', async () => {

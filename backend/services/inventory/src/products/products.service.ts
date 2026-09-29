@@ -161,7 +161,10 @@ export class ProductsService {
 
   /**
    * `number` is handed out by the counter and `onHand` by the stock writes;
-   * neither is ever taken from a client, whatever the body carries.
+   * neither is ever taken from a client, whatever the body carries. A new
+   * product starts at `onHand: 0` — a row without the attribute is skipped by
+   * the stock writes (an ADD would create it as the delta), so the total would
+   * never start counting.
    */
   private static stripReadOnly<T extends object>(dto: T): T {
     const { number: _number, onHand: _onHand, ...rest } = dto as T & {
@@ -179,6 +182,7 @@ export class ProductsService {
       ...ProductsService.stripReadOnly(dto),
       category: await this.prepareCategory(dto.category),
       taxable: dto.taxable ?? true,
+      onHand: 0,
       status: InventoryStatus.ACTIVE,
       createdAt: now,
       updatedAt: now,
@@ -549,6 +553,7 @@ export class ProductsService {
               supplier: row.supplier || undefined,
               barcode: row.barcode || undefined,
               description: row.description || undefined,
+              onHand: 0,
               status: InventoryStatus.ACTIVE,
               createdAt: now,
               updatedAt: now,

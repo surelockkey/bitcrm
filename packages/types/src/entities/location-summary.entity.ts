@@ -12,5 +12,9 @@ export interface LocationSummary {
   id: string;
   name: string;
   description?: string;
+  /** The container's assigned technician — what an `assigned_only` scope keys on. Containers only. */
+  technicianId?: string;
+  /** What a `department` scope keys on. Containers only. */
+  department?: string;
   status: InventoryStatus;
 }

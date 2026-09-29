@@ -1,4 +1,4 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
@@ -142,7 +142,24 @@ export function createMockTransfersRepository() {
 export function createMockStockRepository() {
   return {
     getStockLevel: jest.fn(), getStockLevels: jest.fn(), getProductQuantities: jest.fn(),
-    incrementStock: jest.fn(), decrementStock: jest.fn(),
+    incrementStock: jest.fn(), decrementStock: jest.fn(), moveStock: jest.fn(),
+  };
+}
+
+/** The permissions the guard resolves for a request, as `req.resolvedPermissions` carries them. */
+export function createMockResolvedPermissions(
+  overrides?: Partial<ResolvedPermissions>,
+): ResolvedPermissions {
+  return {
+    roleId: 'role-admin', roleName: 'Admin', isSystemRole: false,
+    permissions: {
+      products: { view: true, create: true, edit: true, delete: true },
+      warehouses: { view: true, create: true, edit: true, delete: false },
+      containers: { view: true, create: true, edit: true, delete: false },
+    },
+    dataScope: { products: DataScope.ALL, warehouses: DataScope.ALL, containers: DataScope.ALL },
+    dealStageTransitions: [], hasOverrides: false,
+    ...overrides,
   };
 }
 

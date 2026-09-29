@@ -36,6 +36,7 @@ describe('LocationsRepository', () => {
     description: 'North route',
     technicianId: 'tech-1',
     technicianName: 'Mike Ross',
+    department: 'Atlanta',
     status: 'archived',
     createdAt: '2026-09-11T11:34:07.000Z',
     updatedAt: '2026-09-11T11:34:07.000Z',
@@ -64,7 +65,8 @@ describe('LocationsRepository', () => {
       });
     });
 
-    it('reads a container by its key, whatever its status', async () => {
+    // Технік і відділ потрібні попапу стоку, щоб показати техніку лише його фургон.
+    it('reads a container by its key, whatever its status, with its technician and department', async () => {
       dynamoDb.client.send.mockResolvedValue({ Item: containerRow });
 
       const location = await repository.findLocation(LocationType.CONTAINER, 'container-1');
@@ -78,6 +80,8 @@ describe('LocationsRepository', () => {
         id: 'container-1',
         name: '(12) MIKE',
         description: 'North route',
+        technicianId: 'tech-1',
+        department: 'Atlanta',
         status: 'archived',
       });
     });

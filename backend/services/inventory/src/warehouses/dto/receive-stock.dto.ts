@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsInt, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -12,7 +12,7 @@ class ReceiveStockItemDto {
   productName!: string;
 
   @ApiProperty()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   quantity!: number;
 }

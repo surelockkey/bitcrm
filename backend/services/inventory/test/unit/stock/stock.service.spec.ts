@@ -74,22 +74,24 @@ describe('StockService', () => {
     });
   });
 
+  /**
+   * Переміщення — один атомарний запис на позицію (обидва рядки STOCK# разом),
+   * а не списання й окреме зарахування: збій між ними лишав би товар "у дорозі".
+   */
   describe('transfer', () => {
-    it('should decrement source and increment destination for each item', async () => {
+    it('moves each item between the two locations in one repository write', async () => {
       const items = [
         { productId: 'prod-1', productName: 'Product 1', quantity: 5 },
       ];
-      stockRepository.decrementStock.mockResolvedValue(undefined);
-      stockRepository.incrementStock.mockResolvedValue(undefined);
+      stockRepository.moveStock.mockResolvedValue(undefined);
 
       await service.transfer('WAREHOUSE#wh-1', 'CONTAINER#container-1', items);
 
-      expect(stockRepository.decrementStock).toHaveBeenCalledWith(
-        'WAREHOUSE#wh-1', 'prod-1', 5,
+      expect(stockRepository.moveStock).toHaveBeenCalledWith(
+        'WAREHOUSE#wh-1', 'CONTAINER#container-1', 'prod-1', 'Product 1', 5,
       );
-      expect(stockRepository.incrementStock).toHaveBeenCalledWith(
-        'CONTAINER#container-1', 'prod-1', 'Product 1', 5,
-      );
+      expect(stockRepository.decrementStock).not.toHaveBeenCalled();
+      expect(stockRepository.incrementStock).not.toHaveBeenCalled();
     });
 
     it('should process multiple items in order', async () => {
@@ -97,26 +99,25 @@ describe('StockService', () => {
         { productId: 'prod-1', productName: 'Product 1', quantity: 2 },
         { productId: 'prod-2', productName: 'Product 2', quantity: 4 },
       ];
-      stockRepository.decrementStock.mockResolvedValue(undefined);
-      stockRepository.incrementStock.mockResolvedValue(undefined);
+      stockRepository.moveStock.mockResolvedValue(undefined);
 
       await service.transfer('WAREHOUSE#wh-1', 'CONTAINER#container-1', items);
 
-      expect(stockRepository.decrementStock).toHaveBeenCalledTimes(2);
-      expect(stockRepository.incrementStock).toHaveBeenCalledTimes(2);
+      expect(stockRepository.moveStock.mock.calls.map((c) => c[2])).toEqual(['prod-1', 'prod-2']);
     });
 
-    it('should not increment if decrement fails', async () => {
+    it('stops at the first item that cannot move', async () => {
       const items = [
         { productId: 'prod-1', productName: 'Product 1', quantity: 100 },
+        { productId: 'prod-2', productName: 'Product 2', quantity: 1 },
       ];
-      stockRepository.decrementStock.mockRejectedValue(new Error('Insufficient stock'));
+      stockRepository.moveStock.mockRejectedValue(new Error('Insufficient stock'));
 
       await expect(
         service.transfer('WAREHOUSE#wh-1', 'CONTAINER#container-1', items),
       ).rejects.toThrow('Insufficient stock');
 
-      expect(stockRepository.incrementStock).not.toHaveBeenCalled();
+      expect(stockRepository.moveStock).toHaveBeenCalledTimes(1);
     });
   });
 });

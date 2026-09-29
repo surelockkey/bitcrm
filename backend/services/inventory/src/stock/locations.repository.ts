@@ -84,6 +84,8 @@ export class LocationsRepository {
             : 'Container'
           : ''),
       description: item.description as string | undefined,
+      technicianId: item.technicianId as string | undefined,
+      department: item.department as string | undefined,
       status: item.status as InventoryStatus,
     };
   }

@@ -9,6 +9,16 @@
  * existed have none: this sums every STOCK# row per product and writes the
  * result, then sets 0 on the products no stock row mentions.
  *
+ * ORDER: run it in the same release that deploys `onHand`, and after EVERY
+ * Workiz import (imported rows carry no `onHand`). Until it has run, a stock
+ * write leaves a product row without `onHand` alone — never a wrong number,
+ * just no total on the list — and a product created by BitCRM starts at 0.
+ *
+ * It is also the reconcile: the stock row and `onHand` move in one
+ * TransactWrite, so they cannot drift, but whenever a product's total
+ * disagrees with `GET /stock/products/:id` for any reason, a run recomputes
+ * it from the STOCK# rows.
+ *
  * Idempotent and upsert-only: a re-run recomputes the same sums; nothing is
  * removed. Run it while stock is quiet — a move landing between the scan and
  * the write is folded in by the next run.

@@ -3,6 +3,8 @@ import { validate } from 'class-validator';
 import { LocationType, ReturnReason } from '@bitcrm/types';
 import { ReceiveStockDto } from 'src/transfers/dto/receive-stock.dto';
 import { ReturnStockDto } from 'src/transfers/dto/return-stock.dto';
+import { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
+import { ReceiveWarehouseStockDto } from 'src/warehouses/dto/receive-stock.dto';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const errorsFor = async (cls: any, payload: unknown) =>
@@ -64,5 +66,34 @@ describe('ReturnStockDto', () => {
     expect(
       await errorsFor(ReturnStockDto, { fromType: LocationType.SUPPLIER, fromId: 'x', items, reason: ReturnReason.LOST }),
     ).toEqual(['fromType']);
+  });
+});
+
+/**
+ * Одиниці — цілі. 1.5 проходило `@IsNumber @Min(1)`, лягало на рядок стоку
+ * й у onHand, а наступне списання двох падало "Insufficient stock" при 1.5 у попапі.
+ */
+describe('movement quantities are whole numbers', () => {
+  const fractional = [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 1.5 }];
+
+  it('on a receive', async () => {
+    expect(await errorsFor(ReceiveStockDto, { toType: LocationType.WAREHOUSE, toId: 'wh-1', items: fractional })).toEqual(['items']);
+  });
+
+  it('on a return', async () => {
+    expect(
+      await errorsFor(ReturnStockDto, { fromType: LocationType.CONTAINER, fromId: 'c-1', items: fractional, reason: ReturnReason.LOST }),
+    ).toEqual(['items']);
+  });
+
+  it('on a transfer', async () => {
+    const base = { fromType: LocationType.WAREHOUSE, fromId: 'wh-1', toType: LocationType.CONTAINER, toId: 'c-1' };
+    expect(await errorsFor(CreateTransferDto, { ...base, items: fractional })).toEqual(['items']);
+    expect(await errorsFor(CreateTransferDto, { ...base, items })).toEqual([]);
+  });
+
+  it('on a warehouse receive', async () => {
+    expect(await errorsFor(ReceiveWarehouseStockDto, { items: fractional })).toEqual(['items']);
+    expect(await errorsFor(ReceiveWarehouseStockDto, { items })).toEqual([]);
   });
 });

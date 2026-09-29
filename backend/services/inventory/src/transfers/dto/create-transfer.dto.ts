@@ -1,7 +1,7 @@
 import {
   IsArray,
   IsEnum,
-  IsNumber,
+  IsInt,
   IsOptional,
   IsString,
   Min,
@@ -21,7 +21,7 @@ class TransferItemDto {
   productName!: string;
 
   @ApiProperty()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   quantity!: number;
 }

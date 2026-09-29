@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { InventoryStatus, LocationType } from '@bitcrm/types';
+import { DataScope, InventoryStatus, LocationType } from '@bitcrm/types';
 import { ProductStockService } from 'src/stock/product-stock.service';
 import { StockRepository } from 'src/stock/stock.repository';
 import { INVENTORY_TABLE } from 'src/common/constants/dynamo.constants';
@@ -9,6 +9,8 @@ import {
   createMockLocationsRepository,
   createMockLocationSummary,
   createMockDynamoDbService,
+  createMockJwtUser,
+  createMockResolvedPermissions,
 } from '../mocks';
 
 /**
@@ -134,6 +136,86 @@ describe('ProductStockService', () => {
 
     expect(result).toEqual({ productId: 'prod-1', onHand: 0, locations: [] });
     expect(dynamoDb.client.send).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Той самий обсяг, що й GET /containers і GET /warehouses для цього ж
+   * користувача: технік бачить у попапі лише свій фургон і не бачить складів,
+   * якщо warehouses.view йому не дано — інакше попап розкривав би те, що
+   * списки приховують.
+   */
+  describe('scoped to what the caller may see', () => {
+    const warehouse = createMockLocationSummary({ type: 'warehouse', id: 'wh-1', name: '(1) STORE' });
+    const mine = createMockLocationSummary({
+      type: 'container', id: 'c-mine', name: '(2) MINE', technicianId: 'tech-1', department: 'Atlanta',
+    });
+    const other = createMockLocationSummary({
+      type: 'container', id: 'c-other', name: '(3) OTHER', technicianId: 'tech-2', department: 'Atlanta',
+    });
+    const elsewhere = createMockLocationSummary({
+      type: 'container', id: 'c-else', name: '(4) ELSE', technicianId: 'tech-3', department: 'Marietta',
+    });
+
+    beforeEach(() => {
+      locationsRepository.listAll.mockImplementation(async (type: LocationType) =>
+        type === LocationType.WAREHOUSE ? [warehouse] : [mine, other, elsewhere],
+      );
+      dynamoDb.client.send.mockResolvedValue({
+        Responses: { [INVENTORY_TABLE]: [stockRow('WAREHOUSE#wh-1', 10), stockRow('CONTAINER#c-other', 3)] },
+      });
+    });
+
+    it('shows a technician their own van only, and no warehouse without warehouses.view', async () => {
+      const user = createMockJwtUser({ id: 'tech-1', department: 'Atlanta' });
+      const permissions = createMockResolvedPermissions({
+        permissions: {
+          products: { view: true },
+          warehouses: { view: false },
+          containers: { view: true },
+        },
+        dataScope: { warehouses: DataScope.ASSIGNED_ONLY, containers: DataScope.ASSIGNED_ONLY },
+      });
+
+      const result = await service.forProduct('prod-1', { user, permissions });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['c-mine']);
+      expect(result.onHand).toBe(0);
+      // Only the visible rows are asked for.
+      expect(dynamoDb.client.send.mock.calls[0][0].input.RequestItems[INVENTORY_TABLE].Keys).toEqual([
+        { PK: 'CONTAINER#c-mine', SK: 'STOCK#prod-1' },
+      ]);
+    });
+
+    it('shows a department-scoped caller the vans of their department, and the warehouses they may view', async () => {
+      const user = createMockJwtUser({ id: 'disp-1', department: 'Atlanta' });
+      const permissions = createMockResolvedPermissions({
+        dataScope: { warehouses: DataScope.ALL, containers: DataScope.DEPARTMENT },
+      });
+
+      const result = await service.forProduct('prod-1', { user, permissions });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['wh-1', 'c-mine', 'c-other']);
+      expect(result.onHand).toBe(13);
+    });
+
+    it('shows everything to a caller scoped to all', async () => {
+      const result = await service.forProduct('prod-1', {
+        user: createMockJwtUser(),
+        permissions: createMockResolvedPermissions(),
+      });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['wh-1', 'c-mine', 'c-other', 'c-else']);
+    });
+
+    it('shows everything to the super admin, as the guard does', async () => {
+      const permissions = createMockResolvedPermissions({
+        roleName: 'Super Admin', isSystemRole: true, permissions: {}, dataScope: {},
+      });
+
+      const result = await service.forProduct('prod-1', { user: createMockJwtUser(), permissions });
+
+      expect(result.locations).toHaveLength(4);
+    });
   });
 
   // BatchGet takes 100 keys a call and may hand some back unprocessed under load.

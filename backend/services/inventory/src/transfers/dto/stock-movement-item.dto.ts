@@ -1,4 +1,4 @@
-import { IsNumber, IsString, Min } from 'class-validator';
+import { IsInt, IsString, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { LocationType } from '@bitcrm/types';
 
@@ -16,7 +16,7 @@ export class StockMovementItemDto {
   productName!: string;
 
   @ApiProperty()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   quantity!: number;
 }
