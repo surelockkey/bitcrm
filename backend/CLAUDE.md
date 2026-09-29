@@ -474,6 +474,18 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
 - **Events are fire-and-forget.** Never let a publish failure fail a write.
 - **The search index is derived.** Never treat it as a source of truth; fix data
   in the owning service and let the indexer or backfill catch up.
+- **Inventory reads its lists off derived attributes, and a deploy is not done
+  until the backfills have run.** `GET /containers` / `GET /warehouses` Query
+  GSI1 `LOCATION#…` (rows without the keys are invisible), the `search`
+  filters match `searchName` / `searchSku` (rows without them are never found),
+  and `Product.onHand` is moved by the stock writes only where it already
+  exists. In the same release, before traffic — and again after every Workiz
+  import — run in `backend/services/inventory`: `backfill:location-index`,
+  `backfill:product-search`, `backfill:product-onhand`, `backfill:product-numbers`
+  (the last one raises `COUNTER#PRODUCT` past the imported numbers even when
+  every row is numbered; skip it and the next `POST /products` gets "Product
+  ID 1"). All four are idempotent and upsert-only; `WORKIZ_IMPORT.md` §0 has
+  the row shapes.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

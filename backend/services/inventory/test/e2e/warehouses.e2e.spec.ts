@@ -298,6 +298,47 @@ describe('Warehouses E2E', () => {
     expect(stockItem.quantity).toBe(8);
   });
 
+  it('POST /warehouses/:id/receive - answers the RECEIVE transfer with what was skipped', async () => {
+    const warehouse = await createWarehouse(app, adminUser);
+    const tracked = await createProduct(app, adminUser);
+    const untracked = await createProduct(app, adminUser, { name: 'Shop rag', manageStock: false });
+
+    const res = await receiveStock(app, adminUser, warehouse.id, [
+      { productId: tracked.id, productName: tracked.name, quantity: 2 },
+      { productId: untracked.id, productName: untracked.name, quantity: 1 },
+    ]);
+
+    expect(res.success).toBe(true);
+    expect(res.data).toMatchObject({
+      type: 'receive',
+      toType: 'warehouse',
+      toId: warehouse.id,
+      items: [{ productId: tracked.id, quantity: 2 }],
+      skippedItems: [{ productId: untracked.id, quantity: 1 }],
+    });
+  });
+
+  it('POST /warehouses/:id/receive - unknown warehouse is 404', async () => {
+    const product = await createProduct(app, adminUser);
+
+    await request(app.getHttpServer())
+      .post(`${BASE}/nope/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ items: [{ productId: product.id, productName: product.name, quantity: 1 }] })
+      .expect(404);
+  });
+
+  it('POST /warehouses/:id/receive - nothing stock-managed in the list is 400', async () => {
+    const warehouse = await createWarehouse(app, adminUser);
+    const untracked = await createProduct(app, adminUser, { manageStock: false });
+
+    await request(app.getHttpServer())
+      .post(`${BASE}/${warehouse.id}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({ items: [{ productId: untracked.id, productName: untracked.name, quantity: 1 }] })
+      .expect(400);
+  });
+
   // ---- GET STOCK ----
 
   it('GET /warehouses/:id/stock - returns stock levels', async () => {

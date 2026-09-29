@@ -34,6 +34,7 @@ import { ContainersModule } from 'src/containers/containers.module';
 import { TransfersModule } from 'src/transfers/transfers.module';
 import { ItemCategoriesModule } from 'src/item-categories/item-categories.module';
 import { BrandsModule } from 'src/brands/brands.module';
+import { InventoryLogModule } from 'src/inventory-log/inventory-log.module';
 import {
   createTestTable,
   clearTestTable,
@@ -116,6 +117,7 @@ const superAdminPermissions = {
     warehouses: { view: true, create: true, edit: true, delete: true },
     containers: { view: true, create: true, edit: true, delete: true },
     transfers: { view: true, create: true, edit: true, delete: true },
+    reports: { view: true, create: true, edit: true, delete: true },
   },
   dataScope: {
     products: 'all',
@@ -124,6 +126,7 @@ const superAdminPermissions = {
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
+    reports: 'all',
   },
 };
 
@@ -135,6 +138,7 @@ const adminPermissions = {
     warehouses: { view: true, create: true, edit: true, delete: false },
     containers: { view: true, create: true, edit: true, delete: false },
     transfers: { view: true, create: true, edit: true, delete: false },
+    reports: { view: true, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
@@ -143,9 +147,12 @@ const adminPermissions = {
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
+    reports: 'all',
   },
 };
 
+// Mirrors the default Technician role: products yes, warehouses no,
+// containers scoped to their own van, no reports.
 const techPermissions = {
   permissions: {
     products: { view: true, create: false, edit: false, delete: false },
@@ -154,6 +161,7 @@ const techPermissions = {
     warehouses: { view: false, create: false, edit: false, delete: false },
     containers: { view: true, create: false, edit: false, delete: false },
     transfers: { view: true, create: false, edit: false, delete: false },
+    reports: { view: false, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
@@ -162,6 +170,7 @@ const techPermissions = {
     warehouses: 'assigned_only',
     containers: 'assigned_only',
     transfers: 'assigned_only',
+    reports: 'assigned_only',
   },
 };
 
@@ -173,6 +182,7 @@ const dispatcherPermissions = {
     warehouses: { view: true, create: false, edit: false, delete: false },
     containers: { view: true, create: false, edit: false, delete: false },
     transfers: { view: true, create: false, edit: false, delete: false },
+    reports: { view: false, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
@@ -181,6 +191,7 @@ const dispatcherPermissions = {
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
+    reports: 'all',
   },
 };
 
@@ -192,6 +203,7 @@ const readOnlyPermissions = {
     warehouses: { view: true, create: false, edit: false, delete: false },
     containers: { view: true, create: false, edit: false, delete: false },
     transfers: { view: true, create: false, edit: false, delete: false },
+    reports: { view: false, create: false, edit: false, delete: false },
   },
   dataScope: {
     products: 'all',
@@ -200,6 +212,29 @@ const readOnlyPermissions = {
     warehouses: 'all',
     containers: 'all',
     transfers: 'all',
+    reports: 'all',
+  },
+};
+
+/** A role with nothing at all — the 403 side of routes every other role may read. */
+const noAccessPermissions = {
+  permissions: {
+    products: { view: false, create: false, edit: false, delete: false },
+    product_categories: { view: false, create: false, edit: false, delete: false },
+    brands: { view: false, create: false, edit: false, delete: false },
+    warehouses: { view: false, create: false, edit: false, delete: false },
+    containers: { view: false, create: false, edit: false, delete: false },
+    transfers: { view: false, create: false, edit: false, delete: false },
+    reports: { view: false, create: false, edit: false, delete: false },
+  },
+  dataScope: {
+    products: 'assigned_only',
+    product_categories: 'assigned_only',
+    brands: 'assigned_only',
+    warehouses: 'assigned_only',
+    containers: 'assigned_only',
+    transfers: 'assigned_only',
+    reports: 'assigned_only',
   },
 };
 
@@ -234,6 +269,12 @@ async function seedPermissions(redis: Redis): Promise<void> {
     'EX',
     3600,
   );
+  await redis.set(
+    'role:permissions:role-no-access',
+    JSON.stringify(noAccessPermissions),
+    'EX',
+    3600,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +297,7 @@ export async function setupApp(): Promise<INestApplication> {
       TransfersModule,
       ItemCategoriesModule,
       BrandsModule,
+      InventoryLogModule,
     ],
     providers: [
       { provide: APP_GUARD, useClass: TestAuthGuard },
