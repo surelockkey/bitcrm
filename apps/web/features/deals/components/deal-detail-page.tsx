@@ -85,7 +85,6 @@ import { useAttachments } from "../attachments-hooks";
 import { AssignedTechs } from "./assigned-techs";
 import { SendToTechCard } from "./send-to-tech-card";
 import { TeamSection } from "./team-section";
-import { EquipmentSection } from "./equipment-section";
 import { DealAddressFields, type DealAddressValue } from "./deal-address-fields";
 import { ScheduledBlock } from "./scheduled-block";
 import { useEffectiveServiceArea, useResolvedServiceArea } from "@/features/service-areas/hooks";
@@ -608,12 +607,6 @@ function DetailsTab({ deal, canEdit }: { deal: Deal; canEdit: boolean }) {
         <div className="border-t pt-3">
           <SendToTechCard deal={deal} canEdit={canEdit} />
         </div>
-      </Section>
-
-      {/* Equipment — Workiz's: what was installed or serviced on the job. Saved
-          on its own, not by the page's Save: technicians add it from the phone. */}
-      <Section title="Equipment">
-        <EquipmentSection dealId={deal.id} canEdit={canEdit} />
       </Section>
 
       {/* Custom fields — user-defined answers, held in the same draft and saved

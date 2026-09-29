@@ -22,9 +22,6 @@ import { DealsEventHandler } from './deals.event-handler';
 import { DealAttachmentsController } from './attachments/deal-attachments.controller';
 import { DealAttachmentsService } from './attachments/deal-attachments.service';
 import { DealAttachmentsRepository } from './attachments/deal-attachments.repository';
-import { DealEquipmentController } from './equipment/deal-equipment.controller';
-import { DealEquipmentService } from './equipment/deal-equipment.service';
-import { DealEquipmentRepository } from './equipment/deal-equipment.repository';
 import { TaxRatesModule } from '../tax-rates/tax-rates.module';
 import { BusinessProfilesClientModule } from '../common/services/business-profiles.module';
 import { DealBillingController } from './billing/deal-billing.controller';
@@ -40,7 +37,7 @@ import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.sched
   // `internal/:id/...` routes are matched ahead of DealsController's; the
   // live stream too, or `GET /:id` would take `/stream`; the dashboard's
   // `stats/*` too, ahead of the `:id/…` routes.
-  controllers: [DealEventsController, DealAttachmentsController, DealEquipmentController, DealBillingController, DealDashboardController, DealsController],
+  controllers: [DealEventsController, DealAttachmentsController, DealBillingController, DealDashboardController, DealsController],
   providers: [
     DealsService,
     DealsRepository,
@@ -53,8 +50,6 @@ import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.sched
     DealsEventHandler,
     DealAttachmentsService,
     DealAttachmentsRepository,
-    DealEquipmentService,
-    DealEquipmentRepository,
     DealTaxResolver,
     DealBillingService,
     DealDashboardService,

@@ -19,7 +19,5 @@ export const DEALS_GSI6_NAME = 'ClosedIndex';
 
 // Job attachments (photos/files): PK=DEAL#<id>, SK=ATTACH#<attachmentId>.
 export const DEAL_ATTACHMENT_SK_PREFIX = 'ATTACH#';
-// Equipment on a job: PK=DEAL#<id>, SK=EQUIP#<equipmentId>.
-export const DEAL_EQUIPMENT_SK_PREFIX = 'EQUIP#';
 export const dealAttachmentS3Key = (dealId: string, attachmentId: string) =>
   `deals/${dealId}/attachments/${attachmentId}`;
