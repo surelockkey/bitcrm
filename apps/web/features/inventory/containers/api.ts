@@ -1,5 +1,6 @@
 import type {
   Container,
+  InventoryStatus,
   StockItem,
   Transfer,
   PaginatedResponse,
@@ -8,22 +9,39 @@ import type {
 import { LocationType } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
+/**
+ * What the fleet list is narrowed by — on the server, before the page is cut,
+ * so every page comes back full and the count agrees with it.
+ */
+export interface ContainerFilter {
+  /** Matched against the name, case-insensitive. */
+  search?: string;
+  department?: string;
+  status?: InventoryStatus;
+}
+
+function filterQuery(filter: ContainerFilter): URLSearchParams {
+  const q = new URLSearchParams();
+  if (filter.search) q.set("search", filter.search);
+  if (filter.department) q.set("department", filter.department);
+  if (filter.status) q.set("status", filter.status);
+  return q;
+}
+
 export function listContainers(
-  department?: string,
+  filter: ContainerFilter = {},
   cursor?: string,
   limit = 100,
 ): Promise<PaginatedResponse<Container>> {
-  const q = new URLSearchParams({ limit: String(limit) });
-  if (department) q.set("department", department);
+  const q = filterQuery(filter);
   if (cursor) q.set("cursor", cursor);
+  q.set("limit", String(limit));
   return apiFetchPaginated<Container>(`/inventory/containers?${q}`);
 }
 
 /** Скільки контейнерів під цим фільтром — число для «Page 2 of 7». */
-export function countContainers(department?: string): Promise<ListCount> {
-  const q = new URLSearchParams();
-  if (department) q.set("department", department);
-  const s = q.toString();
+export function countContainers(filter: ContainerFilter = {}): Promise<ListCount> {
+  const s = filterQuery(filter).toString();
   return http.get<ListCount>(`/inventory/containers/count${s ? `?${s}` : ""}`);
 }
 

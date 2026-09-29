@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { LocationType, TransferType } from "@bitcrm/types";
+import userEvent from "@testing-library/user-event";
+import { LocationType, ReturnReason, TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
 
 const mocks = vi.hoisted(() => ({ transfers: [] as Transfer[] }));
@@ -60,6 +61,24 @@ describe("TransfersPage", () => {
     render(<TransfersPage />);
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
+  });
+
+  it("filters to returns with a Return chip", async () => {
+    mocks.transfers = [
+      transfer(),
+      transfer({
+        id: "t2",
+        type: TransferType.RETURN,
+        toType: null,
+        toId: null,
+        items: [{ productId: "p2", productName: "Smart lock", quantity: 1 }],
+        reason: ReturnReason.LOST,
+      }),
+    ];
+    render(<TransfersPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Return" }));
+    expect(screen.getByText(/Smart lock/)).toBeInTheDocument();
+    expect(screen.queryByText(/Deadbolt/)).toBeNull();
   });
 });
 

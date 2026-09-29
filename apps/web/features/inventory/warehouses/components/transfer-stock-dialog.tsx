@@ -20,9 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LocationType } from "@bitcrm/types";
-import { useContainers, useCreateTransfer } from "../hooks";
-import { containerLabel } from "../lib";
+import { useAllLocations, useMoveStock } from "@/features/inventory/stock/hooks";
 
 export interface TransferTarget {
   productId: string;
@@ -41,12 +39,12 @@ export function TransferStockDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { data: containers } = useContainers(open);
-  const transfer = useCreateTransfer();
+  const { data: locations } = useAllLocations(open);
+  const transfer = useMoveStock();
   const [containerId, setContainerId] = useState("");
   const [qty, setQty] = useState(1);
 
-  const list = containers?.data ?? [];
+  const list = locations.filter((l) => l.type === "container");
   const close = (o: boolean) => {
     if (!o) {
       setContainerId("");
@@ -62,9 +60,9 @@ export function TransferStockDialog({
   const submit = () => {
     transfer.mutate(
       {
-        fromType: LocationType.WAREHOUSE,
+        fromType: "warehouse",
         fromId: warehouseId,
-        toType: LocationType.CONTAINER,
+        toType: "container",
         toId: containerId,
         items: [{ productId: item.productId, productName: item.productName, quantity: qty }],
       },
@@ -92,7 +90,7 @@ export function TransferStockDialog({
               <SelectContent>
                 {list.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
-                    {containerLabel(c)}
+                    {c.name}
                     {c.department ? (
                       <span className="text-muted-foreground"> · {c.department}</span>
                     ) : null}

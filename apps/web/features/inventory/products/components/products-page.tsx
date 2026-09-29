@@ -73,9 +73,6 @@ export function ProductsPage() {
   const products = pager.items;
   const categories = useMemo(() => collectCategories(products), [products]);
 
-  // A category/type filter overrides search+status server-side.
-  const overriding = category !== "all" || type !== "all";
-
   if (!can("products", "view")) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
@@ -129,17 +126,10 @@ export function ProductsPage() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name or SKU"
             className="h-9 pl-8"
-            disabled={overriding}
           />
         </div>
 
-        <Select
-          value={category}
-          onValueChange={(v) => {
-            setCategory(v);
-            if (v !== "all") setType("all");
-          }}
-        >
+        <Select value={category} onValueChange={setCategory}>
           <SelectTrigger className="h-9 w-44">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
@@ -153,13 +143,7 @@ export function ProductsPage() {
           </SelectContent>
         </Select>
 
-        <Select
-          value={type}
-          onValueChange={(v) => {
-            setType(v);
-            if (v !== "all") setCategory("all");
-          }}
-        >
+        <Select value={type} onValueChange={setType}>
           <SelectTrigger className="h-9 w-32">
             <SelectValue placeholder="Type" />
           </SelectTrigger>
@@ -170,7 +154,7 @@ export function ProductsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={status} onValueChange={setStatus} disabled={overriding}>
+        <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="h-9 w-32">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -202,12 +186,6 @@ export function ProductsPage() {
           </Button>
         ) : null}
       </div>
-
-      {overriding ? (
-        <p className="px-6 pb-1 text-xs text-muted-foreground">
-          A category or type filter is active — search and status are applied only without them.
-        </p>
-      ) : null}
 
       {/* Bulk bar */}
       {selected.size > 0 ? (
@@ -245,7 +223,7 @@ export function ProductsPage() {
           <ErrorState onRetry={() => query.refetch()} />
         ) : products.length === 0 ? (
           <EmptyState
-            filtered={overriding || !!search || status !== InventoryStatus.ACTIVE}
+            filtered={category !== "all" || type !== "all" || !!search || status !== InventoryStatus.ACTIVE}
             canCreate={can("products", "create")}
             onCreate={() => router.push("/inventory/items/new")}
           />

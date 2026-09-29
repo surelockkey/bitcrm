@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Boxes, PackageX, Truck, Warehouse as WarehouseIcon } from "lucide-react";
 import {
   Table,
@@ -13,7 +14,7 @@ import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useProductStock } from "../stock";
+import { useProductStock } from "../hooks";
 
 /**
  * The columns, with the width each one starts at — read by both the
@@ -22,7 +23,7 @@ import { useProductStock } from "../stock";
 const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
   { id: "location", label: "Location", width: 320 },
   { id: "type", label: "Type", width: 140 },
-  { id: "onHand", label: "On hand", width: 120, className: "text-right" },
+  { id: "onHand", label: "On hand", width: 120 },
 ];
 
 const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
@@ -41,6 +42,15 @@ export function ProductStockTab({
 }) {
   const stock = useProductStock(productId, !serviceType);
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
+  // The endpoint lists every location, empty ones too; this tab is where the item sits.
+  const rows = useMemo(
+    () =>
+      (stock.data?.locations ?? [])
+        .filter((l) => l.quantity > 0)
+        .sort((a, b) => b.quantity - a.quantity),
+    [stock.data],
+  );
+  const total = stock.data?.onHand ?? 0;
 
   if (serviceType) {
     return (
@@ -52,7 +62,7 @@ export function ProductStockTab({
     );
   }
 
-  if (stock.loading) {
+  if (stock.isLoading) {
     return (
       <div className="space-y-4">
         <div className="flex gap-3">
@@ -74,13 +84,13 @@ export function ProductStockTab({
     );
   }
 
-  const belowMin = minStockLevel > 0 && stock.total <= minStockLevel;
+  const belowMin = minStockLevel > 0 && total <= minStockLevel;
 
   return (
     <div className="space-y-5">
       {/* Summary */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="On hand" value={String(stock.total)} accent>
+        <StatCard label="On hand" value={String(total)} accent>
           {belowMin ? (
             <Badge
               variant="outline"
@@ -93,10 +103,10 @@ export function ProductStockTab({
           ) : null}
         </StatCard>
         <StatCard label="Min level" value={String(minStockLevel)} />
-        <StatCard label="Locations" value={String(stock.rows.length)} />
+        <StatCard label="Locations" value={String(rows.length)} />
       </div>
 
-      {stock.isEmpty || stock.rows.length === 0 ? (
+      {rows.length === 0 ? (
         <EmptyBlock
           icon={<PackageX className="size-6" />}
           title="Not stocked anywhere yet"
@@ -128,8 +138,8 @@ export function ProductStockTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {stock.rows.map((row) => (
-                <TableRow key={`${row.kind}-${row.id}`} className="hover:bg-muted/40">
+              {rows.map((row) => (
+                <TableRow key={`${row.locationType}-${row.locationId}`} className="hover:bg-muted/40">
                   {/* Every cell clips: under fixed layout one that doesn't
                       spills over the next column instead of widening its own. */}
                   <TableCell className="overflow-hidden">
@@ -137,12 +147,12 @@ export function ProductStockTab({
                       <span
                         className={cn(
                           "flex size-8 flex-none items-center justify-center rounded-lg border",
-                          row.kind === "warehouse"
+                          row.locationType === "warehouse"
                             ? "bg-brand/10 text-brand"
                             : "bg-muted text-muted-foreground",
                         )}
                       >
-                        {row.kind === "warehouse" ? (
+                        {row.locationType === "warehouse" ? (
                           <WarehouseIcon className="size-4" />
                         ) : (
                           <Truck className="size-4" />
@@ -150,9 +160,9 @@ export function ProductStockTab({
                       </span>
                       <div className="min-w-0">
                         <div className="truncate font-medium">{row.name}</div>
-                        {row.subtitle ? (
+                        {row.description ? (
                           <div className="truncate text-xs text-muted-foreground">
-                            {row.subtitle}
+                            {row.description}
                           </div>
                         ) : null}
                       </div>
@@ -160,10 +170,10 @@ export function ProductStockTab({
                   </TableCell>
                   <TableCell className="overflow-hidden">
                     <Badge variant="outline" className="font-normal capitalize">
-                      {row.kind}
+                      {row.locationType}
                     </Badge>
                   </TableCell>
-                  <TableCell className="truncate text-right font-medium tabular-nums">
+                  <TableCell className="truncate font-medium tabular-nums">
                     {row.quantity}
                   </TableCell>
                 </TableRow>

@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Product } from "@bitcrm/types";
 import { ProductType } from "@bitcrm/types";
-import { useProductMap, useReceiveStock } from "../hooks";
+import { useProductMap, useReceiveIntoWarehouse } from "../hooks";
 
 interface Row {
   product: Product;
@@ -33,7 +33,7 @@ export function ReceiveStockDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { data: productMap } = useProductMap(open);
-  const receive = useReceiveStock();
+  const receive = useReceiveIntoWarehouse();
   const [rows, setRows] = useState<Row[]>([]);
   const [search, setSearch] = useState("");
 

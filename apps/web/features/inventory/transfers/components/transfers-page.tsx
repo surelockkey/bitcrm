@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Loader2, Plus, Search, TriangleAlert } from "lucide-react";
+import { ArrowLeftRight, Plus, Search, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,6 +36,7 @@ const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
   { value: TransferType.TRANSFER, label: "Transfer" },
   { value: TransferType.DEDUCT, label: "Deduct" },
   { value: TransferType.RESTORE, label: "Restore" },
+  { value: TransferType.RETURN, label: "Return" },
 ];
 
 /**

@@ -1,21 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { ProductStock } from "../stock";
+import { InventoryStatus } from "@bitcrm/types";
+import type { ProductStock } from "@bitcrm/types";
 import { ProductStockTab } from "./product-stock-tab";
 
 const stock: ProductStock = {
-  rows: [
-    { id: "w1", name: "WAREHOUSE TX", kind: "warehouse", quantity: 240 },
-    { id: "c1", name: "Van 1", subtitle: "Connecticut", kind: "container", quantity: 6 },
+  productId: "p1",
+  onHand: 246,
+  locations: [
+    { locationType: "warehouse", locationId: "w1", name: "WAREHOUSE TX", status: InventoryStatus.ACTIVE, quantity: 240 },
+    { locationType: "warehouse", locationId: "w2", name: "Empty shelf", status: InventoryStatus.ACTIVE, quantity: 0 },
+    { locationType: "container", locationId: "c1", name: "Van 1", description: "Connecticut", status: InventoryStatus.ACTIVE, quantity: 6 },
   ],
-  total: 246,
-  loading: false,
-  listsLoading: false,
-  isError: false,
-  isEmpty: false,
 };
 
-vi.mock("../stock", () => ({ useProductStock: () => stock }));
+vi.mock("../hooks", () => ({
+  useProductStock: () => ({ data: stock, isLoading: false, isError: false }),
+}));
 
 describe("ProductStockTab", () => {
   it("lists every location holding the item, with its count", () => {
@@ -23,6 +24,25 @@ describe("ProductStockTab", () => {
     expect(screen.getByText("WAREHOUSE TX")).toBeInTheDocument();
     expect(screen.getByText("Van 1")).toBeInTheDocument();
     expect(screen.getByText("240")).toBeInTheDocument();
+  });
+
+  it("leaves out the locations that hold none of it", () => {
+    render(<ProductStockTab productId="p1" minStockLevel={10} serviceType={false} />);
+    expect(screen.queryByText("Empty shelf")).toBeNull();
+  });
+
+  it("totals on hand from the server's sum", () => {
+    render(<ProductStockTab productId="p1" minStockLevel={10} serviceType={false} />);
+    expect(screen.getByText("246")).toBeInTheDocument();
+  });
+
+  it("keeps every column left-aligned", () => {
+    const { container } = render(
+      <ProductStockTab productId="p1" minStockLevel={10} serviceType={false} />,
+    );
+    for (const el of container.querySelectorAll("thead th, tbody td")) {
+      expect(el.className).not.toContain("text-right");
+    }
   });
 });
 

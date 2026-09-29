@@ -1,12 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { ProductType, InventoryStatus } from "@bitcrm/types";
+import { ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import {
   formatMoney,
   marginPct,
   formatMargin,
   collectCategories,
-  effectiveProductQuery,
   isService,
 } from "./lib";
 
@@ -25,27 +24,6 @@ describe("money + margin", () => {
   });
   it("formats margin with a sign", () => {
     expect(formatMargin(45, 15)).toBe("+200%");
-  });
-});
-
-describe("effectiveProductQuery — mirrors backend filter precedence", () => {
-  it("category wins over everything", () => {
-    expect(
-      effectiveProductQuery({ category: "Locks", type: ProductType.PRODUCT, status: InventoryStatus.ACTIVE, search: "x" }),
-    ).toEqual({ category: "Locks" });
-  });
-  it("type wins when no category", () => {
-    expect(
-      effectiveProductQuery({ type: ProductType.SERVICE, status: InventoryStatus.ACTIVE, search: "x" }),
-    ).toEqual({ type: ProductType.SERVICE });
-  });
-  it("search + status combine when no category/type", () => {
-    expect(
-      effectiveProductQuery({ status: InventoryStatus.ARCHIVED, search: "lock" }),
-    ).toEqual({ status: InventoryStatus.ARCHIVED, search: "lock" });
-  });
-  it("empty filter yields empty query", () => {
-    expect(effectiveProductQuery({})).toEqual({});
   });
 });
 

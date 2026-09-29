@@ -12,15 +12,28 @@ import type { TransferItem } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
-import type { CreateTransferBody } from "./api";
 import type { WarehouseValues } from "./schemas";
 import { enrichStock, summarizeStock } from "./lib";
+import { useStockMovement } from "@/features/inventory/stock/hooks";
 
-export function useWarehouses() {
+export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.inventory.warehouses.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listWarehouses(filter, pageParam, limit),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.pagination.nextCursor,
+  });
+}
+
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useWarehousesCount(filter: api.WarehouseFilter) {
   return useQuery({
-    queryKey: queryKeys.inventory.warehouses.list(),
-    queryFn: () => api.listWarehouses(),
-    staleTime: 60 * 1000,
+    queryKey: queryKeys.inventory.warehouses.count(filter),
+    queryFn: () => api.countWarehouses(filter),
+    staleTime: 30_000,
   });
 }
 
@@ -48,21 +61,12 @@ export function useWarehouseTransfers(id: string) {
   });
 }
 
-export function useContainers(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.inventory.containers.list(),
-    queryFn: () => api.listContainers(),
-    enabled,
-    staleTime: 60 * 1000,
-  });
-}
-
-/** The whole catalog as an id→Product map, for the stock join. Cached hard. */
+/** Stock-managed items as an id→Product map, for the stock join. Cached hard. */
 export function useProductMap(enabled = true) {
   return useQuery({
-    queryKey: queryKeys.inventory.products.map(),
+    queryKey: queryKeys.inventory.products.stockMap(),
     queryFn: async () => {
-      const products = await api.fetchAllProducts();
+      const products = await api.fetchStockManagedProducts();
       return new Map(products.map((p) => [p.id, p] as const));
     },
     enabled,
@@ -92,14 +96,6 @@ export function useWarehouseStockView(id: string, enabled = true) {
     isError: stockQ.isError,
     // The join is best-effort; a failed catalog fetch just drops enrichment.
     joinReady: mapQ.isSuccess,
-  };
-}
-
-function useInvalidateInventory() {
-  const qc = useQueryClient();
-  return () => {
-    qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
-    qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
   };
 }
 
@@ -140,28 +136,9 @@ export function useArchiveWarehouse() {
   });
 }
 
-export function useReceiveStock() {
-  const invalidate = useInvalidateInventory();
-  return useMutation({
-    mutationFn: ({ id, items }: { id: string; items: TransferItem[] }) =>
-      api.receiveStock(id, items),
-    onSuccess: (_d, { items }) => {
-      invalidate();
-      const units = items.reduce((n, i) => n + i.quantity, 0);
-      toast.success(`Received ${units} ${units === 1 ? "unit" : "units"}`);
-    },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
-  });
-}
-
-export function useCreateTransfer() {
-  const invalidate = useInvalidateInventory();
-  return useMutation({
-    mutationFn: (body: CreateTransferBody) => api.createTransfer(body),
-    onSuccess: () => {
-      invalidate();
-      toast.success("Stock transferred");
-    },
-    onError: (e) => toast.error(getApiErrorMessage(e)),
-  });
+/** Supplier → this warehouse, the detail page's "Receive stock". */
+export function useReceiveIntoWarehouse() {
+  return useStockMovement("receive", ({ id, items }: { id: string; items: TransferItem[] }) =>
+    api.receiveStock(id, items),
+  );
 }

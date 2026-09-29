@@ -20,10 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LocationType } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
-import { useWarehouses, useContainers, useCreateTransfer } from "@/features/inventory/warehouses/hooks";
-import { containerLabel } from "@/features/inventory/warehouses/lib";
+import { useAllLocations, useMoveStock } from "@/features/inventory/stock/hooks";
 import type { ContainerMoveTarget } from "./container-stock-tab";
 
 type Mode = "return" | "handoff";
@@ -42,9 +40,8 @@ export function ContainerMoveDialog({
   const [mode, setMode] = useState<Mode>("return");
   const [destId, setDestId] = useState("");
   const [qty, setQty] = useState(1);
-  const transfer = useCreateTransfer();
-  const { data: warehouses } = useWarehouses();
-  const { data: containers } = useContainers(open);
+  const transfer = useMoveStock();
+  const { data: locations } = useAllLocations(open);
 
   const close = (o: boolean) => {
     if (!o) {
@@ -57,12 +54,9 @@ export function ContainerMoveDialog({
 
   if (!item) return null;
 
-  const destinations =
-    mode === "return"
-      ? (warehouses?.data ?? []).map((w) => ({ id: w.id, label: w.name }))
-      : (containers?.data ?? [])
-          .filter((c) => c.id !== containerId)
-          .map((c) => ({ id: c.id, label: containerLabel(c) + (c.department ? ` · ${c.department}` : "") }));
+  const destinations = locations
+    .filter((l) => (mode === "return" ? l.type === "warehouse" : l.type === "container" && l.id !== containerId))
+    .map((l) => ({ id: l.id, label: l.name + (l.department ? ` · ${l.department}` : "") }));
 
   const overStock = qty > item.onHand;
   const valid = destId && qty >= 1 && !overStock;
@@ -70,9 +64,9 @@ export function ContainerMoveDialog({
   const submit = () => {
     transfer.mutate(
       {
-        fromType: LocationType.CONTAINER,
+        fromType: "container",
         fromId: containerId,
-        toType: mode === "return" ? LocationType.WAREHOUSE : LocationType.CONTAINER,
+        toType: mode === "return" ? "warehouse" : "container",
         toId: destId,
         items: [{ productId: item.productId, productName: item.productName, quantity: qty }],
       },
