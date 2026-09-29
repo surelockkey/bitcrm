@@ -16,7 +16,7 @@ import {
   WORKIZ_SERVICE_TYPES,
   type ListCount,
 } from '@bitcrm/types';
-import { ProductsRepository } from './products.repository';
+import { ProductsRepository, type ProductListFilters } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
 import {
   S3Service,
@@ -109,11 +109,24 @@ export class ProductsService {
     return normalized;
   }
 
+  /**
+   * `number` is handed out by the counter and `onHand` by the stock writes;
+   * neither is ever taken from a client, whatever the body carries.
+   */
+  private static stripReadOnly<T extends object>(dto: T): T {
+    const { number: _number, onHand: _onHand, ...rest } = dto as T & {
+      number?: unknown;
+      onHand?: unknown;
+    };
+    return rest as T;
+  }
+
   async create(dto: CreateProductDto): Promise<Product> {
     const now = new Date().toISOString();
     const product: Product = {
       id: randomUUID(),
-      ...dto,
+      number: await this.repository.nextNumber(),
+      ...ProductsService.stripReadOnly(dto),
       category: await this.prepareCategory(dto.category),
       taxable: dto.taxable ?? true,
       status: InventoryStatus.ACTIVE,
@@ -251,17 +264,24 @@ export class ProductsService {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * Category picks the CategoryIndex, else type picks the TypeIndex, else the
+   * list is a Scan; every other given filter is applied on top, so Workiz's
+   * combinable filters ("this category, active, stock-managed") hold. `type`
+   * rides along as a filter only when category took the index.
+   */
   async list(query: ListProductsQueryDto) {
-    const { category, type, search, status, limit = 20, cursor } = query;
+    const { category, type, search, status, brandId, manageStock, limit = 20, cursor } = query;
+    const filters: ProductListFilters = { status, search, brandId, manageStock };
 
     if (category) {
-      return this.repository.findByCategory(category, limit, cursor);
+      return this.repository.findByCategory(category, limit, cursor, { type, ...filters });
     }
     if (type) {
-      return this.repository.findByType(type, limit, cursor);
+      return this.repository.findByType(type, limit, cursor, filters);
     }
 
-    return this.repository.findAll(limit, cursor, { status, search });
+    return this.repository.findAll(limit, cursor, filters);
   }
 
   /**
@@ -274,18 +294,19 @@ export class ProductsService {
    * re-walk the table.
    */
   async count(query: ListProductsQueryDto): Promise<ListCount> {
-    const { category, type, search, status } = query;
+    const { category, type, search, status, brandId, manageStock } = query;
+    const filters: ProductListFilters = { status, search, brandId, manageStock };
 
     const take = () => {
-      if (category) return this.repository.countByCategory(category);
-      if (type) return this.repository.countByType(type);
-      return this.repository.countAll({ status, search });
+      if (category) return this.repository.countByCategory(category, { type, ...filters });
+      if (type) return this.repository.countByType(type, filters);
+      return this.repository.countAll(filters);
     };
 
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('products', { category, type, search, status }),
+      countCacheKey('products', { category, type, search, status, brandId, manageStock }),
       COUNT_TTL_SECONDS,
       take,
     );
@@ -293,7 +314,7 @@ export class ProductsService {
 
   async update(id: string, dto: UpdateProductDto): Promise<Product> {
     await this.findById(id); // Ensure exists
-    const attrs: Partial<Product> = { ...dto };
+    const attrs: Partial<Product> = { ...ProductsService.stripReadOnly(dto) };
     if (typeof dto.category === 'string') {
       attrs.category = await this.prepareCategory(dto.category);
     }
@@ -424,6 +445,7 @@ export class ProductsService {
             const now = new Date().toISOString();
             await this.repository.create({
               id: randomUUID(),
+              number: await this.repository.nextNumber(),
               sku: row.sku,
               name: row.name,
               category,

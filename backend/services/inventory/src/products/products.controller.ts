@@ -37,7 +37,12 @@ export class ProductsController {
 
   @Get()
   @RequirePermission('products', 'view')
-  @ApiOperation({ summary: 'List products with filters', description: '**Guard:** `products.view` permission required.' })
+  @ApiOperation({
+    summary: 'List products with filters',
+    description:
+      '**Guard:** `products.view` permission required. Filters combine: `category` picks the ' +
+      'index, else `type`; `status`, `search`, `brandId` and `manageStock` apply on top.',
+  })
   async list(@Query() query: ListProductsQueryDto) {
     const { items, nextCursor } = await this.productsService.list(query);
     return {
@@ -54,7 +59,8 @@ export class ProductsController {
     summary: 'How many products the list holds',
     description:
       '**Guard:** `products.view` permission required. Takes the same filters as the list ' +
-      '(`category`, `type`, `status`, `search`; `cursor` and `limit` are ignored) and answers ' +
+      '(`category`, `type`, `status`, `search`, `brandId`, `manageStock`; `cursor` and `limit` ' +
+      'are ignored) and answers ' +
       '`{ total, atLeast }` — the row count behind "Page 2 of 7". `atLeast` means the walk ' +
       'stopped on a ceiling and the real number is higher, which the panel renders as `7+`. ' +
       'Cached for thirty seconds.',

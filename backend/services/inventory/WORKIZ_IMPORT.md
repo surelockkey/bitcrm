@@ -54,6 +54,16 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
   upsert-only). The repositories rewrite `GSI1SK` on rename.
 - Deal line items live in the **deal** service's table, not this one:
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>`, no GSI (§3.0).
+- Two product attributes are derived, not copied: `number` (the short
+  "Product ID"; `POST /products` draws it from the `COUNTER#PRODUCT / METADATA`
+  row's `seq`) and `onHand` (units across every `STOCK#` row, kept in step by
+  `StockRepository` on each move). Write `number = <Workiz item id>` on every
+  imported product and leave `onHand` to
+  `npm run backfill:product-onhand -w backend/services/inventory`; rows
+  written without a `number` get one from
+  `npm run backfill:product-numbers` (imported rows take the id in
+  `externalId = workiz:item:<n>`, the counter is raised past the highest, the
+  rest draw the next value). Both are idempotent and upsert-only.
 
 ## 1. Category
 
@@ -292,6 +302,12 @@ would invent stock nobody ever counted.
   row happen at all. Services are still rejected first, as before.
 - **Absent means managed** — every product BitCRM has written carries no such
   attribute, so nothing about existing data changes.
+- `GET /products?manageStock=true` is Workiz's "inventory products" view:
+  product-type rows whose flag is absent or `true` (a service is never
+  stock-managed, whatever it stores); `manageStock=false` selects the rows that
+  say so explicitly. It combines with `category`, `type`, `status`, `search`
+  and `brandId` (`manageStock`, `brandId` and `reorderLevel` are typed on
+  `Product` now and editable through `PUT /products/:id`).
 - The 35 243 historical job lines with `container_id` and `manage = 1` are
   already inside the 2026-09-11 snapshot: write them as ordinary deal lines —
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>` (§3.0), with

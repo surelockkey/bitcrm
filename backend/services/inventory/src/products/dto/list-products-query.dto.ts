@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsInt, IsBoolean, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductType, InventoryStatus } from '@bitcrm/types';
@@ -23,6 +23,26 @@ export class ListProductsQueryDto {
   @IsOptional()
   @IsEnum(InventoryStatus)
   status?: InventoryStatus;
+
+  @ApiPropertyOptional({ description: 'Brand catalog id.' })
+  @IsOptional()
+  @IsString()
+  brandId?: string;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      '`true` — stock-managed products only (product-type rows whose flag is absent or true); ' +
+      '`false` — rows that explicitly say `manageStock: false`.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === '1' || value === true) return true;
+    if (value === 'false' || value === '0' || value === false) return false;
+    return value;
+  })
+  @IsBoolean()
+  manageStock?: boolean;
 
   @ApiPropertyOptional({ default: 20 })
   @IsOptional()

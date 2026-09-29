@@ -140,6 +140,45 @@ describe('ProductsService', () => {
     });
   });
 
+  /**
+   * "Product ID" у Workiz — короткий послідовний номер. Його видає лічильник
+   * репозиторію, а не клієнт: надісланий у тілі number чи onHand ігнорується.
+   */
+  describe('create — product number', () => {
+    it('takes the next number from the counter and stores it on the product', async () => {
+      repository.nextNumber.mockResolvedValue(101);
+
+      const result = await service.create(createMockCreateProductDto());
+
+      expect(result.number).toBe(101);
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ number: 101 }));
+    });
+
+    it('ignores a number or onHand a client tries to send', async () => {
+      repository.nextNumber.mockResolvedValue(7);
+
+      const result = await service.create({
+        ...createMockCreateProductDto(),
+        number: 999,
+        onHand: 50,
+      } as any);
+
+      expect(result.number).toBe(7);
+      expect(result.onHand).toBeUndefined();
+      expect(repository.create.mock.calls[0][0]).not.toHaveProperty('onHand');
+    });
+
+    it('keeps manageStock, brandId and reorderLevel from the request', async () => {
+      repository.nextNumber.mockResolvedValue(1);
+
+      const result = await service.create(
+        createMockCreateProductDto({ manageStock: false, brandId: 'brand-1', reorderLevel: 2 }),
+      );
+
+      expect(result).toMatchObject({ manageStock: false, brandId: 'brand-1', reorderLevel: 2 });
+    });
+  });
+
   describe('create — taxable', () => {
     it('defaults taxable to true', async () => {
       const result = await service.create(createMockCreateProductDto());
@@ -294,7 +333,13 @@ describe('ProductsService', () => {
       const result = await service.list({ category: 'Locks', limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findByCategory).toHaveBeenCalledWith('Locks', 20, undefined);
+      expect(repository.findByCategory).toHaveBeenCalledWith('Locks', 20, undefined, {
+        type: undefined,
+        status: undefined,
+        search: undefined,
+        brandId: undefined,
+        manageStock: undefined,
+      });
     });
 
     it('should delegate to findByType when type is provided', async () => {
@@ -304,7 +349,12 @@ describe('ProductsService', () => {
       const result = await service.list({ type: 'product', limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findByType).toHaveBeenCalledWith('product', 20, undefined);
+      expect(repository.findByType).toHaveBeenCalledWith('product', 20, undefined, {
+        status: undefined,
+        search: undefined,
+        brandId: undefined,
+        manageStock: undefined,
+      });
     });
 
     it('should delegate to findAll when no category or type', async () => {
@@ -314,7 +364,84 @@ describe('ProductsService', () => {
       const result = await service.list({ limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { status: undefined, search: undefined });
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        status: undefined,
+        search: undefined,
+        brandId: undefined,
+        manageStock: undefined,
+      });
+    });
+
+    /**
+     * Фільтри Workiz складаються: категорія обирає індекс, а статус, пошук,
+     * бренд і "керується запасом" ідуть поверх нього. Без категорії індекс
+     * обирає тип; без обох — Scan.
+     */
+    it('category + status: the category index, status on top', async () => {
+      repository.findByCategory.mockResolvedValue({ items: [] });
+
+      await service.list({ category: 'Locks', status: 'active', limit: 20 } as any);
+
+      expect(repository.findByCategory).toHaveBeenCalledWith(
+        'Locks',
+        20,
+        undefined,
+        expect.objectContaining({ status: 'active' }),
+      );
+      expect(repository.findAll).not.toHaveBeenCalled();
+    });
+
+    it('category + type: the category index, type on top', async () => {
+      repository.findByCategory.mockResolvedValue({ items: [] });
+
+      await service.list({ category: 'Locks', type: 'service', limit: 20 } as any);
+
+      expect(repository.findByCategory).toHaveBeenCalledWith(
+        'Locks',
+        20,
+        undefined,
+        expect.objectContaining({ type: 'service' }),
+      );
+      expect(repository.findByType).not.toHaveBeenCalled();
+    });
+
+    it('type + search: the type index, search on top', async () => {
+      repository.findByType.mockResolvedValue({ items: [] });
+
+      await service.list({ type: 'product', search: 'lock', limit: 20 } as any);
+
+      expect(repository.findByType).toHaveBeenCalledWith(
+        'product',
+        20,
+        undefined,
+        expect.objectContaining({ search: 'lock' }),
+      );
+    });
+
+    it('manageStock and brandId alone go to the scan', async () => {
+      repository.findAll.mockResolvedValue({ items: [] });
+
+      await service.list({ manageStock: true, brandId: 'brand-1', limit: 20 } as any);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        status: undefined,
+        search: undefined,
+        brandId: 'brand-1',
+        manageStock: true,
+      });
+    });
+
+    it('manageStock=false rides along on the type index', async () => {
+      repository.findByType.mockResolvedValue({ items: [] });
+
+      await service.list({ type: 'product', manageStock: false, limit: 20 } as any);
+
+      expect(repository.findByType).toHaveBeenCalledWith(
+        'product',
+        20,
+        undefined,
+        expect.objectContaining({ manageStock: false }),
+      );
     });
   });
 
@@ -330,6 +457,15 @@ describe('ProductsService', () => {
       expect(result).toEqual(updated);
       expect(repository.update).toHaveBeenCalledWith('prod-1', { name: 'Updated' });
       expect(cache.invalidate).toHaveBeenCalledWith('prod-1');
+    });
+
+    it('drops number and onHand from the attributes written', async () => {
+      cache.get.mockResolvedValue(createMockProduct());
+      repository.update.mockResolvedValue(createMockProduct());
+
+      await service.update('prod-1', { name: 'Renamed', number: 5, onHand: 9 } as any);
+
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { name: 'Renamed' });
     });
 
     it('accepts moving a product to "Uncategorized" and seeds the catalog row', async () => {
@@ -424,6 +560,34 @@ describe('ProductsService', () => {
       expect(result.updated).toBe(0);
       expect(result.errors).toHaveLength(0);
       expect(repository.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('assigns a product number to each created row', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5\n' +
+        'Lock B,SKU-101,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(null);
+      repository.nextNumber.mockResolvedValueOnce(11).mockResolvedValueOnce(12);
+
+      await service.importFromCsv(csv);
+
+      expect(repository.create).toHaveBeenNthCalledWith(1, expect.objectContaining({ sku: 'SKU-100', number: 11 }));
+      expect(repository.create).toHaveBeenNthCalledWith(2, expect.objectContaining({ sku: 'SKU-101', number: 12 }));
+    });
+
+    it('does not spend a number on an update or a dry run', async () => {
+      const csv = Buffer.from(
+        'name,sku,category,type,costCompany,costTech,priceClient,serialTracking,minimumStockLevel\n' +
+        'Lock A,SKU-100,Locks,product,10,15,25,false,5',
+      );
+      repository.findBySku.mockResolvedValue(createMockProduct({ id: 'prod-1', sku: 'SKU-100' }));
+      await service.importFromCsv(csv);
+      repository.findBySku.mockResolvedValue(null);
+      await service.importFromCsv(csv, true);
+
+      expect(repository.nextNumber).not.toHaveBeenCalled();
     });
 
     it('should update existing products matched by SKU', async () => {
@@ -772,7 +936,10 @@ describe('ProductsService', () => {
       repository.countByCategory.mockResolvedValue({ total: 9, atLeast: false });
 
       expect(await service.count({ category: 'locks' } as never)).toEqual({ total: 9, atLeast: false });
-      expect(repository.countByCategory).toHaveBeenCalledWith('locks');
+      expect(repository.countByCategory).toHaveBeenCalledWith(
+        'locks',
+        expect.objectContaining({ status: undefined, search: undefined }),
+      );
       expect(repository.countAll).not.toHaveBeenCalled();
     });
 
@@ -780,7 +947,34 @@ describe('ProductsService', () => {
       repository.countByType.mockResolvedValue({ total: 4, atLeast: false });
 
       expect(await service.count({ type: 'part' } as never)).toEqual({ total: 4, atLeast: false });
-      expect(repository.countByType).toHaveBeenCalledWith('part');
+      expect(repository.countByType).toHaveBeenCalledWith('part', expect.any(Object));
+    });
+
+    it('counts on the category index under the other filters, as the list does', async () => {
+      repository.countByCategory.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ category: 'locks', type: 'product', status: 'active', brandId: 'b-1' } as never);
+
+      expect(repository.countByCategory).toHaveBeenCalledWith('locks', {
+        type: 'product',
+        status: 'active',
+        search: undefined,
+        brandId: 'b-1',
+        manageStock: undefined,
+      });
+    });
+
+    it('counts the scan under manageStock and brandId', async () => {
+      repository.countAll.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ manageStock: true, brandId: 'b-1' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledWith({
+        status: undefined,
+        search: undefined,
+        brandId: 'b-1',
+        manageStock: true,
+      });
     });
 
     it('carries the floor flag through', async () => {
@@ -806,6 +1000,17 @@ describe('ProductsService', () => {
       await service.count({ status: 'archived' } as never);
 
       expect(repository.countAll).toHaveBeenCalledTimes(2);
+    });
+
+    it('a different manageStock or brandId is a different question', async () => {
+      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+
+      await service.count({ manageStock: true } as never);
+      await service.count({ manageStock: false } as never);
+      await service.count({ brandId: 'b-1' } as never);
+      await service.count({ brandId: 'b-2' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(4);
     });
   });
 });

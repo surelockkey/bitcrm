@@ -1,17 +1,31 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   BatchGetCommand,
   GetCommand,
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, RedisService } from '@bitcrm/shared';
 import { type StockItem } from '@bitcrm/types';
 import { INVENTORY_TABLE } from '../common/constants/dynamo.constants';
+import { productCacheKey } from '../products/products-cache.service';
 
+/**
+ * Stock rows in the single BitCRM_Inventory table:
+ *   PK = WAREHOUSE#<id> | CONTAINER#<id>, SK = STOCK#<productId>
+ *     { productId, productName, quantity, updatedAt }
+ * Every quantity change here also moves `onHand` on PRODUCT#<productId> /
+ * METADATA — the total across locations that the product list and card
+ * show — and drops that product's Redis cache entry.
+ */
 @Injectable()
 export class StockRepository {
-  constructor(private readonly dynamoDb: DynamoDbService) {}
+  private readonly logger = new Logger(StockRepository.name);
+
+  constructor(
+    private readonly dynamoDb: DynamoDbService,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
 
   async getStockLevel(
     entityPK: string,
@@ -91,6 +105,7 @@ export class StockRepository {
         },
       }),
     );
+    await this.moveOnHand(productId, quantity);
   }
 
   async decrementStock(
@@ -123,6 +138,48 @@ export class StockRepository {
         );
       }
       throw error;
+    }
+    await this.moveOnHand(productId, -quantity);
+  }
+
+  /**
+   * Keep the product row's `onHand` in step with a stock row that just moved.
+   * Stock rows may name ids the catalog never persisted (tests and imports
+   * do), so a missing product row is a warning, not a failure; anything else
+   * propagates. The cached product would otherwise serve the old total for up
+   * to five minutes, so its key is dropped — best effort.
+   */
+  private async moveOnHand(productId: string, delta: number): Promise<void> {
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: INVENTORY_TABLE,
+          Key: { PK: `PRODUCT#${productId}`, SK: 'METADATA' },
+          UpdateExpression: 'ADD onHand :delta',
+          ExpressionAttributeValues: { ':delta': delta },
+          ConditionExpression: 'attribute_exists(PK)',
+        }),
+      );
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.name === 'ConditionalCheckFailedException'
+      ) {
+        this.logger.warn(
+          `Stock moved for product ${productId}, which has no catalog row; onHand not updated`,
+        );
+      } else {
+        throw error;
+      }
+    }
+
+    if (!this.redis) return;
+    try {
+      await this.redis.client.del(productCacheKey(productId));
+    } catch (err) {
+      this.logger.warn(
+        `Product cache eviction failed for ${productId}: ${(err as Error).message}`,
+      );
     }
   }
 
