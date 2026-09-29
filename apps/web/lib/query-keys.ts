@@ -294,6 +294,8 @@ export const queryKeys = {
     all: () => ["payments"] as const,
     list: (params?: unknown) => ["payments", "list", params] as const,
     byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
+    /** The job's ledger (Payments tab) — with or without an invoice. */
+    byDeal: (dealId: string) => ["payments", "by-deal", dealId] as const,
     settings: () => ["payments", "settings"] as const,
   },
 
