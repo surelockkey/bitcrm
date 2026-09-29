@@ -9,14 +9,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ResizableHead } from "@/components/ui/resizable-head";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "../lib";
+import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { ProductRowActions } from "./product-row-actions";
 
 type ColumnId =
@@ -173,38 +172,15 @@ function Cell({
       return (
         <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-0.5">
-            <IconAction label={`Edit ${p.name}`} tip="Edit" onClick={() => onEdit(p)}>
+            <RowIconAction label={`Edit ${p.name}`} tip="Edit" onClick={() => onEdit(p)}>
               <Pencil />
-            </IconAction>
-            <IconAction label={`Manage stock for ${p.name}`} tip="Manage stock" onClick={() => onStock(p)}>
+            </RowIconAction>
+            <RowIconAction label={`Manage stock for ${p.name}`} tip="Manage stock" onClick={() => onStock(p)}>
               <Boxes />
-            </IconAction>
+            </RowIconAction>
             <ProductRowActions product={p} />
           </div>
         </TableCell>
       );
   }
-}
-
-function IconAction({
-  label,
-  tip,
-  onClick,
-  children,
-}: {
-  label: string;
-  tip: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-8" aria-label={label} onClick={onClick}>
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{tip}</TooltipContent>
-    </Tooltip>
-  );
 }

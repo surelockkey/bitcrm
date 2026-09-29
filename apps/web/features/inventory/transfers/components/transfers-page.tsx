@@ -43,12 +43,12 @@ const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
  * The columns, with the width each one starts at — read by both the
  * `<colgroup>` and the headers, so there is one number to change.
  */
-const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+const COLUMNS: { id: string; label: string; width: number }[] = [
   { id: "type", label: "Type", width: 120 },
   { id: "route", label: "Route", width: 280 },
   { id: "items", label: "Items", width: 240 },
   { id: "by", label: "By", width: 160 },
-  { id: "when", label: "When", width: 150, className: "text-right" },
+  { id: "when", label: "When", width: 150 },
 ];
 
 const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
@@ -185,7 +185,6 @@ export function TransfersPage() {
                         width={widthOf(c.id)}
                         onResize={(px) => setWidth(c.id, px)}
                         onReset={reset}
-                        className={c.className}
                       />
                     ))}
                   </TableRow>
@@ -205,7 +204,7 @@ export function TransfersPage() {
                           {more > 0 ? <span className="text-muted-foreground"> +{more}</span> : null}
                         </TableCell>
                         <TableCell className="truncate text-sm text-muted-foreground">{t.performedByName}</TableCell>
-                        <TableCell className="truncate text-right text-sm text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
+                        <TableCell className="truncate text-sm text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
                       </TableRow>
                     );
                   })}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Download, Package, PackagePlus, Search, TriangleAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +17,7 @@ import type { Product } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useUrlPopups } from "@/features/inventory/use-url-popups";
 import { useItemCategories, useProducts, useProductsCount } from "../hooks";
 import { productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
@@ -35,8 +35,6 @@ type Popup = "edit" | "stock" | "new";
 const POPUPS: Popup[] = ["edit", "stock", "new"];
 
 export function ProductsPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { can } = usePermissions();
   const money = can("financials", "view");
 
@@ -78,22 +76,11 @@ export function ProductsPage() {
   );
 
   // Popups live in the URL, so a link to an item (or an old /inventory/items/<id>
-  // bookmark, redirected here) opens it. Opening pushes, so Back closes it;
-  // closing replaces, so Back doesn't reopen it.
-  const editId = searchParams.get("edit");
-  const stockId = searchParams.get("stock");
-  const creating = !editId && searchParams.get("new") === "1";
-
-  const urlWith = (popup?: Popup, value?: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const p of POPUPS) params.delete(p);
-    if (popup) params.set(popup, value ?? "1");
-    const qs = params.toString();
-    return qs ? `${ITEMS_PATH}?${qs}` : ITEMS_PATH;
-  };
-  const openPopup = (popup: Popup, value?: string) =>
-    router.push(urlWith(popup, value), { scroll: false });
-  const closePopup = () => router.replace(urlWith(), { scroll: false });
+  // bookmark, redirected here) opens it.
+  const popups = useUrlPopups(ITEMS_PATH, POPUPS);
+  const editId = popups.param("edit");
+  const stockId = popups.param("stock");
+  const creating = !editId && popups.param("new") === "1";
 
   if (!can("products", "view")) {
     return (
@@ -171,7 +158,7 @@ export function ProductsPage() {
           </Button>
         ) : null}
         {can("products", "create") ? (
-          <Button className="h-9 gap-1.5 px-3.5" onClick={() => openPopup("new")}>
+          <Button className="h-9 gap-1.5 px-3.5" onClick={() => popups.open("new")}>
             <PackagePlus className="size-4" />
             New item
           </Button>
@@ -188,15 +175,15 @@ export function ProductsPage() {
           <EmptyState
             filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
             canCreate={can("products", "create")}
-            onCreate={() => openPopup("new")}
+            onCreate={() => popups.open("new")}
           />
         ) : (
           <>
             <ProductsTable
               products={products}
               showCost={money}
-              onEdit={(p: Product) => openPopup("edit", p.id)}
-              onStock={(p: Product) => openPopup("stock", p.id)}
+              onEdit={(p: Product) => popups.open("edit", p.id)}
+              onStock={(p: Product) => popups.open("stock", p.id)}
             />
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
@@ -210,15 +197,15 @@ export function ProductsPage() {
         <ProductDialog
           productId={editId}
           open
-          onOpenChange={(open) => (open ? undefined : closePopup())}
-          onCreated={(p) => router.replace(urlWith("edit", p.id), { scroll: false })}
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onCreated={(p) => popups.replace("edit", p.id)}
         />
       ) : null}
       {stockId ? (
         <ManageStockDialog
           productId={stockId}
           open
-          onOpenChange={(open) => (open ? undefined : closePopup())}
+          onOpenChange={(open) => (open ? undefined : popups.close())}
         />
       ) : null}
     </div>

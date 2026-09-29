@@ -1,5 +1,4 @@
-import { LocationType, TransferType } from "@bitcrm/types";
-import type { Product, StockItem, Transfer, Container } from "@bitcrm/types";
+import type { Product, StockItem, Transfer } from "@bitcrm/types";
 
 export { formatMoney } from "@/features/inventory/products/lib";
 
@@ -59,35 +58,10 @@ export function summarizeStock(rows: EnrichedStockRow[]): StockSummary {
   };
 }
 
-/** Detail-page tab from the `?tab=` deep link; anything unknown → stock. */
-export function detailTab(param: string | null): "stock" | "activity" | "settings" {
-  return param === "activity" || param === "settings" ? param : "stock";
-}
-
 /* ------------------------------------------------------------------ *
  * Transfers
  * ------------------------------------------------------------------ */
 
-export type TransferDirection = "in" | "out";
-
-/** Is this movement bringing stock into the warehouse, or sending it out? */
-export function transferDirection(t: Transfer, warehouseId: string): TransferDirection {
-  const toHere =
-    t.toType === LocationType.WAREHOUSE && t.toId === warehouseId;
-  if (t.type === TransferType.RECEIVE || toHere) return "in";
-  return "out";
-}
-
 export function transferUnits(t: Transfer): number {
   return t.items.reduce((n, i) => n + i.quantity, 0);
-}
-
-/* ------------------------------------------------------------------ *
- * Containers
- * ------------------------------------------------------------------ */
-
-export function containerLabel(
-  c: Pick<Container, "name" | "technicianName">,
-): string {
-  return c.name?.trim() || c.technicianName?.trim() || "Container";
 }

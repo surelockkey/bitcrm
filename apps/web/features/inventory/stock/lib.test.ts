@@ -3,7 +3,9 @@ import { InventoryStatus, LocationType, TransferType } from "@bitcrm/types";
 import type { Container, Transfer, Warehouse } from "@bitcrm/types";
 import {
   checkQuantity,
+  filterItemRows,
   filterStockRows,
+  locationCards,
   locationHint,
   moveTargets,
   movementMessages,
@@ -129,6 +131,26 @@ describe("stockSummary — the three cards of the Manage stock popup", () => {
   });
 });
 
+describe("locationCards — the three cards of a warehouse's or van's popup", () => {
+  const summary = { skuCount: 12, totalUnits: 1244, totalValue: 16605, lowCount: 1 };
+
+  it("counts SKUs and units and prices the lot, Workiz-style", () => {
+    expect(locationCards(summary, true)).toEqual({ skus: "12", units: "1244", value: "$16605.00" });
+  });
+
+  it("has no value to show while the catalog join is missing — not a $0.00", () => {
+    expect(locationCards(summary, false)).toEqual({ skus: "12", units: "1244", value: "—" });
+  });
+
+  it("says zero plainly for an empty location", () => {
+    expect(locationCards({ skuCount: 0, totalUnits: 0, totalValue: 0, lowCount: 0 }, true)).toEqual({
+      skus: "0",
+      units: "0",
+      value: "$0.00",
+    });
+  });
+});
+
 describe("checkQuantity", () => {
   it("takes a whole number from 1 up to what the location holds", () => {
     expect(checkQuantity("1", 4)).toEqual({ quantity: 1, error: null });
@@ -166,6 +188,24 @@ describe("filterStockRows", () => {
 
   it("keeps every row for a blank search", () => {
     expect(filterStockRows(rows, "  ")).toBe(rows);
+  });
+});
+
+describe("filterItemRows — a location popup's search", () => {
+  const rows = [
+    { name: "Deadbolt", sku: "LOCK-001" },
+    { name: "Key blank", sku: "KEY-7" },
+    { name: "Strike plate" },
+  ];
+
+  it("matches the item's name or SKU, ignoring case", () => {
+    expect(filterItemRows(rows, "lock").map((r) => r.name)).toEqual(["Deadbolt"]);
+    expect(filterItemRows(rows, "BLANK").map((r) => r.name)).toEqual(["Key blank"]);
+    expect(filterItemRows(rows, "key-7").map((r) => r.name)).toEqual(["Key blank"]);
+  });
+
+  it("keeps every row for a blank search", () => {
+    expect(filterItemRows(rows, " ")).toBe(rows);
   });
 });
 

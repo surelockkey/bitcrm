@@ -1,14 +1,11 @@
 import type {
   Warehouse,
   StockItem,
-  Transfer,
-  TransferItem,
   Product,
   PaginatedResponse,
   InventoryStatus,
   ListCount,
 } from "@bitcrm/types";
-import { LocationType } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type { WarehouseValues } from "./schemas";
 
@@ -63,26 +60,6 @@ export function archiveWarehouse(id: string): Promise<Warehouse> {
 
 export function getWarehouseStock(id: string): Promise<StockItem[]> {
   return http.get<StockItem[]>(`/inventory/warehouses/${id}/stock`);
-}
-
-/**
- * Supplier → warehouse under `warehouses.edit` (the stock popup's "Add stock"
- * goes through `/transfers/receive` instead). Answers the Receive record.
- */
-export function receiveStock(id: string, items: TransferItem[]): Promise<Transfer> {
-  return http.post<Transfer>(`/inventory/warehouses/${id}/receive`, { items });
-}
-
-/** Movement history for one warehouse. */
-export function listWarehouseTransfers(
-  id: string,
-  cursor?: string,
-): Promise<PaginatedResponse<Transfer>> {
-  const q = new URLSearchParams({ limit: "50" });
-  if (cursor) q.set("cursor", cursor);
-  return apiFetchPaginated<Transfer>(
-    `/inventory/transfers/entity/${LocationType.WAREHOUSE}/${id}?${q}`,
-  );
 }
 
 /* --- Product catalog --- */

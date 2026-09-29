@@ -35,10 +35,11 @@ export function useContainersList(filter: api.ContainerFilter, limit = 100) {
   });
 }
 
-export function useContainer(id: string) {
+export function useContainer(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.inventory.containers.detail(id),
     queryFn: () => api.getContainer(id),
+    enabled,
   });
 }
 
@@ -83,15 +84,6 @@ export function useMyContainer() {
   });
 }
 
-export function useContainerTransfers(id: string) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.inventory.containers.transfers(id),
-    queryFn: ({ pageParam }) => api.listContainerTransfers(id, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.pagination.nextCursor,
-  });
-}
-
 /** Container stock joined with the catalog — reuses the Warehouses join. */
 export function useContainerStockView(id: string, enabled = true) {
   const stockQ = useContainerStock(id, enabled);
@@ -113,5 +105,6 @@ export function useContainerStockView(id: string, enabled = true) {
     isLoading: stockQ.isLoading || mapQ.isLoading,
     isError: stockQ.isError,
     joinReady: mapQ.isSuccess,
+    refetch: stockQ.refetch,
   };
 }

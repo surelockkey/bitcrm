@@ -2,11 +2,9 @@ import type {
   Container,
   InventoryStatus,
   StockItem,
-  Transfer,
   PaginatedResponse,
   ListCount,
 } from "@bitcrm/types";
-import { LocationType } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 
 /**
@@ -83,16 +81,4 @@ export function getContainerStock(id: string): Promise<StockItem[]> {
 /** The current technician's own van (lazy-created server-side). */
 export function getMyContainer(): Promise<Container> {
   return http.get<Container>("/inventory/containers/my");
-}
-
-/** Movement history for one container. */
-export function listContainerTransfers(
-  id: string,
-  cursor?: string,
-): Promise<PaginatedResponse<Transfer>> {
-  const q = new URLSearchParams({ limit: "50" });
-  if (cursor) q.set("cursor", cursor);
-  return apiFetchPaginated<Transfer>(
-    `/inventory/transfers/entity/${LocationType.CONTAINER}/${id}?${q}`,
-  );
 }

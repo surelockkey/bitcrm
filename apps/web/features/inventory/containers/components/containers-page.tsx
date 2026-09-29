@@ -17,15 +17,23 @@ import { DataScope, InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
+import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
+import { useUrlPopups } from "@/features/inventory/use-url-popups";
 import { useContainersList, useContainersCount } from "../hooks";
 import type { ContainerFilter } from "../api";
 import { ContainersTable } from "./containers-table";
 import { ContainerCreateDialog } from "./container-create-dialog";
+import { ContainerEditDialog } from "./container-edit-dialog";
 import { MyContainerView } from "./my-container-view";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+
+const CONTAINERS_PATH = "/inventory/containers";
+
+/** The URL params that open a popup — one at a time. */
+const POPUPS = ["stock", "edit"] as const;
 
 export function ContainersPage() {
   const { can, scopeOf } = usePermissions();
@@ -48,6 +56,12 @@ function Fleet() {
   const [department, setDepartment] = useState("all");
   const [status, setStatus] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
+
+  // A van has no page of its own: its stock and its settings open over the
+  // list, from the URL, so an old /inventory/containers/<id> link lands here.
+  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS);
+  const stockId = popups.param("stock");
+  const editId = stockId ? null : popups.param("edit");
 
   // The server filters before it cuts the page — filtering a page in the
   // browser is what made every page show a different number of vans.
@@ -165,13 +179,33 @@ function Fleet() {
           </div>
         ) : (
           <>
-            <ContainersTable containers={containers} />
+            <ContainersTable
+              containers={containers}
+              onEdit={(c) => popups.open("edit", c.id)}
+              onStock={(c) => popups.open("stock", c.id)}
+            />
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>
 
       <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {stockId ? (
+        <LocationStockDialog
+          type="container"
+          locationId={stockId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
+      {editId ? (
+        <ContainerEditDialog
+          containerId={editId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
     </div>
   );
 }

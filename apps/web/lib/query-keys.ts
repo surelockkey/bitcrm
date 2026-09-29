@@ -172,7 +172,6 @@ export const queryKeys = {
       everything: () => ["warehouses", "everything"] as const,
       detail: (id: string) => ["warehouses", "detail", id] as const,
       stock: (id: string) => ["warehouses", id, "stock"] as const,
-      transfers: (id: string) => ["warehouses", id, "transfers"] as const,
     },
     containers: {
       all: () => ["containers"] as const,
@@ -183,7 +182,6 @@ export const queryKeys = {
       mine: () => ["containers", "mine"] as const,
       detail: (id: string) => ["containers", "detail", id] as const,
       stock: (id: string) => ["containers", id, "stock"] as const,
-      transfers: (id: string) => ["containers", id, "transfers"] as const,
     },
     /** Item categories catalog (`GET /inventory/categories`). */
     categories: {

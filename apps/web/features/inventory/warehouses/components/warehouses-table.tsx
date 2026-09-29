@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Package, Pencil, Trash2 } from "lucide-react";
+import { Boxes, Pencil } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -10,36 +8,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
-import { usePermissions } from "@/features/auth/use-permissions";
 import { cn } from "@/lib/utils";
-import { useArchiveWarehouse, useWarehouseStockView } from "../hooks";
+import { RowIconAction } from "@/features/inventory/components/row-icon-action";
+import { useWarehouseStockView } from "../hooks";
 
 /**
  * The columns, with the width each one starts at — read by both the
- * `<colgroup>` and the headers, so there is one number to change.
+ * `<colgroup>` and the headers, so there is one number to change. All
+ * left-aligned, counts included, as Workiz lays its grids out.
  */
-const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+const COLUMNS: { id: string; label: string; width: number }[] = [
   { id: "name", label: "Name", width: 260 },
   { id: "description", label: "Description", width: 340 },
   { id: "items", label: "Items", width: 120 },
-  { id: "actions", label: "Actions", width: 140, className: "text-right" },
+  { id: "actions", label: "Actions", width: 100 },
 ];
 
 const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
@@ -47,7 +35,15 @@ const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
 /** Its own key: warehouses keep their widths apart from vans and items. */
 const TABLE_KEY = "inventory-warehouses";
 
-export function WarehousesTable({ warehouses }: { warehouses: Warehouse[] }) {
+export function WarehousesTable({
+  warehouses,
+  onEdit,
+  onStock,
+}: {
+  warehouses: Warehouse[];
+  onEdit: (warehouse: Warehouse) => void;
+  onStock: (warehouse: Warehouse) => void;
+}) {
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
 
   return (
@@ -70,14 +66,13 @@ export function WarehousesTable({ warehouses }: { warehouses: Warehouse[] }) {
                 width={widthOf(c.id)}
                 onResize={(px) => setWidth(c.id, px)}
                 onReset={reset}
-                className={c.className}
               />
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {warehouses.map((w) => (
-            <WarehouseRow key={w.id} warehouse={w} />
+            <WarehouseRow key={w.id} warehouse={w} onEdit={onEdit} onStock={onStock} />
           ))}
         </TableBody>
       </Table>
@@ -85,19 +80,22 @@ export function WarehousesTable({ warehouses }: { warehouses: Warehouse[] }) {
   );
 }
 
-function WarehouseRow({ warehouse: w }: { warehouse: Warehouse }) {
-  const router = useRouter();
-  const { can } = usePermissions();
+function WarehouseRow({
+  warehouse: w,
+  onEdit,
+  onStock,
+}: {
+  warehouse: Warehouse;
+  onEdit: (warehouse: Warehouse) => void;
+  onStock: (warehouse: Warehouse) => void;
+}) {
+  // One stock read per row shown — the list carries no totals.
   const { summary, isLoading } = useWarehouseStockView(w.id);
-  const archive = useArchiveWarehouse();
-  const [confirm, setConfirm] = useState(false);
   const archived = w.status === InventoryStatus.ARCHIVED;
+  const description = w.description || w.address;
 
   return (
-    <TableRow
-      className={cn("cursor-pointer", archived && "opacity-55")}
-      onClick={() => router.push(`/inventory/warehouses/${w.id}`)}
-    >
+    <TableRow className={cn("cursor-pointer", archived && "opacity-55")} onClick={() => onStock(w)}>
       {/* Every cell clips: under fixed layout one that doesn't spills over
           the next column instead of widening its own. */}
       <TableCell className="overflow-hidden">
@@ -111,71 +109,22 @@ function WarehouseRow({ warehouse: w }: { warehouse: Warehouse }) {
           </Badge>
         ) : null}
       </TableCell>
-      <TableCell className="truncate text-sm text-muted-foreground">
-        {w.description || w.address || "—"}
+      <TableCell className="truncate text-sm text-muted-foreground" title={description || undefined}>
+        {description || "—"}
       </TableCell>
       <TableCell className="truncate tabular-nums">
-        {isLoading ? (
-          <Skeleton className="h-4 w-12" />
-        ) : (
-          summary.totalUnits.toLocaleString()
-        )}
+        {isLoading ? <Skeleton className="h-4 w-12" /> : summary.totalUnits.toLocaleString()}
       </TableCell>
-      <TableCell className="overflow-hidden text-right" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-end gap-0.5">
-          {can("warehouses", "edit") ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="Edit"
-              onClick={() => router.push(`/inventory/warehouses/${w.id}?tab=settings`)}
-            >
-              <Pencil />
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="View stock"
-            onClick={() => router.push(`/inventory/warehouses/${w.id}`)}
-          >
-            <Package />
-          </Button>
-          {!archived && can("warehouses", "delete") ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-destructive hover:text-destructive"
-              aria-label="Archive"
-              onClick={() => setConfirm(true)}
-            >
-              <Trash2 />
-            </Button>
-          ) : null}
+      {/* The popups these open sit over the row; their clicks must not reach it. */}
+      <TableCell className="overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-0.5">
+          <RowIconAction label={`Edit ${w.name}`} tip="Edit" onClick={() => onEdit(w)}>
+            <Pencil />
+          </RowIconAction>
+          <RowIconAction label={`Stock in ${w.name}`} tip="Stock" onClick={() => onStock(w)}>
+            <Boxes />
+          </RowIconAction>
         </div>
-
-        <AlertDialog open={confirm} onOpenChange={setConfirm}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Archive “{w.name}”?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Its stock history is kept, but it disappears from active lists
-                and transfer targets.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-white hover:bg-destructive/90"
-                onClick={() => archive.mutate(w.id)}
-              >
-                Archive warehouse
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </TableCell>
     </TableRow>
   );

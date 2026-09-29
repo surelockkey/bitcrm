@@ -13,7 +13,7 @@ import { movementMessages, toLocations, type Movement } from "./lib";
  * A movement changes the item (its `onHand` and per-location stock), both
  * locations, and the journal. `products` covers list, count, detail and stock.
  */
-export function useStockMovement<B>(kind: Movement, send: (body: B) => Promise<Transfer>) {
+function useStockMovement<B>(kind: Movement, send: (body: B) => Promise<Transfer>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: send,

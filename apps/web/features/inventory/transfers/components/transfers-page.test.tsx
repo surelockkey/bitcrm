@@ -63,6 +63,13 @@ describe("TransfersPage", () => {
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
   });
 
+  it("left-aligns every column, the date included", () => {
+    render(<TransfersPage />);
+    for (const el of document.querySelectorAll("th, td")) {
+      expect(el.className).not.toMatch(/text-right/);
+    }
+  });
+
   it("filters to returns with a Return chip", async () => {
     mocks.transfers = [
       transfer(),

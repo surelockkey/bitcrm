@@ -8,13 +8,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { TransferItem } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import type { WarehouseValues } from "./schemas";
 import { enrichStock, summarizeStock } from "./lib";
-import { useStockMovement } from "@/features/inventory/stock/hooks";
 
 export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
   return useInfiniteQuery({
@@ -37,27 +35,20 @@ export function useWarehousesCount(filter: api.WarehouseFilter) {
   });
 }
 
-export function useWarehouse(id: string) {
+export function useWarehouse(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.inventory.warehouses.detail(id),
     queryFn: () => api.getWarehouse(id),
+    enabled,
   });
 }
 
-export function useWarehouseStock(id: string) {
+export function useWarehouseStock(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.inventory.warehouses.stock(id),
     queryFn: () => api.getWarehouseStock(id),
+    enabled,
     staleTime: 30 * 1000,
-  });
-}
-
-export function useWarehouseTransfers(id: string) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.inventory.warehouses.transfers(id),
-    queryFn: ({ pageParam }) => api.listWarehouseTransfers(id, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.pagination.nextCursor,
   });
 }
 
@@ -76,7 +67,7 @@ export function useProductMap(enabled = true) {
 
 /** Warehouse stock joined with the catalog: enriched rows + a summary. */
 export function useWarehouseStockView(id: string, enabled = true) {
-  const stockQ = useWarehouseStock(id);
+  const stockQ = useWarehouseStock(id, enabled);
   const mapQ = useProductMap(enabled);
 
   const inStock = useMemo(
@@ -96,6 +87,7 @@ export function useWarehouseStockView(id: string, enabled = true) {
     isError: stockQ.isError,
     // The join is best-effort; a failed catalog fetch just drops enrichment.
     joinReady: mapQ.isSuccess,
+    refetch: stockQ.refetch,
   };
 }
 
@@ -134,11 +126,4 @@ export function useArchiveWarehouse() {
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
-}
-
-/** Supplier → this warehouse, the detail page's "Receive stock". */
-export function useReceiveIntoWarehouse() {
-  return useStockMovement("receive", ({ id, items }: { id: string; items: TransferItem[] }) =>
-    api.receiveStock(id, items),
-  );
 }

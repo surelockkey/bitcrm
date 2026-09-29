@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { EnrichedStockRow } from "@/features/inventory/warehouses/lib";
 import { ContainerStockTab } from "./container-stock-tab";
 
@@ -19,20 +18,32 @@ vi.mock("../hooks", () => ({
   }),
 }));
 
+/** The technician's own van: what is on it, read-only. */
 describe("ContainerStockTab", () => {
   it("renders joined rows with value and a low-stock chip", () => {
-    render(<ContainerStockTab containerId="c1" readOnly />);
+    render(<ContainerStockTab containerId="c1" />);
     expect(screen.getByText("Deadbolt")).toBeInTheDocument();
     expect(screen.getByText("$270.00")).toBeInTheDocument();
     expect(screen.getByText("6 · low")).toBeInTheDocument();
   });
 
-  it("fires onMove for a row when not read-only", async () => {
-    const onMove = vi.fn();
-    render(<ContainerStockTab containerId="c1" onMove={onMove} />);
-    const moveButtons = screen.getAllByText("Move ↗");
-    await userEvent.click(moveButtons[0]);
-    expect(onMove).toHaveBeenCalledWith({ productId: "p1", productName: "Deadbolt", onHand: 6 });
+  it("is read-only — no actions column, no buttons", () => {
+    render(<ContainerStockTab containerId="c1" />);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+      "Product",
+      "Category",
+      "On hand",
+      "Unit",
+      "Value",
+    ]);
+    expect(screen.queryByRole("button", { name: /move/i })).toBeNull();
+  });
+
+  it("left-aligns everything, numbers and money included", () => {
+    render(<ContainerStockTab containerId="c1" />);
+    for (const el of document.querySelectorAll("th, td")) {
+      expect(el.className).not.toMatch(/text-right/);
+    }
   });
 });
 
@@ -41,9 +52,7 @@ describe("ContainerStockTab", () => {
  * межу можна перетягнути, і таблиця цю ширину пам'ятає між візитами.
  */
 describe("ContainerStockTab — a stable first frame", () => {
-  const table = (readOnly = false) =>
-    render(<ContainerStockTab containerId="c1" readOnly={readOnly} onMove={vi.fn()} />)
-      .container;
+  const table = () => render(<ContainerStockTab containerId="c1" />).container;
 
   it("lays the columns out at declared widths, not by content", () => {
     expect(table().querySelector("table")?.className).toContain("table-fixed");
@@ -54,16 +63,6 @@ describe("ContainerStockTab — a stable first frame", () => {
     const cols = [...c.querySelectorAll("colgroup col")];
     expect(cols).toHaveLength(c.querySelectorAll("thead th").length);
     for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
-  });
-
-  // Колонка дій зникає в режимі перегляду — `<colgroup>` має зникнути з нею,
-  // інакше ширини поїдуть на одну колонку вбік.
-  it("drops the actions column from the colgroup when read-only", () => {
-    const c = table(true);
-    expect(c.querySelectorAll("colgroup col")).toHaveLength(
-      c.querySelectorAll("thead th").length,
-    );
-    expect(screen.queryByTestId("resize-actions")).not.toBeInTheDocument();
   });
 
   it("leaves the width to the column — no cell sets one of its own", () => {
@@ -80,7 +79,7 @@ describe("ContainerStockTab — a stable first frame", () => {
 
   it("offers a drag handle on every header", () => {
     table();
-    for (const id of ["product", "category", "onHand", "unit", "value", "actions"]) {
+    for (const id of ["product", "category", "onHand", "unit", "value"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
   });

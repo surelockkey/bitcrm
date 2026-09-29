@@ -1,6 +1,6 @@
 import { InventoryStatus } from "@bitcrm/types";
 import type { Container, LocationSummaryType, Transfer, Warehouse } from "@bitcrm/types";
-import { transferUnits } from "@/features/inventory/warehouses/lib";
+import { transferUnits, type StockSummary } from "@/features/inventory/warehouses/lib";
 import { containerTitle } from "@/features/inventory/containers/lib";
 
 /* ------------------------------------------------------------------ *
@@ -92,6 +92,10 @@ function cents(n: number): string {
   return (Math.round((n + Number.EPSILON) * 100) / 100).toFixed(2);
 }
 
+function money(n: number): string {
+  return n < 0 ? `-$${cents(-n)}` : `$${cents(n)}`;
+}
+
 /**
  * The three cards, formatted the way Workiz prints them: "369.00" on hand,
  * "$7439.04" of cost — two decimals, no thousands separator.
@@ -100,7 +104,6 @@ export function stockSummary(
   onHand: number,
   prices: { costCompany: number; priceClient: number },
 ): { onHand: string; cost: string; sale: string } {
-  const money = (n: number) => (n < 0 ? `-$${cents(-n)}` : `$${cents(n)}`);
   return {
     onHand: cents(onHand),
     cost: money(onHand * (prices.costCompany || 0)),
@@ -126,6 +129,22 @@ export function checkQuantity(
   return { quantity: n, error: null };
 }
 
+/**
+ * A warehouse's or van's popup: how many different items, how many units,
+ * and what they sell for. The value comes from the catalog join — without it
+ * every row would count as $0, so it shows "—" instead.
+ */
+export function locationCards(
+  summary: StockSummary,
+  priced: boolean,
+): { skus: string; units: string; value: string } {
+  return {
+    skus: String(summary.skuCount),
+    units: String(Math.round(summary.totalUnits)),
+    value: priced ? money(summary.totalValue) : "—",
+  };
+}
+
 /** The popup's search box: name or description, ignoring case. */
 export function filterStockRows<T extends { name: string; description?: string }>(
   rows: T[],
@@ -135,6 +154,15 @@ export function filterStockRows<T extends { name: string; description?: string }
   if (!q) return rows;
   return rows.filter(
     (r) => r.name.toLowerCase().includes(q) || (r.description ?? "").toLowerCase().includes(q),
+  );
+}
+
+/** A location popup's search box: the item's name or SKU, ignoring case. */
+export function filterItemRows<T extends { name: string; sku?: string }>(rows: T[], term: string): T[] {
+  const q = term.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(
+    (r) => r.name.toLowerCase().includes(q) || (r.sku ?? "").toLowerCase().includes(q),
   );
 }
 

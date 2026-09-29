@@ -12,24 +12,21 @@ import {
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/features/inventory/warehouses/lib";
 import { useContainerStockView } from "../hooks";
 
 /**
  * The columns, with the width each one starts at — read by both the
- * `<colgroup>` and the headers, so there is one number to change. The last
- * one is dropped in read-only mode, from the colgroup as well as the header:
- * a colgroup one column longer than the row shifts every width sideways.
+ * `<colgroup>` and the headers, so there is one number to change. All
+ * left-aligned, money and counts included, as the rest of Inventory.
  */
-const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+const COLUMNS: { id: string; label: string; width: number }[] = [
   { id: "product", label: "Product", width: 280 },
   { id: "category", label: "Category", width: 180 },
-  { id: "onHand", label: "On hand", width: 120, className: "text-right" },
-  { id: "unit", label: "Unit", width: 120, className: "text-right" },
-  { id: "value", label: "Value", width: 130, className: "text-right" },
-  { id: "actions", label: "Actions", width: 100, className: "text-right" },
+  { id: "onHand", label: "On hand", width: 120 },
+  { id: "unit", label: "Unit", width: 120 },
+  { id: "value", label: "Value", width: 130 },
 ];
 
 const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
@@ -37,24 +34,13 @@ const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
 /** Its own key: a van's shelf is not the warehouse's, and not the items list. */
 const TABLE_KEY = "inventory-container-stock";
 
-export interface ContainerMoveTarget {
-  productId: string;
-  productName: string;
-  onHand: number;
-}
-
-export function ContainerStockTab({
-  containerId,
-  readOnly,
-  onMove,
-}: {
-  containerId: string;
-  readOnly?: boolean;
-  onMove?: (item: ContainerMoveTarget) => void;
-}) {
+/**
+ * What is on one van, read-only — the technician's own "My Container" view.
+ * The office moves a van's stock from its popup on the Containers tab.
+ */
+export function ContainerStockTab({ containerId }: { containerId: string }) {
   const { rows, summary, isLoading, isError } = useContainerStockView(containerId);
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
-  const columns = COLUMNS.filter((c) => c.id !== "actions" || !readOnly);
 
   if (isLoading) {
     return (
@@ -85,13 +71,13 @@ export function ContainerStockTab({
             product name on the truck — and the reader can drag the edge. */}
         <Table className="table-fixed">
           <colgroup>
-            {columns.map((c) => (
+            {COLUMNS.map((c) => (
               <col key={c.id} style={{ width: widthOf(c.id) }} />
             ))}
           </colgroup>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              {columns.map((c) => (
+              {COLUMNS.map((c) => (
                 <ResizableHead
                   key={c.id}
                   columnId={c.id}
@@ -99,12 +85,7 @@ export function ContainerStockTab({
                   width={widthOf(c.id)}
                   onResize={(px) => setWidth(c.id, px)}
                   onReset={reset}
-                  className={c.className}
-                >
-                  {/* The move column carries no visible heading, but the
-                      handle still needs something to be named after. */}
-                  {c.id === "actions" ? <span className="sr-only">Actions</span> : undefined}
-                </ResizableHead>
+                />
               ))}
             </TableRow>
           </TableHeader>
@@ -118,7 +99,7 @@ export function ContainerStockTab({
                   {r.sku ? <div className="truncate font-mono text-[11px] text-muted-foreground">{r.sku}</div> : null}
                 </TableCell>
                 <TableCell className="truncate text-sm text-muted-foreground">{r.category ?? "—"}</TableCell>
-                <TableCell className="overflow-hidden text-right">
+                <TableCell className="overflow-hidden">
                   {r.isLow ? (
                     <Badge variant="outline" className="gap-1 border-amber-500/30 font-normal tabular-nums text-amber-600 dark:text-amber-500">
                       {r.quantity} · low
@@ -127,26 +108,12 @@ export function ContainerStockTab({
                     <span className="tabular-nums">{r.quantity}</span>
                   )}
                 </TableCell>
-                <TableCell className="truncate text-right tabular-nums text-muted-foreground">
+                <TableCell className="truncate tabular-nums text-muted-foreground">
                   {r.unitPrice != null ? formatMoney(r.unitPrice) : "—"}
                 </TableCell>
-                <TableCell className="truncate text-right font-medium tabular-nums">
+                <TableCell className="truncate font-medium tabular-nums">
                   {r.value != null ? formatMoney(r.value) : "—"}
                 </TableCell>
-                {!readOnly ? (
-                  <TableCell className="overflow-hidden text-right">
-                    {onMove ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => onMove({ productId: r.productId, productName: r.name, onHand: r.quantity })}
-                      >
-                        Move ↗
-                      </Button>
-                    ) : null}
-                  </TableCell>
-                ) : null}
               </TableRow>
             ))}
           </TableBody>
@@ -154,10 +121,9 @@ export function ContainerStockTab({
             <TableRow className="hover:bg-transparent">
               <TableCell className="truncate">{summary.skuCount} SKUs</TableCell>
               <TableCell />
-              <TableCell className="truncate text-right tabular-nums">{summary.totalUnits.toLocaleString()}</TableCell>
+              <TableCell className="truncate tabular-nums">{summary.totalUnits.toLocaleString()}</TableCell>
               <TableCell />
-              <TableCell className="truncate text-right tabular-nums">{formatMoney(summary.totalValue)}</TableCell>
-              {!readOnly ? <TableCell /> : null}
+              <TableCell className="truncate tabular-nums">{formatMoney(summary.totalValue)}</TableCell>
             </TableRow>
           </TableFooter>
         </Table>

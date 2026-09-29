@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Search, Truck, TriangleAlert, Warehouse } from "lucide-react";
+import { Truck, Warehouse } from "lucide-react";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product, ProductLocationStock } from "@bitcrm/types";
 import {
@@ -14,15 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -35,8 +26,14 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useProduct, useProductStock } from "@/features/inventory/products/hooks";
 import { filterStockRows, pageSlice, stockSummary } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
-
-const PAGE_SIZES = [10, 25, 50] as const;
+import {
+  PAGE_SIZES,
+  PanelError,
+  PanelLoading,
+  PanelPager,
+  PanelToolbar,
+  StatCard,
+} from "./stock-popup-parts";
 
 /**
  * Workiz's "Manage stock" popup for one item: what it holds in total, what
@@ -95,7 +92,7 @@ function ManageStock({
   let body: ReactNode;
   if (product.isError || stock.isError) {
     body = (
-      <ErrorState
+      <PanelError
         onRetry={() => {
           if (product.isError) product.refetch();
           if (stock.isError) stock.refetch();
@@ -103,7 +100,7 @@ function ManageStock({
       />
     );
   } else if (product.isLoading || stock.isLoading || !item || !stock.data) {
-    body = <LoadingState money={can("financials", "view")} />;
+    body = <PanelLoading testId="manage-stock-loading" cards={can("financials", "view") ? 3 : 2} />;
   } else {
     body = (
       <StockBody
@@ -169,40 +166,19 @@ function StockBody({
       </div>
 
       <div className="space-y-3 rounded-lg bg-muted/60 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              aria-label="Search locations"
-              placeholder="Search"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="h-9 bg-background pl-8"
-            />
-          </div>
-          <Select
-            value={String(size)}
-            onValueChange={(v) => {
-              setSize(Number(v));
-              setPage(1);
-            }}
-          >
-            <SelectTrigger className="h-9 w-20 bg-background" aria-label="Rows per page">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PAGE_SIZES.map((n) => (
-                <SelectItem key={n} value={String(n)}>
-                  {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <PanelToolbar
+          search={search}
+          onSearch={(term) => {
+            setSearch(term);
+            setPage(1);
+          }}
+          searchLabel="Search locations"
+          size={size}
+          onSize={(n) => {
+            setSize(n);
+            setPage(1);
+          }}
+        />
 
         <div className="overflow-hidden border bg-background">
           {/* Fixed layout: a long van name clips instead of pushing the
@@ -246,34 +222,7 @@ function StockBody({
           </Table>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>
-            Showing {view.from} to {view.to} of {view.total} results
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Previous page"
-              disabled={view.page <= 1}
-              onClick={() => setPage(view.page - 1)}
-            >
-              <ChevronLeft />
-            </Button>
-            <span className="px-1 whitespace-nowrap">
-              Page {view.page} of {view.pages}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="Next page"
-              disabled={view.page >= view.pages}
-              onClick={() => setPage(view.page + 1)}
-            >
-              <ChevronRight />
-            </Button>
-          </div>
-        </div>
+        <PanelPager view={view} onPage={setPage} />
       </div>
     </>
   );
@@ -323,47 +272,5 @@ function LocationRow({
         </TableCell>
       ) : null}
     </TableRow>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div role="group" aria-label={label} className="rounded-lg border bg-card px-4 py-3">
-      <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-        {label}
-      </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-function LoadingState({ money }: { money: boolean }) {
-  return (
-    <div data-testid="manage-stock-loading" className="space-y-4">
-      <div className={money ? "grid gap-3 sm:grid-cols-3" : "grid gap-3 sm:grid-cols-2"}>
-        {Array.from({ length: money ? 3 : 2 }).map((_, i) => (
-          <Skeleton key={i} className="h-[4.5rem] w-full" />
-        ))}
-      </div>
-      <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-8 w-full" />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-      <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-        <TriangleAlert className="size-6" />
-      </div>
-      <div className="font-medium">Couldn&apos;t load stock</div>
-      <Button variant="outline" onClick={onRetry}>
-        Retry
-      </Button>
-    </div>
   );
 }
