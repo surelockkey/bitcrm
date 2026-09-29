@@ -8,10 +8,11 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
@@ -37,6 +38,23 @@ const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
   { value: TransferType.RESTORE, label: "Restore" },
 ];
 
+/**
+ * The columns, with the width each one starts at — read by both the
+ * `<colgroup>` and the headers, so there is one number to change.
+ */
+const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+  { id: "type", label: "Type", width: 120 },
+  { id: "route", label: "Route", width: 280 },
+  { id: "items", label: "Items", width: 240 },
+  { id: "by", label: "By", width: 160 },
+  { id: "when", label: "When", width: 150, className: "text-right" },
+];
+
+const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
+
+/** The list's own key: the same name its page-size preference is saved under. */
+const TABLE_KEY = "inventory-transfers";
+
 function itemsSummary(t: Transfer): { text: string; more: number } {
   const shown = t.items.slice(0, 2).map((i) => `${i.productName} ×${i.quantity}`);
   return { text: shown.join(", "), more: Math.max(0, t.items.length - 2) };
@@ -44,7 +62,8 @@ function itemsSummary(t: Transfer): { text: string; more: number } {
 
 export function TransfersPage() {
   const { can } = usePermissions();
-  const [pageSize, setPageSize] = usePageSize("inventory-transfers");
+  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
+  const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
   const query = useTransfers(pageSize);
   const { map } = useLocationMap();
   const [type, setType] = useState<TransferType | "all">("all");
@@ -146,14 +165,28 @@ export function TransfersPage() {
         ) : (
           <>
             <div className="overflow-hidden border">
-              <Table>
+              {/* `table-fixed`: the column decides its width, not the
+                  longest item list on the page — and the reader can drag
+                  the edge. */}
+              <Table className="table-fixed">
+                <colgroup>
+                  {COLUMNS.map((c) => (
+                    <col key={c.id} style={{ width: widthOf(c.id) }} />
+                  ))}
+                </colgroup>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead>Type</TableHead>
-                    <TableHead>Route</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>By</TableHead>
-                    <TableHead className="text-right">When</TableHead>
+                    {COLUMNS.map((c) => (
+                      <ResizableHead
+                        key={c.id}
+                        columnId={c.id}
+                        label={c.label}
+                        width={widthOf(c.id)}
+                        onResize={(px) => setWidth(c.id, px)}
+                        onReset={reset}
+                        className={c.className}
+                      />
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -161,14 +194,17 @@ export function TransfersPage() {
                     const { text, more } = itemsSummary(t);
                     return (
                       <TableRow key={t.id} className="cursor-pointer" onClick={() => setRecord(t)}>
-                        <TableCell><TransferTypeBadge type={t.type} /></TableCell>
-                        <TableCell className="max-w-[280px]"><TransferRoute transfer={t} locationMap={map} /></TableCell>
-                        <TableCell className="max-w-[220px] truncate text-sm">
+                        {/* Every cell clips: under fixed layout one that
+                            doesn't spills over the next column instead of
+                            widening its own. */}
+                        <TableCell className="overflow-hidden"><TransferTypeBadge type={t.type} /></TableCell>
+                        <TableCell className="overflow-hidden"><TransferRoute transfer={t} locationMap={map} /></TableCell>
+                        <TableCell className="truncate text-sm">
                           {text}
                           {more > 0 ? <span className="text-muted-foreground"> +{more}</span> : null}
                         </TableCell>
-                        <TableCell className="max-w-[140px] truncate text-sm text-muted-foreground">{t.performedByName}</TableCell>
-                        <TableCell className="text-right text-sm whitespace-nowrap text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
+                        <TableCell className="truncate text-sm text-muted-foreground">{t.performedByName}</TableCell>
+                        <TableCell className="truncate text-right text-sm text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
                       </TableRow>
                     );
                   })}

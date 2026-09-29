@@ -13,6 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ResizableHead } from "@/components/ui/resizable-head";
+import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { useDealsByIds } from "@/features/deals/hooks";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { JobTagChips } from "@/features/job-tags/components/job-tag-chips";
@@ -41,7 +43,10 @@ import { RecordingPreview } from "./recording-preview";
  * final geometry; a long value is clipped instead of shoving its neighbours.
  */
 const COLUMNS = [
-  { key: "expand", label: "", width: 40 },
+  // The arrow column: `COLUMN_MIN_WIDTH`, not narrower. A default below the
+  // floor a drag clamps to would announce a width its own handle calls
+  // illegal, and could never be dragged back to.
+  { key: "expand", label: "", width: 56 },
   { key: "from", label: "From", width: 180 },
   { key: "to", label: "To", width: 180 },
   { key: "status", label: "Status", width: 130 },
@@ -60,6 +65,19 @@ const COLUMNS = [
 const COLUMN_COUNT = COLUMNS.length;
 
 /**
+ * The widths above, as the starting point `useColumnWidths` remembers from.
+ *
+ * Declared once, at module scope: the table and its skeleton read the same
+ * object, so the shell is laid out exactly where the rows will land.
+ */
+const COLUMN_DEFAULTS: Record<string, number> = Object.fromEntries(
+  COLUMNS.map((c) => [c.key, c.width] as const),
+);
+
+/** The preference this table's widths are saved under; `usePageSize`'s name. */
+const TABLE_KEY = "calls";
+
+/**
  * The table's shell while the log is still in flight.
  *
  * The same header and the same column widths as the real thing, and rows of
@@ -68,12 +86,16 @@ const COLUMN_COUNT = COLUMNS.length;
  * reader watches happen.
  */
 export function CallsTableSkeleton({ rows = 12 }: { rows?: number }) {
+  // The reader's saved widths, so the shell is the geometry the rows land in.
+  // No handles here: there is nothing to resize until there is a table.
+  const { widthOf } = useColumnWidths(TABLE_KEY, COLUMN_DEFAULTS);
+
   return (
     <div className="overflow-x-auto border" aria-busy role="status" aria-label="Loading calls">
       <Table className="table-fixed">
         <colgroup>
           {COLUMNS.map((c) => (
-            <col key={c.key} style={{ width: c.width }} />
+            <col key={c.key} style={{ width: widthOf(c.key) }} />
           ))}
         </colgroup>
         <TableHeader>
@@ -103,6 +125,8 @@ export function CallsTableSkeleton({ rows = 12 }: { rows?: number }) {
 
 export function CallsTable({ calls }: { calls: CallRecord[] }) {
   const sourceName = useJobSourceName();
+  // The reader's own widths for this table; `COLUMNS` only sets the start.
+  const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, COLUMN_DEFAULTS);
   // One request for every job on the page, not one per row. Each row used to
   // fetch its own (`useDeal(call.dealId)`), so twenty-five calls meant
   // twenty-five requests landing at twenty-five different moments — the Job
@@ -129,7 +153,7 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
       <Table className="table-fixed">
         <colgroup>
           {COLUMNS.map((c) => (
-            <col key={c.key} style={{ width: c.width }} />
+            <col key={c.key} style={{ width: widthOf(c.key) }} />
           ))}
         </colgroup>
         <TableHeader>
@@ -137,12 +161,19 @@ export function CallsTable({ calls }: { calls: CallRecord[] }) {
               separate column so neither answer has to stand in for the other. */}
           <TableRow>
             {COLUMNS.map((c) => (
-              <TableHead
+              <ResizableHead
                 key={c.key}
-                className={c.key === "duration" || c.key === "rec" ? "truncate text-right" : "truncate"}
+                columnId={c.key}
+                // The arrow column carries no visible title, but the handle
+                // beside it still has to be nameable.
+                label={c.label || "Direction"}
+                width={widthOf(c.key)}
+                onResize={(px) => setWidth(c.key, px)}
+                onReset={reset}
+                className={c.key === "duration" || c.key === "rec" ? "text-right" : undefined}
               >
-                {c.label}
-              </TableHead>
+                {c.label || <span className="sr-only">Direction</span>}
+              </ResizableHead>
             ))}
           </TableRow>
         </TableHeader>

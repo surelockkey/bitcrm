@@ -241,3 +241,41 @@ describe("JobsReportPage", () => {
     expect(screen.getByText(/no access/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * Ширину колонок можна тягнути, і вона запам'ятовується.
+ *
+ * Сімнадцять колонок і жодної короткої: адреса, пошта, зовнішня компанія.
+ * Розкладка фіксована, тож довге значення обрізається, а не розсовує сусідів
+ * — і ширину кожної колонки задає лише colgroup.
+ */
+describe("JobsReportPage — resizable columns", () => {
+  const ids = [
+    "jobNumber", "client", "tags", "type", "created", "scheduled", "phone",
+    "email", "status", "tech", "address", "city", "state", "serviceArea",
+    "total", "source", "externalCompany",
+  ];
+
+  beforeEach(() => {
+    mocks.perms = true;
+    mocks.loading = false;
+    mocks.deals = [deal({ id: "a", dealNumber: "A11111" })];
+  });
+
+  it("lays the report out at declared widths, not by content", () => {
+    const { container } = render(<JobsReportPage />);
+    const table = container.querySelector("table") as HTMLTableElement;
+    expect(table.className).toContain("table-fixed");
+    const cols = [...table.querySelectorAll("colgroup col")];
+    expect(cols).toHaveLength(table.querySelectorAll("thead th").length);
+    for (const col of cols) expect((col as HTMLElement).style.width).not.toBe("");
+    for (const cell of table.querySelectorAll("tbody td")) {
+      expect(cell.className).not.toMatch(/\b(min-w|max-w|w)-/);
+    }
+  });
+
+  it("puts a drag handle on every column", () => {
+    render(<JobsReportPage />);
+    for (const id of ids) expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
+  });
+});
