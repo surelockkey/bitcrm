@@ -6,8 +6,9 @@ import {
   QueryCommand,
   ScanCommand,
   UpdateCommand,
+  BatchGetCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import { DynamoDbService, scanPage } from '@bitcrm/shared';
 import { CrmStatus, type Company } from '@bitcrm/types';
 import {
   COMPANIES_TABLE,
@@ -51,6 +52,26 @@ export class CompaniesRepository {
 
     if (!result.Item) return null;
     return this.toCompany(result.Item);
+  }
+
+  /**
+   * The companies of a set of ids, in one call per hundred. This is how a
+   * server-paged list names the companies of the rows it shows, instead of
+   * reading the whole table to build a map.
+   */
+  async findByIds(ids: string[]): Promise<Company[]> {
+    const out: Company[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      let keys = ids.slice(i, i + 100).map((id) => ({ PK: `COMPANY#${id}`, SK: 'METADATA' }));
+      while (keys.length) {
+        const res = await this.dynamoDb.client.send(
+          new BatchGetCommand({ RequestItems: { [this.tableName]: { Keys: keys } } }),
+        );
+        for (const item of res.Responses?.[this.tableName] ?? []) out.push(this.toCompany(item));
+        keys = (res.UnprocessedKeys?.[this.tableName]?.Keys ?? []) as typeof keys;
+      }
+    }
+    return out;
   }
 
   /* ---------------------------------------------------------- phone index */
@@ -133,24 +154,28 @@ export class CompaniesRepository {
     limit: number,
     cursor?: string,
   ): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: this.tableName,
-        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-        ExpressionAttributeValues: {
-          ':pk': 'COMPANY#',
-          ':sk': 'METADATA',
-          ':status': CrmStatus.ACTIVE,
-        },
-        ExpressionAttributeNames: { '#status': 'status' },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+            TableName: this.tableName,
+            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
+            ExpressionAttributeValues: {
+              ':pk': 'COMPANY#',
+              ':sk': 'METADATA',
+              ':status': CrmStatus.ACTIVE,
+            },
+            ExpressionAttributeNames: { '#status': 'status' },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toCompany),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toCompany),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 

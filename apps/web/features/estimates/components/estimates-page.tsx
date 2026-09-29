@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ExternalLink, FileSpreadsheet, Loader2 } from "lucide-react";
 import { ESTIMATE_STATUSES, type Estimate, type EstimateStatus } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -16,25 +17,31 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap } from "@/features/deals/hooks";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
 import { FilterChip, NoAccess } from "@/features/billing/components/list-bits";
-import { useEstimateList, useEstimateSummary } from "../hooks";
+import { useEstimateList, useEstimateSummary , useEstimateCount } from "../hooks";
 import { estimateStatusLabel } from "../lib";
 import { EstimateStatusBadge } from "./estimate-status-badge";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 const PAGE_SIZE = 50;
 
 export function EstimatesPage() {
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const canView = can("estimates", "view");
   const [status, setStatus] = useState<EstimateStatus | "all">("all");
   const summary = useEstimateSummary(canView);
 
-  if (!canView) return <NoAccess what="estimates" />;
+  // `canView` still gates the query — it must not fetch on a maybe.
+  // The refusal is the other way round: only once the answer is in.
+  if (denied("estimates", "view")) return <NoAccess what="estimates" />;
 
   const chip = (value: EstimateStatus | "all", label: string) => {
     const b = summary.data?.[value];
@@ -69,9 +76,17 @@ export function EstimatesPage() {
 
 function EstimatesTable({ status }: { status?: EstimateStatus }) {
   const router = useRouter();
-  const q = useEstimateList({ status, limit: PAGE_SIZE });
-  const { map: contacts } = useContactMap();
-  const rows: Estimate[] = useMemo(() => q.data?.pages.flatMap((p) => p.items) ?? [], [q.data]);
+  const [pageSize, setPageSize] = usePageSize("estimates");
+  const q = useEstimateList({ status, limit: pageSize });
+  const count = useEstimateCount({ status });
+  const pager = usePager(pagedSource(q, (page: { items: Estimate[] }) => page.items), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: JSON.stringify({ status, pageSize }),
+  });
+  const rows: Estimate[] = pager.items;
+  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {
@@ -95,7 +110,7 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -142,13 +157,7 @@ function EstimatesTable({ status }: { status?: EstimateStatus }) {
           </TableBody>
         </Table>
       </div>
-      {q.hasNextPage ? (
-        <div className="flex justify-center">
-          <Button variant="outline" size="sm" onClick={() => q.fetchNextPage()} disabled={q.isFetchingNextPage}>
-            {q.isFetchingNextPage ? <Loader2 className="animate-spin" /> : null} Load more
-          </Button>
-        </div>
-      ) : null}
+      <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
     </div>
   );
 }

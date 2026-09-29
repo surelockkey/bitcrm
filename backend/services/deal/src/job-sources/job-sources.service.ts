@@ -58,8 +58,8 @@ export class JobSourcesService {
     return jobSource;
   }
 
-  async list(): Promise<JobSource[]> {
-    const jobSources = await this.repository.listAll();
+  async list(options: { activeOnly?: boolean } = {}): Promise<JobSource[]> {
+    const jobSources = await this.repository.listAll({ activeOnly: options.activeOnly ?? false });
     return jobSources.sort(
       (a, b) => b.priority - a.priority || a.name.localeCompare(b.name),
     );

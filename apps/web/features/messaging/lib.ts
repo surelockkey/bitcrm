@@ -1,6 +1,7 @@
 import type {
   Conversation,
   ConversationKind,
+  ConversationListIncluded,
   InboxCounters,
   MessageAttachment,
   MessageStatus,
@@ -345,6 +346,26 @@ export const EMPTY_PARTY_NAMES: PartyNames = {
   companies: new Map(),
   users: new Map(),
 };
+
+/**
+ * One set of lookups for every inbox page in hand. The server sends the
+ * names of a page's parties with that page (`included`), so a row is named
+ * on its first frame; a page without the block (an older deploy, a row
+ * patched into the cache from the stream) simply adds nothing.
+ */
+export function mergeIncludedNames(
+  pages: readonly ({ included?: ConversationListIncluded } | undefined)[] | undefined,
+): PartyNames {
+  const names: PartyNames = { contacts: new Map(), companies: new Map(), users: new Map() };
+  for (const page of pages ?? []) {
+    const inc = page?.included;
+    if (!inc) continue;
+    for (const p of inc.contacts ?? []) names.contacts.set(p.id, p.name);
+    for (const p of inc.companies ?? []) names.companies.set(p.id, p.name);
+    for (const p of inc.users ?? []) names.users.set(p.id, p.name);
+  }
+  return names;
+}
 
 /** The party's phone, formatted, or a masked placeholder. */
 export function conversationAddress(c: InboxConversation): string | undefined {

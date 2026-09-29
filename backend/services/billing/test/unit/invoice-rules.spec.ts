@@ -16,6 +16,7 @@ const profile = (over: Partial<BusinessProfile> = {}): BusinessProfile => ({
 });
 
 const line = (over: Partial<DealProduct> = {}): DealProduct => ({
+  lineId: 'l1',
   productId: 'p1',
   name: 'Rekey',
   sku: 'RK',

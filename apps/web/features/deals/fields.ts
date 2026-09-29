@@ -5,38 +5,45 @@ import type { CustomFieldDefinition, CustomFieldValue } from "@bitcrm/types";
  * Order here is column order. The job number is intentionally not listed: it
  * carries the row's open-in-new-tab link, so it always renders first.
  *
+ * `width` (px) is what the table lays each column out at. The Jobs table is
+ * `table-fixed` on purpose: client and technician names arrive in a later
+ * frame than the jobs themselves, and an auto-layout table re-measures every
+ * column when they land — the whole grid visibly jumps. Fixed widths mean the
+ * first painted frame is the final geometry, and a long value is clipped
+ * rather than allowed to shove its neighbours.
+ *
  * `sent` / `seen` are the Workiz dispatch stamps (`last_sent` / `seen`): both
  * off by default, like every other opt-in column, so an existing saved
  * preference is unaffected.
  */
 export const JOB_FIELDS = [
-  { id: "client", label: "Client" },
-  { id: "phone", label: "Phone" },
-  { id: "email", label: "Email" },
-  { id: "clientType", label: "Client type" },
-  { id: "tech", label: "Tech" },
-  { id: "dispatcher", label: "Dispatcher" },
-  { id: "tags", label: "Tags" },
-  { id: "status", label: "Status" },
-  { id: "priority", label: "Priority" },
-  { id: "city", label: "City" },
-  { id: "state", label: "State" },
-  { id: "zip", label: "Zip code" },
-  { id: "address", label: "Address" },
-  { id: "serviceArea", label: "Service area" },
-  { id: "scheduled", label: "Scheduled" },
-  { id: "sent", label: "Sent" },
-  { id: "seen", label: "Seen" },
-  { id: "jobType", label: "Job type" },
-  { id: "source", label: "Source" },
-  { id: "externalCompany", label: "External company" },
-  { id: "company", label: "Company" },
-  { id: "poNumber", label: "PO number" },
-  { id: "total", label: "Total" },
-  { id: "paymentStatus", label: "Payment status" },
-  { id: "notes", label: "Notes" },
-  { id: "createdBy", label: "Created by" },
-  { id: "createdAt", label: "Created" },
+  { id: "client", label: "Client", width: 200 },
+  { id: "phone", label: "Phone", width: 150 },
+  { id: "email", label: "Email", width: 210 },
+  { id: "clientType", label: "Client type", width: 120 },
+  { id: "tech", label: "Tech", width: 170 },
+  { id: "dispatcher", label: "Dispatcher", width: 150 },
+  { id: "tags", label: "Tags", width: 180 },
+  { id: "status", label: "Status", width: 140 },
+  { id: "priority", label: "Priority", width: 110 },
+  { id: "city", label: "City", width: 130 },
+  { id: "state", label: "State", width: 80 },
+  { id: "zip", label: "Zip code", width: 100 },
+  { id: "address", label: "Address", width: 260 },
+  { id: "serviceArea", label: "Service area", width: 160 },
+  { id: "scheduled", label: "Scheduled", width: 180 },
+  { id: "sent", label: "Sent", width: 150 },
+  { id: "seen", label: "Seen", width: 150 },
+  { id: "jobType", label: "Job type", width: 160 },
+  { id: "source", label: "Source", width: 150 },
+  { id: "externalCompany", label: "External company", width: 180 },
+  { id: "company", label: "Company", width: 170 },
+  { id: "poNumber", label: "PO number", width: 130 },
+  { id: "total", label: "Total", width: 110 },
+  { id: "paymentStatus", label: "Payment status", width: 150 },
+  { id: "notes", label: "Notes", width: 240 },
+  { id: "createdBy", label: "Created by", width: 150 },
+  { id: "createdAt", label: "Created", width: 160 },
 ] as const;
 
 export type JobFieldId = (typeof JOB_FIELDS)[number]["id"];
@@ -52,6 +59,12 @@ export const DEFAULT_VISIBLE: VisibleFields = Object.fromEntries(
 );
 
 export const CUSTOM_FIELD_PREFIX = "cf:";
+
+/** A custom field has no declared width — one size for all of them. */
+export const CUSTOM_FIELD_WIDTH = 160;
+
+/** The job-number column, which is always first and never hideable. */
+export const JOB_NUMBER_WIDTH = 92;
 
 export const customFieldColumnId = (customFieldId: string): string =>
   `${CUSTOM_FIELD_PREFIX}${customFieldId}`;
@@ -69,12 +82,12 @@ export function customFieldIdFromColumn(columnId: string): string | null {
  */
 export function jobFieldOptions(
   customFields?: CustomFieldDefinition[],
-): { id: string; label: string }[] {
+): { id: string; label: string; width: number }[] {
   const cf = (customFields ?? [])
     .filter((f) => f.active)
     .sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name))
-    .map((f) => ({ id: customFieldColumnId(f.id), label: f.name }));
-  return [...JOB_FIELDS.map((f) => ({ id: f.id, label: f.label })), ...cf];
+    .map((f) => ({ id: customFieldColumnId(f.id), label: f.name, width: CUSTOM_FIELD_WIDTH }));
+  return [...JOB_FIELDS.map((f) => ({ id: f.id, label: f.label, width: f.width })), ...cf];
 }
 
 /** Render a custom-field answer for a table cell. */

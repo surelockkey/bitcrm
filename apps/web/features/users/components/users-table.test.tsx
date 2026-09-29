@@ -6,6 +6,7 @@ import { UserStatus } from "@bitcrm/types";
 import { UsersTable } from "./users-table";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("../use-can-manage", () => ({

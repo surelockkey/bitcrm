@@ -54,6 +54,7 @@ const fx = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     me: { id: state.meId, firstName: "Mo", lastName: "Grant", email: "mo@slk", roleId: "role-admin" },
     isTechnician: state.isTechnician,
@@ -130,7 +131,7 @@ vi.mock("@/features/roles/hooks", () => ({
 }));
 
 vi.mock("@/features/service-areas/hooks", () => ({ useServiceAreas: () => ({ data: [] }) }));
-vi.mock("@/features/job-types/lib", () => ({ useJobTypeName: () => (id: string) => id }));
+vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, useJobTypeName: () => (id: string) => id }));
 
 // Heavy neighbours, each with its own tests: only their presence matters here.
 vi.mock("@/features/messaging/components/text-button", () => ({
@@ -388,7 +389,7 @@ describe("TechnicianDetailPage — the blocks below the columns", () => {
       serviceAreas: [],
     };
     render(<TechnicianDetailPage technicianId="t1" />);
-    const chip = screen.getByText("jt-lockout").closest("span.rounded-full") as HTMLElement;
+    const chip = screen.getByText("jt-lockout").closest("span.rounded-chip") as HTMLElement;
     expect(chip).not.toBeNull();
     expect(chip.className).not.toMatch(/green/);
   });

@@ -32,7 +32,7 @@ import { useArchiveWarehouse, useWarehouseStockView } from "../hooks";
 
 export function WarehousesTable({ warehouses }: { warehouses: Warehouse[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-hidden border">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

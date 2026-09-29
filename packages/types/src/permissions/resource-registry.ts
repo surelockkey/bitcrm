@@ -41,6 +41,10 @@ export const RESOURCE_REGISTRY = {
   custom_fields: ['view', 'create', 'edit', 'delete'],
   work_orders: ['view', 'create', 'edit', 'delete'],
   commission: ['view', 'edit'],
+  // Money across the business — revenue, profit, cost on the dashboard and
+  // the job reports (Workiz: "view financial data"). Without it those show
+  // counts only; the server leaves every amount out.
+  financials: ['view'],
   documents: ['view', 'upload', 'delete'],
   // Telephony call history + live supervision. `view` gates the calls list,
   // call detail and recording playback; `join` gates live listen/join.
@@ -62,6 +66,33 @@ export const RESOURCE_REGISTRY = {
   estimates: ['view', 'create', 'edit', 'delete', 'send', 'sync'],
   // Settings → Documents: PDF templates + business profile.
   document_templates: ['view', 'edit'],
+  /**
+   * Dashboard widgets, one action per widget.
+   *
+   * Visibility rides the permission matrix rather than a second ACL of its
+   * own: the grant is already resolved per user, cached in Redis and enforced
+   * by `PermissionGuard` in every service, so a widget hidden from a role is
+   * one whose **data endpoint refuses that role** — not one the browser
+   * declines to paint. Widening the matrix is the price; a viewer opening
+   * DevTools and getting the numbers anyway is what it buys.
+   *
+   * `view` is the dashboard itself; each widget then has its own action under
+   * it. A new widget adds an action here and a grant in both role-seed files.
+   */
+  dashboard: [
+    'view',
+    'view_jobs_by_status',
+    'view_sales',
+    'view_top_sources',
+    'view_top_job_types',
+    'view_service_areas',
+    'view_top_call_flows',
+    'view_dispatch_scoreboard',
+    'view_tech_scoreboard',
+    'view_recent_calls',
+    'view_jobs',
+    'view_today',
+  ],
   // `collect` takes money (portal sends + offline records); `refund` gives it
   // back and is deliberately not a technician's to hold.
   payments: ['view', 'collect', 'refund'],

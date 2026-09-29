@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  BatchGetCommand,
   GetCommand,
   PutCommand,
   DeleteCommand,
@@ -11,6 +12,11 @@ import { type TechnicianEligibility } from './technician-eligibility.types';
 
 const PK_PREFIX = 'TECH_ELIGIBILITY#';
 const SK = 'ELIGIBILITY';
+
+/** DynamoDB's hard ceiling on one BatchGetItem. */
+const BATCH_GET_CHUNK = 100;
+/** A page of jobs is at most 100 rows, so it can never name more than this. */
+const MAX_BATCH_IDS = 100;
 
 @Injectable()
 export class TechnicianEligibilityRepository {
@@ -33,6 +39,36 @@ export class TechnicianEligibilityRepository {
       }),
     );
     return result.Item ? this.toEntity(result.Item) : null;
+  }
+
+  /**
+   * The projected rows for a set of technician ids — one BatchGet per 100
+   * instead of one Get per id, which is what the jobs-list side-load needs to
+   * name the technicians of a page without a call into user-service.
+   *
+   * Ids are deduped and capped (a page names at most `MAX_BATCH_IDS` people);
+   * an id with no row is simply absent from the answer, exactly as `get`
+   * returns null for one.
+   */
+  async getMany(technicianIds: string[]): Promise<TechnicianEligibility[]> {
+    const unique = [...new Set(technicianIds.filter(Boolean))].slice(0, MAX_BATCH_IDS);
+    if (!unique.length) return [];
+
+    const rows: TechnicianEligibility[] = [];
+    for (let i = 0; i < unique.length; i += BATCH_GET_CHUNK) {
+      const chunk = unique.slice(i, i + BATCH_GET_CHUNK);
+      const result = await this.dynamoDb.client.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [DEALS_TABLE]: {
+              Keys: chunk.map((id) => ({ PK: `${PK_PREFIX}${id}`, SK })),
+            },
+          },
+        }),
+      );
+      rows.push(...(result.Responses?.[DEALS_TABLE] || []).map(this.toEntity));
+    }
+    return rows;
   }
 
   async remove(technicianId: string): Promise<void> {

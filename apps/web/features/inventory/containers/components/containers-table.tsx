@@ -21,7 +21,7 @@ import { containerTitle } from "../lib";
 
 export function ContainersTable({ containers }: { containers: Container[] }) {
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-hidden border">
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">

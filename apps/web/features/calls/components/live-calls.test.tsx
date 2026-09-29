@@ -7,6 +7,7 @@ const liveCalls = vi.fn<() => { data: CallRecord[] }>();
 
 vi.mock("../hooks", () => ({ useLiveCalls: () => liveCalls() }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => false }), // no join rights: no monitor buttons
 }));
 vi.mock("@/features/telephony/softphone-store", () => ({

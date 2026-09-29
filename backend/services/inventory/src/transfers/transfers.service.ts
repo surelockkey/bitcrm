@@ -1,9 +1,16 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
-import { BusinessMetricsService, SnsPublisherService } from '@bitcrm/shared';
+import {
+  BusinessMetricsService,
+  SnsPublisherService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type JwtUser,
+  type ListCount,
   TransferType,
   LocationType,
 } from '@bitcrm/types';
@@ -22,6 +29,9 @@ const VALID_TRANSFER_ROUTES = new Set([
   `${LocationType.CONTAINER}->${LocationType.CONTAINER}`,
 ]);
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class TransfersService {
   private readonly logger = new Logger(TransfersService.name);
@@ -33,6 +43,7 @@ export class TransfersService {
     private readonly productsService: ProductsService,
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
@@ -173,5 +184,20 @@ export class TransfersService {
 
   async list(query: ListTransfersQueryDto) {
     return this.repository.findAll(query.limit || 20, query.cursor);
+  }
+
+  /**
+   * How many transfers the list holds, behind a short cache — the number the
+   * panel turns into "Page 2 of 7".
+   */
+  async count(): Promise<ListCount> {
+    const take = () => this.repository.countAll();
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('transfers', {}),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 }

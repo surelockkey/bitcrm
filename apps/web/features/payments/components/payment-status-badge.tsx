@@ -2,6 +2,7 @@ import type { PaymentStatus } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PAYMENT_STATUS_META } from "../lib";
+import { toneClasses } from "@/lib/theme/tone";
 
 export function PaymentStatusBadge({
   status,
@@ -24,7 +25,7 @@ export function PartiallyPaidBadge({ className }: { className?: string }) {
     <Badge
       variant="outline"
       className={cn(
-        "font-medium border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+        `font-medium ${toneClasses("info")}`,
         className,
       )}
     >

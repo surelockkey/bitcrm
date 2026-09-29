@@ -96,4 +96,11 @@ describe("ServiceAreaField", () => {
       expect(screen.getByText(/no service area covers/i)).toBeInTheDocument(),
     );
   });
+
+  it("is read-only for someone who may not edit the job", () => {
+    // Те саме поле стоїть на вже створеній роботі, де право на зміну є не в усіх.
+    renderField(<ServiceAreaField lat={41.7} lng={-72.7} disabled onChange={() => {}} />);
+
+    expect(screen.getByRole("combobox", { name: /service area/i })).toBeDisabled();
+  });
 });

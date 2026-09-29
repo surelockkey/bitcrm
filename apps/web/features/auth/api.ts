@@ -5,6 +5,7 @@ import type {
   ChangePasswordRequest,
   ChangePasswordResponse,
   RefreshTokenResponse,
+  MfaVerifyRequest,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 
@@ -21,9 +22,19 @@ export function refreshSession(
   return http.post("/users/auth/refresh", { refreshToken });
 }
 
+/** Two-step sign-in: the texted code, traded for the tokens the password earned. */
+export function verifyMfa(body: MfaVerifyRequest): Promise<LoginResponse> {
+  return http.post("/users/auth/mfa", body);
+}
+
+/** Text the two-step sign-in code again, to the same phone. */
+export function resendMfa(session: string): Promise<{ destination: string }> {
+  return http.post("/users/auth/mfa/resend", { session });
+}
+
 export function setNewPassword(
   body: ChangePasswordRequest,
-): Promise<ChangePasswordResponse> {
+): Promise<ChangePasswordResponse | LoginChallengeResponse> {
   return http.post("/users/auth/change-password", body);
 }
 
@@ -41,9 +52,9 @@ export function confirmPasswordReset(body: {
   return http.post("/users/auth/password-reset/confirm", body);
 }
 
-/** Narrows a login response to the first-login challenge. */
+/** Narrows a login response to a challenge — a first password, or a texted code. */
 export function isChallenge(
-  res: LoginResponse | LoginChallengeResponse,
+  res: LoginResponse | ChangePasswordResponse | LoginChallengeResponse,
 ): res is LoginChallengeResponse {
   return "challengeName" in res;
 }

@@ -9,6 +9,7 @@ import {
 import { DynamoDbService } from '@bitcrm/shared';
 import { type JobType } from '@bitcrm/types';
 import { DEALS_TABLE, DEALS_GSI1_NAME } from '../common/constants/dynamo.constants';
+import { isReferencedByDeal, equals } from '../common/utils/is-referenced';
 import {
   JOB_TYPE_PK_PREFIX,
   JOB_TYPE_SK,
@@ -68,13 +69,24 @@ export class JobTypesRepository {
     return result.Item ? this.toEntity(result.Item) : null;
   }
 
-  async listAll(): Promise<JobType[]> {
+  /**
+   * `activeOnly` is what a picker needs. 898 job types came over from Workiz
+   * and 21 of them are still active; sending the archived 877 to draw a
+   * dropdown cost a second of every job page.
+   */
+  async listAll(options: { activeOnly?: boolean } = {}): Promise<JobType[]> {
     const result = await this.dynamoDb.client.send(
       new QueryCommand({
         TableName: DEALS_TABLE,
         IndexName: DEALS_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': JOB_TYPE_GSI1PK },
+        ...(options.activeOnly
+          ? {
+              FilterExpression: '#active = :true',
+              ExpressionAttributeNames: { '#active': 'active' },
+              ExpressionAttributeValues: { ':pk': JOB_TYPE_GSI1PK, ':true': true },
+            }
+          : { ExpressionAttributeValues: { ':pk': JOB_TYPE_GSI1PK } }),
       }),
     );
     return (result.Items || []).map((i) => this.toEntity(i));
@@ -85,16 +97,7 @@ export class JobTypesRepository {
    * `Limit: 1` because only existence matters, never the count.
    */
   async isReferencedByDeal(id: string): Promise<boolean> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: DEALS_TABLE,
-        FilterExpression: '#jobTypeId = :id',
-        ExpressionAttributeNames: { '#jobTypeId': 'jobTypeId' },
-        ExpressionAttributeValues: { ':id': id },
-        Limit: 1,
-      }),
-    );
-    return (result.Items?.length ?? 0) > 0;
+    return isReferencedByDeal(this.dynamoDb.client, DEALS_TABLE, equals('jobTypeId', id));
   }
 
   async remove(id: string): Promise<void> {

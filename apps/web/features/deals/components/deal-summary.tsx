@@ -6,9 +6,10 @@ import { Briefcase, Building2, DollarSign, Loader2, User, UserPlus, Wrench, X } 
 import type { Deal } from "@bitcrm/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useCompanyMap } from "@/features/clients/hooks";
+import { useCompany } from "@/features/clients/hooks";
 import { formatPhone, initials, primaryPhone, clientTypeLabel } from "@/features/clients/lib";
-import { useContactMap, useDealProducts, useUnassignTech, useUserMap } from "../hooks";
+import { useDealProducts, useUnassignTech, useUserMap } from "../hooks";
+import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, formatSchedule } from "../lib";
 import { useJobTypeName } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
@@ -24,8 +25,7 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
   const jobTypeName = useJobTypeName();
   const jobSourceName = useJobSourceName();
   const externalCompanyName = useExternalCompanyName();
-  const { map: contactMap } = useContactMap();
-  const { map: companyMap } = useCompanyMap();
+  const { data: dealCompany } = useCompany(deal.companyId ?? "");
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(deal.id);
   const { data: customFieldDefs } = useCustomFields();
@@ -33,8 +33,8 @@ export function DealSummary({ deal, canEdit }: { deal: Deal; canEdit: boolean })
   const [assignOpen, setAssignOpen] = useState(false);
   const hasCustomFields = applicableFields(customFieldDefs, deal.jobTypeId).length > 0;
 
-  const contact = contactMap.get(deal.contactId);
-  const company = deal.companyId ? companyMap.get(deal.companyId) : undefined;
+  const { data: contact } = useContact(deal.contactId);
+  const company = deal.companyId ? dealCompany : undefined;
   const total = dealTotal(products ?? []);
 
   return (

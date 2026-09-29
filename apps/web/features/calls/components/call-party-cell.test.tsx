@@ -5,6 +5,7 @@ import { CallPartyCell } from "./call-party-cell";
 
 const can = vi.fn(() => true);
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: (...args: unknown[]) => can(...(args as [])) }),
 }));
 vi.mock("@/features/users/hooks", () => ({

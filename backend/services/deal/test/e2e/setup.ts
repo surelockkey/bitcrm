@@ -103,6 +103,8 @@ const mockInternalHttpService = {
   // Tax resolution reads the client; null = not found (→ not exempt).
   getContact: jest.fn().mockResolvedValue(null),
   getCompany: jest.fn().mockResolvedValue(null),
+  // Jobs-list side-load: the names of the clients on the page (never numbers).
+  getContactNames: jest.fn().mockResolvedValue([]),
   // Default: the referenced product exists and is a stockable product-type.
   // Individual tests override this (e.g. to return a service-type product).
   getProduct: jest.fn().mockResolvedValue({

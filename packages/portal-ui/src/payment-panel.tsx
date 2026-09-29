@@ -12,7 +12,7 @@ import type {
   PortalPaymentSession,
 } from "@bitcrm/types";
 import { primaryButton, outlineButton } from "./document-viewer";
-import { cx, formatMoney, isInvalidPortalError } from "./lib";
+import { TONE_BADGE, TONE_PANEL, TONE_TEXT, cx, formatMoney, isInvalidPortalError } from "./lib";
 import {
   MAX_STATUS_POLLS,
   STATUS_POLL_MS,
@@ -363,7 +363,7 @@ function PayFlow({
                   <span className="min-w-0 space-y-0.5">
                     <span className="block text-sm font-medium">{choice.label}</span>
                     <span className="block text-xs text-muted-foreground">{choice.description}</span>
-                    {choice.reason ? <span className="block text-xs text-amber-700 dark:text-amber-400">{choice.reason}</span> : null}
+                    {choice.reason ? <span className={`block text-xs ${TONE_TEXT.warning}`}>{choice.reason}</span> : null}
                   </span>
                 </label>
               ))}
@@ -632,13 +632,8 @@ function Notice({
   action?: React.ReactNode;
   live?: boolean;
 }) {
-  const ring = tone === "good" ? "border-emerald-500/30 bg-emerald-500/5" : tone === "bad" ? "border-destructive/40 bg-destructive/5" : "bg-card";
-  const badge =
-    tone === "good"
-      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-      : tone === "bad"
-        ? "bg-destructive/10 text-destructive"
-        : "bg-muted text-muted-foreground";
+  const ring = tone === "good" ? TONE_PANEL.good : tone === "bad" ? TONE_PANEL.bad : TONE_PANEL.neutral;
+  const badge = tone === "good" ? TONE_BADGE.good : tone === "bad" ? TONE_BADGE.bad : TONE_BADGE.neutral;
   return (
     <div
       {...(live ? { role: "status", "aria-live": "polite" as const } : {})}

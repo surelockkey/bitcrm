@@ -1,11 +1,21 @@
-import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
+import { HttpException, HttpStatus, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { isOwnAutomationSpec, type AutomationRule, type BuiltinAutomationRuleId } from '@bitcrm/types';
+import {
+  isOwnAutomationSpec,
+  type AutomationRule,
+  type BuiltinAutomationRuleId,
+  type ListCount,
+} from '@bitcrm/types';
 import {
   AUTOMATION_NAME_MAX_LENGTH,
   NOTHING_EXECUTABLE_REASON,
   hasExecutableAction,
 } from './automations.constants';
+import {
+  AutomationRunsRepository,
+  type AutomationRunFeedQuery,
+} from './engine/automation-runs.repository';
 import { AutomationsRepository } from './automations.repository';
 import { BUILTIN_RULES, isBuiltinRuleId } from './builtin-rules';
 import { type CreateAutomationDto } from './dto/create-automation.dto';
@@ -55,6 +65,9 @@ export interface AutomationMigrationRow {
   written: boolean;
 }
 
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 /**
  * Rules as data and as specs (M21): the stored rows, the built-in defaults
  * for any built-in rule nobody has edited yet, and — for every imported
@@ -67,7 +80,34 @@ export interface AutomationMigrationRow {
 export class AutomationsService {
   private readonly logger = new Logger(AutomationsService.name);
 
-  constructor(private readonly repository: AutomationsRepository) {}
+  constructor(
+    private readonly repository: AutomationsRepository,
+    @Optional() private readonly runs?: AutomationRunsRepository,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
+
+  /**
+   * How many firings the activity feed holds — the number behind
+   * "Page 2 of 7". Behind a short cache: the feed is append-only and a
+   * dispatcher flipping between rules and outcomes should not re-walk the
+   * month index each time.
+   */
+  async countRunsFeed(query: AutomationRunFeedQuery): Promise<ListCount> {
+    if (!this.runs) return { total: null, atLeast: false };
+
+    const take = () => this.runs!.countFeed(query);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('automation-runs', {
+        ruleId: query.ruleId,
+        outcome: query.outcome,
+        since: query.since,
+      }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
+  }
 
   /** Stored rules, with the built-ins filled in from code where unstored; by name. */
   async list(): Promise<AutomationRule[]> {

@@ -23,6 +23,7 @@ import { fetchAllProducts } from "@/features/inventory/warehouses/api";
 import { useUserMap, useAddProduct, useReplaceProduct } from "../hooks";
 import { fetchTechStock } from "../tech-stock";
 import { formatMoney, isPriceInBand, priceBandApplies, priceRange } from "../lib";
+import { personName } from "../person-name";
 
 export function AddProductDialog({
   dealId,
@@ -147,7 +148,7 @@ export function AddProductDialog({
             onBack={() => { setPicked(null); setChangingItem(true); }}
             onAdd={(v) => {
               if (editing) {
-                replace.mutate({ productId: editing.productId, body: v }, { onSuccess: close });
+                replace.mutate({ lineId: editing.lineId, body: v }, { onSuccess: close });
               } else {
                 add.mutate(v, { onSuccess: close });
               }
@@ -161,14 +162,14 @@ export function AddProductDialog({
                 <div className="flex flex-wrap gap-1.5">
                   {techIds.map((id) => {
                     const u = userMap.get(id);
-                    const label = u ? `${u.firstName} ${u.lastName}` : id;
+                    const label = personName(u) ?? "…";
                     return (
                       <button
                         key={id}
                         type="button"
                         onClick={() => { setTechId(id); setPicked(null); }}
                         className={cn(
-                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          "rounded-chip border px-2.5 py-1 text-xs transition-colors",
                           id === techId ? "border-primary bg-primary/10 font-medium" : "hover:bg-muted/50",
                         )}
                       >
@@ -220,11 +221,11 @@ export function AddProductDialog({
                         <div className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</div>
                       </div>
                       {isService ? (
-                        <span className="flex-none rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+                        <span className="flex-none rounded-chip bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
                           Service
                         </span>
                       ) : stockKnown ? (
-                        <span className={cn("flex-none rounded-full px-1.5 py-0.5 text-[10px] font-semibold", avail > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
+                        <span className={cn("flex-none rounded-chip px-1.5 py-0.5 text-[10px] font-semibold", avail > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-muted text-muted-foreground")}>
                           {avail > 0 ? `In van · ${avail}` : "Not in van"}
                         </span>
                       ) : null}

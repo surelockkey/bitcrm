@@ -34,10 +34,12 @@ import { JobStatusSelect } from "@/features/job-statuses/components/job-status-s
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
 import { useCustomFields } from "@/features/custom-fields/hooks";
 import { applicableFields } from "@/features/custom-fields/lib";
-import { useDeal, useDealProducts, useContactMap, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
+import { useDeal, useDealProducts, useMoveStatus, useSetDealTags, useUserMap } from "../hooks";
+import { useContact } from "@/features/clients/hooks";
 import { dealClientName, dealTotal, formatMoney, formatSchedule, isUrgent } from "../lib";
 import { PriorityFlag } from "./deal-badges";
 import { TechChips } from "./assigned-techs";
+import { noteToText } from "../note-html";
 
 export function DealQuickView({
   dealId,
@@ -69,13 +71,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function QuickViewBody({ dealId }: { dealId: string }) {
   const { can } = usePermissions();
   const { data: deal, isLoading } = useDeal(dealId);
-  const { map: contactMap } = useContactMap();
   const { map: userMap } = useUserMap();
   const { data: products } = useDealProducts(dealId);
   const setTags = useSetDealTags(dealId);
   const moveStatus = useMoveStatus(dealId);
   const jobTypeName = useJobTypeName();
   const { data: customFieldDefs } = useCustomFields();
+  // Asked for before the early return, as every hook must be; it waits for
+  // the deal to name its client.
+  const { data: contact } = useContact(deal?.contactId ?? "");
 
   if (isLoading || !deal) {
     return (
@@ -85,7 +89,6 @@ function QuickViewBody({ dealId }: { dealId: string }) {
     );
   }
 
-  const contact = contactMap.get(deal.contactId);
   const phone = contact ? primaryPhone(contact) : undefined;
   const email = contact ? primaryEmail(contact) : undefined;
   const productsTotal = products ? dealTotal(products) : undefined;
@@ -129,7 +132,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
               {phone ? (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   {contact ? formatPhoneWithExtension(phone, extensionOf(contact, phone)) : formatPhone(phone)}
-                  <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
+                  <span className="rounded-chip bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">Primary</span>
                 </div>
               ) : null}
               {deal.address ? (
@@ -215,7 +218,7 @@ function QuickViewBody({ dealId }: { dealId: string }) {
 
         {deal.notes ? (
           <Row label="Description">
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{deal.notes}</p>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{noteToText(deal.notes)}</p>
           </Row>
         ) : null}
 

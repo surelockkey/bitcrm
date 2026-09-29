@@ -7,7 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useJobTypes } from "../hooks";
+import { useJobType } from "../hooks";
+import { useActiveJobTypes } from "../active-hooks";
 import { activeJobTypes } from "../lib";
 
 /**
@@ -28,14 +29,16 @@ export function JobTypeSelect({
   placeholder?: string;
   disabled?: boolean;
 }) {
-  const { data } = useJobTypes();
+  // Only what can be offered: the full catalog is 898 rows to draw a list of
+  // twenty-one, and that was a second of every job page.
+  const { data } = useActiveJobTypes();
   const active = activeJobTypes(data);
 
-  // Keep an archived-but-selected type visible so editing doesn't blank it.
-  const selectedArchived =
-    value && !active.some((t) => t.id === value)
-      ? (data ?? []).find((t) => t.id === value)
-      : undefined;
+  // A job may still point at an archived type; fetch just that one, so the
+  // field shows its name instead of going blank.
+  const needsArchived = Boolean(value) && !active.some((t) => t.id === value);
+  const { data: archived } = useJobType(value ?? "", needsArchived);
+  const selectedArchived = needsArchived ? archived : undefined;
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>

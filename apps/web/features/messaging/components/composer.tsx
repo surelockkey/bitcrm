@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { AlertTriangle, ChevronUp, FileText, ImageIcon, Loader2, Paperclip, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ChevronUp, FileText, ImageIcon, Loader2, Paperclip, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   MESSAGE_ATTACHMENT_LIMIT,
@@ -109,6 +109,7 @@ export function Composer({
   const [subject, setSubject] = useState("");
   /** Undefined until the user picks — the thread's own best channel is the default. */
   const [pickedChannel, setPickedChannel] = useState<SendableMessageChannel | undefined>(undefined);
+  const [channelOpen, setChannelOpen] = useState(false);
   const [templateId, setTemplateId] = useState<string | undefined>(undefined);
   const [attachments, setAttachments] = useState<SendAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -222,8 +223,14 @@ export function Composer({
     }
   };
 
-  const submit = async () => {
+  /**
+   * `pick` is the channel just chosen from the menu: state has not settled by
+   * the time the choice fires the send, so the send must be told which channel
+   * it is, not read it back.
+   */
+  const submit = async (pick?: SendableMessageChannel) => {
     if (!canSubmit) return;
+    const sendChannel = pick ?? channel;
     setSending(true);
     try {
       let body = text.trim();
@@ -249,10 +256,10 @@ export function Composer({
       }
       await onSend({
         clientMessageId: newClientMessageId(),
-        channel,
+        channel: sendChannel,
         body,
-        subject: channel === "email" && subject.trim() ? subject.trim() : undefined,
-        fromNumber: channel === "sms" && from !== "auto" ? from : undefined,
+        subject: sendChannel === "email" && subject.trim() ? subject.trim() : undefined,
+        fromNumber: sendChannel === "sms" && from !== "auto" ? from : undefined,
         dealId,
         templateId,
         attachments: attachments.length ? attachments : undefined,
@@ -429,31 +436,32 @@ export function Composer({
           </div>
         </div>
 
-        {/* The send button, with the chevron for the three channels and the sending number. */}
-        <div className="flex h-10 shrink-0 items-stretch overflow-hidden rounded-lg">
-          <Button
-            type="button"
-            variant="brand"
-            className={cn("h-10 rounded-none px-4 font-semibold", hasOptions && "border-r border-brand-foreground/25")}
-            disabled={!canSubmit}
-            aria-describedby={noteId}
-            onClick={() => void submit()}
-          >
-            {sending ? <Loader2 className="size-4 animate-spin" /> : null}
-            {unavailable ? <AlertTriangle className="size-4" /> : null}
-            {SEND_BUTTON_LABEL[channel]}
-          </Button>
+        {/* Send, as Workiz sends: one round button with a paper plane. Pressing
+            it asks where the message should go, and choosing is the send —
+            the channel is never guessed on the reader's behalf, and there is
+            nothing else beside the button to explain. */}
+        <div className="flex h-10 shrink-0 items-center gap-1">
           {hasOptions ? (
-            <DropdownMenu>
+            <DropdownMenu open={channelOpen} onOpenChange={setChannelOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
                   type="button"
                   variant="brand"
-                  className="h-10 w-9 rounded-none px-0"
-                  aria-label="Send options"
-                  disabled={blocked}
+                  // Sized, not padded: this repo's guard allows a circle only
+                  // when it really is one.
+                  className="size-10 shrink-0 rounded-full p-0"
+                  disabled={!canSubmit}
+                  aria-describedby={noteId}
+                  aria-label={SEND_BUTTON_LABEL[channel]}
+                  title={SEND_BUTTON_LABEL[channel]}
                 >
-                  <ChevronUp className="size-4" />
+                  {sending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : unavailable ? (
+                    <AlertTriangle className="size-4" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" side="top" className="w-72">
@@ -462,7 +470,14 @@ export function Composer({
                     <DropdownMenuLabel>Send as</DropdownMenuLabel>
                     <DropdownMenuRadioGroup
                       value={channel}
-                      onValueChange={(v) => setPickedChannel(v as SendableMessageChannel)}
+                      onValueChange={(v) => {
+                        // Choosing is the send: the menu opened because the
+                        // paper plane was pressed.
+                        const next = v as SendableMessageChannel;
+                        setPickedChannel(next);
+                        setChannelOpen(false);
+                        void submit(next);
+                      }}
                     >
                       {/* Every channel keeps its place: one that cannot be used
                           says so, rather than leaving the reader to wonder. */}
@@ -479,15 +494,17 @@ export function Composer({
                             className="items-start"
                             // Spelled out rather than read off the two lines, so
                             // the channel is heard before the reason it is closed.
-                            aria-label={
-                              why ? `${label} — unavailable: ${why}` : target ? `${label} to ${target.to}` : label
-                            }
+                            aria-label={why ? `${label} — unavailable: ${why}` : label}
+                            // Workiz's picker is three words. The destination
+                            // under a channel that plainly works is noise; the
+                            // words are kept for one that does NOT work, where
+                            // they are the difference between a wrong guess and
+                            // an explanation.
+                            title={target ? `To ${target.to}` : undefined}
                           >
                             <span className="flex min-w-0 flex-col">
                               <span>{label}</span>
-                              {why ?? target ? (
-                                <span className="text-xs text-muted-foreground">{why ?? target?.to}</span>
-                              ) : null}
+                              {why ? <span className="text-xs text-muted-foreground">{why}</span> : null}
                             </span>
                           </DropdownMenuRadioItem>
                         );

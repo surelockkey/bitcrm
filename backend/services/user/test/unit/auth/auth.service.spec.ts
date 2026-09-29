@@ -2,10 +2,12 @@ import { Test } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { CognitoAuthService } from '@bitcrm/shared';
 import { AuthService } from '../../../src/auth/auth.service';
+import { MfaService } from '../../../src/mfa/mfa.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let cognitoAuth: Record<string, jest.Mock>;
+  let mfa: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     cognitoAuth = {
@@ -16,10 +18,18 @@ describe('AuthService', () => {
       confirmForgotPassword: jest.fn().mockResolvedValue(undefined),
     };
 
+    // No second step unless a test says so: the tokens pass straight through.
+    mfa = {
+      gate: jest.fn(async (tokens: unknown) => tokens),
+      verify: jest.fn(),
+      resend: jest.fn(),
+    };
+
     const module = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: CognitoAuthService, useValue: cognitoAuth },
+        { provide: MfaService, useValue: mfa },
       ],
     }).compile();
 
@@ -71,6 +81,48 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'user@test.com', password: 'wrong' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('two-step sign-in', () => {
+    const tokens = { accessToken: 'a', refreshToken: 'r', idToken: 'i', expiresIn: 3600 };
+    const challenge = { challengeName: 'SMS_MFA', session: 's1', destination: '•••• 1234' };
+
+    it('hands the password step\'s tokens to the second step, and returns what it answers', async () => {
+      cognitoAuth.login.mockResolvedValue(tokens);
+      mfa.gate.mockResolvedValue(challenge);
+
+      await expect(service.login({ email: 'u@t.com', password: 'pw' })).resolves.toEqual(challenge);
+      expect(mfa.gate).toHaveBeenCalledWith(tokens);
+    });
+
+    it('leaves Cognito\'s first-password challenge alone — there are no tokens yet', async () => {
+      const newPassword = { challengeName: 'NEW_PASSWORD_REQUIRED', session: 'cog' };
+      cognitoAuth.login.mockResolvedValue(newPassword);
+
+      await expect(service.login({ email: 'u@t.com', password: 'pw' })).resolves.toEqual(newPassword);
+      expect(mfa.gate).not.toHaveBeenCalled();
+    });
+
+    // Setting a first password signs the person in: the same gate applies.
+    it('gates the sign-in that setting a first password completes', async () => {
+      cognitoAuth.respondToNewPasswordChallenge.mockResolvedValue(tokens);
+      mfa.gate.mockResolvedValue(challenge);
+
+      await expect(
+        service.changePassword({ email: 'u@t.com', newPassword: 'Pw123456', session: 'cog' }),
+      ).resolves.toEqual(challenge);
+      expect(mfa.gate).toHaveBeenCalledWith(tokens);
+    });
+
+    it('checks the texted code and resends it', async () => {
+      mfa.verify.mockResolvedValue(tokens);
+      mfa.resend.mockResolvedValue({ destination: '•••• 1234' });
+
+      await expect(service.verifyMfa({ session: 's1', code: '123456' })).resolves.toEqual(tokens);
+      expect(mfa.verify).toHaveBeenCalledWith('s1', '123456');
+      await expect(service.resendMfa({ session: 's1' })).resolves.toEqual({ destination: '•••• 1234' });
+      expect(mfa.resend).toHaveBeenCalledWith('s1');
     });
   });
 

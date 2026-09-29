@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   perms: new Set(["invoices.view", "invoices.create", "invoices.edit", "invoices.send", "invoices.delete"]),
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: (r: string, a = "view") => mocks.perms.has(`${r}.${a}`) }),
 }));
 vi.mock("@/features/deals/hooks", () => ({

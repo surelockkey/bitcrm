@@ -39,6 +39,58 @@ describe('TechnicianEligibilityRepository (unit)', () => {
     });
   });
 
+  /**
+   * What the jobs-list side-load reads to name the technicians of a page: one
+   * BatchGet for the whole page rather than a Get per assigned id.
+   */
+  describe('getMany', () => {
+    it('reads every id in one BatchGet on the eligibility keys', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Responses: {
+          BitCRM_Deals: [
+            { technicianId: 'tech-1', firstName: 'Ada', lastName: 'Lovelace', assignable: true },
+            { technicianId: 'tech-2', firstName: 'Bo', lastName: 'Diaz', assignable: true },
+          ],
+        },
+      });
+
+      const out = await repo.getMany(['tech-1', 'tech-2']);
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      expect(dynamoDb.client.send.mock.calls[0][0].input.RequestItems.BitCRM_Deals.Keys).toEqual([
+        { PK: 'TECH_ELIGIBILITY#tech-1', SK: 'ELIGIBILITY' },
+        { PK: 'TECH_ELIGIBILITY#tech-2', SK: 'ELIGIBILITY' },
+      ]);
+      expect(out.map((r) => r.firstName)).toEqual(['Ada', 'Bo']);
+    });
+
+    it('dedupes, and asks for nothing when there is nothing to ask', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Responses: { BitCRM_Deals: [] } });
+
+      expect(await repo.getMany([])).toEqual([]);
+      expect(await repo.getMany(['', undefined as never])).toEqual([]);
+      expect(dynamoDb.client.send).not.toHaveBeenCalled();
+
+      await repo.getMany(['tech-1', 'tech-1']);
+      expect(dynamoDb.client.send.mock.calls[0][0].input.RequestItems.BitCRM_Deals.Keys).toHaveLength(1);
+    });
+
+    it('caps the read — a page of jobs can never name more than 100 people', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Responses: { BitCRM_Deals: [] } });
+
+      await repo.getMany(Array.from({ length: 130 }, (_, i) => `tech-${i}`));
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+      expect(dynamoDb.client.send.mock.calls[0][0].input.RequestItems.BitCRM_Deals.Keys).toHaveLength(100);
+    });
+
+    it('an id with no projected row is simply absent', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Responses: { BitCRM_Deals: [] } });
+
+      expect(await repo.getMany(['ghost'])).toEqual([]);
+    });
+  });
+
   it('listAll scans the eligibility partition prefix', async () => {
     dynamoDb.client.send.mockResolvedValue({ Items: [{ technicianId: 'tech-1', assignable: true }] });
     const out = await repo.listAll();

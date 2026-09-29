@@ -9,6 +9,7 @@ const rows: EnrichedStockRow[] = [
 ];
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("../hooks", () => ({

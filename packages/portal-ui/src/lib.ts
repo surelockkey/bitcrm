@@ -134,6 +134,29 @@ const TONE: Record<Tone, string> = {
   zinc: "border-zinc-500/30 bg-zinc-500/5 text-zinc-500 dark:text-zinc-400",
 };
 
+/**
+ * Tone fragments for the places a whole pill is not what is wanted — a lone
+ * warning line, a card ring, a badge fill. They live here for the same reason
+ * `TONE` does: a component that writes its own palette string becomes the
+ * fifth copy nobody updates.
+ */
+export const TONE_TEXT = {
+  warning: "text-amber-700 dark:text-amber-400",
+  good: "text-emerald-700 dark:text-emerald-400",
+} as const;
+
+export const TONE_PANEL = {
+  good: "border-emerald-500/30 bg-emerald-500/5",
+  bad: "border-destructive/40 bg-destructive/5",
+  neutral: "bg-card",
+} as const;
+
+export const TONE_BADGE = {
+  good: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  bad: "bg-destructive/10 text-destructive",
+  neutral: "bg-muted text-muted-foreground",
+} as const;
+
 const INVOICE_STATUS: Record<InvoiceStatus, { label: string; tone: Tone }> = {
   no_amount: { label: "No amount", tone: "slate" },
   due: { label: "Due", tone: "amber" },

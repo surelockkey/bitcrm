@@ -34,6 +34,7 @@ export const RESOURCE_LABELS: Record<string, string> = {
   job_statuses: "Job Statuses",
   service_areas: "Service Areas",
   commission: "Commission",
+  financials: "Financial data",
   documents: "Documents",
 };
 
@@ -56,7 +57,7 @@ export const RESOURCE_GROUPS: { label: string; resources: string[] }[] = [
   { label: "Sales & CRM", resources: ["deals", "job_sources", "external_companies", "job_tags", "job_statuses", "contacts", "companies"] },
   { label: "Inventory", resources: ["products", "warehouses", "containers", "transfers"] },
   { label: "People", resources: ["users", "roles", "technicians"] },
-  { label: "Field & billing", resources: ["job_types", "service_areas", "commission", "documents"] },
+  { label: "Field & billing", resources: ["job_types", "service_areas", "commission", "financials", "documents"] },
   { label: "Platform", resources: ["reports", "settings"] },
 ];
 

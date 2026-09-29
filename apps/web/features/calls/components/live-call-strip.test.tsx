@@ -18,6 +18,7 @@ vi.mock("@/features/telephony/use-call-timer", () => ({
   useCallTimer: () => "1:07",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("../hooks", () => ({

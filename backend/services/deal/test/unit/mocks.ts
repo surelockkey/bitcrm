@@ -49,6 +49,7 @@ export function createMockDeal(overrides?: Partial<Deal>): Deal {
 
 export function createMockDealProduct(overrides?: Partial<DealProduct>): DealProduct {
   return {
+    lineId: 'line-1',
     productId: 'product-1',
     name: 'Kwikset Deadbolt',
     sku: 'KW-DB-001',
@@ -212,6 +213,8 @@ export function createMockDealsRepository() {
     findByTech: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findByContact: jest.fn(),
     findByDispatcher: jest.fn(),
+    findByCreated: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
+    findByClosed: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     findAll: jest.fn(),
     update: jest.fn(),
     reassignContact: jest.fn(),
@@ -233,13 +236,17 @@ export function createMockDealsRepository() {
     // Echoes the given time — "this open was the first" — unless a test says otherwise.
     markAssignmentSeen: jest.fn().mockImplementation(async (_d: string, _t: string, at: string) => at),
     recordAssignmentDelivery: jest.fn().mockResolvedValue(undefined),
+    findIdByNumber: jest.fn(),
+    findByIds: jest.fn(),
+    findBySchedule: jest.fn(),
+    countBySchedule: jest.fn(),
   };
 }
 
 export function createMockTimelineRepository() {
   return {
     addEntry: jest.fn(),
-    findByDeal: jest.fn(),
+    findByDeal: jest.fn().mockResolvedValue([]),
     getEntry: jest.fn(),
     updateNote: jest.fn(),
     deleteEntry: jest.fn(),
@@ -250,7 +257,7 @@ export function createMockDealProductsRepository() {
   return {
     addProduct: jest.fn(),
     removeProduct: jest.fn(),
-    findByDeal: jest.fn(),
+    findByDeal: jest.fn().mockResolvedValue([]),
     findProduct: jest.fn(),
     setOrderedAt: jest.fn(),
     setTaxable: jest.fn(),
@@ -281,6 +288,8 @@ export function createMockInternalHttpService() {
     restoreStock: jest.fn().mockResolvedValue(undefined),
     getContact: jest.fn().mockResolvedValue(null),
     getCompany: jest.fn().mockResolvedValue(null),
+    // Jobs-list side-load: names of the clients on the page (never numbers).
+    getContactNames: jest.fn().mockResolvedValue([]),
     // Default: the referenced product exists and is a stockable product-type.
     getProduct: jest.fn().mockResolvedValue({
       id: 'product-1',
@@ -395,6 +404,8 @@ export function createMockTechnicianEligibilityRepository() {
   return {
     upsert: jest.fn(),
     get: jest.fn(),
+    // Batched read behind the jobs-list side-load.
+    getMany: jest.fn().mockResolvedValue([]),
     remove: jest.fn(),
     listAll: jest.fn().mockResolvedValue([]),
   };

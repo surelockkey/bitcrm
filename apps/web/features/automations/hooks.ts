@@ -37,6 +37,22 @@ export function useAutomationRuns(id: string | undefined, enabled = true) {
  * still have a cursor, so the end of the feed is `nextCursor`, never a
  * page that looks small.
  */
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useAutomationRunsFeedCount(
+  params: Omit<api.AutomationRunsFeedParams, "cursor" | "limit"> = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: queryKeys.automations.runsCount(params),
+    queryFn: () => api.countAutomationRunsFeed(params),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
 export function useAutomationRunsFeed(params: api.AutomationRunsFeedParams = {}, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.automations.runsFeed(params),

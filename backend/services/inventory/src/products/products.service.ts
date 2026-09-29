@@ -14,10 +14,17 @@ import {
   InventoryStatus,
   UNCATEGORIZED_CATEGORY,
   WORKIZ_SERVICE_TYPES,
+  type ListCount,
 } from '@bitcrm/types';
 import { ProductsRepository } from './products.repository';
 import { ProductsCacheService } from './products-cache.service';
-import { S3Service, SnsPublisherService } from '@bitcrm/shared';
+import {
+  S3Service,
+  SnsPublisherService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -37,6 +44,9 @@ export function normalizeCategory(category: string): string {
 }
 
 const KNOWN_PRODUCT_TYPES: readonly string[] = Object.values(ProductType);
+
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
 
 /**
  * Workiz item types BitCRM has no equivalent for. Both are non-stockable, so
@@ -76,6 +86,7 @@ export class ProductsService {
     private readonly s3: S3Service,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly itemCategories?: ItemCategoriesService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   /**
@@ -251,6 +262,33 @@ export class ProductsService {
     }
 
     return this.repository.findAll(limit, cursor, { status, search });
+  }
+
+  /**
+   * How many products the current filters select — the number behind
+   * "Page 2 of 7".
+   *
+   * It branches exactly as `list` does, or the panel would size itself against
+   * a different population than the rows under it. Behind a short cache: the
+   * count outlives a page load, and flipping filters back and forth should not
+   * re-walk the table.
+   */
+  async count(query: ListProductsQueryDto): Promise<ListCount> {
+    const { category, type, search, status } = query;
+
+    const take = () => {
+      if (category) return this.repository.countByCategory(category);
+      if (type) return this.repository.countByType(type);
+      return this.repository.countAll({ status, search });
+    };
+
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('products', { category, type, search, status }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async update(id: string, dto: UpdateProductDto): Promise<Product> {

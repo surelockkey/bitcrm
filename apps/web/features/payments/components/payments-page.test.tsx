@@ -15,8 +15,8 @@ vi.mock("next/link", () => ({
 vi.mock("@/features/auth/use-permissions", () => ({
   usePermissions: () => ({ can: () => mocks.canView }),
 }));
-vi.mock("@/features/deals/hooks", () => ({
-  useContactMap: () => ({
+vi.mock("@/features/clients/hooks", () => ({
+  useContactsByIds: () => ({
     map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]),
     isLoading: false,
   }),

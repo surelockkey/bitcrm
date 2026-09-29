@@ -39,7 +39,7 @@ export function InboxHeaderButton() {
             {unread > 0 ? (
               <span
                 data-testid="inbox-header-badge"
-                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-white tabular-nums ring-2 ring-background"
+                className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-chip bg-destructive px-1 text-[10px] font-semibold leading-none text-white tabular-nums ring-2 ring-background"
               >
                 {formatBadgeCount(unread)}
               </span>

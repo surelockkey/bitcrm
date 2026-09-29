@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { JOB_TAG_COLORS, type JobTag } from "@bitcrm/types";
-import { jobTagName, jobTagMap, activeJobTags, TAG_COLOR_CLASSES } from "./lib";
+import { jobTagName, jobTagMap, activeJobTags, TAG_COLOR_CLASSES, tagSolidClasses } from "./lib";
 
 const tag = (over: Partial<JobTag>): JobTag => ({
   id: "t-1",
@@ -48,5 +48,29 @@ describe("TAG_COLOR_CLASSES", () => {
     for (const color of JOB_TAG_COLORS) {
       expect(TAG_COLOR_CLASSES[color]).toBeTruthy();
     }
+  });
+});
+
+/**
+ * Workiz shows a job's tags as solid blocks in the tag's own colour, in
+ * capitals, one under another — a dispatcher scanning the list reads colour
+ * first and words second. Our subtle outlined pills read as decoration next to
+ * them, so the jobs list uses the solid form.
+ */
+describe("tagSolidClasses", () => {
+  it("fills the chip with the tag's colour and writes on it in white", () => {
+    const cls = tagSolidClasses("blue");
+    expect(cls).toContain("bg-blue-");
+    expect(cls).toContain("text-white");
+  });
+
+  it("gives every colour in the palette a solid form", () => {
+    for (const color of ["slate", "red", "amber", "green", "teal", "blue", "violet", "pink"] as const) {
+      expect(tagSolidClasses(color)).toContain("text-white");
+    }
+  });
+
+  it("falls back rather than rendering an unreadable chip", () => {
+    expect(tagSolidClasses("chartreuse" as never)).toContain("text-white");
   });
 });

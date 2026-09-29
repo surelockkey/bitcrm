@@ -10,6 +10,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
  */
 const mocks = vi.hoisted(() => ({
   fetchNextPage: vi.fn(),
+  /** Розмір сторінки, з яким сторінка покликала хук. */
+  listArgs: [] as number[],
   list: {
     data: { pages: [{ data: [] as Array<{ callSid: string }> }] },
     isLoading: false,
@@ -19,10 +21,17 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../hooks", () => ({
-  useCallsList: () => ({ ...mocks.list, fetchNextPage: mocks.fetchNextPage }),
+  useCallsList: (_filter: unknown, limit: number) => {
+    mocks.listArgs.push(limit);
+    return { ...mocks.list, fetchNextPage: mocks.fetchNextPage };
+  },
+  // Лічильник сторінок: цим тестам байдуже число, важливо, що панель не падає
+  // без нього.
+  useCallsCount: () => ({ data: undefined }),
 }));
 vi.mock("../use-call-stream", () => ({ useCallStream: () => undefined }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 vi.mock("@/features/call-tags/hooks", () => ({ useCallTags: () => ({ data: [] }) }));
@@ -37,6 +46,7 @@ import { CallsPage } from "./calls-page";
 
 describe("CallsPage — the history section", () => {
   beforeEach(() => {
+  localStorage.clear();
     mocks.fetchNextPage.mockReset();
     mocks.list = {
       data: { pages: [{ data: [] }] },
@@ -64,12 +74,23 @@ describe("CallsPage — the history section", () => {
     expect(mocks.fetchNextPage).toHaveBeenCalled();
   });
 
-  it("still shows Load more under a page that did find calls", () => {
+  it("pages under a list that did find calls", () => {
     mocks.list.data = { pages: [{ data: [{ callSid: "CA1" }] }] };
     mocks.list.hasNextPage = true;
     render(<CallsPage />);
 
     expect(screen.getByTestId("rows")).toHaveTextContent("CA1");
-    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /rows per page/i })).toBeInTheDocument();
+  });
+
+  it("asks the server for as many calls as the reader chose", () => {
+    mocks.list.data = { pages: [{ data: [{ callSid: "CA1" }] }] };
+    render(<CallsPage />);
+
+    fireEvent.click(screen.getByRole("combobox", { name: /rows per page/i }));
+    fireEvent.click(screen.getByRole("option", { name: "100" }));
+
+    expect(mocks.listArgs[mocks.listArgs.length - 1]).toBe(100);
   });
 });

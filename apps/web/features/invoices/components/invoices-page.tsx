@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ListPagination } from "@/components/ui/list-pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -24,8 +25,8 @@ import {
 import { cn } from "@/lib/utils";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap } from "@/features/deals/hooks";
+import { usePermissions, useDenied } from "@/features/auth/use-permissions";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
 import { isPartiallyPaid } from "@/features/payments/lib";
@@ -33,17 +34,21 @@ import { PartiallyPaidBadge } from "@/features/payments/components/payment-statu
 import { formatYmd } from "@/features/billing/dates";
 import { FilterChip, NoAccess, StatTile } from "@/features/billing/components/list-bits";
 import { createInvoice } from "../api";
-import { useCreateInvoice, useInvoiceList, useInvoiceSummary, useJobsNeedingInvoice } from "../hooks";
+import { useCreateInvoice, useInvoiceList, useInvoiceSummary, useJobsNeedingInvoice , useInvoiceCount } from "../hooks";
 import { INVOICE_CHIPS, runSequentially, type InvoiceChip } from "../lib";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { SentBadge } from "./sent-badge";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 const PAGE_SIZE = 50;
 
 type View = "invoices" | "needs";
 
 export function InvoicesPage() {
-  const { can } = usePermissions();
+  const { can  } = usePermissions();
+  const denied = useDenied();
   const canView = can("invoices", "view");
   const [view, setView] = useState<View>("invoices");
   const [chip, setChip] = useState<InvoiceChip>("all");
@@ -52,7 +57,9 @@ export function InvoicesPage() {
   const [to, setTo] = useState("");
   const summary = useInvoiceSummary(canView);
 
-  if (!canView) return <NoAccess what="invoices" />;
+  // `canView` still gates the query — it must not fetch on a maybe.
+  // The refusal is the other way round: only once the answer is in.
+  if (denied("invoices", "view")) return <NoAccess what="invoices" />;
 
   const s = summary.data;
   const pick = (next: InvoiceChip) => {
@@ -176,9 +183,17 @@ export function InvoicesPage() {
 
 function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0] }) {
   const router = useRouter();
-  const q = useInvoiceList(params);
-  const { map: contacts } = useContactMap();
-  const rows: Invoice[] = useMemo(() => q.data?.pages.flatMap((p) => p.items) ?? [], [q.data]);
+  const [pageSize, setPageSize] = usePageSize("invoices");
+  const q = useInvoiceList({ ...params, limit: pageSize });
+  const count = useInvoiceCount(params);
+  const pager = usePager(pagedSource(q, (page: { items: Invoice[] }) => page.items), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: JSON.stringify({ params, pageSize }),
+  });
+  const rows: Invoice[] = pager.items;
+  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {
@@ -202,7 +217,7 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
@@ -260,13 +275,7 @@ function InvoicesTable({ params }: { params: Parameters<typeof useInvoiceList>[0
           </TableBody>
         </Table>
       </div>
-      {q.hasNextPage ? (
-        <div className="flex justify-center">
-          <Button variant="outline" size="sm" onClick={() => q.fetchNextPage()} disabled={q.isFetchingNextPage}>
-            {q.isFetchingNextPage ? <Loader2 className="animate-spin" /> : null} Load more
-          </Button>
-        </div>
-      ) : null}
+      <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
     </div>
   );
 }
@@ -340,7 +349,7 @@ function NeedsInvoiceTable({ canCreate }: { canCreate: boolean }) {
           </Button>
         </div>
       ) : null}
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

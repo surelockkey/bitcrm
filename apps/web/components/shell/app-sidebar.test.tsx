@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({
 
 const permissionsMock = vi.fn();
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => permissionsMock(),
 }));
 
@@ -60,21 +61,43 @@ describe("AppSidebar", () => {
 
     const newJob = screen.getByRole("link", { name: /new job/i });
     expect(newJob).toHaveAttribute("href", "/deals/new");
-    // Expanded: fixed width (explicit, so the collapse can animate it).
-    expect(newJob.className).toContain("w-30");
+    // Expanded: the button spans the rail.
+    expect(newJob.className).toContain("w-full");
     // Collapsed (icon) mode: shrinks to a square via animatable props.
     expect(newJob.className).toContain("group-data-[collapsible=icon]:w-8");
     expect(newJob.className).toContain("group-data-[collapsible=icon]:h-8");
-    expect(newJob.className).toContain("transition-[width,height]");
+    // border-radius rides along so the hover morph into an oval animates too.
+    expect(newJob.className).toContain("transition-[width,height,border-radius]");
     // The plus icon never moves: same left padding in both states, so no
     // justify-center recentering and no p-0 swap.
     expect(newJob.className).toContain("justify-start");
     expect(newJob.className).not.toContain("group-data-[collapsible=icon]:p-0");
     // The label fades/clips instead of popping out of the layout.
     expect(newJob.className).toContain("overflow-hidden");
-    expect(screen.getByText("New Job").className).toContain(
+    expect(screen.getByText("Create New Job").className).toContain(
       "group-data-[collapsible=icon]:opacity-0",
     );
+  });
+
+  it("shapes the New Job button the way Workiz shapes theirs", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const newJob = screen.getByRole("link", { name: /create new job/i });
+
+    // At rest it is a plain white full-width row: no border, no fill.
+    expect(newJob.className).toContain("border-transparent");
+    expect(newJob.className).not.toContain("bg-primary");
+
+    // The yellow lives in the round dot, not in the button.
+    const dot = newJob.querySelector("[data-slot='new-job-dot']");
+    expect(dot).not.toBeNull();
+    expect(dot?.className).toContain("rounded-full");
+    expect(dot?.className).toContain("bg-primary");
+
+    // Hover turns the row into a bordered oval.
+    expect(newJob.className).toContain("hover:rounded-full");
+    expect(newJob.className).toContain("hover:border-border");
   });
 
   it("hides the New Job button without the create permission", () => {
@@ -189,5 +212,38 @@ describe("AppSidebar", () => {
     renderSidebar();
 
     expect(screen.queryByLabelText(/unread conversation/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * Workiz draws a rule under its logo, so the brand reads as a header rather
+   * than as the first row of the menu.
+   */
+  it("separates the logo from the menu with a rule", () => {
+    renderSidebar();
+
+    const rule = document.querySelector('[data-slot="brand-rule"]');
+    expect(rule).not.toBeNull();
+  });
+
+  it("keeps the rule full width so nothing shifts as the sidebar collapses", () => {
+    renderSidebar();
+
+    const rule = document.querySelector('[data-slot="brand-rule"]');
+    // A margin that changes with the state would make the line jump while the
+    // width animates — the same trap the logo padding avoids.
+    expect(rule?.className).not.toMatch(/group-data-\[collapsible=icon\]:(mx|px|ml|mr)-/);
+  });
+
+  /**
+   * The rule has to land on the same line as the app header's bottom border,
+   * or the two sit a few pixels apart and the whole top of the screen looks
+   * crooked. The header is h-14 (56px); the sidebar header pads by 8px, so the
+   * brand row must be exactly 48px for the rule to meet it.
+   */
+  it("puts the rule exactly where the header's border is", () => {
+    renderSidebar();
+
+    const brand = screen.getByLabelText("BitCRM home");
+    expect(brand.className).toContain("h-12"); // 48px + the header's p-2 = 56px
   });
 });

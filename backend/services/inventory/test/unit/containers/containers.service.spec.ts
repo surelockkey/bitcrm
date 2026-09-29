@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryStatus } from '@bitcrm/types';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService , RedisService } from '@bitcrm/shared';
 import { ContainersService } from 'src/containers/containers.service';
 import { ContainersRepository } from 'src/containers/containers.repository';
 import { StockRepository } from 'src/stock/stock.repository';
@@ -26,12 +26,24 @@ describe('ContainersService', () => {
     repository = createMockContainersRepository();
     stockRepository = createMockStockRepository();
 
+    const store = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => store.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          store.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ContainersService,
         { provide: ContainersRepository, useValue: repository },
         { provide: StockRepository, useValue: stockRepository },
         { provide: SnsPublisherService, useValue: publisher },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -296,6 +308,54 @@ describe('ContainersService', () => {
       await expect(service.getStock('nonexistent')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('counts the whole list when the caller sees everything', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      expect(await service.count({} as never)).toEqual({ total: 12, atLeast: false });
+    });
+
+    // Технік бачить лише свій фургон — сорок сторінок йому показувати нема з чого.
+    it('counts a technician’s own container as one, without walking the table', async () => {
+      repository.findByTechnicianId.mockResolvedValue({ id: 'cont-1' });
+
+      const result = await service.count({} as never, { id: 'u1' } as never, 'assigned_only');
+
+      expect(result).toEqual({ total: 1, atLeast: false });
+      expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts zero when that technician has no container', async () => {
+      repository.findByTechnicianId.mockResolvedValue(null);
+
+      expect(await service.count({} as never, { id: 'u1' } as never, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+    });
+
+    it('forces the caller’s own department under a department scope', async () => {
+      repository.countAll.mockResolvedValue({ total: 4, atLeast: false });
+
+      await service.count(
+        { department: 'other' } as never,
+        { id: 'u1', department: 'locksmith' } as never,
+        'department',
+      );
+
+      expect(repository.countAll).toHaveBeenCalledWith({ department: 'locksmith' });
+    });
+
+    it('answers a repeat from the cache', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({} as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(1);
     });
   });
 });

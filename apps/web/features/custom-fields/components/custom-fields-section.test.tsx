@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import type { CustomFieldDefinition } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 import { CustomFieldsSection } from "./custom-fields-section";
 
 function field(over: Partial<CustomFieldDefinition>): CustomFieldDefinition {
@@ -220,29 +221,22 @@ describe("CustomFieldsSection", () => {
         HttpResponse.json({ success: true, data: { downloadUrl: "https://s3.example/file.jpg" } }),
       ),
     );
-    const tab = { location: { replace: vi.fn() }, opener: null, close: vi.fn() };
-    const openSpy = vi.spyOn(window, "open").mockReturnValue(tab as never);
+    render(
+      <CustomFieldsSection
+        jobTypeId="jt-1"
+        value={{ "cf-file": "att-1" }}
+        onChange={vi.fn()}
+        dealId="d1"
+      />,
+      { wrapper },
+    );
 
-    try {
-      render(
-        <CustomFieldsSection
-          jobTypeId="jt-1"
-          value={{ "cf-file": "att-1" }}
-          onChange={vi.fn()}
-          dealId="d1"
-        />,
-        { wrapper },
-      );
+    fireEvent.click(await screen.findByRole("button", { name: /view file 1/i }));
 
-      fireEvent.click(await screen.findByRole("button", { name: /view file 1/i }));
-
-      expect(openSpy).toHaveBeenCalled();
-      await waitFor(() =>
-        expect(tab.location.replace).toHaveBeenCalledWith("https://s3.example/file.jpg"),
-      );
-    } finally {
-      openSpy.mockRestore();
-    }
+    // Вікно перегляду поверх роботи, а не нова вкладка.
+    const opened = useFilePreviewStore.getState().file;
+    expect(opened?.name).toBe("File 1");
+    expect(await opened?.load()).toBe("https://s3.example/file.jpg");
   });
 
   it("prompts to save the job first for a file field when no dealId is set", async () => {

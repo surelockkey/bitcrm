@@ -15,6 +15,8 @@ export const TOKENS = {
  * Conventions used by tests:
  *  - login password "temp-pass"  → NEW_PASSWORD_REQUIRED challenge
  *  - login password "wrong"      → 401 invalid credentials
+ *  - login password "mfa-pass"   → SMS_MFA challenge (session "mfa-1", •••• 1234)
+ *  - mfa code "123456"           → tokens; any other code → 401
  *  - change-password session "expired" → 401 expired session
  *  - reset confirm code "000000" → 401 invalid/expired code
  */
@@ -27,6 +29,12 @@ export const handlers = [
         { status: 401 },
       );
     }
+    if (body.password === "mfa-pass") {
+      return HttpResponse.json({
+        success: true,
+        data: { challengeName: "SMS_MFA", session: "mfa-1", destination: "•••• 1234" },
+      });
+    }
     if (body.password === "temp-pass") {
       return HttpResponse.json({
         success: true,
@@ -35,6 +43,18 @@ export const handlers = [
     }
     return HttpResponse.json({ success: true, data: TOKENS });
   }),
+
+  http.post("*/users/auth/mfa", async ({ request }) => {
+    const body = (await request.json()) as { session: string; code: string };
+    if (body.code !== "123456") {
+      return HttpResponse.json({ success: false, message: "That code is not right." }, { status: 401 });
+    }
+    return HttpResponse.json({ success: true, data: TOKENS });
+  }),
+
+  http.post("*/users/auth/mfa/resend", async () =>
+    HttpResponse.json({ success: true, data: { destination: "•••• 1234" } }),
+  ),
 
   http.post("*/users/auth/change-password", async ({ request }) => {
     const body = (await request.json()) as { session: string };

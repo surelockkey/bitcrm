@@ -5,7 +5,12 @@ import {
   QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  scanPage,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { type Transfer } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -125,20 +130,49 @@ export class TransfersRepository {
   }
 
   async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new ScanCommand({
-        TableName: INVENTORY_TABLE,
-        FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-        ExpressionAttributeValues: { ':pk': 'TRANSFER#', ':sk': 'METADATA' },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
+    // Спільна таблиця інвентарю: Scan читає й чужі рядки, а `Limit`
+    // рахує прочитане, не знайдене. Без дочитування сторінка приходить
+    // короткою — як було на сторінці інвентарю, де з п'ятдесяти
+    // просимих поверталось кілька.
+    const page = await scanPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(
+          new ScanCommand({
+              TableName: INVENTORY_TABLE,
+              FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+              ExpressionAttributeValues: { ':pk': 'TRANSFER#', ':sk': 'METADATA' },
+            ...input,
+          }),
+        ),
+      limit,
+      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
-      items: (result.Items || []).map(this.toTransfer),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toTransfer),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
+  }
+
+  /**
+   * How many transfers the list holds — the number behind "Page 2 of 7".
+   *
+   * The same Scan the list runs, with `Select: 'COUNT'` so no bodies travel,
+   * and bounded: the inventory table is shared, so most of what this reads is
+   * not a transfer.
+   */
+  async countAll(): Promise<CountRowsResult> {
+    return countRows((input) =>
+      this.dynamoDb.client.send(
+        new ScanCommand({
+          TableName: INVENTORY_TABLE,
+          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+          ExpressionAttributeValues: { ':pk': 'TRANSFER#', ':sk': 'METADATA' },
+          Select: 'COUNT',
+          ...input,
+        }),
+      ),
+    );
   }
 
   private toTransfer(item: Record<string, unknown>): Transfer {

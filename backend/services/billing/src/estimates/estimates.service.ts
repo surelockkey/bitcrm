@@ -1,3 +1,4 @@
+import { RedisService, cachedCount, countCacheKey } from '@bitcrm/shared';
 import {
   BadRequestException,
   ConflictException,
@@ -19,6 +20,7 @@ import {
   type EstimateItem,
   type EstimateStatus,
   type EstimateWithItems,
+  type ListCount,
 } from '@bitcrm/types';
 import { assertDealAccess, isAssignedOnly, type Caller } from '../common/access';
 import { isYmd, resolveTimezone, todayIn } from '../common/dates';
@@ -78,6 +80,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * Estimates (Workiz): many per job, own line items, own tax/discount
  * snapshot. `sync-to-job` overwrites the job's items through deal-service.
  */
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
+
 @Injectable()
 export class EstimatesService {
   private readonly logger = new Logger(EstimatesService.name);
@@ -87,6 +92,7 @@ export class EstimatesService {
     private readonly deal: DealClient,
     @Optional() private readonly documents?: DocumentsService,
     @Optional() private readonly events?: BillingEventsPublisher,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   // ---------------------------------------------------------------- create
@@ -218,6 +224,31 @@ export class EstimatesService {
     // Page-local filter (see InvoicesService.list).
     const mine = await this.deal.listDealIdsByTech(caller.user.id);
     return { ...result, items: result.items.filter((e) => mine.has(e.dealId)) };
+  }
+
+  /**
+   * How many estimates the filter selects — the number behind "Page 2 of 7".
+   * A technician scoped to their own jobs gets `null`, for the same reason as
+   * invoices: their page is filtered after the query (see InvoicesService).
+   */
+  async count(
+    query: Omit<EstimateListFilter, 'limit'>,
+    caller: Caller,
+  ): Promise<ListCount> {
+    if (isAssignedOnly(caller, 'estimates')) return { total: null, atLeast: false };
+
+    const take = () => this.repo.count({ ...query, limit: 1 } as EstimateListFilter);
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('estimates', {
+        dealId: query.dealId,
+        contactId: query.contactId,
+        status: query.status,
+      }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async summary(caller: Caller): Promise<EstimateSummary> {

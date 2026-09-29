@@ -38,6 +38,7 @@ import { TechnicianAssignments } from "@/features/technicians/components/assignm
 import { DocumentsTab } from "@/features/technicians/components/documents-tab";
 import { CommissionTab } from "@/features/technicians/components/commission-tab";
 import { SelfProfileForm } from "./self-profile-form";
+import { TwoStepCard } from "./two-step-card";
 
 export function ProfilePage() {
   const { data: me, isLoading } = useMe();
@@ -62,6 +63,7 @@ export function ProfilePage() {
         <div className="mx-auto max-w-4xl space-y-6 px-6 py-6">
           <AccountCard me={me} roleName={roleName} canEdit={can("users", "edit")} />
           <SecurityCard email={me.email} />
+          <TwoStepCard me={me} />
           {isTechnician ? <TechnicianSelfService technicianId={me.id} /> : null}
         </div>
       </div>
@@ -137,7 +139,7 @@ function AccountCard({
         ) : (
           <>
             <dl className="text-sm">
-              <Row label="Email" value={<span>{me.email} <span className="ml-1 rounded-full border px-1.5 text-[10px] text-muted-foreground">login</span></span>} />
+              <Row label="Email" value={<span>{me.email} <span className="ml-1 rounded-chip border px-1.5 text-[10px] text-muted-foreground">login</span></span>} />
               <Row label="Department" value={me.department || "—"} />
               <Row label="Role" value={roleName} />
               <Row label="Member since" value={formatDate(me.createdAt)} />

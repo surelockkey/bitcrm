@@ -30,10 +30,12 @@ vi.mock("@/components/ui/sheet", () => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true }),
 }));
 
 vi.mock("@/features/job-types/lib", () => ({
+  useJobTypesLoading: () => false,
   useJobTypeName: () => (id: string | undefined) => id ?? "—",
 }));
 
@@ -90,11 +92,13 @@ const deal: Deal = {
   businessProfileName: "KeyPro",
 };
 
+vi.mock("@/features/clients/hooks", () => ({
+  useContact: (id: string) => ({ data: id === contact.id ? contact : undefined, isLoading: false }),
+}));
 vi.mock("../hooks", () => ({
   useDeal: () => ({ data: deal, isLoading: false }),
   useDealProducts: () => ({ data: [] }),
-  useContactMap: () => ({ map: new Map([[contact.id, contact]]) }),
-  useUserMap: () => ({ map: new Map() }),
+  useUserMap: () => ({ map: new Map(), isLoading: false }),
   useUpdateDeal: () => ({ mutate: vi.fn() }),
   useSetDealTags: () => ({ mutate: vi.fn() }),
   useMoveStatus: () => ({ mutate: vi.fn() }),

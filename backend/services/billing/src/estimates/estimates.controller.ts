@@ -49,6 +49,21 @@ export class EstimatesController {
     return { success: true, data: await this.estimates.list(query, caller) };
   }
 
+  @Get('count')
+  @RequirePermission('estimates', 'view')
+  @ApiOperation({
+    summary: 'How many estimates the list holds',
+    description:
+      '**Guard:** `estimates.view`. Takes the same filters as the list (`dealId`, `contactId`, ' +
+      '`status`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
+      'count behind "Page 2 of 7". Under the `assigned_only` scope `total` is `null`, as on ' +
+      'invoices. Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListEstimatesQueryDto, @CallerCtx() caller: Caller) {
+    const data = await this.estimates.count(query, caller);
+    return { success: true, data };
+  }
+
   @Get('summary')
   @RequirePermission('estimates', 'view')
   @ApiOperation({ summary: 'Estimate counts/amounts by status', description: '**Guard:** `estimates.view`.' })

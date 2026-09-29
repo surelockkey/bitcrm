@@ -21,7 +21,7 @@ export function TransferTypeBadge({ type }: { type: TransferType }) {
         {transferTypeLabel(type)}
       </span>
       {isAutoType(type) ? (
-        <span className="rounded-full border px-1.5 text-[10px] text-muted-foreground">auto</span>
+        <span className="rounded-chip border px-1.5 text-[10px] text-muted-foreground">auto</span>
       ) : null}
     </span>
   );

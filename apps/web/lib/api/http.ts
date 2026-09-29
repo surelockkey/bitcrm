@@ -145,12 +145,18 @@ export async function apiFetch<T>(
   return body.data;
 }
 
-/** Returns the full paginated envelope (`data` + `pagination` cursor). */
-export async function apiFetchPaginated<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<PaginatedResponse<T>> {
-  return request<PaginatedResponse<T>>(path, init);
+/**
+ * Returns the full paginated envelope (`data` + `pagination` cursor).
+ *
+ * `R` widens that envelope for a list that sends more beside its rows — the
+ * jobs list side-loads the names its rows refer to (`DealsListPage`). It
+ * defaults to the plain envelope, so an ordinary list says nothing about it.
+ */
+export async function apiFetchPaginated<
+  T,
+  R extends PaginatedResponse<T> = PaginatedResponse<T>,
+>(path: string, init?: RequestInit): Promise<R> {
+  return request<R>(path, init);
 }
 
 /** Convenience helpers. Bodies are JSON-serialized automatically. */

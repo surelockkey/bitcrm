@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/table";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContactMap } from "@/features/deals/hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { contactName } from "@/features/clients/lib";
 import { formatMoney } from "@/features/billing/lib";
 import { formatYmd } from "@/features/billing/dates";
@@ -174,7 +174,8 @@ function PaymentsTable({
   query: ReturnType<typeof usePaymentList>;
   rows: Payment[];
 }) {
-  const { map: contacts } = useContactMap();
+  // Only the clients on this page, not the whole book.
+  const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
 
   if (q.isLoading) return <Skeleton className="h-64 w-full" />;
   if (q.isError) {
@@ -198,7 +199,7 @@ function PaymentsTable({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto border">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">

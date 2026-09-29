@@ -16,6 +16,9 @@ import { TechJobPage } from "./tech-job-page";
 
 const can = vi.fn((resource: string) => resource === "deals");
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => (r: never) => !can(r),
   usePermissions: () => ({ can, isTechnician: true, isLoading: false }),
 }));
 
@@ -28,7 +31,7 @@ vi.mock("@/features/deals/hooks", () => ({
 
 const contactData = vi.hoisted(() => ({ value: undefined as Contact | undefined }));
 vi.mock("@/features/clients/hooks", () => ({ useContact: () => ({ data: contactData.value }) }));
-vi.mock("@/features/job-types/lib", () => ({ useJobTypeName: () => () => "Lockout" }));
+vi.mock("@/features/job-types/lib", () => ({ useJobTypesLoading: () => false, useJobTypeName: () => () => "Lockout" }));
 vi.mock("@/features/job-statuses/lib", () => ({ useJobStatusName: () => () => "On site" }));
 vi.mock("@/features/telephony/components/call-client-button", () => ({
   CallClientButton: () => <button type="button">Call client</button>,

@@ -129,7 +129,7 @@ export function PhoneNumbersPage() {
                     <span className="flex items-center gap-2">
                       {n.friendlyName}
                       {n.technicianLine ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                        <span className="inline-flex items-center gap-1 rounded-chip border border-brand/30 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
                           <KeyRound className="size-3" /> Technician line
                         </span>
                       ) : null}

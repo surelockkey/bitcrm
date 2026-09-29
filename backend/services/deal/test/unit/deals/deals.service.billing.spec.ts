@@ -166,6 +166,28 @@ describe('DealsService — billing', () => {
       expect(fields).not.toContain('taxSource');
     });
 
+    it('reprices the job under the new tax', async () => {
+      const deal = mockFindById(createMockDeal({ serviceAreaId: 'area-1', taxSource: 'default', taxRatePercent: 4 }));
+      repo.update.mockResolvedValue(deal);
+      repo.findById.mockResolvedValueOnce(deal).mockResolvedValue({ ...deal, taxRatePercent: 10 });
+      products.findByDeal.mockResolvedValue([createMockDealProduct({ quantity: 1, priceClient: 100, costCompany: 0 })]);
+
+      await service.update('deal-1', { serviceAreaId: 'area-2' } as any, caller);
+
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        totals: expect.objectContaining({ tax: 10, total: 110 }),
+      }));
+    });
+
+    it('does not reprice an edit that leaves the tax alone', async () => {
+      const deal = mockFindById(createMockDeal({ serviceAreaId: 'area-1' }));
+      repo.update.mockResolvedValue(deal);
+
+      await service.update('deal-1', { notes: 'x' } as any, caller);
+
+      expect(products.findByDeal).not.toHaveBeenCalled();
+    });
+
     it('leaves a manual tax alone', async () => {
       const deal = mockFindById(createMockDeal({ serviceAreaId: 'area-1', taxSource: 'manual', taxRateId: 'm' }));
       repo.update.mockResolvedValue(deal);
@@ -209,6 +231,7 @@ describe('DealsService — billing', () => {
         taxSource: 'exempt', taxRateId: null,
       }));
       expect(timelineTypes()).toContain(TimelineEventType.TAX_CHANGED);
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({ totals: expect.any(Object) }));
     });
 
     it('keeps a manual tax on client change', async () => {
@@ -227,14 +250,17 @@ describe('DealsService — billing', () => {
     it("defaults taxable to the catalog product's flag and stores the description", async () => {
       mockFindById();
       http.getProduct.mockResolvedValue({ id: 'product-1', type: 'product', taxable: false });
-      products.countByDeal.mockResolvedValue(1);
+      products.findByDeal.mockResolvedValue([createMockDealProduct({ quantity: 1, priceClient: 50, costCompany: 1 })]);
 
       await service.addProduct('deal-1', { ...lineDto, description: 'Front door' } as any, caller);
 
       expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
         taxable: false, description: 'Front door',
       }));
-      expect(repo.update).toHaveBeenCalledWith('deal-1', { itemCount: 1 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', {
+        itemCount: 1,
+        totals: { subtotal: 50, discount: 0, tax: 0, total: 50, cost: 1 },
+      });
     });
 
     it('lets the request override taxable and defaults to true otherwise', async () => {
@@ -251,14 +277,21 @@ describe('DealsService — billing', () => {
       products.findProduct.mockResolvedValue(createMockDealProduct({
         fulfillment: 'to_order', taxable: false, description: 'Old',
       }));
-      products.countByDeal.mockResolvedValue(3);
+      products.findByDeal.mockResolvedValue([
+        createMockDealProduct({ lineId: 'a', quantity: 2, priceClient: 50, costCompany: 1 }),
+        createMockDealProduct({ lineId: 'b', quantity: 1, priceClient: 10, costCompany: 2 }),
+        createMockDealProduct({ lineId: 'c', quantity: 1, priceClient: 10, costCompany: 2 }),
+      ]);
 
       await service.replaceProduct('deal-1', 'product-1', { ...lineDto, quantity: 2 } as any, caller);
 
       expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
         quantity: 2, taxable: false, description: 'Old',
       }));
-      expect(repo.update).toHaveBeenCalledWith('deal-1', { itemCount: 3 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        itemCount: 3,
+        totals: expect.objectContaining({ subtotal: 120, cost: 6 }),
+      }));
     });
 
     it("uses the new product's default on a swap", async () => {
@@ -276,12 +309,29 @@ describe('DealsService — billing', () => {
     it('recounts items on remove', async () => {
       mockFindById();
       products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'service' }));
-      products.countByDeal.mockResolvedValue(0);
+      products.findByDeal.mockResolvedValue([]);
 
       await service.removeProduct('deal-1', 'product-1', caller);
 
-      expect(repo.update).toHaveBeenCalledWith('deal-1', { itemCount: 0 });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', {
+        itemCount: 0,
+        totals: { subtotal: 0, discount: 0, tax: 0, total: 0, cost: 0 },
+      });
       expect(cache.invalidate).toHaveBeenCalledWith('deal-1');
+    });
+
+    it('prices the lines against a fresh, consistent read of the job and its lines', async () => {
+      const deal = mockFindById(createMockDeal({ taxRatePercent: 10 }));
+      products.findProduct.mockResolvedValue(createMockDealProduct({ fulfillment: 'service' }));
+      products.findByDeal.mockResolvedValue([createMockDealProduct({ quantity: 1, priceClient: 100, costCompany: 0 })]);
+
+      await service.removeProduct('deal-1', 'product-1', caller);
+
+      expect(repo.findById).toHaveBeenCalledWith(deal.id, { consistent: true });
+      expect(products.findByDeal).toHaveBeenCalledWith(deal.id, { consistent: true });
+      expect(repo.update).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        totals: expect.objectContaining({ tax: 10, total: 110 }),
+      }));
     });
   });
 

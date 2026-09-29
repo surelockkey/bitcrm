@@ -190,7 +190,8 @@ jobs:
           JWT_SIGNING_KEY:        ${{ secrets.JWT_SIGNING_KEY }}
           COGNITO_CLIENT_SECRET:  ${{ secrets.COGNITO_CLIENT_SECRET }}
           INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
-          # Twilio — consumed only when SERVICE is telephony or messaging.
+          # Twilio — consumed by telephony and messaging, and (account SID +
+          # auth token only) by user for the two-step sign-in codes.
           TWILIO_ACCOUNT_SID:     ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN:      ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_API_KEY:         ${{ secrets.TWILIO_API_KEY }}
@@ -204,6 +205,8 @@ jobs:
           # through, and the E.164 fallback sender. Neither is secret.
           TWILIO_MESSAGING_SERVICE_SID: ${{ vars.TWILIO_MESSAGING_SERVICE_SID }}
           MESSAGING_DEFAULT_SENDER:     ${{ vars.MESSAGING_DEFAULT_SENDER }}
+          # User only: the Verify Service (VA…) that texts two-step sign-in codes.
+          TWILIO_VERIFY_SERVICE_SID:    ${{ vars.TWILIO_VERIFY_SERVICE_SID }}
           # Turns telemetry shipping on. Unset, render-taskdef.sh emits exactly
           # the task definition it always did — which is what happened on the
           # first deploy of this feature: the secret existed but was never

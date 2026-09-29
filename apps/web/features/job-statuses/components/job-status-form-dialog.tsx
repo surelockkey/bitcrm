@@ -134,7 +134,7 @@ export function JobStatusFormDialog({
             </div>
             <span
               className={cn(
-                "mt-1 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                "mt-1 inline-flex items-center rounded-chip border px-2.5 py-0.5 text-xs font-medium",
                 STATUS_COLOR_CLASSES[color],
               )}
             >

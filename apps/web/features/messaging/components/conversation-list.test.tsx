@@ -10,6 +10,7 @@ import type { InboxConversation } from "../api";
 import { ConversationList, type ListState } from "./conversation-list";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({
     can: (r: string) => r === "messages",
     me: { id: "me" },

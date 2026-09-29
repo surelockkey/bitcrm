@@ -14,12 +14,24 @@ import * as api from "./api";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
 
-export function useProducts(filter: ProductFilter) {
+export function useProducts(filter: ProductFilter, limit = 50) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.products.list(filter),
-    queryFn: ({ pageParam }) => api.listProducts(filter, pageParam),
+    queryKey: queryKeys.inventory.products.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listProducts(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+  });
+}
+
+/**
+ * Скільки всього товарів під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useProductsCount(filter: ProductFilter) {
+  return useQuery({
+    queryKey: queryKeys.inventory.products.count(filter),
+    queryFn: () => api.countProducts(filter),
+    staleTime: 30_000,
   });
 }
 

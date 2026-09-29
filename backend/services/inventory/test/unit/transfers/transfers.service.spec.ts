@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { TransferType, LocationType } from '@bitcrm/types';
-import { SnsPublisherService } from '@bitcrm/shared';
+import { SnsPublisherService, RedisService } from '@bitcrm/shared';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
 import { StockService } from 'src/stock/stock.service';
@@ -32,6 +32,16 @@ describe('TransfersService', () => {
     productsService = createMockProductsService();
     // Default: the id is not a technician id, so it's treated as a container id.
     containersRepository = { findByTechnicianId: jest.fn().mockResolvedValue(null) };
+    const store = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => store.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          store.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -41,6 +51,7 @@ describe('TransfersService', () => {
         { provide: ContainersRepository, useValue: containersRepository },
         { provide: ProductsService, useValue: productsService },
         { provide: SnsPublisherService, useValue: publisher },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -351,6 +362,29 @@ describe('TransfersService', () => {
       await service.list({ limit: 50, cursor: 'abc' } as any);
 
       expect(repository.findAll).toHaveBeenCalledWith(50, 'abc');
+    });
+  });
+
+  describe('count', () => {
+    it('answers how many transfers the list holds', async () => {
+      repository.countAll.mockResolvedValue({ total: 18, atLeast: false });
+
+      expect(await service.count()).toEqual({ total: 18, atLeast: false });
+    });
+
+    it('carries the floor flag through', async () => {
+      repository.countAll.mockResolvedValue({ total: 10_000, atLeast: true });
+
+      expect(await service.count()).toEqual({ total: 10_000, atLeast: true });
+    });
+
+    it('answers a repeat from the cache rather than re-walking the table', async () => {
+      repository.countAll.mockResolvedValue({ total: 18, atLeast: false });
+
+      await service.count();
+      await service.count();
+
+      expect(repository.countAll).toHaveBeenCalledTimes(1);
     });
   });
 });

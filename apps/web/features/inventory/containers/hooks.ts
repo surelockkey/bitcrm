@@ -14,10 +14,22 @@ import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import { enrichStock, summarizeStock } from "@/features/inventory/warehouses/lib";
 import * as api from "./api";
 
-export function useContainersList(department?: string) {
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useContainersCount(department?: string) {
+  return useQuery({
+    queryKey: queryKeys.inventory.containers.count(department ?? null),
+    queryFn: () => api.countContainers(department),
+    staleTime: 30_000,
+  });
+}
+
+export function useContainersList(department?: string, limit = 100) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.containers.list(department ?? "all"),
-    queryFn: ({ pageParam }) => api.listContainers(department, pageParam),
+    queryKey: queryKeys.inventory.containers.list(`${department ?? "all"}:${limit}`),
+    queryFn: ({ pageParam }) => api.listContainers(department, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

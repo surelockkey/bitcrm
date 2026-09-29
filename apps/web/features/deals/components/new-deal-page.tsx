@@ -656,7 +656,7 @@ function DealForm({
             <Sel label="Client type" value={v.clientType} onChange={(val) => form.setValue("clientType", val as ClientType)} options={Object.values(ClientType).map((t) => ({ value: t, label: clientTypeLabel(t) }))} />
           </div>
           <div className="space-y-2.5" data-missing={missingNow?.builtinIds.includes("description") || undefined}>
-            <Label>Job description{req("description")}</Label>
+            <Label>Job note{req("description")}</Label>
             <Textarea rows={4} placeholder="What needs doing…" {...form.register("notes")} />
             {missingNow?.builtinIds.includes("description") ? <p className="text-xs text-destructive">Required</p> : null}
           </div>

@@ -16,7 +16,7 @@ export function StageBadge({ status, className }: { status: JobSuperStatus; clas
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-chip border px-2 py-0.5 text-[11px] font-semibold",
         TONE[superStatusTone(status)],
         className,
       )}
@@ -31,7 +31,7 @@ export function PriorityFlag({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300",
+        "inline-flex items-center gap-1 rounded-chip border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300",
         className,
       )}
     >

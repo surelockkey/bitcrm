@@ -4,10 +4,12 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
 import { AppHeader } from "./app-header";
 import { PageHistoryBar } from "./page-history";
+import { FilePreviewHost } from "@/features/files/components/file-preview-host";
 import { CommandMenu } from "./command-menu";
 import { LocationBroadcaster } from "@/features/technicians/components/location-broadcaster";
 import { SoftphoneProvider } from "@/features/telephony/components/softphone-provider";
 import { MessagingStreamProvider } from "@/features/messaging/components/messaging-stream-provider";
+import { DealsStreamProvider } from "@/features/deals/components/deals-stream-provider";
 import { InboxSidebarCollapse } from "@/features/messaging/components/inbox-sidebar-collapse";
 
 /** Authenticated app chrome: sidebar + header + command palette. */
@@ -29,6 +31,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </SidebarInset>
       <CommandMenu />
+      {/* Вкладення відкривається вікном поверх сторінки, звідки б його не
+          відкрили: робота, документи техніка, переписка, поле-файл. */}
+      <FilePreviewHost />
       {/* Streams a technician's live location while they're online (renders nothing). */}
       <LocationBroadcaster />
       {/* Twilio softphone: drives the Device from the phone on/off toggle and
@@ -37,6 +42,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Inbox live updates (SSE) for the whole session; feeds the sidebar
           badge and any open thread (renders nothing). */}
       <MessagingStreamProvider />
+      {/* Jobs live updates (SSE): any change refetches the jobs on screen, so
+          the boards need not poll while it is up (renders nothing). */}
+      <DealsStreamProvider />
       {/* The Inbox owns the screen: fold the navigation to its icon rail while
           it is open, unfold on the way out (renders nothing). */}
       <InboxSidebarCollapse />

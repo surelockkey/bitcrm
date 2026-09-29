@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatDate } from "@/features/users/lib";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 import { getAttachmentDownloadUrl } from "../attachments-api";
 import {
   useAttachments,
@@ -42,7 +43,7 @@ const ACCEPT = "image/png,image/jpeg,image/webp,image/heic,application/pdf";
 export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdit: boolean }) {
   const { data: items, isLoading } = useAttachments(dealId);
   const del = useDeleteAttachment(dealId);
-  const [viewingId, setViewingId] = useState<string | null>(null);
+  const preview = useFilePreviewStore((s) => s.preview);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [editing, setEditing] = useState<DealAttachmentMeta | null>(null);
 
@@ -65,25 +66,14 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
     })();
   };
 
-  const view = (att: DealAttachmentMeta) => {
-    // Open the tab synchronously inside the click gesture — opening it after the
-    // await would be a non-user-initiated popup that browsers block (blank tab).
-    const tab = window.open("", "_blank");
-    if (tab) tab.opener = null;
-    setViewingId(att.id);
-    void (async () => {
-      try {
-        const { downloadUrl } = await getAttachmentDownloadUrl(dealId, att.id);
-        if (tab) tab.location.replace(downloadUrl);
-        else window.open(downloadUrl, "_blank", "noopener,noreferrer");
-      } catch (e) {
-        tab?.close();
-        toast.error(getApiErrorMessage(e));
-      } finally {
-        setViewingId(null);
-      }
-    })();
-  };
+  // Вікно поверх роботи, а не нова вкладка: читач не губить роботу з очей,
+  // і посилання береться вже всередині вікна, у мить показу.
+  const view = (att: DealAttachmentMeta) =>
+    preview({
+      name: att.fileName,
+      contentType: att.contentType,
+      load: async () => (await getAttachmentDownloadUrl(dealId, att.id)).downloadUrl,
+    });
 
   if (isLoading) return <Skeleton className="h-48 w-full" />;
 
@@ -106,7 +96,6 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
               <button
                 type="button"
                 onClick={() => view(att)}
-                disabled={viewingId === att.id}
                 aria-label={`Open ${att.fileName}`}
                 className="relative flex-none rounded-md transition-opacity hover:opacity-80"
               >
@@ -117,11 +106,6 @@ export function DealAttachmentsTab({ dealId, canEdit }: { dealId: string; canEdi
                     <FileText className="size-6" />
                   </span>
                 )}
-                {viewingId === att.id ? (
-                  <span className="absolute inset-0 grid place-items-center rounded-md bg-background/60">
-                    <Loader2 className="size-4 animate-spin" />
-                  </span>
-                ) : null}
               </button>
 
               {/* …the row opens the name/description editor. */}

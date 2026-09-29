@@ -5,13 +5,19 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { SnsPublisherService } from '@bitcrm/shared';
+import {
+  SnsPublisherService,
+  RedisService,
+  cachedCount,
+  countCacheKey,
+} from '@bitcrm/shared';
 import { randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import {
   type Container,
   type StockItem,
   type JwtUser,
+  type ListCount,
   InventoryStatus,
 } from '@bitcrm/types';
 import { ContainersRepository } from './containers.repository';
@@ -19,6 +25,9 @@ import { StockRepository } from '../stock/stock.repository';
 import { CreateContainerDto } from './dto/create-container.dto';
 import { ListContainersQueryDto } from './dto/list-containers-query.dto';
 import { UpdateContainerDto } from './dto/update-container.dto';
+
+/** How long a list count stays good enough. Matches the deals tab counts. */
+const COUNT_TTL_SECONDS = 30;
 
 @Injectable()
 export class ContainersService {
@@ -28,6 +37,7 @@ export class ContainersService {
     private readonly repository: ContainersRepository,
     private readonly stockRepository: StockRepository,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
+    @Optional() private readonly redis?: RedisService,
   ) {}
 
   async create(dto: CreateContainerDto): Promise<Container> {
@@ -113,6 +123,36 @@ export class ContainersService {
     return this.repository.findAll(query.limit || 20, query.cursor, {
       department,
     });
+  }
+
+  /**
+   * How many containers the list holds — the number behind "Page 2 of 7".
+   *
+   * It applies the same data scope the list does, or a technician would be
+   * told there are forty pages of a list that shows them their own van.
+   */
+  async count(
+    query: ListContainersQueryDto,
+    user?: JwtUser,
+    dataScope?: string,
+  ): Promise<ListCount> {
+    // Scoped to their own container: one row at most, and no count to take.
+    if (dataScope === 'assigned_only' && user) {
+      const container = await this.repository.findByTechnicianId(user.id);
+      return { total: container ? 1 : 0, atLeast: false };
+    }
+
+    const department =
+      dataScope === 'department' && user ? user.department : query.department;
+
+    const take = () => this.repository.countAll({ department });
+    if (!this.redis) return take();
+    return cachedCount(
+      this.redis.client,
+      countCacheKey('containers', { department }),
+      COUNT_TTL_SECONDS,
+      take,
+    );
   }
 
   async getStock(containerId: string): Promise<StockItem[]> {

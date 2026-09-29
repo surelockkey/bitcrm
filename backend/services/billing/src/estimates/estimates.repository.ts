@@ -9,7 +9,11 @@ import {
   UpdateCommand,
   type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import type { Estimate, EstimateItem, EstimateStatus } from '@bitcrm/types';
 import {
   BILLING_GSI1_NAME,
@@ -235,7 +239,11 @@ export class EstimatesRepository {
     return out;
   }
 
-  async list(filter: EstimateListFilter): Promise<{ items: Estimate[]; nextCursor?: string }> {
+  /**
+   * The Query that selects estimates, shared by the list and its count so the
+   * two can never answer about different populations.
+   */
+  private buildListQuery(filter: EstimateListFilter): QueryCommandInput {
     const names: Record<string, string> = {};
     const values: Record<string, unknown> = {};
     let input: QueryCommandInput;
@@ -266,16 +274,24 @@ export class EstimatesRepository {
       filters.push('#contactId = :contactId');
     }
 
+    return {
+      ...input,
+      ScanIndexForward: false,
+      ExpressionAttributeValues: values,
+      ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+      ...(filters.length && { FilterExpression: filters.join(' AND ') }),
+    };
+  }
+
+  async list(filter: EstimateListFilter): Promise<{ items: Estimate[]; nextCursor?: string }> {
+    const input = this.buildListQuery(filter);
+
     const items: Estimate[] = [];
     let startKey = decodeCursor<Record<string, unknown>>(filter.cursor);
     for (let round = 0; round < 25 && items.length < filter.limit; round++) {
       const res = await this.db.client.send(
         new QueryCommand({
           ...input,
-          ScanIndexForward: false,
-          ExpressionAttributeValues: values,
-          ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
-          ...(filters.length && { FilterExpression: filters.join(' AND ') }),
           Limit: filter.limit - items.length,
           ExclusiveStartKey: startKey,
         }),
@@ -285,6 +301,18 @@ export class EstimatesRepository {
       if (!startKey) break;
     }
     return { items, nextCursor: startKey ? encodeCursor(startKey) : undefined };
+  }
+
+  /**
+   * How many estimates the filter selects — the number behind "Page 2 of 7".
+   * The same Query with `Select: 'COUNT'`, so no estimate bodies travel.
+   */
+  async count(filter: EstimateListFilter): Promise<CountRowsResult> {
+    const input = this.buildListQuery(filter);
+
+    return countRows((page) =>
+      this.db.client.send(new QueryCommand({ ...input, Select: 'COUNT', ...page })),
+    );
   }
 
   /** Every estimate (paged internally) — for the summary. */

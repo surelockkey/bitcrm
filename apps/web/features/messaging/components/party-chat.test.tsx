@@ -10,6 +10,7 @@ import { PartyChat } from "./party-chat";
 import { TextButton } from "./text-button";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, me: { id: "me" }, isLoading: false, isTechnician: false }),
 }));
 vi.mock("@/features/deals/hooks", () => ({

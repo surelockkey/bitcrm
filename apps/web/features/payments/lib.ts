@@ -17,6 +17,7 @@ import {
 } from "@bitcrm/types";
 import { formatMoney } from "@/features/billing/lib";
 import { isYmd, todayYmd } from "@/features/billing/dates";
+import { toneClasses } from "@/lib/theme/tone";
 
 /* --------------------------------------------------------------- money */
 
@@ -28,30 +29,15 @@ const safe = (n: number | undefined | null): number =>
 /* -------------------------------------------------------------- labels */
 
 /**
- * Status tones mirror the invoice badge: amber while the money is in flight,
- * emerald once it has landed, red when it never did or came back.
+ * Status tones, through the shared scale: amber while the money is in flight,
+ * green once it has landed, red when it never did or came back.
  */
 export const PAYMENT_STATUS_META: Record<PaymentStatus, { label: string; className: string }> = {
-  pending: {
-    label: "Clearing",
-    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  },
-  settled: {
-    label: "Paid",
-    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  },
-  failed: {
-    label: "Failed",
-    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-  },
-  reversed: {
-    label: "Reversed",
-    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-  },
-  refunded: {
-    label: "Refunded",
-    className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
-  },
+  pending: { label: "Clearing", className: toneClasses("warning") },
+  settled: { label: "Paid", className: toneClasses("success") },
+  failed: { label: "Failed", className: toneClasses("destructive") },
+  reversed: { label: "Reversed", className: toneClasses("destructive") },
+  refunded: { label: "Refunded", className: toneClasses("neutral") },
 };
 
 export function paymentStatusLabel(status: PaymentStatus): string {

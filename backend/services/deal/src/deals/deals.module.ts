@@ -12,6 +12,8 @@ import { DealsController } from './deals.controller';
 import { DealsService } from './deals.service';
 import { DealsRepository } from './deals.repository';
 import { DealsCacheService } from './deals-cache.service';
+import { DealEventsBus } from './realtime/deal-events.bus';
+import { DealEventsController } from './realtime/deal-events.controller';
 import { TimelineRepository } from '../timeline/timeline.repository';
 import { DealProductsRepository } from '../products/deal-products.repository';
 import { DealProductsBackfill } from '../products/deal-products.backfill';
@@ -25,16 +27,22 @@ import { BusinessProfilesClientModule } from '../common/services/business-profil
 import { DealBillingController } from './billing/deal-billing.controller';
 import { DealBillingService } from './billing/deal-billing.service';
 import { DealTaxResolver } from './billing/deal-tax.resolver';
+import { DealDashboardController } from './dashboard/deal-dashboard.controller';
+import { DealDashboardService } from './dashboard/deal-dashboard.service';
+import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.scheduler';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
   // Attachments and billing controllers before Deals so their `/:id/...` and
-  // `internal/:id/...` routes are matched ahead of DealsController's.
-  controllers: [DealAttachmentsController, DealBillingController, DealsController],
+  // `internal/:id/...` routes are matched ahead of DealsController's; the
+  // live stream too, or `GET /:id` would take `/stream`; the dashboard's
+  // `stats/*` too, ahead of the `:id/…` routes.
+  controllers: [DealEventsController, DealAttachmentsController, DealBillingController, DealDashboardController, DealsController],
   providers: [
     DealsService,
     DealsRepository,
     DealsCacheService,
+    DealEventsBus,
     TimelineRepository,
     DealProductsRepository,
     DealProductsBackfill,
@@ -44,6 +52,8 @@ import { DealTaxResolver } from './billing/deal-tax.resolver';
     DealAttachmentsRepository,
     DealTaxResolver,
     DealBillingService,
+    DealDashboardService,
+    DashboardSnapshotScheduler,
   ],
   exports: [DealsService, DealsEventHandler],
 })

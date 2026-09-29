@@ -3,6 +3,7 @@ import type {
   StockItem,
   Transfer,
   PaginatedResponse,
+  ListCount,
 } from "@bitcrm/types";
 import { LocationType } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
@@ -10,11 +11,20 @@ import { http, apiFetchPaginated } from "@/lib/api/http";
 export function listContainers(
   department?: string,
   cursor?: string,
+  limit = 100,
 ): Promise<PaginatedResponse<Container>> {
-  const q = new URLSearchParams({ limit: "100" });
+  const q = new URLSearchParams({ limit: String(limit) });
   if (department) q.set("department", department);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<Container>(`/inventory/containers?${q}`);
+}
+
+/** Скільки контейнерів під цим фільтром — число для «Page 2 of 7». */
+export function countContainers(department?: string): Promise<ListCount> {
+  const q = new URLSearchParams();
+  if (department) q.set("department", department);
+  const s = q.toString();
+  return http.get<ListCount>(`/inventory/containers/count${s ? `?${s}` : ""}`);
 }
 
 export function getContainer(id: string): Promise<Container> {

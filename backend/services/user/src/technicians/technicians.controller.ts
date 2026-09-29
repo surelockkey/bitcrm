@@ -24,6 +24,21 @@ export class TechniciansController {
     return this.techniciansService.list(query, user);
   }
 
+  // Before any `:id` route, or the parameter swallows it.
+  @Get('count')
+  @RequirePermission('technicians', 'view')
+  @ApiOperation({
+    summary: 'How many technicians the list holds',
+    description:
+      '**Guard:** `technicians.view` permission required. Manager+ only, exactly as the list — ' +
+      'a field technician is denied here too. Takes the same `status` filter and answers ' +
+      '`{ total, atLeast }`, the row count behind "Page 2 of 7". Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListTechniciansQueryDto, @CurrentUser() user: JwtUser) {
+    const data = await this.techniciansService.count(query, user);
+    return { success: true, data };
+  }
+
   @Get(':id/profile')
   @RequirePermission('technicians', 'view')
   @ApiOperation({

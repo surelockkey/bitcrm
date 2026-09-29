@@ -22,6 +22,12 @@ export interface User {
    * `isFieldTeamMember`, which falls back to the role.
    */
   fieldTeamMember?: boolean;
+  /**
+   * Two-step sign-in: after the password, a code texted to `phone` (Twilio
+   * Verify). Only ever switched on once that number has proved it receives
+   * texts; changing the number switches it off until the new one does.
+   */
+  smsMfaEnabled?: boolean;
   status: UserStatus;
   permissionOverrides?: UserPermissionOverrides;
   createdAt: string;

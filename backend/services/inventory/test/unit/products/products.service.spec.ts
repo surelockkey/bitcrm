@@ -9,7 +9,7 @@ import {
 import { ProductsRepository } from 'src/products/products.repository';
 import { ProductsCacheService } from 'src/products/products-cache.service';
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
-import { S3Service, SnsPublisherService } from '@bitcrm/shared';
+import { RedisService, S3Service, SnsPublisherService } from '@bitcrm/shared';
 import { InventoryStatus, ProductType, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import {
   createMockProduct,
@@ -27,6 +27,7 @@ describe('ProductsService', () => {
   let s3: ReturnType<typeof createMockS3Service>;
   let publisher: { publish: jest.Mock };
   let categories: ReturnType<typeof createMockItemCategoriesService>;
+  let redisStore: Map<string, string>;
 
   beforeEach(async () => {
     repository = createMockProductsRepository();
@@ -34,6 +35,16 @@ describe('ProductsService', () => {
     s3 = createMockS3Service();
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
     categories = createMockItemCategoriesService();
+    redisStore = new Map<string, string>();
+    const redis = {
+      client: {
+        get: jest.fn(async (k: string) => redisStore.get(k) ?? null),
+        set: jest.fn(async (k: string, v: string) => {
+          redisStore.set(k, v);
+          return 'OK';
+        }),
+      },
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -43,6 +54,7 @@ describe('ProductsService', () => {
         { provide: S3Service, useValue: s3 },
         { provide: SnsPublisherService, useValue: publisher },
         { provide: ItemCategoriesService, useValue: categories },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -737,6 +749,63 @@ describe('ProductsService', () => {
       expect(managed).toEqual([items[0]]);
       expect(unmanaged).toEqual([items[1], items[2]]);
       expect(repository.findById).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  /**
+   * Скільки всього товарів під поточними фільтрами — число для «Page 2 of 7».
+   * Розвилка мусить бути та сама, що в `list`, інакше панель показала б
+   * сторінки іншого набору.
+   */
+  describe('count', () => {
+    it('counts the scanned list when neither category nor type is set', async () => {
+      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+
+      expect(await service.count({ status: 'active', search: 'lock' } as never)).toEqual({
+        total: 47,
+        atLeast: false,
+      });
+      expect(repository.countAll).toHaveBeenCalledWith({ status: 'active', search: 'lock' });
+    });
+
+    it('counts on the category index when a category is given, as the list does', async () => {
+      repository.countByCategory.mockResolvedValue({ total: 9, atLeast: false });
+
+      expect(await service.count({ category: 'locks' } as never)).toEqual({ total: 9, atLeast: false });
+      expect(repository.countByCategory).toHaveBeenCalledWith('locks');
+      expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts on the type index when a type is given', async () => {
+      repository.countByType.mockResolvedValue({ total: 4, atLeast: false });
+
+      expect(await service.count({ type: 'part' } as never)).toEqual({ total: 4, atLeast: false });
+      expect(repository.countByType).toHaveBeenCalledWith('part');
+    });
+
+    it('carries the floor flag through', async () => {
+      repository.countAll.mockResolvedValue({ total: 10_000, atLeast: true });
+
+      expect(await service.count({} as never)).toEqual({ total: 10_000, atLeast: true });
+    });
+
+    // Той самий екран з тими самими фільтрами не має перечитувати індекс.
+    it('answers a repeat of the same question from the cache', async () => {
+      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+
+      await service.count({ status: 'active' } as never);
+      await service.count({ status: 'active' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('counts again when the filters change', async () => {
+      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+
+      await service.count({ status: 'active' } as never);
+      await service.count({ status: 'archived' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(2);
     });
   });
 });

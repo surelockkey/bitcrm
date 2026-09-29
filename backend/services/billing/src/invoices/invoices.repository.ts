@@ -7,7 +7,11 @@ import {
   UpdateCommand,
   type QueryCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  countRows,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import type { Invoice, InvoiceStatus } from '@bitcrm/types';
 import {
   BILLING_GSI1_NAME,
@@ -144,7 +148,11 @@ export class InvoicesRepository {
     );
   }
 
-  async list(filter: InvoiceListFilter): Promise<{ items: Invoice[]; nextCursor?: string }> {
+  /**
+   * The Query that selects invoices, shared by the list and its count so the
+   * two can never answer about different populations.
+   */
+  private buildListQuery(filter: InvoiceListFilter): QueryCommandInput {
     const names: Record<string, string> = {};
     const values: Record<string, unknown> = {};
     const filters: string[] = [];
@@ -195,16 +203,31 @@ export class InvoicesRepository {
       filters.push('attribute_not_exists(#sentAt)');
     }
 
-    return this.pagedQuery(
-      {
-        ...input,
-        ScanIndexForward: false,
-        ExpressionAttributeValues: values,
-        ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
-        ...(filters.length && { FilterExpression: filters.join(' AND ') }),
-      },
-      filter.limit,
-      filter.cursor,
+    return {
+      ...input,
+      ScanIndexForward: false,
+      ExpressionAttributeValues: values,
+      ...(Object.keys(names).length && { ExpressionAttributeNames: names }),
+      ...(filters.length && { FilterExpression: filters.join(' AND ') }),
+    };
+  }
+
+  async list(filter: InvoiceListFilter): Promise<{ items: Invoice[]; nextCursor?: string }> {
+    return this.pagedQuery(this.buildListQuery(filter), filter.limit, filter.cursor);
+  }
+
+  /**
+   * How many invoices the filter selects — the number behind "Page 2 of 7".
+   *
+   * The same Query, with `Select: 'COUNT'`: no invoice bodies come back, only
+   * the tally. Bounded, because a status filter is applied after the read and
+   * a rare status over the whole ledger would otherwise walk all of it.
+   */
+  async count(filter: InvoiceListFilter): Promise<CountRowsResult> {
+    const input = this.buildListQuery(filter);
+
+    return countRows((page) =>
+      this.db.client.send(new QueryCommand({ ...input, Select: 'COUNT', ...page })),
     );
   }
 

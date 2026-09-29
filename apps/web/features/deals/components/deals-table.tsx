@@ -11,7 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Contact, Deal, User } from "@bitcrm/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { Contact, Deal, PersonName, User } from "@bitcrm/types";
 import {
   extensionOf,
   formatAddress,
@@ -20,7 +21,7 @@ import {
   primaryEmail,
 } from "@/features/clients/lib";
 import { formatDate } from "@/features/users/lib";
-import { useJobTypeName } from "@/features/job-types/lib";
+import { useJobTypeName, useJobTypesLoading } from "@/features/job-types/lib";
 import { useJobSourceName } from "@/features/job-sources/lib";
 import { useExternalCompanyName } from "@/features/external-companies/lib";
 import { useJobStatusName } from "@/features/job-statuses/lib";
@@ -31,6 +32,7 @@ import {
   customFieldIdFromColumn,
   formatCustomFieldValue,
   jobFieldOptions,
+  JOB_NUMBER_WIDTH,
   type VisibleFields,
 } from "../fields";
 import {
@@ -42,8 +44,66 @@ import {
   scheduleMarker,
 } from "../lib";
 import { TechChips } from "./assigned-techs";
+import { TechCell } from "./tech-cell";
+import { noteToText } from "../note-html";
 import { PriorityFlag, StageBadge } from "./deal-badges";
 import type { DirectoryUser } from "@/features/deals/hooks";
+
+/**
+ * The table's shell while the jobs are still in flight.
+ *
+ * Not a grey rectangle: the same header, the same column widths and rows of
+ * the same height, so the first painted frame already has the geometry the
+ * real rows land into. A `h-64` placeholder followed by a full table is a
+ * jump the reader watches happen.
+ */
+export function DealsTableSkeleton({
+  visibleFields = DEFAULT_VISIBLE,
+  rows = 12,
+}: {
+  visibleFields?: VisibleFields;
+  rows?: number;
+}) {
+  const { data: customFieldDefs } = useCustomFields();
+  const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
+
+  return (
+    <div className="overflow-x-auto border" aria-busy role="status" aria-label="Loading jobs">
+      <Table className="table-fixed">
+        <colgroup>
+          <col style={{ width: JOB_NUMBER_WIDTH }} />
+          {columns.map((c) => (
+            <col key={c.id} style={{ width: c.width }} />
+          ))}
+        </colgroup>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="truncate">Job&nbsp;#</TableHead>
+            {columns.map((c) => (
+              <TableHead key={c.id} className="truncate">
+                {c.label}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: rows }, (_, i) => (
+            <TableRow key={i} className="hover:bg-transparent">
+              <TableCell>
+                <Skeleton className="h-4 w-12" />
+              </TableCell>
+              {columns.map((c) => (
+                <TableCell key={c.id}>
+                  <Skeleton className="h-4 w-full" />
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
 
 /** "RESIDENTIAL" → "Residential", "IN_PROGRESS" → "In progress". */
 const pretty = (v?: string) =>
@@ -51,27 +111,70 @@ const pretty = (v?: string) =>
 
 const money = (n?: number) => (typeof n === "number" ? `$${n.toFixed(2)}` : "—");
 
+/** No side-loaded names — a stable identity, so it never re-renders the grid. */
+const NO_NAMES: Map<string, PersonName> = new Map();
+
 export function DealsTable({
   deals,
   contactMap,
+  clientNames = NO_NAMES,
   userMap,
+  namesLoading = false,
   onOpen,
   visibleFields = DEFAULT_VISIBLE,
 }: {
   deals: Deal[];
+  /**
+   * The contacts behind the rows — the only source of a client's number or
+   * email. Empty when no column shows either: the list then names its clients
+   * from `clientNames` and asks crm for nothing.
+   */
   contactMap: Map<string, Contact>;
+  /**
+   * contactId → the client's name, as it came with the rows
+   * (`included.clients`). Names and nothing else; a number never travels this
+   * way — see `JobsListIncluded`.
+   */
+  clientNames?: Map<string, PersonName>;
+  /**
+   * id → person, for the columns that print one: the technicians came with
+   * the rows, the rest (dispatcher, created-by) from whatever directory the
+   * page already holds.
+   */
   userMap: Map<string, DirectoryUser>;
+  /**
+   * The directory lookup is still in flight. A cell whose id is present but
+   * whose name has not landed shows a line rather than "—": the dash is an
+   * answer, and replacing it a frame later is the flicker the reader
+   * complains about.
+   */
+  namesLoading?: boolean;
   onOpen: (deal: Deal) => void;
   visibleFields?: VisibleFields;
 }) {
   const jobTypeName = useJobTypeName();
   const sourceName = useJobSourceName();
+  // The catalogs answer on their own schedule. Until they do, `jobTypeName`
+  // and friends say "Unknown type" — a statement, and the wrong one, which
+  // then rewrites itself under the reader.
+  const jobTypesLoading = useJobTypesLoading();
   const externalCompanyName = useExternalCompanyName();
   const subStatusName = useJobStatusName();
   const { data: customFieldDefs } = useCustomFields();
 
   // Every offerable field (static + active custom), narrowed to what's toggled on.
   const columns = jobFieldOptions(customFieldDefs).filter((c) => visibleFields[c.id]);
+
+  // A value whose own query has not answered yet. Same height as the text it
+  // becomes, so the swap happens in place.
+  const pendingLine = <Skeleton className="h-4 w-24" />;
+
+  const personCell = (id?: string): ReactNode => {
+    if (!id) return "—";
+    const u = userMap.get(id);
+    if (u) return `${u.firstName} ${u.lastName}`.trim() || "—";
+    return namesLoading ? pendingLine : "—";
+  };
 
   const personName = (id?: string) => {
     const u = id ? userMap.get(id) : undefined;
@@ -80,20 +183,28 @@ export function DealsTable({
 
   const cell = (d: Deal, columnId: string): ReactNode => {
     const contact = contactMap.get(d.contactId);
+    // Phones come from the CONTACT, never from `deal.phones`, even though the
+    // job carries its own copy. crm masks numbers for a caller without
+    // `contacts.view_numbers` (masking IS the absence of that grant); deal
+    // service masks nothing, so reading the job's copy here would hand every
+    // holder of `deals.view` the numbers the grant exists to withhold.
     const phone = contact ? primaryPhone(contact) : undefined;
-    const email = contact ? primaryEmail(contact) : undefined;
+    const phoneExt = contact && phone ? extensionOf(contact, phone) : "";
+    const email = contact ? primaryEmail(contact) : (d.emailAddress ?? undefined);
 
     switch (columnId) {
       case "client":
         return (
           <>
             <div className="flex items-center gap-2">
-              <span className="font-medium">{dealClientName(d, contact)}</span>
+              <span className="font-medium">
+                {dealClientName(d, contact, clientNames.get(d.contactId))}
+              </span>
               {isUrgent(d) ? <PriorityFlag /> : null}
             </div>
             {phone ? (
               <div className="text-xs text-muted-foreground">
-                {formatPhoneWithExtension(phone, contact ? extensionOf(contact, phone) : "")}
+                {formatPhoneWithExtension(phone, phoneExt)}
               </div>
             ) : email ? (
               <div className="text-xs text-muted-foreground">{email}</div>
@@ -103,9 +214,7 @@ export function DealsTable({
       case "phone":
         return (
           <span className="text-sm">
-            {phone
-              ? formatPhoneWithExtension(phone, contact ? extensionOf(contact, phone) : "")
-              : "—"}
+            {phone ? formatPhoneWithExtension(phone, phoneExt) : "—"}
           </span>
         );
       case "email":
@@ -113,11 +222,11 @@ export function DealsTable({
       case "clientType":
         return <span className="text-sm">{pretty(d.clientType)}</span>;
       case "tech":
-        return <TechChips techIds={d.assignedTechIds} userMap={userMap} size="xs" emptyText="—" />;
+        return <TechCell deal={d} userMap={userMap} />;
       case "dispatcher":
-        return <span className="text-sm">{personName(d.assignedDispatcherId)}</span>;
+        return <span className="text-sm">{personCell(d.assignedDispatcherId)}</span>;
       case "tags":
-        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} /> : <span className="text-muted-foreground">—</span>;
+        return d.tagIds?.length ? <JobTagChips ids={d.tagIds} max={3} solid /> : <span className="text-muted-foreground">—</span>;
       case "status":
         return (
           <>
@@ -184,7 +293,11 @@ export function DealsTable({
           <span className="text-sm text-muted-foreground">—</span>
         );
       case "jobType":
-        return <span className="text-sm">{jobTypeName(d.jobTypeId)}</span>;
+        return (
+          <span className="text-sm">
+            {d.jobTypeId && jobTypesLoading ? pendingLine : jobTypeName(d.jobTypeId)}
+          </span>
+        );
       case "source":
         return <span className="text-sm">{sourceName(d.sourceId)}</span>;
       case "externalCompany":
@@ -199,7 +312,7 @@ export function DealsTable({
       case "paymentStatus":
         return <span className="text-sm">{d.paymentStatus ? pretty(d.paymentStatus) : "—"}</span>;
       case "notes":
-        return <span className="block max-w-56 truncate text-sm text-muted-foreground">{d.notes || "—"}</span>;
+        return <span className="block max-w-56 truncate text-sm text-muted-foreground">{noteToText(d.notes) || "—"}</span>;
       case "createdBy":
         return <span className="text-sm">{personName(d.createdBy)}</span>;
       case "createdAt":
@@ -216,13 +329,28 @@ export function DealsTable({
   };
 
   return (
-    <div className="overflow-x-auto rounded-xl border">
-      <Table>
+    <div className="overflow-x-auto border">
+      {/*
+        `table-fixed` with a declared width per column. Names now arrive with
+        the rows, but a contact (a number, an email) still lands a frame or
+        two later, and with auto layout every column re-measures when it does
+        — the whole grid jumps under the reader's cursor. Fixed widths make
+        the first painted frame the final one, whatever fills in afterwards.
+      */}
+      <Table className="table-fixed">
+        <colgroup>
+          <col style={{ width: JOB_NUMBER_WIDTH }} />
+          {columns.map((c) => (
+            <col key={c.id} style={{ width: c.width }} />
+          ))}
+        </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-16">Job&nbsp;#</TableHead>
+            <TableHead className="truncate">Job&nbsp;#</TableHead>
             {columns.map((c) => (
-              <TableHead key={c.id}>{c.label}</TableHead>
+              <TableHead key={c.id} className="truncate">
+                {c.label}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -262,7 +390,11 @@ export function DealsTable({
                 </Link>
               </TableCell>
               {columns.map((c) => (
-                <TableCell key={c.id}>{cell(d, c.id)}</TableCell>
+                // A long address or note is clipped, not allowed to widen its
+                // column and shove the rest of the row sideways.
+                <TableCell key={c.id} className="overflow-hidden">
+                  {cell(d, c.id)}
+                </TableCell>
               ))}
             </TableRow>
           ))}

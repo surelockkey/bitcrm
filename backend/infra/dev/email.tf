@@ -39,21 +39,28 @@ variable "messaging_email_from_local_part" {
   default     = "office"
 }
 
+variable "messaging_mail_from_subdomain" {
+  description = "Subdomain of messaging_email_domain SES uses as the MAIL FROM (bounce) domain. Must be a name nothing else holds: a CNAME there (Google Workspace parks `mail.` on ghs.googlehosted.com) cannot share the name with the MX + TXT SES needs."
+  type        = string
+  default     = "mail"
+}
+
 locals {
   email_enabled = var.messaging_email_domain != ""
 
   email_domain         = var.messaging_email_domain
   email_reply_domain   = "${var.messaging_reply_subdomain}.${var.messaging_email_domain}"
   email_from_address   = "${var.messaging_email_from_local_part}@${var.messaging_email_domain}"
-  email_mail_from      = "mail.${var.messaging_email_domain}"
+  email_mail_from      = "${var.messaging_mail_from_subdomain}.${var.messaging_email_domain}"
   email_inbound_prefix = "messaging/inbound-email/"
   email_config_set     = "${var.project}-${var.environment}-messaging"
   email_rule_set       = "${var.project}-${var.environment}-messaging"
 
   # ARNs the task policy needs without forcing the resources to exist first.
-  email_identity_arn   = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/${var.messaging_email_domain}"
-  email_config_set_arn = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:configuration-set/${local.email_config_set}"
-  email_rule_set_arn   = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:receipt-rule-set/${local.email_rule_set}"
+  email_identity_arn_prefix = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:identity/"
+  email_identity_arn        = "${local.email_identity_arn_prefix}${var.messaging_email_domain}"
+  email_config_set_arn      = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:configuration-set/${local.email_config_set}"
+  email_rule_set_arn        = "arn:aws:ses:${var.aws_region}:${data.aws_caller_identity.current.account_id}:receipt-rule-set/${local.email_rule_set}"
 
   # Splat + merge/flatten read as empty when the module / resource has count 0,
   # so outputs and SSM parameters below never index a missing instance.

@@ -7,16 +7,18 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 describe('InternalHttpService', () => {
   let service: InternalHttpService;
   let crmGet: jest.Mock;
+  let crmPost: jest.Mock;
   let userGet: jest.Mock;
   let inventoryPost: jest.Mock;
 
   beforeEach(() => {
     crmGet = jest.fn();
+    crmPost = jest.fn();
     userGet = jest.fn();
     inventoryPost = jest.fn();
 
     mockedAxios.create.mockImplementation((config: any) => {
-      if (config.baseURL?.includes('4002')) return { get: crmGet, post: jest.fn() } as any;
+      if (config.baseURL?.includes('4002')) return { get: crmGet, post: crmPost } as any;
       if (config.baseURL?.includes('4001')) return { get: userGet, post: jest.fn() } as any;
       if (config.baseURL?.includes('4004')) return { get: jest.fn(), post: inventoryPost } as any;
       return {} as any;
@@ -67,6 +69,112 @@ describe('InternalHttpService', () => {
       expect(await service.getCompany('gone')).toBeNull();
       crmGet.mockRejectedValueOnce(new Error('down'));
       await expect(service.getCompany('co-1')).rejects.toThrow();
+    });
+  });
+
+  /**
+   * The client names side-loaded with a page of jobs. Names only — crm masks a
+   * contact's numbers for a caller without `contacts.view_numbers` and
+   * deal-service masks nothing — and never fatal: the page renders without it.
+   */
+  describe('getContactNames', () => {
+    it('posts the deduped ids to the internal names route', async () => {
+      crmPost.mockResolvedValue({ data: { success: true, data: [] } });
+
+      await service.getContactNames(['c-1', 'c-2', 'c-1']);
+
+      expect(crmPost).toHaveBeenCalledTimes(1);
+      const [path, body] = crmPost.mock.calls[0];
+      expect(path).toBe('/api/crm/contacts/internal/names-by-ids');
+      expect(body).toEqual({ ids: ['c-1', 'c-2'] });
+    });
+
+    it('asks for nothing when there are no ids', async () => {
+      expect(await service.getContactNames([])).toEqual([]);
+      expect(crmPost).not.toHaveBeenCalled();
+    });
+
+    it('never asks for more than crm accepts', async () => {
+      crmPost.mockResolvedValue({ data: { data: [] } });
+
+      await service.getContactNames(Array.from({ length: 130 }, (_, i) => `c-${i}`));
+
+      expect(crmPost.mock.calls[0][1].ids).toHaveLength(100);
+    });
+
+    it('bounds the wait — the list must not hang on a slow crm', async () => {
+      crmPost.mockResolvedValue({ data: { data: [] } });
+
+      await service.getContactNames(['c-1']);
+
+      expect(crmPost.mock.calls[0][2].timeout).toBeGreaterThan(0);
+    });
+
+    it('copies out the names and leaves numbers and emails behind', async () => {
+      crmPost.mockResolvedValue({
+        data: {
+          data: [
+            { id: 'c-1', firstName: 'Bo', lastName: 'Client', phone: '+14045559999', email: 'bo@x.com' },
+          ],
+        },
+      });
+
+      expect(await service.getContactNames(['c-1'])).toEqual([
+        { id: 'c-1', firstName: 'Bo', lastName: 'Client' },
+      ]);
+    });
+
+    it('answers with an empty list when crm is down, rather than throwing', async () => {
+      crmPost.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      expect(await service.getContactNames(['c-1'])).toEqual([]);
+    });
+
+    it('answers with an empty list when crm sends nonsense', async () => {
+      crmPost.mockResolvedValue({ data: { data: 'not-an-array' } });
+      expect(await service.getContactNames(['c-1'])).toEqual([]);
+
+      crmPost.mockResolvedValue({ data: { data: [null, { firstName: 'No id' }] } });
+      expect(await service.getContactNames(['c-1'])).toEqual([]);
+    });
+  });
+
+  /**
+   * Names of the people on a dashboard scoreboard. A handful at a time, one
+   * lookup each on user-service's internal route; names only, and never fatal —
+   * a person it cannot name is simply left out.
+   */
+  describe('getUserNames', () => {
+    it('looks each distinct id up on the internal user route', async () => {
+      userGet.mockResolvedValue({ data: { data: { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' } } });
+
+      await service.getUserNames(['u-1', 'u-1', '']);
+
+      expect(userGet).toHaveBeenCalledTimes(1);
+      expect(userGet.mock.calls[0][0]).toBe('/api/users/internal/u-1');
+      expect(userGet.mock.calls[0][1].timeout).toBeGreaterThan(0);
+    });
+
+    it('copies out the names and nothing else', async () => {
+      userGet.mockResolvedValue({
+        data: { data: { id: 'u-1', firstName: 'Daniel', lastName: 'Munoz', email: 'd@x.com', phone: '+1404' } },
+      });
+
+      expect(await service.getUserNames(['u-1'])).toEqual([{ id: 'u-1', firstName: 'Daniel', lastName: 'Munoz' }]);
+    });
+
+    it('a user it cannot fetch is left out, the rest still come back', async () => {
+      userGet.mockImplementation(async (path: string) => {
+        if (path.endsWith('u-2')) throw new Error('404');
+        return { data: { data: { id: 'u-1', firstName: 'Tess', lastName: '' } } };
+      });
+
+      expect(await service.getUserNames(['u-1', 'u-2'])).toEqual([{ id: 'u-1', firstName: 'Tess', lastName: '' }]);
+    });
+
+    it('asks for nothing when there are no ids', async () => {
+      expect(await service.getUserNames([])).toEqual([]);
+      expect(userGet).not.toHaveBeenCalled();
     });
   });
 

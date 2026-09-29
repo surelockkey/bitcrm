@@ -24,6 +24,7 @@ describe('ContactsController', () => {
       create: jest.fn(),
       findById: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       update: jest.fn(),
       merge: jest.fn(),
       delete: jest.fn(),
@@ -309,6 +310,17 @@ describe('ContactsController', () => {
       } as any);
 
       expect(result).toEqual({ success: true, data: { contact, created: true } });
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 585, atLeast: false });
+
+      expect(await controller.count({} as never)).toEqual({
+        success: true,
+        data: { total: 585, atLeast: false },
+      });
     });
   });
 });

@@ -12,6 +12,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: () => mocks.code,
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: mocks.can }),
 }));
 vi.mock("../config-hooks", () => ({

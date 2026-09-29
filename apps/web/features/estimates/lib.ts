@@ -6,32 +6,33 @@ import {
   type EstimateItem,
   type EstimateStatus,
 } from "@bitcrm/types";
+import { toneClasses } from "@/lib/theme/tone";
 import type { EstimateItemBody } from "./schemas";
 
 export const ESTIMATE_STATUS_META: Record<EstimateStatus, { label: string; className: string }> = {
   unsent: {
     label: "Unsent",
-    className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+    className: toneClasses("neutral"),
   },
   pending: {
     label: "Pending",
-    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    className: toneClasses("warning"),
   },
   approved: {
     label: "Approved",
-    className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    className: toneClasses("info"),
   },
   declined: {
     label: "Declined",
-    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+    className: toneClasses("destructive"),
   },
   won: {
     label: "Won",
-    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    className: toneClasses("success"),
   },
   archived: {
     label: "Archived",
-    className: "border-zinc-500/30 bg-zinc-500/5 text-zinc-500 dark:text-zinc-400",
+    className: toneClasses("neutral"),
   },
 };
 

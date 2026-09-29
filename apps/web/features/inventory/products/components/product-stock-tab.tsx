@@ -86,7 +86,7 @@ export function ProductStockTab({
           body="This item isn't in any warehouse or container. Receive it into a warehouse or transfer it to a container to build stock."
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border">
+        <div className="overflow-hidden border">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">

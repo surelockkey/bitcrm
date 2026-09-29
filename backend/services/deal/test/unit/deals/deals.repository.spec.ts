@@ -107,6 +107,7 @@ describe('DealsRepository', () => {
         discount: { type: 'percent', value: 10 },
         itemCount: 3,
         invoiceId: 'deal-1',
+        totals: { subtotal: 100, discount: 10, tax: 6.53, total: 96.53, cost: 30 },
       });
       dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...deal } });
 
@@ -120,7 +121,18 @@ describe('DealsRepository', () => {
         discount: { type: 'percent', value: 10 },
         itemCount: 3,
         invoiceId: 'deal-1',
+        totals: { subtotal: 100, discount: 10, tax: 6.53, total: 96.53, cost: 30 },
       });
+    });
+
+    it('reads strongly consistent when asked — a reprice right after a write must see it', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Item: { PK: 'DEAL#deal-1', SK: 'METADATA', ...createMockDeal() } });
+
+      await repository.findById('deal-1', { consistent: true });
+      await repository.findById('deal-1');
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ConsistentRead).toBe(true);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ConsistentRead).toBeUndefined();
     });
 
     it('reads back the technician flow stamps — and their absence on older rows', async () => {
@@ -424,6 +436,30 @@ describe('DealsRepository', () => {
       const command = dynamoDb.client.send.mock.calls[0][0];
       expect(command.input.FilterExpression).toContain('begins_with(PK, :pk)');
       expect(command.input.ExpressionAttributeValues[':active']).toBe(DealStatus.ACTIVE);
+    });
+
+    it('reads more rows than the page, because the table is mostly not deals', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findAll(20);
+
+      // A job's partition also holds its line items, assignments and history,
+      // and the table holds every catalog besides. Asking DynamoDB for 50 rows
+      // came back with one job.
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Limit).toBeGreaterThan(20);
+    });
+
+    it('keeps reading until the page is full', async () => {
+      const row = (id: string) => ({ ...createMockDeal(), id, PK: `DEAL#${id}`, SK: 'METADATA' });
+      dynamoDb.client.send
+        .mockResolvedValueOnce({ Items: [row('d1')], LastEvaluatedKey: { PK: 'p1' } })
+        .mockResolvedValueOnce({ Items: [row('d2')], LastEvaluatedKey: { PK: 'p2' } })
+        .mockResolvedValueOnce({ Items: [row('d3')] });
+
+      const result = await repository.findAll(3);
+
+      expect(result.items.map((d) => d.id)).toEqual(['d1', 'd2', 'd3']);
+      expect(result.nextCursor).toBeUndefined();
     });
 
     it('should return mapped deal items', async () => {

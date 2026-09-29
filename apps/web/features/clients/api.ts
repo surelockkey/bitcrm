@@ -4,6 +4,7 @@ import type {
   ClientType,
   CompanyDocumentType,
   PaginatedResponse,
+  ListCount,
 } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type {
@@ -20,28 +21,16 @@ const PAGE = 100;
 export function listContacts(
   companyId?: string,
   cursor?: string,
+  limit = PAGE,
 ): Promise<PaginatedResponse<Contact>> {
-  const q = new URLSearchParams({ limit: String(PAGE) });
+  const q = new URLSearchParams({ limit: String(limit) });
   if (companyId) q.set("companyId", companyId);
   if (cursor) q.set("cursor", cursor);
   return apiFetchPaginated<Contact>(`/crm/contacts?${q}`);
 }
 
-/**
- * Walk every page. The list endpoint has no text search, so we load all
- * contacts and filter client-side. A scan page can be empty while a cursor
- * still exists, so loop until `nextCursor` is gone — never trust `count`.
- */
-export async function fetchAllContacts(companyId?: string): Promise<Contact[]> {
-  const out: Contact[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await listContacts(companyId, cursor);
-    out.push(...page.data);
-    cursor = page.pagination.nextCursor;
-  } while (cursor);
-  return out;
-}
+export const getContactsByIds = (ids: string[]): Promise<Contact[]> =>
+  ids.length ? http.post<Contact[]>("/crm/contacts/by-ids", { ids }) : Promise.resolve([]);
 
 export const getContact = (id: string): Promise<Contact> =>
   http.get<Contact>(`/crm/contacts/${id}`);
@@ -76,6 +65,14 @@ export const mergeContacts = (body: MergeContactsBody): Promise<Contact> =>
 
 /* --------------------------------------------------------------- companies */
 
+/** Скільки контактів під цим фільтром — число для «Page 2 of 7». */
+export function countContacts(companyId?: string): Promise<ListCount> {
+  const q = new URLSearchParams();
+  if (companyId) q.set("companyId", companyId);
+  const s = q.toString();
+  return http.get<ListCount>(`/crm/contacts/count${s ? `?${s}` : ""}`);
+}
+
 export function listCompanies(
   clientType?: ClientType,
   cursor?: string,
@@ -96,6 +93,10 @@ export async function fetchAllCompanies(clientType?: ClientType): Promise<Compan
   } while (cursor);
   return out;
 }
+
+/** The companies of a page of rows, in one call — never the whole table. */
+export const getCompaniesByIds = (ids: string[]): Promise<Company[]> =>
+  ids.length ? http.post<Company[]>("/crm/companies/by-ids", { ids }) : Promise.resolve([]);
 
 export const getCompany = (id: string): Promise<Company> =>
   http.get<Company>(`/crm/companies/${id}`);

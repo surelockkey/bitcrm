@@ -10,6 +10,8 @@ import {
   requestPasswordReset,
   confirmPasswordReset,
   isChallenge,
+  verifyMfa,
+  resendMfa,
 } from "./api";
 import { ApiError } from "@/lib/api/errors";
 import { useAuthStore } from "@/stores/auth-store";
@@ -39,12 +41,18 @@ export function useLogin() {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
   const setChallenge = useAuthStore((s) => s.setChallenge);
+  const setMfaChallenge = useAuthStore((s) => s.setMfaChallenge);
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (values: { email: string; password: string }) => login(values),
     onSuccess: (res, values) => {
       if (isChallenge(res)) {
+        if (res.challengeName === "SMS_MFA") {
+          // The login page swaps its form for the code step.
+          setMfaChallenge({ session: res.session, destination: res.destination });
+          return;
+        }
         // Carry the email + challenge session to the set-password screen.
         setChallenge(values.email, res.session);
         router.replace("/set-password");
@@ -81,10 +89,19 @@ export function useSetPassword() {
         session: challengeSession,
       });
     },
-    onSuccess: (tokens) => {
+    onSuccess: (res) => {
+      // A first password signs the person in — and the second step, if their
+      // account has it, comes after it just as it does after a login.
+      if (isChallenge(res)) {
+        if (res.challengeName === "SMS_MFA") {
+          useAuthStore.getState().setMfaChallenge({ session: res.session, destination: res.destination });
+          router.replace("/login");
+        }
+        return;
+      }
       // Fresh session → fresh cache, same as a normal login.
       queryClient.clear();
-      setSession(tokens);
+      setSession(res);
       router.replace("/");
     },
     onError: (error) => {
@@ -93,6 +110,36 @@ export function useSetPassword() {
         toast.error("Your session expired. Please sign in again.");
         router.replace("/login");
       }
+    },
+  });
+}
+
+/** Two-step sign-in: the texted code for the challenge in the store. */
+export function useVerifyMfa() {
+  const router = useRouter();
+  const setSession = useAuthStore((s) => s.setSession);
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (code: string) => {
+      const challenge = useAuthStore.getState().mfaChallenge;
+      if (!challenge) throw new ApiError(401, "This code has expired. Sign in again.");
+      return verifyMfa({ session: challenge.session, code });
+    },
+    onSuccess: (tokens) => {
+      queryClient.clear();
+      setSession(tokens);
+      router.replace("/");
+    },
+  });
+}
+
+export function useResendMfa() {
+  return useMutation({
+    mutationFn: () => {
+      const challenge = useAuthStore.getState().mfaChallenge;
+      if (!challenge) throw new ApiError(401, "This code has expired. Sign in again.");
+      return resendMfa(challenge.session);
     },
   });
 }

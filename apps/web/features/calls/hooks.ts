@@ -56,10 +56,24 @@ function patchCachedCallTags(qc: QueryClient, call: CallRecord) {
  */
 const LIVE_FALLBACK_POLL_MS = 5_000;
 
-export function useCallsList(filter: CallsFilter) {
+/**
+ * Скільки всього рядків під тими самими фільтрами — з цього панель робить
+ * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
+ */
+export function useCallsCount(filter: CallsFilter) {
+  return useQuery({
+    queryKey: queryKeys.calls.count(filter),
+    queryFn: () => api.countCalls(filter),
+    staleTime: 30_000,
+  });
+}
+
+export function useCallsList(filter: CallsFilter, limit = 25) {
   return useInfiniteQuery({
-    queryKey: queryKeys.calls.list(filter),
-    queryFn: ({ pageParam }) => api.listCalls(filter, pageParam),
+    // Розмір сторінки — частина ключа: інакше вибір «по 100» читав би кеш,
+    // складений по 25.
+    queryKey: queryKeys.calls.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listCalls(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });
@@ -169,11 +183,22 @@ export function useActiveCall(enabled: boolean) {
   });
 }
 
-export function useCallDetail(sid: string) {
+/**
+ * One call, with the row it was opened from as a seed.
+ *
+ * The log already carries the whole record — the list endpoint resolves the
+ * party names itself — and the detail endpoint answers the same question for
+ * one call. Waiting on it while holding the answer is what made the side
+ * panel feel slow, so the row is drawn at once and the request only refreshes
+ * it. `placeholderData`, not `initialData`: the seed is a good answer, not a
+ * cached one, so it never stands in for a real fetch.
+ */
+export function useCallDetail(sid: string, seed?: CallRecord) {
   return useQuery({
     queryKey: queryKeys.calls.detail(sid),
     queryFn: () => api.getCall(sid),
     // Callers pass "" when there is no call in hand yet.
     enabled: !!sid,
+    placeholderData: seed,
   });
 }

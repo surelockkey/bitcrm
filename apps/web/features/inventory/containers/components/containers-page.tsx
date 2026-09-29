@@ -15,11 +15,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataScope } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContainersList } from "../hooks";
+import { useContainersList , useContainersCount } from "../hooks";
 import { containerTitle } from "../lib";
 import { ContainersTable } from "./containers-table";
 import { ContainerCreateDialog } from "./container-create-dialog";
 import { MyContainerView } from "./my-container-view";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 export function ContainersPage() {
   const { can, scopeOf } = usePermissions();
@@ -37,15 +41,20 @@ export function ContainersPage() {
 
 function Fleet() {
   const { can } = usePermissions();
-  const query = useContainersList();
+  const [pageSize, setPageSize] = usePageSize("inventory-vans");
+  const query = useContainersList(undefined, pageSize);
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const containers = useMemo(
-    () => query.data?.pages.flatMap((p) => p.data) ?? [],
-    [query.data],
-  );
+  const count = useContainersCount();
+  const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: String(pageSize),
+  });
+  const containers = pager.items;
   const departments = useMemo(
     () =>
       [
@@ -134,19 +143,7 @@ function Fleet() {
         ) : (
           <>
             <ContainersTable containers={visible} />
-            {query.hasNextPage ? (
-              <div className="mt-4 flex justify-center">
-                <Button
-                  variant="outline"
-                  onClick={() => query.fetchNextPage()}
-                  disabled={query.isFetchingNextPage}
-                  className="gap-1.5"
-                >
-                  {query.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Load more
-                </Button>
-              </div>
-            ) : null}
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>

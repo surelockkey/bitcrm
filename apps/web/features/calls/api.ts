@@ -1,5 +1,5 @@
 import { apiFetchPaginated, http } from "@/lib/api/http";
-import type { PaginatedResponse } from "@bitcrm/types";
+import type { PaginatedResponse, ListCount } from "@bitcrm/types";
 import { env } from "@/lib/env";
 import { getIdToken } from "@/stores/auth-store";
 import { filterToParams, type CallRecord, type CallsFilter } from "./lib";
@@ -9,9 +9,21 @@ const BASE = "/telephony/calls";
 export function listCalls(
   filter: CallsFilter,
   cursor?: string,
+  limit = 25,
 ): Promise<PaginatedResponse<CallRecord>> {
-  const qs = filterToParams(filter, cursor, 25);
+  const qs = filterToParams(filter, cursor, limit);
   return apiFetchPaginated<CallRecord>(`${BASE}?${qs.toString()}`);
+}
+
+/**
+ * Скільки дзвінків під цим фільтром — число для «Page 2 of 7». Без вікна дат
+ * лічильник сервера впирається у свій бюджет і відповідає «не менше».
+ */
+export function countCalls(filter: CallsFilter): Promise<ListCount> {
+  const qs = filterToParams(filter);
+  qs.delete("cursor");
+  qs.delete("limit");
+  return http.get<ListCount>(`${BASE}/count?${qs.toString()}`);
 }
 
 /**

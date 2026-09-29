@@ -12,6 +12,7 @@ import type {
   CustomFieldValue,
   Deal,
   DealProduct,
+  PersonName,
   SendToTechChannel,
 } from "@bitcrm/types";
 import {
@@ -21,6 +22,8 @@ import {
   extensionsFromRows,
 } from "@/features/clients/lib";
 import type { UpdateContactValues } from "@/features/clients/schemas";
+import type { DealCounts } from "./api";
+import { personName } from "./person-name";
 import type { UpdateDealValues } from "./schemas";
 
 /* ----------------------------------------------------------- super-statuses */
@@ -91,6 +94,17 @@ export const JOB_TABS: JobTab[] = [...SUPER_STATUS_ORDER, "unscheduled"];
 
 export const jobTabLabel = (t: JobTab): string =>
   t === "unscheduled" ? "Unscheduled" : superStatusLabel(t);
+
+/**
+ * Число на вкладці. Сервер рахує закритий статус лише до стелі, тож таке
+ * число — підлога, а не підсумок, і знак про це каже; де він не рахував
+ * нічого, лишається риска.
+ */
+export function tabCount(counts: DealCounts, tab: JobTab): string {
+  const n = counts[tab];
+  if (n === null || n === undefined) return "—";
+  return counts.atLeast?.includes(tab as JobSuperStatus) ? `${n.toLocaleString()}+` : n.toLocaleString();
+}
 
 export function matchesTab(d: Pick<Deal, "superStatus" | "scheduledDate">, tab: JobTab): boolean {
   return tab === "unscheduled" ? !d.scheduledDate : d.superStatus === tab;
@@ -409,7 +423,10 @@ export function datePresetRange(
  */
 export interface DealDraft {
   address: Address;
+  /** Назва площі — показова: її пише сервер із довідника. */
   serviceArea: string;
+  /** Обрана площа з довідника; "" — нічого не обрано. */
+  serviceAreaId: string;
   jobTypeId: string;
   sourceId: string;
   /** The job's company (business profile id); "" = none/default. */
@@ -450,6 +467,7 @@ export function dealDraftFromDeal(d: Deal): DealDraft {
       lng: d.address?.lng,
     },
     serviceArea: d.serviceArea ?? "",
+    serviceAreaId: d.serviceAreaId ?? "",
     jobTypeId: d.jobTypeId,
     sourceId: d.sourceId ?? "",
     businessProfileId: d.businessProfileId ?? "",
@@ -485,12 +503,22 @@ export function clientDraftFromContact(
  * The client name a job displays: its own "Just here" override when one was
  * saved, otherwise the contact's record name.
  */
-export function dealClientName(deal: Deal, contact: Contact | undefined): string {
+export function dealClientName(
+  deal: Deal,
+  contact: Contact | undefined,
+  /**
+   * The name that came with the row (`included.clients`), used when the
+   * contact itself was never fetched — the jobs list only asks crm for
+   * contacts when a column shows their numbers or emails.
+   */
+  sideloaded?: PersonName,
+): string {
   if (deal.clientName) {
     const name = `${deal.clientName.firstName} ${deal.clientName.lastName}`.trim();
     if (name) return name;
   }
-  return contact ? contactName(contact) : "—";
+  if (contact) return contactName(contact);
+  return personName(sideloaded) ?? "—";
 }
 
 const sameAddress = (a: Address, b: Address): boolean =>
@@ -552,7 +580,14 @@ export function buildDealPatch(deal: Deal, draft: DealDraft): UpdateDealValues |
   let dirty = false;
 
   if (!sameAddress(draft.address, base.address)) { patch.address = draft.address; dirty = true; }
-  if (draft.serviceArea !== base.serviceArea) { patch.serviceArea = draft.serviceArea; dirty = true; }
+  // Площу шлемо ідентифікатором: назву сервер бере з довідника сам, тож вона
+  // не може розійтися з ним — на відміну від вільного тексту, яким це поле
+  // було на вже створеній роботі. Порожній id — «нічого не обрали», а не
+  // «прибрати площу»: робота без площі не буває.
+  if (draft.serviceAreaId && draft.serviceAreaId !== base.serviceAreaId) {
+    patch.serviceAreaId = draft.serviceAreaId;
+    dirty = true;
+  }
   if (draft.jobTypeId !== base.jobTypeId) { patch.jobTypeId = draft.jobTypeId; dirty = true; }
   if (draft.priority !== base.priority) { patch.priority = draft.priority; dirty = true; }
   if (draft.allDay !== base.allDay) { patch.allDay = draft.allDay; dirty = true; }

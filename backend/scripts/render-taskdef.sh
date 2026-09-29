@@ -21,6 +21,8 @@
 #   TWILIO_MESSAGING_SERVICE_SID / MESSAGING_DEFAULT_SENDER
 #                        - messaging only: the Messaging Service (MG…) every
 #                          outbound SMS goes through, and the fallback sender
+#   TWILIO_VERIFY_SERVICE_SID - user only: the Verify Service (VA…) that texts
+#                          the two-step sign-in codes
 #   STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / STRIPE_PUBLISHABLE_KEY
 #                        - billing only. Without them billing boots and serves
 #                          the OFFLINE payment ledger normally; online payments
@@ -133,6 +135,7 @@ EXTRA_ENV_JSON=$(jq -n \
   --arg telephony_default_area_caller_id "${TELEPHONY_DEFAULT_AREA_CALLER_ID:-}" \
   --arg twilio_messaging_service_sid "${TWILIO_MESSAGING_SERVICE_SID:-}" \
   --arg messaging_default_sender "${MESSAGING_DEFAULT_SENDER:-}" \
+  --arg twilio_verify_service_sid "${TWILIO_VERIFY_SERVICE_SID:-}" \
   --arg stripe_secret_key "${STRIPE_SECRET_KEY:-}" \
   --arg stripe_webhook_secret "${STRIPE_WEBHOOK_SECRET:-}" \
   --arg stripe_publishable_key "${STRIPE_PUBLISHABLE_KEY:-}" \
@@ -179,6 +182,14 @@ EXTRA_ENV_JSON=$(jq -n \
   + (if $service == "messaging" then
       (if $twilio_messaging_service_sid != "" then [{name: "TWILIO_MESSAGING_SERVICE_SID", value: $twilio_messaging_service_sid}] else [] end)
       + (if $messaging_default_sender   != "" then [{name: "MESSAGING_DEFAULT_SENDER",     value: $messaging_default_sender}]     else [] end)
+    else [] end)
+  # Two-step sign-in texts its codes through Twilio Verify on the same
+  # account: user-service gets the account credentials and the Verify
+  # Service and nothing more from Twilio.
+  + (if $service == "user" then
+      (if $twilio_account_sid        != "" then [{name: "TWILIO_ACCOUNT_SID",        value: $twilio_account_sid}]        else [] end)
+      + (if $twilio_auth_token       != "" then [{name: "TWILIO_AUTH_TOKEN",         value: $twilio_auth_token}]         else [] end)
+      + (if $twilio_verify_service_sid != "" then [{name: "TWILIO_VERIFY_SERVICE_SID", value: $twilio_verify_service_sid}] else [] end)
     else [] end)
   # Billing renders PDFs with the Alpine chromium the Dockerfile installs for
   # it, links clients to the portal on its own domain, and takes card / ACH

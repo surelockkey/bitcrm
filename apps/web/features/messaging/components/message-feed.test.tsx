@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { FeedMessage } from "../api";
 import { formatDayChip } from "../lib";
 import { MessageFeed } from "./message-feed";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 
 const msg = (id: string, createdAt: string, extra: Partial<FeedMessage> = {}): FeedMessage => ({
   id,
@@ -224,9 +225,11 @@ describe("MessageFeed", () => {
     const img = screen.getByRole("img", { name: "door.jpg" });
     expect(img).toHaveAttribute("src", "https://x/door.jpg");
     expect(img.className).toContain("size-24");
-    expect(screen.getByRole("link", { name: /invoice\.pdf/ })).toHaveAttribute("href", "https://x/i.pdf");
-    // Stored media has no fetchable URL yet — a chip, not a broken link.
-    expect(screen.queryByRole("link", { name: /stored\.png/ })).toBeNull();
+    // Файл відкривається вікном перегляду, тож це кнопка, а не посилання.
+    fireEvent.click(screen.getByRole("button", { name: /invoice\.pdf/ }));
+    expect(useFilePreviewStore.getState().file?.name).toBe("invoice.pdf");
+    // Stored media has no fetchable URL yet — a chip, not a button.
+    expect(screen.queryByRole("button", { name: /stored\.png/ })).toBeNull();
     expect(screen.getByText("stored.png")).toBeInTheDocument();
   });
 

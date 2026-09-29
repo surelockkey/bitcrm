@@ -21,14 +21,14 @@ function SendStateChips({ deal }: { deal: Deal }) {
     <span className="ml-auto flex shrink-0 items-center gap-1">
       <span
         title={sent}
-        className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+        className="inline-flex items-center gap-1 rounded-chip bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
       >
         <Send className="size-2.5" /> Sent
       </span>
       {seen ? (
         <span
           title={seen}
-          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+          className="inline-flex items-center gap-1 rounded-chip bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
         >
           <Eye className="size-2.5" /> Seen
         </span>

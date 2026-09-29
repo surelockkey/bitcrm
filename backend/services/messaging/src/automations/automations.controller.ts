@@ -102,6 +102,22 @@ export class AutomationsController {
     return { success: true, data };
   }
 
+  @Get('runs/count')
+  @RequirePermission('settings', 'view')
+  @ApiOperation({
+    summary: 'How many firings the activity feed holds',
+    description:
+      '**Guard:** `settings.view`. Takes the same filters as the feed (`ruleId`, `outcome`, ' +
+      '`since`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
+      'count behind "Page 2 of 7". `outcome` is a filter rather than a key, so a rare outcome ' +
+      'over the retention window can exhaust the walk\'s budget: `atLeast` then says the real ' +
+      'number is higher and the panel renders `7+`. Cached for thirty seconds.',
+  })
+  async countRunsFeed(@Query() query: ListAutomationRunsQueryDto) {
+    const data = await withHttpErrors(() => this.service.countRunsFeed(query));
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('settings', 'view')
   @ApiOperation({ summary: 'One automation rule', description: '**Guard:** `settings.view`.' })

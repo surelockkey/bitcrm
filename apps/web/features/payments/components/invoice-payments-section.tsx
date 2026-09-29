@@ -29,6 +29,7 @@ import {
 import { PartiallyPaidBadge, PaymentStatusBadge } from "./payment-status-badge";
 import { RecordPaymentDialog } from "./record-payment-dialog";
 import { RefundPaymentDialog } from "./refund-payment-dialog";
+import { toneClasses } from "@/lib/theme/tone";
 
 /**
  * The invoice's payment ledger, under its items and totals: what came in, how,
@@ -75,7 +76,7 @@ export function InvoicePaymentsSection({
       </div>
 
       {summary.hasPending ? (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+        <p className={`rounded-md border px-3 py-2 text-sm ${toneClasses("warning")}`}>
           <span className="font-medium tabular-nums">{formatMoney(summary.pending)} clearing</span> —{" "}
           {CLEARING_NOTE} It comes off the balance once it lands.
         </p>
@@ -95,7 +96,7 @@ export function InvoicePaymentsSection({
           No payments on this invoice yet.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto border">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">

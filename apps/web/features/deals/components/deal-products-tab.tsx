@@ -31,25 +31,25 @@ function FulfillmentBadge({ product }: { product: DealProduct }) {
     // Carried over from Workiz: it never moved BitCRM stock, and its price is
     // whatever Workiz recorded (so the ±15% band leaves it alone).
     return (
-      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+      <span className="rounded-chip bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
         Imported
       </span>
     );
   }
   if (f === "service") {
     return (
-      <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+      <span className="rounded-chip bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
         Service
       </span>
     );
   }
   if (f === "to_order") {
     return product.orderedAt ? (
-      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+      <span className="rounded-chip bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
         Ordered
       </span>
     ) : (
-      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+      <span className="rounded-chip bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
         To order
       </span>
     );
@@ -137,7 +137,7 @@ export function DealProductsTab({
             <tbody>
               {items.map((p) => (
                 <tr
-                  key={p.productId}
+                  key={p.lineId}
                   className={cn("border-b last:border-0", canEdit && "cursor-pointer hover:bg-accent/30")}
                   onClick={canEdit ? () => setEditing(p) : undefined}
                 >
@@ -166,7 +166,7 @@ export function DealProductsTab({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          markOrdered.mutate({ productId: p.productId, ordered: !p.orderedAt });
+                          markOrdered.mutate({ lineId: p.lineId, ordered: !p.orderedAt });
                         }}
                         disabled={markOrdered.isPending}
                         className={cn(
@@ -187,7 +187,7 @@ export function DealProductsTab({
                       checked={p.taxable !== false}
                       disabled={!canEdit}
                       onCheckedChange={(v) =>
-                        setTaxable.mutate({ productId: p.productId, taxable: v === true })
+                        setTaxable.mutate({ lineId: p.lineId, taxable: v === true })
                       }
                       aria-label={`${p.name} is taxable`}
                     />
@@ -196,7 +196,7 @@ export function DealProductsTab({
                     <td className="px-2 py-2 text-right">
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.productId); }}
+                        onClick={(e) => { e.stopPropagation(); remove.mutate(p.lineId); }}
                         disabled={remove.isPending}
                         className="text-muted-foreground hover:text-destructive"
                         aria-label={`Remove ${p.name}`}

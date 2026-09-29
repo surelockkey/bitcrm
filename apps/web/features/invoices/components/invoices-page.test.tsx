@@ -14,10 +14,13 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => () => !mocks.canView,
   usePermissions: () => ({ can: () => mocks.canView }),
 }));
-vi.mock("@/features/deals/hooks", () => ({
-  useContactMap: () => ({ map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false }),
+vi.mock("@/features/clients/hooks", () => ({
+  useContactsByIds: () => ({ map: new Map([["c1", { firstName: "Jane", lastName: "Smith" }]]), isLoading: false }),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), loading: vi.fn(() => "t1") }));
 vi.mock("sonner", () => ({ toast }));
@@ -69,14 +72,18 @@ beforeEach(() => {
 });
 
 describe("InvoicesPage", () => {
-  it("shows summary widgets and the invoice table, paging with Load more", async () => {
+  it("shows summary widgets and the invoice table, a page at a time", async () => {
     renderWithClient(<InvoicesPage />);
     expect(await screen.findByText("$1,234.50")).toBeInTheDocument();
     const row = await screen.findByRole("row", { name: /#1042/ });
     expect(within(row).getByText("Jane Smith")).toBeInTheDocument();
     expect(within(row).getByText("Unsent")).toBeInTheDocument();
-    await user().click(screen.getByRole("button", { name: /load more/i }));
+
+    await user().click(screen.getByRole("button", { name: "Next page" }));
+
+    // Друга сторінка заступає першу, а не доростає під нею.
     expect(await screen.findByRole("row", { name: /#1043/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /#1042/ })).not.toBeInTheDocument();
   });
 
   it("filters by status when a widget is clicked and opens the job's invoice tab", async () => {

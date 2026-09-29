@@ -161,7 +161,7 @@ export function AssignmentsSection({
           <button
             type="button"
             onClick={() => setProposeOpen(true)}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-chip border border-dashed px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
           >
             <Plus className="size-3" /> propose
           </button>
@@ -227,7 +227,7 @@ function AssignmentChip({
         : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-500";
   return (
     <span
-      className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs", tone)}
+      className={cn("inline-flex items-center gap-1.5 rounded-chip border px-2.5 py-1 text-xs", tone)}
       title={row.comments || undefined}
     >
       <span className="font-medium">{row.name}</span>

@@ -22,7 +22,7 @@ const BUBBLE_WIDTH = "w-[60%] max-md:w-[88%]";
 /** The yellow "✎ Edit Job" button of a dispatcher's job message, straight to the job. */
 function EditJobButton({ dealId }: { dealId: string }) {
   return (
-    <Button asChild variant="brand" size="sm" className="mt-3 rounded-full px-4 font-semibold">
+    <Button asChild variant="brand" size="sm" className="mt-3 rounded-chip px-4 font-semibold">
       <Link href={`/deals/${dealId}`}>
         <Pencil className="size-3.5" /> Edit Job
       </Link>
@@ -153,7 +153,7 @@ export function MessageBubble({
         className={cn(
           "relative rounded-2xl px-6 py-4 text-[15px] shadow-xs",
           BUBBLE_WIDTH,
-          outbound ? "bg-primary text-primary-foreground" : "bg-card text-card-foreground",
+          outbound ? "bg-foreground text-background" : "bg-card text-card-foreground",
           failed && "ring-1 ring-destructive/60",
         )}
       >

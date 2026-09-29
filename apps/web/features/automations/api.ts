@@ -1,4 +1,4 @@
-import type { AutomationRule, AutomationRun, AutomationSpec } from "@bitcrm/types";
+import type { AutomationRule, AutomationRun, AutomationSpec , ListCount } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 
 /** The Automation Center lives under the messaging gateway route. */
@@ -67,6 +67,22 @@ export const listAutomationRunsFeed = (
   // filter would be dropped from the request without a word.
   const qs = query.toString();
   return http.get<AutomationRunsFeed>(`${BASE}/runs${qs ? `?${qs}` : ""}`);
+};
+
+/**
+ * Скільки спрацювань у стрічці під цими фільтрами — число для «Page 2 of 7».
+ * `outcome` — не ключ, а фільтр, тож рідкісний результат за все вікно може
+ * вичерпати бюджет проходу, і сервер відповість «не менше».
+ */
+export const countAutomationRunsFeed = (
+  params: Omit<AutomationRunsFeedParams, "cursor" | "limit"> = {},
+): Promise<ListCount> => {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return http.get<ListCount>(`${BASE}/runs/count${qs ? `?${qs}` : ""}`);
 };
 
 /** Evaluate the rule against one job and render what it would send. Nothing is sent. */

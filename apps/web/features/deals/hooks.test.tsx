@@ -7,7 +7,8 @@ import { JobSuperStatus } from "@bitcrm/types";
 import type { Deal } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { useMarkSeenOnOpen, useMoveStatus, useSendToTech, useSetDealTags } from "./hooks";
+import { DEALS_POLL_MS, useDealsWindow, useMarkSeenOnOpen, useMoveStatus, useSendToTech, useSetDealTags } from "./hooks";
+import { useDealsStreamStore } from "./stream-store";
 
 // Capture toast calls so we can assert exactly what the user is shown.
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -248,5 +249,32 @@ describe("useMarkSeenOnOpen — Workiz \"Viewed job in app\"", () => {
     renderHook(() => useMarkSeenOnOpen(job(["t1"]), "t1"), { wrapper: wrapper(newClient()) });
     await new Promise((r) => setTimeout(r, 30));
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+describe("useDealsWindow — polling only while the live stream is down", () => {
+  const window = { from: "2026-09-25", to: "2026-09-25" };
+  const pollOf = (client: QueryClient) =>
+    client.getQueryCache().find({ queryKey: queryKeys.deals.window(window) })?.observers[0]?.options
+      .refetchInterval;
+
+  beforeEach(() => {
+    server.use(http.get("*/deals", () => HttpResponse.json({ success: true, data: [], pagination: {} })));
+  });
+
+  it("polls a board while the stream is down", () => {
+    useDealsStreamStore.setState({ connected: false });
+    const client = newClient();
+    renderHook(() => useDealsWindow(window, { poll: true }), { wrapper: wrapper(client) });
+
+    expect(pollOf(client)).toBe(DEALS_POLL_MS);
+  });
+
+  it("leaves the refreshing to the stream while it is up", () => {
+    useDealsStreamStore.setState({ connected: true });
+    const client = newClient();
+    renderHook(() => useDealsWindow(window, { poll: true }), { wrapper: wrapper(client) });
+
+    expect(pollOf(client)).toBe(false);
   });
 });

@@ -18,12 +18,16 @@ import type { Transfer } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useTransfers, useLocationMap } from "../hooks";
+import { useTransfers, useLocationMap , useTransfersCount } from "../hooks";
 import { filterByType, matchesSearch } from "../lib";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
 import { TransferRecordDialog } from "./transfer-record-dialog";
 import { NewTransferDialog } from "./new-transfer-dialog";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
 
 const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -40,17 +44,22 @@ function itemsSummary(t: Transfer): { text: string; more: number } {
 
 export function TransfersPage() {
   const { can } = usePermissions();
-  const query = useTransfers();
+  const [pageSize, setPageSize] = usePageSize("inventory-transfers");
+  const query = useTransfers(pageSize);
   const { map } = useLocationMap();
   const [type, setType] = useState<TransferType | "all">("all");
   const [search, setSearch] = useState("");
   const [record, setRecord] = useState<Transfer | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 
-  const transfers = useMemo(
-    () => query.data?.pages.flatMap((p) => p.data) ?? [],
-    [query.data],
-  );
+  const count = useTransfersCount();
+  const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: String(pageSize),
+  });
+  const transfers = pager.items;
   const visible = useMemo(
     () => filterByType(transfers, type).filter((t) => matchesSearch(t, search, map)),
     [transfers, type, search, map],
@@ -68,7 +77,7 @@ export function TransfersPage() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div className="inline-flex overflow-hidden rounded-lg border text-xs">
+        <div className="inline-flex overflow-hidden border text-xs">
           {TYPE_CHIPS.map((c, i) => (
             <button
               key={c.value}
@@ -93,10 +102,8 @@ export function TransfersPage() {
             className="h-9 pl-8"
           />
         </div>
-        <span className="ml-auto text-sm text-muted-foreground">
-          {visible.length}
-          {query.hasNextPage ? "+" : ""} {visible.length === 1 ? "movement" : "movements"}
-        </span>
+        {/* Скільки всього — під таблицею; тут було б число однієї сторінки. */}
+        <span className="ml-auto" />
         {can("transfers", "create") ? (
           <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setNewOpen(true)}>
             <Plus className="size-4" />
@@ -138,7 +145,7 @@ export function TransfersPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-hidden rounded-lg border">
+            <div className="overflow-hidden border">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
@@ -168,14 +175,7 @@ export function TransfersPage() {
                 </TableBody>
               </Table>
             </div>
-            {query.hasNextPage ? (
-              <div className="mt-4 flex justify-center">
-                <Button variant="outline" onClick={() => query.fetchNextPage()} disabled={query.isFetchingNextPage} className="gap-1.5">
-                  {query.isFetchingNextPage ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Load more
-                </Button>
-              </div>
-            ) : null}
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>

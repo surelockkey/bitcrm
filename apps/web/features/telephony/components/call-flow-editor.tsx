@@ -177,7 +177,7 @@ export function CallFlowEditor({
             type="button"
             variant="brand"
             size="lg"
-            className="ml-auto gap-1.5 rounded-full px-5"
+            className="ml-auto gap-1.5 rounded-chip px-5"
             disabled={save.isPending || !name.trim()}
             onClick={submit}
           >
@@ -478,7 +478,7 @@ function NumberField({
                       ) : null}
                     </span>
                     {taken ? (
-                      <span className="rounded-full border px-1.5 text-[10px] text-muted-foreground">
+                      <span className="rounded-chip border px-1.5 text-[10px] text-muted-foreground">
                         answered by {taken.name}
                       </span>
                     ) : null}
@@ -596,7 +596,7 @@ function StepPanel({
             type="button"
             variant="brand"
             size="lg"
-            className="rounded-full px-6"
+            className="rounded-chip px-6"
             onClick={onClose}
           >
             Done

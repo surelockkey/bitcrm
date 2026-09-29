@@ -18,7 +18,8 @@ import {
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useDeals, useContactMap, useUserMap } from "@/features/deals/hooks";
+import { useDealsWindow, useUserMap } from "@/features/deals/hooks";
+import { useContactsByIds } from "@/features/clients/hooks";
 import { useAllTechnicians } from "@/features/technicians/hooks";
 import * as dealApi from "@/features/deals/api";
 import { todayISO } from "@/features/dispatch/lib";
@@ -46,10 +47,14 @@ export function SchedulePage() {
   const canView = can("deals", "view");
   const canManage = can("technicians", "edit");
 
-  const { data: deals } = useDeals({}, { poll: true });
+  const week = useMemo(() => weekDays(date), [date]);
+  const [from, to] = view === "day" ? [date, date] : [week[0], week[6]];
+  // The board holds one day or one week — never the whole table.
+  const { data: deals } = useDealsWindow({ from, to }, { poll: true });
   const { profiles, isLoading: techsLoading } = useAllTechnicians(canView);
   const { map: users } = useUserMap();
-  const { map: contacts } = useContactMap();
+  const contactIds = useMemo(() => (deals ?? []).map((d) => d.contactId), [deals]);
+  const { map: contacts } = useContactsByIds(contactIds);
 
   const visibleProfiles = useMemo(
     () => filterTechnicians(profiles, users, { activeOnly, query }),
@@ -57,8 +62,6 @@ export function SchedulePage() {
   );
   const techIds = useMemo(() => visibleProfiles.map((p) => p.userId), [visibleProfiles]);
   const allTechIds = useMemo(() => profiles.map((p) => p.userId), [profiles]);
-  const week = useMemo(() => weekDays(date), [date]);
-  const [from, to] = view === "day" ? [date, date] : [week[0], week[6]];
 
   // Fetch events for the whole roster so toggling filters never refetches.
   const { data: events } = useCalendarEvents(allTechIds, from, to, canView);

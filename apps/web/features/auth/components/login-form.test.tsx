@@ -58,4 +58,56 @@ describe("LoginForm", () => {
     expect(await screen.findByText(/invalid email or password/i)).toBeInTheDocument();
     expect(replace).not.toHaveBeenCalled();
   });
+
+  describe("two-step sign-in", () => {
+    async function passwordStep() {
+      renderForm();
+      await userEvent.type(screen.getByLabelText(/email/i), "a@b.com");
+      await userEvent.type(screen.getByLabelText("Password"), "mfa-pass");
+      await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+      return screen.findByLabelText(/code/i);
+    }
+
+    it("asks for the texted code instead of signing in, naming the masked phone", async () => {
+      await passwordStep();
+
+      expect(screen.getByText(/•••• 1234/)).toBeInTheDocument();
+      expect(useAuthStore.getState().session).toBeNull();
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("signs in with the right code", async () => {
+      const code = await passwordStep();
+      await userEvent.type(code, "123456");
+      await userEvent.click(screen.getByRole("button", { name: /verify/i }));
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+      expect(useAuthStore.getState().session?.idToken).toBe("id-tok");
+    });
+
+    it("says so for a wrong code and stays on the code step", async () => {
+      const code = await passwordStep();
+      await userEvent.type(code, "000000");
+      await userEvent.click(screen.getByRole("button", { name: /verify/i }));
+
+      expect(await screen.findByText(/not right/i)).toBeInTheDocument();
+      expect(useAuthStore.getState().session).toBeNull();
+      expect(screen.getByLabelText(/code/i)).toBeInTheDocument();
+    });
+
+    it("texts the code again on request", async () => {
+      await passwordStep();
+      await userEvent.click(screen.getByRole("button", { name: /send again|resend/i }));
+
+      expect(await screen.findByText(/sent again/i)).toBeInTheDocument();
+    });
+
+    it("goes back to the password", async () => {
+      await passwordStep();
+      await userEvent.click(screen.getByRole("button", { name: /back/i }));
+
+      expect(await screen.findByLabelText("Password")).toBeInTheDocument();
+      expect(useAuthStore.getState().mfaChallenge).toBeNull();
+    });
+  });
 });

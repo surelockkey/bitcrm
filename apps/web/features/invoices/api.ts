@@ -1,4 +1,4 @@
-import type { Invoice, InvoiceView } from "@bitcrm/types";
+import type { Invoice, InvoiceView, ListCount } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import { buildInvoiceListQuery, type InvoiceListParams } from "./lib";
 import type { InvoicePatch } from "./schemas";
@@ -34,6 +34,13 @@ export interface JobNeedingInvoice {
 
 export const listInvoices = (params: InvoiceListParams = {}): Promise<InvoicePage> =>
   http.get<InvoicePage>(`${BASE}${buildInvoiceListQuery(params)}`);
+
+/**
+ * Скільки інвойсів під цим фільтром — число для «Page 2 of 7». Для техніка,
+ * що бачить лише свої роботи, сервер чесно повертає `total: null`.
+ */
+export const countInvoices = (params: InvoiceListParams = {}): Promise<ListCount> =>
+  http.get<ListCount>(`${BASE}/count${buildInvoiceListQuery({ ...params, cursor: undefined })}`);
 
 /** Every page for a filter — per-client lists are short. */
 export async function fetchAllInvoices(params: Omit<InvoiceListParams, "cursor"> = {}): Promise<Invoice[]> {

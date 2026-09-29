@@ -41,6 +41,7 @@ vi.mock("@/features/custom-fields/hooks", () => ({
 }));
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: (_r: string, action: string) => (action === "edit" ? perms.edit : true) }),
 }));
 

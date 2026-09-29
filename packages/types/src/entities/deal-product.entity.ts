@@ -32,6 +32,13 @@ export type DealProductFulfillment =
 export type DealProductPriceSource = 'catalog' | 'override' | 'imported';
 
 export interface DealProduct {
+  /**
+   * The line's own id — what its row is keyed by, so one job can carry the
+   * same product on two lines (a Workiz job routinely does: 19 506 such
+   * lines in 8 765 pairs). Rows written before this field read it back as
+   * their `productId`, which is exactly the key they were stored under.
+   */
+  lineId: string;
   productId: string;
   name: string;
   sku: string;

@@ -7,6 +7,7 @@ import { OutboundModule } from '../outbound/outbound.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { TeamModule } from '../team/team.module';
 import { AccessModule } from './access/access.module';
+import { PartyNamesService } from './access/party-names.service';
 import { DomainEventsService } from './common/domain-events.service';
 import { ConversationManagementController } from './conversations/conversation-management.controller';
 import { ConversationManagementService } from './conversations/conversation-management.service';
@@ -44,6 +45,7 @@ import { MessagesService } from './messages/messages.service';
     MessagesService,
     DomainEventsService,
     StartConversationService,
+    PartyNamesService,
   ],
   exports: [ConversationsService, ConversationManagementService, MessagesService, DomainEventsService],
 })

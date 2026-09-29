@@ -41,12 +41,9 @@ describe('isDealNumberCode', () => {
     expect(isDealNumberCode('X9Y8Z7')).toBe(true);
   });
 
-  it('rejects pure-digit strings (legacy sequential ids take that path)', () => {
-    expect(isDealNumberCode('123456')).toBe(false);
-  });
-
-  it('rejects pure-letter strings (likely a name search)', () => {
-    expect(isDealNumberCode('SMITHS')).toBe(false);
+  it('accepts pure-digit and pure-letter six-character codes — Workiz issued both', () => {
+    expect(isDealNumberCode('038072')).toBe(true);
+    expect(isDealNumberCode('PFLXHM')).toBe(true);
   });
 
   it('rejects wrong lengths and non-alphanumerics', () => {

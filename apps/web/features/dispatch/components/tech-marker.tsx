@@ -79,7 +79,7 @@ export function TechMarker({
         </div>
         {progress.total > 0 ? (
           <span
-            className="absolute -bottom-1.5 -right-1.5 flex min-w-4 items-center justify-center rounded-full border border-white bg-foreground px-1 text-[9px] font-semibold leading-4 text-background"
+            className="absolute -bottom-1.5 -right-1.5 flex min-w-4 items-center justify-center rounded-chip border border-white bg-foreground px-1 text-[9px] font-semibold leading-4 text-background"
             data-testid={`tech-badge-${position.userId}`}
           >
             {progress.current}/{progress.total}

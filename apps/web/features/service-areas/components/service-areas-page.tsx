@@ -93,7 +93,7 @@ export function ServiceAreasPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto border">
           <Table>
             <TableHeader>
               <TableRow>

@@ -47,6 +47,23 @@ export class ProductsController {
     };
   }
 
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('products', 'view')
+  @ApiOperation({
+    summary: 'How many products the list holds',
+    description:
+      '**Guard:** `products.view` permission required. Takes the same filters as the list ' +
+      '(`category`, `type`, `status`, `search`; `cursor` and `limit` are ignored) and answers ' +
+      '`{ total, atLeast }` — the row count behind "Page 2 of 7". `atLeast` means the walk ' +
+      'stopped on a ceiling and the real number is higher, which the panel renders as `7+`. ' +
+      'Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListProductsQueryDto) {
+    const data = await this.productsService.count(query);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @RequirePermission('products', 'view')
   @ApiOperation({ summary: 'Get product by ID', description: '**Guard:** `products.view` permission required.' })

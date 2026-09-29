@@ -10,6 +10,7 @@ import {
   Query,
   BadRequestException,
   NotFoundException,
+  HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RequirePermission, CurrentUser } from '@bitcrm/shared';
@@ -21,6 +22,8 @@ import { MoveStatusDto } from './dto/move-status.dto';
 import { MarkArrivedDto } from './dto/mark-arrived.dto';
 import { ChangeDealClientDto } from './dto/change-deal-client.dto';
 import { ListDealsQueryDto } from './dto/list-deals-query.dto';
+import { splitRefresh, WidgetWindowQueryDto } from './dashboard/widget-window-query.dto';
+import { DealsByIdsDto } from './dto/deals-by-ids.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
 import { AssignTechsDto } from './dto/assign-techs.dto';
@@ -59,7 +62,10 @@ export class DealsController {
   @RequirePermission('deals', 'view')
   @ApiOperation({
     summary: 'List deals with filters and pagination',
-    description: '**Guard:** `deals.view` permission required. DataScope enforced.',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced. The page carries an `included` block — ' +
+      'the names of the technicians and clients its jobs refer to — so the browser does not fetch them in two ' +
+      'further round trips. Names only: numbers and emails stay in crm, which masks them per caller.',
   })
   async list(
     @Query() query: ListDealsQueryDto,
@@ -68,11 +74,101 @@ export class DealsController {
   ) {
     const dataScope = perms?.dataScope?.deals;
     const result = await this.dealsService.list(query, user, dataScope);
+    // The ids are on the page, so this can only start once the page is here —
+    // but both of its sources go out together, and neither can fail the list.
+    const included = await this.dealsService.includedFor(result.items);
     return {
       success: true,
       data: result.items,
       pagination: { nextCursor: result.nextCursor, count: result.items.length },
+      included,
     };
+  }
+
+  @Get('counts')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'How many deals fall under each jobs-list tab',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced. Takes the same filters as the list ' +
+      '(`scheduledFrom/To`, `hourFrom/To`, `techId`, `jobTypeId`, `serviceArea`, `tagIds`, `subStatusId`, …; ' +
+      '`superStatus`, `cursor` and `limit` are ignored) and answers one number per super-status plus `unscheduled` ' +
+      '(the undated open jobs). Without a visit-date window the closed statuses (`done`, `canceled`) are `null` — ' +
+      'counting them would read their whole partitions. Cached for thirty seconds.',
+  })
+  async counts(
+    @Query() query: ListDealsQueryDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.counts(query, user, perms?.dataScope?.deals);
+    return { success: true, data };
+  }
+
+  @Get('stats')
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'A window of jobs at a glance — the dashboard and Job Statistics',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced. Takes the Jobs report\'s query: exactly one ' +
+      'window (`createdFrom/To`, `closedFrom/To` up to 92 days, or `scheduledFrom/To` up to 31) plus its filters, ' +
+      'and answers `DealStats` the Workiz Job Statistics way: counts per super-status; money (revenue, tax, cost, ' +
+      'profit = revenue − tax − cost, average sale and profit, per day) over the Done jobs only; a day series ' +
+      '(jobs, canceled, sales, profit) and breakdowns by tech, creator, job type, source, service area, city and ' +
+      'zip, each with all / done / open / canceled and its sales and profit. A job shared by techs counts for each ' +
+      'and splits its money equally. Every amount is left out without `financials.view`.',
+  })
+  async stats(
+    @Query() query: ListDealsQueryDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const money = perms?.permissions?.financials?.view === true;
+    const data = await this.dealsService.stats(query, user, perms?.dataScope?.deals, { money });
+    return { success: true, data };
+  }
+
+  // Before `:id`, or the parameter route swallows it.
+  @Get('stats/jobs-by-status')
+  // The widget's own grant, not `deals.view`: hiding a dashboard widget from a
+  // role has to mean its data endpoint refuses that role, or the numbers are
+  // one DevTools tab away.
+  @RequirePermission('dashboard', 'view_jobs_by_status')
+  @ApiOperation({
+    summary: 'Jobs created per day, by state — the dashboard chart',
+    description:
+      '**Guard:** `dashboard.view_jobs_by_status` — the widget\'s own grant, so a role that ' +
+      'cannot see the card cannot fetch its numbers either. One row per calendar day of `from`..`to` ' +
+      '(inclusive, `YYYY-MM-DD`), counting jobs by the day they were **created** and the state ' +
+      'they are in **now**. Three buckets: `canceled`, `done`, and `open` — everything not yet ' +
+      'closed, `done_pending_approval` included, since it is still awaiting sign-off. Days with ' +
+      'no jobs come back as zeros so the axis steps evenly. The window is capped at 92 days. ' +
+      '`atLeast` means a walk stopped on its read budget and the counts are floors. ' +
+      'Served from a snapshot built nightly at 3 AM Eastern (`computedAt`); `refresh=1` rebuilds it.',
+  })
+  async jobsByStatus(@Query() query: WidgetWindowQueryDto) {
+    const { window, opts } = splitRefresh(query);
+    const data = await this.dealsService.jobsByStatus(window, opts);
+    return { success: true, data };
+  }
+
+  @Post('by-ids')
+  @HttpCode(200)
+  @RequirePermission('deals', 'view')
+  @ApiOperation({
+    summary: 'The deals of a set of ids',
+    description:
+      '**Guard:** `deals.view` permission required. DataScope enforced — under `assigned_only` only the caller’s ' +
+      'own deals come back. At most 100 ids; deleted or missing ones are absent. This is how a search result or a ' +
+      'board delta is hydrated in one call.',
+  })
+  async findByIds(
+    @Body() dto: DealsByIdsDto,
+    @CurrentUser() user: JwtUser,
+    @ResolvedPerms() perms: ResolvedPermissions,
+  ) {
+    const data = await this.dealsService.findByIds(dto.ids, user, perms?.dataScope?.deals);
+    return { success: true, data };
   }
 
   @Get('qualified-techs')

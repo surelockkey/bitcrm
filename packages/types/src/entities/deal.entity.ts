@@ -15,6 +15,22 @@ import { type DocumentDiscount, type DocumentTaxSource } from '../billing/totals
 export const SEND_TO_TECH_CHANNELS = ['sms', 'email', 'in_app'] as const;
 export type SendToTechChannel = (typeof SEND_TO_TECH_CHANNELS)[number];
 
+/**
+ * What the job is worth, kept on the job so a period can be summed without
+ * reading every job's lines: the shared totals formula over its lines, tax
+ * and discount, plus what those lines cost the company. Refreshed by the deal
+ * service on every line, tax or discount change.
+ */
+export interface DealTotalsSnapshot {
+  subtotal: number;
+  discount: number;
+  tax: number;
+  /** What the client is billed: subtotal − discount + tax. */
+  total: number;
+  /** Σ quantity × company cost over the lines. */
+  cost: number;
+}
+
 export interface Deal {
   id: string;
   /**
@@ -96,6 +112,8 @@ export interface Deal {
   discount?: DocumentDiscount;
   /** Number of line items on the job (kept by the deal service; drives "needs invoice"). */
   itemCount?: number;
+  /** Money snapshot — see `DealTotalsSnapshot`. Absent until the job is first priced or backfilled. */
+  totals?: DealTotalsSnapshot;
   /** Set by the billing service when the job's invoice exists (=== dealId). */
   invoiceId?: string;
   estimatedTotal?: number;
@@ -107,6 +125,43 @@ export interface Deal {
   poNumber?: string;
   /** User-defined field answers, keyed by CustomFieldDefinition id (not name). */
   customFields?: Record<string, CustomFieldValue>;
+
+  /* ---------------------------------------------- carried over from Workiz */
+  /*
+   * A migrated job keeps what a person reads on it. Workiz issued three
+   * identifiers per job; `dealNumber` holds the code, and the other two live
+   * here. The money a job carried stays out until invoices are built — the
+   * importer stores those attributes, nothing reads them yet.
+   */
+
+  /** `workiz:job:<id>` — the record this job was migrated from. */
+  externalId?: string;
+  /** Workiz's own numeric job id. */
+  workizId?: number;
+  /** Workiz's per-account job serial. Not unique: 835 numbers repeat across 1 682 jobs. */
+  jobSerial?: number;
+  /** The Workiz service-address (`prop`) this visit was booked against. */
+  propId?: string;
+  /** IANA zone the visit's times were entered in; absent = the workspace's own. */
+  jobTimezone?: string;
+  /** This job began as a lead and was converted. */
+  converted?: boolean;
+  conversionDate?: string;
+  /** Calls were linked to this job in Workiz. */
+  hasCalls?: boolean;
+  /** A technician opened it in Workiz. */
+  seen?: boolean;
+  /** How many attachments Workiz held — the files themselves arrive with the media stream. */
+  filesCount?: number;
+  /** Last time Workiz sent this job out, and last time its progress moved. */
+  lastSent?: string;
+  lastProgress?: string;
+  /** Contact details as they stood on the job, which may differ from the client record. */
+  emailAddress?: string;
+  clientCompanyName?: string;
+  /** Numbers the job itself carried, first one primary; extensions keyed by number. */
+  phones?: string[];
+  phoneExtensions?: Record<string, string>;
   /**
    * Per-job override of the client's display name — set when a client edit on
    * the job is saved with "Just here" instead of being applied to the contact
@@ -160,4 +215,57 @@ export interface Deal {
   arrivedLocation?: { lat: number; lng: number; accuracy?: number };
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * One day of the dashboard's "Jobs By Status" chart: how many jobs were
+ * created that day, folded into the three states the chart draws.
+ *
+ * `open` is everything not yet closed — submitted, in progress, pending and
+ * done-pending-approval, which is still awaiting sign-off.
+ */
+export interface JobsByStatusDay {
+  /** `YYYY-MM-DD`. */
+  day: string;
+  open: number;
+  done: number;
+  canceled: number;
+}
+
+export interface JobsByStatusSeries {
+  /** Every day of the window, in order, including the ones with no jobs. */
+  days: JobsByStatusDay[];
+  /** A walk stopped on its read budget: the counts are floors, not totals. */
+  atLeast: boolean;
+  /** When this series was computed (ISO) — the nightly snapshot, or a refresh. */
+  computedAt?: string;
+}
+
+/** An id with the name to print for it. Nothing else — see `JobsListIncluded`. */
+export interface PersonName {
+  id: string;
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * The rows a page of jobs refers to, sent **with** that page instead of
+ * fetched again once the browser has read the ids out of it.
+ *
+ * Why it exists: naming the technicians and clients of fifty jobs used to cost
+ * two more round trips, and the one for clients could not even start until the
+ * jobs came back — so the grid painted, then filled in names a beat later.
+ *
+ * **Names only, deliberately.** Numbers and emails are not here and must not
+ * be added: crm masks a contact's numbers for a caller without
+ * `contacts.view_numbers`, deal-service masks nothing, and a side-load that
+ * carried them would hand every holder of `deals.view` exactly what that grant
+ * exists to withhold. A screen that shows numbers asks crm for them, which
+ * masks per caller as it always has.
+ */
+export interface JobsListIncluded {
+  /** Technicians assigned on this page. */
+  technicians: PersonName[];
+  /** Clients of the jobs on this page. */
+  clients: PersonName[];
 }

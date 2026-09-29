@@ -16,6 +16,7 @@ describe('TransfersController', () => {
     service = {
       createTransfer: jest.fn(),
       list: jest.fn(),
+      count: jest.fn(),
       findAll: jest.fn(),
       findById: jest.fn(),
       findByEntity: jest.fn(),
@@ -172,6 +173,17 @@ describe('TransfersController', () => {
       await expect(controller.findByIdInternal('missing')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('count', () => {
+    it('answers the list total in the envelope', async () => {
+      service.count.mockResolvedValue({ total: 18, atLeast: false });
+
+      expect(await controller.count()).toEqual({
+        success: true,
+        data: { total: 18, atLeast: false },
+      });
     });
   });
 });

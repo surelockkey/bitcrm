@@ -41,7 +41,14 @@ export { WorkOrder } from './entities/work-order.entity';
 export { CompanyDocument } from './entities/company-document.entity';
 export { Address } from './entities/address.entity';
 export { Deal, SEND_TO_TECH_CHANNELS } from './entities/deal.entity';
-export type { SendToTechChannel } from './entities/deal.entity';
+export type {
+  SendToTechChannel,
+  DealTotalsSnapshot,
+  JobsByStatusDay,
+  JobsByStatusSeries,
+  PersonName,
+  JobsListIncluded,
+} from './entities/deal.entity';
 export { DealAttachment, DealAttachmentMeta } from './entities/deal-attachment.entity';
 export {
   CallGroup,
@@ -237,6 +244,8 @@ export type {
   ConversationMember,
   ConversationMemberRole,
   ConversationParticipant,
+  ConversationListIncluded,
+  PartyName,
 } from './entities/conversation.entity';
 export {
   MESSAGE_ATTACHMENT_LIMIT,
@@ -436,7 +445,7 @@ export { RESOURCE_REGISTRY, Resource, Action } from './permissions/resource-regi
 export { CreateUserRequest } from './dto/create-user.dto';
 export { UpdateUserRequest } from './dto/update-user.dto';
 export { ListUsersQuery } from './dto/list-users-query.dto';
-export { LoginRequest, LoginResponse, LoginChallengeResponse } from './dto/login.dto';
+export { LoginRequest, LoginResponse, LoginChallengeResponse, MfaVerifyRequest } from './dto/login.dto';
 export { RefreshTokenRequest, RefreshTokenResponse } from './dto/refresh-token.dto';
 export { ChangePasswordRequest, ChangePasswordResponse } from './dto/change-password.dto';
 export { CreateRoleRequest } from './dto/create-role.dto';
@@ -462,4 +471,31 @@ export {
 export { JwtUser } from './auth/jwt-user';
 
 // Responses
-export { ApiResponse, PaginatedResponse } from './responses/api-response';
+export { ApiResponse, PaginatedResponse, ListCount } from './responses/api-response';
+export type {
+  DealStats,
+  DealStatsBy,
+  DealStatsBucket,
+  DealStatsDay,
+  DealStatsMoney,
+} from './responses/deal-stats';
+export type {
+  CallFlowSeries,
+  CallsDashboardBundle,
+  DealDashboardBundle,
+  DashboardJobsNow,
+  DashboardSales,
+  DashboardSalesDay,
+  DashboardScoreboard,
+  DashboardScoreRow,
+  DashboardShare,
+  DashboardShares,
+  DashboardToday,
+} from './responses/dashboard';
+export {
+  DASHBOARD_RANGES,
+  DASHBOARD_TIMEZONE,
+  dashboardDay,
+  dashboardWindow,
+  msUntilDailyAt,
+} from './dashboard/time';

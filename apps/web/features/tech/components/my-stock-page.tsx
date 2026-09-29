@@ -5,7 +5,7 @@ import { PackageX, Search, Truck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/clients/components/contacts-page";
 import { useContainerStockView, useMyContainer } from "@/features/inventory/containers/hooks";
 import { containerTitle } from "@/features/inventory/containers/lib";
@@ -20,7 +20,7 @@ import { filterStockRows, sortStockRows } from "../lib";
  * putting it on a job, and the office does the restocking.
  */
 export function MyStockPage() {
-  const { can } = usePermissions();
+  const denied = useDenied();
   const { data: container, isLoading: containerLoading, isError: containerError } = useMyContainer();
   const stock = useContainerStockView(container?.id ?? "", Boolean(container?.id));
   const [search, setSearch] = useState("");
@@ -30,7 +30,7 @@ export function MyStockPage() {
     [stock.rows, search],
   );
 
-  if (!can("containers", "view")) return <NoAccess entity="stock" />;
+  if (denied("containers", "view")) return <NoAccess entity="stock" />;
 
   if (containerLoading) {
     return (
@@ -144,7 +144,7 @@ function Chip({ label, tone }: { label: string; tone?: "warn" }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 font-medium",
+        "inline-flex items-center rounded-chip border px-2.5 py-1 font-medium",
         tone === "warn"
           ? "border-amber-500/40 text-amber-600 dark:text-amber-500"
           : "text-muted-foreground",

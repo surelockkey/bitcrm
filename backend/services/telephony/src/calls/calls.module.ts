@@ -17,6 +17,7 @@ import { VoiceModule } from '../voice/voice.module';
 import { CallFlowsModule } from '../call-flows/call-flows.module';
 import { CallTagsModule } from '../call-tags/call-tags.module';
 
+import { FlowSnapshotScheduler } from './flow-snapshot.scheduler';
 @Module({
   // VoiceModule provides ConferenceService (monitor grants) and itself imports
   // CallsModule for the record writer — hence the forwardRef pair.
@@ -34,6 +35,7 @@ import { CallTagsModule } from '../call-tags/call-tags.module';
   controllers: [CallsController],
   providers: [
     CallsService,
+    FlowSnapshotScheduler,
     CallsRepository,
     CallEventsBus,
     UserNamesService,

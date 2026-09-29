@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DeleteCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import { DynamoDbService } from '@bitcrm/shared';
+import {
+  DynamoDbService,
+  type CountRowsResult,
+} from '@bitcrm/shared';
 import { type AutomationRun } from '@bitcrm/types';
 import {
   MESSAGING_GSI3_NAME,
@@ -192,12 +195,17 @@ export class AutomationRunsRepository {
     return { items, nextCursor: encodeCursor({ p: partitions[index], ...(startKey ? { k: startKey } : {}) }) };
   }
 
-  /** One page of one partition — the rule's own, or a month of the feed index. */
+  /**
+   * One page of one partition — the rule's own, or a month of the feed index.
+   * In `count` mode the same selection is tallied instead of read: no bodies
+   * come back, and `limit` does not apply.
+   */
   private async queryRuns(
     partition: string,
     exclusiveStartKey: Record<string, unknown> | undefined,
     limit: number,
     query: AutomationRunFeedQuery,
+    count = false,
   ) {
     // The same test `listFeed` chose the partitions by: `ruleId !== undefined`
     // would send an empty one down the per-rule path and query
@@ -226,10 +234,43 @@ export class AutomationRunsRepository {
           ...(query.outcome ? { ':outcome': query.outcome } : {}),
         },
         ScanIndexForward: false,
-        Limit: limit,
+        ...(count ? { Select: 'COUNT' as const } : { Limit: limit }),
         ExclusiveStartKey: exclusiveStartKey,
       }),
     );
+  }
+
+  /**
+   * How many firings the feed holds — the number behind "Page 2 of 7".
+   *
+   * The same partitions the feed walks, tallied with `Select: 'COUNT'`. The
+   * walk is bounded exactly as the feed's is: `outcome` is a filter rather
+   * than a key, so a rare outcome over the retention window would otherwise
+   * read every month of it. Out of budget, the answer is a floor.
+   */
+  async countFeed(query: AutomationRunFeedQuery): Promise<CountRowsResult> {
+    const partitions = query.ruleId
+      ? [query.ruleId]
+      : autoRunFeedMonths(query.now ?? new Date(), query.since);
+
+    let total = 0;
+    let queries = 0;
+
+    for (const partition of partitions) {
+      let startKey: Record<string, unknown> | undefined;
+
+      for (;;) {
+        if (queries >= AUTO_RUN_FEED_MAX_QUERIES) return { total, atLeast: true };
+        queries += 1;
+
+        const res = await this.queryRuns(partition, startKey, query.limit, query, true);
+        total += res.Count ?? 0;
+        if (!res.LastEvaluatedKey) break;
+        startKey = res.LastEvaluatedKey;
+      }
+    }
+
+    return { total, atLeast: false };
   }
 
   /** `firedCount += 1`, `lastFiredAt = at` on `AUTOMATION#<ruleId>` — atomic, never a read-modify-write. */

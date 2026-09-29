@@ -176,6 +176,15 @@ describe('DealsService', () => {
       expect(repo.create).toHaveBeenCalled();
     });
 
+    it('announces the new deal like any other write', async () => {
+      repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
+      repo.create.mockResolvedValue(undefined);
+
+      const result = await service.create(dto as any, caller);
+
+      expect(cache.invalidate).toHaveBeenCalledWith(result.id);
+    });
+
     it('persists a platinum work-order link and PO number', async () => {
       repo.reserveDealNumber.mockResolvedValue('K4T9ZW');
       repo.create.mockResolvedValue(undefined);
@@ -413,6 +422,8 @@ describe('DealsService', () => {
 
     it('should parse a "#K4T9ZW" search into a code dealNumber filter', async () => {
       repo.findAll.mockResolvedValue(mockResult);
+      // A reservation from before the link: the filtered read is the fallback.
+      repo.findIdByNumber.mockResolvedValue(undefined);
       await service.list({ search: '#K4T9ZW' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
@@ -423,6 +434,7 @@ describe('DealsService', () => {
 
     it('should uppercase a bare lowercase code search', async () => {
       repo.findAll.mockResolvedValue(mockResult);
+      repo.findIdByNumber.mockResolvedValue(undefined);
       await service.list({ search: 'k4t9zw' } as any, caller);
       expect(repo.findAll).toHaveBeenCalledWith(
         20,
@@ -431,14 +443,12 @@ describe('DealsService', () => {
       );
     });
 
-    it('should NOT treat a pure-letter word as a dealNumber filter', async () => {
-      repo.findAll.mockResolvedValue(mockResult);
-      await service.list({ search: 'SMITHS' } as any, caller);
-      expect(repo.findAll).toHaveBeenCalledWith(
-        20,
-        undefined,
-        expect.objectContaining({ dealNumber: undefined }),
-      );
+    it('a six-letter word is looked up as a code first — Workiz codes can be letters only', async () => {
+      repo.findIdByNumber.mockResolvedValue(null);
+      const result = await service.list({ search: 'SMITHS' } as any, caller);
+      expect(repo.findIdByNumber).toHaveBeenCalledWith('SMITHS');
+      expect(result.items).toEqual([]);
+      expect(repo.findAll).not.toHaveBeenCalled();
     });
 
     it('should pass cursor', async () => {
@@ -1461,10 +1471,11 @@ describe('DealsService', () => {
         containerId: 'tech-1',
         items: [expect.objectContaining({ productId: 'product-2', quantity: 2 })],
       }));
-      // …and the row moves to the new product id.
-      expect(products.removeProduct).toHaveBeenCalledWith('deal-1', 'product-1');
+      // …and the same line now names the new product: it is keyed by its own
+      // id, so nothing is removed and nothing pointing at it is orphaned.
+      expect(products.removeProduct).not.toHaveBeenCalled();
       expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
-        productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
+        lineId: 'line-1', productId: 'product-2', sourceTechId: 'tech-1', quantity: 2, priceClient: 60,
       }));
       expect(sns.publish).toHaveBeenCalledWith('deal-events', 'deal.product_updated', expect.any(Object));
     });
@@ -1572,17 +1583,19 @@ describe('DealsService', () => {
       expect(http.restoreStock).not.toHaveBeenCalled();
     });
 
-    it('rejects swapping onto a product that is already a line on the deal', async () => {
+    it('allows a product that is already on another line — a job may carry it twice', async () => {
+      // Under the old key (one line per product) this was refused; a Workiz
+      // job routinely carries the same part on two lines, at two prices.
       mockFindById(createMockDeal({ assignedTechIds: ['tech-1'] }));
-      products.findProduct.mockImplementation(async (_d: string, productId: string) =>
-        createMockDealProduct({ productId, sourceTechId: 'tech-1' }),
+      products.findProduct.mockImplementation(async (_d: string, lineKey: string) =>
+        createMockDealProduct({ lineId: lineKey, productId: 'product-9', sourceTechId: 'tech-1' }),
       );
 
-      await expect(
-        service.replaceProduct('deal-1', 'product-1', dto as any, caller),
-      ).rejects.toThrow(BadRequestException);
-      expect(http.restoreStock).not.toHaveBeenCalled();
-      expect(products.addProduct).not.toHaveBeenCalled();
+      await service.replaceProduct('deal-1', 'line-7', dto as any, caller);
+
+      expect(products.addProduct).toHaveBeenCalledWith('deal-1', expect.objectContaining({
+        lineId: 'line-7', productId: 'product-2',
+      }));
     });
 
     it('rejects a sourced replacement whose tech is not on the deal', async () => {

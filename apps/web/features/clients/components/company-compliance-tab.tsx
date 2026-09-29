@@ -14,6 +14,7 @@ import {
 import * as api from "../api";
 import { coiStatus, paymentTermsLabel } from "../lib";
 import { CoiStatusBadge } from "./client-badges";
+import { useFilePreviewStore } from "@/features/files/preview-store";
 
 const DOC_LABELS: Record<CompanyDocumentType, string> = {
   [CompanyDocumentType.W9]: "W-9",
@@ -59,7 +60,7 @@ export function CompanyComplianceTab({ company }: { company: Company }) {
                 <div className="text-xs font-medium">{DOC_LABELS[t]}</div>
                 {present ? (
                   <div className="flex items-center gap-1">
-                    <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => view(company.id, t)}>
+                    <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={() => view(company.id, t, DOC_LABELS[t])}>
                       View
                     </Button>
                     {canEdit ? (
@@ -82,18 +83,13 @@ export function CompanyComplianceTab({ company }: { company: Company }) {
   );
 }
 
-function view(companyId: string, docType: CompanyDocumentType) {
-  const tab = window.open("", "_blank");
-  if (tab) tab.opener = null;
-  void (async () => {
-    try {
-      const { downloadUrl } = await api.getCompanyDocumentDownloadUrl(companyId, docType);
-      if (tab) tab.location.replace(downloadUrl);
-      else window.open(downloadUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      tab?.close();
-    }
-  })();
+/** Відкрити документ компанії у вікні перегляду — як і будь-яке вкладення. */
+function view(companyId: string, docType: CompanyDocumentType, name: string) {
+  useFilePreviewStore.getState().preview({
+    name,
+    load: async () =>
+      (await api.getCompanyDocumentDownloadUrl(companyId, docType)).downloadUrl,
+  });
 }
 
 function UploadButton({ companyId, docType }: { companyId: string; docType: CompanyDocumentType }) {

@@ -7,6 +7,9 @@ import { MyStockPage } from "./my-stock-page";
 
 const can = vi.fn((resource: string) => resource === "containers");
 vi.mock("@/features/auth/use-permissions", () => ({
+  // This suite asserts the refusal, so `useDenied` mirrors its own `can`
+  // instead of declaring that nobody is ever refused.
+  useDenied: () => (r: never) => !can(r),
   usePermissions: () => ({ can, isTechnician: true, isLoading: false }),
 }));
 

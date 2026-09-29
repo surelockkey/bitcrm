@@ -123,3 +123,60 @@ describe('ContainersRepository (imported rows)', () => {
     expect(container.accessUserIds).toEqual(['user-4', 'user-9']);
   });
 });
+
+describe('ContainersRepository.findAll', () => {
+  let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
+  let repository: ContainersRepository;
+
+  beforeEach(() => {
+    dynamoDb = createMockDynamoDbService();
+    repository = new ContainersRepository(dynamoDb as any);
+  });
+
+  const row = (id: string) => ({
+    ...createMockContainer(),
+    id,
+    PK: `CONTAINER#${id}`,
+    SK: 'METADATA',
+  });
+
+  // Те саме, що й у товарах: `Limit` рахує прочитані рядки спільної таблиці.
+  it('fills the page across reads', async () => {
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [row('v1')], LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
+      .mockResolvedValueOnce({ Items: [row('v2')], LastEvaluatedKey: undefined });
+
+    const result = await repository.findAll(3);
+
+    expect(result.items.map((c) => c.id)).toEqual(['v1', 'v2']);
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  describe('countAll', () => {
+    it('counts without pulling item bodies back', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 12 });
+
+      expect(await repository.countAll()).toEqual({ total: 12, atLeast: false });
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Select).toBe('COUNT');
+    });
+
+    it('counts under the same department filter the list uses', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 3 });
+
+      await repository.countAll({ department: 'locksmith' });
+
+      const sent = dynamoDb.client.send.mock.calls[0][0];
+      expect(sent.input.FilterExpression).toContain('#department = :dept');
+      expect(sent.input.ExpressionAttributeValues[':dept']).toBe('locksmith');
+    });
+
+    it('gives up on an exact answer rather than walk the whole table', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Count: 1,
+        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
+      });
+
+      expect((await repository.countAll()).atLeast).toBe(true);
+    });
+  });
+});

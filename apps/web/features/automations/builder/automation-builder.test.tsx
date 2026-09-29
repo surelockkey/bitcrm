@@ -8,6 +8,7 @@ import { server } from "@/test/msw/server";
 import { AutomationBuilderDialog, type AutomationDraft } from "./automation-builder";
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: () => true, me: { id: "me" }, isLoading: false, isTechnician: false }),
 }));
 

@@ -4,7 +4,9 @@ import { http } from "@/lib/api/http";
 /** Deal-service catalog lives under the deals gateway route. */
 const BASE = "/deals/job-sources";
 
-export const listJobSources = (): Promise<JobSource[]> => http.get<JobSource[]>(BASE);
+/** `activeOnly` is what a picker needs; the full catalog also resolves archived names. */
+export const listJobSources = (activeOnly = false): Promise<JobSource[]> =>
+  http.get<JobSource[]>(activeOnly ? `${BASE}?active=true` : BASE);
 
 export const getJobSource = (id: string): Promise<JobSource> =>
   http.get<JobSource>(`${BASE}/${id}`);

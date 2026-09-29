@@ -66,7 +66,7 @@ export function ConversationRow({
       )}
     >
       <Avatar className="mt-0.5 size-9">
-        <AvatarFallback className="bg-primary text-[15px] font-medium text-primary-foreground">
+        <AvatarFallback className="bg-muted text-[15px] font-medium text-muted-foreground">
           {avatarInitial(title)}
         </AvatarFallback>
       </Avatar>

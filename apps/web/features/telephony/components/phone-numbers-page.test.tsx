@@ -19,6 +19,7 @@ const DEFAULT_NUMBERS = [
 ];
 
 vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
   usePermissions: () => ({ can: mocks.can }),
 }));
 vi.mock("../numbers-hooks", () => ({

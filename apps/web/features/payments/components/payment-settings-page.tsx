@@ -20,6 +20,7 @@ import {
   toSettingsBody,
   type PaymentSettingsFormValues,
 } from "../schemas";
+import { toneClasses } from "@/lib/theme/tone";
 
 type Errors = Partial<Record<keyof PaymentSettingsFormValues, string>>;
 
@@ -136,8 +137,8 @@ export function PaymentSettingsPage() {
           className={cn(
             "flex items-start gap-2 rounded-md border p-2.5 text-xs",
             stripeReady
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
-              : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+              ? toneClasses("success")
+              : toneClasses("warning"),
           )}
         >
           {stripeReady ? (
@@ -241,7 +242,7 @@ export function PaymentSettingsPage() {
             />
           </Field>
         </div>
-        <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-300">
+        <p className={`flex items-start gap-2 rounded-md border p-2.5 text-xs ${toneClasses("warning")}`}>
           <TriangleAlert className="mt-0.5 size-3.5 flex-none" aria-hidden />
           <span>{SURCHARGE_WARNING}</span>
         </p>

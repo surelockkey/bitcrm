@@ -7,7 +7,7 @@ import type { Deal } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useMe } from "@/features/auth/use-me";
-import { useDeals } from "@/features/deals/hooks";
+import { useDealsWindow } from "@/features/deals/hooks";
 import * as dealsApi from "@/features/deals/api";
 import * as messagingApi from "@/features/messaging/api";
 import { newClientMessageId } from "@/features/messaging/lib";
@@ -27,13 +27,33 @@ export function useMyJobs(todayIso: string = localDateIso()) {
   // dispatcher opening this page has no scope narrowing them at all, so the
   // id has to be sent — and waited for, rather than asking for the whole
   // board in the meantime.
-  const query = useDeals({ techId }, { poll: true, enabled: Boolean(techId) });
-  const groups = useMemo(
-    () => groupJobsByDay(query.data ?? [], todayIso, techId),
-    [query.data, todayIso, techId],
-  );
+  // Two bounded reads instead of the technician's whole history: everything
+  // still open (overdue, undated, today, later), plus today's closed work,
+  // which the day list keeps as "done this morning".
+  const enabled = Boolean(techId);
+  const open = useDealsWindow({ techId }, { poll: true, enabled });
+  const today = useDealsWindow({ techId, from: todayIso, to: todayIso }, { poll: true, enabled });
+  const deals = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Deal[] = [];
+    for (const d of [...(open.data ?? []), ...(today.data ?? [])]) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      out.push(d);
+    }
+    return out;
+  }, [open.data, today.data]);
+  const groups = useMemo(() => groupJobsByDay(deals, todayIso, techId), [deals, todayIso, techId]);
   return {
-    ...query,
+    data: deals,
+    isLoading: open.isLoading || today.isLoading,
+    isError: open.isError || today.isError,
+    isFetching: open.isFetching || today.isFetching,
+    isRefetching: open.isRefetching || today.isRefetching,
+    error: open.error ?? today.error,
+    refetch: async () => {
+      await Promise.all([open.refetch(), today.refetch()]);
+    },
     groups,
     techId,
     /** False until `me` resolves — the list is "still loading", not "empty". */
