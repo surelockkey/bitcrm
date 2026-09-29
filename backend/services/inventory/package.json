@@ -16,7 +16,8 @@
     "setup": "npm run setup:db && npm run setup:aws",
     "backfill:location-index": "ts-node src/scripts/backfill-location-index.ts",
     "backfill:product-numbers": "ts-node src/scripts/backfill-product-numbers.ts",
-    "backfill:product-onhand": "ts-node src/scripts/backfill-product-onhand.ts"
+    "backfill:product-onhand": "ts-node src/scripts/backfill-product-onhand.ts",
+    "backfill:product-search": "ts-node src/scripts/backfill-product-search.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.700.0",

@@ -31,6 +31,18 @@ describe('ProductsRepository', () => {
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
     });
 
+    // Пошук у списку — `contains` без урахування регістру, як у складів і
+    // журналу: "lock" має знаходити "Lock Set", "Lock" — "padlock".
+    it('writes the lowercased search attributes for name and sku', async () => {
+      dynamoDb.client.send.mockResolvedValue({});
+
+      await repository.create(createMockProduct({ name: '  Lock Set ', sku: 'WZ-10707' }));
+
+      const item = dynamoDb.client.send.mock.calls[0][0].input.TransactItems[0].Put.Item;
+      expect(item.searchName).toBe('lock set');
+      expect(item.searchSku).toBe('wz-10707');
+    });
+
     it('should throw ConflictException on TransactionCanceledException', async () => {
       const product = createMockProduct();
       const error = new Error('Transaction cancelled');
@@ -271,6 +283,40 @@ describe('ProductsRepository', () => {
       expect(input.UpdateExpression).toContain('#name = :name');
       expect(input.ExpressionAttributeValues).not.toHaveProperty(':workizType');
     });
+
+    it('rewrites the search name when the name changes, and leaves it alone otherwise', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Attributes: { ...createMockProduct(), PK: 'PRODUCT#prod-1', SK: 'METADATA' },
+      });
+
+      await repository.update('prod-1', { name: ' Kwikset Deadbolt ' });
+      await repository.update('prod-1', { costTech: 12 });
+
+      const renamed = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(renamed.UpdateExpression).toContain('#searchName = :searchName');
+      expect(renamed.ExpressionAttributeValues[':searchName']).toBe('kwikset deadbolt');
+      expect(dynamoDb.client.send.mock.calls[1][0].input.UpdateExpression).not.toContain('searchName');
+    });
+  });
+
+  describe('toProduct (search attributes)', () => {
+    it('never leaks searchName and searchSku onto the entity', async () => {
+      dynamoDb.client.send.mockResolvedValue({
+        Item: {
+          ...createMockProduct(),
+          PK: 'PRODUCT#prod-1',
+          SK: 'METADATA',
+          searchName: 'test product',
+          searchSku: 'sku-001',
+        },
+      });
+
+      const product = (await repository.findById('prod-1')) as unknown as Record<string, unknown>;
+
+      expect(product.searchName).toBeUndefined();
+      expect(product.searchSku).toBeUndefined();
+      expect(product.name).toBe('Test Product');
+    });
   });
   /**
    * The Workiz importer writes attributes `Product` does not declare and, for
@@ -417,11 +463,11 @@ describe('ProductsRepository', () => {
     it('counts under the same filter the list uses', async () => {
       dynamoDb.client.send.mockResolvedValue({ Count: 3 });
 
-      await repository.countAll({ status: 'active', search: 'lock' });
+      await repository.countAll({ status: 'active', search: ' Lock ' });
 
       const sent = dynamoDb.client.send.mock.calls[0][0];
       expect(sent.input.FilterExpression).toContain('#status = :status');
-      expect(sent.input.FilterExpression).toContain('contains(#name, :search)');
+      expect(sent.input.FilterExpression).toContain('contains(searchName, :search)');
       expect(sent.input.ExpressionAttributeValues[':status']).toBe('active');
       expect(sent.input.ExpressionAttributeValues[':search']).toBe('lock');
     });
@@ -616,18 +662,29 @@ describe('ProductsRepository', () => {
       });
     });
 
-    it('type + search: Query on TypeIndex with the name/sku filter', async () => {
+    // Термін і збережені назва/SKU — у нижньому регістрі з обох боків, як у
+    // складів, контейнерів і журналу: одне поле пошуку поводиться однаково на
+    // кожній вкладці.
+    it('type + search: Query on TypeIndex with the case-insensitive name/sku filter', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
-      await repository.findByType('product', 20, undefined, { search: 'lock' });
+      await repository.findByType('product', 20, undefined, { search: ' Lock' });
 
       const input = sentInput();
       expect(input.IndexName).toBe('TypeIndex');
       expect(input.KeyConditionExpression).toBe('GSI2PK = :pk');
       expect(input.ExpressionAttributeValues[':pk']).toBe('TYPE#product');
-      expect(input.FilterExpression).toBe('(contains(#name, :search) OR contains(sku, :search))');
-      expect(input.ExpressionAttributeNames).toEqual({ '#name': 'name' });
+      expect(input.FilterExpression).toBe('(contains(searchName, :search) OR contains(searchSku, :search))');
+      expect(input.ExpressionAttributeNames).toBeUndefined();
       expect(input.ExpressionAttributeValues[':search']).toBe('lock');
+    });
+
+    it('a blank search term is no filter at all', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [row] });
+
+      await repository.findByType('product', 20, undefined, { search: '   ' });
+
+      expect(sentInput().FilterExpression).toBeUndefined();
     });
 
     it('a type Query cursor carries the TypeIndex keys', async () => {
@@ -752,13 +809,12 @@ describe('ProductsRepository', () => {
       expect(input.IndexName).toBe('CategoryIndex');
       expect(input.FilterExpression).toBe(
         '#status = :status AND ' +
-          '(contains(#name, :search) OR contains(sku, :search)) AND ' +
+          '(contains(searchName, :search) OR contains(searchSku, :search)) AND ' +
           'brandId = :brandId AND ' +
           '#type = :productType AND (attribute_not_exists(manageStock) OR manageStock = :true)',
       );
       expect(input.ExpressionAttributeNames).toEqual({
         '#status': 'status',
-        '#name': 'name',
         '#type': 'type',
       });
     });
@@ -800,7 +856,7 @@ describe('ProductsRepository', () => {
       const input = sentInput();
       expect(input.FilterExpression).toBe(
         'begins_with(PK, :pk) AND SK = :sk AND ' +
-          '(contains(#name, :search) OR contains(sku, :search)) AND brandId = :brandId',
+          '(contains(searchName, :search) OR contains(searchSku, :search)) AND brandId = :brandId',
       );
     });
 

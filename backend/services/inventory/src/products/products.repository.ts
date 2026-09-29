@@ -17,6 +17,7 @@ import {
   GSI1_NAME,
   GSI2_NAME,
 } from '../common/constants/dynamo.constants';
+import { productSearchName, productSearchSku } from './products.constants';
 
 export interface PaginatedResult {
   items: Product[];
@@ -31,7 +32,7 @@ export interface ProductListFilters {
   /** Only when category took the index; otherwise type IS the index. */
   type?: string;
   status?: string;
-  /** Matched against `name` and `sku`. */
+  /** Matched against the lowercased `name` and `sku` (`searchName` / `searchSku`), case-insensitive. */
   search?: string;
   brandId?: string;
   /**
@@ -42,9 +43,10 @@ export interface ProductListFilters {
   manageStock?: boolean;
 }
 
-/** Key attributes that must never leak onto an entity. */
+/** Key and derived attributes that must never leak onto an entity. */
 const KEY_ATTRIBUTES = new Set([
   'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+  'searchName', 'searchSku',
 ]);
 
 const KNOWN_TYPES = new Set<string>(Object.values(ProductType));
@@ -61,6 +63,8 @@ const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
  *   PK = COUNTER#PRODUCT, SK = METADATA                   { seq } — the last
  *     product `number` handed out; `nextNumber` ADDs one atomically and
  *     `raiseCounterTo` moves it past imported (Workiz) numbers.
+ *   searchName = <name lowercased>, searchSku = <sku lowercased>  (what the
+ *     search filter matches; `backfill:product-search` fills older rows)
  * `onHand` on the product row is kept by StockRepository, not here.
  */
 @Injectable()
@@ -130,6 +134,8 @@ export class ProductsRepository {
                   GSI1SK: `PRODUCT#${product.id}`,
                   GSI2PK: `TYPE#${product.type}`,
                   GSI2SK: `PRODUCT#${product.id}`,
+                  searchName: productSearchName(product.name),
+                  searchSku: productSearchSku(product.sku),
                   ...product,
                 },
                 ConditionExpression: 'attribute_not_exists(PK)',
@@ -229,10 +235,9 @@ export class ProductsRepository {
       names['#status'] = 'status';
       values[':status'] = filters.status;
     }
-    if (filters?.search) {
-      parts.push('(contains(#name, :search) OR contains(sku, :search))');
-      names['#name'] = 'name';
-      values[':search'] = filters.search;
+    if (filters?.search?.trim()) {
+      parts.push('(contains(searchName, :search) OR contains(searchSku, :search))');
+      values[':search'] = productSearchName(filters.search);
     }
     if (filters?.brandId) {
       parts.push('brandId = :brandId');
@@ -454,6 +459,10 @@ export class ProductsRepository {
     if (attrs.type) {
       updates['GSI2PK'] = `TYPE#${attrs.type}`;
       updates['GSI2SK'] = `PRODUCT#${id}`;
+    }
+    // The SKU is immutable, so only the name's search attribute can go stale.
+    if (typeof attrs.name === 'string') {
+      updates['searchName'] = productSearchName(attrs.name);
     }
 
     const immutableKeys = new Set(['id', 'sku']);

@@ -28,15 +28,23 @@ hard-deleting a category 13 195 items still reference (§1).
 
 Write these exactly as `ProductsRepository.create` / the catalog repositories do:
 
-| Row | PK | SK | GSI1PK | GSI1SK | GSI2PK | GSI2SK |
-|---|---|---|---|---|---|---|
-| Product (`src/products/products.repository.ts:50-56`) | `PRODUCT#<id>` | `METADATA` | `CATEGORY#<category>` | `PRODUCT#<id>` | `TYPE#<type>` | `PRODUCT#<id>` |
-| SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — |
-| Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — |
-| Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — |
-| Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — |
-| Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — |
-| Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — |
+| Row | PK | SK | GSI1PK | GSI1SK | GSI2PK | GSI2SK | Search attributes |
+|---|---|---|---|---|---|---|---|
+| Product (`src/products/products.repository.ts`) | `PRODUCT#<id>` | `METADATA` | `CATEGORY#<category>` | `PRODUCT#<id>` | `TYPE#<type>` | `PRODUCT#<id>` | `searchName = <name>.trim().toLowerCase()`, `searchSku = <sku>.trim().toLowerCase()` |
+| SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — | — |
+| Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — | — |
+| Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — | — |
+| Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
+| Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
+| Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — | — |
+
+- The `search` filters run `contains` against the search attributes, never
+  against `name`/`sku` (case-sensitive bytes) nor against the location sort key
+  (it ends in the UUID, so "3" or "de" would match nearly every id). A row
+  without them is never found. Rows written without them are healed by
+  `npm run backfill:product-search` (products) and
+  `npm run backfill:location-index` (warehouses, containers) — both idempotent,
+  upsert-only, and **mandatory after every import** that does not write them.
 
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
@@ -57,13 +65,21 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 - Two product attributes are derived, not copied: `number` (the short
   "Product ID"; `POST /products` draws it from the `COUNTER#PRODUCT / METADATA`
   row's `seq`) and `onHand` (units across every `STOCK#` row, kept in step by
-  `StockRepository` on each move). Write `number = <Workiz item id>` on every
-  imported product and leave `onHand` to
-  `npm run backfill:product-onhand -w backend/services/inventory`; rows
-  written without a `number` get one from
-  `npm run backfill:product-numbers` (imported rows take the id in
-  `externalId = workiz:item:<n>`, the counter is raised past the highest, the
-  rest draw the next value). Both are idempotent and upsert-only.
+  `StockRepository` on each move, in the same TransactWrite as the stock row).
+  Write `number = <Workiz item id>` on every imported product and leave
+  `onHand` to `npm run backfill:product-onhand -w backend/services/inventory`.
+  **Run `npm run backfill:product-numbers` after EVERY import, even when every
+  row already carries a `number`:** the importer writes numbers straight to
+  DynamoDB and never raises `COUNTER#PRODUCT`, so without the run the next
+  `POST /products` draws `1` and collides with Workiz item 1, then 2, and so
+  on up to the highest imported id. The script raises the counter past the
+  highest `number` in use whether or not it had rows to number (imported rows
+  take the id in `externalId = workiz:item:<n>`, the rest draw the next
+  value). **Run `backfill:product-onhand` in the same release, before
+  traffic:** until it has, a stock write leaves an imported product's total
+  alone (never a wrong number, just none), and any later disagreement between
+  a product's `onHand` and `GET /stock/products/:id` is repaired by a re-run.
+  All three are idempotent and upsert-only.
 
 ## 1. Category
 
