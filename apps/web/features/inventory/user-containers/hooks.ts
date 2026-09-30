@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { UserContainerAccess } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { useUserMap } from "@/features/deals/hooks";
 import { personName } from "@/features/deals/person-name";
+import { getUserNames } from "@/features/users/api";
 import * as api from "./api";
 import { accessLabel } from "./lib";
 
@@ -45,19 +45,30 @@ export function useAssignUserContainer() {
   });
 }
 
+/** `POST /users/by-ids` takes this many at most. */
+const BY_IDS_CAP = 200;
+
 /**
- * id → name for the people on the assignment rows. The directory when the
- * viewer may list users; otherwise just these ids, by name only.
+ * id → name for the assignment rows that carry only an id (the backfill's).
+ * Just those ids, by name only — `POST /users/by-ids` needs no `users.view`,
+ * and a few names are not worth reading the whole users directory for.
  */
 export function useUserNames(ids: string[]) {
-  const { map, isLoading } = useUserMap(ids);
+  // Sorted and de-duplicated so the cache key is stable across renders.
+  const wanted = useMemo(() => [...new Set(ids)].filter(Boolean).sort().slice(0, BY_IDS_CAP), [ids]);
+  const query = useQuery({
+    queryKey: ["user-names", wanted],
+    queryFn: () => getUserNames(wanted),
+    enabled: wanted.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
   const names = useMemo(() => {
     const out = new Map<string, string>();
-    for (const [id, u] of map) {
+    for (const u of query.data ?? []) {
       const name = personName(u);
-      if (name) out.set(id, name);
+      if (name) out.set(u.id, name);
     }
     return out;
-  }, [map]);
-  return { names, isLoading };
+  }, [query.data]);
+  return { names, isLoading: query.isLoading && wanted.length > 0 };
 }

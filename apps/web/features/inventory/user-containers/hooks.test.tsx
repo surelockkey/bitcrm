@@ -7,7 +7,12 @@ import { toast } from "sonner";
 import { UserContainerAccess } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { useAssignUserContainer, useUserContainers } from "./hooks";
+import { useAssignUserContainer, useUserContainers, useUserNames } from "./hooks";
+
+vi.mock("@/features/auth/use-permissions", () => ({
+  useDenied: () => () => false,
+  usePermissions: () => ({ can: () => true, isLoading: false }),
+}));
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }));
 
@@ -110,5 +115,50 @@ describe("useAssignUserContainer", () => {
     );
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(toast.error).toHaveBeenCalledWith("Container is archived");
+  });
+});
+
+/**
+ * Only the backfill's rows need a lookup (their name is the user id) — a
+ * handful. Loading the whole users directory for them, on every visit to
+ * Containers, would be dozens of requests for a few names.
+ */
+describe("useUserNames", () => {
+  function serve() {
+    const calls = { byIds: [] as unknown[], directory: 0 };
+    server.use(
+      http.post("*/users/by-ids", async ({ request }) => {
+        const body = (await request.json()) as { userIds: string[] };
+        calls.byIds.push(body.userIds);
+        return HttpResponse.json({
+          success: true,
+          data: body.userIds.map((id) => ({ id, firstName: "Pavlo", lastName: id.toUpperCase() })),
+        });
+      }),
+      http.get("*/users", () => {
+        calls.directory += 1;
+        return HttpResponse.json({ success: true, data: [], pagination: {} });
+      }),
+    );
+    return calls;
+  }
+
+  it("names just the ids asked for, in one request", async () => {
+    const calls = serve();
+    const client = new QueryClient();
+    const { result } = renderHook(() => useUserNames(["u2", "u3", "u2"]), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.names.size).toBe(2));
+    expect(result.current.names.get("u2")).toBe("Pavlo U2");
+    expect(calls.byIds).toEqual([["u2", "u3"]]);
+    expect(calls.directory).toBe(0);
+  });
+
+  it("asks nothing when every row has a name", async () => {
+    const calls = serve();
+    const client = new QueryClient();
+    const { result } = renderHook(() => useUserNames([]), { wrapper: wrapper(client) });
+    expect(result.current.names.size).toBe(0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls).toEqual({ byIds: [], directory: 0 });
   });
 });
