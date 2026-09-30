@@ -6,13 +6,14 @@ import { InvoicesController } from './invoices.controller';
 import { InvoicesRepository } from './invoices.repository';
 import { InvoicesService } from './invoices.service';
 import { OverdueSweepScheduler } from './overdue-sweep.scheduler';
+import { UnpaidInvoicesRepository } from './unpaid-invoices.repository';
 
 @Module({
   // PaymentsLedgerModule (storage only) — the invoice's totals derive from the
   // payment ledger. PaymentsModule imports THIS one, never the other way round.
   imports: [BusinessProfileModule, DocumentsModule, PaymentsLedgerModule],
   controllers: [InvoicesController],
-  providers: [InvoicesRepository, InvoicesService, OverdueSweepScheduler],
-  exports: [InvoicesService],
+  providers: [InvoicesRepository, UnpaidInvoicesRepository, InvoicesService, OverdueSweepScheduler],
+  exports: [InvoicesService, InvoicesRepository, UnpaidInvoicesRepository],
 })
 export class InvoicesModule {}
