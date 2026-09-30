@@ -226,14 +226,21 @@ class Acc {
     return best;
   }
 
-  totals(opts: StatsOptions, techColumns: boolean): JobStatisticsTotals {
+  /**
+   * `canceledOfClosed`: Canceled % over Done + Canceled instead of All — what
+   * Workiz prints on the Area rows (checked live: every metro, city and zip
+   * row with an open job; Platinum_IL 10 of 26, not of 27). Its Totals rows,
+   * and every other tab's rows, are over All.
+   */
+  totals(opts: StatsOptions, techColumns: boolean, canceledOfClosed = false): JobStatisticsTotals {
     const per = (cents: number): number => (this.done ? Math.round(cents / this.done) / 100 : 0);
+    const base = canceledOfClosed ? this.done + this.canceled : this.all;
     return {
       all: this.all,
       done: this.done,
       open: this.all - this.done - this.canceled,
       canceled: this.canceled,
-      canceledPct: this.all ? round2((this.canceled / this.all) * 100) : 0,
+      canceledPct: base ? round2((this.canceled / base) * 100) : 0,
       ...(opts.money && {
         gross: this.gross / 100,
         ...(opts.profit && { profit: this.profit / 100 }),
@@ -252,7 +259,11 @@ class Table {
   private readonly rows = new Map<string, { group: Group; acc: Acc }>();
   private readonly total = new Acc();
 
-  constructor(private readonly techColumns = false) {}
+  constructor(
+    private readonly techColumns = false,
+    /** Area rows: Canceled % over Done + Canceled (Workiz). */
+    private readonly canceledOfClosed = false,
+  ) {}
 
   add(group: Group, d: StatsDeal): Acc {
     let row = this.rows.get(group.key);
@@ -276,7 +287,7 @@ class Table {
         ...(group.techIds && { techIds: group.techIds }),
         ...(serviceArea !== undefined && { serviceArea }),
         ...(city !== undefined && { city }),
-        ...acc.totals(opts, this.techColumns),
+        ...acc.totals(opts, this.techColumns, this.canceledOfClosed),
       };
     });
     rows.sort((a, b) => b.all - a.all || collator.compare(a.label, b.label) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
@@ -312,9 +323,9 @@ export function aggregateJobStatistics(
   const series = new Map(days.map((date) => [date, { acc: new Acc() }]));
   const sources = new Table();
   const tech = new Table(true);
-  const metro = new Table();
-  const city = new Table();
-  const zip = new Table();
+  const metro = new Table(false, true);
+  const city = new Table(false, true);
+  const zip = new Table(false, true);
   const dispatcher = new Table();
   const jobTypes = new Table();
   let withoutArea = 0;

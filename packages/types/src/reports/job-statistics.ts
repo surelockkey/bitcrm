@@ -20,7 +20,8 @@ import { type JobsReportBy } from './jobs-report';
  *
  * The figures, as Workiz counts them:
  * - All = every job of the period, any status; Done / Canceled by status;
- *   Open = All − Done − Canceled; Canceled % = Canceled ÷ All.
+ *   Open = All − Done − Canceled; Canceled % = Canceled ÷ All (on the Area
+ *   rows ÷ Done + Canceled — Workiz's own inconsistency, kept).
  * - Gross (Total Sales) = Σ the Done jobs' total.
  * - Profit = Σ the Done jobs' COMPANY profit after the technician's share —
  *   the "Company Profit" of Commissions (Legacy): Workiz's own frozen figure
@@ -66,7 +67,10 @@ export interface JobStatisticsCounts {
   /** All − Done − Canceled. */
   open: number;
   canceled: number;
-  /** Canceled ÷ All × 100, two decimals. */
+  /**
+   * Canceled ÷ All × 100, two decimals — except on an Area row, where Workiz
+   * divides by Done + Canceled (its Totals row is still over All).
+   */
   canceledPct: number;
 }
 

@@ -183,6 +183,28 @@ describe('aggregateJobStatistics', () => {
     expect(tech!.totals).toMatchObject({ all: 6, done: 2, gross: 590, profit: 265.25, techExpenses: 85 });
   });
 
+  it('prints an Area row’s Canceled % over its Done + Canceled jobs, as Workiz does, and the Totals over All', () => {
+    const d = [
+      row({ superStatus: 'canceled', commissionSnapshot: undefined }),
+      row({ superStatus: 'pending', commissionSnapshot: undefined }),
+      row(),
+    ].map(toStatsDeal);
+    const s = aggregateJobStatistics(d, window, lookups(), ALL);
+    // 1 canceled of 2 closed (Workiz Platinum_IL: 10 of 26, not of 27).
+    expect(s.area!.metro.rows[0].canceledPct).toBe(50);
+    expect(s.area!.city.rows[0].canceledPct).toBe(50);
+    expect(s.area!.zip.rows[0].canceledPct).toBe(50);
+    expect(s.area!.metro.totals.canceledPct).toBe(33.33);
+    // Every other tab: over All.
+    expect(s.sources!.rows[0].canceledPct).toBe(33.33);
+    expect(s.tech!.rows[0].canceledPct).toBe(33.33);
+  });
+
+  it('rounds Canceled % half up like Workiz (29 of 32 = 90.63%)', () => {
+    const d = Array.from({ length: 32 }, (_, i) => toStatsDeal(row(i < 29 ? { superStatus: 'canceled', commissionSnapshot: undefined } : {})));
+    expect(aggregateJobStatistics(d, window, lookups(), ALL).kpis.canceledPct).toBe(90.63);
+  });
+
   it('leaves jobs without a service area out of all three Area drills, and says how many', () => {
     const { area } = aggregateJobStatistics(deals(), window, lookups(), ALL);
     expect(area!.withoutArea).toBe(1);
