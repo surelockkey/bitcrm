@@ -130,6 +130,18 @@ describe('ContainersService', () => {
       expect(repository.update).not.toHaveBeenCalled();
     });
 
+    // Діалог редагування шле форму цілком: шаблон, що вже стоїть на фургоні й
+    // тим часом пішов в архів, не має блокувати перейменування.
+    it('re-saves the template the container already has without checking it again', async () => {
+      repository.findById.mockResolvedValue(createMockContainer({ templateId: 'tpl-old' }));
+      repository.update.mockResolvedValue(createMockContainer());
+
+      await service.update('container-1', { name: 'Van 9', templateId: 'tpl-old' });
+
+      expect(templates.findById).not.toHaveBeenCalled();
+      expect(repository.update).toHaveBeenCalledWith('container-1', { name: 'Van 9', templateId: 'tpl-old' });
+    });
+
     it('sets a template on update, and clears it with null without looking one up', async () => {
       templates.findById.mockResolvedValue(createMockContainerTemplate({ id: 'tpl-2' }));
       repository.findById.mockResolvedValue(createMockContainer());

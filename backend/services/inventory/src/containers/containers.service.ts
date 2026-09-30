@@ -112,11 +112,15 @@ export class ContainersService {
   }
 
   async update(id: string, dto: UpdateContainerDto): Promise<Container> {
-    await this.findById(id);
+    const existing = await this.findById(id);
 
     const attrs: Partial<Record<keyof UpdateContainerDto, unknown>> = { ...dto };
-    // `null` clears the template (the repository REMOVEs it); a new one must be usable.
-    if (typeof dto.templateId === 'string') await this.assertTemplateUsable(dto.templateId);
+    // `null` clears the template (the repository REMOVEs it). A different one
+    // must be usable; the one the van already has is re-saved as it is, even
+    // if it was archived since — the edit form sends every field back.
+    if (typeof dto.templateId === 'string' && dto.templateId !== existing.templateId) {
+      await this.assertTemplateUsable(dto.templateId);
+    }
     if (dto.technicianId === null) {
       // Unassigning always clears the denormalized name too.
       attrs.technicianName = null;
