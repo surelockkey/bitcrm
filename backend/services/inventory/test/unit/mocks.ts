@@ -1,4 +1,4 @@
-import { ProductType, InventoryStatus, TransferType, LocationType, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type JwtUser } from '@bitcrm/types';
+import { ProductType, InventoryStatus, TransferType, LocationType, InventoryLogAction, DataScope, type Product, type Warehouse, type Container, type Transfer, type TransferItem, type StockItem, type LocationSummary, type InventoryLogEntry, type JwtUser, type ResolvedPermissions } from '@bitcrm/types';
 import type { CreateProductDto } from 'src/products/dto/create-product.dto';
 import type { CreateWarehouseDto } from 'src/warehouses/dto/create-warehouse.dto';
 import type { CreateTransferDto } from 'src/transfers/dto/create-transfer.dto';
@@ -46,6 +46,17 @@ export function createMockTransfer(overrides?: Partial<Transfer>): Transfer {
   };
 }
 
+export function createMockInventoryLogEntry(overrides?: Partial<InventoryLogEntry>): InventoryLogEntry {
+  return {
+    id: 'log-1', action: InventoryLogAction.STOCK_RECEIVED,
+    productId: 'prod-1', productName: 'Test Product', sku: 'SKU-001', quantity: 5,
+    toType: LocationType.WAREHOUSE, toId: 'wh-1', toName: 'Main Warehouse',
+    userId: 'admin-1', userName: 'admin@test.com',
+    createdAt: '2026-09-10T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 export function createMockStockItem(overrides?: Partial<StockItem>): StockItem {
   return {
     productId: 'prod-1', productName: 'Test Product', quantity: 10,
@@ -87,7 +98,7 @@ export function createMockCreateTransferDto(overrides?: Partial<CreateTransferDt
 
 // Service/Repository mocks
 export function createMockProductsRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn(), countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn(), countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn(), nextNumber: jest.fn().mockResolvedValue(1), raiseCounterTo: jest.fn() };
 }
 
 export function createMockProductsService() {
@@ -96,6 +107,8 @@ export function createMockProductsService() {
     findAll: jest.fn(), list: jest.fn(), count: jest.fn(), update: jest.fn(), archive: jest.fn(),
     reactivate: jest.fn(), assertStockable: jest.fn().mockResolvedValue(undefined),
     isStockManaged: jest.fn().mockResolvedValue(true),
+    // Default: an id this service never persisted, as the stock guards tolerate.
+    loadForStock: jest.fn().mockResolvedValue(null),
     // Default: every item is stock-managed, as it is for products BitCRM wrote.
     partitionStockManaged: jest.fn(
       async (items: { productId: string }[]) => ({
@@ -115,7 +128,7 @@ export function createMockS3Service() {
 }
 
 export function createMockWarehousesRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findAll: jest.fn(), update: jest.fn() };
+  return { create: jest.fn(), findById: jest.fn(), findAll: jest.fn(), update: jest.fn(), countAll: jest.fn() };
 }
 
 export function createMockContainersRepository() {
@@ -127,11 +140,69 @@ export function createMockTransfersRepository() {
 }
 
 export function createMockStockRepository() {
-  return { getStockLevel: jest.fn(), getStockLevels: jest.fn(), incrementStock: jest.fn(), decrementStock: jest.fn() };
+  return {
+    getStockLevel: jest.fn(), getStockLevels: jest.fn(), getProductQuantities: jest.fn(),
+    incrementStock: jest.fn(), decrementStock: jest.fn(), moveStock: jest.fn(),
+  };
+}
+
+/** The permissions the guard resolves for a request, as `req.resolvedPermissions` carries them. */
+export function createMockResolvedPermissions(
+  overrides?: Partial<ResolvedPermissions>,
+): ResolvedPermissions {
+  return {
+    roleId: 'role-admin', roleName: 'Admin', isSystemRole: false,
+    permissions: {
+      products: { view: true, create: true, edit: true, delete: true },
+      warehouses: { view: true, create: true, edit: true, delete: false },
+      containers: { view: true, create: true, edit: true, delete: false },
+    },
+    dataScope: { products: DataScope.ALL, warehouses: DataScope.ALL, containers: DataScope.ALL },
+    dealStageTransitions: [], hasOverrides: false,
+    ...overrides,
+  };
+}
+
+export function createMockLocationSummary(overrides?: Partial<LocationSummary>): LocationSummary {
+  return {
+    type: 'container', id: 'container-1', name: 'Van 1', status: InventoryStatus.ACTIVE,
+    ...overrides,
+  };
+}
+
+export function createMockLocationsRepository() {
+  return { findLocation: jest.fn(), listAll: jest.fn().mockResolvedValue([]) };
 }
 
 export function createMockStockService() {
   return { receive: jest.fn(), deduct: jest.fn(), transfer: jest.fn() };
+}
+
+export function createMockTransfersService() {
+  return {
+    createTransfer: jest.fn(), receiveStock: jest.fn(), returnStock: jest.fn(),
+    deductStock: jest.fn(), restoreStock: jest.fn(),
+    findById: jest.fn(), findByEntity: jest.fn(), findAll: jest.fn(), list: jest.fn(), count: jest.fn(),
+  };
+}
+
+export function createMockInventoryLogRepository() {
+  return {
+    create: jest.fn().mockResolvedValue(undefined),
+    queryMonth: jest.fn().mockResolvedValue({ items: [], lastKey: undefined, reads: 1 }),
+    queryProduct: jest.fn().mockResolvedValue({ items: [], lastKey: undefined, reads: 1 }),
+    countMonth: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
+    countProduct: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
+  };
+}
+
+/** The audit log never throws at its callers, so the default is a silent success. */
+export function createMockInventoryLogService() {
+  return {
+    record: jest.fn().mockResolvedValue(undefined),
+    list: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
+    count: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
+  };
 }
 
 export function createMockDynamoDbService() {

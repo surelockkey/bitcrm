@@ -24,3 +24,5 @@ export {
   OPTION_CUSTOM_FIELD_TYPES,
   isOptionCustomFieldType,
 } from './custom-field-type.enum';
+export { ReturnReason } from './return-reason.enum';
+export { InventoryLogAction } from './inventory-log-action.enum';

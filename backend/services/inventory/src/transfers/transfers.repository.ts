@@ -22,6 +22,16 @@ export interface PaginatedResult {
   nextCursor?: string;
 }
 
+/**
+ * Transfer rows in the single BitCRM_Inventory table:
+ *   PK = TRANSFER#<id>, SK = METADATA — the transfer itself; when it has a
+ *     source, GSI4PK = ENTITY#<fromType>#<fromId>, GSI4SK = TRANSFER#<createdAt>#<id>
+ *     (TransferEntityIndex)
+ *   PK = TRANSFER#<id>, SK = ENTITY_REF#<toType>#<toId> — a { transferId }
+ *     pointer carrying the same GSI4 keys for the destination, so one Query
+ *     lists a location's movements in and out
+ * `dealId` (deduct / restore) and `reason` (return) ride on the transfer row.
+ */
 @Injectable()
 export class TransfersRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -187,6 +197,8 @@ export class TransfersRepository {
       performedBy: item.performedBy as string,
       performedByName: item.performedByName as string,
       notes: item.notes as string | undefined,
+      dealId: item.dealId as string | undefined,
+      reason: item.reason as Transfer['reason'],
       createdAt: item.createdAt as string,
     };
   }

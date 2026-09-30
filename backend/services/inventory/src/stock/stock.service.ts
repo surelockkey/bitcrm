@@ -37,20 +37,18 @@ export class StockService {
     }
   }
 
+  /**
+   * One atomic move per item: the source and destination rows change together,
+   * or not at all. Insufficient stock at the source stops the list there.
+   */
   async transfer(
     fromPK: string,
     toPK: string,
     items: TransferItem[],
   ): Promise<void> {
-    // Decrement source first, then increment destination
-    // If decrement fails (insufficient stock), increment won't happen
     for (const item of items) {
-      await this.stockRepository.decrementStock(
+      await this.stockRepository.moveStock(
         fromPK,
-        item.productId,
-        item.quantity,
-      );
-      await this.stockRepository.incrementStock(
         toPK,
         item.productId,
         item.productName,

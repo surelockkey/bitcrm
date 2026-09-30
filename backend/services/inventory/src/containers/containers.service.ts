@@ -29,6 +29,21 @@ import { UpdateContainerDto } from './dto/update-container.dto';
 /** How long a list count stays good enough. Matches the deals tab counts. */
 const COUNT_TTL_SECONDS = 30;
 
+/**
+ * The list filters, applied in memory to the one container a technician is
+ * scoped to — the same question the index Query answers for everyone else,
+ * so `status=archived` never hands an active van back with a count of one.
+ */
+export function containerMatchesFilters(
+  container: Container,
+  filters: Pick<ListContainersQueryDto, 'search' | 'status'>,
+): boolean {
+  if (filters.status && container.status !== filters.status) return false;
+  const term = filters.search?.trim().toLowerCase();
+  if (term && !container.name.toLowerCase().includes(term)) return false;
+  return true;
+}
+
 @Injectable()
 export class ContainersService {
   private readonly logger = new Logger(ContainersService.name);
@@ -112,7 +127,7 @@ export class ContainersService {
     if (dataScope === 'assigned_only' && user) {
       const container = await this.repository.findByTechnicianId(user.id);
       return {
-        items: container ? [container] : [],
+        items: container && containerMatchesFilters(container, query) ? [container] : [],
         nextCursor: undefined,
       };
     }
@@ -122,6 +137,8 @@ export class ContainersService {
 
     return this.repository.findAll(query.limit || 20, query.cursor, {
       department,
+      search: query.search,
+      status: query.status,
     });
   }
 
@@ -139,17 +156,21 @@ export class ContainersService {
     // Scoped to their own container: one row at most, and no count to take.
     if (dataScope === 'assigned_only' && user) {
       const container = await this.repository.findByTechnicianId(user.id);
-      return { total: container ? 1 : 0, atLeast: false };
+      return {
+        total: container && containerMatchesFilters(container, query) ? 1 : 0,
+        atLeast: false,
+      };
     }
 
     const department =
       dataScope === 'department' && user ? user.department : query.department;
+    const filters = { department, search: query.search, status: query.status };
 
-    const take = () => this.repository.countAll({ department });
+    const take = () => this.repository.countAll(filters);
     if (!this.redis) return take();
     return cachedCount(
       this.redis.client,
-      countCacheKey('containers', { department }),
+      countCacheKey('containers', filters),
       COUNT_TTL_SECONDS,
       take,
     );

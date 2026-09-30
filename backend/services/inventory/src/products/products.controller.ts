@@ -13,7 +13,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequirePermission } from '@bitcrm/shared';
+import { CurrentUser, RequirePermission } from '@bitcrm/shared';
+import { type JwtUser } from '@bitcrm/types';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -30,14 +31,19 @@ export class ProductsController {
   @Post()
   @RequirePermission('products', 'create')
   @ApiOperation({ summary: 'Create a product', description: '**Guard:** `products.create` permission required.' })
-  async create(@Body() dto: CreateProductDto) {
-    const data = await this.productsService.create(dto);
+  async create(@Body() dto: CreateProductDto, @CurrentUser() user: JwtUser) {
+    const data = await this.productsService.create(dto, user);
     return { success: true, data };
   }
 
   @Get()
   @RequirePermission('products', 'view')
-  @ApiOperation({ summary: 'List products with filters', description: '**Guard:** `products.view` permission required.' })
+  @ApiOperation({
+    summary: 'List products with filters',
+    description:
+      '**Guard:** `products.view` permission required. Filters combine: `category` picks the ' +
+      'index, else `type`; `status`, `search`, `brandId` and `manageStock` apply on top.',
+  })
   async list(@Query() query: ListProductsQueryDto) {
     const { items, nextCursor } = await this.productsService.list(query);
     return {
@@ -54,7 +60,8 @@ export class ProductsController {
     summary: 'How many products the list holds',
     description:
       '**Guard:** `products.view` permission required. Takes the same filters as the list ' +
-      '(`category`, `type`, `status`, `search`; `cursor` and `limit` are ignored) and answers ' +
+      '(`category`, `type`, `status`, `search`, `brandId`, `manageStock`; `cursor` and `limit` ' +
+      'are ignored) and answers ' +
       '`{ total, atLeast }` — the row count behind "Page 2 of 7". `atLeast` means the walk ' +
       'stopped on a ceiling and the real number is higher, which the panel renders as `7+`. ' +
       'Cached for thirty seconds.',
@@ -91,24 +98,28 @@ export class ProductsController {
   @Put(':id')
   @RequirePermission('products', 'edit')
   @ApiOperation({ summary: 'Update a product', description: '**Guard:** `products.edit` permission required.' })
-  async update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
-    const data = await this.productsService.update(id, dto);
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const data = await this.productsService.update(id, dto, user);
     return { success: true, data };
   }
 
   @Delete(':id')
   @RequirePermission('products', 'delete')
   @ApiOperation({ summary: 'Archive a product', description: '**Guard:** `products.delete` permission required.' })
-  async archive(@Param('id') id: string) {
-    const data = await this.productsService.archive(id);
+  async archive(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    const data = await this.productsService.archive(id, user);
     return { success: true, data };
   }
 
   @Post(':id/reactivate')
   @RequirePermission('products', 'edit')
   @ApiOperation({ summary: 'Restore an archived product', description: '**Guard:** `products.edit` permission required.' })
-  async reactivate(@Param('id') id: string) {
-    const data = await this.productsService.reactivate(id);
+  async reactivate(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    const data = await this.productsService.reactivate(id, user);
     return { success: true, data };
   }
 
@@ -122,10 +133,12 @@ export class ProductsController {
   async importCsv(
     @UploadedFile() file: Express.Multer.File,
     @Query('dryRun') dryRun?: string,
+    @CurrentUser() user?: JwtUser,
   ) {
     const data = await this.productsService.importFromCsv(
       file.buffer,
       dryRun === '1' || dryRun === 'true',
+      user,
     );
     return { success: true, data };
   }

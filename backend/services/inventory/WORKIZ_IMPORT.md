@@ -28,15 +28,23 @@ hard-deleting a category 13 195 items still reference (§1).
 
 Write these exactly as `ProductsRepository.create` / the catalog repositories do:
 
-| Row | PK | SK | GSI1PK | GSI1SK | GSI2PK | GSI2SK |
-|---|---|---|---|---|---|---|
-| Product (`src/products/products.repository.ts:50-56`) | `PRODUCT#<id>` | `METADATA` | `CATEGORY#<category>` | `PRODUCT#<id>` | `TYPE#<type>` | `PRODUCT#<id>` |
-| SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — |
-| Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — |
-| Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — |
-| Warehouse | `WAREHOUSE#<id>` | `METADATA` | — | — | — | — |
-| Container | `CONTAINER#<id>` | `METADATA` | — | — | — | — |
-| Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — |
+| Row | PK | SK | GSI1PK | GSI1SK | GSI2PK | GSI2SK | Search attributes |
+|---|---|---|---|---|---|---|---|
+| Product (`src/products/products.repository.ts`) | `PRODUCT#<id>` | `METADATA` | `CATEGORY#<category>` | `PRODUCT#<id>` | `TYPE#<type>` | `PRODUCT#<id>` | `searchName = <name>.trim().toLowerCase()`, `searchSku = <sku>.trim().toLowerCase()` |
+| SKU claim (§2.3) | `SKU#<sku>` | `PRODUCT` | — | — | — | — | — |
+| Item category (`item-categories.repository.ts:41-49`) | `ITEM_CATEGORY#<id>` | `METADATA` | `CATALOG#ITEM_CATEGORY` | `<name>.trim().toLowerCase()` | — | — | — |
+| Brand (`brands.repository.ts:35-40`) | `BRAND#<id>` | `METADATA` | `CATALOG#BRAND` | `<name>.toLowerCase()` | — | — | — |
+| Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
+| Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
+| Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — | — |
+
+- The `search` filters run `contains` against the search attributes, never
+  against `name`/`sku` (case-sensitive bytes) nor against the location sort key
+  (it ends in the UUID, so "3" or "de" would match nearly every id). A row
+  without them is never found. Rows written without them are healed by
+  `npm run backfill:product-search` (products) and
+  `npm run backfill:location-index` (warehouses, containers) — both idempotent,
+  upsert-only, and **mandatory after every import** that does not write them.
 
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
@@ -46,8 +54,32 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 - A container with a technician also needs the sparse `OwnerIndex` pair
   `GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>` — both or neither
   (§5.2).
+- `GET /warehouses` and `GET /containers` are a Query over the `LOCATION#…`
+  partition of `CategoryIndex` (name order; the `#<id>` suffix keeps duplicate
+  names apart), so a location row written without `GSI1PK`/`GSI1SK` is not in
+  either list. Rows that predate the index are healed by
+  `npm run backfill:location-index -w backend/services/inventory` (idempotent,
+  upsert-only). The repositories rewrite `GSI1SK` on rename.
 - Deal line items live in the **deal** service's table, not this one:
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>`, no GSI (§3.0).
+- Two product attributes are derived, not copied: `number` (the short
+  "Product ID"; `POST /products` draws it from the `COUNTER#PRODUCT / METADATA`
+  row's `seq`) and `onHand` (units across every `STOCK#` row, kept in step by
+  `StockRepository` on each move, in the same TransactWrite as the stock row).
+  Write `number = <Workiz item id>` on every imported product and leave
+  `onHand` to `npm run backfill:product-onhand -w backend/services/inventory`.
+  **Run `npm run backfill:product-numbers` after EVERY import, even when every
+  row already carries a `number`:** the importer writes numbers straight to
+  DynamoDB and never raises `COUNTER#PRODUCT`, so without the run the next
+  `POST /products` draws `1` and collides with Workiz item 1, then 2, and so
+  on up to the highest imported id. The script raises the counter past the
+  highest `number` in use whether or not it had rows to number (imported rows
+  take the id in `externalId = workiz:item:<n>`, the rest draw the next
+  value). **Run `backfill:product-onhand` in the same release, before
+  traffic:** until it has, a stock write leaves an imported product's total
+  alone (never a wrong number, just none), and any later disagreement between
+  a product's `onHand` and `GET /stock/products/:id` is repaired by a re-run.
+  All three are idempotent and upsert-only.
 
 ## 1. Category
 
@@ -284,8 +316,23 @@ would invent stock nobody ever counted.
   whose product says `manageStock: false` before touching stock, and leave them
   out of the transfer journal; if nothing is left, no stock call and no journal
   row happen at all. Services are still rejected first, as before.
+- The user-facing movements — `POST /transfers` (transfer), `POST /transfers/receive`
+  and `POST /warehouses/:id/receive` (Workiz "Add to stock"), `POST /transfers/return` —
+  apply the same rule: an item whose product says `manageStock: false` has no
+  counter to move, so it is dropped and listed in the answered transfer's
+  `skippedItems` (absent when nothing was dropped); a request with none left is
+  a 400 "None of the items are stock-managed". Workiz itself offers no "Add to
+  stock" for `manage = 0` items, so the web picker should not offer them either.
+  Item names on the stock row, the journal row and the audit log are always the
+  catalog's, whatever `productName` the body carried.
 - **Absent means managed** — every product BitCRM has written carries no such
   attribute, so nothing about existing data changes.
+- `GET /products?manageStock=true` is Workiz's "inventory products" view:
+  product-type rows whose flag is absent or `true` (a service is never
+  stock-managed, whatever it stores); `manageStock=false` selects the rows that
+  say so explicitly. It combines with `category`, `type`, `status`, `search`
+  and `brandId` (`manageStock`, `brandId` and `reorderLevel` are typed on
+  `Product` now and editable through `PUT /products/:id`).
 - The 35 243 historical job lines with `container_id` and `manage = 1` are
   already inside the 2026-09-11 snapshot: write them as ordinary deal lines —
   `PK = DEAL#<dealId>`, `SK = PRODUCT#<productId>` (§3.0), with

@@ -131,6 +131,27 @@ describe('ContainersRepository (integration)', () => {
     });
   });
 
+  // Ids are UUIDs — 32 hex digits — so a search matched against the sort key
+  // `<name>#<id>` finds "3" or "de" in the id of nearly every row. The filter
+  // runs against the name alone.
+  describe('findAll with search filter', () => {
+    it('matches the name, never the id', async () => {
+      await repository.create(makeContainer({ id: 'ctr-3de', name: 'Van Alpha', technicianId: 'tech-1' }));
+      await repository.create(
+        makeContainer({ id: 'ctr-1', name: '(3) VAN', technicianId: 'tech-2', technicianName: 'Jane' }),
+      );
+
+      const three = await repository.findAll(1000, undefined, { search: '3' });
+      const de = await repository.findAll(1000, undefined, { search: 'de' });
+      const van = await repository.findAll(1000, undefined, { search: ' VAN ' });
+
+      expect(three.items.map((c) => c.id)).toEqual(['ctr-1']);
+      expect(de.items).toEqual([]);
+      expect(van.items.map((c) => c.id).sort()).toEqual(['ctr-1', 'ctr-3de']);
+      expect(await repository.countAll({ search: '3' })).toEqual({ total: 1, atLeast: false });
+    });
+  });
+
   describe('create duplicate', () => {
     it('should throw on duplicate container ID', async () => {
       await repository.create(makeContainer());

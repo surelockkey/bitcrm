@@ -17,19 +17,56 @@ import {
   GSI1_NAME,
   GSI2_NAME,
 } from '../common/constants/dynamo.constants';
+import { productSearchName, productSearchSku } from './products.constants';
 
 export interface PaginatedResult {
   items: Product[];
   nextCursor?: string;
 }
 
-/** Key attributes that must never leak onto an entity. */
+/**
+ * The filters a list and its count share. Whichever of category / type picks
+ * the index, every one of these is applied on top as a FilterExpression.
+ */
+export interface ProductListFilters {
+  /** Only when category took the index; otherwise type IS the index. */
+  type?: string;
+  status?: string;
+  /** Matched against the lowercased `name` and `sku` (`searchName` / `searchSku`), case-insensitive. */
+  search?: string;
+  brandId?: string;
+  /**
+   * `true` selects stock-managed products (product-type rows whose flag is
+   * absent or true — services are never stock-managed); `false` selects the
+   * rows that say `manageStock: false` explicitly.
+   */
+  manageStock?: boolean;
+}
+
+/** Key and derived attributes that must never leak onto an entity. */
 const KEY_ATTRIBUTES = new Set([
   'PK', 'SK', 'GSI1PK', 'GSI1SK', 'GSI2PK', 'GSI2SK', 'GSI3PK', 'GSI3SK', 'GSI4PK', 'GSI4SK',
+  'searchName', 'searchSku',
 ]);
 
 const KNOWN_TYPES = new Set<string>(Object.values(ProductType));
 
+/** The product-number counter row. */
+const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
+
+/**
+ * Product rows in the single BitCRM_Inventory table:
+ *   PK = PRODUCT#<id>, SK = METADATA
+ *   GSI1PK = CATEGORY#<category>, GSI1SK = PRODUCT#<id>   (CategoryIndex)
+ *   GSI2PK = TYPE#<type>,         GSI2SK = PRODUCT#<id>   (TypeIndex)
+ *   PK = SKU#<sku>, SK = PRODUCT                          SKU claim → { productId }
+ *   PK = COUNTER#PRODUCT, SK = METADATA                   { seq } — the last
+ *     product `number` handed out; `nextNumber` ADDs one atomically and
+ *     `raiseCounterTo` moves it past imported (Workiz) numbers.
+ *   searchName = <name lowercased>, searchSku = <sku lowercased>  (what the
+ *     search filter matches; `backfill:product-search` fills older rows)
+ * `onHand` on the product row is kept by StockRepository, not here.
+ */
 @Injectable()
 export class ProductsRepository {
   private readonly rawClient: DynamoDBClient;
@@ -37,6 +74,49 @@ export class ProductsRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {
     // We need the raw client for TransactWriteItems (not available in DocumentClient)
     this.rawClient = (this.dynamoDb.client as any).config?.client || this.dynamoDb.client;
+  }
+
+  /** The next product number: one atomic ADD on the counter row. */
+  async nextNumber(): Promise<number> {
+    const result = await this.dynamoDb.client.send(
+      new UpdateCommand({
+        TableName: INVENTORY_TABLE,
+        Key: COUNTER_KEY,
+        UpdateExpression: 'ADD #seq :one',
+        ExpressionAttributeNames: { '#seq': 'seq' },
+        ExpressionAttributeValues: { ':one': 1 },
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return Number(result.Attributes?.seq);
+  }
+
+  /**
+   * Move the counter up to `n` when it is lower or absent, so numbers handed
+   * out after an import never collide with the imported ones. A counter that
+   * is already past `n` is left alone.
+   */
+  async raiseCounterTo(n: number): Promise<void> {
+    try {
+      await this.dynamoDb.client.send(
+        new UpdateCommand({
+          TableName: INVENTORY_TABLE,
+          Key: COUNTER_KEY,
+          UpdateExpression: 'SET #seq = :n',
+          ConditionExpression: 'attribute_not_exists(#seq) OR #seq < :n',
+          ExpressionAttributeNames: { '#seq': 'seq' },
+          ExpressionAttributeValues: { ':n': n },
+        }),
+      );
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.name === 'ConditionalCheckFailedException'
+      ) {
+        return;
+      }
+      throw error;
+    }
   }
 
   async create(product: Product): Promise<void> {
@@ -54,6 +134,8 @@ export class ProductsRepository {
                   GSI1SK: `PRODUCT#${product.id}`,
                   GSI2PK: `TYPE#${product.type}`,
                   GSI2SK: `PRODUCT#${product.id}`,
+                  searchName: productSearchName(product.name),
+                  searchSku: productSearchSku(product.sku),
                   ...product,
                 },
                 ConditionExpression: 'attribute_not_exists(PK)',
@@ -133,81 +215,139 @@ export class ProductsRepository {
     return item ? this.toProduct(item) : null;
   }
 
-  async findByCategory(
-    category: string,
-    limit: number,
-    cursor?: string,
-  ): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        IndexName: GSI1_NAME,
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': `CATEGORY#${category}` },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
-    );
+  /**
+   * The FilterExpression pieces the list filters translate to, shared by every
+   * list and count path so they can never answer about different populations.
+   * Empty when nothing is set, so an unfiltered index Query stays bare.
+   */
+  private filterParts(filters?: ProductListFilters) {
+    const parts: string[] = [];
+    const values: Record<string, unknown> = {};
+    const names: Record<string, string> = {};
 
+    if (filters?.type) {
+      parts.push('#type = :type');
+      names['#type'] = 'type';
+      values[':type'] = filters.type;
+    }
+    if (filters?.status) {
+      parts.push('#status = :status');
+      names['#status'] = 'status';
+      values[':status'] = filters.status;
+    }
+    if (filters?.search?.trim()) {
+      parts.push('(contains(searchName, :search) OR contains(searchSku, :search))');
+      values[':search'] = productSearchName(filters.search);
+    }
+    if (filters?.brandId) {
+      parts.push('brandId = :brandId');
+      values[':brandId'] = filters.brandId;
+    }
+    // Workiz's inv_product: a stock-managed product. Rows BitCRM wrote carry
+    // no flag and are managed; a service is never managed whatever it says.
+    if (filters?.manageStock === true) {
+      parts.push(
+        '#type = :productType AND (attribute_not_exists(manageStock) OR manageStock = :true)',
+      );
+      names['#type'] = 'type';
+      values[':productType'] = ProductType.PRODUCT;
+      values[':true'] = true;
+    } else if (filters?.manageStock === false) {
+      parts.push('manageStock = :false');
+      values[':false'] = false;
+    }
+
+    return { parts, values, names };
+  }
+
+  /**
+   * The Query on one index partition, with the other filters on top. Without
+   * a filter it is a single read of exactly one page; with one, `Limit` counts
+   * rows read rather than kept, so the page is filled across reads and the
+   * cursor carries the index keys along with the table keys.
+   */
+  private async queryIndex(
+    indexName: string,
+    keyAttr: 'GSI1PK' | 'GSI2PK',
+    pk: string,
+    limit: number,
+    cursor: string | undefined,
+    filters: ProductListFilters | undefined,
+  ): Promise<PaginatedResult> {
+    const f = this.filterParts(filters);
+    const query = {
+      TableName: INVENTORY_TABLE,
+      IndexName: indexName,
+      KeyConditionExpression: `${keyAttr} = :pk`,
+      ExpressionAttributeValues: { ':pk': pk, ...f.values },
+      ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
+      ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
+    };
+
+    if (f.parts.length === 0) {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          ...query,
+          Limit: limit,
+          ExclusiveStartKey: this.decodeCursor(cursor),
+        }),
+      );
+      return {
+        items: (result.Items || []).map(this.toProduct),
+        nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      };
+    }
+
+    const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
+    const page = await scanPage<Record<string, unknown>>(
+      (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, ...input })),
+      limit,
+      {
+        startKey: this.decodeCursor(cursor),
+        keyOf: (i) => ({ PK: i.PK, SK: i.SK, [keyAttr]: i[keyAttr], [skAttr]: i[skAttr] }),
+      },
+    );
     return {
-      items: (result.Items || []).map(this.toProduct),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      items: page.items.map(this.toProduct),
+      nextCursor: this.encodeCursor(page.lastKey),
     };
   }
 
-  async findByType(
+  findByCategory(
+    category: string,
+    limit: number,
+    cursor?: string,
+    filters?: ProductListFilters,
+  ): Promise<PaginatedResult> {
+    return this.queryIndex(GSI1_NAME, 'GSI1PK', `CATEGORY#${category}`, limit, cursor, filters);
+  }
+
+  findByType(
     type: string,
     limit: number,
     cursor?: string,
+    filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        IndexName: GSI2_NAME,
-        KeyConditionExpression: 'GSI2PK = :pk',
-        ExpressionAttributeValues: { ':pk': `TYPE#${type}` },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
-    );
-
-    return {
-      items: (result.Items || []).map(this.toProduct),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
-    };
+    return this.queryIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`, limit, cursor, filters);
   }
 
   /**
    * The Scan that selects products, shared by the list and its count so the
    * two can never answer about different populations.
    */
-  private listFilter(filters?: { status?: string; search?: string }) {
-    let expression = 'begins_with(PK, :pk) AND SK = :sk';
-    const values: Record<string, unknown> = {
-      ':pk': 'PRODUCT#',
-      ':sk': 'METADATA',
+  private listFilter(filters?: ProductListFilters) {
+    const f = this.filterParts(filters);
+    return {
+      expression: ['begins_with(PK, :pk) AND SK = :sk', ...f.parts].join(' AND '),
+      values: { ':pk': 'PRODUCT#', ':sk': 'METADATA', ...f.values },
+      names: f.names,
     };
-    const names: Record<string, string> = {};
-
-    if (filters?.status) {
-      expression += ' AND #status = :status';
-      names['#status'] = 'status';
-      values[':status'] = filters.status;
-    }
-
-    if (filters?.search) {
-      expression += ' AND (contains(#name, :search) OR contains(sku, :search))';
-      names['#name'] = 'name';
-      values[':search'] = filters.search;
-    }
-
-    return { expression, values, names };
   }
 
   async findAll(
     limit: number,
     cursor?: string,
-    filters?: { status?: string; search?: string },
+    filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
     const f = this.listFilter(filters);
 
@@ -241,24 +381,26 @@ export class ProductsRepository {
   }
 
   /**
-   * How many products the list holds — the number behind "Page 2 of 7".
-   *
-   * `Select: 'COUNT'` keeps the bodies off the wire, and `countRows` bounds
-   * the walk: this is a Scan over a table where most rows are not products, so
-   * an unbounded count would read all of it on every filter change.
+   * A count over one index partition, under the same filters the list applies
+   * on top of it. Unfiltered, the key already selects the rows and this is the
+   * cheap end of counting.
    */
-  /**
-   * A count over one index partition. No Scan and no filter — the key already
-   * selects the rows — so this is the cheap end of counting.
-   */
-  private countOnIndex(indexName: string, keyAttr: string, pk: string): Promise<CountRowsResult> {
+  private countOnIndex(
+    indexName: string,
+    keyAttr: string,
+    pk: string,
+    filters?: ProductListFilters,
+  ): Promise<CountRowsResult> {
+    const f = this.filterParts(filters);
     return countRows((input) =>
       this.dynamoDb.client.send(
         new QueryCommand({
           TableName: INVENTORY_TABLE,
           IndexName: indexName,
           KeyConditionExpression: `${keyAttr} = :pk`,
-          ExpressionAttributeValues: { ':pk': pk },
+          ExpressionAttributeValues: { ':pk': pk, ...f.values },
+          ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
+          ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
           Select: 'COUNT',
           ...input,
         }),
@@ -266,15 +408,22 @@ export class ProductsRepository {
     );
   }
 
-  countByCategory(category: string): Promise<CountRowsResult> {
-    return this.countOnIndex(GSI1_NAME, 'GSI1PK', `CATEGORY#${category}`);
+  countByCategory(category: string, filters?: ProductListFilters): Promise<CountRowsResult> {
+    return this.countOnIndex(GSI1_NAME, 'GSI1PK', `CATEGORY#${category}`, filters);
   }
 
-  countByType(type: string): Promise<CountRowsResult> {
-    return this.countOnIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`);
+  countByType(type: string, filters?: ProductListFilters): Promise<CountRowsResult> {
+    return this.countOnIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`, filters);
   }
 
-  async countAll(filters?: { status?: string; search?: string }): Promise<CountRowsResult> {
+  /**
+   * How many products the list holds — the number behind "Page 2 of 7".
+   *
+   * `Select: 'COUNT'` keeps the bodies off the wire, and `countRows` bounds
+   * the walk: this is a Scan over a table where most rows are not products, so
+   * an unbounded count would read all of it on every filter change.
+   */
+  async countAll(filters?: ProductListFilters): Promise<CountRowsResult> {
     const f = this.listFilter(filters);
 
     return countRows((input) =>
@@ -310,6 +459,10 @@ export class ProductsRepository {
     if (attrs.type) {
       updates['GSI2PK'] = `TYPE#${attrs.type}`;
       updates['GSI2SK'] = `PRODUCT#${id}`;
+    }
+    // The SKU is immutable, so only the name's search attribute can go stale.
+    if (typeof attrs.name === 'string') {
+      updates['searchName'] = productSearchName(attrs.name);
     }
 
     const immutableKeys = new Set(['id', 'sku']);
@@ -386,6 +539,7 @@ export class ProductsRepository {
     return {
       ...extras,
       id: item.id as string,
+      number: item.number as number | undefined,
       sku: item.sku as string,
       barcode: item.barcode as string | undefined,
       name: item.name as string,
@@ -399,9 +553,13 @@ export class ProductsRepository {
       // Rows written before billing have no flag; Workiz default is taxable.
       taxable: item.taxable !== false,
       supplier: item.supplier as string | undefined,
+      brandId: item.brandId as string | undefined,
       photoKey: item.photoKey as string | undefined,
       serialTracking: item.serialTracking as boolean,
       minimumStockLevel: item.minimumStockLevel as number,
+      manageStock: item.manageStock as boolean | undefined,
+      reorderLevel: item.reorderLevel as number | undefined,
+      onHand: item.onHand as number | undefined,
       status: item.status as Product['status'],
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,

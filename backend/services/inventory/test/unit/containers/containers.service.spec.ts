@@ -278,6 +278,24 @@ describe('ContainersService', () => {
       expect(result.items).toEqual([]);
     });
 
+    // Технік бачить лише свій фургон, але фільтри мають відповідати на те саме
+    // питання, що й для всіх: "archived" або "zzz" не повертає активний фургон.
+    it('applies status and search to the technician’s own container under assigned_only', async () => {
+      const user = createMockJwtUser({ id: 'tech-1' });
+      const van = createMockContainer({ name: '(12) MIKE', status: InventoryStatus.ACTIVE });
+      repository.findByTechnicianId.mockResolvedValue(van);
+
+      expect(
+        (await service.list({ status: InventoryStatus.ARCHIVED } as any, user, 'assigned_only')).items,
+      ).toEqual([]);
+      expect((await service.list({ search: 'zzz' } as any, user, 'assigned_only')).items).toEqual([]);
+      expect(
+        (await service.list({ search: ' mike', status: InventoryStatus.ACTIVE } as any, user, 'assigned_only'))
+          .items,
+      ).toEqual([van]);
+      expect(repository.findAll).not.toHaveBeenCalled();
+    });
+
     it('should filter by department dataScope', async () => {
       const paginated = { items: [createMockContainer()], nextCursor: undefined };
       const user = createMockJwtUser({ department: 'Atlanta' });
@@ -286,6 +304,35 @@ describe('ContainersService', () => {
       await service.list({ limit: 20 } as any, user, 'department');
 
       expect(repository.findAll).toHaveBeenCalledWith(20, undefined, { department: 'Atlanta' });
+    });
+
+    it('passes the search term and status through', async () => {
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list({ limit: 20, search: 'mike', status: InventoryStatus.ACTIVE } as any);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: undefined,
+        search: 'mike',
+        status: InventoryStatus.ACTIVE,
+      });
+    });
+
+    it('keeps the search under a department scope', async () => {
+      const user = createMockJwtUser({ department: 'Atlanta' });
+      repository.findAll.mockResolvedValue({ items: [], nextCursor: undefined });
+
+      await service.list(
+        { limit: 20, department: 'other', search: 'mike' } as any,
+        user,
+        'department',
+      );
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: 'Atlanta',
+        search: 'mike',
+        status: undefined,
+      });
     });
   });
 
@@ -337,6 +384,26 @@ describe('ContainersService', () => {
       });
     });
 
+    it('counts the technician’s container under the same status and search the list applies', async () => {
+      repository.findByTechnicianId.mockResolvedValue(
+        createMockContainer({ name: '(12) MIKE', status: InventoryStatus.ACTIVE }),
+      );
+      const user = { id: 'u1' } as never;
+
+      expect(await service.count({ status: InventoryStatus.ARCHIVED } as never, user, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+      expect(await service.count({ search: 'zzz' } as never, user, 'assigned_only')).toEqual({
+        total: 0,
+        atLeast: false,
+      });
+      expect(await service.count({ search: 'MIKE' } as never, user, 'assigned_only')).toEqual({
+        total: 1,
+        atLeast: false,
+      });
+    });
+
     it('forces the caller’s own department under a department scope', async () => {
       repository.countAll.mockResolvedValue({ total: 4, atLeast: false });
 
@@ -347,6 +414,27 @@ describe('ContainersService', () => {
       );
 
       expect(repository.countAll).toHaveBeenCalledWith({ department: 'locksmith' });
+    });
+
+    it('counts under the same search and status the list uses', async () => {
+      repository.countAll.mockResolvedValue({ total: 2, atLeast: false });
+
+      await service.count({ search: 'mike', status: InventoryStatus.ARCHIVED } as never);
+
+      expect(repository.countAll).toHaveBeenCalledWith({
+        department: undefined,
+        search: 'mike',
+        status: InventoryStatus.ARCHIVED,
+      });
+    });
+
+    it('caches each filter combination on its own', async () => {
+      repository.countAll.mockResolvedValue({ total: 12, atLeast: false });
+
+      await service.count({} as never);
+      await service.count({ search: 'mike' } as never);
+
+      expect(repository.countAll).toHaveBeenCalledTimes(2);
     });
 
     it('answers a repeat from the cache', async () => {

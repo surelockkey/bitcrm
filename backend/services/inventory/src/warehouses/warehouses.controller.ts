@@ -15,7 +15,7 @@ import { type JwtUser } from '@bitcrm/types';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
-import { ReceiveStockDto } from './dto/receive-stock.dto';
+import { ReceiveWarehouseStockDto } from './dto/receive-stock.dto';
 import { ListWarehousesQueryDto } from './dto/list-warehouses-query.dto';
 import { Internal } from '../common/decorators/internal.decorator';
 import { coerceInternalLimit } from '../common/utils/internal-pagination';
@@ -44,6 +44,22 @@ export class WarehousesController {
       data: items,
       pagination: { nextCursor, count: items.length },
     };
+  }
+
+  // Before `:id`, or the parameter route swallows it.
+  @Get('count')
+  @RequirePermission('warehouses', 'view')
+  @ApiOperation({
+    summary: 'How many warehouses the list holds',
+    description:
+      '**Guard:** `warehouses.view` permission required. Takes the same filters the list does ' +
+      '(`search`, `status`; `cursor` and `limit` are ignored) and answers `{ total, atLeast }` — ' +
+      'the row count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling, ' +
+      'which the panel renders as `7+`. Cached for thirty seconds.',
+  })
+  async count(@Query() query: ListWarehousesQueryDto) {
+    const data = await this.warehousesService.count(query);
+    return { success: true, data };
   }
 
   @Get(':id')
@@ -80,14 +96,20 @@ export class WarehousesController {
 
   @Post(':id/receive')
   @RequirePermission('warehouses', 'edit')
-  @ApiOperation({ summary: 'Receive stock into warehouse', description: '**Guard:** `warehouses.edit` permission required.' })
+  @ApiOperation({
+    summary: 'Receive stock into warehouse',
+    description:
+      '**Guard:** `warehouses.edit` permission required. The same rules as `POST /transfers/receive` ' +
+      '(404 unknown warehouse, services rejected, non-stock-managed items dropped into ' +
+      '`skippedItems`, none left is a 400). Answers the RECEIVE transfer.',
+  })
   async receiveStock(
     @Param('id') id: string,
-    @Body() dto: ReceiveStockDto,
+    @Body() dto: ReceiveWarehouseStockDto,
     @CurrentUser() user: JwtUser,
   ) {
-    await this.warehousesService.receiveStock(id, dto.items, user);
-    return { success: true };
+    const data = await this.warehousesService.receiveStock(id, dto.items, user);
+    return { success: true, data };
   }
 
   @Get('internal/all')
