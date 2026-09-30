@@ -37,6 +37,24 @@ describe("MAIN_NAV structure", () => {
     ]);
   });
 
+  it("puts Price Book right after Inventory in Work, on products.view", () => {
+    const labels = work.items.map((i) => i.label);
+    expect(labels.indexOf("Price Book")).toBe(labels.indexOf("Inventory") + 1);
+    const priceBook = work.items.find((i) => i.label === "Price Book")!;
+    expect(priceBook).toMatchObject({ href: "/price-book", resource: "products" });
+    expect(priceBook.icon).toBeDefined();
+  });
+
+  it("shows Price Book to someone who can view products, hides it otherwise", () => {
+    expect(visibleNavItems(work.items, (r: Resource) => r === "products").map((i) => i.label)).toEqual([
+      "Inventory",
+      "Price Book",
+    ]);
+    expect(visibleNavItems(work.items, (r: Resource) => r === "warehouses").map((i) => i.label)).toEqual([
+      "Inventory",
+    ]);
+  });
+
   it("puts Automations in Communications as a first-level item gated on settings", () => {
     const automations = communications.items.find((i) => i.label === "Automations")!;
     expect(automations).toMatchObject({ href: "/automations", resource: "settings" });
@@ -77,6 +95,7 @@ describe("visibleNavItems", () => {
       "Dispatch Map",
       "Schedule",
       "Inventory",
+      "Price Book",
     ]);
   });
 

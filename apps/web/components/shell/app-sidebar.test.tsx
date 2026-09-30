@@ -161,6 +161,15 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Inventory")).toBeInTheDocument();
   });
 
+  it("lists Price Book right after Inventory, linking to /price-book", () => {
+    permissionsMock.mockReturnValue({ can: () => true, isTechnician: false });
+    renderSidebar();
+
+    const labels = screen.getAllByRole("link").map((a) => a.textContent?.trim());
+    expect(labels.indexOf("Price Book")).toBe(labels.indexOf("Inventory") + 1);
+    expect(screen.getByRole("link", { name: "Price Book" })).toHaveAttribute("href", "/price-book");
+  });
+
   it("renders the minimal technician shell", () => {
     permissionsMock.mockReturnValue({ can: () => false, isTechnician: true });
     renderSidebar();

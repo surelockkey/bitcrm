@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  BookOpen,
   Briefcase,
   Building2,
   Calendar,
@@ -68,6 +69,9 @@ export const MAIN_NAV: NavGroup[] = [
         icon: Package,
         resources: ["products", "warehouses", "containers", "transfers"],
       },
+      // Workiz "Services & Products": every item, stock-managed or not, and
+      // the categories and brands they're filed under. Inventory is the stock.
+      { label: "Price Book", href: "/price-book", icon: BookOpen, resource: "products" },
     ],
   },
   {

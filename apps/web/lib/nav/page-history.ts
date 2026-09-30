@@ -78,6 +78,10 @@ const STATIC_LABELS: Record<string, string> = {
     MAIN_NAV.flatMap((g) => g.items.map((i) => [i.href, i.label])),
   ),
   "/deals/new": "New Job",
+  // The Price Book's tabs: "Items" alone would read as Inventory's Items.
+  "/price-book/items": "Price Book",
+  "/price-book/categories": "Price Book Categories",
+  "/price-book/brands": "Price Book Brands",
   "/profile": "My Profile",
   ...Object.fromEntries(TECHNICIAN_NAV.map((i) => [i.href, i.label])),
 };

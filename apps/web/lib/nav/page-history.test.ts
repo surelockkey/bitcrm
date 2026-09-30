@@ -74,6 +74,7 @@ describe("labelForPath", () => {
     ["/contacts", "Contacts"],
     ["/companies", "Companies"],
     ["/inventory", "Inventory"],
+    ["/price-book", "Price Book"],
     ["/technicians", "Technicians"],
     ["/admin/users", "Users"],
     ["/admin/roles", "Roles"],
@@ -112,6 +113,12 @@ describe("labelForPath", () => {
     // Inventory tab routes label themselves off their last segment.
     expect(labelForPath("/inventory/items")).toBe("Items");
     expect(labelForPath("/inventory/warehouses")).toBe("Warehouses");
+  });
+
+  it("titles the Price Book tabs as the Price Book, not as Inventory's Items", () => {
+    expect(labelForPath("/price-book/items")).toBe("Price Book");
+    expect(labelForPath("/price-book/categories")).toBe("Price Book Categories");
+    expect(labelForPath("/price-book/brands")).toBe("Price Book Brands");
   });
 
   it("ignores query strings and trailing slashes", () => {
