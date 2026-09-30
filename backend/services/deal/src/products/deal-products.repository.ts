@@ -226,6 +226,8 @@ export class DealProductsRepository {
       orderedAt: item.orderedAt as string | undefined,
       // Legacy lines predate billing: an absent flag means taxable (Workiz default).
       taxable: item.taxable !== false,
+      // Absent means discountable; only an explicit `false` is carried.
+      ...(item.discountable === false && { discountable: false }),
       description: item.description as string | undefined,
       addedBy: item.addedBy as string,
       addedAt: item.addedAt as string,
