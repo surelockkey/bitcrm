@@ -17,15 +17,23 @@ const wholeCount = z.coerce
 const reorderLevel = z.preprocess(blankAsUnset, wholeCount.optional());
 
 /**
- * Editing, a cleared field is 0. The API has no way to unset the field (a
- * missing key leaves it as it was), and 0 is what the form shows for an item
- * without one — so a blank that parsed to "not set" would be silently dropped
- * behind an "Item saved".
+ * Editing, a cleared field is `null`: PUT /products/:id clears an optional
+ * field sent as null. A blank that parsed to "not set" would be a missing key
+ * — the old value kept behind an "Item saved" — and 0 is a reorder point of
+ * its own, not "none".
  */
 const editedReorderLevel = z.preprocess(
-  (v) => (v === "" || v === null ? 0 : v),
-  wholeCount.optional(),
+  (v) => (v === "" || v === null ? null : v),
+  wholeCount.nullable().optional(),
 );
+
+/** Editing, an emptied optional text field is `null`, which clears it on the server. */
+const clearableText = z
+  .string()
+  .trim()
+  .nullable()
+  .optional()
+  .transform((v) => (v === "" ? null : v));
 
 const baseFields = {
   name: z.string().trim().min(1, "Name is required").max(120),
@@ -64,8 +72,15 @@ export const updateProductSchema = z.object(baseFields);
 
 export type CreateProductValues = z.infer<typeof createProductSchema>;
 export type UpdateProductValues = z.infer<typeof updateProductSchema>;
-/** A PUT body carrying only the fields the user actually changed. */
-export type PatchProductValues = Partial<UpdateProductValues>;
+/** The optional fields PUT /products/:id clears when they arrive as `null`. */
+type ClearableField = "brandId" | "reorderLevel" | "supplier" | "barcode" | "description";
+
+/** A PUT body carrying only the fields the user actually changed; `null` clears. */
+export type PatchProductValues = {
+  [K in keyof UpdateProductValues]?: K extends ClearableField
+    ? UpdateProductValues[K] | null
+    : UpdateProductValues[K];
+};
 
 /* ------------------------------------------------------------------ *
  * Editing an imported item
@@ -90,21 +105,21 @@ const MONEY_FIELDS = ["costCompany", "costTech", "priceClient"] as const;
 /** Same shape, without the caps — they are re-applied per field below. */
 const looseFields = {
   name: z.string().trim().min(1, "Name is required"),
-  barcode: z.string().trim().optional(),
-  description: z.string().trim().optional(),
+  barcode: clearableText,
+  description: clearableText,
   category: z.string().trim().min(1, "Category is required"),
   type: z.nativeEnum(ProductType),
   costCompany: z.coerce.number({ message: "Enter an amount" }),
   costTech: z.coerce.number({ message: "Enter an amount" }),
   priceClient: z.coerce.number({ message: "Enter an amount" }),
-  supplier: z.string().trim().optional(),
+  supplier: clearableText,
   serialTracking: z.boolean(),
   // Without these the resolver strips them and a change to them is never sent.
   taxable: z.boolean().default(true),
   manageStock: z.boolean().default(true),
-  // "" is "No brand" and is sent as is: the API has no other way to clear it
-  // (a missing key keeps the old brand, and null is stored as null).
-  brandId: z.string().trim().optional(),
+  // "No brand" is null: a missing key would keep the old brand, and "" would
+  // be stored as a brand id.
+  brandId: clearableText,
   minimumStockLevel: z.coerce.number({ message: "Enter a number" }).int("Whole number"),
   reorderLevel: editedReorderLevel,
 };

@@ -168,6 +168,27 @@ describe("stock, brand and reorder fields", () => {
     });
   });
 
+  // PUT /products/:id clears an optional field sent as null.
+  it("turns an emptied optional field into null on edit, so the server clears it", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sku: _sku, ...editable } = base;
+    const parsed = updateProductSchemaFor(editable).parse({
+      ...editable,
+      brandId: "",
+      reorderLevel: "",
+      supplier: "  ",
+      barcode: "",
+      description: "",
+    });
+    expect(parsed).toMatchObject({
+      brandId: null,
+      reorderLevel: null,
+      supplier: null,
+      barcode: null,
+      description: null,
+    });
+  });
+
   it("still rejects a negative reorder level on edit", () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { sku: _sku, ...editable } = base;

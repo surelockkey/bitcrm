@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ProductType } from "@bitcrm/types";
-import { ProductForm, type ProductFormValues } from "./product-form";
+import { ProductForm, type ProductFormChanges, type ProductFormValues } from "./product-form";
 
 type FormProps = Parameters<typeof ProductForm>[0];
 
@@ -35,7 +35,7 @@ const imported: ProductFormValues = {
  */
 function renderForm(
   defaults: ProductFormValues | undefined,
-  onSubmit: (v: ProductFormValues, changed: Partial<ProductFormValues>) => void,
+  onSubmit: (v: ProductFormValues, changed: ProductFormChanges) => void,
   over: Partial<FormProps> = {},
 ) {
   const utils = render(
@@ -225,7 +225,8 @@ describe("ProductForm — Brand", () => {
     expect(names).not.toContain("Old Brand");
   });
 
-  it("sends the picked brand, and '' for No brand", async () => {
+  // PUT /products/:id clears a field sent as null; "" would be stored as a brand id.
+  it("sends the picked brand, and null for No brand", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
     const { save } = renderForm(item, onSubmit, { brands });
@@ -235,7 +236,7 @@ describe("ProductForm — Brand", () => {
     await user.click(save());
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0][1]).toEqual({ brandId: "" });
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ brandId: null });
   });
 
   it("is not shown when there is no brand catalog to pick from", () => {
@@ -258,10 +259,9 @@ describe("ProductForm — Reorder level", () => {
     expect(onSubmit.mock.calls[0][1]).toEqual({ reorderLevel: 4 });
   });
 
-  // The API can't unset it: a blank would reach the server as a missing key,
-  // change nothing, and still say "Item saved". 0 is what the form shows for
-  // an item without one, so a cleared field saves 0.
-  it("saves a cleared field as 0 instead of dropping it", async () => {
+  // A blank must not be dropped (a missing key changes nothing behind an
+  // "Item saved"), and 0 is a reorder point, not "none": null clears it.
+  it("clears the reorder level with null — not 0, and not a dropped key", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
     const { field, save } = renderForm(item, onSubmit);
@@ -270,7 +270,7 @@ describe("ProductForm — Reorder level", () => {
     await user.click(save());
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ reorderLevel: 0 });
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ reorderLevel: null });
   });
 
   it("rejects a negative one", async () => {
@@ -289,6 +289,42 @@ describe("ProductForm — Reorder level", () => {
   it("is not asked for a service", () => {
     const { field } = renderForm({ ...item, type: ProductType.SERVICE }, vi.fn());
     expect(field("reorderLevel")).toBeNull();
+  });
+});
+
+describe("ProductForm — clearing an optional text field", () => {
+  const filled: ProductFormValues = {
+    ...item,
+    supplier: "Acme",
+    barcode: "0123456789",
+    description: "Grade 2 deadbolt",
+  };
+
+  for (const name of ["supplier", "barcode", "description"] as const) {
+    it(`sends ${name}: null when it is emptied`, async () => {
+      const onSubmit = vi.fn();
+      const user = userEvent.setup();
+      const { field, save } = renderForm(filled, onSubmit);
+
+      await user.clear(field(name));
+      await user.click(save());
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][1]).toStrictEqual({ [name]: null });
+    });
+  }
+
+  it("still sends a new value as text", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { field, save } = renderForm(filled, onSubmit);
+
+    await user.clear(field("supplier"));
+    await user.type(field("supplier"), "Lockwood");
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ supplier: "Lockwood" });
   });
 });
 

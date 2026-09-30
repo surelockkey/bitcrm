@@ -152,7 +152,9 @@ function EditItem({ id, onClose }: { id: string; onClose: () => void }) {
     minimumStockLevel: product.minimumStockLevel,
     manageStock: product.manageStock !== false,
     brandId: product.brandId ?? "",
-    reorderLevel: product.reorderLevel ?? 0,
+    // Blank when the item has none: 0 is a reorder point, and clearing the
+    // field sends null.
+    reorderLevel: product.reorderLevel ?? undefined,
   };
 
   return (
