@@ -99,9 +99,9 @@ function LocationStock({
         location={{ type, id, name: name ?? "" }}
         rows={stock.rows}
         summary={stock.summary}
-        // Priced when the server sent a price for every row; a row without
-        // one would count as $0 and understate the total.
-        priced={stock.rows.every((r) => r.unitPrice != null)}
+        // The server prices every row whose item still exists; with none
+        // priced there is no value to show — "—", not a $0.00.
+        priced={stock.rows.length === 0 || stock.rows.some((r) => r.unitPrice != null)}
         actions={can("transfers", "create")}
       />
     );

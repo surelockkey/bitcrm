@@ -6,7 +6,7 @@ import {
   type StockSummary,
 } from "@/features/inventory/warehouses/lib";
 import { containerTitle } from "@/features/inventory/containers/lib";
-import type { LocationStockRow } from "./api";
+import type { LocationStockRowIn } from "./api";
 
 /* ------------------------------------------------------------------ *
  * Locations — every warehouse and van, as a picker lists them.
@@ -56,7 +56,7 @@ export function toLocations(warehouses: Warehouse[], containers: Container[]): S
  * came, which is already by name. Value is price × quantity; a row is low
  * only against a minimum it carries.
  */
-export function stockRowsOf(rows: LocationStockRow[]): EnrichedStockRow[] {
+export function stockRowsOf(rows: LocationStockRowIn[]): EnrichedStockRow[] {
   return rows.map((r) => {
     const unitPrice = r.priceClient;
     const minLevel = r.minimumStockLevel;

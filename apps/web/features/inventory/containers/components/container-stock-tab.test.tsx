@@ -1,9 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import type { EnrichedStockRow } from "@/features/inventory/warehouses/lib";
 import { ContainerStockTab } from "./container-stock-tab";
 
-const rows: EnrichedStockRow[] = [
+let rows: EnrichedStockRow[];
+const ROWS: EnrichedStockRow[] = [
   { productId: "p1", name: "Deadbolt", sku: "LOCK-1", category: "Locks", quantity: 6, unitPrice: 45, value: 270, minLevel: 10, isLow: true },
   { productId: "p2", name: "Key blank", sku: "KEY-1", category: "Keys", quantity: 120, unitPrice: 3, value: 360, minLevel: 0, isLow: false },
 ];
@@ -11,14 +12,32 @@ const rows: EnrichedStockRow[] = [
 vi.mock("../hooks", () => ({
   useContainerStockView: () => ({
     rows,
-    summary: { skuCount: 2, totalUnits: 126, totalValue: 630, lowCount: 1 },
+    summary: { skuCount: 2, totalUnits: 126, totalValue: 630, lowCount: rows.filter((r) => r.isLow).length },
     isLoading: false,
     isError: false,
   }),
 }));
 
+beforeEach(() => {
+  rows = ROWS;
+});
+
 /** The technician's own van: what is on it, read-only. */
 describe("ContainerStockTab", () => {
+  it("counts low stock against the rows' minimums", () => {
+    render(<ContainerStockTab containerId="c1" />);
+    expect(screen.getByText("Low stock").nextSibling).toHaveTextContent("1");
+  });
+
+  // The stock endpoint sends no minimum levels: "0 low" would be a claim
+  // nobody checked.
+  it("leaves the Low stock card out when no row carries a minimum", () => {
+    rows = ROWS.map((r) => ({ ...r, minLevel: undefined, isLow: false }));
+    render(<ContainerStockTab containerId="c1" />);
+    expect(screen.queryByText("Low stock")).toBeNull();
+    expect(screen.getByText("SKUs")).toBeInTheDocument();
+  });
+
   it("renders joined rows with value and a low-stock chip", () => {
     render(<ContainerStockTab containerId="c1" />);
     expect(screen.getByText("Deadbolt")).toBeInTheDocument();

@@ -1,6 +1,7 @@
 import type {
   Container,
-  InventoryStatus,
+  LocationStock,
+  LocationStockRow,
   LocationSummaryType,
   LocationType,
   ReturnReason,
@@ -56,36 +57,13 @@ export function moveStock(body: MoveStockBody): Promise<Transfer> {
 
 /* --- One location's stock --- */
 
-/**
- * One row of a location's stock, named and priced by the server. Only what
- * the location holds (quantity > 0), in item-name order.
- */
-export interface LocationStockRow {
-  productId: string;
-  productName: string;
-  /** The item's short "Product ID". */
-  number?: number;
-  sku?: string;
-  category?: string;
-  quantity: number;
-  priceClient?: number;
-  costCompany?: number;
-  /**
-   * The item's low-stock line. Not part of the endpoint's answer yet; the
-   * views mark a row low only when it arrives.
-   */
-  minimumStockLevel?: number;
-}
+export type { LocationStock, LocationStockRow };
 
-/** `GET /inventory/stock/locations/:type/:id` — a warehouse's or van's shelf. */
-export interface LocationStock {
-  locationType: LocationSummaryType;
-  locationId: string;
-  name: string;
-  description?: string;
-  status: InventoryStatus;
-  rows: LocationStockRow[];
-}
+/**
+ * A row as the views read it. `minimumStockLevel` is not part of the
+ * endpoint's answer (yet): a row is marked low only when it carries one.
+ */
+export type LocationStockRowIn = LocationStockRow & { minimumStockLevel?: number };
 
 /**
  * Everything one warehouse or van holds, in one request. The rows come

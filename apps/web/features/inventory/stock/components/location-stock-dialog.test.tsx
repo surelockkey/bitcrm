@@ -6,7 +6,7 @@ import { InventoryStatus, ReturnReason } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 import type { StockLocation } from "../lib";
-import type { LocationStockRow } from "../api";
+import type { LocationStockRowIn as LocationStockRow } from "../api";
 
 type Mutate = (vars: unknown, opts?: { onSuccess?: () => void }) => void;
 
