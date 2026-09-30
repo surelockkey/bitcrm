@@ -73,6 +73,14 @@ export class CommissionService {
     return config;
   }
 
+  /**
+   * Internal: every technician's version history, for the commissions report
+   * in deal-service. No caller check — the route is service-to-service only.
+   */
+  histories(userIds: string[]): Promise<Record<string, CommissionConfig[]>> {
+    return this.repository.listHistories(userIds);
+  }
+
   async calculate(
     userId: string,
     deal: DealInputs,

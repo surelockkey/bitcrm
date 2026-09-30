@@ -7,6 +7,14 @@ import {
   COMMISSION_SK_PREFIX,
 } from '../constants/dynamo.constants';
 
+/** How many technicians' histories are read at once for the commissions report. */
+const HISTORY_READ_CONCURRENCY = 10;
+
+/**
+ * PK = USER#<userId>, SK = COMMISSION#<effectiveDate> — one row per version,
+ * never rewritten: a change writes a new version, so a report can take the
+ * rate that was in force on a job's day.
+ */
 @Injectable()
 export class CommissionRepository {
   constructor(private readonly dynamoDb: DynamoDbService) {}
@@ -53,7 +61,23 @@ export class CommissionRepository {
         ScanIndexForward: false,
       }),
     );
-    return (result.Items || []).map(this.toConfig);
+    return (result.Items || []).map((item) => this.toConfig(item));
+  }
+
+  /**
+   * Every version of each technician's commission, newest first, keyed by
+   * user id (a technician without one maps to `[]`). The commissions report's
+   * rate history: a few rows per person, read a handful of people at a time.
+   */
+  async listHistories(userIds: string[]): Promise<Record<string, CommissionConfig[]>> {
+    const unique = [...new Set(userIds.filter(Boolean))];
+    const out: Record<string, CommissionConfig[]> = {};
+    for (let i = 0; i < unique.length; i += HISTORY_READ_CONCURRENCY) {
+      const batch = unique.slice(i, i + HISTORY_READ_CONCURRENCY);
+      const histories = await Promise.all(batch.map((id) => this.listHistory(id)));
+      batch.forEach((id, n) => (out[id] = histories[n]));
+    }
+    return out;
   }
 
   private toConfig(item: Record<string, unknown>): CommissionConfig {
@@ -65,6 +89,12 @@ export class CommissionRepository {
       effectiveDate: item.effectiveDate as string,
       createdBy: item.createdBy as string,
       createdAt: item.createdAt as string,
+      // Workiz's fees and rate rules — on imported versions only.
+      ...(typeof item.checkFeePct === 'number' && { checkFeePct: item.checkFeePct }),
+      ...(typeof item.cashFeePct === 'number' && { cashFeePct: item.cashFeePct }),
+      ...(item.additionalFee != null && { additionalFee: item.additionalFee as CommissionConfig['additionalFee'] }),
+      ...((item.baseRateUnit === '%' || item.baseRateUnit === '$') && { baseRateUnit: item.baseRateUnit }),
+      ...(Array.isArray(item.jobTypeRules) && { jobTypeRules: item.jobTypeRules as CommissionConfig['jobTypeRules'] }),
     };
   }
 }
