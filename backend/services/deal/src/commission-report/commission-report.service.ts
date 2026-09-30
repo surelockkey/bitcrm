@@ -50,7 +50,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
 /** Paging, sorting and switching technicians re-use one read of the period for a minute. */
 const CACHE_TTL_MS = 60_000;
-const CACHE_MAX_ENTRIES = 16;
+const CACHE_MAX_ENTRIES = 8;
 
 interface PeriodRows {
   at: number;
