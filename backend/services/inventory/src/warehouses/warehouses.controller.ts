@@ -40,7 +40,8 @@ export class WarehousesController {
     summary: 'List warehouses',
     description:
       '**Guard:** `warehouses.view` permission required. Workiz placeholders (`placeholder: true`, ' +
-      'locations deleted in Workiz) are never listed or counted; `GET /warehouses/:id` still reads them.',
+      'locations deleted in Workiz) are never listed or counted; `GET /warehouses/:id` still reads them. ' +
+      'A page is never longer than `limit`. Each row carries `totalUnits` (units across its stock rows) and `uniqueItems` (products with quantity > 0), kept by every stock write — absent on a row `backfill:location-totals` has not reached yet.',
   })
   async list(@Query() query: ListWarehousesQueryDto) {
     const { items, nextCursor } = await this.warehousesService.list(query);
@@ -69,7 +70,12 @@ export class WarehousesController {
 
   @Get(':id')
   @RequirePermission('warehouses', 'view')
-  @ApiOperation({ summary: 'Get warehouse by ID', description: '**Guard:** `warehouses.view` permission required.' })
+  @ApiOperation({
+    summary: 'Get warehouse by ID',
+    description:
+      '**Guard:** `warehouses.view` permission required. Carries `totalUnits` / `uniqueItems` as the ' +
+      'list does (absent until backfilled).',
+  })
   async findById(@Param('id') id: string) {
     const data = await this.warehousesService.findById(id);
     return { success: true, data };

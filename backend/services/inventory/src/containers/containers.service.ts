@@ -77,6 +77,9 @@ export class ContainersService {
       department: dto.department,
       ...(dto.templateId && { templateId: dto.templateId }),
       status: InventoryStatus.ACTIVE,
+      // Empty, and kept by every stock write from here on.
+      totalUnits: 0,
+      uniqueItems: 0,
       createdAt: now,
       updatedAt: now,
     };

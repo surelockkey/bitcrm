@@ -249,8 +249,7 @@ export function createMockLocationSummary(overrides?: Partial<LocationSummary>):
 export function createMockLocationsRepository() {
   return {
     findLocation: jest.fn(),
-    listAll: jest.fn().mockResolvedValue([]),
-    listPlaceholders: jest.fn().mockResolvedValue([]),
+    listKind: jest.fn().mockResolvedValue({ locations: [], placeholders: [] }),
   };
 }
 

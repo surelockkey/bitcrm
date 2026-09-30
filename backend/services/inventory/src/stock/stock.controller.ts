@@ -72,7 +72,8 @@ export class StockController {
       'each group in name order and inactive ones included, with the quantity held there (0 when ' +
       'the item never reached it). A Workiz placeholder location is listed (flagged `placeholder: ' +
       'true`, after the real ones of its kind) only while it still holds the item. `onHand` sums ' +
-      'the rows shown. 404 when the product does not exist.',
+      'the rows shown; each row also carries the location\'s own `totalUnits` / `uniqueItems` ' +
+      '(absent until backfilled). 404 when the product does not exist.',
   })
   async getProductStock(
     @Param('id') id: string,

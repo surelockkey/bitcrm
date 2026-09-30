@@ -47,7 +47,8 @@ export class ContainersController {
     description:
       '**Guard:** `containers.view` permission required. Results filtered by data scope. Workiz ' +
       'placeholders (`placeholder: true`, locations deleted in Workiz — 119 of 207 on dev) are ' +
-      'never listed or counted; `GET /containers/:id` still reads them.',
+      'never listed or counted; `GET /containers/:id` still reads them. A page is never longer ' +
+      'than `limit`. Each row carries `totalUnits` (units across its stock rows) and `uniqueItems` (products with quantity > 0), kept by every stock write — absent on a row `backfill:location-totals` has not reached yet.',
   })
   async list(
     @Query() query: ListContainersQueryDto,
@@ -90,7 +91,12 @@ export class ContainersController {
 
   @Get(':id')
   @RequirePermission('containers', 'view')
-  @ApiOperation({ summary: 'Get container by ID', description: '**Guard:** `containers.view` permission required.' })
+  @ApiOperation({
+    summary: 'Get container by ID',
+    description:
+      '**Guard:** `containers.view` permission required. Carries `totalUnits` / `uniqueItems` as the ' +
+      'list does (absent until backfilled).',
+  })
   async findById(@Param('id') id: string) {
     const data = await this.containersService.findById(id);
     return { success: true, data };
