@@ -62,7 +62,26 @@ describe('StockController', () => {
         success: true,
         data,
       });
-      expect(locationStock.forLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'c-1', { user, permissions });
+      expect(locationStock.forLocation).toHaveBeenCalledWith(
+        LocationType.CONTAINER,
+        'c-1',
+        { user, permissions },
+        { money: false },
+      );
+    });
+
+    // Правило власника: без financials.view сервер не віддає собівартість.
+    it('asks for costs only with financials.view (the Super Admin always)', async () => {
+      locationStock.forLocation.mockResolvedValue(data);
+      const withMoney = createMockResolvedPermissions({
+        permissions: { warehouses: { view: true }, financials: { view: true } },
+      });
+      const superAdmin = createMockResolvedPermissions({ isSystemRole: true, roleName: 'Super Admin', permissions: {} });
+
+      await controller.getWarehouseStock('wh-1', user, { resolvedPermissions: withMoney });
+      await controller.getContainerStock('c-1', user, { resolvedPermissions: superAdmin });
+
+      expect(locationStock.forLocation.mock.calls.map((c) => c[3])).toEqual([{ money: true }, { money: true }]);
     });
 
     it('answers a warehouse’s stock for the caller', async () => {
@@ -70,7 +89,12 @@ describe('StockController', () => {
 
       await controller.getWarehouseStock('wh-1', user, { resolvedPermissions: permissions });
 
-      expect(locationStock.forLocation).toHaveBeenCalledWith(LocationType.WAREHOUSE, 'wh-1', { user, permissions });
+      expect(locationStock.forLocation).toHaveBeenCalledWith(
+        LocationType.WAREHOUSE,
+        'wh-1',
+        { user, permissions },
+        { money: false },
+      );
     });
 
     it('gates each kind behind its own view permission', () => {

@@ -30,7 +30,16 @@ export class LocationStockService {
     private readonly assignments: ContainerAssignmentResolver,
   ) {}
 
-  async forLocation(type: LocationType, id: string, viewer?: StockViewer): Promise<LocationStock> {
+  /**
+   * `money` is `financials.view`: without it every row leaves `costCompany`
+   * out (the owner's money rule); the client price stays.
+   */
+  async forLocation(
+    type: LocationType,
+    id: string,
+    viewer?: StockViewer,
+    { money = false }: { money?: boolean } = {},
+  ): Promise<LocationStock> {
     const location = await this.locationsRepository.findLocation(type, id);
     if (!location) {
       const label = type === LocationType.WAREHOUSE ? 'Warehouse' : 'Container';
@@ -59,7 +68,7 @@ export class LocationStockService {
         ...(product.category !== undefined && { category: product.category }),
         quantity: item.quantity,
         ...(product.priceClient !== undefined && { priceClient: product.priceClient }),
-        ...(product.costCompany !== undefined && { costCompany: product.costCompany }),
+        ...(money && product.costCompany !== undefined && { costCompany: product.costCompany }),
       };
     });
     rows.sort((a, b) => a.productName.localeCompare(b.productName, undefined, { sensitivity: 'base' }));

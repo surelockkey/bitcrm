@@ -53,6 +53,33 @@ describe('InventoryLogService', () => {
     });
   });
 
+  /** Собівартість у журналі — гроші: лише з financials.view. Ціна для клієнта лишається. */
+  describe('list — costs', () => {
+    const used = createMockInventoryLogEntry({
+      id: 'log-used',
+      action: InventoryLogAction.STOCK_USED,
+      unitPrice: 25,
+      unitCost: 10,
+    });
+
+    beforeEach(() => {
+      repository.queryProduct.mockResolvedValue({ items: [used], lastKey: undefined, reads: 1 });
+    });
+
+    it('leaves unitCost out unless the caller may see money, keeping unitPrice', async () => {
+      const page = await service.list({ productId: 'prod-1' });
+
+      expect(page.items[0]).not.toHaveProperty('unitCost');
+      expect(page.items[0].unitPrice).toBe(25);
+    });
+
+    it('keeps unitCost for a caller with financials.view', async () => {
+      const page = await service.list({ productId: 'prod-1' }, { money: true });
+
+      expect(page.items[0].unitCost).toBe(10);
+    });
+  });
+
   describe('list', () => {
     const window = { from: '2026-08-01T00:00:00.000Z', to: '2026-09-29T12:00:00.000Z' };
 

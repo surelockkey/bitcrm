@@ -113,6 +113,8 @@ export function createTestUserHeader(user: JwtUser): string {
 // ---------------------------------------------------------------------------
 const superAdminPermissions = {
   permissions: {
+    // Money (company costs) is shown only with financials.view.
+    financials: { view: true },
     products: { view: true, create: true, edit: true, delete: true },
     product_categories: { view: true, create: true, edit: true, delete: true },
     brands: { view: true, create: true, edit: true, delete: true },

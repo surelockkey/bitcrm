@@ -26,6 +26,15 @@ export interface InventoryLogQuery {
   cursor?: string;
 }
 
+/** What the caller may see besides the entries themselves. */
+export interface InventoryLogReadOptions {
+  /**
+   * `financials.view`: the entries keep `unitCost`. Without it the server
+   * leaves costs out (the owner's money rule); `unitPrice` always stays.
+   */
+  money?: boolean;
+}
+
 export interface InventoryLogPageResult {
   items: InventoryLogEntry[];
   nextCursor?: string;
@@ -69,6 +78,12 @@ const MAX_WINDOW_MONTHS = 24;
 const COUNT_TTL_SECONDS = 30;
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** An entry as a caller without `financials.view` may see it: no company cost. */
+function withoutCost(entry: InventoryLogEntry): InventoryLogEntry {
+  const { unitCost: _unitCost, ...rest } = entry;
+  return rest;
+}
 const MONTH = /^\d{4}-\d{2}$/;
 
 @Injectable()
@@ -106,7 +121,16 @@ export class InventoryLogService {
    * of `from`, each read until it ends or the page is full, so a page spans
    * months the way a scanPage read spans DynamoDB pages.
    */
-  async list(query: InventoryLogQuery): Promise<InventoryLogPageResult> {
+  async list(
+    query: InventoryLogQuery,
+    options: InventoryLogReadOptions = {},
+  ): Promise<InventoryLogPageResult> {
+    const page = await this.readPage(query);
+    if (options.money) return page;
+    return { ...page, items: page.items.map(withoutCost) };
+  }
+
+  private async readPage(query: InventoryLogQuery): Promise<InventoryLogPageResult> {
     const cursor = this.decodeCursor(query.cursor, query.productId ? 'product' : 'months');
     const window = cursor ? this.assertWindow({ from: cursor.from, to: cursor.to }) : this.windowOf(query);
     const filters = this.filtersOf(query);

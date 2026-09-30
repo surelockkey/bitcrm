@@ -243,6 +243,7 @@ describe('Stock E2E', () => {
         name: '(1) STORE',
         status: 'active',
       });
+      // The admin role has no financials.view: the company cost is left out.
       expect(res.body.data.rows).toEqual([
         {
           productId: alpha.id,
@@ -252,10 +253,18 @@ describe('Stock E2E', () => {
           category: 'Locks',
           quantity: 5,
           priceClient: 50,
-          costCompany: 25,
         },
         expect.objectContaining({ productId: zeta.id, productName: 'Zeta hinge', quantity: 2 }),
       ]);
+
+      const superAdmin: JwtUser = {
+        id: 'sa-1', cognitoSub: 'sub-sa', email: 'sa@test.com', roleId: 'role-super-admin', department: 'HQ',
+      };
+      const withMoney = await request(app.getHttpServer())
+        .get(`${STOCK_BASE}/locations/warehouse/${warehouse.id}`)
+        .set('x-test-user', createTestUserHeader(superAdmin))
+        .expect(200);
+      expect(withMoney.body.data.rows[0].costCompany).toBe(25);
     });
 
     it('404s on an unknown location', async () => {

@@ -51,7 +51,7 @@ describe('LocationStockService', () => {
       createMockProduct({ id: 'p-z', name: 'Zeta hinge', number: 13, sku: 'Z-1', category: 'Hinges', priceClient: 8, costCompany: 3 }),
     ]);
 
-    const result = await service.forLocation(LocationType.CONTAINER, 'c-1');
+    const result = await service.forLocation(LocationType.CONTAINER, 'c-1', undefined, { money: true });
 
     expect(locations.findLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'c-1');
     expect(stock.getStockLevels).toHaveBeenCalledWith('CONTAINER#c-1');
@@ -67,6 +67,19 @@ describe('LocationStockService', () => {
         { productId: 'p-z', productName: 'Zeta hinge', number: 13, sku: 'Z-1', category: 'Hinges', quantity: 2, priceClient: 8, costCompany: 3 },
       ],
     });
+  });
+
+  // Правило власника: без financials.view собівартість не віддається.
+  it('leaves costCompany out of every row unless the caller may see money, keeping the price', async () => {
+    stock.getStockLevels.mockResolvedValue([createMockStockItem({ productId: 'p-a', quantity: 5 })]);
+    products.findByIds.mockResolvedValue([
+      createMockProduct({ id: 'p-a', name: 'Alpha lock', priceClient: 30, costCompany: 11 }),
+    ]);
+
+    const result = await service.forLocation(LocationType.CONTAINER, 'c-1');
+
+    expect(result.rows[0]).not.toHaveProperty('costCompany');
+    expect(result.rows[0].priceClient).toBe(30);
   });
 
   it('keeps a stock row whose product row is gone, under the name the stock row stored', async () => {

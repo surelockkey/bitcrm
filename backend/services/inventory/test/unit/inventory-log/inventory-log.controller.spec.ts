@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PERMISSION_KEY } from '@bitcrm/shared';
 import { InventoryLogController } from 'src/inventory-log/inventory-log.controller';
 import { InventoryLogService } from 'src/inventory-log/inventory-log.service';
-import { createMockInventoryLogEntry, createMockInventoryLogService } from '../mocks';
+import {
+  createMockInventoryLogEntry,
+  createMockInventoryLogService,
+  createMockResolvedPermissions,
+} from '../mocks';
 
 describe('InventoryLogController', () => {
   let controller: InventoryLogController;
@@ -25,14 +29,28 @@ describe('InventoryLogController', () => {
       service.list.mockResolvedValue({ items: [entry], nextCursor: 'abc' });
       const query = { userId: 'user-1', limit: 20 };
 
-      const result = await controller.list(query as never);
+      const result = await controller.list(query as never, { resolvedPermissions: createMockResolvedPermissions() });
 
       expect(result).toEqual({
         success: true,
         data: [entry],
         pagination: { nextCursor: 'abc', count: 1 },
       });
-      expect(service.list).toHaveBeenCalledWith(query);
+      expect(service.list).toHaveBeenCalledWith(query, { money: false });
+    });
+
+    // Правило власника: без financials.view сервер не віддає собівартість.
+    it('asks for the costs only for a caller with financials.view (the Super Admin always)', async () => {
+      const withMoney = createMockResolvedPermissions({
+        permissions: { reports: { view: true }, financials: { view: true } },
+      });
+      const superAdmin = createMockResolvedPermissions({ isSystemRole: true, roleName: 'Super Admin', permissions: {} });
+
+      await controller.list({} as never, { resolvedPermissions: withMoney });
+      await controller.list({} as never, { resolvedPermissions: superAdmin });
+      await controller.list({} as never, {});
+
+      expect(service.list.mock.calls.map((c) => c[1])).toEqual([{ money: true }, { money: true }, { money: false }]);
     });
   });
 
