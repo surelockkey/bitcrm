@@ -90,8 +90,9 @@ export function CopyFromLocationDialog({
           }
         }}
       >
-        <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle>Copy from location</DialogTitle>
+        {/* Right padding keeps the title clear of the close button. */}
+        <DialogHeader className="border-b px-4 py-3 pr-12">
+          <DialogTitle className="text-base">Copy from location</DialogTitle>
           <DialogDescription>
             Fill the template from what a warehouse or a van holds now — each product there, its quantity as the target.
           </DialogDescription>
@@ -156,7 +157,7 @@ export function CopyFromLocationDialog({
           ) : null}
         </div>
 
-        <DialogFooter className="border-t px-4 py-3">
+        <DialogFooter className="m-0 flex-none">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
