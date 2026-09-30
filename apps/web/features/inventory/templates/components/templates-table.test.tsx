@@ -131,4 +131,20 @@ describe("TemplatesTable — a stable first frame", () => {
     }
     expect(container.querySelector("[data-slot=table-frame]")?.className).toMatch(/overflow-x-auto/);
   });
+
+  it("loading, is the same table: header, widths, and a page of rows", () => {
+    const shape = () => ({
+      headers: [...document.querySelectorAll("thead th")].map((th) => th.textContent),
+      widths: [...document.querySelectorAll("col")].map((c) => (c as HTMLElement).style.width),
+    });
+    const { unmount } = table();
+    const loaded = shape();
+    unmount();
+
+    renderWithClient(
+      <TemplatesTable templates={[]} usedBy={new Map()} onEdit={vi.fn()} onApply={vi.fn()} loading skeletonRows={10} />,
+    );
+    expect(shape()).toEqual(loaded);
+    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(10);
+  });
 });

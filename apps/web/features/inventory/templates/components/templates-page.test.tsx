@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
+  permsLoading: false,
+  templatesLoading: false,
+  locationsLoading: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -22,21 +25,33 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/inventory/templates",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
+  useDenied: () => (resource: string, action = "view") =>
+    !mocks.permsLoading && mocks.denied.has(`${resource}.${action}`),
   usePermissions: () => ({
-    can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
+    can: (resource: string, action = "view") =>
+      !mocks.permsLoading && !mocks.denied.has(`${resource}.${action}`),
+    isLoading: mocks.permsLoading,
   }),
 }));
 vi.mock("../hooks", () => ({
   useContainerTemplates: (status: string) => {
     mocks.statuses.push(status);
-    return { data: mocks.templates, isLoading: false, isError: false, refetch: vi.fn() };
+    return {
+      data: mocks.templatesLoading ? undefined : mocks.templates,
+      isLoading: mocks.templatesLoading,
+      isError: false,
+      refetch: vi.fn(),
+    };
   },
   useArchiveTemplate: () => ({ mutate: vi.fn(), isPending: false }),
   useRestoreTemplate: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/features/inventory/stock/hooks", () => ({
-  useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
+  useAllLocations: () => ({
+    data: mocks.locationsLoading ? [] : mocks.locations,
+    isLoading: mocks.locationsLoading,
+    isError: false,
+  }),
 }));
 // The popups have suites of their own; here only what the URL opens matters.
 vi.mock("./template-dialog", () => ({
@@ -85,6 +100,9 @@ beforeEach(() => {
   mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
+  mocks.permsLoading = false;
+  mocks.templatesLoading = false;
+  mocks.locationsLoading = false;
 });
 
 const noScroll = { scroll: false };
@@ -162,5 +180,39 @@ describe("TemplatesPage — popups from the URL", () => {
     expect(popup).toHaveAttribute("data-container", "c3");
     await userEvent.click(screen.getByText("pick van 2"));
     expect(mocks.replace).toHaveBeenCalledWith("/inventory/templates?apply=t1&container=c2", noScroll);
+  });
+});
+
+describe("TemplatesPage — nothing jumps, and it pages", () => {
+  it("draws the real table while the templates load, with the pager's space held", () => {
+    mocks.templatesLoading = true;
+    renderWithClient(<TemplatesPage />);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Used by");
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("never flashes No access while permissions are still loading", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<TemplatesPage />);
+    expect(screen.queryByText("No access")).toBeNull();
+    expect(screen.getByRole("button", { name: "New template" })).toBeDisabled();
+  });
+
+  // "Used by" counted 0 until the whole fleet arrived, then changed.
+  it("lets Used by wait for the fleet instead of printing a 0 that changes", () => {
+    mocks.locationsLoading = true;
+    renderWithClient(<TemplatesPage />);
+    const row = screen.getByText("Standard van").closest("tr") as HTMLElement;
+    const cell = row.querySelectorAll("td")[4];
+    expect(cell).not.toHaveTextContent("0");
+    expect(cell.querySelector("[data-testid=used-by-pending]")).not.toBeNull();
+  });
+
+  it("pages a long list instead of drawing it whole", () => {
+    mocks.templates = Array.from({ length: 60 }, (_, i) => tpl(`t${i}`, `Template ${i}`));
+    renderWithClient(<TemplatesPage />);
+    expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
+    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
   });
 });
