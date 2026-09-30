@@ -79,6 +79,33 @@ export {
 } from './entities/call-flow.entity';
 export { CALL_FLOW_LIMITS } from './entities/call-flow.entity';
 export { CallTag, CALL_TAG_LIMITS } from './entities/call-tag.entity';
+// Reports — Workiz Call Tracking (`GET /telephony/calls/stats/tracking`)
+export {
+  CALL_TRACKING_GROUP_BY,
+  CALL_TRACKING_GRAPH_BY,
+  CALL_TRACKING_MAX_DAYS,
+  CALL_TRACKING_GRAPH_SERIES,
+  CALL_TRACKING_OTHER_SERIES,
+} from './reports/call-tracking';
+export type {
+  CallTrackingGroupBy,
+  CallTrackingGraphBy,
+  CallTrackingRow,
+  CallTrackingCards,
+  CallTrackingSeries,
+  CallTrackingGraph,
+  CallTrackingReport,
+} from './reports/call-tracking';
+// The account's calendar for reports (America/New_York days ↔ UTC instants)
+export {
+  AccountClock,
+  accountDayStartUtc,
+  accountDaysBetween,
+  accountWindowUtc,
+  shiftAccountDay,
+  weekStartSunday,
+  zoneOffsetMs,
+} from './reports/account-clock';
 export { JobType } from './entities/job-type.entity';
 export { JobSource } from './entities/job-source.entity';
 export { ExternalCompany } from './entities/external-company.entity';
@@ -109,6 +136,20 @@ export {
   DealProductPriceSource,
 } from './entities/deal-product.entity';
 export { TimelineEntry } from './entities/timeline-entry.entity';
+// Reports — Workiz Activity (`GET /deals/activity`), read off the timelines
+export {
+  ACTIVITY_PAGE_SIZES,
+  ACTIVITY_DEFAULT_PAGE_SIZE,
+  ACTIVITY_MAX_USERS,
+  ACTIVITY_EXPORT_MAX_ROWS,
+  ACTIVITY_FIRST_DAY,
+} from './reports/activity';
+export type {
+  ActivityRow,
+  ActivitySource,
+  ActivitySort,
+  ActivityExport,
+} from './reports/activity';
 export {
   Product,
   ProductWithExtras,
