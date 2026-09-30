@@ -17,8 +17,18 @@ import {
   GSI1_NAME,
   GSI2_NAME,
   GSI3_NAME,
+  GSI4_NAME,
 } from '../common/constants/dynamo.constants';
 import { productSearchName, productSearchSku } from './products.constants';
+import {
+  PRODUCT_CATALOG_INDEX_PK,
+  CATALOG_INDEX_MAX_READS,
+  expectedCatalogIndexKeys,
+  catalogIndexWrite,
+  decodeCatalogCursor,
+  fillCatalogPage,
+  type CatalogIndexRow,
+} from './product-catalog-index';
 import {
   PRODUCT_STOCK_INDEX_PK,
   expectedStockIndexKeys,
@@ -34,11 +44,12 @@ export interface PaginatedResult {
 }
 
 /**
- * The filters a list and its count share. Whichever of category / type picks
- * the index, every one of these is applied on top as a FilterExpression.
+ * The filters a list and its count share. Whichever partition picks the rows
+ * (a category, the stock-managed one, the Price Book one), every one of these
+ * is applied on top as a FilterExpression.
  */
 export interface ProductListFilters {
-  /** Only when category took the index; otherwise type IS the index. */
+  /** A filter on every path; only `findByType` (not on the public list) keys on it instead. */
   type?: string;
   status?: string;
   /** Matched against the lowercased `name` and `sku` (`searchName` / `searchSku`), case-insensitive. */
@@ -89,6 +100,10 @@ const COUNTER_KEY = { PK: 'COUNTER#PRODUCT', SK: 'METADATA' };
  *     stock-managed products only — type `product`, `manageStock` not false,
  *     any status; the "inventory products" list, name order.
  *     `backfill:product-stock-index` fills older rows; every update re-files one)
+ *   GSI4PK = PRODUCTS#ALL, GSI4SK = <name lowercased, first 200 chars>#<id>
+ *     (TransferEntityIndex: EVERY product — any type, any status, any stock
+ *     flag; the Price Book list, name order. `backfill:product-catalog-index`
+ *     fills older rows; every update re-files one)
  *   searchName = <name lowercased>, searchSku = <sku lowercased>  (what the
  *     search filter matches; `backfill:product-search` fills older rows)
  * `onHand` on the product row is kept by StockRepository, not here.
@@ -161,6 +176,11 @@ export class ProductsRepository {
                   GSI2PK: `TYPE#${product.type}`,
                   GSI2SK: `PRODUCT#${product.id}`,
                   ...expectedStockIndexKeys({
+                    ...product,
+                    PK: `PRODUCT#${product.id}`,
+                    SK: 'METADATA',
+                  }),
+                  ...expectedCatalogIndexKeys({
                     ...product,
                     PK: `PRODUCT#${product.id}`,
                     SK: 'METADATA',
@@ -495,6 +515,84 @@ export class ProductsRepository {
   }
 
   /**
+   * The Query on the Price Book partition, shared by the list and its count
+   * so the two can never answer about different populations.
+   */
+  private catalogQuery(filters?: ProductListFilters) {
+    const f = this.filterParts(filters);
+    return {
+      TableName: INVENTORY_TABLE,
+      IndexName: GSI4_NAME,
+      KeyConditionExpression: 'GSI4PK = :pk',
+      ExpressionAttributeValues: { ':pk': PRODUCT_CATALOG_INDEX_PK, ...f.values },
+      ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
+      ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
+      hasFilter: f.parts.length > 0,
+    };
+  }
+
+  /**
+   * The Price Book: every item — products, services, active and archived — in
+   * name order off the GSI4 `PRODUCTS#ALL` partition, the other filters (type,
+   * status, search, brand, `manageStock=false`) on top. Unfiltered it is one
+   * Query per page; filtered, the page is filled with 1 MB reads within a
+   * budget that covers the whole ~16k-row partition, so a rare search term
+   * never answers an empty page with a cursor — which the Scan over the shared
+   * table did.
+   */
+  async findCatalog(
+    limit: number,
+    cursor?: string,
+    filters?: ProductListFilters,
+  ): Promise<PaginatedResult> {
+    const { hasFilter, ...query } = this.catalogQuery(filters);
+    // Decoded before any read: a Scan-era, stock-partition or foreign cursor is a 400, not a 500.
+    const startKey = decodeCatalogCursor(cursor);
+
+    if (!hasFilter) {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          ...query,
+          ScanIndexForward: true,
+          Limit: limit,
+          ...(startKey ? { ExclusiveStartKey: startKey } : {}),
+        }),
+      );
+      return {
+        items: (result.Items || []).map(this.toProduct),
+        nextCursor: encodeIndexCursor(result.LastEvaluatedKey),
+      };
+    }
+
+    const page = await fillCatalogPage<Record<string, unknown>>(
+      (input) =>
+        this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
+      limit,
+      {
+        startKey,
+        keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI4PK: i.GSI4PK, GSI4SK: i.GSI4SK }),
+      },
+    );
+    return {
+      items: page.items.map(this.toProduct),
+      nextCursor: encodeIndexCursor(page.lastKey),
+    };
+  }
+
+  /**
+   * How many items the Price Book filters select — the count of `findCatalog`.
+   * The whole partition is ~16 MB, past `countRows`' default twenty 1 MB
+   * reads, so it is given the catalog budget and answers exactly.
+   */
+  countCatalog(filters?: ProductListFilters): Promise<CountRowsResult> {
+    const { hasFilter: _hasFilter, ...query } = this.catalogQuery(filters);
+    return countRows(
+      (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
+      { maxReads: CATALOG_INDEX_MAX_READS },
+    );
+  }
+
+  /**
    * A count over one index partition, under the same filters the list applies
    * on top of it. Unfiltered, the key already selects the rows and this is the
    * cheap end of counting.
@@ -625,7 +723,11 @@ export class ProductsRepository {
     );
 
     const row = result.Attributes!;
-    await this.syncStockIndex(row as StockIndexRow);
+    // Disjoint attributes and conditions, so the two filings run side by side.
+    await Promise.all([
+      this.syncStockIndex(row as StockIndexRow),
+      this.syncCatalogIndex(row as CatalogIndexRow),
+    ]);
     return this.toProduct(row);
   }
 
@@ -643,6 +745,23 @@ export class ProductsRepository {
     const { kind: _kind, ...input } = write;
     try {
       await this.dynamoDb.client.send(new UpdateCommand({ TableName: INVENTORY_TABLE, ...input }));
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return;
+      throw error;
+    }
+  }
+
+  /**
+   * The same for the Price Book partition: a rename moves the row to its new
+   * place in name order, and a row written before the partition existed is
+   * filed by any edit. Conditioned on the name and sort key this update
+   * produced; a refused write lost to a later one, which files the row itself.
+   */
+  private async syncCatalogIndex(row: CatalogIndexRow): Promise<void> {
+    const write = catalogIndexWrite(row);
+    if (!write) return;
+    try {
+      await this.dynamoDb.client.send(new UpdateCommand({ TableName: INVENTORY_TABLE, ...write }));
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'ConditionalCheckFailedException') return;
       throw error;

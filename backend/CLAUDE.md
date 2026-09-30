@@ -221,7 +221,9 @@ INVLOG#<YYYY-MM>   / <createdAt>#<id> inventory audit log (item edits + stock mo
                                      never one constant key (the CALL#ALL lesson); walked newest-first, filters on top
                                      … GSI4 INVLOG#PRODUCT#<productId> / <createdAt>#<id> — one item's history on TransferEntityIndex
                                      (sparse: `container_assigned` names no item and lives in the month walk only)
-PRODUCT#<id>       / METADATA        an inventory item; GSI1 CATEGORY#<category>, GSI2 TYPE#<type>, and a sparse GSI3
+PRODUCT#<id>       / METADATA        an inventory item; GSI1 CATEGORY#<category>, GSI2 TYPE#<type>, GSI4 PRODUCTS#ALL /
+                                     <name lowercased, first 200 chars>#<id> on EVERY product (any type, any status — the
+                                     Price Book list, name order, one ~16k-row partition), and a sparse GSI3
                                      PRODUCTS#STOCK / <name lowercased>#<id> on every stock-managed product (type product,
                                      manageStock not false, any status) — the "inventory products" list reads that ~3k-row
                                      partition, never a Scan of the ~46k-row table (whose read budget returned empty pages)
@@ -507,6 +509,11 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `PRODUCTS#STOCK` partition; until it has run, `GET /products?manageStock=true`
   without a category is empty). All six are idempotent and upsert-only;
   `WORKIZ_IMPORT.md` §0 has the row shapes.
+  `backfill:product-catalog-index` belongs to the same list (idempotent,
+  upsert-only on the index keys): it files every product on the GSI4
+  `PRODUCTS#ALL` partition, and until it has run on an environment the Price
+  Book — `GET /products` and `/products/count` without `category` and without
+  `manageStock=true` — is EMPTY there.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

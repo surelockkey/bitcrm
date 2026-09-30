@@ -84,12 +84,26 @@ export class BrandsService {
   }
 
   /**
-   * Items don't store a brand yet, so nothing can reference one — delete
-   * outright. When items grow a brand field, mirror the category
-   * archive-when-referenced flow here.
+   * Archive rather than destroy while any item still names the brand
+   * (`Product.brandId`) — its brand cell and the brand filter would dangle
+   * otherwise. An unused brand is removed outright. Returns which happened so
+   * the UI can word its toast.
    */
   async remove(id: string, caller: { id: string }): Promise<{ archived: boolean }> {
-    await this.findById(id);
+    const existing = await this.findById(id);
+
+    if (await this.repository.isReferencedByProduct(id)) {
+      if (existing.active) {
+        await this.repository.put({ ...existing, active: false, updatedAt: new Date().toISOString() });
+      }
+      publishInventoryEvent(this.snsPublisher, this.logger, 'brand.archived', {
+        brandId: id,
+        archivedBy: caller.id,
+      });
+      this.logger.log(`Archived brand ${id} — still used by an item`);
+      return { archived: true };
+    }
+
     await this.repository.remove(id);
     publishInventoryEvent(this.snsPublisher, this.logger, 'brand.deleted', {
       brandId: id,

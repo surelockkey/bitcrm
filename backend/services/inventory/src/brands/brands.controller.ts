@@ -56,8 +56,11 @@ export class BrandsController {
   @Delete(':id')
   @RequirePermission('brands', 'delete')
   @ApiOperation({
-    summary: 'Delete a brand',
-    description: '**Guard:** `brands.delete`. Items do not store brands yet, so this always deletes.',
+    summary: 'Delete or archive a brand',
+    description:
+      '**Guard:** `brands.delete`. A brand still named by an item (`brandId`) is archived ' +
+      '(`active: false`) instead of deleted; an unused one is deleted. The response says which ' +
+      'happened.',
   })
   async remove(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     const { archived } = await this.service.remove(id, user);

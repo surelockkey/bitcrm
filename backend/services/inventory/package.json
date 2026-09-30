@@ -18,6 +18,7 @@
     "backfill:product-numbers": "ts-node src/scripts/backfill-product-numbers.ts",
     "backfill:product-onhand": "ts-node src/scripts/backfill-product-onhand.ts",
     "backfill:product-search": "ts-node src/scripts/backfill-product-search.ts",
+    "backfill:product-catalog-index": "ts-node src/scripts/backfill-product-catalog-index.ts",
     "backfill:product-stock-index": "ts-node src/scripts/backfill-product-stock-index.ts",
     "backfill:user-containers": "ts-node src/scripts/backfill-user-containers.ts"
   },
