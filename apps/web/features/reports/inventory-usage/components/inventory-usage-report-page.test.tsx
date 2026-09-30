@@ -468,6 +468,28 @@ describe("InventoryUsageReportPage", () => {
     expect(screen.getByTestId("list-pagination")).toBeInTheDocument();
   });
 
+  it("says why a load failed, and retries on request", async () => {
+    serve();
+    let fail = true;
+    server.use(
+      http.get("*/inventory/inventory-log", () =>
+        fail
+          ? HttpResponse.json(
+              { success: false, message: "The window may span at most 24 months" },
+              { status: 400 },
+            )
+          : HttpResponse.json({ success: true, data: LOG, pagination: { count: 3 } }),
+      ),
+    );
+    nav.set("tab=log");
+    renderPage();
+
+    expect(await screen.findByText(/at most 24 months/)).toBeInTheDocument();
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Used 1 in job #1749")).toBeInTheDocument();
+  });
+
   it("exports the whole filtered result, page by page, as CSV", async () => {
     const second = [{ ...USAGE[0], dealId: "d3", dealNumber: 777, productName: "Third item" }];
     const seen = serve({ usage: [USAGE, second] });

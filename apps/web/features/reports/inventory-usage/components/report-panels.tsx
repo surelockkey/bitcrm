@@ -98,8 +98,8 @@ function usePanel<T extends ReportTab>(tab: T, { query, pageSize, permsLoading }
   );
   const status: ReactNode =
     rows.isError && !rows.data ? (
-      <span className="flex items-center gap-3">
-        Couldn&apos;t load the report.
+      <span className="flex flex-wrap items-center gap-3">
+        <span>Couldn&apos;t load the report: {getApiErrorMessage(rows.error)}</span>
         <Button variant="outline" size="sm" onClick={() => void rows.refetch()}>
           Retry
         </Button>
