@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -10,6 +11,7 @@ import { type ProductCategory, UNCATEGORIZED_CATEGORY } from '@bitcrm/types';
 import { createHash, randomUUID } from 'crypto';
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesRepository } from './item-categories.repository';
+import { ProductCategoryMover } from '../products/product-category-mover';
 import { type CreateItemCategoryDto } from './dto/create-item-category.dto';
 import { type UpdateItemCategoryDto } from './dto/update-item-category.dto';
 
@@ -31,6 +33,11 @@ import { type UpdateItemCategoryDto } from './dto/update-item-category.dto';
  * fixed BitCRM namespace, so the id is still a well-formed UUID.
  */
 const SEEDED_CATEGORY_NAMESPACE = 'bitcrm:item-category:';
+
+/** The no-category sentinel, in any casing or padding. */
+function isUncategorized(name: string): boolean {
+  return name.trim().toLowerCase() === UNCATEGORIZED_CATEGORY.toLowerCase();
+}
 
 export function seededCategoryId(name: string): string {
   const h = createHash('sha1')
@@ -54,6 +61,7 @@ export class ItemCategoriesService {
 
   constructor(
     private readonly repository: ItemCategoriesRepository,
+    private readonly productMover: ProductCategoryMover,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
   ) {}
 
@@ -150,13 +158,33 @@ export class ItemCategoriesService {
     return category;
   }
 
+  /**
+   * A rename moves the category's items too: they store it by NAME, byte for
+   * byte, so any change of the stored string — case and padding included —
+   * is a rename. The items move first and the row is saved after, so a move
+   * that fails half-way is finished by sending the same rename again.
+   * `Uncategorized` is the sentinel items without a category carry: it is
+   * never renamed, and no category is renamed into it. `movedItems` says how
+   * many items moved (0 when the name did not change).
+   */
   async update(
     id: string,
     dto: UpdateItemCategoryDto,
     _caller: { id: string },
-  ): Promise<ProductCategory> {
+  ): Promise<ProductCategory & { movedItems: number }> {
     const existing = await this.findById(id);
+    const renamed = dto.name !== undefined && dto.name !== existing.name;
+    if (renamed && isUncategorized(existing.name)) {
+      throw new BadRequestException(
+        `"${UNCATEGORIZED_CATEGORY}" holds the items without a category and cannot be renamed`,
+      );
+    }
+    if (renamed && isUncategorized(dto.name!)) {
+      throw new BadRequestException(`"${UNCATEGORIZED_CATEGORY}" is reserved for items without a category`);
+    }
     if (dto.name !== undefined) await this.assertNameAvailable(dto.name, id);
+
+    const movedItems = renamed ? await this.productMover.move(existing.name, dto.name!) : 0;
 
     const updated: ProductCategory = {
       ...existing,
@@ -169,8 +197,9 @@ export class ItemCategoriesService {
     publishInventoryEvent(this.snsPublisher, this.logger, 'item-category.updated', {
       categoryId: id,
       name: updated.name,
+      ...(renamed && { previousName: existing.name, movedItems }),
     });
-    return updated;
+    return { ...updated, movedItems };
   }
 
   /**

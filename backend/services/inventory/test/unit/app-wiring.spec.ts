@@ -16,6 +16,8 @@ import { ProductStockService } from 'src/stock/product-stock.service';
 import { LocationStockService } from 'src/stock/location-stock.service';
 import { UserContainersService } from 'src/user-containers/user-containers.service';
 import { ContainerTemplatesService } from 'src/container-templates/container-templates.service';
+import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
+import { BrandsService } from 'src/brands/brands.service';
 
 /**
  * The service specs build each class with mocks, so none of them would notice
@@ -59,6 +61,9 @@ describe('inventory module graph', () => {
       LocationStockService,
       UserContainersService,
       ContainerTemplatesService,
+      // A category rename moves its products: the mover must resolve inside ItemCategoriesModule.
+      ItemCategoriesService,
+      BrandsService,
     ]) {
       expect(moduleRef.get(provider, { strict: false })).toBeInstanceOf(provider);
     }

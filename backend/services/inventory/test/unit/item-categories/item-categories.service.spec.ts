@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ItemCategoriesService } from 'src/item-categories/item-categories.service';
 import {
   createMockCatalogRepository,
@@ -8,14 +8,16 @@ import {
 
 describe('ItemCategoriesService', () => {
   let repo: ReturnType<typeof createMockCatalogRepository>;
+  let mover: { move: jest.Mock };
   let publisher: { publish: jest.Mock };
   let service: ItemCategoriesService;
   const caller = createMockJwtUser();
 
   beforeEach(() => {
     repo = createMockCatalogRepository();
+    mover = { move: jest.fn().mockResolvedValue(0) };
     publisher = { publish: jest.fn().mockResolvedValue(undefined) };
-    service = new ItemCategoriesService(repo as any, publisher as any);
+    service = new ItemCategoriesService(repo as any, mover as any, publisher as any);
   });
 
   describe('create', () => {
@@ -92,7 +94,7 @@ describe('ItemCategoriesService', () => {
      */
     it('derives the id from the name, so two instances aim at one row', async () => {
       const twinRepo = createMockCatalogRepository();
-      const twin = new ItemCategoriesService(twinRepo as any, publisher as any);
+      const twin = new ItemCategoriesService(twinRepo as any, mover as any, publisher as any);
 
       const mine = await service.ensureUncategorized();
       const theirs = await twin.ensureUncategorized();
@@ -180,6 +182,82 @@ describe('ItemCategoriesService', () => {
 
       expect(updated.active).toBe(false);
       expect(repo.put).toHaveBeenCalled();
+    });
+
+    /**
+     * Позиції зберігають категорію назвою: перейменування переносить їх на
+     * нову назву — спершу позиції, потім рядок, тож збій посередині
+     * виправляється повтором того самого перейменування.
+     */
+    it('moves the items of a renamed category before saving the row, and says how many moved', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-1', name: 'Locks' }));
+      mover.move.mockResolvedValue(349);
+
+      const updated = await service.update('cat-1', { name: 'Door Locks' } as any, caller);
+
+      expect(mover.move).toHaveBeenCalledWith('Locks', 'Door Locks');
+      expect(mover.move.mock.invocationCallOrder[0]).toBeLessThan(repo.put.mock.invocationCallOrder[0]);
+      expect(repo.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'cat-1', name: 'Door Locks' }));
+      expect(repo.put.mock.calls[0][0]).not.toHaveProperty('movedItems');
+      expect(updated).toMatchObject({ id: 'cat-1', name: 'Door Locks', movedItems: 349 });
+    });
+
+    it('moves nothing when the name is unchanged or not sent', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-1', name: 'Locks' }));
+      repo.listAll.mockResolvedValue([createMockItemCategory({ id: 'cat-1', name: 'Locks' })]);
+
+      expect(await service.update('cat-1', { name: 'Locks' } as any, caller)).toMatchObject({ movedItems: 0 });
+      expect(await service.update('cat-1', { active: false } as any, caller)).toMatchObject({ movedItems: 0 });
+      expect(mover.move).not.toHaveBeenCalled();
+    });
+
+    // Позиція має назву категорії байт у байт (GSI1PK = CATEGORY#<назва>), тож
+    // зміна лише регістру чи пробілів — теж перейменування: без переносу
+    // позиції лишились би в розділі старого написання.
+    it('treats a change of case or padding as a rename and moves the items', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-1', name: 'Tools & Accessories ' }));
+      repo.listAll.mockResolvedValue([createMockItemCategory({ id: 'cat-1', name: 'Tools & Accessories ' })]);
+
+      await service.update('cat-1', { name: 'TOOLS & Accessories' } as any, caller);
+
+      expect(mover.move).toHaveBeenCalledWith('Tools & Accessories ', 'TOOLS & Accessories');
+    });
+
+    it('refuses to rename the Uncategorized sentinel (400)', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-u', name: 'Uncategorized' }));
+
+      await expect(service.update('cat-u', { name: 'Misc' } as any, caller)).rejects.toThrow(BadRequestException);
+      expect(mover.move).not.toHaveBeenCalled();
+      expect(repo.put).not.toHaveBeenCalled();
+    });
+
+    it('still lets the sentinel be archived or restored', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-u', name: 'Uncategorized' }));
+
+      const updated = await service.update('cat-u', { active: false } as any, caller);
+
+      expect(updated.active).toBe(false);
+      expect(mover.move).not.toHaveBeenCalled();
+    });
+
+    it('refuses to rename a category to Uncategorized, in any case (400)', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-1', name: 'Locks' }));
+
+      await expect(service.update('cat-1', { name: 'uncategorized' } as any, caller)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mover.move).not.toHaveBeenCalled();
+    });
+
+    it('checks the new name is free before moving anything', async () => {
+      repo.get.mockResolvedValue(createMockItemCategory({ id: 'cat-1', name: 'Locks' }));
+      repo.listAll.mockResolvedValue([
+        createMockItemCategory({ id: 'cat-1', name: 'Locks' }),
+        createMockItemCategory({ id: 'cat-2', name: 'Keys' }),
+      ]);
+
+      await expect(service.update('cat-1', { name: 'keys' } as any, caller)).rejects.toThrow(ConflictException);
+      expect(mover.move).not.toHaveBeenCalled();
     });
   });
 
