@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   csv: vi.fn<(...args: unknown[]) => string>(() => "csv"),
+  permsLoading: false,
+  list: { isLoading: false, isPlaceholderData: false, noData: false },
+  catalogLoading: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -25,19 +28,23 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/inventory/items",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
+  useDenied: () => (resource: string, action = "view") =>
+    !mocks.permsLoading && mocks.denied.has(`${resource}.${action}`),
   usePermissions: () => ({
-    can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
+    can: (resource: string, action = "view") =>
+      !mocks.permsLoading && !mocks.denied.has(`${resource}.${action}`),
+    isLoading: mocks.permsLoading,
   }),
 }));
 vi.mock("../hooks", () => ({
   useProducts: (filter: ProductFilter) => {
     mocks.filters.push(filter);
     return {
-      data: { pages: [{ data: mocks.products, pagination: {} }] },
+      data: mocks.list.noData ? undefined : { pages: [{ data: mocks.products, pagination: {} }] },
       hasNextPage: false,
       isFetchingNextPage: false,
-      isLoading: false,
+      isLoading: mocks.list.isLoading,
+      isPlaceholderData: mocks.list.isPlaceholderData,
       isError: false,
       fetchNextPage: vi.fn(),
       refetch: vi.fn(),
@@ -49,7 +56,10 @@ vi.mock("../hooks", () => ({
   },
   useItemCategories: (enabled: boolean) => {
     mocks.categoriesEnabled.push(enabled);
-    return { data: enabled ? mocks.categories : undefined };
+    return {
+      data: enabled && !mocks.catalogLoading ? mocks.categories : undefined,
+      isLoading: enabled && mocks.catalogLoading,
+    };
   },
   useArchiveProduct: () => ({ mutate: vi.fn(), isPending: false }),
   useReactivateProduct: () => ({ mutate: vi.fn(), isPending: false }),
@@ -127,6 +137,9 @@ beforeEach(() => {
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.csv.mockClear();
+  mocks.permsLoading = false;
+  mocks.list = { isLoading: false, isPlaceholderData: false, noData: false };
+  mocks.catalogLoading = false;
 });
 
 describe("ProductsPage — stock-managed items only, filters on the server", () => {
@@ -275,5 +288,68 @@ describe("ProductsPage — toolbar", () => {
   it("has no bulk selection", () => {
     renderWithClient(<ProductsPage />);
     expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+});
+
+/**
+ * "Nothing jumps": the first frame is the table itself; a new search keeps
+ * the rows; the toolbar and the columns are all there before the permissions
+ * and the categories answer.
+ */
+describe("ProductsPage — a stable first frame", () => {
+  const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label"));
+
+  it("draws the real table while the first page loads, with the pager's space held", () => {
+    mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
+    renderWithClient(<ProductsPage />);
+
+    expect(headers()).toContain("Name");
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("keeps the rows on screen, dimmed, while a new search loads", () => {
+    mocks.list = { isLoading: false, isPlaceholderData: true, noData: false };
+    renderWithClient(<ProductsPage />);
+
+    expect(screen.getByText("Deadbolt")).toBeInTheDocument();
+    expect(screen.queryByTestId("skeleton-row")).toBeNull();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("never flashes No access while permissions are still loading", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ProductsPage />);
+    expect(screen.queryByText("No access")).toBeNull();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("says No access once it is known", () => {
+    mocks.denied = new Set(["products.view"]);
+    renderWithClient(<ProductsPage />);
+    expect(screen.getByText("No access")).toBeInTheDocument();
+  });
+
+  // Appearing with the permissions, Cost shifted every column after it.
+  it("keeps the Cost column while permissions load — its cells wait, they don't show money", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ProductsPage />);
+    expect(headers()).toContain("Cost");
+    expect(screen.queryByText("$10.00")).toBeNull();
+  });
+
+  it("holds Import and New item in the toolbar, disabled, until permissions are known", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ProductsPage />);
+    expect(screen.getByRole("button", { name: /Import CSV/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /New item/ })).toBeDisabled();
+  });
+
+  // Appearing with the catalog, the Category select pushed Status and the
+  // buttons sideways (and on a phone wrapped the toolbar onto a new line).
+  it("has the Category select from the first frame, disabled until the categories arrive", () => {
+    mocks.catalogLoading = true;
+    renderWithClient(<ProductsPage />);
+    expect(screen.getByRole("combobox", { name: "Category" })).toBeDisabled();
   });
 });

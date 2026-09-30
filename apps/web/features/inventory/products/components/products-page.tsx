@@ -11,10 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { NoAccess } from "@/features/inventory/components/no-access";
+import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
@@ -30,12 +31,16 @@ import { usePager } from "@/lib/paging/use-pager";
 
 const ITEMS_PATH = "/inventory/items";
 
+/** The list's own key: its page size and its skeleton's height are saved under it. */
+const TABLE_KEY = "inventory-items";
+
 /** The URL params that open a popup — one at a time. */
 type Popup = "edit" | "stock" | "new";
 const POPUPS: Popup[] = ["edit", "stock", "new"];
 
 export function ProductsPage() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
+  const denied = useDenied();
   const money = can("financials", "view");
 
   const [search, setSearch] = useState("");
@@ -56,7 +61,7 @@ export function ProductsPage() {
     [term, category, status],
   );
 
-  const [pageSize, setPageSize] = usePageSize("inventory-items");
+  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const query = useProducts(filter, pageSize);
   const count = useProductsCount(filter);
   const pager = usePager(pagedSource(query), {
@@ -66,10 +71,19 @@ export function ProductsPage() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const products = pager.items;
+  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
+  const loading = query.isLoading && !query.data;
+  const skeletonRows = useSkeletonRows(
+    TABLE_KEY,
+    pageSize,
+    count.data?.total,
+    loading || pager.isStale ? undefined : products.length,
+  );
 
   // Every category the catalog knows (archived too — items still carry them),
   // not the handful on the page being shown.
-  const catalog = useItemCategories(can("product_categories", "view"));
+  const canCategories = can("product_categories", "view");
+  const catalog = useItemCategories(canCategories);
   const categories = useMemo(
     () => [...new Set((catalog.data ?? []).map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
     [catalog.data],
@@ -82,16 +96,12 @@ export function ProductsPage() {
   const stockId = popups.param("stock");
   const creating = !editId && popups.param("new") === "1";
 
-  if (!can("products", "view")) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No access</h2>
-        <p className="text-sm text-muted-foreground">
-          You don&apos;t have permission to view items.
-        </p>
-      </div>
-    );
+  // Refused only once the permissions are known — never a flash of "No access".
+  if (denied("products", "view")) {
+    return <NoAccess text="You don't have permission to view items." />;
   }
+  // In place from the first frame, off until the permissions answer.
+  const canCreate = permsLoading || can("products", "create");
 
   const exportCsv = () =>
     downloadCsv(productsToCsv(products, { withCost: money }), "items.csv");
@@ -110,8 +120,14 @@ export function ProductsPage() {
           />
         </div>
 
-        {categories.length > 0 ? (
-          <Select value={category} onValueChange={setCategory}>
+        {/* There from the first frame, off until the catalog answers: arriving
+            late it pushed Status and the buttons sideways. */}
+        {permsLoading || canCategories ? (
+          <Select
+            value={category}
+            onValueChange={setCategory}
+            disabled={permsLoading || !!catalog.isLoading}
+          >
             <SelectTrigger className="h-9 w-44" aria-label="Category">
               <SelectValue placeholder="Category" />
             </SelectTrigger>
@@ -151,14 +167,19 @@ export function ProductsPage() {
           <Download className="size-4" />
           Export CSV
         </Button>
-        {can("products", "create") ? (
-          <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
+        {canCreate ? (
+          <Button
+            variant="outline"
+            className="h-9 gap-1.5"
+            disabled={permsLoading}
+            onClick={() => setImportOpen(true)}
+          >
             <Upload className="size-4" />
             Import CSV
           </Button>
         ) : null}
-        {can("products", "create") ? (
-          <Button className="h-9 gap-1.5 px-3.5" onClick={() => popups.open("new")}>
+        {canCreate ? (
+          <Button className="h-9 gap-1.5 px-3.5" disabled={permsLoading} onClick={() => popups.open("new")}>
             <PackagePlus className="size-4" />
             New item
           </Button>
@@ -167,11 +188,9 @@ export function ProductsPage() {
 
       {/* Body */}
       <div className="flex-1 px-6 pb-6">
-        {query.isLoading ? (
-          <TableSkeleton />
-        ) : query.isError ? (
+        {query.isError && !query.data ? (
           <ErrorState onRetry={() => query.refetch()} />
-        ) : products.length === 0 ? (
+        ) : !loading && products.length === 0 ? (
           <EmptyState
             filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
             canCreate={can("products", "create")}
@@ -179,13 +198,18 @@ export function ProductsPage() {
           />
         ) : (
           <>
+            {/* Loading, loaded or holding the last filter's rows — one table,
+                so nothing under it moves when the rows land. */}
             <ProductsTable
               products={products}
-              showCost={money}
+              showCost={permsLoading ? "pending" : money}
+              loading={loading}
+              skeletonRows={skeletonRows}
+              stale={pager.isStale}
               onEdit={(p: Product) => popups.open("edit", p.id)}
               onStock={(p: Product) => popups.open("stock", p.id)}
             />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
           </>
         )}
       </div>
@@ -220,20 +244,6 @@ function downloadCsv(csv: string, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function TableSkeleton() {
-  return (
-    <div className="space-y-2 rounded-lg border p-4">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3">
-          <Skeleton className="h-4 w-16" />
-          <Skeleton className="h-4 w-48" />
-          <Skeleton className="h-4 w-24" />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function EmptyState({
