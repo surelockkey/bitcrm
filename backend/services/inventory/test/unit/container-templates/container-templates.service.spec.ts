@@ -14,6 +14,7 @@ import {
   createMockTransfersService,
   createMockContainerAssignmentResolver,
   createMockResolvedPermissions,
+  createMockTemplateFillClaimsRepository,
 } from '../mocks';
 
 /**
@@ -28,6 +29,7 @@ describe('ContainerTemplatesService', () => {
   let stock: ReturnType<typeof createMockStockRepository>;
   let transfers: ReturnType<typeof createMockTransfersService>;
   let assignments: ReturnType<typeof createMockContainerAssignmentResolver>;
+  let claims: ReturnType<typeof createMockTemplateFillClaimsRepository>;
   let service: ContainerTemplatesService;
 
   const user = createMockJwtUser();
@@ -54,6 +56,7 @@ describe('ContainerTemplatesService', () => {
     stock = createMockStockRepository();
     transfers = createMockTransfersService();
     assignments = createMockContainerAssignmentResolver();
+    claims = createMockTemplateFillClaimsRepository();
     service = new ContainerTemplatesService(
       repository as any,
       products as any,
@@ -61,6 +64,7 @@ describe('ContainerTemplatesService', () => {
       stock as any,
       transfers as any,
       assignments as any,
+      claims as any,
     );
   });
 
@@ -373,7 +377,7 @@ describe('ContainerTemplatesService', () => {
     });
 
     it('moves what is missing and available in ONE warehouse → container transfer', async () => {
-      const result = await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' }, user);
+      const result = await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1', requestId: 'req-x' }, user);
 
       expect(transfers.createTransfer).toHaveBeenCalledTimes(1);
       expect(transfers.createTransfer).toHaveBeenCalledWith(
@@ -399,8 +403,73 @@ describe('ContainerTemplatesService', () => {
       expect(result.short.map((l) => [l.productId, l.missing, l.willMove])).toEqual([['prod-1', 5, 3]]);
     });
 
+    /**
+     * Подвійне натискання: обидва POST бачили ту саму нестачу й обидва везли.
+     * Заявка requestId — до будь-якого руху; повтор віддає збережену відповідь.
+     */
+    describe('idempotency', () => {
+      const dto = { containerId: 'c-1', warehouseId: 'wh-1', requestId: 'req-1' };
+
+      it('claims the request id before moving, and stores the answer after', async () => {
+        const result = await service.fill('tpl-1', dto, user);
+
+        expect(claims.claim).toHaveBeenCalledWith({
+          requestId: 'req-1',
+          templateId: 'tpl-1',
+          containerId: 'c-1',
+          warehouseId: 'wh-1',
+          userId: user.id,
+        });
+        expect(claims.claim.mock.invocationCallOrder[0]).toBeLessThan(
+          transfers.createTransfer.mock.invocationCallOrder[0],
+        );
+        expect(claims.complete).toHaveBeenCalledWith('req-1', result);
+      });
+
+      it('answers a repeat with the stored result, flagged, and moves nothing', async () => {
+        const stored = { moved: [], short: [], transfer: createMockTransfer() };
+        claims.claim.mockResolvedValue(false);
+        claims.find.mockResolvedValue({
+          requestId: 'req-1', templateId: 'tpl-1', containerId: 'c-1', warehouseId: 'wh-1', userId: 'u',
+          status: 'done', result: stored,
+        });
+
+        expect(await service.fill('tpl-1', dto, user)).toEqual({ ...stored, replayed: true });
+        expect(transfers.createTransfer).not.toHaveBeenCalled();
+      });
+
+      it('409s a repeat while the first is still moving', async () => {
+        claims.claim.mockResolvedValue(false);
+        claims.find.mockResolvedValue({
+          requestId: 'req-1', templateId: 'tpl-1', containerId: 'c-1', warehouseId: 'wh-1', userId: 'u',
+          status: 'pending',
+        });
+
+        await expect(service.fill('tpl-1', dto, user)).rejects.toThrow(ConflictException);
+        expect(transfers.createTransfer).not.toHaveBeenCalled();
+      });
+
+      it('409s a request id reused for a different fill', async () => {
+        claims.claim.mockResolvedValue(false);
+        claims.find.mockResolvedValue({
+          requestId: 'req-1', templateId: 'tpl-1', containerId: 'c-OTHER', warehouseId: 'wh-1', userId: 'u',
+          status: 'done', result: { moved: [], short: [] },
+        });
+
+        await expect(service.fill('tpl-1', dto, user)).rejects.toThrow(ConflictException);
+      });
+
+      it('releases the claim when the fill fails, so a retry can run', async () => {
+        transfers.createTransfer.mockRejectedValue(new BadRequestException('Insufficient stock'));
+
+        await expect(service.fill('tpl-1', dto, user)).rejects.toThrow(BadRequestException);
+        expect(claims.release).toHaveBeenCalledWith('req-1');
+        expect(claims.complete).not.toHaveBeenCalled();
+      });
+    });
+
     it('keeps the notes the caller wrote', async () => {
-      await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1', notes: 'Monday restock' }, user);
+      await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1', notes: 'Monday restock', requestId: 'req-x' }, user);
 
       expect(transfers.createTransfer.mock.calls[0][0].notes).toBe('Monday restock');
     });
@@ -408,7 +477,7 @@ describe('ContainerTemplatesService', () => {
     it('answers what is short without a transfer when nothing can move', async () => {
       stock.getQuantities.mockResolvedValue(new Map());
 
-      const result = await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' }, user);
+      const result = await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1', requestId: 'req-x' }, user);
 
       expect(transfers.createTransfer).not.toHaveBeenCalled();
       expect(result.transfer).toBeUndefined();
@@ -423,7 +492,7 @@ describe('ContainerTemplatesService', () => {
         createMockTransfer({ items: dto.items.slice(0, 1), skippedItems: dto.items.slice(1) }),
       );
 
-      const result = await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' }, user);
+      const result = await service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1', requestId: 'req-x' }, user);
 
       expect(result.moved.map((l) => l.productId)).toEqual(['prod-1']);
       expect(result.short.map((l) => [l.productId, l.willMove])).toEqual([
@@ -436,7 +505,7 @@ describe('ContainerTemplatesService', () => {
       transfers.createTransfer.mockRejectedValue(new BadRequestException('Insufficient stock for product prod-1'));
 
       await expect(
-        service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' }, user),
+        service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1', requestId: 'req-x' }, user),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -446,7 +515,7 @@ describe('ContainerTemplatesService', () => {
       );
 
       await expect(
-        service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'nope' }, user),
+        service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'nope', requestId: 'req-x' }, user),
       ).rejects.toThrow(NotFoundException);
       expect(transfers.createTransfer).not.toHaveBeenCalled();
     });

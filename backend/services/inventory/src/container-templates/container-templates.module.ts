@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ContainerTemplatesController } from './container-templates.controller';
 import { ContainerTemplatesService } from './container-templates.service';
 import { ContainerTemplatesRepository } from './container-templates.repository';
+import { TemplateFillClaimsRepository } from './template-fill-claims.repository';
 import { ProductsModule } from '../products/products.module';
 import { TransfersModule } from '../transfers/transfers.module';
 
@@ -13,7 +14,7 @@ import { TransfersModule } from '../transfers/transfers.module';
 @Module({
   imports: [ProductsModule, TransfersModule],
   controllers: [ContainerTemplatesController],
-  providers: [ContainerTemplatesService, ContainerTemplatesRepository],
+  providers: [ContainerTemplatesService, ContainerTemplatesRepository, TemplateFillClaimsRepository],
   exports: [ContainerTemplatesService, ContainerTemplatesRepository],
 })
 export class ContainerTemplatesModule {}

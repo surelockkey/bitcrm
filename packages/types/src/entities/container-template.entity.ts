@@ -70,4 +70,9 @@ export interface ContainerTemplateFillResult {
   moved: ContainerTemplateDiffLine[];
   /** The lines still short after the fill (`willMove < missing`). */
   short: ContainerTemplateDiffLine[];
+  /**
+   * The answer of an earlier fill with the same `requestId` (a double submit
+   * or a retry): nothing moved this time.
+   */
+  replayed?: boolean;
 }

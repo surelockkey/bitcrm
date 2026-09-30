@@ -68,9 +68,23 @@ describe('ContainerTemplateDiffQueryDto', () => {
 });
 
 describe('FillContainerTemplateDto', () => {
-  it('requires both the container and the warehouse', async () => {
-    expect(await errorsFor(FillContainerTemplateDto, { containerId: 'c-1', warehouseId: 'wh-1' })).toEqual([]);
-    expect(await errorsFor(FillContainerTemplateDto, { containerId: 'c-1' })).toEqual(['warehouseId']);
-    expect(await errorsFor(FillContainerTemplateDto, { warehouseId: 'wh-1' })).toEqual(['containerId']);
+  const requestId = '3f1c2a9e-6d4b-4c8e-9a1f-2b7d5e0c4a11';
+
+  it('requires the container, the warehouse and a request id', async () => {
+    expect(await errorsFor(FillContainerTemplateDto, { containerId: 'c-1', warehouseId: 'wh-1', requestId })).toEqual(
+      [],
+    );
+    expect(await errorsFor(FillContainerTemplateDto, { containerId: 'c-1', requestId })).toEqual(['warehouseId']);
+    expect(await errorsFor(FillContainerTemplateDto, { warehouseId: 'wh-1', requestId })).toEqual(['containerId']);
+  });
+
+  // Ключ ідемпотентності: веб генерує UUID на кожне відкриття попапу Apply.
+  it('requires the request id to be a UUID', async () => {
+    expect(await errorsFor(FillContainerTemplateDto, { containerId: 'c-1', warehouseId: 'wh-1' })).toEqual([
+      'requestId',
+    ]);
+    expect(
+      await errorsFor(FillContainerTemplateDto, { containerId: 'c-1', warehouseId: 'wh-1', requestId: 'again' }),
+    ).toEqual(['requestId']);
   });
 });

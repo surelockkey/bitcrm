@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpStatus,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
+import { type Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -121,15 +134,19 @@ export class ContainerTemplatesController {
       '`{ transfer?, moved, short }` — no transfer and `moved: []` when nothing can move (not an ' +
       'error); `short` lists the lines still short. Insufficient stock racing the fill is the ' +
       "transfer's 400; an archived container is a 400; a container outside the caller's " +
-      'containers data scope is a 403.',
+      'containers data scope is a 403. `requestId` (UUID, required) makes it idempotent: the ' +
+      'same id again answers the stored result with `replayed: true` and status 200, moving ' +
+      'nothing; 409 while the first is still running or when the id was used for another fill.',
   })
   async fill(
     @Param('id') id: string,
     @Body() dto: FillContainerTemplateDto,
     @CurrentUser() user: JwtUser,
     @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
   ) {
     const data = await this.service.fill(id, dto, user, req.resolvedPermissions);
+    if (data.replayed) res.status(HttpStatus.OK);
     return { success: true, data };
   }
 }

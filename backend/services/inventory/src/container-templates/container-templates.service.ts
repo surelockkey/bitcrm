@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -26,6 +27,7 @@ import { StockRepository } from '../stock/stock.repository';
 import { TransfersService } from '../transfers/transfers.service';
 import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
 import { visibleLocations, type StockViewer } from '../stock/stock-visibility';
+import { TemplateFillClaimsRepository } from './template-fill-claims.repository';
 import { type CreateTransferDto } from '../transfers/dto/create-transfer.dto';
 import { type CreateContainerTemplateDto } from './dto/create-container-template.dto';
 import { type UpdateContainerTemplateDto } from './dto/update-container-template.dto';
@@ -42,6 +44,8 @@ type TemplateItemInput = { productId: string; quantity: number };
  */
 @Injectable()
 export class ContainerTemplatesService {
+  private readonly logger = new Logger(ContainerTemplatesService.name);
+
   constructor(
     private readonly repository: ContainerTemplatesRepository,
     private readonly productsService: ProductsService,
@@ -49,6 +53,7 @@ export class ContainerTemplatesService {
     private readonly stockRepository: StockRepository,
     private readonly transfersService: TransfersService,
     private readonly assignments: ContainerAssignmentResolver,
+    private readonly claims: TemplateFillClaimsRepository,
   ) {}
 
   /** In name order; active ones unless another status is asked for. */
@@ -207,6 +212,56 @@ export class ContainerTemplatesService {
    * (its product is no longer stock-managed) did not move and stays short.
    */
   async fill(
+    id: string,
+    dto: FillContainerTemplateDto,
+    user: JwtUser,
+    permissions?: ResolvedPermissions,
+  ): Promise<ContainerTemplateFillResult> {
+    // Claimed before anything moves: a double submit — two POSTs that both
+    // see the same shortfall — must move the stock once.
+    const claimed = await this.claims.claim({
+      requestId: dto.requestId,
+      templateId: id,
+      containerId: dto.containerId,
+      warehouseId: dto.warehouseId,
+      userId: user.id,
+    });
+    if (!claimed) return this.replay(id, dto);
+
+    let result: ContainerTemplateFillResult;
+    try {
+      result = await this.runFill(id, dto, user, permissions);
+    } catch (error: unknown) {
+      // Nothing moved (a failed transfer undoes itself): free the id for a retry.
+      await this.claims.release(dto.requestId).catch((err: Error) =>
+        this.logger.warn(`Fill claim ${dto.requestId} not released: ${err.message}`),
+      );
+      throw error;
+    }
+    await this.claims.complete(dto.requestId, result).catch((err: Error) =>
+      this.logger.warn(`Fill claim ${dto.requestId} not completed: ${err.message}`),
+    );
+    return result;
+  }
+
+  /** The same request id again: the first fill's answer, never a second move. */
+  private async replay(id: string, dto: FillContainerTemplateDto): Promise<ContainerTemplateFillResult> {
+    const existing = await this.claims.find(dto.requestId);
+    if (
+      existing &&
+      (existing.templateId !== id ||
+        existing.containerId !== dto.containerId ||
+        existing.warehouseId !== dto.warehouseId)
+    ) {
+      throw new ConflictException(`requestId "${dto.requestId}" was already used for a different fill`);
+    }
+    if (existing?.status === 'done' && existing.result) {
+      return { ...existing.result, replayed: true };
+    }
+    throw new ConflictException('This fill is already being processed');
+  }
+
+  private async runFill(
     id: string,
     dto: FillContainerTemplateDto,
     user: JwtUser,

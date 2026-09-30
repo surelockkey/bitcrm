@@ -232,6 +232,9 @@ USER_CONTAINER#<userId> / METADATA   a user's container assignment (Workiz "User
 CONTAINER_TEMPLATE#<id> / METADATA   a van's "ideal loadout" (`items` list on the row); GSI1 CATALOG#CONTAINER_TEMPLATE /
                                      <name lowercased> — the uniqueness check is a key condition on it, never Scan+Limit 1;
                                      archived, not deleted (`Container.templateId` points at it)
+IDEMPOTENCY#TEMPLATE_FILL#<requestId> / METADATA   one "Fill from warehouse" request: claimed (conditional Put)
+                                     before any stock moves, completed with the answer, released if the fill failed;
+                                     `expiresAt` epoch seconds (+7 d) — the inventory table has no TTL configured yet
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>

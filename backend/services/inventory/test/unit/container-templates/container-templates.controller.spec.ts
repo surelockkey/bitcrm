@@ -65,10 +65,21 @@ describe('ContainerTemplatesController', () => {
     const dto = { containerId: 'c-1', warehouseId: 'wh-1' };
     service.fill.mockResolvedValue({ moved: [], short: [] });
 
-    expect(await controller.fill('tpl-1', dto as any, user, { resolvedPermissions: permissions })).toEqual({
+    const res = { status: jest.fn() };
+    expect(await controller.fill('tpl-1', dto as any, user, { resolvedPermissions: permissions }, res as any)).toEqual({
       success: true,
       data: { moved: [], short: [] },
     });
     expect(service.fill).toHaveBeenCalledWith('tpl-1', dto, user, permissions);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('answers a replayed fill with 200 instead of 201', async () => {
+    const res = { status: jest.fn() };
+    service.fill.mockResolvedValue({ moved: [], short: [], replayed: true });
+
+    await controller.fill('tpl-1', {} as any, createMockJwtUser(), {}, res as any);
+
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });

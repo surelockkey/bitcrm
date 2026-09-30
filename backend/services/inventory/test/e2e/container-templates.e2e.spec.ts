@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { randomUUID } from 'crypto';
 import { type JwtUser } from '@bitcrm/types';
 import { setupApp, teardownApp, cleanupData, createTestUserHeader } from './setup';
 
@@ -155,10 +156,11 @@ describe('Container templates E2E', () => {
       [2, 0, 2, 10, 2],
     ]);
 
+    const requestId = randomUUID();
     const fill = await request(app.getHttpServer())
       .post(`${BASE}/${template.id}/fill`)
       .set('x-test-user', as(adminUser))
-      .send({ containerId: van.id, warehouseId: store.id })
+      .send({ containerId: van.id, warehouseId: store.id, requestId })
       .expect(201);
     expect(fill.body.data.transfer.notes).toBe('Template: Standard van');
     expect(fill.body.data.moved).toHaveLength(2);
@@ -173,11 +175,20 @@ describe('Container templates E2E', () => {
     );
     expect(held).toEqual({ [deadbolt.id]: 3, [kit.id]: 2 });
 
-    // Nothing left to move: no transfer, not an error.
+    // A double submit (same requestId): the first answer again, 200, nothing moved.
+    const replay = await request(app.getHttpServer())
+      .post(`${BASE}/${template.id}/fill`)
+      .set('x-test-user', as(adminUser))
+      .send({ containerId: van.id, warehouseId: store.id, requestId })
+      .expect(200);
+    expect(replay.body.data.replayed).toBe(true);
+    expect(replay.body.data.transfer.id).toBe(fill.body.data.transfer.id);
+
+    // A new request with nothing left to move: no transfer, not an error.
     const again = await request(app.getHttpServer())
       .post(`${BASE}/${template.id}/fill`)
       .set('x-test-user', as(adminUser))
-      .send({ containerId: van.id, warehouseId: store.id })
+      .send({ containerId: van.id, warehouseId: store.id, requestId: randomUUID() })
       .expect(201);
     expect(again.body.data.transfer).toBeUndefined();
     expect(again.body.data.moved).toEqual([]);
@@ -301,7 +312,7 @@ describe('Container templates E2E', () => {
       await request(app.getHttpServer())
         .post(`${BASE}/any/fill`)
         .set('x-test-user', as(techUser))
-        .send({ containerId: 'c', warehouseId: 'w' })
+        .send({ containerId: 'c', warehouseId: 'w', requestId: randomUUID() })
         .expect(403);
     });
 

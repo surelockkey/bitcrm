@@ -90,6 +90,16 @@ export function createMockContainerTemplatesRepository() {
   };
 }
 
+/** Default: every request id is new, so a fill runs. */
+export function createMockTemplateFillClaimsRepository() {
+  return {
+    claim: jest.fn().mockResolvedValue(true),
+    find: jest.fn().mockResolvedValue(null),
+    complete: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 export function createMockUserContainersRepository() {
   return {
     put: jest.fn().mockResolvedValue(undefined),
