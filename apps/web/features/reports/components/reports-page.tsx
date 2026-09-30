@@ -40,7 +40,7 @@ export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] =
   { name: "Website requests", icon: Globe },
   { name: "Tax", icon: Percent },
   { name: "Call Tracking", icon: Phone },
-  { name: "Inventory Usage", icon: Package },
+  { name: "Inventory Usage", icon: Package, href: "/reports/inventory-usage" },
   { name: "Franchise Report", icon: Building2 },
   { name: "Commissions (Legacy)", icon: Calculator },
 ];
