@@ -340,11 +340,27 @@ describe("ManageStockDialog — actions per location", () => {
 });
 
 describe("ManageStockDialog — loading, errors, nothing yet", () => {
-  it("shows a skeleton while loading", () => {
+  it("shows the popup's own frame while loading — toolbar, a table of placeholders, the pager", () => {
     mocks.stock = query<ProductStock>(undefined, { isLoading: true });
     open();
-    expect(screen.getByTestId("manage-stock-loading")).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    const panel = screen.getByTestId("manage-stock-loading");
+    expect(within(panel).getByRole("searchbox", { name: "Search locations" })).toBeDisabled();
+    expect(within(panel).getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(within(panel).getByTestId("panel-pager-placeholder")).toBeInTheDocument();
+    // No real rows yet.
+    expect(bodyRows().every((r) => r.every((c) => c === ""))).toBe(true);
+  });
+
+  it("is the same height loading and loaded", () => {
+    mocks.stock = query<ProductStock>(undefined, { isLoading: true });
+    const { unmount } = renderWithClient(<ManageStockDialog productId="p1" open onOpenChange={vi.fn()} />);
+    const loading = screen.getByRole("dialog").className;
+    unmount();
+
+    mocks.stock = query({ productId: "p1", onHand: 369, locations: LOCATIONS });
+    open();
+    expect(screen.getByRole("dialog").className).toBe(loading);
+    expect(loading).toMatch(/(^|\s)h-\[/);
   });
 
   it("offers Retry when the stock can't be read", async () => {

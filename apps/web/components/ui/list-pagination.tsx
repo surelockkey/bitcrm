@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_SIZES } from "@/lib/paging/use-page-size";
 import type { Pager } from "@/lib/paging/use-pager";
 import { cn } from "@/lib/utils";
@@ -26,31 +27,49 @@ export function ListPagination<T>({
   size,
   onSizeChange,
   className,
+  reserveSpace = false,
 }: {
   pager: Pager<T>;
   size: number;
   onSizeChange: (size: number) => void;
   className?: string;
+  /**
+   * Keep the bar, at its own height, while the first page loads — for a
+   * table whose skeleton already has the final size, so nothing under it
+   * moves when the rows land.
+   */
+  reserveSpace?: boolean;
 }) {
-  // Перше завантаження: нема ще ні рядків, ні чисел — скелет таблиці говорить
-  // сам за себе, а панель під ним блимала б порожніми дужками.
-  if (pager.isLoading && !pager.items.length) return null;
+  // Перше завантаження: нема ще ні рядків, ні чисел. Без `reserveSpace` панель
+  // стоїть осторонь — скелет таблиці говорить сам за себе.
+  const first = pager.isLoading && !pager.items.length;
+  if (first && !reserveSpace) return null;
 
   const range = pager.from ? `${pager.from.toLocaleString()}–${pager.to.toLocaleString()}` : "0";
-  const many = pager.window.length > 1;
+  const many = !first && pager.window.length > 1;
 
   return (
     <div
+      data-testid="list-pagination"
+      aria-busy={first || undefined}
       className={cn(
-        "flex flex-wrap items-center justify-between gap-3 border-t px-1 py-3 text-xs text-muted-foreground",
+        "flex min-h-14 flex-wrap items-center justify-between gap-3 border-t px-1 py-3 text-xs text-muted-foreground",
         className,
       )}
     >
-      <span>
-        Showing {range}
-        {typeof pager.total === "number"
-          ? ` of ${pager.total.toLocaleString()}${pager.totalIsFloor ? "+" : ""}`
-          : ""}
+      {/* Reserved width and fixed digits: " of 312" arrives with the count,
+          after the rows, and must not push the buttons beside it. */}
+      <span className="min-w-[10rem] tabular-nums">
+        {first ? (
+          <Skeleton className="h-3 w-28" />
+        ) : (
+          <>
+            Showing {range}
+            {typeof pager.total === "number"
+              ? ` of ${pager.total.toLocaleString()}${pager.totalIsFloor ? "+" : ""}`
+              : ""}
+          </>
+        )}
       </span>
 
       {many ? (
@@ -61,7 +80,7 @@ export function ListPagination<T>({
             Це число приходить від лічильника сервера; коли його немає (він
             не може знати для цього викликача), лишається сама позиція.
           */}
-          <span className="mr-1 whitespace-nowrap">
+          <span className="mr-1 min-w-[6.5rem] text-right whitespace-nowrap tabular-nums">
             Page {pager.page.toLocaleString()}
             {pager.totalPages === undefined
               ? ""

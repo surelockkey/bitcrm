@@ -15,7 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonRows } from "@/features/inventory/components/inventory-table";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
@@ -68,7 +68,11 @@ export function ApplyTemplateDialog({
   // The primary warehouse when the server marks one, else the first.
   const warehouseId = pickedWarehouse ?? (shops.find((w) => w.isPrimary) ?? shops[0])?.id;
 
-  const diff = useTemplateDiff(templateId, containerId ?? undefined, warehouseId, open);
+  // Compared once the locations are in: the warehouse is picked from them,
+  // and asked earlier the comparison ran twice — without it, then with it.
+  const diff = useTemplateDiff(templateId, containerId ?? undefined, warehouseId, open && !locations.isLoading);
+  // Another van's comparison, held on screen while this one is read.
+  const stale = diff.isPlaceholderData === true;
 
   // One request id per fill the user means to make: the same for a double
   // click (the server moves stock once for it), a new one whenever the
@@ -113,22 +117,21 @@ export function ApplyTemplateDialog({
     body = <Note>Pick a van to compare with the template.</Note>;
   } else if (diff.isError) {
     body = <Refusal error={diff.error} onRetry={() => diff.refetch()} />;
-  } else if (diff.isLoading || !diff.data) {
+  } else if (diff.isLoading || locations.isLoading || !diff.data) {
     body = (
-      <div data-testid="apply-loading" className="space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-8 w-full" />
-        ))}
+      <div data-testid="apply-loading" aria-busy="true">
+        <DiffTable loading />
       </div>
     );
   } else {
-    body = <DiffTable diff={diff.data} />;
+    body = <DiffTable diff={diff.data} stale={stale} />;
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+        // One height, comparing or compared: a centred popup that grows moves both its edges.
+        className="flex h-[min(48rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
         onEscapeKeyDown={(e) => {
           if (!pickingRef.current) return;
           e.preventDefault();
@@ -201,7 +204,7 @@ export function ApplyTemplateDialog({
             {canFill && containerId ? (
               <Button
                 className="gap-1.5"
-                disabled={!summary?.willMove || !warehouseId || fill.isPending}
+                disabled={!summary?.willMove || !warehouseId || fill.isPending || stale}
                 onClick={doFill}
               >
                 {fill.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -215,11 +218,27 @@ export function ApplyTemplateDialog({
   );
 }
 
+/** Enough placeholder rows to fill the body while the comparison is read. */
+const LOADING_ROWS = 8;
+
+/** One row height for the comparison and its placeholder rows. */
+const DIFF_ROW = "h-10";
+
 /* Every cell clips: under fixed layout one that doesn't spills into the next. */
-function DiffTable({ diff }: { diff: ContainerTemplateDiff }) {
+function DiffTable({
+  diff,
+  loading = false,
+  stale = false,
+}: {
+  diff?: ContainerTemplateDiff;
+  /** Comparing: the real header over placeholder rows. */
+  loading?: boolean;
+  /** Another van's comparison, held while this one is read. */
+  stale?: boolean;
+}) {
   return (
     <TableFrame className="bg-background">
-      <Table className="min-w-[44rem] table-fixed">
+      <Table contained={false} className="min-w-[44rem] table-fixed" aria-busy={loading || stale || undefined}>
         <colgroup>
           <col />
           <col className="w-36" />
@@ -240,13 +259,14 @@ function DiffTable({ diff }: { diff: ContainerTemplateDiff }) {
             <TableHead>Will move</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {diff.lines.map((l) => {
+        <TableBody className={cn(stale && "opacity-60 transition-opacity")}>
+          {loading ? <SkeletonRows columns={7} rows={LOADING_ROWS} className={DIFF_ROW} /> : null}
+          {(diff?.lines ?? []).map((l) => {
             const missing = l.missing > 0;
             // Short: a warehouse was asked, and it can't cover what is missing.
             const short = missing && l.willMove !== undefined && l.willMove < l.missing;
             return (
-              <TableRow key={l.productId} data-missing={missing ? "true" : "false"}>
+              <TableRow key={l.productId} className={DIFF_ROW} data-missing={missing ? "true" : "false"}>
                 <TableCell className="truncate font-medium" title={l.productName}>
                   {l.productName}
                 </TableCell>

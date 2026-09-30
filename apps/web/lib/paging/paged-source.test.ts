@@ -29,6 +29,11 @@ describe("pagedSource", () => {
     expect(pagedSource(billing, (p: { items: number[] }) => p.items).pages).toEqual([[1], [2]]);
   });
 
+  it("passes on that the rows are a placeholder from the previous filter", () => {
+    expect(pagedSource({ ...query, isPlaceholderData: true }).isPlaceholderData).toBe(true);
+    expect(pagedSource(query).isPlaceholderData).toBe(false);
+  });
+
   it("carries the query's own state through", () => {
     const src = pagedSource({ ...query, isLoading: true, hasNextPage: false });
 

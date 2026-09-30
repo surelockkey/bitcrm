@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Popover } from "radix-ui";
 import { Info, Loader2, PackageSearch, Search, X } from "lucide-react";
 import { InventoryStatus } from "@bitcrm/types";
 import type { ContainerTemplate } from "@bitcrm/types";
@@ -16,8 +17,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { listProducts } from "@/features/inventory/products/api";
@@ -61,11 +63,7 @@ export function TemplateDialog({
     content = (
       <>
         <Header title="Template" />
-        <div data-testid="template-loading" className="space-y-3 p-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
+        <DialogLoadingBody testId="template-loading" fields={["input", "area", "panel"]} />
       </>
     );
   } else if (query.isError || !query.data) {
@@ -175,7 +173,7 @@ function TemplateForm({
       }}
     >
       <Header title={title} description={archived ? "Archived — restore it from the list to use it again." : undefined} />
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div data-testid="template-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {readOnly ? (
           <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
             <Info className="size-4" />
@@ -300,41 +298,80 @@ function TemplateForm({
 /**
  * Finds a stock-managed item on the server, as typed — the catalog is
  * thousands of items, too many to page into the browser.
+ *
+ * The results open in a portalled popover anchored to the box, the way
+ * `LocationPicker` does it: drawn inside the popup's scrolling body they were
+ * cut off by it and hidden behind the footer. The last results stay while
+ * the next search runs, instead of blinking to "Searching…" per keystroke.
  */
 function ProductSearch({ onPick }: { onPick: (p: { id: string; name: string; sku?: string }) => void }) {
   const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
   const term = useDebouncedValue(text.trim(), 300);
   const listId = useId();
+  const anchor = useRef<HTMLDivElement>(null);
   const results = useQuery({
     queryKey: ["template-product-search", term],
     queryFn: () =>
       listProducts({ manageStock: true, status: InventoryStatus.ACTIVE, search: term }, undefined, 10),
     enabled: term.length > 0,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
   const found = results.data?.data ?? [];
-  const showing = text.trim().length > 0 && term.length > 0;
+  const showing = open && text.trim().length > 0 && term.length > 0;
+
+  const pick = (p: { id: string; name: string; sku?: string }) => {
+    onPick({ id: p.id, name: p.name, sku: p.sku });
+    setText("");
+    setOpen(false);
+  };
 
   return (
-    <div className="relative">
-      <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        type="search"
-        aria-label="Add a product"
-        aria-controls={listId}
-        placeholder="Search items by name or SKU to add"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        className="h-9 bg-background pl-8"
-      />
-      {showing ? (
-        <div
+    <Popover.Root open={showing} onOpenChange={setOpen}>
+      <Popover.Anchor asChild>
+        <div ref={anchor} className="relative">
+          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            aria-label="Add a product"
+            aria-controls={listId}
+            aria-expanded={showing}
+            placeholder="Search items by name or SKU to add"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(e) => {
+              // Down from the box walks into the results.
+              if (e.key === "ArrowDown" && showing) {
+                e.preventDefault();
+                document.getElementById(listId)?.querySelector<HTMLElement>("[role=option]")?.focus();
+              }
+            }}
+            className="h-9 bg-background pl-8"
+          />
+        </div>
+      </Popover.Anchor>
+      <Popover.Portal>
+        <Popover.Content
           id={listId}
           role="listbox"
           aria-label="Products"
-          className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border bg-popover shadow-md"
+          align="start"
+          sideOffset={4}
+          collisionPadding={8}
+          // Typing goes on in the box: opening must not take the focus away…
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          // …and a click in the box is not a click outside the list.
+          onInteractOutside={(e) => {
+            if (anchor.current?.contains(e.target as Node)) e.preventDefault();
+          }}
+          className="z-50 max-h-[min(16rem,var(--radix-popover-content-available-height))] w-(--radix-popover-trigger-width) overflow-y-auto rounded-lg border bg-popover text-popover-foreground shadow-md"
         >
-          {results.isLoading ? (
+          {results.isLoading && !results.data ? (
             <div className="px-3 py-4 text-sm text-muted-foreground">Searching…</div>
           ) : found.length === 0 ? (
             <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
@@ -348,18 +385,24 @@ function ProductSearch({ onPick }: { onPick: (p: { id: string; name: string; sku
                 role="option"
                 aria-selected={false}
                 tabIndex={0}
-                onClick={() => {
-                  onPick({ id: p.id, name: p.name, sku: p.sku });
-                  setText("");
-                }}
+                onClick={() => pick(p)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onPick({ id: p.id, name: p.name, sku: p.sku });
-                    setText("");
+                    pick(p);
+                  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const sibling =
+                      e.key === "ArrowDown"
+                        ? e.currentTarget.nextElementSibling
+                        : e.currentTarget.previousElementSibling;
+                    (sibling as HTMLElement | null)?.focus();
                   }
                 }}
-                className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm outline-none hover:bg-accent focus-visible:bg-accent"
+                className={cn(
+                  "flex cursor-pointer items-center gap-2 px-3 py-2 text-sm outline-none hover:bg-accent focus-visible:bg-accent",
+                  results.isPlaceholderData && "opacity-70",
+                )}
               >
                 <span className="w-14 flex-none tabular-nums text-muted-foreground">{p.number ?? "—"}</span>
                 <span className="min-w-0 flex-1 truncate">{p.name}</span>
@@ -367,9 +410,9 @@ function ProductSearch({ onPick }: { onPick: (p: { id: string; name: string; sku
               </div>
             ))
           )}
-        </div>
-      ) : null}
-    </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 

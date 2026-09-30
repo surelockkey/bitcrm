@@ -203,6 +203,57 @@ describe("usePager — total pages", () => {
   });
 });
 
+/**
+ * Фільтр змінився, а новий набір ще в дорозі: `keepPreviousData` тримає на
+ * екрані старі рядки, щоб таблиця не складалась у скелет і назад. Ці рядки —
+ * заглушка: гортати по них не можна, бо курсори в них від іншого набору.
+ */
+describe("usePager — rows held over from the previous set", () => {
+  it("keeps the rows on screen while the page after them loads", async () => {
+    let finish: () => void = () => {};
+    const src = {
+      ...source([[1, 2]]),
+      fetchNextPage: () => new Promise<void>((resolve) => { finish = resolve; }),
+    };
+    const { result } = renderHook(() => usePager(src, {}));
+
+    let walking: Promise<void> = Promise.resolve();
+    act(() => { walking = result.current.next(); });
+
+    // Наступна ще не прийшла — видно ту саму сторінку, а не порожнечу.
+    expect(result.current.page).toBe(1);
+    expect(result.current.items).toEqual([1, 2]);
+    await act(async () => { finish(); await walking; });
+  });
+
+  it("says the rows are a placeholder, so the table can dim instead of vanishing", () => {
+    const { result } = renderHook(() =>
+      usePager({ ...source([[1, 2]]), isPlaceholderData: true }, {}),
+    );
+
+    expect(result.current.items).toEqual([1, 2]);
+    expect(result.current.isStale).toBe(true);
+  });
+
+  it("does not walk through a placeholder: its cursors belong to another set", async () => {
+    let asked = 0;
+    const src = {
+      ...source([[1], [2]]),
+      isPlaceholderData: true,
+      fetchNextPage: async () => { asked += 1; },
+    };
+    const { result } = renderHook(() => usePager(src, {}));
+
+    await act(async () => { await result.current.goto(2); });
+    await act(async () => { await result.current.next(); });
+
+    expect(result.current.page).toBe(1);
+    expect(asked).toBe(0);
+    // The panel reads this to grey its buttons out.
+    expect(result.current.isFetching).toBe(true);
+  });
+});
+
 describe("pageWindow", () => {
   it("lists every page in hand plus the one the cursor can still open", () => {
     expect(pageWindow({ loaded: 3, hasNext: true, page: 1 })).toEqual([1, 2, 3, 4]);

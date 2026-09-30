@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -30,8 +31,14 @@ export function useUsersCount(filter: UserFilter) {
   });
 }
 
-export function useUsers(filter: UserFilter, limit = 50) {
+/**
+ * `keepPrevious`: under a new filter or page size, hold the page already on
+ * screen (as a placeholder) until the new one lands — for a list that dims
+ * its rows rather than swapping them for a skeleton.
+ */
+export function useUsers(filter: UserFilter, limit = 50, options: { keepPrevious?: boolean } = {}) {
   return useInfiniteQuery({
+    placeholderData: options.keepPrevious ? keepPreviousData : undefined,
     queryKey: queryKeys.users.list({ ...filter, limit }),
     queryFn: ({ pageParam }) => api.listUsers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,

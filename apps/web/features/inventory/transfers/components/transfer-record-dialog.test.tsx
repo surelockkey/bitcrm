@@ -48,4 +48,14 @@ describe("TransferRecordDialog", () => {
     expect(screen.queryByText("Reason")).toBeNull();
     expect(screen.queryByText("Job")).toBeNull();
   });
+
+  // A template fill can hold forty lines: the popup had no height limit and
+  // its top went off the screen, out of reach.
+  it("never outgrows the screen: a long item list scrolls inside the popup", () => {
+    const items = Array.from({ length: 40 }, (_, i) => ({ productId: `p${i}`, productName: `Item ${i}`, quantity: 1 }));
+    open(transfer({ items }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).toMatch(/max-h-\[calc\(100dvh-2rem\)\]/);
+    expect(screen.getByTestId("transfer-record-body").className).toMatch(/overflow-y-auto/);
+  });
 });

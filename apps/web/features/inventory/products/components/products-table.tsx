@@ -1,23 +1,21 @@
 "use client";
 
 import { Boxes, Pencil } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import type { ReactNode } from "react";
+import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ResizableHead } from "@/components/ui/resizable-head";
-import { useColumnWidths } from "@/lib/table/use-column-widths";
+import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "../lib";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
-import { TableFrame } from "@/features/inventory/components/table-frame";
-import { ProductRowActions } from "./product-row-actions";
+import {
+  INVENTORY_ROW,
+  InventoryTable,
+  type InventoryColumn,
+} from "@/features/inventory/components/inventory-table";
+import { useProductRowActions } from "./product-row-actions";
 
 type ColumnId =
   | "productId"
@@ -41,7 +39,7 @@ type ColumnId =
  * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
  * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
  */
-const COLUMNS: { id: ColumnId; label: string; width: number }[] = [
+export const PRODUCT_COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
   { id: "productId", label: "Product ID", width: 100 },
   { id: "name", label: "Name", width: 260 },
   { id: "description", label: "Description", width: 220 },
@@ -54,71 +52,78 @@ const COLUMNS: { id: ColumnId; label: string; width: number }[] = [
   { id: "actions", label: "Actions", width: 120 },
 ];
 
-const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
+const WITHOUT_COST = PRODUCT_COLUMNS.filter((c) => c.id !== "cost");
 
 /** The list's own key: the same name its page-size preference is saved under. */
-const TABLE_KEY = "inventory-items";
+export const PRODUCTS_TABLE_KEY = "inventory-items";
 
 export function ProductsTable({
   products,
   showCost,
   onEdit,
   onStock,
+  loading = false,
+  skeletonRows = 0,
+  stale = false,
 }: {
   products: Product[];
-  /** Company cost is money: only for `financials.view`. */
-  showCost: boolean;
+  /**
+   * Company cost is money: only for `financials.view`. `"pending"` while the
+   * permissions load — the column keeps its place and its cells wait, so it
+   * neither appears late nor shows money it may not.
+   */
+  showCost: boolean | "pending";
   onEdit: (product: Product) => void;
   onStock: (product: Product) => void;
+  /** First load: the same table, a page of skeleton rows. */
+  loading?: boolean;
+  skeletonRows?: number;
+  /** The previous filter's rows, held while the new ones load. */
+  stale?: boolean;
 }) {
-  const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
-  const columns = showCost ? COLUMNS : COLUMNS.filter((c) => c.id !== "cost");
+  const columns = showCost ? PRODUCT_COLUMNS : WITHOUT_COST;
+  const actions = useProductRowActions();
 
   return (
-    <TableFrame>
+    <>
       {/*
         `table-fixed` with a declared width per column: a 70-character product
         name used to take 739px of the 1182 available. Now the column decides,
         not the name — and the reader can drag the edge if they want more.
       */}
-      <Table className="table-fixed">
-        <colgroup>
-          {columns.map((c) => (
-            <col key={c.id} style={{ width: widthOf(c.id) }} />
-          ))}
-        </colgroup>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            {columns.map((c) => (
-              <ResizableHead
-                key={c.id}
-                columnId={c.id}
-                label={c.label}
-                width={widthOf(c.id)}
-                onResize={(px) => setWidth(c.id, px)}
-                onReset={reset}
-              />
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {products.map((p) => {
-            const archived = p.status === InventoryStatus.ARCHIVED;
-            return (
-              <TableRow
-                key={p.id}
-                className={cn("cursor-pointer", archived && "opacity-55")}
-                onClick={() => onEdit(p)}
-              >
-                {columns.map((c) => (
-                  <Cell key={c.id} column={c.id} product={p} archived={archived} onEdit={onEdit} onStock={onStock} />
-                ))}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </TableFrame>
+      <InventoryTable
+        tableKey={PRODUCTS_TABLE_KEY}
+        columns={columns}
+        loading={loading}
+        skeletonRows={skeletonRows}
+        stale={stale}
+      >
+        {products.map((p) => {
+          const archived = p.status === InventoryStatus.ARCHIVED;
+          return (
+            <TableRow
+              key={p.id}
+              className={cn(INVENTORY_ROW, "cursor-pointer", archived && "opacity-55")}
+              onClick={() => onEdit(p)}
+            >
+              {columns.map((c) => (
+                <Cell
+                  key={c.id}
+                  column={c.id as ColumnId}
+                  product={p}
+                  archived={archived}
+                  costPending={showCost === "pending"}
+                  menu={actions.menu}
+                  onEdit={onEdit}
+                  onStock={onStock}
+                />
+              ))}
+            </TableRow>
+          );
+        })}
+      </InventoryTable>
+      {actions.dialog}
+    </>
   );
 }
 
@@ -128,12 +133,16 @@ function Cell({
   column,
   product: p,
   archived,
+  costPending,
+  menu,
   onEdit,
   onStock,
 }: {
   column: ColumnId;
   product: Product;
   archived: boolean;
+  costPending: boolean;
+  menu: (product: Product) => ReactNode;
   onEdit: (product: Product) => void;
   onStock: (product: Product) => void;
 }) {
@@ -166,7 +175,11 @@ function Cell({
     case "price":
       return <TableCell className="truncate tabular-nums">{formatMoney(p.priceClient)}</TableCell>;
     case "cost":
-      return <TableCell className="truncate tabular-nums">{formatMoney(p.costCompany)}</TableCell>;
+      return (
+        <TableCell className="truncate tabular-nums">
+          {costPending ? <Skeleton className="h-4 w-12" /> : formatMoney(p.costCompany)}
+        </TableCell>
+      );
     case "quantity":
       return <TableCell className="truncate tabular-nums">{p.onHand ?? 0}</TableCell>;
     case "sku":
@@ -183,7 +196,7 @@ function Cell({
             <RowIconAction label={`Manage stock for ${p.name}`} tip="Manage stock" onClick={() => onStock(p)}>
               <Boxes />
             </RowIconAction>
-            <ProductRowActions product={p} />
+            {menu(p)}
           </div>
         </TableCell>
       );

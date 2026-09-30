@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
@@ -133,6 +133,52 @@ describe("TemplateDialog — a new template", () => {
     expect(mocks.searches.some((q) => q.get("search") === "de")).toBe(false);
   });
 
+  // The results used to be drawn inside the popup's scrolling body: on a new
+  // or short template they were cut off by it and hidden behind the footer.
+  it("draws the results outside the scrolling body, so nothing clips them", async () => {
+    open();
+    await userEvent.type(search(), "dead");
+    const option = await screen.findByRole("option", { name: /Deadbolt/ });
+    expect(screen.getByTestId("template-body")).not.toContainElement(option);
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+  });
+
+  // Each keystroke used to swap the list for "Searching…" and back.
+  it("keeps the last results on screen while the next search runs", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    server.use(
+      http.get("*/inventory/products", async ({ request }) => {
+        const term = (new URL(request.url).searchParams.get("search") ?? "").toLowerCase();
+        if (term === "deadb") await gate;
+        return HttpResponse.json({
+          success: true,
+          data: CATALOG.filter((p) => p.name.toLowerCase().includes(term)),
+          pagination: {},
+        });
+      }),
+    );
+    open();
+    await userEvent.type(search(), "dead");
+    await screen.findByRole("option", { name: /Deadlatch/ });
+
+    await userEvent.type(search(), "b");
+    await new Promise((r) => setTimeout(r, 350));
+    expect(screen.queryByText("Searching…")).toBeNull();
+    expect(screen.getByRole("option", { name: /Deadlatch/ })).toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(screen.queryByRole("option", { name: /Deadlatch/ })).toBeNull());
+    expect(screen.getByRole("option", { name: /Deadbolt/ })).toBeInTheDocument();
+  });
+
+  it("keeps typing in the box while the results are open", async () => {
+    open();
+    await userEvent.type(search(), "dead");
+    await screen.findByRole("option", { name: /Deadbolt/ });
+    expect(search()).toHaveFocus();
+  });
+
   it("adds a line at 1 and focuses its quantity", async () => {
     open();
     await add("dead", /Deadbolt/);
@@ -248,5 +294,15 @@ describe("TemplateDialog — editing one", () => {
     mocks.template = { isLoading: false, isError: true };
     open("t404");
     expect(screen.getByRole("dialog", { name: "Template not found" })).toBeInTheDocument();
+  });
+});
+
+describe("TemplateDialog — loading", () => {
+  // Opened and then filled in, the popup grew by its footer.
+  it("has its footer in place while the template loads", () => {
+    mocks.template = { isLoading: true, isError: false };
+    open("t1");
+    expect(screen.getByTestId("template-loading")).toBeInTheDocument();
+    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
   });
 });

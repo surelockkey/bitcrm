@@ -1,12 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { InventoryStatus } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { ApiError, getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import { fillMessages } from "./lib";
+import { refreshAfterMovement } from "@/features/inventory/stock/refresh";
 
 /** One status at a time — the server answers the active ones by default. */
 export function useContainerTemplates(status: InventoryStatus = InventoryStatus.ACTIVE, enabled = true) {
@@ -39,6 +40,9 @@ export function useTemplateDiff(
     enabled: enabled && !!id && !!containerId,
     // 403 and 404 are answers about this van or warehouse, not blips.
     retry: false,
+    // Another van or warehouse picked: the last comparison stays (dimmed)
+    // until the next one lands — not table → skeleton → table.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -98,10 +102,6 @@ export function useRestoreTemplate() {
 
 const ALREADY_MADE = "That fill was already made — showing the van as it is now.";
 
-/** The item queries a transfer changes: `onHand` on the list and the popup, and the per-location split. */
-const movedByStock = ({ queryKey: [root, second, third] }: Query) =>
-  root === "products" && (second === "list" || second === "detail" || third === "stock");
-
 /**
  * "Fill from warehouse". It is a transfer: both locations, the items'
  * `onHand`, the journal and every comparison with a template move with it.
@@ -114,11 +114,17 @@ export function useFillFromWarehouse() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: api.FillBody; containerName: string }) =>
       api.fillFromWarehouse(id, body),
-    onSuccess: (result, { containerName }) => {
-      qc.invalidateQueries({ predicate: movedByStock });
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.transfers.all() });
+    onSuccess: (result, { body, containerName }) => {
+      // One warehouse → van transfer: both ends, the items that moved, the
+      // journal — not the rest of the fleet.
+      refreshAfterMovement(
+        qc,
+        [
+          { type: "warehouse", id: body.warehouseId },
+          { type: "container", id: body.containerId },
+        ],
+        [...result.moved, ...(result.transfer?.items ?? [])].map((i) => i.productId),
+      );
       refreshDiffs();
       // The same request id again: the server hands back the first fill's
       // answer and moves nothing this time.

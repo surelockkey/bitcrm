@@ -65,11 +65,85 @@ describe("stock movement hooks", () => {
     // …the catalog maps don't: nothing they hold moves, and re-reading the
     // stock-managed map is up to 200 sequential requests.
     expect(invalidated(client, seeded.kept)).toEqual(seeded.kept.map(() => false));
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["containers"] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["warehouses"] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["transfers"] });
+    // Never a whole root: under `containers` sat a stock read per van on screen.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["containers"] });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["warehouses"] });
     expect(toast.success).toHaveBeenCalledWith("Added 4 units to stock");
     expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  /**
+   * One Move from a popup on the Containers tab used to refetch ~100 queries:
+   * every loaded page of every list, every van's stock, the fleet pickers and
+   * the counts. It changes two locations, the items it carried and the
+   * journal — and that is all it refreshes.
+   */
+  it("refreshes what the move touched, and nothing else", async () => {
+    answer("/inventory/transfers", { id: "t1", type: TransferType.TRANSFER, items });
+    const client = new QueryClient();
+    const touched = [
+      queryKeys.inventory.locationStock("warehouse", "w1"),
+      queryKeys.inventory.locationStock("container", "c1"),
+      queryKeys.inventory.warehouses.detail("w1"),
+      queryKeys.inventory.containers.detail("c1"),
+      queryKeys.inventory.warehouses.stock("w1"),
+      // The rows carry the location totals now.
+      queryKeys.inventory.warehouses.list({ limit: 50 }),
+      queryKeys.inventory.containers.list({ limit: 50 }),
+      queryKeys.inventory.products.list({ manageStock: true, limit: 50 }),
+      queryKeys.inventory.products.detail("p1"),
+      queryKeys.inventory.products.stock("p1"),
+      queryKeys.inventory.transfers.list({ limit: 50 }),
+      queryKeys.inventory.transfers.count({}),
+      // The van's comparison with its template changed with its stock.
+      queryKeys.inventory.containerTemplates.diff("t1", "c1", undefined),
+      queryKeys.inventory.containerTemplates.diff("t1", "c9", "w1"),
+    ];
+    const untouched = [
+      queryKeys.inventory.locationStock("container", "c2"),
+      queryKeys.inventory.containers.detail("c2"),
+      queryKeys.inventory.containers.everything(),
+      queryKeys.inventory.warehouses.everything(),
+      queryKeys.inventory.containers.count({}),
+      queryKeys.inventory.warehouses.count({}),
+      queryKeys.inventory.products.detail("p2"),
+      queryKeys.inventory.products.stock("p2"),
+      queryKeys.inventory.products.count({ manageStock: true }),
+      queryKeys.inventory.containerTemplates.diff("t1", "c2", undefined),
+      queryKeys.inventory.containerTemplates.list("active"),
+    ];
+    for (const key of [...touched, ...untouched]) client.setQueryData(key, {});
+    const { result } = renderHook(() => useMoveStock(), { wrapper: wrapper(client) });
+
+    act(() =>
+      result.current.mutate({ fromType: "warehouse", fromId: "w1", toType: "container", toId: "c1", items }),
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(invalidated(client, touched)).toEqual(touched.map(() => true));
+    expect(invalidated(client, untouched)).toEqual(untouched.map(() => false));
+  });
+
+  it("takes the two ends from the server's answer when the request named them another way", async () => {
+    answer("/inventory/transfers/return", {
+      id: "t1",
+      type: TransferType.RETURN,
+      fromType: "container",
+      fromId: "c7",
+      toType: null,
+      toId: null,
+      items,
+    });
+    const client = new QueryClient();
+    const key = queryKeys.inventory.locationStock("container", "c7");
+    client.setQueryData(key, {});
+    const { result } = renderHook(() => useReturnStock(), { wrapper: wrapper(client) });
+
+    act(() =>
+      result.current.mutate({ fromType: "container", fromId: "c7", items, reason: ReturnReason.DAMAGED }),
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
   });
 
   it("warns by name about items that were not stock-managed", async () => {

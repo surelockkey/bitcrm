@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   params: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
+  /** What the list hook answers beyond its rows: first load, or a held-over page. */
+  list: { isLoading: false, isPlaceholderData: false, noData: false },
+  perms: { loading: false, can: true },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -21,17 +24,21 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/inventory/warehouses",
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
+  useDenied: () => () => !mocks.perms.loading && !mocks.perms.can,
+  usePermissions: () => ({
+    can: () => !mocks.perms.loading && mocks.perms.can,
+    isLoading: mocks.perms.loading,
+  }),
 }));
 vi.mock("../hooks", () => ({
   useWarehousesList: (filter: WarehouseFilter) => {
     mocks.listFilters.push(filter);
     return {
-      data: { pages: [{ data: mocks.rows, pagination: {} }] },
+      data: mocks.list.noData ? undefined : { pages: [{ data: mocks.rows, pagination: {} }] },
       hasNextPage: false,
       isFetchingNextPage: false,
-      isLoading: false,
+      isLoading: mocks.list.isLoading,
+      isPlaceholderData: mocks.list.isPlaceholderData,
       isError: false,
       fetchNextPage: vi.fn(),
       refetch: vi.fn(),
@@ -84,6 +91,8 @@ beforeEach(() => {
   mocks.listFilters = [];
   mocks.countFilters = [];
   mocks.rows = [warehouse({ id: "w1", name: "Dallas" }), warehouse({ id: "w2", name: "Austin" })];
+  mocks.list = { isLoading: false, isPlaceholderData: false, noData: false };
+  mocks.perms = { loading: false, can: true };
 });
 
 describe("WarehousesPage — the server filters, the page shows what it got", () => {
@@ -147,5 +156,52 @@ describe("WarehousesPage — popups are driven by the URL", () => {
     renderWithClient(<WarehousesPage />);
     await userEvent.click(screen.getByText("close edit"));
     expect(mocks.replace).toHaveBeenCalledWith("/inventory/warehouses", noScroll);
+  });
+});
+
+/**
+ * "Nothing jumps": the first frame is the table itself, a new filter keeps
+ * the rows it has, and permissions arriving late neither flash "No access"
+ * nor push buttons into the toolbar.
+ */
+describe("WarehousesPage — a stable first frame", () => {
+  const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.textContent);
+
+  it("draws the real table while the first page loads, with the pager's space held", () => {
+    mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
+    renderWithClient(<WarehousesPage />);
+
+    expect(headers()).toEqual(["Name", "Description", "Items", "SKUs", "Actions"]);
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("keeps the rows on screen, dimmed, while a new search loads", () => {
+    mocks.list = { isLoading: false, isPlaceholderData: true, noData: false };
+    renderWithClient(<WarehousesPage />);
+
+    expect(screen.getByText("Dallas")).toBeInTheDocument();
+    expect(screen.queryByTestId("skeleton-row")).toBeNull();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("never flashes No access while permissions are still loading", () => {
+    mocks.perms = { loading: true, can: false };
+    renderWithClient(<WarehousesPage />);
+
+    expect(screen.queryByText("No access")).toBeNull();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("says No access once it is known", () => {
+    mocks.perms = { loading: false, can: false };
+    renderWithClient(<WarehousesPage />);
+    expect(screen.getByText("No access")).toBeInTheDocument();
+  });
+
+  it("holds New warehouse's place, disabled, until permissions are known", () => {
+    mocks.perms = { loading: true, can: false };
+    renderWithClient(<WarehousesPage />);
+    expect(screen.getByRole("button", { name: /New warehouse/ })).toBeDisabled();
   });
 });

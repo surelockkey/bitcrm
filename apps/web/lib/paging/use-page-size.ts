@@ -13,10 +13,10 @@ export const DEFAULT_PAGE_SIZE = 50;
 
 const key = (list: string) => `bitcrm.page-size.${list}`;
 
-function stored(list: string): number | null {
+function stored(list: string, sizes: readonly number[]): number | null {
   try {
     const raw = Number(localStorage.getItem(key(list)));
-    return (PAGE_SIZES as readonly number[]).includes(raw) ? raw : null;
+    return sizes.includes(raw) ? raw : null;
   } catch {
     // Приватне вікно або заблоковані дані сайту — вибір просто не переживе
     // перезавантаження, але список має працювати.
@@ -27,9 +27,15 @@ function stored(list: string): number | null {
 /**
  * Вибір «по скільки» для одного списку, з пам'яттю між візитами. Ключ — назва
  * списку: у роботах і в дзвінках вибір свій.
+ *
+ * Список, що гортається в браузері (попапи складу — по десять, як у Workiz),
+ * може мати свої розміри й свій типовий.
  */
-export function usePageSize(list: string): [number, (size: number) => void] {
-  const [size, setSize] = useState(() => stored(list) ?? DEFAULT_PAGE_SIZE);
+export function usePageSize(
+  list: string,
+  { sizes = PAGE_SIZES, fallback = DEFAULT_PAGE_SIZE }: { sizes?: readonly number[]; fallback?: number } = {},
+): [number, (size: number) => void] {
+  const [size, setSize] = useState(() => stored(list, sizes) ?? fallback);
 
   const choose = useCallback(
     (next: number) => {

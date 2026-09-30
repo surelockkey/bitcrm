@@ -28,13 +28,17 @@ import { filterItemRows, locationCards, pageSlice } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
 import { TableFrame } from "@/features/inventory/components/table-frame";
 import {
-  PAGE_SIZES,
   PanelError,
   PanelLoading,
   PanelPager,
   PanelToolbar,
+  STOCK_POPUP,
   StatCard,
+  tableHeight,
+  usePopupPageSize,
 } from "./stock-popup-parts";
+import { INVENTORY_ROW } from "@/features/inventory/components/inventory-table";
+import { cn } from "@/lib/utils";
 
 /**
  * One warehouse's or van's stock — the location-side twin of the item's
@@ -61,8 +65,8 @@ export function LocationStockDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         // Header and footer stay put; the body scrolls between them, so the
-        // popup fits a phone as well as a desktop.
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+        // popup fits a phone as well as a desktop — at one height throughout.
+        className={cn(STOCK_POPUP, "sm:max-w-4xl")}
       >
         <LocationStock
           type={type}
@@ -96,6 +100,8 @@ function LocationStock({
   // A stale `?stock=<id>`: the location itself is gone.
   const missing = stock.error instanceof ApiError && stock.error.status === 404;
   const kind = type === "container" ? "Container" : "Warehouse";
+  const actions = can("transfers", "create");
+  const [size, setSize] = usePopupPageSize();
 
   let body: ReactNode;
   if (missing) {
@@ -103,7 +109,16 @@ function LocationStock({
   } else if (stock.isError) {
     body = <PanelError onRetry={() => stock.refetch()} />;
   } else if (stock.isLoading) {
-    body = <PanelLoading testId="location-stock-loading" cards={3} />;
+    body = (
+      <PanelLoading
+        testId="location-stock-loading"
+        cards={3}
+        searchLabel="Search items"
+        headers={actions ? ["Item", "SKU", "Quantity", "Actions"] : ["Item", "SKU", "Quantity"]}
+        size={size}
+        onSize={setSize}
+      />
+    );
   } else {
     body = (
       <StockBody
@@ -113,7 +128,9 @@ function LocationStock({
         // The server prices every row whose item still exists; with none
         // priced there is no value to show — "—", not a $0.00.
         priced={stock.rows.length === 0 || stock.rows.some((r) => r.unitPrice != null)}
-        actions={can("transfers", "create")}
+        actions={actions}
+        size={size}
+        onSize={setSize}
       />
     );
   }
@@ -148,15 +165,18 @@ function StockBody({
   summary,
   priced,
   actions,
+  size,
+  onSize,
 }: {
   location: { type: LocationSummaryType; id: string; name: string };
   rows: EnrichedStockRow[];
   summary: StockSummary;
   priced: boolean;
   actions: boolean;
+  size: number;
+  onSize: (size: number) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [size, setSize] = useState<number>(PAGE_SIZES[0]);
   const [page, setPage] = useState(1);
 
   const cards = locationCards(summary, priced);
@@ -183,12 +203,13 @@ function StockBody({
           searchLabel="Search items"
           size={size}
           onSize={(n) => {
-            setSize(n);
+            onSize(n);
             setPage(1);
           }}
         />
 
-        <TableFrame className="bg-background">
+        {/* A page tall even on a short last page: the pager under it stays put. */}
+        <TableFrame className="bg-background" style={{ minHeight: tableHeight(Math.min(size, matching.length)) }}>
           {/* Fixed layout: a long item name clips instead of pushing the
               columns about; on a phone the table scrolls sideways. */}
           <Table className="min-w-[32rem] table-fixed">
@@ -239,7 +260,7 @@ function ItemRow({
   actions: boolean;
 }) {
   return (
-    <TableRow>
+    <TableRow className={INVENTORY_ROW}>
       <TableCell className="truncate font-medium" title={r.name}>
         {r.name}
       </TableCell>

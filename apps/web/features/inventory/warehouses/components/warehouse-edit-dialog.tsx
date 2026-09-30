@@ -25,7 +25,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DialogLoadingBody } from "@/features/inventory/components/dialog-loading";
+import type { LocationTotals } from "@/features/inventory/stock/lib";
 import { Textarea } from "@/components/ui/textarea";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
@@ -65,11 +66,7 @@ export function WarehouseEditDialog({
     content = (
       <>
         <Header title={canEdit ? "Edit warehouse" : "Warehouse"} />
-        <div data-testid="warehouse-edit-loading" className="space-y-3 p-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
+        <DialogLoadingBody testId="warehouse-edit-loading" fields={["input", "input", "area"]} />
       </>
     );
   } else if (query.isError || !query.data) {
@@ -118,7 +115,10 @@ function WarehouseForm({
 }) {
   const update = useUpdateWarehouse();
   const archive = useArchiveWarehouse();
-  const stock = useWarehouseStock(warehouse.id, canArchive);
+  // The row keeps its units on it; only a warehouse the backfill has not
+  // reached yet is counted from its stock.
+  const total = (warehouse as Warehouse & LocationTotals).totalUnits;
+  const stock = useWarehouseStock(warehouse.id, canArchive && typeof total !== "number");
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   const saved: WarehouseValues = {
@@ -132,7 +132,8 @@ function WarehouseForm({
   });
 
   const archived = warehouse.status === InventoryStatus.ARCHIVED;
-  const heldUnits = (stock.data ?? []).reduce((n, s) => n + Math.max(0, s.quantity), 0);
+  const heldUnits =
+    typeof total === "number" ? total : (stock.data ?? []).reduce((n, s) => n + Math.max(0, s.quantity), 0);
 
   const onSubmit = (values: WarehouseValues) => {
     const unchanged = (Object.keys(saved) as (keyof WarehouseValues)[]).every(

@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => ({
   scope: "all" as string,
   assignments: [] as UserContainer[],
   namesAskedFor: [] as string[][],
+  permsLoading: false,
+  list: { isLoading: false, isPlaceholderData: false, noData: false },
+  locationsLoading: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -27,16 +30,21 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true, scopeOf: () => mocks.scope }),
+  usePermissions: () => ({
+    can: () => !mocks.permsLoading,
+    scopeOf: () => (mocks.permsLoading ? null : mocks.scope),
+    isLoading: mocks.permsLoading,
+  }),
 }));
 vi.mock("../hooks", () => ({
   useContainersList: (filter: ContainerFilter) => {
     mocks.listFilters.push(filter);
     return {
-      data: { pages: [{ data: mocks.rows, pagination: {} }] },
+      data: mocks.list.noData ? undefined : { pages: [{ data: mocks.rows, pagination: {} }] },
       hasNextPage: false,
       isFetchingNextPage: false,
-      isLoading: false,
+      isLoading: mocks.list.isLoading,
+      isPlaceholderData: mocks.list.isPlaceholderData,
       isError: false,
       fetchNextPage: vi.fn(),
       refetch: vi.fn(),
@@ -52,7 +60,11 @@ vi.mock("../hooks", () => ({
   }),
 }));
 vi.mock("@/features/inventory/stock/hooks", () => ({
-  useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
+  useAllLocations: () => ({
+    data: mocks.locationsLoading ? [] : mocks.locations,
+    isLoading: mocks.locationsLoading,
+    isError: false,
+  }),
 }));
 vi.mock("@/features/inventory/user-containers/hooks", () => ({
   useUserContainers: () => ({ data: mocks.assignments, isLoading: false, isError: false }),
@@ -124,6 +136,9 @@ beforeEach(() => {
   mocks.push.mockReset();
   mocks.replace.mockReset();
   mocks.scope = DataScope.ALL;
+  mocks.permsLoading = false;
+  mocks.list = { isLoading: false, isPlaceholderData: false, noData: false };
+  mocks.locationsLoading = false;
   mocks.listFilters = [];
   mocks.countFilters = [];
   mocks.rows = [container({ id: "c1", name: "Van Alpha" }), container({ id: "c2", name: "Van Zeta" })];
@@ -294,5 +309,45 @@ describe("ContainersPage — popups are driven by the URL", () => {
     renderWithClient(<ContainersPage />);
     expect(screen.getByTestId("my-van")).toBeInTheDocument();
     expect(screen.queryByTestId("stock-popup")).toBeNull();
+  });
+});
+
+/**
+ * "Nothing jumps": on a refresh a dispatcher used to get the technician's
+ * "My Container" first — its skeleton, and two requests that 404 for office
+ * users — and then the whole page swapped for the fleet.
+ */
+describe("ContainersPage — a stable first frame", () => {
+  it("while permissions load, draws the fleet's frame and asks for nothing", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ContainersPage />);
+
+    expect(screen.queryByTestId("my-van")).toBeNull();
+    expect(mocks.listFilters).toEqual([]);
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Users");
+    expect(screen.getByTestId("list-pagination")).toBeInTheDocument();
+  });
+
+  it("draws the real table while the first page loads, with the pager's space held", () => {
+    mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
+    renderWithClient(<ContainersPage />);
+
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("keeps the rows on screen, dimmed, while a new search loads", () => {
+    mocks.list = { isLoading: false, isPlaceholderData: true, noData: false };
+    renderWithClient(<ContainersPage />);
+
+    expect(screen.getByText("Van Alpha")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("has the Department select from the first frame, disabled until the departments arrive", () => {
+    mocks.locationsLoading = true;
+    renderWithClient(<ContainersPage />);
+    expect(screen.getByRole("combobox", { name: "Department" })).toBeDisabled();
   });
 });

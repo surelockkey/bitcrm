@@ -4,22 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { StockSummary } from "../lib";
+import type { LocationTotals } from "@/features/inventory/stock/lib";
+import { INVENTORY_ROW } from "@/features/inventory/components/inventory-table";
 import { WarehousesTable } from "./warehouses-table";
 
 const onEdit = vi.fn();
 const onStock = vi.fn();
-const summaries: Record<string, StockSummary> = {};
 
-vi.mock("../hooks", () => ({
-  useWarehouseStockView: (id: string) => ({
-    summary:
-      summaries[id] ?? { skuCount: 0, totalUnits: 0, totalValue: 0, lowCount: 0 },
-    isLoading: false,
-  }),
-}));
-
-function warehouse(over: Partial<Warehouse>): Warehouse {
+function warehouse(over: Partial<Warehouse & LocationTotals>): Warehouse & LocationTotals {
   return {
     id: "w1",
     name: "WAREHOUSE TX",
@@ -32,6 +24,7 @@ function warehouse(over: Partial<Warehouse>): Warehouse {
   };
 }
 
+// No QueryClientProvider on purpose: a row that fired a request would throw.
 function renderTable(warehouses: Warehouse[] = [warehouse({})]) {
   return render(
     <TooltipProvider>
@@ -43,7 +36,6 @@ function renderTable(warehouses: Warehouse[] = [warehouse({})]) {
 beforeEach(() => {
   onEdit.mockClear();
   onStock.mockClear();
-  for (const k of Object.keys(summaries)) delete summaries[k];
 });
 
 describe("WarehousesTable", () => {
@@ -53,16 +45,25 @@ describe("WarehousesTable", () => {
       "Name",
       "Description",
       "Items",
+      "SKUs",
       "Actions",
     ]);
   });
 
-  it("renders name, description and total units", () => {
-    summaries.w1 = { skuCount: 12, totalUnits: 36498, totalValue: 900, lowCount: 0 };
-    renderTable();
+  it("renders name, description and the totals the server keeps on the row", () => {
+    renderTable([warehouse({ totalUnits: 36498, uniqueItems: 12 })]);
     expect(screen.getByText("WAREHOUSE TX")).toBeInTheDocument();
     expect(screen.getByText("RICHARDSON SHOP")).toBeInTheDocument();
-    expect(screen.getByText("36,498")).toBeInTheDocument();
+    const cells = document.querySelectorAll("tbody td");
+    expect(cells[2]).toHaveTextContent(/^36,498$/);
+    expect(cells[3]).toHaveTextContent(/^12$/);
+  });
+
+  it("shows — for totals the server has not filled in yet", () => {
+    renderTable([warehouse({})]);
+    const cells = document.querySelectorAll("tbody td");
+    expect(cells[2]).toHaveTextContent(/^—$/);
+    expect(cells[3]).toHaveTextContent(/^—$/);
   });
 
   it("falls back to the address when there is no description", () => {
@@ -77,13 +78,8 @@ describe("WarehousesTable", () => {
     }
   });
 
-  it("shows a Low stock badge only when something is low", () => {
-    summaries.w1 = { skuCount: 3, totalUnits: 758, totalValue: 100, lowCount: 2 };
-    const { unmount } = renderTable();
-    expect(screen.getByText("Low stock")).toBeInTheDocument();
-    unmount();
-
-    renderTable([warehouse({ id: "w2" })]);
+  it("has no Low stock badge on the row — that lives in the Stock popup", () => {
+    renderTable([warehouse({ totalUnits: 758, uniqueItems: 3 })]);
     expect(screen.queryByText("Low stock")).not.toBeInTheDocument();
   });
 
@@ -154,8 +150,34 @@ describe("WarehousesTable — a stable first frame", () => {
 
   it("offers a drag handle on every header", () => {
     table();
-    for (const id of ["name", "description", "items", "actions"]) {
+    for (const id of ["name", "description", "items", "skus", "actions"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
+  });
+});
+
+describe("WarehousesTable — loading", () => {
+  const shape = () => ({
+    headers: [...document.querySelectorAll("thead th")].map((th) => th.textContent),
+    widths: [...document.querySelectorAll("col")].map((c) => (c as HTMLElement).style.width),
+  });
+
+  it("has the same columns, at the same widths, as the loaded table", () => {
+    const { unmount } = renderTable();
+    const loaded = shape();
+    unmount();
+
+    render(
+      <TooltipProvider>
+        <WarehousesTable warehouses={[]} onEdit={onEdit} onStock={onStock} loading skeletonRows={25} />
+      </TooltipProvider>,
+    );
+    expect(shape()).toEqual(loaded);
+    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(25);
+  });
+
+  it("gives real rows the skeleton's height", () => {
+    renderTable();
+    expect(document.querySelector("tbody tr")?.className).toContain(INVENTORY_ROW);
   });
 });

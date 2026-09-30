@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { personName } from "@/features/deals/person-name";
 import { getUserNames } from "@/features/users/api";
+import { refreshLocationRows } from "@/features/inventory/stock/refresh";
 import * as api from "./api";
 import { accessLabel } from "./lib";
 
@@ -32,8 +33,8 @@ export function useAssignUserContainer() {
       api.assignUserContainer(userId, body),
     onSuccess: (row, { body }) => {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.userContainers.all() });
-      // `containers` covers the lists, every picker and "my container".
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
+      // The vans' rows — lists, pickers, "my container" — not their stock.
+      refreshLocationRows(qc, "containers");
       const who = body.userName;
       toast.success(
         row.access === UserContainerAccess.CONTAINER

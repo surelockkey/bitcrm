@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { DataScope, InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -34,18 +33,29 @@ import { ContainerCreateDialog } from "./container-create-dialog";
 import { ContainerEditDialog } from "./container-edit-dialog";
 import { MyContainerView } from "./my-container-view";
 import { ListPagination } from "@/components/ui/list-pagination";
+import { arraySource } from "@/lib/paging/array-source";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 
 const CONTAINERS_PATH = "/inventory/containers";
+
+/** The list's own key: its page size and its skeleton's height are saved under it. */
+const TABLE_KEY = "inventory-vans";
 
 /** The URL params that open a popup — one at a time; Apply also names the van. */
 const POPUPS = ["stock", "edit", "apply"] as const;
 const EXTRAS = ["container"] as const;
 
 export function ContainersPage() {
-  const { can, scopeOf } = usePermissions();
+  const { can, scopeOf, isLoading } = usePermissions();
+
+  // Which screen this is — the fleet or a technician's own van — is the
+  // permissions' to say. Until they do: the fleet's frame, asking for
+  // nothing. Guessing "My Container" flashed its skeleton on every
+  // dispatcher's refresh and fired two requests that 404 for office users.
+  if (isLoading) return <FleetFrame />;
 
   if (!can("containers", "view")) {
     // Technicians hit "My Container"; anyone else without view is blocked.
@@ -60,7 +70,7 @@ export function ContainersPage() {
 
 function Fleet() {
   const { can } = usePermissions();
-  const [pageSize, setPageSize] = usePageSize("inventory-vans");
+  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
   const [status, setStatus] = useState("all");
@@ -94,6 +104,14 @@ function Fleet() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const containers = pager.items;
+  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
+  const loading = query.isLoading && !query.data;
+  const skeletonRows = useSkeletonRows(
+    TABLE_KEY,
+    pageSize,
+    count.data?.total,
+    loading || pager.isStale ? undefined : containers.length,
+  );
 
   // Departments are free text on the van; the whole fleet names them, not one page.
   const locations = useAllLocations();
@@ -123,69 +141,21 @@ function Fleet() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search containers"
-            className="h-9 pl-8"
-          />
-        </div>
-        {departments.length > 0 ? (
-          <Select value={department} onValueChange={setDepartment}>
-            <SelectTrigger className="h-9 w-44" aria-label="Department">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All departments</SelectItem>
-              {departments.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-9 w-32" aria-label="Status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
-            <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
-          </SelectContent>
-        </Select>
-        {/* Скільки всього — каже панель під таблицею; тут було б число однієї сторінки. */}
-        <span className="ml-auto" />
-        <Button asChild variant="outline" className="h-9 gap-1.5">
-          <Link href="/technicians">
-            Technicians
-            <ArrowUpRight className="size-3.5" />
-          </Link>
-        </Button>
-        {can("containers", "create") ? (
-          <Button
-            variant="brand"
-            className="h-9 gap-1.5 px-3.5"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="size-4" />
-            New container
-          </Button>
-        ) : null}
-      </div>
+      <FleetToolbar
+        search={search}
+        onSearch={setSearch}
+        department={department}
+        onDepartment={setDepartment}
+        departments={departments}
+        departmentsLoading={locations.isLoading}
+        status={status}
+        onStatus={setStatus}
+        canCreate={can("containers", "create")}
+        onCreate={() => setCreateOpen(true)}
+      />
 
       <div className="flex-1 px-6 pb-6">
-        {query.isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : containers.length === 0 ? (
+        {!loading && containers.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <Truck className="size-6" />
@@ -201,13 +171,18 @@ function Fleet() {
           </div>
         ) : (
           <>
+            {/* Loading, loaded or holding the last filter's rows — one table,
+                so nothing under it moves when the rows land. */}
             <ContainersTable
               containers={containers}
               users={users}
+              loading={loading}
+              skeletonRows={skeletonRows}
+              stale={pager.isStale}
               onEdit={(c) => popups.open("edit", c.id)}
               onStock={(c) => popups.open("stock", c.id)}
             />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
           </>
         )}
       </div>
@@ -246,6 +221,130 @@ function Fleet() {
           onOpenChange={(open) => (open ? undefined : popups.close())}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The fleet's toolbar. Every control is there from the first frame: the
+ * Department select waits (disabled) for the departments instead of popping
+ * in and pushing Status and the buttons sideways.
+ */
+function FleetToolbar({
+  search,
+  onSearch,
+  department,
+  onDepartment,
+  departments,
+  departmentsLoading,
+  status,
+  onStatus,
+  canCreate,
+  onCreate,
+  pending = false,
+}: {
+  search: string;
+  onSearch: (term: string) => void;
+  department: string;
+  onDepartment: (department: string) => void;
+  departments: string[];
+  departmentsLoading: boolean;
+  status: string;
+  onStatus: (status: string) => void;
+  canCreate: boolean;
+  onCreate: () => void;
+  /** Permissions still loading: everything in place, nothing to press yet. */
+  pending?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-6 py-3">
+      <div className="relative w-full max-w-xs">
+        <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search containers"
+          className="h-9 pl-8"
+          disabled={pending}
+        />
+      </div>
+      <Select value={department} onValueChange={onDepartment} disabled={pending || departmentsLoading}>
+        <SelectTrigger className="h-9 w-44" aria-label="Department">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All departments</SelectItem>
+          {departments.map((d) => (
+            <SelectItem key={d} value={d}>
+              {d}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={status} onValueChange={onStatus} disabled={pending}>
+        <SelectTrigger className="h-9 w-32" aria-label="Status">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All statuses</SelectItem>
+          <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
+          <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
+        </SelectContent>
+      </Select>
+      {/* Скільки всього — каже панель під таблицею; тут було б число однієї сторінки. */}
+      <span className="ml-auto" />
+      <Button asChild variant="outline" className="h-9 gap-1.5">
+        <Link href="/technicians">
+          Technicians
+          <ArrowUpRight className="size-3.5" />
+        </Link>
+      </Button>
+      {pending || canCreate ? (
+        <Button variant="brand" className="h-9 gap-1.5 px-3.5" disabled={pending} onClick={onCreate}>
+          <Plus className="size-4" />
+          New container
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+const noop = () => {};
+
+/**
+ * The fleet as it will look, before anything is known: the toolbar and a
+ * page of skeleton rows. It reads nothing — not the list, not "my van".
+ */
+function FleetFrame() {
+  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
+  const skeletonRows = useSkeletonRows(TABLE_KEY, pageSize, undefined, undefined);
+  const pager = usePager(arraySource<never>([], pageSize, true), {});
+  return (
+    <div className="flex flex-1 flex-col">
+      <FleetToolbar
+        search=""
+        onSearch={noop}
+        department="all"
+        onDepartment={noop}
+        departments={[]}
+        departmentsLoading
+        status="all"
+        onStatus={noop}
+        canCreate={false}
+        onCreate={noop}
+        pending
+      />
+      <div className="flex-1 px-6 pb-6">
+        <ContainersTable
+          containers={[]}
+          users={new Map()}
+          loading
+          skeletonRows={skeletonRows}
+          onEdit={noop}
+          onStock={noop}
+        />
+        <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+      </div>
     </div>
   );
 }

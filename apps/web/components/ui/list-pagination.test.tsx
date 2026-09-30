@@ -20,6 +20,7 @@ function pager(over: Partial<Pager<number>> = {}): Pager<number> {
     canNext: true,
     isLoading: false,
     isFetching: false,
+    isStale: false,
     window: [1, 2, 3],
     next: vi.fn(async () => {}),
     prev: vi.fn(),
@@ -130,6 +131,53 @@ describe("ListPagination", () => {
 
     expect(screen.getAllByText("…")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "…" })).not.toBeInTheDocument();
+  });
+
+  /**
+   * Інвентар тримає місце під панель, поки вантажиться перша сторінка:
+   * панель, що з'являється разом із рядками, штовхає все під собою.
+   */
+  it("keeps its place, at its own height, while the first page loads when asked to", () => {
+    render(
+      <ListPagination
+        pager={pager({ isLoading: true, items: [], from: 0, to: 0, total: undefined })}
+        size={50}
+        onSizeChange={noop}
+        reserveSpace
+      />,
+    );
+
+    const bar = screen.getByTestId("list-pagination");
+    expect(bar).toHaveAttribute("aria-busy", "true");
+    // No numbers yet — "Showing 0" would be a claim; the size picker is already usable.
+    expect(bar).not.toHaveTextContent(/Showing \d/);
+    expect(screen.getByRole("combobox", { name: /rows per page/i })).toBeInTheDocument();
+  });
+
+  it("is the same bar loading and loaded — one set of classes, so one height", () => {
+    const { unmount } = render(
+      <ListPagination pager={pager({ isLoading: true, items: [] })} size={50} onSizeChange={noop} reserveSpace />,
+    );
+    const loading = screen.getByTestId("list-pagination").className;
+    unmount();
+    render(<ListPagination pager={pager()} size={50} onSizeChange={noop} reserveSpace />);
+
+    expect(screen.getByTestId("list-pagination").className).toBe(loading);
+  });
+
+  // "Showing 1–50" gains " of 312" and "Page 1" gains " of 7" once the count
+  // lands; unreserved, the page buttons between them slid sideways.
+  it("reserves the width of the numbers that arrive with the count", () => {
+    render(
+      <ListPagination pager={pager({ page: 1, totalPages: undefined })} size={50} onSizeChange={noop} />,
+    );
+
+    const showing = screen.getByText(/^Showing/);
+    const page = screen.getByText(/^Page 1/);
+    for (const el of [showing, page]) {
+      expect(el.className).toMatch(/tabular-nums/);
+      expect(el.className).toMatch(/min-w-/);
+    }
   });
 
   it("stands aside entirely while the first page is still loading", () => {

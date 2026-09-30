@@ -3,27 +3,16 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Container } from "@bitcrm/types";
-import type { StockSummary } from "@/features/inventory/warehouses/lib";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ContainerUser } from "@/features/inventory/user-containers/lib";
+import type { LocationTotals } from "@/features/inventory/stock/lib";
+import { INVENTORY_ROW } from "@/features/inventory/components/inventory-table";
 import { ContainersTable } from "./containers-table";
 
-const summaries: Record<string, StockSummary> = {};
-const stockAskedFor: string[] = [];
 const onEdit = vi.fn();
 const onStock = vi.fn();
 
-vi.mock("../hooks", () => ({
-  useContainerStockView: (id: string) => {
-    stockAskedFor.push(id);
-    return {
-      summary: summaries[id] ?? { skuCount: 0, totalUnits: 0, totalValue: 0, lowCount: 0 },
-      isLoading: false,
-    };
-  },
-}));
-
-function container(over: Partial<Container>): Container {
+function container(over: Partial<Container & LocationTotals>): Container & LocationTotals {
   return {
     id: "c1",
     name: "Van 1",
@@ -41,6 +30,8 @@ function container(over: Partial<Container>): Container {
 /** Who works from each van, as the page works it out from the assignments. */
 let users: Map<string, ContainerUser[]>;
 
+// Deliberately no QueryClientProvider: the table reads nothing on its own —
+// a row that fired a request would throw here for want of a client.
 function renderTable(containers: Container[] = [container({})]) {
   return render(
     <TooltipProvider>
@@ -53,8 +44,6 @@ beforeEach(() => {
   users = new Map([["c1", [{ userId: "t1", name: "TYLER BOUCHER" }]]]);
   onEdit.mockClear();
   onStock.mockClear();
-  stockAskedFor.length = 0;
-  for (const k of Object.keys(summaries)) delete summaries[k];
 });
 
 describe("ContainersTable", () => {
@@ -66,18 +55,36 @@ describe("ContainersTable", () => {
       "Users",
       "Department",
       "Items",
+      "SKUs",
       "Actions",
     ]);
   });
 
-  it("renders name, description, its users, department and total units", () => {
-    summaries.c1 = { skuCount: 40, totalUnits: 1244, totalValue: 5000, lowCount: 0 };
-    renderTable();
+  it("renders name, description, its users, department, and the totals the server keeps on the row", () => {
+    renderTable([container({ totalUnits: 1244, uniqueItems: 40 })]);
     expect(screen.getByText("Van 1")).toBeInTheDocument();
     expect(screen.getByText("Ford Transit")).toBeInTheDocument();
     expect(screen.getByText("TYLER BOUCHER")).toBeInTheDocument();
     expect(screen.getByText("Connecticut")).toBeInTheDocument();
-    expect(screen.getByText("1,244")).toBeInTheDocument();
+    const cells = document.querySelectorAll("tbody td");
+    expect(cells[4]).toHaveTextContent(/^1,244$/);
+    expect(cells[5]).toHaveTextContent(/^40$/);
+  });
+
+  // The backfill has not reached this van yet: "—", never a 0 nobody counted,
+  // and never a request per row to count it in the browser.
+  it("shows — for totals the server has not filled in yet", () => {
+    renderTable([container({})]);
+    const cells = document.querySelectorAll("tbody td");
+    expect(cells[4]).toHaveTextContent(/^—$/);
+    expect(cells[5]).toHaveTextContent(/^—$/);
+  });
+
+  it("counts an empty van as 0, not —", () => {
+    renderTable([container({ totalUnits: 0, uniqueItems: 0 })]);
+    const cells = document.querySelectorAll("tbody td");
+    expect(cells[4]).toHaveTextContent(/^0$/);
+    expect(cells[5]).toHaveTextContent(/^0$/);
   });
 
   it("left-aligns everything — headers, cells, numbers and the actions", () => {
@@ -111,19 +118,17 @@ describe("ContainersTable", () => {
     expect(document.querySelectorAll("tbody td")[1]).toHaveTextContent("—");
   });
 
-  it("shows a Low stock badge only when something is low", () => {
-    summaries.c1 = { skuCount: 4, totalUnits: 500, totalValue: 100, lowCount: 1 };
-    const { unmount } = renderTable();
-    expect(screen.getByText("Low stock")).toBeInTheDocument();
-    unmount();
-
-    renderTable([container({ id: "c2" })]);
+  // Low stock needs the van's whole stock; that lives in its Stock popup. On
+  // the row it arrived late, per row, and made each row taller as it did.
+  it("has no Low stock badge on the row", () => {
+    renderTable([container({ totalUnits: 3, uniqueItems: 1 })]);
     expect(screen.queryByText("Low stock")).not.toBeInTheDocument();
   });
 
-  it("reads stock only for the rows it is given — the page, not the fleet", () => {
-    renderTable([container({ id: "c1" }), container({ id: "c7", name: "Van 7" })]);
-    expect(new Set(stockAskedFor)).toEqual(new Set(["c1", "c7"]));
+  it("renders a hundred rows without a single request of its own", () => {
+    const many = Array.from({ length: 100 }, (_, i) => container({ id: `c${i}`, name: `Van ${i}` }));
+    renderTable(many);
+    expect(document.querySelectorAll("tbody tr")).toHaveLength(100);
   });
 
   it("opens the van's stock on row click", async () => {
@@ -193,8 +198,38 @@ describe("ContainersTable — a stable first frame", () => {
 
   it("offers a drag handle on every header", () => {
     table();
-    for (const id of ["name", "description", "users", "department", "items", "actions"]) {
+    for (const id of ["name", "description", "users", "department", "items", "skus", "actions"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
+  });
+});
+
+/**
+ * Loading, the table is itself: the same header and column widths, a page of
+ * rows as tall as the real ones — so nothing moves when the vans arrive.
+ */
+describe("ContainersTable — loading", () => {
+  const shape = () => ({
+    headers: [...document.querySelectorAll("thead th")].map((th) => th.textContent),
+    widths: [...document.querySelectorAll("col")].map((c) => (c as HTMLElement).style.width),
+  });
+
+  it("has the same columns, at the same widths, as the loaded table", () => {
+    const { unmount } = renderTable();
+    const loaded = shape();
+    unmount();
+
+    render(
+      <TooltipProvider>
+        <ContainersTable containers={[]} users={users} onEdit={onEdit} onStock={onStock} loading skeletonRows={50} />
+      </TooltipProvider>,
+    );
+    expect(shape()).toEqual(loaded);
+    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(50);
+  });
+
+  it("gives real rows the skeleton's height", () => {
+    renderTable();
+    expect(document.querySelector("tbody tr")?.className).toContain(INVENTORY_ROW);
   });
 });

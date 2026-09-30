@@ -256,6 +256,12 @@ describe("ContainerEditDialog — loading and missing", () => {
     expect(screen.queryByLabelText("Name")).toBeNull();
   });
 
+  it("has its footer in place while it loads", () => {
+    mocks.query = { isLoading: true, isError: false, data: undefined };
+    open();
+    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
+  });
+
   it("says the van is gone when it can't be read", () => {
     mocks.query = { isLoading: false, isError: true, data: undefined };
     open();

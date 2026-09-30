@@ -10,26 +10,33 @@ const mocks = vi.hoisted(() => ({
   more: null as Transfer[] | null,
   listFilters: [] as unknown[],
   countFilters: [] as unknown[],
+  permsLoading: false,
+  denied: false,
+  list: { isLoading: false, isPlaceholderData: false, noData: false },
+  namesLoading: false,
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
+  useDenied: () => () => !mocks.permsLoading && mocks.denied,
+  usePermissions: () => ({ can: () => !mocks.permsLoading && !mocks.denied, isLoading: mocks.permsLoading }),
 }));
 vi.mock("../hooks", () => ({
   useTransfers: (filter: unknown) => {
     mocks.listFilters.push(filter);
     return {
-    data: {
-      pages: [
-        { data: mocks.transfers, pagination: {} },
-        ...(mocks.more ? [{ data: mocks.more, pagination: {} }] : []),
-      ],
-    },
+    data: mocks.list.noData
+      ? undefined
+      : {
+          pages: [
+            { data: mocks.transfers, pagination: {} },
+            ...(mocks.more ? [{ data: mocks.more, pagination: {} }] : []),
+          ],
+        },
     hasNextPage: false,
     isFetchingNextPage: false,
-    isLoading: false,
+    isLoading: mocks.list.isLoading,
+    isPlaceholderData: mocks.list.isPlaceholderData,
     isError: false,
     fetchNextPage: vi.fn(),
     refetch: vi.fn(),
@@ -40,11 +47,13 @@ vi.mock("../hooks", () => ({
     return { data: { total: mocks.transfers.length, atLeast: false } };
   },
   useLocationMap: () => ({
-    map: new Map([
-      ["w1", "WAREHOUSE TX"],
-      ["c1", "Van 1"],
-    ]),
-    isLoading: false,
+    map: mocks.namesLoading
+      ? new Map()
+      : new Map([
+          ["w1", "WAREHOUSE TX"],
+          ["c1", "Van 1"],
+        ]),
+    isLoading: mocks.namesLoading,
   }),
 }));
 // Обидва діалоги тягнуть react-query самі по собі; тут перевіряється таблиця.
@@ -74,6 +83,10 @@ beforeEach(() => {
   mocks.more = null;
   mocks.listFilters = [];
   mocks.countFilters = [];
+  mocks.permsLoading = false;
+  mocks.denied = false;
+  mocks.list = { isLoading: false, isPlaceholderData: false, noData: false };
+  mocks.namesLoading = false;
 });
 
 describe("TransfersPage", () => {
@@ -211,5 +224,53 @@ describe("TransfersPage — a stable first frame", () => {
     for (const id of ["type", "route", "items", "by", "when"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
+  });
+});
+
+describe("TransfersPage — nothing jumps", () => {
+  it("draws the real table while the first page loads, with the pager's space held", () => {
+    mocks.list = { isLoading: true, isPlaceholderData: false, noData: true };
+    render(<TransfersPage />);
+
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+      "Type",
+      "Route",
+      "Items",
+      "By",
+      "When",
+    ]);
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("list-pagination")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("keeps the rows on screen, dimmed, while another type loads", () => {
+    mocks.list = { isLoading: false, isPlaceholderData: true, noData: false };
+    render(<TransfersPage />);
+    expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("never flashes No access while permissions are still loading", () => {
+    mocks.permsLoading = true;
+    render(<TransfersPage />);
+    expect(screen.queryByText("No access")).toBeNull();
+    expect(screen.getByRole("button", { name: /New transfer/ })).toBeDisabled();
+  });
+
+  it("says No access once it is known", () => {
+    mocks.denied = true;
+    render(<TransfersPage />);
+    expect(screen.getByText("No access")).toBeInTheDocument();
+  });
+
+  // Every route used to read "Warehouse → Container" and then change its
+  // text once the fleet arrived.
+  it("lets a route's location names wait for the names, instead of printing a placeholder word", () => {
+    mocks.namesLoading = true;
+    render(<TransfersPage />);
+    const route = document.querySelectorAll("tbody td")[1] as HTMLElement;
+    expect(route).not.toHaveTextContent("Warehouse");
+    expect(route).not.toHaveTextContent("Container");
+    expect(route.querySelectorAll("[data-testid=route-name-pending]")).toHaveLength(2);
   });
 });

@@ -66,7 +66,12 @@ describe("useAssignUserContainer", () => {
       queryKeys.inventory.containers.everything(),
       queryKeys.inventory.containers.mine(),
     ];
-    for (const key of keys) client.setQueryData(key, {});
+    // Who works from a van changes no stock: the vans' stock reads stay.
+    const untouched = [
+      queryKeys.inventory.locationStock("container", "c2"),
+      queryKeys.inventory.containers.stock("c2"),
+    ];
+    for (const key of [...keys, ...untouched]) client.setQueryData(key, {});
     const { result } = renderHook(() => useAssignUserContainer(), { wrapper: wrapper(client) });
 
     act(() =>
@@ -78,6 +83,7 @@ describe("useAssignUserContainer", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(keys.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(keys.map(() => true));
+    expect(untouched.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(untouched.map(() => false));
     expect(toast.success).toHaveBeenCalledWith("Taras Koval now works from Van 2");
   });
 

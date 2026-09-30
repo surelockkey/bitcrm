@@ -364,3 +364,54 @@ describe("LocationStockDialog — nothing there, or nothing readable", () => {
     expect(card("Value")).toHaveTextContent("—");
   });
 });
+
+/**
+ * A centred popup that changes height moves both its edges: on load, on each
+ * search keystroke, on a short last page. This one is its final height from
+ * the first frame, and its loading state already has the toolbar and the pager.
+ */
+describe("LocationStockDialog — nothing jumps", () => {
+  it("is the same height loading and loaded", async () => {
+    open();
+    const loading = screen.getByRole("dialog").className;
+    expect(screen.getByTestId("location-stock-loading")).toBeInTheDocument();
+    await screen.findByText("Deadbolt");
+
+    expect(screen.getByRole("dialog").className).toBe(loading);
+    expect(loading).toMatch(/(^|\s)h-\[/);
+  });
+
+  it("loading, already has the search, the rows-per-page and the pager in place", () => {
+    open();
+    const panel = screen.getByTestId("location-stock-loading");
+    expect(within(panel).getByRole("searchbox", { name: "Search items" })).toBeDisabled();
+    expect(within(panel).getByRole("combobox", { name: "Rows per page" })).toBeInTheDocument();
+    expect(within(panel).getByTestId("panel-pager-placeholder")).toBeInTheDocument();
+    expect(within(panel).getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  });
+
+  it("keeps the table a page tall on a short last page, so the pager stays put", async () => {
+    vanRows = [
+      ...vanRows,
+      ...Array.from({ length: 10 }, (_, i) => row(`y${i}`, `Bolt ${i}`, 1)),
+    ];
+    open();
+    await screen.findByText("Deadbolt");
+    const frame = () => document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
+    const full = frame().style.minHeight;
+    expect(full).not.toBe("");
+
+    await userEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(bodyRows()).toHaveLength(2);
+    expect(frame().style.minHeight).toBe(full);
+  });
+
+  it("remembers the rows per page for next time", async () => {
+    vanRows = [...vanRows, ...Array.from({ length: 30 }, (_, i) => row(`z${i}`, `Nut ${i}`, 1))];
+    open();
+    await screen.findByText("Deadbolt");
+    await userEvent.click(screen.getByRole("combobox", { name: "Rows per page" }));
+    await userEvent.click(screen.getByRole("option", { name: "25" }));
+    expect(localStorage.getItem("bitcrm.page-size.stock-popup")).toBe("25");
+  });
+});

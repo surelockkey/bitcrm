@@ -13,6 +13,7 @@ import {
   useCreateTemplate,
   useFillFromWarehouse,
   useRestoreTemplate,
+  useTemplateDiff,
 } from "./hooks";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -27,6 +28,34 @@ const template = { id: "t1", name: "Standard van", items: [], status: InventoryS
 const line = (over: object) => ({ productId: "p1", productName: "Deadbolt", sku: "L", target: 4, onHand: 1, missing: 3, ...over });
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("useTemplateDiff", () => {
+  // Picking another van or warehouse kept the popup at one table, not
+  // table → skeleton → table.
+  it("keeps the last comparison on screen while the next one is read", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    server.use(
+      http.get("*/inventory/container-templates/t1/diff", async ({ request }) => {
+        const van = new URL(request.url).searchParams.get("containerId");
+        if (van === "c2") await gate;
+        return HttpResponse.json({ success: true, data: { templateId: "t1", containerId: van, lines: [] } });
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result, rerender } = renderHook(({ van }: { van: string }) => useTemplateDiff("t1", van), {
+      wrapper: wrapper(client),
+      initialProps: { van: "c1" },
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    rerender({ van: "c2" });
+    expect(result.current.data?.containerId).toBe("c1");
+    expect(result.current.isPlaceholderData).toBe(true);
+    release();
+    await waitFor(() => expect(result.current.data?.containerId).toBe("c2"));
+  });
+});
 
 describe("useContainerTemplates", () => {
   it("asks for one status at a time, each cached apart", async () => {
@@ -131,7 +160,12 @@ describe("useFillFromWarehouse", () => {
       queryKeys.inventory.transfers.list({}),
       queryKeys.inventory.containerTemplates.diff("t1", "c1", "w1"),
     ];
-    for (const key of keys) client.setQueryData(key, {});
+    const untouched = [
+      queryKeys.inventory.locationStock("container", "c2"),
+      queryKeys.inventory.containers.everything(),
+      queryKeys.inventory.containers.count({}),
+    ];
+    for (const key of [...keys, ...untouched]) client.setQueryData(key, {});
     const { result } = renderHook(() => useFillFromWarehouse(), { wrapper: wrapper(client) });
 
     act(() =>
@@ -140,6 +174,8 @@ describe("useFillFromWarehouse", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(keys.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(keys.map(() => true));
+    // …and not the rest of the fleet: another van's stock, the pickers, the counts.
+    expect(untouched.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(untouched.map(() => false));
     expect(toast.success).toHaveBeenCalledWith("Moved 3 units to Van 1");
     expect(toast.warning).toHaveBeenCalledWith("Still short: Key blank (15)");
   });

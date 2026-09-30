@@ -6,9 +6,13 @@ import type { Product } from "@bitcrm/types";
 import { renderWithClient } from "@/test/render-with-client";
 import { ProductsTable } from "./products-table";
 
+const permissionReads = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
+  usePermissions: () => {
+    permissionReads.n += 1;
+    return { can: () => true };
+  },
 }));
 vi.mock("../hooks", () => ({
   useArchiveProduct: () => ({ mutate: vi.fn(), isPending: false }),
@@ -227,5 +231,35 @@ describe("ProductsTable — a stable first frame", () => {
     ]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
+  });
+});
+
+describe("ProductsTable — loading and waiting", () => {
+  it("loading, has the same columns at the same widths as the loaded table", () => {
+    const shape = (c: HTMLElement) => ({
+      headers: [...c.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label")),
+      widths: [...c.querySelectorAll("col")].map((col) => (col as HTMLElement).style.width),
+    });
+    const loaded = table();
+    const want = shape(loaded.container);
+    loaded.unmount();
+
+    const skeleton = table([], { loading: true, skeletonRows: 50 });
+    expect(shape(skeleton.container)).toEqual(want);
+    expect(screen.getAllByTestId("skeleton-row")).toHaveLength(50);
+  });
+
+  it("keeps the Cost column while it is not yet known whether money may be shown", () => {
+    const { headers } = table([product()], { showCost: "pending" });
+    expect(headers()).toContain("Cost");
+    expect(screen.queryByText("$10.00")).toBeNull();
+  });
+
+  // A hundred rows used to mean a hundred subscriptions to the current user,
+  // two hundred mutations and a hundred confirm dialogs.
+  it("reads the permissions once for the table, not once per row", () => {
+    permissionReads.n = 0;
+    table(Array.from({ length: 100 }, (_, i) => product({ id: `p${i}`, name: `Item ${i}` })));
+    expect(permissionReads.n).toBeLessThan(5);
   });
 });

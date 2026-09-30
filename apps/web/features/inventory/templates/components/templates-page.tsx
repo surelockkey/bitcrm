@@ -11,12 +11,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { arraySource } from "@/lib/paging/array-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { NoAccess } from "@/features/inventory/components/no-access";
+import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
 import { useContainerTemplates } from "../hooks";
-import { TemplatesTable } from "./templates-table";
+import { TEMPLATES_TABLE_KEY, TemplatesTable } from "./templates-table";
 import { TemplateDialog } from "./template-dialog";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 
@@ -30,24 +35,35 @@ const EXTRAS = ["container"] as const;
  * van — see what it has, what is missing, and fill the gap from a warehouse.
  */
 export function TemplatesPage() {
-  const { can } = usePermissions();
-  if (!can("containers", "view")) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No access</h2>
-        <p className="text-sm text-muted-foreground">You don&apos;t have permission to view containers.</p>
-      </div>
-    );
+  const denied = useDenied();
+  // Refused only once the permissions are known — never a flash of "No access".
+  if (denied("containers", "view")) {
+    return <NoAccess text="You don't have permission to view containers." />;
   }
   return <Templates />;
 }
 
 function Templates() {
-  const { can } = usePermissions();
+  const { can, isLoading: permsLoading } = usePermissions();
   const [status, setStatus] = useState<InventoryStatus>(InventoryStatus.ACTIVE);
-  // The server answers one status at a time, whole — templates are few.
+  // The server answers one status at a time, whole — templates are few, but
+  // the table still pages, under the same panel as every other list.
   const query = useContainerTemplates(status);
-  const templates = query.data ?? [];
+  const all = useMemo(() => query.data ?? [], [query.data]);
+  const loading = query.isLoading && !query.data;
+  const [pageSize, setPageSize] = usePageSize(TEMPLATES_TABLE_KEY);
+  const pager = usePager(arraySource(all, pageSize, loading), {
+    total: loading ? undefined : all.length,
+    pageSize,
+    resetKey: JSON.stringify({ status, pageSize }),
+  });
+  const templates = pager.items;
+  const skeletonRows = useSkeletonRows(
+    TEMPLATES_TABLE_KEY,
+    pageSize,
+    undefined,
+    loading ? undefined : templates.length,
+  );
 
   // Used by: the vans naming each template, across the whole fleet.
   const locations = useAllLocations();
@@ -76,8 +92,12 @@ function Templates() {
           </SelectContent>
         </Select>
         <span className="ml-auto" />
-        {can("containers", "create") ? (
-          <Button className="h-9 gap-1.5 px-3.5" onClick={() => popups.open("template", "new")}>
+        {permsLoading || can("containers", "create") ? (
+          <Button
+            className="h-9 gap-1.5 px-3.5"
+            disabled={permsLoading}
+            onClick={() => popups.open("template", "new")}
+          >
             <Plus className="size-4" />
             New template
           </Button>
@@ -85,13 +105,7 @@ function Templates() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {query.isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : query.isError ? (
+        {query.isError && !query.data ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <TriangleAlert className="size-6" />
@@ -101,7 +115,7 @@ function Templates() {
               Retry
             </Button>
           </div>
-        ) : templates.length === 0 ? (
+        ) : !loading && templates.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <ClipboardList className="size-6" />
@@ -118,12 +132,18 @@ function Templates() {
             </div>
           </div>
         ) : (
-          <TemplatesTable
-            templates={templates}
-            usedBy={usedBy}
-            onEdit={(t) => popups.open("template", t.id)}
-            onApply={(t) => popups.open("apply", t.id)}
-          />
+          <>
+            <TemplatesTable
+              templates={templates}
+              usedBy={usedBy}
+              usedByPending={locations.isLoading}
+              loading={loading}
+              skeletonRows={skeletonRows}
+              onEdit={(t) => popups.open("template", t.id)}
+              onApply={(t) => popups.open("apply", t.id)}
+            />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+          </>
         )}
       </div>
 
