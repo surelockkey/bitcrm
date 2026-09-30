@@ -30,6 +30,9 @@ import { DealTaxResolver } from './billing/deal-tax.resolver';
 import { DealDashboardController } from './dashboard/deal-dashboard.controller';
 import { DealDashboardService } from './dashboard/deal-dashboard.service';
 import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.scheduler';
+import { SalesReportController } from './report/sales-report.controller';
+import { SalesReportService } from './report/sales-report.service';
+import { SalesReportSettingsRepository } from './report/sales-report-settings.repository';
 import { JobsReportController } from './report/jobs-report.controller';
 import { JobsReportService } from './report/jobs-report.service';
 import { JobsReportSettingsRepository } from './report/jobs-report-settings.repository';
@@ -46,6 +49,8 @@ import { JobsReportSettingsRepository } from './report/jobs-report-settings.repo
     DealAttachmentsController,
     DealBillingController,
     DealDashboardController,
+    // The Sales report's `report/sales/*`, with the other reports ahead of `/:id`.
+    SalesReportController,
     JobsReportController,
     DealsController,
   ],
@@ -65,6 +70,8 @@ import { JobsReportSettingsRepository } from './report/jobs-report-settings.repo
     DealBillingService,
     DealDashboardService,
     DashboardSnapshotScheduler,
+    SalesReportService,
+    SalesReportSettingsRepository,
     JobsReportService,
     JobsReportSettingsRepository,
   ],
