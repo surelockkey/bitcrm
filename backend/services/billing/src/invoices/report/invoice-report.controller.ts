@@ -106,9 +106,14 @@ export class InvoiceReportController {
       'business days. `statuses` (paid, partially_paid, due, overdue — Due is every unpaid one), `daysDue` ' +
       '(0_30 … over_120, on the due date, unpaid only), `sent` (sent / unsent) — OR inside a group, AND between ' +
       'groups; `search` = invoice number or name. A filter that can only select unpaid invoices is answered ' +
-      'from UnpaidIndex. → `{ items, nextCursor? }`.',
+      'from UnpaidIndex. Each row carries `report` — Workiz’s figures: Subtotal without the card service fee, ' +
+      'Amount with the tip, Due 0 and Status Paid when a cent or less is owed. → `{ items, nextCursor? }`.',
   })
-  async list(@Query() query: InvoiceReportQueryDto, @CallerCtx() caller: Caller) {
-    return { success: true, data: await this.report.list(query, caller) };
+  async list(
+    @Query() query: InvoiceReportQueryDto,
+    @CallerCtx() caller: Caller,
+    @Headers('authorization') authorization?: string,
+  ) {
+    return { success: true, data: await this.report.list(query, caller, authorization) };
   }
 }

@@ -1,7 +1,7 @@
 import { createReadStream, readdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { createInterface } from 'readline';
-import type { Estimate, Invoice, Payment, PaymentRefund } from '@bitcrm/types';
+import { invoiceReportFigures, type Estimate, type Invoice, type Payment, type PaymentRefund } from '@bitcrm/types';
 import { METADATA_SK, REFUND_SK_PREFIX, stripKeys } from '../common/constants/dynamo.constants';
 import { estimateCards } from '../estimates/report/estimate-report.rules';
 import { agingCards, dayWindow, inWindow, invoiceCards, isOpen } from '../invoices/report/invoice-report.rules';
@@ -16,8 +16,25 @@ import { paidByJob } from '../reports/paid-by-job.rules';
  * collections the Tax report's Paid tab asks billing for.
  *
  *   npx ts-node src/scripts/verify-billing-reports.ts --jsonl <package>/billing \
- *     --from 2026-09-01 --to 2026-09-27 --today 2026-09-29 [--paid-out paid.json]
+ *     --from 2026-09-01 --to 2026-09-27 --today 2026-09-29 [--paid-out paid.json] \
+ *     [--deals <package>/deals]   # the jobs' card service fees, for Workiz's Subtotal
  */
+
+/** `totals.serviceFee` of the jobs — what the report reads through `POST /deals/by-ids`. */
+async function readFees(dir: string, want: Set<string>): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.jsonl')).sort()) {
+    const rl = createInterface({ input: createReadStream(join(dir, file)), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (!line.startsWith('{"PK":"DEAL#') || !want.has(line.slice(12, 48))) continue;
+      const item = JSON.parse(line) as { SK?: string; id?: string; totals?: { serviceFee?: number } };
+      if (item.SK !== METADATA_SK || !item.id) continue;
+      const fee = item.totals?.serviceFee;
+      if (typeof fee === 'number' && fee > 0) out.set(item.id, fee);
+    }
+  }
+  return out;
+}
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -70,18 +87,25 @@ async function main(): Promise<void> {
   for (const [k, c] of Object.entries(aging)) console.log(`  ${k.padEnd(11)} ${String(c.count).padStart(5)}  $${money(c.amount)}`);
   const notYet = open.filter((i) => !(i.dueDate < today));
   console.log(`  not yet due ${String(notYet.length).padStart(5)}  $${money(sum(notYet.map((i) => i.totals.balanceDue)))}`);
-  const cent = open.filter((i) => i.totals.balanceDue <= 0.01);
-  console.log(`  (of them owing ≤ $0.01: ${cent.length}, $${money(sum(cent.map((i) => i.totals.balanceDue)))})`);
+  const cent = invoices.filter((i) => (i.status === 'due' || i.status === 'overdue') && i.totals.balanceDue > 0 && i.totals.balanceDue <= 0.01);
+  console.log(`  (left out as paid, owing ≤ $0.01: ${cent.length}, $${money(sum(cent.map((i) => i.totals.balanceDue)))})`);
 
   // ---- Invoices report: the list for the created window, and its cards.
   const w = dayWindow(from, to);
   const listed = invoices.filter((i) => inWindow(i.createdAt, w));
+  const dealsDir = arg('--deals');
+  const fees = dealsDir ? await readFees(dealsDir, new Set(listed.map((i) => i.dealId))) : new Map<string, number>();
+  // Workiz's figures, as the report prints them (imported rows: Workiz's own tip).
+  const figs = listed.map((i) => invoiceReportFigures(i, { tip: i.tipAmount ?? 0, serviceFee: fees.get(i.dealId) ?? 0 }));
   console.log(`\nInvoices created ${from}..${to}`);
   console.log(`  count ${listed.length}`);
-  console.log(`  Σ subtotal $${money(sum(listed.map((i) => i.totals.subtotal)))}`);
-  console.log(`  Σ tax      $${money(sum(listed.map((i) => i.totals.tax)))}`);
-  console.log(`  Σ amount   $${money(sum(listed.map((i) => i.totals.total)))}`);
-  console.log(`  Σ due      $${money(sum(listed.map((i) => i.totals.balanceDue)))}`);
+  console.log(`  Σ subtotal $${money(sum(figs.map((f) => f.subtotal)))}   (stored $${money(sum(listed.map((i) => i.totals.subtotal)))}, fees $${money(sum(figs.map((f) => f.serviceFee)))})`);
+  console.log(`  Σ tax      $${money(sum(figs.map((f) => f.tax)))}`);
+  console.log(`  Σ amount   $${money(sum(figs.map((f) => f.amount)))}   (stored $${money(sum(listed.map((i) => i.totals.total)))}, tips $${money(sum(figs.map((f) => f.tip)))})`);
+  console.log(`  Σ due      $${money(sum(figs.map((f) => f.balance)))}   (stored $${money(sum(listed.map((i) => i.totals.balanceDue)))})`);
+  const byStatus = new Map<string, number>();
+  for (const f of figs) byStatus.set(f.status, (byStatus.get(f.status) ?? 0) + 1);
+  console.log(`  status column ${[...byStatus].map(([k, n]) => `${k} ${n}`).join(' · ')}`);
   const cards = invoiceCards(open, w, today);
   console.log(`  cards: due ${cards.due.count} / $${money(cards.due.amount)}, overdue ${cards.overdue.count} / $${money(cards.overdue.amount)}, unsent ${cards.unsent.count}`);
   const allCards = invoiceCards(open, {}, today);

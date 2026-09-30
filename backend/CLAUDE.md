@@ -256,8 +256,9 @@ CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
 INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed);
-                                     sparse GSI4 UNPAID / <invoiceId> while status is due|overdue — set and cleared by
-                                     the repository on every write that carries `status`, never by a caller
+                                     sparse GSI4 UNPAID / <invoiceId> while status is due|overdue AND more than $0.01 is
+                                     owed (Workiz counts a cent as paid) — set and cleared by the repository on every
+                                     write that carries `status` (+ totals), never by a caller
 UNPAIDINDEX        / STATE           { readyAt, count } — stamped by backfill:unpaid-index; until it exists the readers
                                      of UnpaidIndex answer from the full INVOICES list (slow, never wrong)
 ESTIMATE#<id>      / METADATA | ITEM#<lineId>   GSI1 ESTIMATES, GSI2 CONTACT#…, GSI3 DEAL#<dealId>; DEAL#<id>/COUNTERS estimateSeq
@@ -618,7 +619,12 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `npm run backfill:unpaid-index -w billing-service` has run (Terraform first:
   the UnpaidIndex GSI); run it again after every Workiz import. Offline
   checks against an import package: `verify:billing-reports` (billing) and
-  `verify:tax-report` (deal).
+  `verify:tax-report` (deal). The reports read money the way Workiz prints it
+  (`invoiceReportFigures` in @bitcrm/types): a cent or less owed is Paid /
+  $0.00 (the invoice keeps the cent), Subtotal leaves out the card service fee
+  (the job's `totals.serviceFee`), Amount adds the tip (Workiz's on an
+  imported invoice, the ledger's otherwise) — stored totals are never
+  rewritten for it.
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a

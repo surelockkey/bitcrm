@@ -14,7 +14,8 @@ import { isConditionalCheckFailed } from '../common/dynamo-errors';
 import { UnpaidInvoicesRepository } from '../invoices/unpaid-invoices.repository';
 
 /**
- * Backfill: file every open invoice (status `due` / `overdue`) on UnpaidIndex
+ * Backfill: file every open invoice (status `due` / `overdue`, more than a
+ * cent owed — Workiz's rule) on UnpaidIndex
  * (`GSI4PK = UNPAID`, `GSI4SK = <id>`) and take every other invoice off it,
  * then stamp `UNPAIDINDEX / STATE` so the readers (Aging invoices, the
  * Invoices report cards, the overdue sweep) switch from the full list to the
@@ -38,13 +39,15 @@ interface Row {
   PK: string;
   id: string;
   status?: string;
+  totals?: { balanceDue?: number };
   GSI4PK?: string;
   GSI4SK?: string;
 }
 
 /** What one invoice row needs, or `null` when its keys are already right. */
 export function unpaidIndexFix(row: Row): { set?: { GSI4PK: string; GSI4SK: string }; remove?: true } | null {
-  const want = unpaidIndexKeys(row.id, row.status);
+  // Open status and more than a cent owed (Workiz's rule); no balance = 0.
+  const want = unpaidIndexKeys(row.id, row.status, row.totals?.balanceDue ?? 0);
   if (want) {
     return row.GSI4PK === want.GSI4PK && row.GSI4SK === want.GSI4SK ? null : { set: want };
   }
@@ -68,14 +71,14 @@ async function main(): Promise<void> {
         IndexName: BILLING_GSI1_NAME,
         KeyConditionExpression: 'GSI1PK = :pk',
         ExpressionAttributeValues: { ':pk': INVOICES_GSI1PK },
-        ProjectionExpression: 'PK, id, #status, GSI4PK, GSI4SK',
+        ProjectionExpression: 'PK, id, #status, totals, GSI4PK, GSI4SK',
         ExpressionAttributeNames: { '#status': 'status' },
         ExclusiveStartKey: startKey,
       }),
     );
     for (const item of (page.Items ?? []) as Row[]) {
       seen++;
-      if (unpaidIndexKeys(item.id, item.status)) open++;
+      if (unpaidIndexKeys(item.id, item.status, item.totals?.balanceDue ?? 0)) open++;
       const fix = unpaidIndexFix(item);
       if (!fix) continue;
       if (fix.set) filed++;
@@ -87,10 +90,16 @@ async function main(): Promise<void> {
             TableName: BILLING_TABLE,
             Key: { PK: item.PK, SK: 'METADATA' },
             UpdateExpression: fix.set ? 'SET GSI4PK = :pk4, GSI4SK = :sk4' : 'REMOVE GSI4PK, GSI4SK',
-            ConditionExpression: '#status = :seen',
-            ExpressionAttributeNames: { '#status': 'status' },
+            // On the status AND balance it was read with: a payment landing meanwhile wins.
+            ConditionExpression:
+              typeof item.totals?.balanceDue === 'number' ? '#status = :seen AND #tot.#bal = :bal' : '#status = :seen',
+            ExpressionAttributeNames: {
+              '#status': 'status',
+              ...(typeof item.totals?.balanceDue === 'number' && { '#tot': 'totals', '#bal': 'balanceDue' }),
+            },
             ExpressionAttributeValues: {
               ':seen': item.status ?? null,
+              ...(typeof item.totals?.balanceDue === 'number' && { ':bal': item.totals.balanceDue }),
               ...(fix.set && { ':pk4': fix.set.GSI4PK, ':sk4': fix.set.GSI4SK }),
             },
           }),

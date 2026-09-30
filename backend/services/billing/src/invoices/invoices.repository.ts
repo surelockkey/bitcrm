@@ -59,6 +59,7 @@ export interface InvoiceListFilter {
  *   GSI1 (ListIndex):    GSI1PK = INVOICES,            GSI1SK = <createdAt>#<id>
  *   GSI2 (ContactIndex): GSI2PK = CONTACT#<contactId>, GSI2SK = INVOICE#<createdAt>#<id>
  *   GSI4 (UnpaidIndex):  GSI4PK = UNPAID,             GSI4SK = <id>   only while `due`/`overdue`
+ *                                                                          and more than $0.01 owed
  *
  * The UnpaidIndex keys follow `status` on every write that carries one
  * (create, and any update whose `set` names `status`), so no caller keeps
@@ -85,7 +86,7 @@ export class InvoicesRepository {
             GSI1SK: listSk(invoice.createdAt, invoice.id),
             GSI2PK: contactGsi2Pk(invoice.contactId),
             GSI2SK: contactGsi2Sk('INVOICE', invoice.createdAt, invoice.id),
-            ...unpaidIndexKeys(invoice.id, invoice.status),
+            ...unpaidIndexKeys(invoice.id, invoice.status, invoice.totals?.balanceDue),
             entityType: 'invoice',
             ...invoice,
           },
@@ -126,11 +127,15 @@ export class InvoicesRepository {
       patch.GSI2SK = contactGsi2Sk('INVOICE', set.createdAt, id);
     }
     // A write that names the status also decides whether the invoice is on
-    // UnpaidIndex — the overdue sweep, a payment and a snapshot refresh alike.
+    // UnpaidIndex — a payment and a snapshot refresh alike (they carry the
+    // totals, so the balance decides too: a cent or less owed is paid). The
+    // overdue sweep names only the status (due → overdue): an open invoice
+    // stays exactly where it was, on the index or off it.
     if (typeof set.status === 'string') {
-      const keys = unpaidIndexKeys(id, set.status);
-      if (keys) Object.assign(patch, keys);
-      else removals.push('GSI4PK', 'GSI4SK');
+      const balance = set.totals?.balanceDue;
+      const keys = unpaidIndexKeys(id, set.status, balance);
+      if (!keys) removals.push('GSI4PK', 'GSI4SK');
+      else if (typeof balance === 'number') Object.assign(patch, keys);
     }
     delete patch.version;
     const expr = buildUpdate(patch, removals, { incrementVersion: opts.bumpVersion !== false });

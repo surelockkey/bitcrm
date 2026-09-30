@@ -18,7 +18,7 @@ export const BILLING_TABLE = process.env.BILLING_TABLE || 'BitCRM_Billing';
 //                       GSI4SK = <invoiceId>
 //
 // UnpaidIndex holds exactly the invoices that still owe money (status `due`
-// or `overdue`) — ~600 of ~78 000. Aging invoices, the Invoices report's
+// or `overdue`, more than a cent owed — Workiz's rule) — ~550 of ~78 000. Aging invoices, the Invoices report's
 // cards and "Days due", and the overdue sweep read that one small partition
 // instead of the whole list. The keys follow `status` on every write
 // (`unpaidIndexKeys`), so no caller maintains them; rows written before the
@@ -61,13 +61,24 @@ export const INVOICES_GSI1PK = 'INVOICES';
 export const UNPAID_GSI4PK = 'UNPAID';
 /** The invoice statuses that put an invoice on UnpaidIndex. */
 export const UNPAID_STATUSES: ReadonlySet<string> = new Set(['due', 'overdue']);
+/** Workiz counts a balance of a cent or less as paid (`INVOICE_PAID_TOLERANCE` in @bitcrm/types). */
+export const UNPAID_BALANCE_TOLERANCE = 0.01;
 /**
- * The UnpaidIndex keys an invoice in `status` carries, or `null` = none (the
- * row must not be on the index). The sort key is the id: every reader takes
- * the whole ~600-row partition and orders it itself.
+ * The UnpaidIndex keys an invoice carries, or `null` = none (the row must not
+ * be on the index): open status AND more than a cent owed, as Workiz counts
+ * unpaid. `balanceDue` unknown (a write that names the status but not the
+ * totals) answers by status alone — callers that know the balance pass it.
+ * The sort key is the id: every reader takes the whole ~600-row partition and
+ * orders it itself.
  */
-export function unpaidIndexKeys(id: string, status: string | undefined): { GSI4PK: string; GSI4SK: string } | null {
-  return status && UNPAID_STATUSES.has(status) ? { GSI4PK: UNPAID_GSI4PK, GSI4SK: id } : null;
+export function unpaidIndexKeys(
+  id: string,
+  status: string | undefined,
+  balanceDue?: number,
+): { GSI4PK: string; GSI4SK: string } | null {
+  if (!status || !UNPAID_STATUSES.has(status)) return null;
+  if (typeof balanceDue === 'number' && !(balanceDue > UNPAID_BALANCE_TOLERANCE)) return null;
+  return { GSI4PK: UNPAID_GSI4PK, GSI4SK: id };
 }
 /** `UNPAIDINDEX` / `STATE` — written by `backfill:unpaid-index` once every row carries its keys. */
 export const UNPAID_INDEX_STATE_PK = 'UNPAIDINDEX';

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { QueryCommand, type QueryCommandInput } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService, countRows, type CountRowsResult } from '@bitcrm/shared';
-import type { Invoice } from '@bitcrm/types';
+import { INVOICE_PAID_TOLERANCE, type Invoice } from '@bitcrm/types';
 import {
   BILLING_GSI1_NAME,
   BILLING_TABLE,
@@ -44,22 +44,26 @@ export class InvoiceReportRepository {
     }
 
     const filters: string[] = [];
-    const open = () => {
+    // Workiz's rule: owing a cent or less is paid.
+    const openParts = () => {
       names['#st'] = 'status';
       names['#tot'] = 'totals';
       names['#bal'] = 'balanceDue';
       values[':due'] = 'due';
       values[':ovd'] = 'overdue';
-      values[':zero'] = 0;
-      return '(#st IN (:due, :ovd) AND #tot.#bal > :zero)';
+      values[':cent'] = INVOICE_PAID_TOLERANCE;
+    };
+    const open = () => {
+      openParts();
+      return '(#st IN (:due, :ovd) AND #tot.#bal > :cent)';
     };
     if (f.statuses?.length) {
       const any: string[] = [];
       for (const s of new Set(f.statuses)) {
         if (s === 'paid') {
-          names['#st'] = 'status';
+          openParts();
           values[':paid'] = 'paid';
-          any.push('#st = :paid');
+          any.push('(#st = :paid OR (#st IN (:due, :ovd) AND #tot.#bal <= :cent))');
         } else if (s === 'due') {
           any.push(open());
         } else if (s === 'overdue') {
@@ -70,6 +74,7 @@ export class InvoiceReportRepository {
         } else if (s === 'partially_paid') {
           const o = open();
           names['#paid'] = 'amountPaid';
+          values[':zero'] = 0;
           any.push(`(${o} AND #tot.#paid > :zero)`);
         }
       }

@@ -3,6 +3,7 @@ import {
   agingDaysLate,
   invoiceDaysDueWindow,
   invoiceDiscountPercent,
+  invoiceReportFigures,
   type Invoice,
 } from '@bitcrm/types';
 import {
@@ -14,6 +15,7 @@ import {
   invoiceCards,
   invoiceCsvLine,
   invoiceStatusText,
+  isOpen as isOpenRule,
   matchesFilter,
   onlyOpen,
   sortAging,
@@ -105,6 +107,28 @@ describe('Days Late and the Aging buckets (Workiz, verified live 2026-09-29)', (
   it('writes Workiz’s CSV row: raw dates, "Days By"', () => {
     const r = { ...agingRow(inv({ dueDate: '2026-09-13', createdAt: '2026-07-15T22:42:42.000Z', balance: 12.5, total: 20 }), TODAY), clientName: 'Doe, Jane' };
     expect(agingCsvLine(r)).toBe(`${r.number},,"Doe, Jane",20.00,12.50,2026-09-13 00:00:00,2026-07-15 18:42:42,16`);
+  });
+});
+
+describe('Workiz’s cent rule: owing $0.01 or less is paid', () => {
+  it('keeps such an invoice out of Aging and the cards, and lists it as Paid', () => {
+    const cent = inv({ balance: 0.01, paid: 123.6, dueDate: '2019-01-01' });
+    const real = inv({ balance: 0.02, paid: 10, dueDate: '2019-01-01' });
+    expect(isOpenRule(cent)).toBe(false);
+    expect(agingCards([cent, real].filter(isOpenRule), TODAY).all).toEqual({ count: 1, amount: 0.02 });
+    expect(matchesFilter(cent, { statuses: ['paid'] }, TODAY)).toBe(true);
+    expect(matchesFilter(cent, { statuses: ['due'] }, TODAY)).toBe(false);
+    expect(matchesFilter(cent, { daysDue: ['over_120'] }, TODAY)).toBe(false);
+    expect(invoiceCards([cent, real], {}, TODAY).due).toEqual({ count: 1, amount: 0.02 });
+  });
+
+  it('shows Workiz’s figures: Subtotal without the card fee, Amount with the tip, Due $0.00 and Paid within a cent', () => {
+    const i = inv({ balance: 0.01, paid: 90, total: 90.01 });
+    i.totals = { ...i.totals, subtotal: 82.55, tax: 5.08, total: 87.63, amountPaid: 87.62, balanceDue: 0.01 };
+    expect(invoiceReportFigures(i, { tip: 12.37, serviceFee: 2.55 })).toEqual({
+      subtotal: 80, tax: 5.08, amount: 100, balance: 0, status: 'paid', tip: 12.37, serviceFee: 2.55,
+    });
+    expect(invoiceCsvLine(i, undefined, undefined, invoiceReportFigures(i, { tip: 12.37, serviceFee: 2.55 }))).toContain(',80.00,,5.08,100.00,0.00,Paid - Not sent,');
   });
 });
 

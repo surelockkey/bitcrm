@@ -1,4 +1,5 @@
 import type { EstimateStatus } from '../entities/estimate.entity';
+import type { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 
 /**
  * The billing reports of Workiz Reports, in BitCRM: Aging invoices, Tax, and
@@ -171,6 +172,75 @@ export interface InvoiceReportSummary {
   needInvoices: { count: number };
   indexReady: boolean;
 }
+
+/**
+ * Workiz counts an invoice that owes no more than a cent as PAID: its lists
+ * show $0.00 due and "Paid", and it is in no Aging bucket, although the
+ * invoice itself still carries the cent (verified on 89 imported invoices).
+ * The reports read the stored balance through this rule; the invoice is not
+ * changed.
+ */
+export const INVOICE_PAID_TOLERANCE = 0.01;
+
+/** What the reports show as due: the balance, or 0 when it is within a cent (or overpaid). */
+export function reportInvoiceBalance(totals: { balanceDue?: number } | undefined): number {
+  const b = totals?.balanceDue ?? 0;
+  return b > INVOICE_PAID_TOLERANCE ? b : 0;
+}
+
+/** Still owes money as the reports count it (Workiz `job_amount_due > $0.01`). */
+export function isReportOpen(inv: { status: string; totals?: { balanceDue?: number } }): boolean {
+  return (inv.status === 'due' || inv.status === 'overdue') && reportInvoiceBalance(inv.totals) > 0;
+}
+
+/** The status the reports show: an open invoice owing ≤ $0.01 reads as Paid. */
+export function reportInvoiceStatus(inv: { status: InvoiceStatus; totals?: { balanceDue?: number } }): InvoiceStatus {
+  if ((inv.status === 'due' || inv.status === 'overdue') && !isReportOpen(inv)) return 'paid';
+  return inv.status;
+}
+
+/**
+ * An invoice's money the way Workiz's Invoices report prints it. BitCRM keeps
+ * the card service fee as a line of the job (so it is in `totals.subtotal`)
+ * and the tip on the payments (so it is NOT in `totals.total`); Workiz shows
+ * Subtotal without the fee and Amount with the tip. Stored totals are left as
+ * they are — this is the report's arithmetic only.
+ */
+export interface InvoiceReportFigures {
+  /** Workiz Subtotal: `totals.subtotal − serviceFee`. */
+  subtotal: number;
+  tax: number;
+  /** Workiz Amount: `totals.total + tip`. */
+  amount: number;
+  /** Workiz Due: the balance, 0 within a cent. */
+  balance: number;
+  status: InvoiceStatus;
+  tip: number;
+  serviceFee: number;
+}
+
+const cents2 = (n: number): number => Math.round((n + Math.sign(n) * Number.EPSILON) * 100) / 100;
+
+export function invoiceReportFigures(
+  inv: Pick<Invoice, 'status' | 'totals'>,
+  extra: { tip?: number; serviceFee?: number } = {},
+): InvoiceReportFigures {
+  const t = inv.totals;
+  const tip = extra.tip ?? 0;
+  const serviceFee = extra.serviceFee ?? 0;
+  return {
+    subtotal: cents2((t?.subtotal ?? 0) - serviceFee),
+    tax: t?.tax ?? 0,
+    amount: cents2((t?.total ?? 0) + tip),
+    balance: reportInvoiceBalance(t),
+    status: reportInvoiceStatus(inv),
+    tip,
+    serviceFee,
+  };
+}
+
+/** A row of the Invoices report list: the invoice plus its report figures. */
+export type InvoiceReportRow = Invoice & { report: InvoiceReportFigures };
 
 /** Workiz's Discount column: the discount as a percent of the subtotal, two places. */
 export function invoiceDiscountPercent(totals: { subtotal?: number; discount?: number } | undefined): number {

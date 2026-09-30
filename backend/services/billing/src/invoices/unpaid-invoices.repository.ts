@@ -7,6 +7,7 @@ import {
   BILLING_GSI4_NAME,
   BILLING_TABLE,
   INVOICES_GSI1PK,
+  UNPAID_BALANCE_TOLERANCE,
   UNPAID_GSI4PK,
   UNPAID_INDEX_STATE_PK,
   UNPAID_INDEX_STATE_SK,
@@ -18,7 +19,8 @@ const NOT_READY_RECHECK_MS = 60_000;
 
 /**
  * The open invoices — every invoice that still owes money (`due` or
- * `overdue`) — as the billing reports and the overdue sweep need them.
+ * `overdue`, more than a cent — Workiz's rule) — as the billing reports and
+ * the overdue sweep need them.
  *
  *   GSI4 (UnpaidIndex): GSI4PK = UNPAID, GSI4SK = <invoiceId>   sparse, ~600 rows
  *   UNPAIDINDEX / STATE  { readyAt, count }   written by `backfill:unpaid-index`
@@ -106,9 +108,14 @@ export class UnpaidInvoicesRepository {
           TableName: BILLING_TABLE,
           IndexName: BILLING_GSI1_NAME,
           KeyConditionExpression: 'GSI1PK = :pk',
-          FilterExpression: '#status IN (:due, :overdue)',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: { ':pk': INVOICES_GSI1PK, ':due': 'due', ':overdue': 'overdue' },
+          FilterExpression: '#status IN (:due, :overdue) AND #tot.#bal > :cent',
+          ExpressionAttributeNames: { '#status': 'status', '#tot': 'totals', '#bal': 'balanceDue' },
+          ExpressionAttributeValues: {
+            ':pk': INVOICES_GSI1PK,
+            ':due': 'due',
+            ':overdue': 'overdue',
+            ':cent': UNPAID_BALANCE_TOLERANCE,
+          },
           ExclusiveStartKey,
         }),
       );

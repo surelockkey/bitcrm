@@ -4,6 +4,10 @@ import {
   agingBucketOf,
   agingDaysLate,
   invoiceDaysDueWindow,
+  invoiceReportFigures,
+  isReportOpen,
+  reportInvoiceBalance,
+  type InvoiceReportFigures,
   type AgingBucket,
   type AgingRow,
   type AgingSort,
@@ -52,12 +56,15 @@ export function inWindow(iso: string | undefined, w: InstantWindow): boolean {
   return true;
 }
 
-/** Still owes money — Workiz's "unpaid" (`job_amount_due > 0`). */
+/**
+ * Still owes money — Workiz's "unpaid": an open status and MORE than a cent
+ * owed (Workiz lists an invoice owing $0.01 as Paid, $0.00 due).
+ */
 export function isOpen(i: Pick<Invoice, 'status' | 'totals'>): boolean {
-  return (i.status === 'due' || i.status === 'overdue') && (i.totals?.balanceDue ?? 0) > 0;
+  return isReportOpen(i);
 }
 
-const balanceOf = (i: Pick<Invoice, 'totals'>): number => i.totals?.balanceDue ?? 0;
+const balanceOf = (i: Pick<Invoice, 'totals'>): number => reportInvoiceBalance(i.totals);
 
 // ----------------------------------------------------------------- aging
 
@@ -73,6 +80,7 @@ export function agingCards(open: Invoice[], today: string): Record<AgingBucket, 
     ReportCard
   >;
   for (const inv of open) {
+    if (!isOpen(inv)) continue;
     const c = Math.round(balanceOf(inv) * 100);
     cents.all.count++;
     cents.all.amount += c;
@@ -166,7 +174,7 @@ export function invoiceCards(
   let overC = 0;
   let unsent = 0;
   for (const inv of open) {
-    if (!inWindow(inv.createdAt, window)) continue;
+    if (!isOpen(inv) || !inWindow(inv.createdAt, window)) continue;
     const c = Math.round(balanceOf(inv) * 100);
     dueN++;
     dueC += c;
@@ -210,7 +218,8 @@ export function onlyOpen(f: InvoiceReportFilter): boolean {
 export function matchesStatus(inv: Invoice, status: InvoiceReportStatus, today: string): boolean {
   switch (status) {
     case 'paid':
-      return inv.status === 'paid';
+      // Paid, or open with a cent or less still owed — Workiz lists it as Paid.
+      return inv.status === 'paid' || ((inv.status === 'due' || inv.status === 'overdue') && !isOpen(inv));
     case 'partially_paid':
       return isOpen(inv) && (inv.totals?.amountPaid ?? 0) > 0;
     case 'due':
@@ -346,25 +355,30 @@ export function invoiceStatusText(inv: Pick<Invoice, 'status' | 'sentAt'>, tz: s
   return inv.sentAt ? `${word} - sent on ${workizDate(inv.sentAt, tz)}` : `${word} - Not sent`;
 }
 
+/**
+ * One CSV row, in Workiz's figures (`invoiceReportFigures`): Subtotal without
+ * the card service fee, Amount with the tip, Due and Status under the cent
+ * rule. Without figures, the stored totals.
+ */
 export function invoiceCsvLine(
   inv: Invoice,
   client: { name?: string; email?: string } | undefined,
   tz: string = BILLING_REPORT_TZ,
+  figures: InvoiceReportFigures = invoiceReportFigures(inv),
 ): string {
-  const t = inv.totals;
   return csvRow([
     inv.number,
     inv.workizName ?? '',
     client?.name ?? '',
     client?.email ?? '',
     inv.createdAt ? businessDay(inv.createdAt, tz) : '',
-    money(t?.subtotal),
+    money(figures.subtotal),
     // Workiz leaves the Discount column of its CSV empty.
     '',
-    money(t?.tax),
-    money(t?.total),
-    money(t?.balanceDue),
-    invoiceStatusText(inv, tz),
+    money(figures.tax),
+    money(figures.amount),
+    money(figures.balance),
+    invoiceStatusText({ status: figures.status, sentAt: inv.sentAt }, tz),
     inv.number,
     '',
   ]);

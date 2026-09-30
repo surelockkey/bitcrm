@@ -166,6 +166,33 @@ describe('InvoiceReportService', () => {
       await expect(service.count({}, caller(DataScope.ASSIGNED_ONLY))).resolves.toEqual({ total: null, atLeast: false });
     });
 
+    it('prints Workiz’s figures: Subtotal without the card fee, Amount with the tip, a cent owed as Paid', async () => {
+      const imported = inv({ balance: 0.01, paid: 87.62 });
+      imported.externalId = 'workiz:invoice:1';
+      imported.tipAmount = 12.37;
+      imported.totals = { ...imported.totals, subtotal: 82.55, tax: 5.08, total: 87.63 };
+      const native = inv({ balance: 0, paid: 50 });
+      const { service, listRepo } = make([]);
+      listRepo.page.mockResolvedValueOnce({ items: [imported, native], nextCursor: undefined as never });
+      const deal = { listDealIdsByTech: jest.fn(), getDealsByIds: jest.fn(async () => [{ id: imported.dealId, totals: { serviceFee: 2.55, source: 'workiz' } }]) };
+      const ledger = { listByInvoice: jest.fn(async () => [{ status: 'settled', tipAmount: 5 }, { status: 'pending', tipAmount: 99 }]) };
+      const s = new InvoiceReportService(
+        { listUnpaid: jest.fn() } as any,
+        listRepo as any,
+        { contactsAs: jest.fn(async () => []), contactNamesByIds: jest.fn(async () => []) } as any,
+        deal as any,
+        undefined,
+        ledger as any,
+      );
+      const res = await s.list({ statuses: ['paid'] }, caller(), 'Bearer t');
+      expect(res.items[0].report).toEqual({ subtotal: 80, tax: 5.08, amount: 100, balance: 0, status: 'paid', tip: 12.37, serviceFee: 2.55 });
+      expect(res.items[1].report).toMatchObject({ amount: 55, tip: 5, serviceFee: 0 });
+      // Imported rows carry Workiz's tip; only the one made here reads the ledger.
+      expect(ledger.listByInvoice).toHaveBeenCalledTimes(1);
+      expect(ledger.listByInvoice).toHaveBeenCalledWith(native.id);
+      expect(deal.getDealsByIds).toHaveBeenCalledWith(expect.arrayContaining([imported.dealId, native.dealId]), 'Bearer t');
+    });
+
     it('exports Workiz’s CSV with the client’s email', async () => {
       const { service } = make([]);
       const out = await service.exportCsv({ from: '2026-09-01', to: '2026-09-27' }, caller(), 'Bearer t');

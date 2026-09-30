@@ -84,11 +84,32 @@ describe('InvoicesRepository keeps UnpaidIndex in step with status', () => {
 
   it('puts it back when a reversal leaves money owing again', async () => {
     const db = fakeDb(() => ({ Attributes: invoice({ status: 'overdue' }) }));
-    await new InvoicesRepository(db as never).update('deal-1', { status: 'overdue' });
+    const totals = { ...invoice().totals, amountPaid: 0, balanceDue: 100 };
+    await new InvoicesRepository(db as never).update('deal-1', { status: 'overdue', totals });
     const upd = db.sent[0] as UpdateCommand;
     const values = Object.values(upd.input.ExpressionAttributeValues ?? {});
     expect(values).toEqual(expect.arrayContaining(['UNPAID', 'deal-1']));
     expect(upd.input.UpdateExpression).not.toMatch(/REMOVE/);
+  });
+
+  it('keeps an invoice owing a cent or less off the index — Workiz counts it paid', async () => {
+    const created = fakeDb();
+    const cent = { ...invoice().totals, total: 123.61, amountPaid: 123.6, balanceDue: 0.01 };
+    await new InvoicesRepository(created as never).create(invoice({ status: 'due', totals: cent }));
+    expect((created.sent[0] as PutCommand).input.Item).not.toHaveProperty('GSI4PK');
+
+    const updated = fakeDb(() => ({ Attributes: invoice() }));
+    await new InvoicesRepository(updated as never).update('deal-1', { status: 'overdue', totals: cent });
+    const upd = updated.sent[0] as UpdateCommand;
+    expect(upd.input.UpdateExpression).toMatch(/REMOVE/);
+    expect(Object.values(upd.input.ExpressionAttributeNames ?? {})).toEqual(expect.arrayContaining(['GSI4PK', 'GSI4SK']));
+  });
+
+  it('leaves the index alone when the overdue sweep only moves due → overdue', async () => {
+    const db = fakeDb(() => ({ Attributes: invoice({ status: 'overdue' }) }));
+    await new InvoicesRepository(db as never).update('deal-1', { status: 'overdue' }, [], undefined, { bumpVersion: false });
+    const upd = db.sent[0] as UpdateCommand;
+    expect(Object.values(upd.input.ExpressionAttributeNames ?? {})).not.toContain('GSI4PK');
   });
 
   it('does not touch the index on a write that says nothing about status', async () => {
@@ -125,7 +146,8 @@ describe('UnpaidInvoicesRepository', () => {
     expect(out.indexReady).toBe(false);
     const query = db.sent.find((c) => c instanceof QueryCommand) as QueryCommand;
     expect(query.input.IndexName).toBe('ListIndex');
-    expect(query.input.FilterExpression).toBe('#status IN (:due, :overdue)');
+    expect(query.input.FilterExpression).toBe('#status IN (:due, :overdue) AND #tot.#bal > :cent');
+    expect(query.input.ExpressionAttributeValues).toMatchObject({ ':cent': 0.01 });
   });
 
   it('asks for the state row once, then trusts it', async () => {
@@ -147,13 +169,21 @@ describe('UnpaidInvoicesRepository', () => {
 
 describe('backfill:unpaid-index — what one row needs', () => {
   it('files an open invoice that lacks its keys', () => {
-    expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'overdue' })).toEqual({ set: { GSI4PK: 'UNPAID', GSI4SK: 'a' } });
+    expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'overdue', totals: { balanceDue: 50 } })).toEqual({
+      set: { GSI4PK: 'UNPAID', GSI4SK: 'a' },
+    });
+  });
+  it('takes off (or never files) an invoice owing a cent or less', () => {
+    expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'due', totals: { balanceDue: 0.01 } })).toBeNull();
+    expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'due', totals: { balanceDue: 0.01 }, GSI4PK: 'UNPAID', GSI4SK: 'a' })).toEqual({
+      remove: true,
+    });
   });
   it('takes a paid invoice off the index', () => {
     expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'paid', GSI4PK: 'UNPAID', GSI4SK: 'a' })).toEqual({ remove: true });
   });
   it('leaves a correct row alone (idempotent)', () => {
-    expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'due', GSI4PK: 'UNPAID', GSI4SK: 'a' })).toBeNull();
+    expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'due', totals: { balanceDue: 9 }, GSI4PK: 'UNPAID', GSI4SK: 'a' })).toBeNull();
     expect(unpaidIndexFix({ PK: 'INVOICE#a', id: 'a', status: 'paid' })).toBeNull();
   });
 });

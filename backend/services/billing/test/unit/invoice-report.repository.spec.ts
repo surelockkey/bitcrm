@@ -18,9 +18,10 @@ describe('InvoiceReportRepository', () => {
   it('turns the Status group into one OR, Sent into an existence test', () => {
     const q = repo.buildQuery({ statuses: ['paid', 'overdue'], sent: ['unsent'] }, TODAY);
     expect(q.FilterExpression).toBe(
-      '(#st = :paid OR ((#st IN (:due, :ovd) AND #tot.#bal > :zero) AND #dd < :today)) AND attribute_not_exists(#sent)',
+      '((#st = :paid OR (#st IN (:due, :ovd) AND #tot.#bal <= :cent)) OR ((#st IN (:due, :ovd) AND #tot.#bal > :cent) AND #dd < :today)) AND attribute_not_exists(#sent)',
     );
-    expect(q.ExpressionAttributeValues).toMatchObject({ ':today': TODAY, ':paid': 'paid' });
+    // Workiz's rule: a cent or less owed is paid.
+    expect(q.ExpressionAttributeValues).toMatchObject({ ':today': TODAY, ':paid': 'paid', ':cent': 0.01 });
   });
 
   it('asks nothing of Sent when both options are picked, and searches number or name', () => {
@@ -45,6 +46,9 @@ describe('InvoiceReportRepository', () => {
     const send = jest.fn().mockResolvedValue({ Count: 7 });
     const r = new InvoiceReportRepository({ client: { send } } as never);
     await expect(r.count({ statuses: ['paid'] }, TODAY)).resolves.toEqual({ total: 7, atLeast: false });
-    expect((send.mock.calls[0][0] as QueryCommand).input).toMatchObject({ Select: 'COUNT', FilterExpression: '(#st = :paid)' });
+    expect((send.mock.calls[0][0] as QueryCommand).input).toMatchObject({
+      Select: 'COUNT',
+      FilterExpression: '((#st = :paid OR (#st IN (:due, :ovd) AND #tot.#bal <= :cent)))',
+    });
   });
 });

@@ -1,20 +1,26 @@
-import { Injectable, Optional } from '@nestjs/common';
-import type {
-  AgingBucket,
-  AgingReport,
-  AgingSort,
-  Invoice,
-  InvoiceDaysDue,
-  InvoiceReportStatus,
-  InvoiceReportSummary,
-  ListCount,
-  ReportCsvExport,
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+  COUNTED_PAYMENT_STATUSES,
+  invoiceReportFigures,
+  type AgingBucket,
+  type AgingReport,
+  type AgingSort,
+  type Invoice,
+  type InvoiceDaysDue,
+  type InvoiceReportFigures,
+  type InvoiceReportRow,
+  type InvoiceReportStatus,
+  type InvoiceReportSummary,
+  type ListCount,
+  type Payment,
+  type ReportCsvExport,
 } from '@bitcrm/types';
 import { isAssignedOnly, type Caller } from '../../common/access';
 import { decodeCursor, encodeCursor } from '../../common/cursor';
 import { CrmClient } from '../../integrations/crm.client';
 import { DealClient } from '../../integrations/deal.client';
 import { reportClients } from '../../integrations/report-clients';
+import { PaymentsRepository } from '../../payments/payments.repository';
 import { InvoicesService } from '../invoices.service';
 import { UnpaidInvoicesRepository } from '../unpaid-invoices.repository';
 import { InvoiceReportRepository } from './invoice-report.repository';
@@ -67,14 +73,25 @@ export interface InvoiceReportQuery {
  * about — come off UnpaidIndex (~600 rows); a filter that may select a paid
  * invoice walks the list index on its created-date window instead.
  */
+/** A job's payments, as the report reads the tips off them. */
+export interface TipLedger {
+  listByInvoice(invoiceId: string): Promise<Payment[]>;
+}
+
+const DEAL_CHUNK = 100;
+const PARALLEL = 4;
+
 @Injectable()
 export class InvoiceReportService {
+  private readonly logger = new Logger(InvoiceReportService.name);
+
   constructor(
     private readonly unpaid: UnpaidInvoicesRepository,
     private readonly listRepo: InvoiceReportRepository,
     private readonly crm: CrmClient,
     private readonly deal: DealClient,
     @Optional() private readonly invoices?: InvoicesService,
+    @Optional() @Inject(PaymentsRepository) private readonly ledger?: TipLedger,
   ) {}
 
   // ----------------------------------------------------------------- aging
@@ -136,7 +153,20 @@ export class InvoiceReportService {
 
   // ------------------------------------------------------------- the list
 
-  async list(q: InvoiceReportQuery, caller: Caller): Promise<{ items: Invoice[]; nextCursor?: string }> {
+  async list(
+    q: InvoiceReportQuery,
+    caller: Caller,
+    authorization?: string,
+  ): Promise<{ items: InvoiceReportRow[]; nextCursor?: string }> {
+    const page = await this.listPage(q, caller);
+    const figures = await this.figuresFor(page.items, authorization);
+    return {
+      ...page,
+      items: page.items.map((i) => ({ ...i, report: figures.get(i.id) ?? invoiceReportFigures(i) })),
+    };
+  }
+
+  private async listPage(q: InvoiceReportQuery, caller: Caller): Promise<{ items: Invoice[]; nextCursor?: string }> {
     const today = reportToday();
     const filter = this.filterOf(q);
     const limit = Math.min(Math.max(Number(q.limit) || 10, 1), 100);
@@ -190,17 +220,92 @@ export class InvoiceReportService {
       ({ items, truncated } = await this.listRepo.walk(filter, today, INVOICE_REPORT_EXPORT_MAX_ROWS));
       items = await this.visible(items, caller);
     }
-    const clients = await reportClients(this.crm, items.map((i) => i.contactId), authorization);
+    const [clients, figures] = await Promise.all([
+      reportClients(this.crm, items.map((i) => i.contactId), authorization),
+      this.figuresFor(items, authorization),
+    ]);
     const span = q.from || q.to ? `${q.from ?? 'start'}_${q.to ?? today}` : 'all-time';
     return {
       filename: `invoices-${span}.csv`,
-      csv: [INVOICE_CSV_HEADERS.join(','), ...items.map((i) => invoiceCsvLine(i, clients.get(i.contactId)))].join('\n'),
+      csv: [
+        INVOICE_CSV_HEADERS.join(','),
+        ...items.map((i) => invoiceCsvLine(i, clients.get(i.contactId), undefined, figures.get(i.id))),
+      ].join('\n'),
       count: items.length,
       truncated,
     };
   }
 
   // -------------------------------------------------------------- helpers
+
+  /**
+   * Workiz's figures for a set of invoices (`invoiceReportFigures`): the card
+   * service fee is the job's (a Workiz job keeps it as a line, its snapshot
+   * names it — `totals.serviceFee`, read through `POST /deals/by-ids` as the
+   * caller); the tip is Workiz's own on an imported invoice (`tipAmount`) and
+   * the ledger's on one made here (Σ tips of the counted payments). A lookup
+   * that fails leaves that part at 0 — the stored totals, never a failed page.
+   */
+  async figuresFor(items: Invoice[], authorization?: string): Promise<Map<string, InvoiceReportFigures>> {
+    const out = new Map<string, InvoiceReportFigures>();
+    if (!items.length) return out;
+
+    const fees = new Map<string, number>();
+    const dealIds = [...new Set(items.map((i) => i.dealId))];
+    const chunks: string[][] = [];
+    for (let i = 0; i < dealIds.length; i += DEAL_CHUNK) chunks.push(dealIds.slice(i, i + DEAL_CHUNK));
+    let dealsOk = !!authorization;
+    for (let i = 0; dealsOk && i < chunks.length; i += PARALLEL) {
+      await Promise.all(
+        chunks.slice(i, i + PARALLEL).map(async (chunk) => {
+          try {
+            for (const d of await this.deal.getDealsByIds(chunk, authorization)) {
+              const fee = (d.totals as { serviceFee?: unknown } | undefined)?.serviceFee;
+              if (typeof fee === 'number' && fee > 0) fees.set(d.id, fee);
+            }
+          } catch (err) {
+            dealsOk = false;
+            this.logger.warn(`service fees unavailable (${(err as Error).message}); subtotals include them`);
+          }
+        }),
+      );
+    }
+
+    const tips = new Map<string, number>();
+    const native: Invoice[] = [];
+    for (const inv of items) {
+      if (inv.externalId?.startsWith('workiz:')) tips.set(inv.id, inv.tipAmount ?? 0);
+      else native.push(inv);
+    }
+    if (this.ledger && native.length) {
+      for (let i = 0; i < native.length; i += PARALLEL * 2) {
+        await Promise.all(
+          native.slice(i, i + PARALLEL * 2).map(async (inv) => {
+            try {
+              const rows = await this.ledger!.listByInvoice(inv.id);
+              const cents = rows
+                .filter((p) => COUNTED_PAYMENT_STATUSES.includes(p.status))
+                .reduce(
+                  (sum, p) =>
+                    sum +
+                    Math.round((p.tipAmount ?? 0) * 100) -
+                    Math.round(((p as { tipRefundedAmount?: number }).tipRefundedAmount ?? 0) * 100),
+                  0,
+                );
+              if (cents) tips.set(inv.id, cents / 100);
+            } catch (err) {
+              this.logger.warn(`tips unavailable for invoice ${inv.id}: ${(err as Error).message}`);
+            }
+          }),
+        );
+      }
+    }
+
+    for (const inv of items) {
+      out.set(inv.id, invoiceReportFigures(inv, { tip: tips.get(inv.id) ?? 0, serviceFee: fees.get(inv.dealId) ?? 0 }));
+    }
+    return out;
+  }
 
   private filterOf(q: InvoiceReportQuery): InvoiceReportFilter {
     return {
