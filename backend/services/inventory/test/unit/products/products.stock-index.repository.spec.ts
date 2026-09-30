@@ -196,6 +196,23 @@ describe('ProductsRepository — stock-managed index', () => {
       expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(cursor);
     });
 
+    // Пошук "mortise" знаходить 110: коли останнє читання, що дійшло до
+    // кінця партиції, переповнювало сторінку, вона приходила довшою за
+    // `limit` — 70 рядків під "Rows per page 50".
+    it('never answers more than the limit, even when the last read ends the partition', async () => {
+      dynamoDb.client.send.mockResolvedValueOnce({ Items: [row(1), row(2), row(3)] });
+
+      const page = await repository.findStockManaged(2, undefined, { search: 'item' });
+
+      expect(page.items.map((p: { id: string }) => p.id)).toEqual(['p-1', 'p-2']);
+      expect(JSON.parse(Buffer.from(page.nextCursor!, 'base64url').toString())).toEqual({
+        PK: 'PRODUCT#p-2',
+        SK: 'METADATA',
+        GSI3PK: 'PRODUCTS#STOCK',
+        GSI3SK: 'item 2#p-2',
+      });
+    });
+
     it('refuses a cursor from the Scan-era list with a 400', async () => {
       await expect(
         repository.findStockManaged(50, encode({ PK: 'PRODUCT#p-1', SK: 'METADATA' })),
@@ -249,6 +266,18 @@ describe('ProductsRepository.findByIds', () => {
     });
     expect(products.map((p: { id: string }) => p.id)).toEqual(['p-1']);
     expect(products[0]).not.toHaveProperty('PK');
+  });
+
+  it('reads only the attributes asked for', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Responses: { BitCRM_Inventory: [{ id: 'p-1', name: 'Alpha', number: 12 }] },
+    });
+
+    const [product] = await repository.findByIds(['p-1'], { attributes: ['id', 'name', 'number'] });
+
+    const asked = Object.values(dynamoDb.client.send.mock.calls[0][0].input.RequestItems)[0] as Record<string, unknown>;
+    expect(asked.ProjectionExpression).toBe('#a0, #a1, #a2');
+    expect(product).toMatchObject({ id: 'p-1', name: 'Alpha', number: 12 });
   });
 
   it('reads nothing for no ids', async () => {

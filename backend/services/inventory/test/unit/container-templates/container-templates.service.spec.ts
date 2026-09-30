@@ -284,6 +284,29 @@ describe('ContainerTemplatesService', () => {
       await expect(service.diff('missing', 'c-1')).rejects.toThrow(NotFoundException);
     });
 
+    // Шаблон, фургон, призначення того, хто питає, і склад — незалежні
+    // читання; одне за одним вони були 4–5 послідовних запитів.
+    it('reads the template, the van and the warehouse at once, not one after another', async () => {
+      let release!: (template: unknown) => void;
+      repository.findById.mockReturnValue(new Promise((resolve) => (release = resolve)));
+      stock.getQuantities.mockResolvedValue(new Map());
+
+      const pending = service.diff('tpl-1', 'c-1', 'wh-1');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(locations.findLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'c-1');
+      expect(locations.findLocation).toHaveBeenCalledWith(LocationType.WAREHOUSE, 'wh-1');
+      release(createMockContainerTemplate());
+      await expect(pending).resolves.toMatchObject({ warehouseId: 'wh-1' });
+    });
+
+    it('still answers the template\'s 404 first when the van is unknown too', async () => {
+      repository.findById.mockResolvedValue(null);
+      locations.findLocation.mockResolvedValue(null);
+
+      await expect(service.diff('missing', 'nope')).rejects.toThrow('Container template "missing" not found');
+    });
+
     it('404s on an unknown warehouse', async () => {
       locations.findLocation.mockImplementation(async (type: LocationType, id: string) =>
         type === LocationType.WAREHOUSE ? null : createMockLocationSummary({ id }),

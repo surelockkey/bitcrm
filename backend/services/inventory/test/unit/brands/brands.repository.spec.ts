@@ -25,6 +25,18 @@ describe('BrandsRepository', () => {
     repository = new BrandsRepository(dynamoDb as any);
   });
 
+  it('listAll() reads the catalog partition to the end', async () => {
+    const key = { PK: 'BRAND#brand-1', SK: 'METADATA', GSI1PK: 'CATALOG#BRAND', GSI1SK: 'slk' };
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [importedRow], LastEvaluatedKey: key })
+      .mockResolvedValueOnce({ Items: [{ ...importedRow, id: 'brand-2' }] });
+
+    const brands = await repository.listAll();
+
+    expect(brands.map((b) => b.id)).toEqual(['brand-1', 'brand-2']);
+    expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(key);
+  });
+
   it('keeps importer attributes (externalId, description) through get() and put()', async () => {
     dynamoDb.client.send.mockResolvedValueOnce({ Item: importedRow }).mockResolvedValueOnce({});
 

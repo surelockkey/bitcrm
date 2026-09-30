@@ -116,6 +116,20 @@ describe('ItemCategoriesRepository', () => {
     expect(written.name).toBe('  Locks  ');
   });
 
+  // Один Query — не більше 1 МБ: після цього категорії мовчки зникали з
+  // фільтра Items і з попапу New item.
+  it('listAll() reads the catalog partition to the end', async () => {
+    const key = { PK: 'ITEM_CATEGORY#cat-1', SK: 'METADATA', GSI1PK: 'CATALOG#ITEM_CATEGORY', GSI1SK: 'a' };
+    dynamoDb.client.send
+      .mockResolvedValueOnce({ Items: [{ ...importedRow, id: 'cat-1' }], LastEvaluatedKey: key })
+      .mockResolvedValueOnce({ Items: [{ ...importedRow, id: 'cat-2' }] });
+
+    const categories = await repository.listAll();
+
+    expect(categories.map((c) => c.id)).toEqual(['cat-1', 'cat-2']);
+    expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(key);
+  });
+
   it('create() guards the row with attribute_not_exists(PK)', async () => {
     dynamoDb.client.send.mockResolvedValue({});
 

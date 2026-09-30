@@ -78,6 +78,19 @@ describe('ContainersService', () => {
       });
     });
 
+    // Новий фургон порожній, і його підсумки ведуться з першого ж запису
+    // стоку — бекфіл потрібен лише рядкам, записаним до появи полів.
+    it('starts the stock totals at zero, so every stock write keeps them from the first one', async () => {
+      repository.create.mockResolvedValue(undefined);
+
+      const result = await service.create(createMockCreateContainerDto());
+
+      expect(result).toMatchObject({ totalUnits: 0, uniqueItems: 0 });
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ totalUnits: 0, uniqueItems: 0 }),
+      );
+    });
+
     it('should create with a technician assigned', async () => {
       repository.create.mockResolvedValue(undefined);
 

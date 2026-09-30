@@ -7,10 +7,10 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import {
   DynamoDbService,
-  scanPage,
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
+import { fillPage } from '../common/utils/fill-page';
 import { type Container, type InventoryStatus } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -185,7 +185,7 @@ export class ContainersRepository {
     // З фільтром Query, як і Scan, рахує в `Limit` прочитане, а не знайдене,
     // тож сторінку дочитуємо. Курсор на GSI-запиті несе і ключі таблиці, і
     // ключі індексу.
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new QueryCommand({ ...query, ScanIndexForward: true, ...input }),

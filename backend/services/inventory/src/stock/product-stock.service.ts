@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { LocationType, type LocationSummary, type ProductStock } from '@bitcrm/types';
-import { ProductsRepository } from '../products/products.repository';
+import { ProductsService } from '../products/products.service';
 import { LocationsRepository } from './locations.repository';
 import { StockRepository } from './stock.repository';
 import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
@@ -17,43 +17,37 @@ const PK_PREFIX: Record<LocationSummary['type'], string> = {
  * listed too — Workiz shows its "N/A" vans — and a location the item never
  * reached shows zero. Workiz placeholders (locations deleted in Workiz) are
  * listed only while they still hold the item. `onHand` is the sum over the
- * rows shown.
+ * rows shown. Each row also carries the location's own `totalUnits` /
+ * `uniqueItems` (absent until backfilled).
  */
 @Injectable()
 export class ProductStockService {
   constructor(
-    private readonly productsRepository: ProductsRepository,
+    private readonly productsService: ProductsService,
     private readonly locationsRepository: LocationsRepository,
     private readonly stockRepository: StockRepository,
     private readonly assignments: ContainerAssignmentResolver,
   ) {}
 
   async forProduct(productId: string, viewer?: StockViewer): Promise<ProductStock> {
-    const product = await this.productsRepository.findById(productId);
+    // Through the products cache: the item was usually just opened.
+    const product = await this.productsService.loadForStock(productId);
     if (!product) {
       throw new NotFoundException(`Product "${productId}" not found`);
     }
 
-    const visible = await visibleLocations(viewer, (userId) =>
-      this.assignments.assignmentFor(userId),
-    );
-    // Warehouses first, then containers; each list arrives in name order, the
-    // Workiz placeholders of a kind after its real locations.
-    const [warehouses, warehousePlaceholders] = visible.warehouses
-      ? await Promise.all([
-          this.locationsRepository.listAll(LocationType.WAREHOUSE),
-          this.locationsRepository.listPlaceholders(LocationType.WAREHOUSE),
-        ])
-      : [[], []];
-    const [containers, containerPlaceholders] = await Promise.all([
-      this.locationsRepository.listAll(LocationType.CONTAINER),
-      this.locationsRepository.listPlaceholders(LocationType.CONTAINER),
+    // The caller's scope and both kinds' index partitions, all at once.
+    const [visible, warehouseKind, containerKind] = await Promise.all([
+      visibleLocations(viewer, (userId) => this.assignments.assignmentFor(userId)),
+      this.locationsRepository.listKind(LocationType.WAREHOUSE),
+      this.locationsRepository.listKind(LocationType.CONTAINER),
     ]);
+    // Warehouses first, then containers; each list in name order, the Workiz
+    // placeholders of a kind after its real locations.
     const locations = [
-      ...warehouses,
-      ...warehousePlaceholders,
-      ...containers.filter(visible.containers),
-      ...containerPlaceholders.filter(visible.containers),
+      ...(visible.warehouses ? [...warehouseKind.locations, ...warehouseKind.placeholders] : []),
+      ...containerKind.locations.filter(visible.containers),
+      ...containerKind.placeholders.filter(visible.containers),
     ];
     const pkOf = (location: LocationSummary) => `${PK_PREFIX[location.type]}${location.id}`;
 
@@ -77,6 +71,8 @@ export class ProductStockService {
           status: location.status,
           quantity,
           ...(location.placeholder && { placeholder: true }),
+          ...(location.totalUnits !== undefined && { totalUnits: location.totalUnits }),
+          ...(location.uniqueItems !== undefined && { uniqueItems: location.uniqueItems }),
         },
       ];
     });

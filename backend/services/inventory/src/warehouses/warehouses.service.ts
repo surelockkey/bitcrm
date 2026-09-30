@@ -45,6 +45,9 @@ export class WarehousesService {
       id: randomUUID(),
       ...dto,
       status: InventoryStatus.ACTIVE,
+      // Empty, and kept by every stock write from here on.
+      totalUnits: 0,
+      uniqueItems: 0,
       createdAt: now,
       updatedAt: now,
     };

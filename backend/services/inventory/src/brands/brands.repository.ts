@@ -73,16 +73,24 @@ export class BrandsRepository {
     return result.Item ? this.toEntity(result.Item) : null;
   }
 
+  /** The whole catalog, in name order — read to the end of the partition, never cut at one 1 MB page. */
   async listAll(): Promise<Brand[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        IndexName: GSI1_NAME,
-        KeyConditionExpression: 'GSI1PK = :pk',
-        ExpressionAttributeValues: { ':pk': BRAND_GSI1PK },
-      }),
-    );
-    return (result.Items || []).map((i) => this.toEntity(i));
+    const rows: Record<string, unknown>[] = [];
+    let key: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          IndexName: GSI1_NAME,
+          KeyConditionExpression: 'GSI1PK = :pk',
+          ExpressionAttributeValues: { ':pk': BRAND_GSI1PK },
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      rows.push(...(result.Items ?? []));
+      key = result.LastEvaluatedKey;
+    } while (key);
+    return rows.map((i) => this.toEntity(i));
   }
 
   async remove(id: string): Promise<void> {

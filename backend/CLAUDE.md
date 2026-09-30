@@ -227,6 +227,16 @@ PRODUCT#<id>       / METADATA        an inventory item; GSI1 CATEGORY#<category>
                                      PRODUCTS#STOCK / <name lowercased>#<id> on every stock-managed product (type product,
                                      manageStock not false, any status) — the "inventory products" list reads that ~3k-row
                                      partition, never a Scan of the ~46k-row table (whose read budget returned empty pages)
+TRANSFER#<id>      / METADATA        a stock movement; GSI1 TRANSFERS#<YYYY-MM> / <createdAt>#<id> — the list, one
+                                     partition per UTC month walked newest first down to `firstMonth` on
+                                     TRANSFERS#INDEX / METADATA (only ever moves down), `type` filtered on top, never a
+                                     Scan; GSI4 ENTITY#<type>#<id> for one location's movements (+ ENTITY_REF# rows)
+WAREHOUSE#<id> | CONTAINER#<id> / METADATA   a location; GSI1 LOCATION#WAREHOUSE | LOCATION#CONTAINER /
+                                     <name lowercased>#<id>. `totalUnits` / `uniqueItems` (Σ quantity, rows > 0 of
+                                     its STOCK# rows) move in the SAME TransactWrite as every stock write — the
+                                     stock row carries a condition on its old quantity so `uniqueItems` changes
+                                     exactly on a 0 ↔ >0 crossing (`stock/stock-row-variant.ts`)
+WAREHOUSE#<id> | CONTAINER#<id> / STOCK#<productId>   { productId, productName, quantity }
 USER_CONTAINER#<userId> / METADATA   a user's container assignment (Workiz "User containers": one container, `all` or
                                      `none`); GSI1 CATALOG#USER_CONTAINER / <name>#<userId>, sparse GSI3
                                      CONTAINER_USERS#<containerId> / USER#<userId> for `access: container` only — who works
@@ -507,7 +517,14 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   `technicianId`, and the secondary users have no van at all),
   `backfill:product-stock-index` (files stock-managed products on the GSI3
   `PRODUCTS#STOCK` partition; until it has run, `GET /products?manageStock=true`
-  without a category is empty). All six are idempotent and upsert-only;
+  without a category is empty), `backfill:location-totals` (sums each
+  warehouse's and container's STOCK# rows into `totalUnits` / `uniqueItems` on
+  its METADATA row; stock writes move them only where they exist, so until it
+  has run the lists show "—" for every imported location — run it AFTER the
+  deploy, it is safe while stock moves), `backfill:transfer-index` (files
+  every transfer row on the GSI1 month partitions and sets the walk's floor;
+  until it has run, `GET /transfers` and its count show none of the transfers
+  written before it). All eight are idempotent and upsert-only;
   `WORKIZ_IMPORT.md` §0 has the row shapes.
   `backfill:product-catalog-index` belongs to the same list (idempotent,
   upsert-only on the index keys): it files every product on the GSI4

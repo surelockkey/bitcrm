@@ -1,4 +1,5 @@
 import { InventoryStatus } from '../enums/inventory-status.enum';
+import { LocationStockTotals } from './location-summary.entity';
 
 /**
  * A mobile stock location (a van/truck). Created manually. Who works from it
@@ -6,7 +7,7 @@ import { InventoryStatus } from '../enums/inventory-status.enum';
  * `technicianId` here is the legacy single-technician link, still accepted
  * and read only for users without an assignment row.
  */
-export interface Container {
+export interface Container extends LocationStockTotals {
   id: string;
   name: string;
   description?: string;

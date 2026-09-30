@@ -108,6 +108,18 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
   alone (never a wrong number, just none), and any later disagreement between
   a product's `onHand` and `GET /stock/products/:id` is repaired by a re-run.
   All three are idempotent and upsert-only.
+- Two location attributes are derived the same way: `totalUnits` (Σ
+  `quantity` of the location's `STOCK#` rows) and `uniqueItems` (how many of
+  them hold more than 0) on every `WAREHOUSE#<id>` / `CONTAINER#<id>` /
+  `METADATA` row — what the Warehouses and Containers lists show per row.
+  `StockRepository` moves both in the same TransactWrite as the stock row, but
+  only on a row that already carries `totalUnits`. Leave them unwritten and
+  run `npm run backfill:location-totals -w backend/services/inventory` **after
+  EVERY import, after the deploy** (idempotent, upsert-only, safe while stock
+  moves: it seeds missing totals with 0 so live writes start moving them, then
+  sets the counted sums conditioned on the row not having moved meanwhile).
+  Until it has run the lists show "—" for those locations. If a run is cut
+  short, run it again — a location seeded but not yet counted reads 0.
 
 ## 1. Category
 

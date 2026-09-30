@@ -10,7 +10,7 @@ import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import { marshall } from '@aws-sdk/util-dynamodb';
-import { DynamoDbService, scanPage, countRows, type CountRowsResult } from '@bitcrm/shared';
+import { DynamoDbService, countRows, type CountRowsResult } from '@bitcrm/shared';
 import { type Product, ProductType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
@@ -36,7 +36,8 @@ import {
   type StockIndexRow,
 } from './product-stock-index';
 import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
-import { batchGetAll } from '../common/utils/batch-get';
+import { batchGetAll, type BatchGetOptions } from '../common/utils/batch-get';
+import { fillPage } from '../common/utils/fill-page';
 
 export interface PaginatedResult {
   items: Product[];
@@ -232,13 +233,14 @@ export class ProductsRepository {
   }
 
   /**
-   * The products these ids name, each read once, 100 keys a BatchGet (with
-   * the shared bounded retry of unprocessed keys). An id with no row is
-   * simply absent; order is not kept.
+   * The products these ids name, each read once, 100 keys a BatchGet (a few
+   * in flight, with the shared bounded retry of unprocessed keys). An id with
+   * no row is simply absent; order is not kept. `attributes` reads only those
+   * fields — the answer then carries nothing else, so ask for `id`.
    */
-  async findByIds(ids: string[]): Promise<Product[]> {
+  async findByIds(ids: string[], options: BatchGetOptions = {}): Promise<Product[]> {
     const keys = [...new Set(ids)].map((id) => ({ PK: `PRODUCT#${id}`, SK: 'METADATA' }));
-    const rows = await batchGetAll(this.dynamoDb.client, keys);
+    const rows = await batchGetAll(this.dynamoDb.client, keys, options);
     return rows.map((row) => this.toProduct(row));
   }
 
@@ -337,6 +339,9 @@ export class ProductsRepository {
     filters: ProductListFilters | undefined,
   ): Promise<PaginatedResult> {
     const f = this.filterParts(filters);
+    const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
+    // Decoded before any read: garbage, or a cursor of another index, is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, ['PK', 'SK', keyAttr, skAttr]);
     const query = {
       TableName: INVENTORY_TABLE,
       IndexName: indexName,
@@ -351,27 +356,26 @@ export class ProductsRepository {
         new QueryCommand({
           ...query,
           Limit: limit,
-          ExclusiveStartKey: this.decodeCursor(cursor),
+          ExclusiveStartKey: startKey,
         }),
       );
       return {
         items: (result.Items || []).map(this.toProduct),
-        nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+        nextCursor: encodeIndexCursor(result.LastEvaluatedKey),
       };
     }
 
-    const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, ...input })),
       limit,
       {
-        startKey: this.decodeCursor(cursor),
+        startKey,
         keyOf: (i) => ({ PK: i.PK, SK: i.SK, [keyAttr]: i[keyAttr], [skAttr]: i[skAttr] }),
       },
     );
     return {
       items: page.items.map(this.toProduct),
-      nextCursor: this.encodeCursor(page.lastKey),
+      nextCursor: encodeIndexCursor(page.lastKey),
     };
   }
 
@@ -412,14 +416,16 @@ export class ProductsRepository {
     filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
     const f = this.listFilter(filters);
+    // Decoded before any read: a garbage cursor is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, ['PK', 'SK']);
 
     // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
     // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
     // throws away, and `Limit` counts what was read, not what survived. Asking
     // for fifty returned four products (two with a status filter), so the
-    // inventory page opened nearly empty. `scanPage` keeps reading until the
+    // inventory page opened nearly empty. `fillPage` keeps reading until the
     // page is full.
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({
@@ -433,12 +439,12 @@ export class ProductsRepository {
           }),
         ),
       limit,
-      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
+      { startKey, keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
       items: page.items.map(this.toProduct),
-      nextCursor: this.encodeCursor(page.lastKey),
+      nextCursor: encodeIndexCursor(page.lastKey),
     };
   }
 
@@ -490,7 +496,7 @@ export class ProductsRepository {
       };
     }
 
-    const page = await scanPage<Record<string, unknown>>(
+    const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
       limit,
@@ -827,19 +833,5 @@ export class ProductsRepository {
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };
-  }
-
-  private encodeCursor(
-    lastEvaluatedKey?: Record<string, unknown>,
-  ): string | undefined {
-    if (!lastEvaluatedKey) return undefined;
-    return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString('base64url');
-  }
-
-  private decodeCursor(
-    cursor?: string,
-  ): Record<string, unknown> | undefined {
-    if (!cursor) return undefined;
-    return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
   }
 }

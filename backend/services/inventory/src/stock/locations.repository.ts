@@ -8,11 +8,7 @@ import {
   type LocationSummaryType,
 } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI1_NAME } from '../common/constants/dynamo.constants';
-import {
-  LOCATION_INDEX_PK,
-  NOT_PLACEHOLDER_FILTER,
-  NOT_PLACEHOLDER_VALUES,
-} from '../common/constants/locations.constants';
+import { LOCATION_INDEX_PK } from '../common/constants/locations.constants';
 
 /** The key prefix and index partition of each kind that can hold stock. */
 const KINDS: Record<LocationSummaryType, { prefix: string; indexPk: string }> = {
@@ -25,8 +21,10 @@ const KINDS: Record<LocationSummaryType, { prefix: string; indexPk: string }> = 
  * modules into StockModule. Same rows as those repositories:
  *   PK = WAREHOUSE#<id> | CONTAINER#<id>, SK = METADATA
  *   GSI1PK = LOCATION#WAREHOUSE | LOCATION#CONTAINER, GSI1SK = <name lowercased>#<id>
- * Workiz placeholders (`placeholder: true`) are left out of `listAll`, read
- * on their own by `listPlaceholders`, and found by `findLocation` like any row.
+ *   totalUnits, uniqueItems — kept by StockRepository with every stock write
+ *     (absent until `backfill:location-totals` has reached the row)
+ * Workiz placeholders (`placeholder: true`) come back apart from the real
+ * locations in `listKind`, and are found by `findLocation` like any row.
  */
 @Injectable()
 export class LocationsRepository {
@@ -45,26 +43,19 @@ export class LocationsRepository {
     return this.toSummary(kind, result.Item);
   }
 
-  /** Every real location of that kind, whatever its status, in name order — no Workiz placeholders. */
-  async listAll(type: LocationType): Promise<LocationSummary[]> {
-    return this.queryKind(type, NOT_PLACEHOLDER_FILTER, { ...NOT_PLACEHOLDER_VALUES });
-  }
-
   /**
-   * The Workiz placeholders of that kind, in name order — only for the views
-   * that must not let units on one become invisible.
+   * Every location of that kind, whatever its status, in name order — the
+   * real ones, and apart from them the Workiz placeholders (for the views
+   * that must not let units on one become invisible). Both live on the same
+   * index partition, so it is read once and split here; two Queries with
+   * opposite filters read it twice.
    */
-  async listPlaceholders(type: LocationType): Promise<LocationSummary[]> {
-    return this.queryKind(type, 'placeholder = :true', { ':true': true });
-  }
-
-  private async queryKind(
+  async listKind(
     type: LocationType,
-    filter: string,
-    filterValues: Record<string, unknown>,
-  ): Promise<LocationSummary[]> {
+  ): Promise<{ locations: LocationSummary[]; placeholders: LocationSummary[] }> {
     const kind = this.kindOf(type);
     const locations: LocationSummary[] = [];
+    const placeholders: LocationSummary[] = [];
     let key: Record<string, unknown> | undefined;
 
     do {
@@ -73,16 +64,18 @@ export class LocationsRepository {
           TableName: INVENTORY_TABLE,
           IndexName: GSI1_NAME,
           KeyConditionExpression: 'GSI1PK = :pk',
-          FilterExpression: filter,
-          ExpressionAttributeValues: { ':pk': KINDS[kind].indexPk, ...filterValues },
+          ExpressionAttributeValues: { ':pk': KINDS[kind].indexPk },
           ...(key ? { ExclusiveStartKey: key } : {}),
         }),
       );
-      for (const item of page.Items ?? []) locations.push(this.toSummary(kind, item));
+      for (const item of page.Items ?? []) {
+        const summary = this.toSummary(kind, item);
+        (summary.placeholder ? placeholders : locations).push(summary);
+      }
       key = page.LastEvaluatedKey;
     } while (key);
 
-    return locations;
+    return { locations, placeholders };
   }
 
   /** The supplier is where received stock comes from; it holds nothing and has no row. */
@@ -111,6 +104,8 @@ export class LocationsRepository {
       department: item.department as string | undefined,
       status: item.status as InventoryStatus,
       ...(item.placeholder === true && { placeholder: true }),
+      ...(typeof item.totalUnits === 'number' && { totalUnits: item.totalUnits }),
+      ...(typeof item.uniqueItems === 'number' && { uniqueItems: item.uniqueItems }),
     };
   }
 }

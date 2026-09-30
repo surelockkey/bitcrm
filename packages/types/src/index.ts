@@ -130,7 +130,11 @@ export { Brand } from './entities/brand.entity';
 export { Transfer, TransferItem } from './entities/transfer.entity';
 export { InventoryLogEntry } from './entities/inventory-log-entry.entity';
 export { StockItem } from './entities/stock-item.entity';
-export { LocationSummary, LocationSummaryType } from './entities/location-summary.entity';
+export {
+  LocationSummary,
+  LocationSummaryType,
+  LocationStockTotals,
+} from './entities/location-summary.entity';
 export {
   ProductStock,
   ProductLocationStock,

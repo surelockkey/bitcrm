@@ -4,10 +4,24 @@ import { InventoryStatus } from '../enums/inventory-status.enum';
 export type LocationSummaryType = 'warehouse' | 'container';
 
 /**
+ * Stock totals the server keeps on a warehouse or container row, so a list
+ * shows "how much is in there" without reading the location's stock.
+ * Moved by every stock write in the same transaction as the stock row.
+ * Both are absent on a row the `backfill:location-totals` script has not
+ * reached yet — show "—" then, never compute them from the stock rows.
+ */
+export interface LocationStockTotals {
+  /** Units across every product the location holds (Σ quantity of its stock rows). */
+  totalUnits?: number;
+  /** How many different products it holds (stock rows with quantity > 0). */
+  uniqueItems?: number;
+}
+
+/**
  * The part of a warehouse or container the stock views need — what the
  * product stock popup lists and what a transfer form names on each side.
  */
-export interface LocationSummary {
+export interface LocationSummary extends LocationStockTotals {
   type: LocationSummaryType;
   id: string;
   name: string;

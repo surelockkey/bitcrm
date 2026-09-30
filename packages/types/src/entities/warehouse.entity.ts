@@ -1,6 +1,7 @@
 import { InventoryStatus } from '../enums/inventory-status.enum';
+import { LocationStockTotals } from './location-summary.entity';
 
-export interface Warehouse {
+export interface Warehouse extends LocationStockTotals {
   id: string;
   name: string;
   address?: string;

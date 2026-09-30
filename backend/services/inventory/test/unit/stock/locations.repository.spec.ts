@@ -109,22 +109,39 @@ describe('LocationsRepository', () => {
     });
   });
 
-  describe('listAll', () => {
-    it('queries the index partition of that kind in name order, placeholders left out', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Items: [warehouseRow] });
+  /**
+   * Попап стоку товару читає кожен вид локацій одним Query: справжні й
+   * заглушки Workiz лежать на тому самому розділі індексу, і два Query з
+   * різними фільтрами читали його двічі.
+   */
+  describe('listKind', () => {
+    it('reads the index partition of that kind once, in name order, and splits the placeholders off in memory', async () => {
+      const placeholder = { ...containerRow, id: 'c-ph', name: 'Workiz location #6142', placeholder: true };
+      dynamoDb.client.send.mockResolvedValue({ Items: [containerRow, placeholder] });
 
-      const locations = await repository.listAll(LocationType.WAREHOUSE);
+      const { locations, placeholders } = await repository.listKind(LocationType.CONTAINER);
 
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
       const sent = dynamoDb.client.send.mock.calls[0][0];
       expect(sent.constructor.name).toBe('QueryCommand');
       expect(sent.input.IndexName).toBe('CategoryIndex');
       expect(sent.input.KeyConditionExpression).toBe('GSI1PK = :pk');
-      expect(sent.input.ExpressionAttributeValues).toEqual({ ':pk': 'LOCATION#WAREHOUSE', ':false': false });
-      expect(sent.input.FilterExpression).toBe('(attribute_not_exists(placeholder) OR placeholder = :false)');
-      expect(sent.input.Limit).toBeUndefined();
-      expect(locations).toEqual([
-        { type: 'warehouse', id: 'wh-1', name: '(1) STORE', status: 'active' },
-      ]);
+      expect(sent.input.ExpressionAttributeValues).toEqual({ ':pk': 'LOCATION#CONTAINER' });
+      expect(sent.input.FilterExpression).toBeUndefined();
+      expect(locations.map((l) => l.id)).toEqual(['container-1']);
+      expect(placeholders).toEqual([expect.objectContaining({ id: 'c-ph', placeholder: true })]);
+    });
+
+    it('answers warehouse summaries off the warehouse partition', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [warehouseRow] });
+
+      const { locations, placeholders } = await repository.listKind(LocationType.WAREHOUSE);
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ExpressionAttributeValues).toEqual({
+        ':pk': 'LOCATION#WAREHOUSE',
+      });
+      expect(locations).toEqual([{ type: 'warehouse', id: 'wh-1', name: '(1) STORE', status: 'active' }]);
+      expect(placeholders).toEqual([]);
     });
 
     it('walks every page of the partition', async () => {
@@ -133,41 +150,36 @@ describe('LocationsRepository', () => {
         .mockResolvedValueOnce({ Items: [{ ...containerRow, id: 'a', name: 'A' }], LastEvaluatedKey: key })
         .mockResolvedValueOnce({ Items: [{ ...containerRow, id: 'b', name: 'B' }] });
 
-      const locations = await repository.listAll(LocationType.CONTAINER);
+      const { locations } = await repository.listKind(LocationType.CONTAINER);
 
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
-      expect(dynamoDb.client.send.mock.calls[0][0].input.ExpressionAttributeValues).toEqual({
-        ':pk': 'LOCATION#CONTAINER',
-        ':false': false,
-      });
       expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual(key);
       expect(locations.map((l) => l.id)).toEqual(['a', 'b']);
       expect(locations.every((l) => l.type === 'container')).toBe(true);
     });
 
     it('rejects the supplier pseudo-location', async () => {
-      await expect(repository.listAll(LocationType.SUPPLIER)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(repository.listKind(LocationType.SUPPLIER)).rejects.toThrow(BadRequestException);
     });
   });
 
-  /**
-   * Заглушки Workiz не в списках, але одиниці на них не мають зникати: попап
-   * стоку товару дочитує їх окремо й показує ту, що ще тримає товар.
-   */
-  describe('listPlaceholders', () => {
-    it('reads only the placeholders of that kind, flagged', async () => {
-      dynamoDb.client.send.mockResolvedValue({
-        Items: [{ ...containerRow, id: 'c-ph', name: 'Workiz location #6142', placeholder: true }],
+  describe('stock totals', () => {
+    it('carries the totals the stock writes keep on the location row', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Item: { ...containerRow, totalUnits: 126, uniqueItems: 14 } });
+
+      expect(await repository.findLocation(LocationType.CONTAINER, 'container-1')).toMatchObject({
+        totalUnits: 126,
+        uniqueItems: 14,
       });
+    });
 
-      const locations = await repository.listPlaceholders(LocationType.CONTAINER);
+    it('has none on a row the backfill has not reached', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [warehouseRow] });
 
-      const input = dynamoDb.client.send.mock.calls[0][0].input;
-      expect(input.FilterExpression).toBe('placeholder = :true');
-      expect(input.ExpressionAttributeValues).toEqual({ ':pk': 'LOCATION#CONTAINER', ':true': true });
-      expect(locations).toEqual([expect.objectContaining({ id: 'c-ph', placeholder: true })]);
+      const [warehouse] = (await repository.listKind(LocationType.WAREHOUSE)).locations;
+
+      expect(warehouse).not.toHaveProperty('totalUnits');
+      expect(warehouse).not.toHaveProperty('uniqueItems');
     });
   });
 
