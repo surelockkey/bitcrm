@@ -319,6 +319,9 @@ export class ProductsRepository {
     filters: ProductListFilters | undefined,
   ): Promise<PaginatedResult> {
     const f = this.filterParts(filters);
+    const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
+    // Decoded before any read: garbage, or a cursor of another index, is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, ['PK', 'SK', keyAttr, skAttr]);
     const query = {
       TableName: INVENTORY_TABLE,
       IndexName: indexName,
@@ -333,27 +336,26 @@ export class ProductsRepository {
         new QueryCommand({
           ...query,
           Limit: limit,
-          ExclusiveStartKey: this.decodeCursor(cursor),
+          ExclusiveStartKey: startKey,
         }),
       );
       return {
         items: (result.Items || []).map(this.toProduct),
-        nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+        nextCursor: encodeIndexCursor(result.LastEvaluatedKey),
       };
     }
 
-    const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
     const page = await fillPage<Record<string, unknown>>(
       (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, ...input })),
       limit,
       {
-        startKey: this.decodeCursor(cursor),
+        startKey,
         keyOf: (i) => ({ PK: i.PK, SK: i.SK, [keyAttr]: i[keyAttr], [skAttr]: i[skAttr] }),
       },
     );
     return {
       items: page.items.map(this.toProduct),
-      nextCursor: this.encodeCursor(page.lastKey),
+      nextCursor: encodeIndexCursor(page.lastKey),
     };
   }
 
@@ -394,6 +396,8 @@ export class ProductsRepository {
     filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
     const f = this.listFilter(filters);
+    // Decoded before any read: a garbage cursor is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, ['PK', 'SK']);
 
     // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
     // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
@@ -415,12 +419,12 @@ export class ProductsRepository {
           }),
         ),
       limit,
-      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
+      { startKey, keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
     );
 
     return {
       items: page.items.map(this.toProduct),
-      nextCursor: this.encodeCursor(page.lastKey),
+      nextCursor: encodeIndexCursor(page.lastKey),
     };
   }
 
@@ -710,19 +714,5 @@ export class ProductsRepository {
       createdAt: item.createdAt as string,
       updatedAt: item.updatedAt as string,
     };
-  }
-
-  private encodeCursor(
-    lastEvaluatedKey?: Record<string, unknown>,
-  ): string | undefined {
-    if (!lastEvaluatedKey) return undefined;
-    return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString('base64url');
-  }
-
-  private decodeCursor(
-    cursor?: string,
-  ): Record<string, unknown> | undefined {
-    if (!cursor) return undefined;
-    return JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
   }
 }

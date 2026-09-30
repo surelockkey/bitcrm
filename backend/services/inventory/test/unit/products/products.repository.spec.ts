@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DynamoDbService } from '@bitcrm/shared';
 import { ProductsRepository } from 'src/products/products.repository';
 import { createMockProduct, createMockDynamoDbService } from '../mocks';
@@ -212,6 +212,43 @@ describe('ProductsRepository', () => {
 
       expect(result.items).toHaveLength(1);
       expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * Курсор, що не є base64url-JSON (зіпсований, з чужого списку), падав у
+   * JSON.parse і виходив 500; `decodeIndexCursor` уже робив це правильно.
+   */
+  describe('cursors that are not its own', () => {
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+
+    it('refuses garbage with a 400 before any read — category, type and the whole list alike', async () => {
+      await expect(repository.findByCategory('Locks', 20, '%%%')).rejects.toThrow(BadRequestException);
+      await expect(repository.findByType('product', 20, '%%%')).rejects.toThrow(BadRequestException);
+      await expect(repository.findAll(20, '%%%')).rejects.toThrow(BadRequestException);
+      expect(dynamoDb.client.send).not.toHaveBeenCalled();
+    });
+
+    // Курсор списку за категорією на запит за типом: DynamoDB відповів би
+    // ValidationException (500) — ключів TypeIndex у ньому нема.
+    it('refuses a cursor without the keys of the index it resumes', async () => {
+      const categoryCursor = encode({ PK: 'PRODUCT#p-1', SK: 'METADATA', GSI1PK: 'CATEGORY#Locks', GSI1SK: 'PRODUCT#p-1' });
+
+      await expect(repository.findByType('product', 20, categoryCursor)).rejects.toThrow(BadRequestException);
+      await expect(repository.findByCategory('Locks', 20, encode({ PK: 'PRODUCT#p-1' }))).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('still resumes from the cursors it hands out', async () => {
+      const key = { PK: 'PRODUCT#p-1', SK: 'METADATA', GSI1PK: 'CATEGORY#Locks', GSI1SK: 'PRODUCT#p-1' };
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findByCategory('Locks', 20, encode(key));
+      await repository.findAll(20, encode({ PK: 'PRODUCT#p-1', SK: 'METADATA' }));
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.ExclusiveStartKey).toEqual(key);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ PK: 'PRODUCT#p-1', SK: 'METADATA' });
     });
   });
 
