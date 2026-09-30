@@ -78,8 +78,11 @@ export class TransfersController {
   @ApiOperation({
     summary: 'List all transfers',
     description:
-      '**Guard:** `transfers.view` permission required. `type` (receive | transfer | deduct | ' +
-      'restore | return) filters on the server, so a page of one type still fills.',
+      '**Guard:** `transfers.view` permission required. Newest first, off the month index ' +
+      '(GSI1 `TRANSFERS#<YYYY-MM>`), never a Scan. `type` (receive | transfer | deduct | ' +
+      'restore | return) filters on the server, so a page of one type still fills; a page is ' +
+      'never longer than `limit`, and a rare type over many months may answer a short page with ' +
+      'a cursor once its read budget is spent. A cursor from before the month index is a 400.',
   })
   async list(@Query() query: ListTransfersQueryDto) {
     const { items, nextCursor } = await this.transfersService.list(query);
@@ -97,7 +100,8 @@ export class TransfersController {
     summary: 'How many transfers the list holds',
     description:
       '**Guard:** `transfers.view` permission required. Takes the list\'s `type` filter ' +
-      '(`cursor` and `limit` are ignored) and answers `{ total, atLeast }` — the row ' +
+      '(`cursor` and `limit` are ignored) and answers `{ total, atLeast }` — every month from ' +
+      'the first transfer to now counted without bodies and added up — the row ' +
       'count behind "Page 2 of 7". `atLeast` means the walk stopped on a ceiling and the real ' +
       'number is higher, which the panel renders as `7+`. Cached for thirty seconds per type.',
   })

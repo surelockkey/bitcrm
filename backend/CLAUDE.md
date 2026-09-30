@@ -225,6 +225,10 @@ PRODUCT#<id>       / METADATA        an inventory item; GSI1 CATEGORY#<category>
                                      PRODUCTS#STOCK / <name lowercased>#<id> on every stock-managed product (type product,
                                      manageStock not false, any status) — the "inventory products" list reads that ~3k-row
                                      partition, never a Scan of the ~46k-row table (whose read budget returned empty pages)
+TRANSFER#<id>      / METADATA        a stock movement; GSI1 TRANSFERS#<YYYY-MM> / <createdAt>#<id> — the list, one
+                                     partition per UTC month walked newest first down to `firstMonth` on
+                                     TRANSFERS#INDEX / METADATA (only ever moves down), `type` filtered on top, never a
+                                     Scan; GSI4 ENTITY#<type>#<id> for one location's movements (+ ENTITY_REF# rows)
 WAREHOUSE#<id> | CONTAINER#<id> / METADATA   a location; GSI1 LOCATION#WAREHOUSE | LOCATION#CONTAINER /
                                      <name lowercased>#<id>. `totalUnits` / `uniqueItems` (Σ quantity, rows > 0 of
                                      its STOCK# rows) move in the SAME TransactWrite as every stock write — the
@@ -515,8 +519,11 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   warehouse's and container's STOCK# rows into `totalUnits` / `uniqueItems` on
   its METADATA row; stock writes move them only where they exist, so until it
   has run the lists show "—" for every imported location — run it AFTER the
-  deploy, it is safe while stock moves). All seven are idempotent and
-  upsert-only; `WORKIZ_IMPORT.md` §0 has the row shapes.
+  deploy, it is safe while stock moves), `backfill:transfer-index` (files
+  every transfer row on the GSI1 month partitions and sets the walk's floor;
+  until it has run, `GET /transfers` and its count show none of the transfers
+  written before it). All eight are idempotent and upsert-only;
+  `WORKIZ_IMPORT.md` §0 has the row shapes.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is
