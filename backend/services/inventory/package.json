@@ -15,6 +15,7 @@
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
     "setup": "npm run setup:db && npm run setup:aws",
     "backfill:location-index": "ts-node src/scripts/backfill-location-index.ts",
+    "backfill:location-totals": "ts-node src/scripts/backfill-location-totals.ts",
     "backfill:product-numbers": "ts-node src/scripts/backfill-product-numbers.ts",
     "backfill:product-onhand": "ts-node src/scripts/backfill-product-onhand.ts",
     "backfill:product-search": "ts-node src/scripts/backfill-product-search.ts",
