@@ -11,9 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
-import { usePermissions } from "@/features/auth/use-permissions";
+import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { NoAccess } from "@/features/inventory/components/no-access";
+import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
@@ -32,9 +33,13 @@ const WAREHOUSES_PATH = "/inventory/warehouses";
 /** The URL params that open a popup — one at a time. */
 const POPUPS = ["stock", "edit"] as const;
 
+/** The list's own key: its page size and its skeleton's height are saved under it. */
+const TABLE_KEY = "inventory-warehouses";
+
 export function WarehousesPage() {
-  const { can } = usePermissions();
-  const [pageSize, setPageSize] = usePageSize("inventory-warehouses");
+  const { can, isLoading: permsLoading } = usePermissions();
+  const denied = useDenied();
+  const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>(InventoryStatus.ACTIVE);
   const [createOpen, setCreateOpen] = useState(false);
@@ -65,16 +70,18 @@ export function WarehousesPage() {
   });
   const warehouses = pager.items;
   const filtered = !!filter.search || status !== InventoryStatus.ACTIVE;
+  // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
+  const loading = query.isLoading && !query.data;
+  const skeletonRows = useSkeletonRows(
+    TABLE_KEY,
+    pageSize,
+    count.data?.total,
+    loading || pager.isStale ? undefined : warehouses.length,
+  );
 
-  if (!can("warehouses", "view")) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-        <h2 className="text-lg font-medium">No access</h2>
-        <p className="text-sm text-muted-foreground">
-          You don&apos;t have permission to view warehouses.
-        </p>
-      </div>
-    );
+  // Refused only once the permissions are known — never a flash of "No access".
+  if (denied("warehouses", "view")) {
+    return <NoAccess text="You don't have permission to view warehouses." />;
   }
 
   return (
@@ -101,8 +108,15 @@ export function WarehousesPage() {
         </Select>
         {/* Скільки всього — каже панель під таблицею. */}
         <span className="ml-auto" />
-        {can("warehouses", "create") ? (
-          <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setCreateOpen(true)}>
+        {/* In place from the first frame, off until the permissions answer:
+            appearing late, it pushed the toolbar about. */}
+        {permsLoading || can("warehouses", "create") ? (
+          <Button
+            variant="brand"
+            className="h-9 gap-1.5 px-3.5"
+            disabled={permsLoading}
+            onClick={() => setCreateOpen(true)}
+          >
             <WarehouseIcon className="size-4" />
             New warehouse
           </Button>
@@ -110,13 +124,7 @@ export function WarehousesPage() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {query.isLoading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : query.isError ? (
+        {query.isError && !query.data ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
               <TriangleAlert className="size-6" />
@@ -126,7 +134,7 @@ export function WarehousesPage() {
               Retry
             </Button>
           </div>
-        ) : warehouses.length === 0 ? (
+        ) : !loading && warehouses.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <WarehouseIcon className="size-6" />
@@ -144,12 +152,17 @@ export function WarehousesPage() {
           </div>
         ) : (
           <>
+            {/* Loading, loaded or holding the last filter's rows — one table,
+                so nothing under it moves when the rows land. */}
             <WarehousesTable
               warehouses={warehouses}
+              loading={loading}
+              skeletonRows={skeletonRows}
+              stale={pager.isStale}
               onEdit={(w) => popups.open("edit", w.id)}
               onStock={(w) => popups.open("stock", w.id)}
             />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
           </>
         )}
       </div>
