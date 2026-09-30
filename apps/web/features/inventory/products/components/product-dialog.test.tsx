@@ -82,10 +82,10 @@ const field = (name: string) =>
 function open(productId: string | null, over: { onCreated?: (p: Product) => void } = {}) {
   const onOpenChange = vi.fn();
   const onCreated = over.onCreated ?? vi.fn();
-  renderWithClient(
+  const { unmount } = renderWithClient(
     <ProductDialog productId={productId} open onOpenChange={onOpenChange} onCreated={onCreated} />,
   );
-  return { onOpenChange, onCreated };
+  return { onOpenChange, onCreated, unmount };
 }
 
 beforeEach(() => {
@@ -156,6 +156,20 @@ describe("ProductDialog — edit", () => {
     mocks.product = { isLoading: true, isError: false, data: undefined };
     open("p1");
     expect(within(screen.getByRole("dialog")).getByTestId("product-dialog-loading")).toBeInTheDocument();
+  });
+
+  // 442px loading, 968px loaded: a centred popup that moved both its edges.
+  it("is the same height loading and loaded, with its footer in place", () => {
+    mocks.product = { isLoading: true, isError: false, data: undefined };
+    const first = open("p1");
+    const loading = screen.getByRole("dialog").className;
+    expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
+    first.unmount();
+
+    mocks.product = { isLoading: false, isError: false, data: product() };
+    open("p1");
+    expect(screen.getByRole("dialog").className).toBe(loading);
+    expect(loading).toMatch(/(^|\s)h-\[/);
   });
 
   it("says so inside the popup when the item is gone", () => {

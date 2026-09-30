@@ -356,3 +356,21 @@ describe("ProductForm — Category from the catalog", () => {
     expect(field("category").tagName).toBe("INPUT");
   });
 });
+
+/**
+ * The catalogs arrive after the form. The Brand field used to appear with
+ * them, and Category turned from a text box with a hint into a select —
+ * every section under them moved down or up by a line.
+ */
+describe("ProductForm — while the catalogs load", () => {
+  it("holds the Brand field in place, disabled", () => {
+    renderForm(imported, vi.fn(), { brands: [], catalogsPending: true });
+    expect(screen.getByRole("combobox", { name: "Brand" })).toBeDisabled();
+  });
+
+  it("holds Category as the select it will most likely be, without the free-text hint", () => {
+    renderForm(imported, vi.fn(), { categories: [], catalogsPending: true });
+    expect(screen.getByRole("combobox", { name: "Category" })).toBeDisabled();
+    expect(screen.queryByText("e.g. Locks > Residential > Deadbolts")).toBeNull();
+  });
+});

@@ -61,6 +61,7 @@ export function ProductForm({
   showCompanyCost,
   categories,
   brands,
+  catalogsPending = false,
   onSubmit,
 }: {
   /**
@@ -76,6 +77,11 @@ export function ProductForm({
   categories: Pick<ProductCategory, "name" | "active">[];
   /** The brands catalog. Empty ⇒ the field is not shown. */
   brands: Pick<Brand, "id" | "name" | "active">[];
+  /**
+   * The catalogs are still loading: Category and Brand hold their places as
+   * disabled selects instead of appearing (or changing shape) when they land.
+   */
+  catalogsPending?: boolean;
   /**
    * `changed` carries only the fields whose value the user actually edited —
    * send that as the PUT body so an imported item with an out-of-range value
@@ -159,11 +165,11 @@ export function ProductForm({
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {categories.length > 0 ? (
+          {catalogsPending || categories.length > 0 ? (
             <Field label="Category" error={err("category")}>
               <Select
                 value={category}
-                disabled={readOnly}
+                disabled={readOnly || catalogsPending}
                 onValueChange={(v) => setValue("category", v, { shouldDirty: true, shouldValidate: true })}
               >
                 <SelectTrigger className="h-10 w-full" aria-label="Category">
@@ -200,11 +206,11 @@ export function ProductForm({
             </Select>
           </Field>
         </div>
-        {brandOptions.length > 0 ? (
+        {catalogsPending || brandOptions.length > 0 ? (
           <Field label="Brand" error={err("brandId")}>
             <Select
               value={brandId || NO_BRAND}
-              disabled={readOnly}
+              disabled={readOnly || catalogsPending}
               onValueChange={(v) =>
                 setValue("brandId", v === NO_BRAND ? "" : v, { shouldDirty: true })
               }

@@ -23,6 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FooterPlaceholder } from "@/features/inventory/components/dialog-loading";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { cn } from "@/lib/utils";
@@ -67,9 +68,12 @@ export function ProductDialog({
       <DialogContent
         className={cn(
           // Header and footer stay put; the form scrolls between them, so the
-          // popup fits a phone as well as a desktop.
-          "flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0",
-          productId ? "sm:max-w-5xl" : "sm:max-w-2xl",
+          // popup fits a phone as well as a desktop. An item's popup is one
+          // height loading and loaded: 442px growing to 968px moved both edges.
+          "flex flex-col gap-0 overflow-hidden p-0",
+          productId
+            ? "h-[min(61rem,calc(100dvh-2rem))] sm:max-w-5xl"
+            : "max-h-[calc(100dvh-2rem)] sm:max-w-2xl",
         )}
       >
         {productId ? (
@@ -82,12 +86,20 @@ export function ProductDialog({
   );
 }
 
-/** Each catalog behind its own permission; without it the form falls back. */
+/**
+ * Each catalog behind its own permission; without it the form falls back.
+ * `pending` while a permitted catalog (or the permissions) is still loading:
+ * the form then holds Category and Brand in place instead of reshaping.
+ */
 function useCatalogs() {
-  const { can } = usePermissions();
+  const { can, isLoading } = usePermissions();
   const categories = useItemCategories(can("product_categories", "view"));
   const brands = useBrands(can("brands", "view"));
-  return { categories: categories.data ?? [], brands: brands.data ?? [] };
+  return {
+    categories: categories.data ?? [],
+    brands: brands.data ?? [],
+    pending: !!isLoading || !!categories.isLoading || !!brands.isLoading,
+  };
 }
 
 function EditItem({ id, onClose }: { id: string; onClose: () => void }) {
@@ -96,7 +108,7 @@ function EditItem({ id, onClose }: { id: string; onClose: () => void }) {
   const update = useUpdateProduct();
   const archive = useArchiveProduct();
   const reactivate = useReactivateProduct();
-  const { categories, brands } = useCatalogs();
+  const { categories, brands, pending: catalogsPending } = useCatalogs();
   const [confirmArchive, setConfirmArchive] = useState(false);
 
   const canEdit = can("products", "edit");
@@ -116,6 +128,7 @@ function EditItem({ id, onClose }: { id: string; onClose: () => void }) {
             <Skeleton className="h-64 w-full" />
           </div>
         </Body>
+        <FooterPlaceholder />
       </>
     );
   }
@@ -199,6 +212,7 @@ function EditItem({ id, onClose }: { id: string; onClose: () => void }) {
             showCompanyCost={money}
             categories={categories}
             brands={brands}
+            catalogsPending={catalogsPending}
             // Send only what changed: an imported item can carry a value the
             // create rules reject (a name over 120 chars, a negative price) and
             // the API validates only the fields in the body.
@@ -322,7 +336,7 @@ function NewItem({
 }) {
   const { can } = usePermissions();
   const create = useCreateProduct();
-  const { categories, brands } = useCatalogs();
+  const { categories, brands, pending: catalogsPending } = useCatalogs();
 
   if (!can("products", "create")) {
     return (
@@ -347,6 +361,7 @@ function NewItem({
           showCompanyCost={can("financials", "view")}
           categories={categories}
           brands={brands}
+          catalogsPending={catalogsPending}
           onSubmit={(values) => create.mutate(values, { onSuccess: onCreated })}
         />
       </Body>
