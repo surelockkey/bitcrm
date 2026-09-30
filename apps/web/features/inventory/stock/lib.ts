@@ -55,6 +55,26 @@ export function toLocations(warehouses: Warehouse[], containers: Container[]): S
 }
 
 /* ------------------------------------------------------------------ *
+ * Totals the server keeps on each warehouse and van row.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Maintained by every stock write in the same transaction as the stock row:
+ * `totalUnits` is Σ quantity, `uniqueItems` the rows above zero. Absent on a
+ * row the backfill has not reached yet — shown as "—", never counted in the
+ * browser (that was one full stock request per row on screen).
+ */
+export interface LocationTotals {
+  totalUnits?: number;
+  uniqueItems?: number;
+}
+
+/** A total as a cell prints it: grouped digits, or "—" when the server has none yet. */
+export function formatTotal(n: number | undefined | null): string {
+  return typeof n === "number" && Number.isFinite(n) ? Math.round(n).toLocaleString() : "—";
+}
+
+/* ------------------------------------------------------------------ *
  * A location's stock, as the views read it.
  * ------------------------------------------------------------------ */
 
