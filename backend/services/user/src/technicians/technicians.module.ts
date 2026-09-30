@@ -21,6 +21,8 @@ import { TechnicianLocationRepository } from './location/technician-location.rep
 import { TimeClockController } from './timeclock/timeclock.controller';
 import { TimeClockService } from './timeclock/timeclock.service';
 import { TimeClockRepository } from './timeclock/timeclock.repository';
+import { TimesheetReportController } from './timeclock/report/timesheet-report.controller';
+import { TimesheetReportService } from './timeclock/report/timesheet-report.service';
 import { CalendarController } from './calendar/calendar.controller';
 import { CalendarService } from './calendar/calendar.service';
 import { CalendarRepository } from './calendar/calendar.repository';
@@ -37,6 +39,7 @@ import { UsersModule } from '../users/users.module';
     // Declared here, not in UsersModule: this module is scanned first, so
     // `/api/users/timeclock` is registered before `/api/users/:id` can swallow it.
     TimeClockController,
+    TimesheetReportController,
     CalendarController,
     TechniciansController,
   ],
@@ -57,6 +60,7 @@ import { UsersModule } from '../users/users.module';
     TechnicianLocationRepository,
     TimeClockService,
     TimeClockRepository,
+    TimesheetReportService,
     CalendarService,
     CalendarRepository,
   ],

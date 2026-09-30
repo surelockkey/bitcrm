@@ -580,3 +580,25 @@ export type {
   JobsReportRow,
   JobsReportSettings,
 } from './reports/jobs-report';
+
+// Reports — the Workiz Timesheets report (`GET /users/timeclock/report`)
+export {
+  TIMESHEET_JOB_FILTERS,
+  TIMESHEET_JOB_FILTER_LABEL,
+  TIMESHEET_REPORT_DEFAULT_PAGE_SIZE,
+  TIMESHEET_REPORT_MAX_DAYS,
+  TIMESHEET_REPORT_MAX_PAGE_SIZE,
+  TIMESHEET_REPORT_PAGE_SIZES,
+  TIMESHEET_REPORT_SORTS,
+} from './reports/timesheet-report';
+export type {
+  TimesheetEntriesPage,
+  TimesheetEntryRow,
+  TimesheetJobFilter,
+  TimesheetReportFilters,
+  TimesheetReportPage,
+  TimesheetReportPagination,
+  TimesheetReportRow,
+  TimesheetReportSort,
+  TimesheetReportTotal,
+} from './reports/timesheet-report';
