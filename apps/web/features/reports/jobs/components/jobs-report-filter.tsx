@@ -15,8 +15,8 @@ export interface FilterOption {
   color?: JobTagColor;
 }
 
-export interface FilterGroup {
-  key: keyof JobsReportFilters;
+export interface FilterGroup<K extends string = keyof JobsReportFilters> {
+  key: K;
   label: string;
   options: FilterOption[];
 }
@@ -26,16 +26,19 @@ export interface FilterGroup {
  * chips; open, it lays every group side by side (Status, Team, Created by,
  * Tags, Job type, Job origin, Source, Service areas, Companies). A group
  * matches any of its values, and every group with a value narrows the report.
+ * The Sales report's groups (Status, Team, Job type, Payment status, Source,
+ * Service Areas) go through it too — `F` is the report's filter shape.
  */
-export function JobsReportFilter({
+export function JobsReportFilter<F extends object = JobsReportFilters>({
   groups,
   filters,
   onChange,
 }: {
-  groups: FilterGroup[];
-  filters: JobsReportFilters;
-  onChange: (next: JobsReportFilters) => void;
+  groups: FilterGroup<Extract<keyof F, string>>[];
+  filters: F;
+  onChange: (next: F) => void;
 }) {
+  const valuesOf = (key: string): string[] => ((filters as Record<string, unknown>)[key] ?? []) as string[];
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -46,7 +49,7 @@ export function JobsReportFilter({
   }, [groups]);
 
   const picked = groups.flatMap((g) =>
-    ((filters[g.key] ?? []) as string[]).map((value) => ({
+    valuesOf(g.key).map((value) => ({
       group: g,
       value,
       option: labelOf.get(`${g.key}|${value}`) ?? { value, label: value },
@@ -97,7 +100,7 @@ export function JobsReportFilter({
               type="button"
               aria-label="Clear filters"
               className="rounded-sm p-1 text-muted-foreground hover:text-foreground"
-              onClick={() => onChange({})}
+              onClick={() => onChange({} as F)}
             >
               <X className="size-4" />
             </button>
@@ -131,7 +134,7 @@ export function JobsReportFilter({
                     <p className="px-3 py-1 text-xs text-muted-foreground">—</p>
                   ) : (
                     g.options.map((o) => {
-                      const on = ((filters[g.key] ?? []) as string[]).includes(o.value);
+                      const on = valuesOf(g.key).includes(o.value);
                       return (
                         <button
                           key={o.value}

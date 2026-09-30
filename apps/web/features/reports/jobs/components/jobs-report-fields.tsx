@@ -7,15 +7,29 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { inReportOrder } from "../lib";
+
+/** A column the panel offers: its id, its header, and whether it is an amount (hidden without money). */
+export interface FieldOption<C extends string> {
+  id: C;
+  label: string;
+  money?: boolean;
+}
+
+/** The Jobs report's columns — Total is its only amount. */
+const JOBS_FIELDS: readonly FieldOption<JobsReportColumnId>[] = JOBS_REPORT_COLUMNS.map((c) => ({
+  id: c.id,
+  label: c.label,
+  money: c.id === "total",
+}));
 
 /**
  * Workiz's "Visible fields" side panel: a search box, every column with a
  * tick, Cancel / Save fields. Saving is the account's (Workiz keeps
  * `jobReportSettings` per account) and needs `reports.edit`; without it the
  * choice applies to this screen only. At least one column stays ticked.
+ * Another report passes its own `fields` (the Sales report's twenty-three).
  */
-export function JobsReportFields({
+export function JobsReportFields<C extends string = JobsReportColumnId>({
   open,
   onOpenChange,
   columns,
@@ -23,23 +37,28 @@ export function JobsReportFields({
   canSave,
   saving,
   onApply,
+  fields = JOBS_FIELDS as unknown as readonly FieldOption<C>[],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  columns: JobsReportColumnId[];
-  /** Without `financials.view` there is no Total to show. */
+  columns: C[];
+  /** Without `financials.view` there are no amounts to show. */
   money: boolean;
   canSave: boolean;
   saving?: boolean;
-  onApply: (columns: JobsReportColumnId[], persist: boolean) => void;
+  onApply: (columns: C[], persist: boolean) => void;
+  /** The report's columns in its fixed order. Default: the Jobs report's. */
+  fields?: readonly FieldOption<C>[];
 }) {
-  const [draft, setDraft] = useState<JobsReportColumnId[]>(columns);
+  const [draft, setDraft] = useState<C[]>(columns);
   const [query, setQuery] = useState("");
+  // The report's fixed order (Workiz does not reorder).
+  const inReportOrder = (ids: readonly C[]): C[] => fields.map((f) => f.id).filter((id) => ids.includes(id));
 
-  const available = JOBS_REPORT_COLUMNS.filter((c) => money || c.id !== "total");
+  const available = fields.filter((c) => money || !c.money);
   const needle = query.trim().toLowerCase();
   const shown = needle ? available.filter((c) => c.label.toLowerCase().includes(needle)) : available;
-  const toggle = (id: JobsReportColumnId) =>
+  const toggle = (id: C) =>
     setDraft((cur) => (cur.includes(id) ? cur.filter((c) => c !== id) : inReportOrder([...cur, id])));
   const none = !draft.some((c) => available.some((a) => a.id === c));
 
