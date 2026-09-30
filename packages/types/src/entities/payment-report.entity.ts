@@ -114,7 +114,8 @@ export type PaymentReportStatus = 'succeeded' | 'pending' | 'failed' | 'reversed
 export interface PaymentReportRow {
   /** The payment id, or the refund id for a refund line. */
   id: string;
-  kind: 'payment' | 'refund';
+  /** `reversal`: money a bank or card network took back (Workiz lists it as a Dispute). */
+  kind: 'payment' | 'refund' | 'reversal';
   paymentId: string;
   refundId?: string;
   /** The job (Workiz shows "<number> (Job)" and links it). */
