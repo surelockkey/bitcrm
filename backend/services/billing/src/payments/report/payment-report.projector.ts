@@ -12,6 +12,7 @@ import {
   bucketDelta,
   bucketOf,
   contributionOf,
+  isUnconfirmedCheckout,
   reportLines,
   type LineDims,
 } from './payment-report.rules';
@@ -56,8 +57,11 @@ export class PaymentReportProjector {
     let dims: LineDims | undefined;
     for (let attempt = 1; ; attempt++) {
       const { payment, refunds, pointer } = await this.repo.readPaymentPartition(paymentId);
+      if (!pointer && (!payment || isUnconfirmedCheckout(payment))) return;
       if (payment && dims === undefined) dims = await this.dimsFor(payment);
       const lines = payment ? reportLines(payment, refunds, dims ?? {}, this.tz) : [];
+      // Never in the report and not now either (an open portal checkout).
+      if (!pointer && lines.length === 0) return;
       const next = lines.map((line) => {
         const key = `${line.day}#${bucketOf(line)}`;
         return { line, pointer: pointerFor(line, key, contributionOf(line)) };

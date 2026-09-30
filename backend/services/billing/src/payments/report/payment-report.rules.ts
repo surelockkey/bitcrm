@@ -82,6 +82,8 @@ const isStripeBacked = (p: Pick<Payment, 'stripePaymentIntentId' | 'stripeSessio
  * Imported rows are never sessions of ours (`externalId`).
  */
 export function isUnconfirmedCheckout(p: Payment): boolean {
+  // Money that was collected (or collected and given back) was confirmed.
+  if (p.status === 'settled' || p.status === 'refunded' || p.status === 'reversed') return false;
   if (p.stripePaymentIntentId || p.stripeChargeId || p.externalId) return false;
   return !!p.stripeSessionId || (p.source === 'portal' && p.takenBy === 'client');
 }
