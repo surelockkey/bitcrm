@@ -157,23 +157,40 @@ export const queryKeys = {
       detail: (id: string) => ["products", "detail", id] as const,
       bySku: (sku: string) => ["products", "by-sku", sku] as const,
       photo: (id: string) => ["products", id, "photo"] as const,
+      /** Under `products`: a stock movement refreshes it with the list and the detail. */
+      stock: (id: string) => ["products", id, "stock"] as const,
+      /** The whole catalog as a list, for the job and estimate item pickers. */
       map: () => ["products", "all-map"] as const,
+      /** Stock-managed items by id, for the stock join. Not `map`: that one holds an array. */
+      stockMap: () => ["products", "stock-map"] as const,
     },
     warehouses: {
       all: () => ["warehouses"] as const,
-      list: () => ["warehouses", "list"] as const,
+      list: (filters?: unknown) => ["warehouses", "list", filters] as const,
+      count: (filters?: unknown) => ["warehouses", "count", filters] as const,
+      /** Every page, for pickers. */
+      everything: () => ["warehouses", "everything"] as const,
       detail: (id: string) => ["warehouses", "detail", id] as const,
       stock: (id: string) => ["warehouses", id, "stock"] as const,
-      transfers: (id: string) => ["warehouses", id, "transfers"] as const,
     },
     containers: {
       all: () => ["containers"] as const,
       list: (filters?: unknown) => ["containers", "list", filters] as const,
       count: (filters?: unknown) => ["containers", "count", filters] as const,
+      /** Every page, for pickers. */
+      everything: () => ["containers", "everything"] as const,
       mine: () => ["containers", "mine"] as const,
       detail: (id: string) => ["containers", "detail", id] as const,
       stock: (id: string) => ["containers", id, "stock"] as const,
-      transfers: (id: string) => ["containers", id, "transfers"] as const,
+    },
+    /** Item categories catalog (`GET /inventory/categories`). */
+    categories: {
+      all: () => ["item-categories"] as const,
+      list: () => ["item-categories", "list"] as const,
+    },
+    brands: {
+      all: () => ["brands"] as const,
+      list: () => ["brands", "list"] as const,
     },
     transfers: {
       all: () => ["transfers"] as const,

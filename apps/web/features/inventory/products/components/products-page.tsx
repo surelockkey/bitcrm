@@ -1,19 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import {
-  Archive,
-  Download,
-  Loader2,
-  Package,
-  PackagePlus,
-  Search,
-  TriangleAlert,
-  Upload,
-} from "lucide-react";
+import { Download, Package, PackagePlus, Search, TriangleAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,41 +12,48 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { InventoryStatus, ProductType } from "@bitcrm/types";
-import { queryKeys } from "@/lib/query-keys";
-import { getApiErrorMessage } from "@/lib/api/errors";
+import { InventoryStatus } from "@bitcrm/types";
+import type { Product } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useProducts, useProductsCount } from "../hooks";
-import * as api from "../api";
-import { collectCategories, productsToCsv, type ProductFilter } from "../lib";
+import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useItemCategories, useProducts, useProductsCount } from "../hooks";
+import { productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
+import { ProductDialog } from "./product-dialog";
 import { ImportProductsDialog } from "./import-products-dialog";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 
+const ITEMS_PATH = "/inventory/items";
+
+/** The URL params that open a popup — one at a time. */
+type Popup = "edit" | "stock" | "new";
+const POPUPS: Popup[] = ["edit", "stock", "new"];
+
 export function ProductsPage() {
-  const router = useRouter();
-  const qc = useQueryClient();
   const { can } = usePermissions();
+  const money = can("financials", "view");
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
-  const [type, setType] = useState<string>("all");
   const [status, setStatus] = useState<string>(InventoryStatus.ACTIVE);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importOpen, setImportOpen] = useState(false);
-  const [bulkPending, setBulkPending] = useState(false);
 
+  // The Items tab is the stock list: services and items that opted out of
+  // stock live in the price book, not here.
+  const term = useDebouncedValue(search.trim(), 300);
   const filter: ProductFilter = useMemo(
     () => ({
-      search: search || undefined,
+      manageStock: true,
+      search: term || undefined,
       category: category === "all" ? undefined : category,
-      type: type === "all" ? undefined : (type as ProductType),
       status: status === "all" ? undefined : (status as InventoryStatus),
     }),
-    [search, category, type, status],
+    [term, category, status],
   );
 
   const [pageSize, setPageSize] = usePageSize("inventory-items");
@@ -71,10 +66,21 @@ export function ProductsPage() {
     resetKey: JSON.stringify({ filter, pageSize }),
   });
   const products = pager.items;
-  const categories = useMemo(() => collectCategories(products), [products]);
 
-  // A category/type filter overrides search+status server-side.
-  const overriding = category !== "all" || type !== "all";
+  // Every category the catalog knows (archived too — items still carry them),
+  // not the handful on the page being shown.
+  const catalog = useItemCategories(can("product_categories", "view"));
+  const categories = useMemo(
+    () => [...new Set((catalog.data ?? []).map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
+    [catalog.data],
+  );
+
+  // Popups live in the URL, so a link to an item (or an old /inventory/items/<id>
+  // bookmark, redirected here) opens it.
+  const popups = useUrlPopups(ITEMS_PATH, POPUPS);
+  const editId = popups.param("edit");
+  const stockId = popups.param("stock");
+  const creating = !editId && popups.param("new") === "1";
 
   if (!can("products", "view")) {
     return (
@@ -87,36 +93,8 @@ export function ProductsPage() {
     );
   }
 
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const toggleAll = (checked: boolean) =>
-    setSelected(checked ? new Set(products.map((p) => p.id)) : new Set());
-
-  const selectedProducts = products.filter((p) => selected.has(p.id));
-
-  const bulkArchive = async () => {
-    setBulkPending(true);
-    try {
-      await Promise.all([...selected].map((id) => api.archiveProduct(id)));
-      toast.success(`Archived ${selected.size} ${selected.size === 1 ? "item" : "items"}`);
-      setSelected(new Set());
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.products.all() });
-    } catch (e) {
-      toast.error(getApiErrorMessage(e));
-    } finally {
-      setBulkPending(false);
-    }
-  };
-
-  const exportSelected = () => {
-    downloadCsv(productsToCsv(selectedProducts), "items.csv");
-  };
+  const exportCsv = () =>
+    downloadCsv(productsToCsv(products, { withCost: money }), "items.csv");
 
   return (
     <div className="flex flex-1 flex-col">
@@ -129,55 +107,33 @@ export function ProductsPage() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name or SKU"
             className="h-9 pl-8"
-            disabled={overriding}
           />
         </div>
 
-        <Select
-          value={category}
-          onValueChange={(v) => {
-            setCategory(v);
-            if (v !== "all") setType("all");
-          }}
-        >
-          <SelectTrigger className="h-9 w-44">
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c} value={c}>
-                {c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {categories.length > 0 ? (
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger className="h-9 w-44" aria-label="Category">
+              <SelectValue placeholder="Category" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {categories.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
 
-        <Select
-          value={type}
-          onValueChange={(v) => {
-            setType(v);
-            if (v !== "all") setCategory("all");
-          }}
-        >
-          <SelectTrigger className="h-9 w-32">
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            <SelectItem value={ProductType.PRODUCT}>Product</SelectItem>
-            <SelectItem value={ProductType.SERVICE}>Service</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={status} onValueChange={setStatus} disabled={overriding}>
-          <SelectTrigger className="h-9 w-32">
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-9 w-32" aria-label="Status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
             <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
           </SelectContent>
         </Select>
 
@@ -185,6 +141,16 @@ export function ProductsPage() {
             однієї сторінки з виглядом підсумку. */}
         <span className="ml-auto" />
 
+        <Button
+          variant="outline"
+          className="h-9 gap-1.5"
+          disabled={products.length === 0}
+          title="Export the items on this page"
+          onClick={exportCsv}
+        >
+          <Download className="size-4" />
+          Export CSV
+        </Button>
         {can("products", "create") ? (
           <Button variant="outline" className="h-9 gap-1.5" onClick={() => setImportOpen(true)}>
             <Upload className="size-4" />
@@ -192,50 +158,12 @@ export function ProductsPage() {
           </Button>
         ) : null}
         {can("products", "create") ? (
-          <Button
-            variant="brand"
-            className="h-9 gap-1.5 px-3.5"
-            onClick={() => router.push("/inventory/items/new")}
-          >
+          <Button className="h-9 gap-1.5 px-3.5" onClick={() => popups.open("new")}>
             <PackagePlus className="size-4" />
             New item
           </Button>
         ) : null}
       </div>
-
-      {overriding ? (
-        <p className="px-6 pb-1 text-xs text-muted-foreground">
-          A category or type filter is active — search and status are applied only without them.
-        </p>
-      ) : null}
-
-      {/* Bulk bar */}
-      {selected.size > 0 ? (
-        <div className="mx-6 mb-2 flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2 text-sm">
-          <span className="font-medium">{selected.size} selected</span>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={exportSelected}>
-              <Download className="size-3.5" />
-              Export CSV
-            </Button>
-            {can("products", "delete") ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-destructive"
-                disabled={bulkPending}
-                onClick={bulkArchive}
-              >
-                {bulkPending ? <Loader2 className="size-3.5 animate-spin" /> : <Archive className="size-3.5" />}
-                Archive
-              </Button>
-            ) : null}
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-              Clear
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {/* Body */}
       <div className="flex-1 px-6 pb-6">
@@ -245,17 +173,17 @@ export function ProductsPage() {
           <ErrorState onRetry={() => query.refetch()} />
         ) : products.length === 0 ? (
           <EmptyState
-            filtered={overriding || !!search || status !== InventoryStatus.ACTIVE}
+            filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
             canCreate={can("products", "create")}
-            onCreate={() => router.push("/inventory/items/new")}
+            onCreate={() => popups.open("new")}
           />
         ) : (
           <>
             <ProductsTable
               products={products}
-              selected={selected}
-              onToggle={toggle}
-              onToggleAll={toggleAll}
+              showCost={money}
+              onEdit={(p: Product) => popups.open("edit", p.id)}
+              onStock={(p: Product) => popups.open("stock", p.id)}
             />
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
@@ -263,6 +191,23 @@ export function ProductsPage() {
       </div>
 
       <ImportProductsDialog open={importOpen} onOpenChange={setImportOpen} />
+      {/* Mounted only while their param is set: a popup closing must not
+          flash into another mode as the param clears under it. */}
+      {editId || creating ? (
+        <ProductDialog
+          productId={editId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onCreated={(p) => popups.replace("edit", p.id)}
+        />
+      ) : null}
+      {stockId ? (
+        <ManageStockDialog
+          productId={stockId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
     </div>
   );
 }
@@ -282,9 +227,9 @@ function TableSkeleton() {
     <div className="space-y-2 rounded-lg border p-4">
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3">
-          <Skeleton className="size-8 rounded-lg" />
+          <Skeleton className="h-4 w-16" />
           <Skeleton className="h-4 w-48" />
-          <Skeleton className="ml-auto h-4 w-24" />
+          <Skeleton className="h-4 w-24" />
         </div>
       ))}
     </div>

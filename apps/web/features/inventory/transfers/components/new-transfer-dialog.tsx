@@ -21,9 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LocationType } from "@bitcrm/types";
-import { useWarehouses, useContainers, useCreateTransfer } from "@/features/inventory/warehouses/hooks";
-import { containerLabel } from "@/features/inventory/warehouses/lib";
+import { useAllLocations, useMoveStock } from "@/features/inventory/stock/hooks";
 import { getWarehouseStock } from "@/features/inventory/warehouses/api";
 import { getContainerStock } from "@/features/inventory/containers/api";
 
@@ -37,9 +35,8 @@ export function NewTransferDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const { data: warehouses } = useWarehouses();
-  const { data: containers } = useContainers(open);
-  const create = useCreateTransfer();
+  const { data: all } = useAllLocations(open);
+  const create = useMoveStock();
 
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
@@ -48,25 +45,19 @@ export function NewTransferDialog({
   const [notes, setNotes] = useState("");
 
   const locations: Loc[] = useMemo(
-    () => [
-      ...(warehouses?.data ?? []).map((w) => ({ id: w.id, label: w.name, kind: "warehouse" as const })),
-      ...(containers?.data ?? []).map((c) => ({
-        id: c.id,
-        label: containerLabel(c) + (c.department ? ` · ${c.department}` : ""),
-        kind: "container" as const,
+    () =>
+      all.map((l) => ({
+        id: l.id,
+        label: l.name + (l.department ? ` · ${l.department}` : ""),
+        kind: l.type,
       })),
-    ],
-    [warehouses, containers],
+    [all],
   );
   const byId = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
   const from = fromId ? byId.get(fromId) : undefined;
 
-  // Valid routes: warehouse→container, container→warehouse, container→container.
-  const toOptions = locations.filter((l) => {
-    if (!from || l.id === fromId) return false;
-    if (from.kind === "warehouse") return l.kind === "container";
-    return true;
-  });
+  // Any other location, warehouse→warehouse included; never the source itself.
+  const toOptions = from ? locations.filter((l) => l.id !== fromId) : [];
 
   // Products come from the source's own stock.
   const stockQ = useQuery({
@@ -117,9 +108,9 @@ export function NewTransferDialog({
     if (!from || !to) return;
     create.mutate(
       {
-        fromType: from.kind === "warehouse" ? LocationType.WAREHOUSE : LocationType.CONTAINER,
+        fromType: from.kind,
         fromId,
-        toType: to.kind === "warehouse" ? LocationType.WAREHOUSE : LocationType.CONTAINER,
+        toType: to.kind,
         toId,
         items: rows.map((r) => ({ productId: r.productId, productName: r.productName, quantity: r.quantity })),
         notes: notes || undefined,
@@ -134,7 +125,7 @@ export function NewTransferDialog({
         <DialogHeader>
           <DialogTitle>New transfer</DialogTitle>
           <DialogDescription>
-            Move stock between a warehouse and a technician&apos;s container.
+            Move stock between any two warehouses or containers.
           </DialogDescription>
         </DialogHeader>
 

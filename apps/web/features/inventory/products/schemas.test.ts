@@ -127,3 +127,52 @@ describe("updateProductSchemaFor (imported items)", () => {
     expect(schema.safeParse({ ...editable, priceClient: 0 }).success).toBe(true);
   });
 });
+
+/**
+ * Workiz's price-book fields the item popup edits: whether stock is counted
+ * (`manage`), the brand (catalog id) and the reorder point.
+ */
+describe("stock, brand and reorder fields", () => {
+  it("creates a stock-managed item unless told otherwise", () => {
+    expect(createProductSchema.parse(base).manageStock).toBe(true);
+    expect(createProductSchema.parse({ ...base, manageStock: false }).manageStock).toBe(false);
+  });
+
+  it("takes a whole, non-negative reorder level", () => {
+    expect(createProductSchema.parse({ ...base, reorderLevel: "4" }).reorderLevel).toBe(4);
+    expect(createProductSchema.safeParse({ ...base, reorderLevel: -1 }).success).toBe(false);
+    expect(createProductSchema.safeParse({ ...base, reorderLevel: 1.5 }).success).toBe(false);
+  });
+
+  it("leaves an empty brand out of a new item — '' is 'No brand', not an id", () => {
+    // Undefined never reaches the wire: JSON drops it.
+    expect(createProductSchema.parse({ ...base, brandId: "" }).brandId).toBeUndefined();
+    expect(createProductSchema.parse({ ...base, brandId: "b1" }).brandId).toBe("b1");
+  });
+
+  it("keeps all three (and taxable) through the edit schema, so a change to them is sent", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sku: _sku, ...editable } = base;
+    const parsed = updateProductSchemaFor(editable).parse({
+      ...editable,
+      manageStock: false,
+      brandId: "b2",
+      reorderLevel: 3,
+      taxable: false,
+    });
+    expect(parsed).toMatchObject({
+      manageStock: false,
+      brandId: "b2",
+      reorderLevel: 3,
+      taxable: false,
+    });
+  });
+
+  it("still rejects a negative reorder level on edit", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sku: _sku, ...editable } = base;
+    expect(
+      updateProductSchemaFor(editable).safeParse({ ...editable, reorderLevel: -2 }).success,
+    ).toBe(false);
+  });
+});

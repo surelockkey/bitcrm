@@ -3,25 +3,20 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { InventoryStatus } from "@bitcrm/types";
 import type { Warehouse } from "@bitcrm/types";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { StockSummary } from "../lib";
 import { WarehousesTable } from "./warehouses-table";
 
-const push = vi.fn();
-const archiveMutate = vi.fn();
+const onEdit = vi.fn();
+const onStock = vi.fn();
 const summaries: Record<string, StockSummary> = {};
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-vi.mock("@/features/auth/use-permissions", () => ({
-  useDenied: () => () => false,
-  usePermissions: () => ({ can: () => true }),
-}));
 vi.mock("../hooks", () => ({
   useWarehouseStockView: (id: string) => ({
     summary:
       summaries[id] ?? { skuCount: 0, totalUnits: 0, totalValue: 0, lowCount: 0 },
     isLoading: false,
   }),
-  useArchiveWarehouse: () => ({ mutate: archiveMutate, isPending: false }),
 }));
 
 function warehouse(over: Partial<Warehouse>): Warehouse {
@@ -37,69 +32,85 @@ function warehouse(over: Partial<Warehouse>): Warehouse {
   };
 }
 
+function renderTable(warehouses: Warehouse[] = [warehouse({})]) {
+  return render(
+    <TooltipProvider>
+      <WarehousesTable warehouses={warehouses} onEdit={onEdit} onStock={onStock} />
+    </TooltipProvider>,
+  );
+}
+
 beforeEach(() => {
-  push.mockClear();
-  archiveMutate.mockClear();
+  onEdit.mockClear();
+  onStock.mockClear();
   for (const k of Object.keys(summaries)) delete summaries[k];
 });
 
 describe("WarehousesTable", () => {
+  it("has Workiz's columns, in order", () => {
+    renderTable();
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
+      "Name",
+      "Description",
+      "Items",
+      "Actions",
+    ]);
+  });
+
   it("renders name, description and total units", () => {
     summaries.w1 = { skuCount: 12, totalUnits: 36498, totalValue: 900, lowCount: 0 };
-    render(<WarehousesTable warehouses={[warehouse({})]} />);
+    renderTable();
     expect(screen.getByText("WAREHOUSE TX")).toBeInTheDocument();
     expect(screen.getByText("RICHARDSON SHOP")).toBeInTheDocument();
     expect(screen.getByText("36,498")).toBeInTheDocument();
   });
 
   it("falls back to the address when there is no description", () => {
-    render(
-      <WarehousesTable warehouses={[warehouse({ description: undefined })]} />,
-    );
+    renderTable([warehouse({ description: undefined })]);
     expect(screen.getByText("800 W Campbell Rd")).toBeInTheDocument();
+  });
+
+  it("left-aligns everything — headers, cells, numbers and the actions", () => {
+    renderTable();
+    for (const el of document.querySelectorAll("th, td, td *")) {
+      expect(el.getAttribute("class") ?? "").not.toMatch(/text-right|justify-end/);
+    }
   });
 
   it("shows a Low stock badge only when something is low", () => {
     summaries.w1 = { skuCount: 3, totalUnits: 758, totalValue: 100, lowCount: 2 };
-    const { rerender } = render(<WarehousesTable warehouses={[warehouse({})]} />);
+    const { unmount } = renderTable();
     expect(screen.getByText("Low stock")).toBeInTheDocument();
+    unmount();
 
-    summaries.w1 = { skuCount: 3, totalUnits: 758, totalValue: 100, lowCount: 0 };
-    rerender(<WarehousesTable warehouses={[warehouse({ id: "w2" })]} />);
+    renderTable([warehouse({ id: "w2" })]);
     expect(screen.queryByText("Low stock")).not.toBeInTheDocument();
   });
 
-  it("navigates to the detail page on row click", async () => {
-    render(<WarehousesTable warehouses={[warehouse({})]} />);
+  it("opens the warehouse's stock on row click", async () => {
+    renderTable();
     await userEvent.click(screen.getByText("WAREHOUSE TX"));
-    expect(push).toHaveBeenCalledWith("/inventory/warehouses/w1");
+    expect(onStock).toHaveBeenCalledWith(expect.objectContaining({ id: "w1" }));
+    expect(onEdit).not.toHaveBeenCalled();
   });
 
-  it("edit action deep-links to the settings tab", async () => {
-    render(<WarehousesTable warehouses={[warehouse({})]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(push).toHaveBeenCalledWith("/inventory/warehouses/w1?tab=settings");
+  it("opens the Edit popup from the pencil, without also opening the stock", async () => {
+    renderTable();
+    await userEvent.click(screen.getByRole("button", { name: "Edit WAREHOUSE TX" }));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: "w1" }));
+    expect(onStock).not.toHaveBeenCalled();
   });
 
-  it("archive action asks for confirmation, then archives", async () => {
-    render(<WarehousesTable warehouses={[warehouse({})]} />);
-    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
-    expect(archiveMutate).not.toHaveBeenCalled();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Archive warehouse" }),
-    );
-    expect(archiveMutate).toHaveBeenCalledWith("w1");
+  it("opens the stock popup from the box button, once", async () => {
+    renderTable();
+    await userEvent.click(screen.getByRole("button", { name: "Stock in WAREHOUSE TX" }));
+    expect(onStock).toHaveBeenCalledTimes(1);
+    expect(onEdit).not.toHaveBeenCalled();
   });
 
-  it("hides the archive action on archived warehouses", () => {
-    render(
-      <WarehousesTable
-        warehouses={[warehouse({ status: InventoryStatus.ARCHIVED })]}
-      />,
-    );
-    expect(
-      screen.queryByRole("button", { name: "Archive" }),
-    ).not.toBeInTheDocument();
+  it("keeps Archive off the row — it lives in the Edit popup", () => {
+    renderTable();
+    expect(screen.queryByRole("button", { name: /Archive/ })).not.toBeInTheDocument();
   });
 });
 
@@ -108,7 +119,7 @@ describe("WarehousesTable", () => {
  * межу можна перетягнути, і таблиця цю ширину пам'ятає між візитами.
  */
 describe("WarehousesTable — a stable first frame", () => {
-  const table = () => render(<WarehousesTable warehouses={[warehouse({})]} />).container;
+  const table = () => renderTable().container;
 
   it("lays the columns out at declared widths, not by content", () => {
     expect(table().querySelector("table")?.className).toContain("table-fixed");

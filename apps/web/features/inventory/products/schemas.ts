@@ -6,6 +6,27 @@ const money = z.coerce
   .number({ message: "Enter an amount" })
   .min(0, "Must be 0 or more");
 
+/** An empty number input is "not set", not 0 — z.coerce would read it as 0. */
+const blankAsUnset = (v: unknown) => (v === "" || v === null ? undefined : v);
+
+const wholeCount = z.coerce
+  .number({ message: "Enter a number" })
+  .int("Whole number")
+  .min(0, "Must be 0 or more");
+
+const reorderLevel = z.preprocess(blankAsUnset, wholeCount.optional());
+
+/**
+ * Editing, a cleared field is 0. The API has no way to unset the field (a
+ * missing key leaves it as it was), and 0 is what the form shows for an item
+ * without one — so a blank that parsed to "not set" would be silently dropped
+ * behind an "Item saved".
+ */
+const editedReorderLevel = z.preprocess(
+  (v) => (v === "" || v === null ? 0 : v),
+  wholeCount.optional(),
+);
+
 const baseFields = {
   name: z.string().trim().min(1, "Name is required").max(120),
   barcode: z.string().trim().max(64).optional(),
@@ -23,12 +44,19 @@ const baseFields = {
     .number({ message: "Enter a number" })
     .int("Whole number")
     .min(0, "Must be 0 or more"),
+  /** Whether stock is counted (Workiz "Manage stock"). Absent ⇒ true on the server too. */
+  manageStock: z.boolean().default(true),
+  /** Brand catalog id; "" is "No brand". */
+  brandId: z.string().trim().max(64).optional(),
+  reorderLevel,
 };
 
 /** Create requires a SKU (unique, immutable once set). */
 export const createProductSchema = z.object({
   ...baseFields,
   sku: z.string().trim().min(1, "SKU is required").max(64),
+  // A new item with no brand sends none — "" would be stored as a brand id.
+  brandId: baseFields.brandId.transform((v) => v || undefined),
 });
 
 /** Update omits SKU — the backend ignores changes to it. */
@@ -71,7 +99,14 @@ const looseFields = {
   priceClient: z.coerce.number({ message: "Enter an amount" }),
   supplier: z.string().trim().optional(),
   serialTracking: z.boolean(),
+  // Without these the resolver strips them and a change to them is never sent.
+  taxable: z.boolean().default(true),
+  manageStock: z.boolean().default(true),
+  // "" is "No brand" and is sent as is: the API has no other way to clear it
+  // (a missing key keeps the old brand, and null is stored as null).
+  brandId: z.string().trim().optional(),
   minimumStockLevel: z.coerce.number({ message: "Enter a number" }).int("Whole number"),
+  reorderLevel: editedReorderLevel,
 };
 
 /**

@@ -18,27 +18,28 @@ import * as api from "./api";
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useContainersCount(department?: string) {
+export function useContainersCount(filter: api.ContainerFilter) {
   return useQuery({
-    queryKey: queryKeys.inventory.containers.count(department ?? null),
-    queryFn: () => api.countContainers(department),
+    queryKey: queryKeys.inventory.containers.count(filter),
+    queryFn: () => api.countContainers(filter),
     staleTime: 30_000,
   });
 }
 
-export function useContainersList(department?: string, limit = 100) {
+export function useContainersList(filter: api.ContainerFilter, limit = 100) {
   return useInfiniteQuery({
-    queryKey: queryKeys.inventory.containers.list(`${department ?? "all"}:${limit}`),
-    queryFn: ({ pageParam }) => api.listContainers(department, pageParam, limit),
+    queryKey: queryKeys.inventory.containers.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listContainers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });
 }
 
-export function useContainer(id: string) {
+export function useContainer(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.inventory.containers.detail(id),
     queryFn: () => api.getContainer(id),
+    enabled,
   });
 }
 
@@ -83,15 +84,6 @@ export function useMyContainer() {
   });
 }
 
-export function useContainerTransfers(id: string) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.inventory.containers.transfers(id),
-    queryFn: ({ pageParam }) => api.listContainerTransfers(id, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.pagination.nextCursor,
-  });
-}
-
 /** Container stock joined with the catalog — reuses the Warehouses join. */
 export function useContainerStockView(id: string, enabled = true) {
   const stockQ = useContainerStock(id, enabled);
@@ -113,5 +105,6 @@ export function useContainerStockView(id: string, enabled = true) {
     isLoading: stockQ.isLoading || mapQ.isLoading,
     isError: stockQ.isError,
     joinReady: mapQ.isSuccess,
+    refetch: stockQ.refetch,
   };
 }

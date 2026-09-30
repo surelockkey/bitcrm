@@ -1,9 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowLeftRight, Loader2, Plus, Search, TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeftRight, Plus, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -14,13 +13,10 @@ import {
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
-import { cn } from "@/lib/utils";
 import { formatDate } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useTransfers, useLocationMap , useTransfersCount } from "../hooks";
-import { filterByType, matchesSearch } from "../lib";
+import { useTransfers, useLocationMap, useTransfersCount } from "../hooks";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
 import { TransferRecordDialog } from "./transfer-record-dialog";
@@ -30,24 +26,16 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 
-const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: TransferType.RECEIVE, label: "Receive" },
-  { value: TransferType.TRANSFER, label: "Transfer" },
-  { value: TransferType.DEDUCT, label: "Deduct" },
-  { value: TransferType.RESTORE, label: "Restore" },
-];
-
 /**
  * The columns, with the width each one starts at — read by both the
  * `<colgroup>` and the headers, so there is one number to change.
  */
-const COLUMNS: { id: string; label: string; width: number; className?: string }[] = [
+const COLUMNS: { id: string; label: string; width: number }[] = [
   { id: "type", label: "Type", width: 120 },
   { id: "route", label: "Route", width: 280 },
   { id: "items", label: "Items", width: 240 },
   { id: "by", label: "By", width: 160 },
-  { id: "when", label: "When", width: 150, className: "text-right" },
+  { id: "when", label: "When", width: 150 },
 ];
 
 const DEFAULT_WIDTHS = Object.fromEntries(COLUMNS.map((c) => [c.id, c.width]));
@@ -66,8 +54,6 @@ export function TransfersPage() {
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
   const query = useTransfers(pageSize);
   const { map } = useLocationMap();
-  const [type, setType] = useState<TransferType | "all">("all");
-  const [search, setSearch] = useState("");
   const [record, setRecord] = useState<Transfer | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 
@@ -78,11 +64,10 @@ export function TransfersPage() {
     pageSize,
     resetKey: String(pageSize),
   });
+  // No type chips or search here: GET /inventory/transfers filters on
+  // neither, and filtering the one page on screen shows a different handful
+  // on every page under a page count that doesn't match.
   const transfers = pager.items;
-  const visible = useMemo(
-    () => filterByType(transfers, type).filter((t) => matchesSearch(t, search, map)),
-    [transfers, type, search, map],
-  );
 
   if (!can("transfers", "view")) {
     return (
@@ -96,31 +81,6 @@ export function TransfersPage() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div className="inline-flex overflow-hidden border text-xs">
-          {TYPE_CHIPS.map((c, i) => (
-            <button
-              key={c.value}
-              type="button"
-              onClick={() => setType(c.value)}
-              className={cn(
-                "px-3 py-1.5 transition-colors",
-                i > 0 && "border-l",
-                type === c.value ? "bg-muted font-semibold text-foreground" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <div className="relative w-full max-w-xs">
-          <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search item or person"
-            className="h-9 pl-8"
-          />
-        </div>
         {/* Скільки всього — під таблицею; тут було б число однієї сторінки. */}
         <span className="ml-auto" />
         {can("transfers", "create") ? (
@@ -150,15 +110,15 @@ export function TransfersPage() {
             <div className="font-medium">Couldn&apos;t load transfers</div>
             <Button variant="outline" onClick={() => query.refetch()}>Retry</Button>
           </div>
-        ) : visible.length === 0 ? (
+        ) : transfers.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <ArrowLeftRight className="size-6" />
             </div>
             <div>
-              <div className="font-medium">{transfers.length ? "No movements match" : "No transfers yet"}</div>
+              <div className="font-medium">No transfers yet</div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {transfers.length ? "Try clearing the filter or search." : "Receiving, transferring, or using stock on a job will show up here."}
+                Receiving, transferring, or using stock on a job will show up here.
               </p>
             </div>
           </div>
@@ -184,13 +144,12 @@ export function TransfersPage() {
                         width={widthOf(c.id)}
                         onResize={(px) => setWidth(c.id, px)}
                         onReset={reset}
-                        className={c.className}
                       />
                     ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {visible.map((t) => {
+                  {transfers.map((t) => {
                     const { text, more } = itemsSummary(t);
                     return (
                       <TableRow key={t.id} className="cursor-pointer" onClick={() => setRecord(t)}>
@@ -204,7 +163,7 @@ export function TransfersPage() {
                           {more > 0 ? <span className="text-muted-foreground"> +{more}</span> : null}
                         </TableCell>
                         <TableCell className="truncate text-sm text-muted-foreground">{t.performedByName}</TableCell>
-                        <TableCell className="truncate text-right text-sm text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
+                        <TableCell className="truncate text-sm text-muted-foreground">{formatDate(t.createdAt)}</TableCell>
                       </TableRow>
                     );
                   })}

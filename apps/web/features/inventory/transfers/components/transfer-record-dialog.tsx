@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
 import { Label } from "@/components/ui/label";
 import type { Transfer } from "@bitcrm/types";
 import { formatDate } from "@/features/users/lib";
+import { returnReasonLabel, transferEndpoints } from "../lib";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
 
@@ -23,6 +25,9 @@ export function TransferRecordDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const ends = transfer ? transferEndpoints(transfer, locationMap) : null;
+  const dealId = ends?.to.dealId ?? ends?.from.dealId;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -67,6 +72,22 @@ export function TransferRecordDialog({
                 <dt className="text-muted-foreground">When</dt>
                 <dd>{formatDate(transfer.createdAt)}</dd>
               </div>
+              {transfer.reason ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Reason</dt>
+                  <dd>{returnReasonLabel(transfer.reason)}</dd>
+                </div>
+              ) : null}
+              {dealId ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">Job</dt>
+                  <dd className="min-w-0">
+                    <Link href={`/deals/${dealId}`} className="block truncate text-brand hover:underline">
+                      Open job
+                    </Link>
+                  </dd>
+                </div>
+              ) : null}
               {transfer.notes ? (
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted-foreground">Note</dt>

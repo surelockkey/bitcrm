@@ -51,7 +51,7 @@ export function MyContainerView() {
         </Badge>
       </div>
       <div className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-6 py-6">
-        <ContainerStockTab containerId={container.id} readOnly />
+        <ContainerStockTab containerId={container.id} />
       </div>
     </div>
   );

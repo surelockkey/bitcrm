@@ -3,8 +3,7 @@
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
-import { useWarehouses, useContainers } from "@/features/inventory/warehouses/hooks";
-import { containerLabel } from "@/features/inventory/warehouses/lib";
+import { useAllLocations } from "@/features/inventory/stock/hooks";
 import * as api from "./api";
 
 /**
@@ -37,15 +36,10 @@ export function useTransfer(id: string) {
 
 /** id → display name for every warehouse and container, for route rendering. */
 export function useLocationMap() {
-  const warehouses = useWarehouses();
-  const containers = useContainers();
-
-  const map = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const w of warehouses.data?.data ?? []) m.set(w.id, w.name);
-    for (const c of containers.data?.data ?? []) m.set(c.id, containerLabel(c));
-    return m;
-  }, [warehouses.data, containers.data]);
-
-  return { map, isLoading: warehouses.isLoading || containers.isLoading };
+  const locations = useAllLocations();
+  const map = useMemo(
+    () => new Map(locations.data.map((l) => [l.id, l.name] as const)),
+    [locations.data],
+  );
+  return { map, isLoading: locations.isLoading };
 }

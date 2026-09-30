@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -28,7 +27,6 @@ export function ContainerCreateDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const router = useRouter();
   const create = useCreateContainer();
   const [technician, setTechnician] = useState<TechnicianOption | null>(null);
   const form = useForm<ContainerValues>({
@@ -44,11 +42,11 @@ export function ContainerCreateDialog({
         technicianName: technician?.name,
       },
       {
-        onSuccess: (c) => {
+        // The new van shows up in the list; stock reaches it from Items.
+        onSuccess: () => {
           form.reset();
           setTechnician(null);
           onOpenChange(false);
-          router.push(`/inventory/containers/${c.id}`);
         },
       },
     );

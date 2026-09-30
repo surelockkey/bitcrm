@@ -42,6 +42,38 @@ export function useProduct(id: string) {
   });
 }
 
+/** One item's stock in every location the caller may see (the "Manage stock" popup). */
+export function useProductStock(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.inventory.products.stock(id),
+    queryFn: () => api.getProductStock(id),
+    enabled,
+  });
+}
+
+/**
+ * Item categories and brands, archived ones included (`active: false`) — a
+ * picker offers the active ones and still names an archived one an item has.
+ * `enabled: false` for a caller without the catalog's view permission.
+ */
+export function useItemCategories(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.inventory.categories.list(),
+    queryFn: api.listItemCategories,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useBrands(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.inventory.brands.list(),
+    queryFn: api.listBrands,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 /** Presigned download URL for a product's photo (only when it has one). */
 export function useProductPhoto(id: string, hasPhoto: boolean) {
   return useQuery({

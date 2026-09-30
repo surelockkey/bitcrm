@@ -1,12 +1,32 @@
-import type { Product, PaginatedResponse, ListCount } from "@bitcrm/types";
+import type {
+  Brand,
+  ListCount,
+  PaginatedResponse,
+  Product,
+  ProductCategory,
+  ProductStock,
+} from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
-import { effectiveProductQuery, type ProductFilter } from "./lib";
+import type { ProductFilter } from "./lib";
 
 export interface ImportResult {
   created: number;
   updated: number;
   errors: { row: number; message: string }[];
+}
+
+/** Every filter the caller set, as the list and its count both read them. */
+function filterParams(filter: ProductFilter): Record<string, string | undefined> {
+  return {
+    category: filter.category,
+    type: filter.type,
+    status: filter.status,
+    search: filter.search,
+    // `false` is a filter of its own ("not stock-managed"), not an absence.
+    manageStock: filter.manageStock === undefined ? undefined : String(filter.manageStock),
+    brandId: filter.brandId,
+  };
 }
 
 function toQuery(params: Record<string, string | undefined>): string {
@@ -24,19 +44,37 @@ export function listProducts(
   limit = 50,
 ): Promise<PaginatedResponse<Product>> {
   return apiFetchPaginated<Product>(
-    `/inventory/products${toQuery({ ...effectiveProductQuery(filter), cursor, limit: String(limit) })}`,
+    `/inventory/products${toQuery({ ...filterParams(filter), cursor, limit: String(limit) })}`,
   );
 }
 
 /** Скільки товарів під цим фільтром — число для «Page 2 of 7». */
 export function countProducts(filter: ProductFilter): Promise<ListCount> {
   return http.get<ListCount>(
-    `/inventory/products/count${toQuery(effectiveProductQuery(filter))}`,
+    `/inventory/products/count${toQuery(filterParams(filter))}`,
   );
 }
 
 export function getProduct(id: string): Promise<Product> {
   return http.get<Product>(`/inventory/products/${id}`);
+}
+
+/**
+ * Where one item sits: every warehouse and van the caller may see, with the
+ * quantity each holds (0 included) and `onHand` summed over those rows.
+ */
+export function getProductStock(id: string): Promise<ProductStock> {
+  return http.get<ProductStock>(`/inventory/stock/products/${id}`);
+}
+
+/* --- Catalogs the item pickers read (archived rows included; filter on `active`) --- */
+
+export function listItemCategories(): Promise<ProductCategory[]> {
+  return http.get<ProductCategory[]>("/inventory/categories");
+}
+
+export function listBrands(): Promise<Brand[]> {
+  return http.get<Brand[]>("/inventory/brands");
 }
 
 export function getProductBySku(sku: string): Promise<Product> {

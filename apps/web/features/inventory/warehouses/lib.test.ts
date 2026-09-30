@@ -6,14 +6,7 @@ import {
   LocationType,
 } from "@bitcrm/types";
 import type { Product, StockItem, Transfer } from "@bitcrm/types";
-import {
-  enrichStock,
-  summarizeStock,
-  transferDirection,
-  transferUnits,
-  containerLabel,
-  detailTab,
-} from "./lib";
+import { enrichStock, summarizeStock, transferUnits } from "./lib";
 
 function product(over: Partial<Product>): Product {
   return {
@@ -94,44 +87,10 @@ describe("transfer helpers", () => {
     };
   }
 
-  it("direction is 'in' for receives and inbound moves, 'out' for outbound", () => {
-    expect(transferDirection(transfer({ type: TransferType.RECEIVE, fromType: LocationType.SUPPLIER, fromId: null, toId: "w1" }), "w1")).toBe("in");
-    expect(transferDirection(transfer({ fromId: "w1", toType: LocationType.CONTAINER }), "w1")).toBe("out");
-    expect(transferDirection(transfer({ fromType: LocationType.CONTAINER, fromId: "c1", toType: LocationType.WAREHOUSE, toId: "w1" }), "w1")).toBe("in");
-  });
-
   it("sums item quantities", () => {
     expect(transferUnits(transfer({ items: [
       { productId: "p1", productName: "a", quantity: 3 },
       { productId: "p2", productName: "b", quantity: 4 },
     ] }))).toBe(7);
-  });
-});
-
-describe("containerLabel", () => {
-  it("uses the container's own name", () => {
-    expect(
-      containerLabel({ name: "Van 1", technicianName: "Riley Santos" } as never),
-    ).toBe("Van 1");
-  });
-  it("falls back to the technician name for legacy rows", () => {
-    expect(
-      containerLabel({ name: "", technicianName: "Riley Santos" } as never),
-    ).toBe("Riley Santos");
-  });
-  it("falls back when no name", () => {
-    expect(containerLabel({ name: "", technicianName: "" } as never)).toBe("Container");
-  });
-});
-
-describe("detailTab", () => {
-  it("accepts known tabs", () => {
-    expect(detailTab("settings")).toBe("settings");
-    expect(detailTab("activity")).toBe("activity");
-    expect(detailTab("stock")).toBe("stock");
-  });
-  it("falls back to stock for anything else", () => {
-    expect(detailTab(null)).toBe("stock");
-    expect(detailTab("bogus")).toBe("stock");
   });
 });

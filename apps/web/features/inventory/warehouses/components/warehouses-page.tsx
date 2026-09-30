@@ -14,25 +14,57 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useWarehouses } from "../hooks";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { ListPagination } from "@/components/ui/list-pagination";
+import { pagedSource } from "@/lib/paging/paged-source";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { usePager } from "@/lib/paging/use-pager";
+import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
+import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useWarehousesList, useWarehousesCount } from "../hooks";
+import type { WarehouseFilter } from "../api";
 import { WarehousesTable } from "./warehouses-table";
 import { WarehouseCreateDialog } from "./warehouse-create-dialog";
+import { WarehouseEditDialog } from "./warehouse-edit-dialog";
+
+const WAREHOUSES_PATH = "/inventory/warehouses";
+
+/** The URL params that open a popup — one at a time. */
+const POPUPS = ["stock", "edit"] as const;
 
 export function WarehousesPage() {
   const { can } = usePermissions();
-  const query = useWarehouses();
+  const [pageSize, setPageSize] = usePageSize("inventory-warehouses");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>(InventoryStatus.ACTIVE);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const warehouses = useMemo(() => query.data?.data ?? [], [query.data]);
+  // A warehouse has no page of its own: its stock and its settings open over
+  // the list, from the URL, so an old /inventory/warehouses/<id> link lands here.
+  const popups = useUrlPopups(WAREHOUSES_PATH, POPUPS);
+  const stockId = popups.param("stock");
+  const editId = stockId ? null : popups.param("edit");
 
-  const visible = warehouses.filter((w) => {
-    if (status !== "all" && w.status !== status) return false;
-    if (!search) return true;
-    const hay = `${w.name} ${w.address ?? ""}`.toLowerCase();
-    return hay.includes(search.toLowerCase());
+  // The server searches and filters; the browser shows the page it got.
+  const term = useDebouncedValue(search.trim(), 300);
+  const filter: WarehouseFilter = useMemo(
+    () => ({
+      ...(term ? { search: term } : {}),
+      ...(status === "all" ? {} : { status: status as InventoryStatus }),
+    }),
+    [term, status],
+  );
+
+  const query = useWarehousesList(filter, pageSize);
+  const count = useWarehousesCount(filter);
+  const pager = usePager(pagedSource(query), {
+    total: count.data?.total,
+    totalIsFloor: count.data?.atLeast,
+    pageSize,
+    resetKey: JSON.stringify({ filter, pageSize }),
   });
+  const warehouses = pager.items;
+  const filtered = !!filter.search || status !== InventoryStatus.ACTIVE;
 
   if (!can("warehouses", "view")) {
     return (
@@ -58,7 +90,7 @@ export function WarehousesPage() {
           />
         </div>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-9 w-32">
+          <SelectTrigger className="h-9 w-32" aria-label="Status">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -67,9 +99,8 @@ export function WarehousesPage() {
             <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
           </SelectContent>
         </Select>
-        <span className="ml-auto text-sm text-muted-foreground">
-          {visible.length} {visible.length === 1 ? "warehouse" : "warehouses"}
-        </span>
+        {/* Скільки всього — каже панель під таблицею. */}
+        <span className="ml-auto" />
         {can("warehouses", "create") ? (
           <Button variant="brand" className="h-9 gap-1.5 px-3.5" onClick={() => setCreateOpen(true)}>
             <WarehouseIcon className="size-4" />
@@ -95,28 +126,51 @@ export function WarehousesPage() {
               Retry
             </Button>
           </div>
-        ) : visible.length === 0 ? (
+        ) : warehouses.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <WarehouseIcon className="size-6" />
             </div>
             <div>
               <div className="font-medium">
-                {warehouses.length ? "No warehouses match" : "No warehouses yet"}
+                {filtered ? "No warehouses match" : "No warehouses yet"}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {warehouses.length
+                {filtered
                   ? "Try clearing your search or filter."
                   : "Create your first warehouse to start receiving stock."}
               </p>
             </div>
           </div>
         ) : (
-          <WarehousesTable warehouses={visible} />
+          <>
+            <WarehousesTable
+              warehouses={warehouses}
+              onEdit={(w) => popups.open("edit", w.id)}
+              onStock={(w) => popups.open("stock", w.id)}
+            />
+            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
+          </>
         )}
       </div>
 
       <WarehouseCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {stockId ? (
+        <LocationStockDialog
+          type="warehouse"
+          locationId={stockId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
+      {editId ? (
+        <WarehouseEditDialog
+          warehouseId={editId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Loader2, Plus, Search, Truck } from "lucide-react";
+import { ArrowUpRight, Plus, Search, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,17 +13,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DataScope } from "@bitcrm/types";
+import { DataScope, InventoryStatus } from "@bitcrm/types";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContainersList , useContainersCount } from "../hooks";
-import { containerTitle } from "../lib";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useAllLocations } from "@/features/inventory/stock/hooks";
+import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
+import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useContainersList, useContainersCount } from "../hooks";
+import type { ContainerFilter } from "../api";
 import { ContainersTable } from "./containers-table";
 import { ContainerCreateDialog } from "./container-create-dialog";
+import { ContainerEditDialog } from "./container-edit-dialog";
 import { MyContainerView } from "./my-container-view";
 import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+
+const CONTAINERS_PATH = "/inventory/containers";
+
+/** The URL params that open a popup — one at a time. */
+const POPUPS = ["stock", "edit"] as const;
 
 export function ContainersPage() {
   const { can, scopeOf } = usePermissions();
@@ -42,34 +52,52 @@ export function ContainersPage() {
 function Fleet() {
   const { can } = usePermissions();
   const [pageSize, setPageSize] = usePageSize("inventory-vans");
-  const query = useContainersList(undefined, pageSize);
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("all");
+  const [status, setStatus] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const count = useContainersCount();
+  // A van has no page of its own: its stock and its settings open over the
+  // list, from the URL, so an old /inventory/containers/<id> link lands here.
+  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS);
+  const stockId = popups.param("stock");
+  const editId = stockId ? null : popups.param("edit");
+
+  // The server filters before it cuts the page — filtering a page in the
+  // browser is what made every page show a different number of vans.
+  const term = useDebouncedValue(search.trim(), 300);
+  const filter: ContainerFilter = useMemo(
+    () => ({
+      search: term || undefined,
+      department: department === "all" ? undefined : department,
+      status: status === "all" ? undefined : (status as InventoryStatus),
+    }),
+    [term, department, status],
+  );
+
+  const query = useContainersList(filter, pageSize);
+  const count = useContainersCount(filter);
   const pager = usePager(pagedSource(query), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
-    resetKey: String(pageSize),
+    resetKey: JSON.stringify({ filter, pageSize }),
   });
   const containers = pager.items;
+
+  // Departments are free text on the van; the whole fleet names them, not one page.
+  const locations = useAllLocations();
   const departments = useMemo(
     () =>
       [
         ...new Set(
-          containers.map((c) => c.department).filter((d): d is string => !!d),
+          locations.data.map((l) => l.department).filter((d): d is string => !!d),
         ),
-      ].sort(),
-    [containers],
+      ].sort((a, b) => a.localeCompare(b)),
+    [locations.data],
   );
 
-  const visible = containers.filter((c) => {
-    if (department !== "all" && c.department !== department) return false;
-    if (!search) return true;
-    return containerTitle(c).toLowerCase().includes(search.toLowerCase());
-  });
+  const filtered = !!filter.search || !!filter.department || !!filter.status;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -79,13 +107,13 @@ function Fleet() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search technician"
+            placeholder="Search containers"
             className="h-9 pl-8"
           />
         </div>
-        {departments.length > 1 ? (
+        {departments.length > 0 ? (
           <Select value={department} onValueChange={setDepartment}>
-            <SelectTrigger className="h-9 w-44">
+            <SelectTrigger className="h-9 w-44" aria-label="Department">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -98,9 +126,18 @@ function Fleet() {
             </SelectContent>
           </Select>
         ) : null}
-        <span className="ml-auto text-sm text-muted-foreground">
-          {visible.length} {visible.length === 1 ? "container" : "containers"}
-        </span>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-9 w-32" aria-label="Status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value={InventoryStatus.ACTIVE}>Active</SelectItem>
+            <SelectItem value={InventoryStatus.ARCHIVED}>Archived</SelectItem>
+          </SelectContent>
+        </Select>
+        {/* Скільки всього — каже панель під таблицею; тут було б число однієї сторінки. */}
+        <span className="ml-auto" />
         <Button asChild variant="outline" className="h-9 gap-1.5">
           <Link href="/technicians">
             Technicians
@@ -126,15 +163,15 @@ function Fleet() {
               <Skeleton key={i} className="h-12 w-full rounded-lg" />
             ))}
           </div>
-        ) : visible.length === 0 ? (
+        ) : containers.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
             <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
               <Truck className="size-6" />
             </div>
             <div>
-              <div className="font-medium">{containers.length ? "No containers match" : "No containers"}</div>
+              <div className="font-medium">{filtered ? "No containers match" : "No containers"}</div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {containers.length
+                {filtered
                   ? "Try clearing your search or filter."
                   : "A van appears here when a technician is activated."}
               </p>
@@ -142,13 +179,33 @@ function Fleet() {
           </div>
         ) : (
           <>
-            <ContainersTable containers={visible} />
+            <ContainersTable
+              containers={containers}
+              onEdit={(c) => popups.open("edit", c.id)}
+              onStock={(c) => popups.open("stock", c.id)}
+            />
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}
       </div>
 
       <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      {/* Mounted only while their param is set, so each opening reads fresh. */}
+      {stockId ? (
+        <LocationStockDialog
+          type="container"
+          locationId={stockId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
+      {editId ? (
+        <ContainerEditDialog
+          containerId={editId}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+        />
+      ) : null}
     </div>
   );
 }

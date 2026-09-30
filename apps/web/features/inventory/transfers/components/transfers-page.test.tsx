@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { LocationType, TransferType } from "@bitcrm/types";
+import { LocationType, ReturnReason, TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
 
 const mocks = vi.hoisted(() => ({ transfers: [] as Transfer[] }));
@@ -60,6 +60,41 @@ describe("TransfersPage", () => {
     render(<TransfersPage />);
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
+  });
+
+  it("left-aligns every column, the date included", () => {
+    render(<TransfersPage />);
+    for (const el of document.querySelectorAll("th, td")) {
+      expect(el.className).not.toMatch(/text-right/);
+    }
+  });
+
+  it("shows every movement of the page the server sent, returns included", () => {
+    mocks.transfers = [
+      transfer(),
+      transfer({
+        id: "t2",
+        type: TransferType.RETURN,
+        toType: null,
+        toId: null,
+        items: [{ productId: "p2", productName: "Smart lock", quantity: 1 }],
+        reason: ReturnReason.LOST,
+      }),
+    ];
+    render(<TransfersPage />);
+    expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
+    expect(screen.getByText(/Smart lock/)).toBeInTheDocument();
+  });
+
+  // The server can't filter the journal by type or text yet, and filtering the
+  // one page on screen gives a different handful on every page — so no chips
+  // and no search until it can.
+  it("has no type chips or search box that would filter only the page on screen", () => {
+    render(<TransfersPage />);
+    for (const name of ["All", "Receive", "Transfer", "Deduct", "Restore", "Return"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });
 
