@@ -1,8 +1,11 @@
 import { InventoryStatus } from '../enums/inventory-status.enum';
-import { LocationSummaryType } from './location-summary.entity';
+import { LocationStockTotals, LocationSummaryType } from './location-summary.entity';
 
-/** One row of the product stock popup: a location and how many of the item it holds. */
-export interface ProductLocationStock {
+/**
+ * One row of the product stock popup: a location and how many of the item it
+ * holds, plus the location's own totals (absent until backfilled).
+ */
+export interface ProductLocationStock extends LocationStockTotals {
   locationType: LocationSummaryType;
   locationId: string;
   name: string;
@@ -40,6 +43,8 @@ export interface LocationStockRow {
   quantity: number;
   priceClient?: number;
   costCompany?: number;
+  /** The product's minimum stock level — what a "Low stock" badge compares `quantity` against. */
+  minimumStockLevel?: number;
 }
 
 /** Everything one warehouse or container holds (quantity > 0), sorted by product name. */
