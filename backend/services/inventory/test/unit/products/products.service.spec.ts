@@ -1079,6 +1079,18 @@ describe('ProductsService', () => {
       });
     });
 
+    it('passes null through to clear a field, and lists it as changed', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ brandId: 'brand-1' }));
+      repository.update.mockResolvedValue(createMockProduct());
+
+      await service.update('prod-1', { brandId: null } as any, actor);
+
+      expect(repository.update).toHaveBeenCalledWith('prod-1', { brandId: null });
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: InventoryLogAction.ITEM_UPDATED, changedFields: ['brandId'] }),
+      );
+    });
+
     it('records nothing when the update changes nothing, comparing the normalised category', async () => {
       cache.get.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));
       repository.update.mockResolvedValue(createMockProduct({ category: 'Uncategorized' }));

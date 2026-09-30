@@ -74,6 +74,28 @@ describe('UpdateProductDto', () => {
     ]);
     expect(await errorsFor(UpdateProductDto, { type: 'other' })).toEqual(['type']);
   });
+
+  // null очищає необов'язкове поле; обов'язкове поле null не приймає.
+  it.each(['brandId', 'reorderLevel', 'supplier', 'barcode', 'description', 'taxable', 'manageStock'])(
+    'lets null through for the optional field %s — it clears it',
+    async (field) => {
+      expect(await errorsFor(UpdateProductDto, { [field]: null })).toEqual([]);
+    },
+  );
+
+  it.each([
+    'name',
+    'sku',
+    'category',
+    'type',
+    'costCompany',
+    'costTech',
+    'priceClient',
+    'serialTracking',
+    'minimumStockLevel',
+  ])('refuses null for the required field %s', async (field) => {
+    expect(await errorsFor(UpdateProductDto, { [field]: null })).toEqual([field]);
+  });
 });
 
 /**

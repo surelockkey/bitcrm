@@ -97,7 +97,14 @@ export class ProductsController {
 
   @Put(':id')
   @RequirePermission('products', 'edit')
-  @ApiOperation({ summary: 'Update a product', description: '**Guard:** `products.edit` permission required.' })
+  @ApiOperation({
+    summary: 'Update a product',
+    description:
+      '**Guard:** `products.edit` permission required. Partial: only the fields sent are ' +
+      'validated and written. An optional field (`brandId`, `reorderLevel`, `supplier`, ' +
+      '`barcode`, `description`, `taxable`, `manageStock`) sent as `null` is cleared; a ' +
+      'required one (`name`, `category`, `type`, the prices, …) refuses `null` with a 400.',
+  })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,

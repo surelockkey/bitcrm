@@ -442,7 +442,15 @@ export class ProductsRepository {
     );
   }
 
-  async update(id: string, attrs: Partial<Product>): Promise<Product> {
+  /**
+   * Writes only the attributes it is given. One given as `null` (a field the
+   * API cleared) or as an explicit `undefined` (the CSV re-import) is
+   * REMOVEd — never stored as a DynamoDB NULL.
+   */
+  async update(
+    id: string,
+    attrs: Partial<{ [K in keyof Product]: Product[K] | null }>,
+  ): Promise<Product> {
     const setParts: string[] = [];
     const removeParts: string[] = [];
     const expressionNames: Record<string, string> = {};
@@ -470,7 +478,7 @@ export class ProductsRepository {
       if (immutableKeys.has(key)) continue;
       const attrName = `#${key}`;
       expressionNames[attrName] = key;
-      if (value === undefined && key in attrs) {
+      if (value === null || (value === undefined && key in attrs)) {
         removeParts.push(attrName);
       } else if (value !== undefined) {
         const attrValue = `:${key}`;
