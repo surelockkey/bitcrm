@@ -70,14 +70,43 @@ describe('BrandsService', () => {
     });
   });
 
+  /** Товари несуть `brandId`, тож бренд у вжитку архівується, як категорія. */
   describe('remove', () => {
-    it('deletes outright — items do not store brands yet', async () => {
+    it('archives a brand still used by an item instead of deleting it', async () => {
+      repo.get.mockResolvedValue(createMockBrand({ id: 'brand-1', active: true }));
+      repo.isReferencedByProduct.mockResolvedValue(true);
+
+      const result = await service.remove('brand-1', caller);
+
+      expect(result).toEqual({ archived: true });
+      expect(repo.isReferencedByProduct).toHaveBeenCalledWith('brand-1');
+      expect(repo.remove).not.toHaveBeenCalled();
+      expect(repo.put).toHaveBeenCalledWith(expect.objectContaining({ id: 'brand-1', active: false }));
+      expect(publisher.publish).toHaveBeenCalledWith(
+        'inventory-events',
+        'brand.archived',
+        expect.objectContaining({ brandId: 'brand-1', archivedBy: caller.id }),
+      );
+    });
+
+    it('leaves an already archived brand in use as it is', async () => {
+      repo.get.mockResolvedValue(createMockBrand({ id: 'brand-1', active: false }));
+      repo.isReferencedByProduct.mockResolvedValue(true);
+
+      expect(await service.remove('brand-1', caller)).toEqual({ archived: true });
+      expect(repo.put).not.toHaveBeenCalled();
+      expect(repo.remove).not.toHaveBeenCalled();
+    });
+
+    it('deletes a brand no item uses outright', async () => {
       repo.get.mockResolvedValue(createMockBrand({ id: 'brand-1' }));
+      repo.isReferencedByProduct.mockResolvedValue(false);
 
       const result = await service.remove('brand-1', caller);
 
       expect(result).toEqual({ archived: false });
       expect(repo.remove).toHaveBeenCalledWith('brand-1');
+      expect(repo.put).not.toHaveBeenCalled();
       expect(publisher.publish).toHaveBeenCalledWith(
         'inventory-events',
         'brand.deleted',
