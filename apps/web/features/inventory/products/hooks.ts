@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -16,10 +17,14 @@ import type { ProductFilter } from "./lib";
 
 export function useProducts(filter: ProductFilter, limit = 50) {
   return useInfiniteQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.products.list({ ...filter, limit }),
     queryFn: ({ pageParam }) => api.listProducts(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+    // A quick return to the tab reads nothing; a stock write refreshes it explicitly.
+    staleTime: 30_000,
   });
 }
 
@@ -29,6 +34,8 @@ export function useProducts(filter: ProductFilter, limit = 50) {
  */
 export function useProductsCount(filter: ProductFilter) {
   return useQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.products.count(filter),
     queryFn: () => api.countProducts(filter),
     staleTime: 30_000,

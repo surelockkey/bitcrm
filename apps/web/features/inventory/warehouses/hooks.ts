@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -15,10 +16,14 @@ import { useLocationStock } from "@/features/inventory/stock/hooks";
 
 export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
   return useInfiniteQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.warehouses.list({ ...filter, limit }),
     queryFn: ({ pageParam }) => api.listWarehouses(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+    // A quick return to the tab reads nothing; a stock write refreshes it explicitly.
+    staleTime: 30_000,
   });
 }
 
@@ -28,6 +33,8 @@ export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
  */
 export function useWarehousesCount(filter: api.WarehouseFilter) {
   return useQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.warehouses.count(filter),
     queryFn: () => api.countWarehouses(filter),
     staleTime: 30_000,

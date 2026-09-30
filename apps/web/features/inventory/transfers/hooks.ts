@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import * as api from "./api";
@@ -12,6 +12,8 @@ import * as api from "./api";
  */
 export function useTransfersCount(filter: api.TransferFilter = {}) {
   return useQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.transfers.count(filter),
     queryFn: () => api.countTransfers(filter),
     staleTime: 30_000,
@@ -21,10 +23,14 @@ export function useTransfersCount(filter: api.TransferFilter = {}) {
 /** One type or all of them, filtered on the server — the key carries the filter. */
 export function useTransfers(filter: api.TransferFilter = {}, limit = 50) {
   return useInfiniteQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.transfers.list({ ...filter, limit }),
     queryFn: ({ pageParam }) => api.listTransfers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+    // A quick return to the tab reads nothing; a stock write refreshes it explicitly.
+    staleTime: 30_000,
   });
 }
 

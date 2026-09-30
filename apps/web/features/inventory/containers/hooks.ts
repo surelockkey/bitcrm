@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -18,6 +19,8 @@ import * as api from "./api";
  */
 export function useContainersCount(filter: api.ContainerFilter) {
   return useQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.containers.count(filter),
     queryFn: () => api.countContainers(filter),
     staleTime: 30_000,
@@ -26,10 +29,14 @@ export function useContainersCount(filter: api.ContainerFilter) {
 
 export function useContainersList(filter: api.ContainerFilter, limit = 100) {
   return useInfiniteQuery({
+    // The previous page stays on screen (dimmed) while a new filter or size loads.
+    placeholderData: keepPreviousData,
     queryKey: queryKeys.inventory.containers.list({ ...filter, limit }),
     queryFn: ({ pageParam }) => api.listContainers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
+    // A quick return to the tab reads nothing; a stock write refreshes it explicitly.
+    staleTime: 30_000,
   });
 }
 
