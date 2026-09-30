@@ -455,6 +455,21 @@ export type {
   PortalPaymentOptions,
   PortalPaymentSession,
 } from './entities/payment.entity';
+export {
+  PAYMENT_REPORT_TYPES,
+  PAYMENT_REPORT_TYPE_LABELS,
+  PAYMENT_REPORT_TYPE_FILTERS,
+  PAYMENT_REPORT_ELECTRONIC_TYPES,
+  paymentReportTypeLabel,
+} from './entities/payment-report.entity';
+export type {
+  PaymentReportType,
+  PaymentReportStatus,
+  PaymentReportRow,
+  PaymentReportTotals,
+  PaymentReportPage,
+  PaymentReportQuery,
+} from './entities/payment-report.entity';
 
 // Permissions
 export {
