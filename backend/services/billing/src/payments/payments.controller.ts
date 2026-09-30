@@ -60,6 +60,46 @@ export class InvoicePaymentsController {
   }
 }
 
+/**
+ * The JOB's ledger (Workiz: the job's Payments tab), under `/deals/:dealId/...`.
+ * Works whether or not the job has an invoice — in Workiz a payment belongs to
+ * the job, and the invoice is a separate document. The ledger is the same one
+ * `/invoices/:id/payments` reads (invoice id === deal id); those routes keep
+ * insisting on an invoice, unchanged.
+ */
+@ApiTags('Payments')
+@ApiBearerAuth()
+@Controller('deals')
+export class DealPaymentsController {
+  constructor(private readonly payments: PaymentsService) {}
+
+  @Get(':dealId/payments')
+  @RequirePermission('payments', 'view')
+  @ApiOperation({
+    summary: "A job's payment ledger, with or without an invoice",
+    description:
+      '**Guard:** `payments.view` (`assigned_only` → the caller’s jobs). → `{ dealId, invoiceId?, payments, ' +
+      'summary, total, amountPaid, balanceDue }`, newest first. `total` is the invoice’s when the job has ' +
+      'one, otherwise the job’s own; `invoiceId` is present only when an invoice exists.',
+  })
+  async list(@Param('dealId') dealId: string, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.payments.listForDeal(dealId, caller) };
+  }
+
+  @Post(':dealId/payments')
+  @RequirePermission('payments', 'collect')
+  @ApiOperation({
+    summary: 'Record a payment taken offline on a job',
+    description:
+      '**Guard:** `payments.collect` (technicians hold it with `assigned_only`). Cash, cheque, a card ' +
+      'run in person or other — settled immediately, with or without an invoice. 400 above the balance ' +
+      '(the invoice’s, or the job total less what is paid); 404 when the job does not exist.',
+  })
+  async record(@Param('dealId') dealId: string, @Body() dto: RecordPaymentDto, @CallerCtx() caller: Caller) {
+    return { success: true, data: await this.payments.recordOfflineForDeal(dealId, dto, caller) };
+  }
+}
+
 @ApiTags('Payments')
 @ApiBearerAuth()
 @Controller('payments')

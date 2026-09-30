@@ -20,6 +20,15 @@ export function useInvoicePayments(invoiceId: string, enabled = true) {
   });
 }
 
+/** The job's Payments tab — the same ledger, with or without an invoice. */
+export function useDealPayments(dealId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.payments.byDeal(dealId),
+    queryFn: () => api.getDealPayments(dealId),
+    enabled: enabled && !!dealId,
+  });
+}
+
 export function usePaymentList(params: Omit<PaymentListParams, "cursor">, enabled = true) {
   return useInfiniteQuery({
     queryKey: queryKeys.payments.list(params),
@@ -54,6 +63,7 @@ export function useInvalidateLedger(invoiceId: string, dealId?: string) {
     qc.invalidateQueries({ queryKey: queryKeys.payments.list() });
     qc.invalidateQueries({ queryKey: queryKeys.invoices.all() });
     if (dealId) {
+      qc.invalidateQueries({ queryKey: queryKeys.payments.byDeal(dealId) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.detail(dealId) });
       qc.invalidateQueries({ queryKey: queryKeys.dealTotals(dealId) });
       qc.invalidateQueries({ queryKey: queryKeys.deals.timeline(dealId) });
@@ -62,10 +72,18 @@ export function useInvalidateLedger(invoiceId: string, dealId?: string) {
   };
 }
 
-export function useRecordPayment(invoiceId: string, dealId?: string) {
+/**
+ * Where a recorded payment goes: `invoice` (the default) posts to the
+ * invoice's ledger and needs an invoice; `job` posts to the job's, which
+ * works without one. The ledger is the same (invoice id === job id).
+ */
+export type RecordPaymentTarget = "invoice" | "job";
+
+export function useRecordPayment(invoiceId: string, dealId?: string, target: RecordPaymentTarget = "invoice") {
   const invalidate = useInvalidateLedger(invoiceId, dealId);
   return useMutation({
-    mutationFn: (body: api.RecordPaymentBody) => api.recordPayment(invoiceId, body),
+    mutationFn: (body: api.RecordPaymentBody) =>
+      target === "job" && dealId ? api.recordDealPayment(dealId, body) : api.recordPayment(invoiceId, body),
     onSuccess: (payment) => {
       invalidate();
       toast.success(`Recorded ${formatMoney(payment.amount)}`);

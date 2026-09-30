@@ -1,5 +1,6 @@
 import type {
   Invoice,
+  JobPaymentLedger,
   OnlinePaymentMethod,
   Payment,
   PaymentRefund,
@@ -54,6 +55,17 @@ export const getInvoicePayments = (invoiceId: string): Promise<InvoiceLedger> =>
 
 export const recordPayment = (invoiceId: string, body: RecordPaymentBody): Promise<Payment> =>
   http.post<Payment>(`${BASE}/invoices/${invoiceId}/payments`, body);
+
+/**
+ * The job's ledger (Workiz: payments belong to the job). Works whether or not
+ * the job has an invoice; `invoiceId` is set only when it does.
+ */
+export const getDealPayments = (dealId: string): Promise<JobPaymentLedger> =>
+  http.get<JobPaymentLedger>(`${BASE}/deals/${dealId}/payments`);
+
+/** An offline payment on the job itself — no invoice needed. */
+export const recordDealPayment = (dealId: string, body: RecordPaymentBody): Promise<Payment> =>
+  http.post<Payment>(`${BASE}/deals/${dealId}/payments`, body);
 
 export const refundPayment = (paymentId: string, body: RefundBody): Promise<PaymentRefund> =>
   http.post<PaymentRefund>(`${BASE}/payments/${paymentId}/refund`, body);
