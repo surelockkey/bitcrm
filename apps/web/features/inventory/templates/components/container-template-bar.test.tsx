@@ -5,13 +5,18 @@ import { InventoryStatus } from "@bitcrm/types";
 import type { Container, ContainerTemplateDiff } from "@bitcrm/types";
 
 const mocks = vi.hoisted(() => ({
+  containerLoading: false,
   container: undefined as Container | undefined,
   diff: undefined as ContainerTemplateDiff | undefined,
   diffArgs: [] as unknown[][],
 }));
 
 vi.mock("@/features/inventory/containers/hooks", () => ({
-  useContainer: () => ({ data: mocks.container, isLoading: false, isError: false }),
+  useContainer: () => ({
+    data: mocks.containerLoading ? undefined : mocks.container,
+    isLoading: mocks.containerLoading,
+    isError: false,
+  }),
 }));
 vi.mock("../hooks", () => ({
   useTemplateDiff: (...args: unknown[]) => {
@@ -45,6 +50,7 @@ beforeEach(() => {
   mocks.container = VAN;
   mocks.diff = diff(2);
   mocks.diffArgs = [];
+  mocks.containerLoading = false;
 });
 
 function bar() {
@@ -80,5 +86,34 @@ describe("ContainerTemplateBar", () => {
     expect(screen.queryByRole("button", { name: "Apply template" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Set a template" }));
     expect(onSetTemplate).toHaveBeenCalled();
+  });
+
+  // It used to render nothing until the van loaded, then appear and push the
+  // stock table down. Its height is held from the first frame.
+  it("holds its strip's height while the van loads", () => {
+    mocks.containerLoading = true;
+    bar();
+    const strip = screen.getByTestId("template-bar");
+    expect(strip.className).toMatch(/(^|\s)(min-)?h-11/);
+    expect(strip).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("is the same height with a template, without one, and loading", () => {
+    const heights: string[] = [];
+    for (const setup of [
+      () => (mocks.containerLoading = true),
+      () => (mocks.container = VAN),
+      () => (mocks.container = { ...VAN, templateId: undefined }),
+    ]) {
+      mocks.containerLoading = false;
+      setup();
+      const { unmount } = render(<ContainerTemplateBar containerId="c1" onApply={vi.fn()} onSetTemplate={vi.fn()} />);
+      heights.push(
+        (screen.getByTestId("template-bar").className.match(/(^|\s)((min-)?h-\S+)/) ?? [])[2] ?? "",
+      );
+      unmount();
+    }
+    expect(new Set(heights).size).toBe(1);
+    expect(heights[0]).not.toBe("");
   });
 });

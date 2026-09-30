@@ -10,6 +10,8 @@ import {
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import type { Warehouse } from "@bitcrm/types";
+import { rowFromLists } from "@/features/inventory/seed-from-lists";
 import * as api from "./api";
 import type { WarehouseValues } from "./schemas";
 import { useLocationStock } from "@/features/inventory/stock/hooks";
@@ -42,11 +44,14 @@ export function useWarehousesCount(filter: api.WarehouseFilter) {
   });
 }
 
+/** One warehouse — starting from its list row when a list holds it, read fresh behind it. */
 export function useWarehouse(id: string, enabled = true) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: queryKeys.inventory.warehouses.detail(id),
     queryFn: () => api.getWarehouse(id),
     enabled,
+    placeholderData: () => rowFromLists<Warehouse>(qc, "warehouses", id),
   });
 }
 

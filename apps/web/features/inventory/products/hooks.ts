@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import type { Product } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
+import { rowFromLists } from "@/features/inventory/seed-from-lists";
 import * as api from "./api";
 import type { CreateProductValues, PatchProductValues } from "./schemas";
 import type { ProductFilter } from "./lib";
@@ -42,10 +43,17 @@ export function useProductsCount(filter: ProductFilter) {
   });
 }
 
-export function useProduct(id: string) {
+/**
+ * One item. `seed`: start from its row in the Items list while the item is
+ * read — for a view that only shows it (the stock popup's title and prices).
+ * The Edit form does not: it waits for the item itself.
+ */
+export function useProduct(id: string, { seed = false }: { seed?: boolean } = {}) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: queryKeys.inventory.products.detail(id),
     queryFn: () => api.getProduct(id),
+    placeholderData: seed ? () => rowFromLists<Product>(qc, "products", id) : undefined,
   });
 }
 

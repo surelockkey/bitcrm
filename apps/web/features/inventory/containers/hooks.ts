@@ -12,6 +12,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useLocationStock } from "@/features/inventory/stock/hooks";
 import { refreshLocationRows } from "@/features/inventory/stock/refresh";
+import type { Container } from "@bitcrm/types";
+import { rowFromLists } from "@/features/inventory/seed-from-lists";
 import * as api from "./api";
 
 /**
@@ -41,11 +43,14 @@ export function useContainersList(filter: api.ContainerFilter, limit = 100) {
   });
 }
 
+/** One van — starting from its list row when a list holds it, read fresh behind it. */
 export function useContainer(id: string, enabled = true) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: queryKeys.inventory.containers.detail(id),
     queryFn: () => api.getContainer(id),
     enabled,
+    placeholderData: () => rowFromLists<Container>(qc, "containers", id),
   });
 }
 

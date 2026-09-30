@@ -88,7 +88,8 @@ function ManageStock({
   onDone: () => void;
 }) {
   const { can } = usePermissions();
-  const product = useProduct(productId);
+  // Its row in the Items list gives the title and the prices at once.
+  const product = useProduct(productId, { seed: true });
   const stock = useProductStock(productId, open);
 
   const item = product.data;
