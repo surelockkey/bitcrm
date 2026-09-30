@@ -98,6 +98,18 @@ export const cents = (n: number): number => Math.round(n * 100) / 100;
 export interface PersonLine extends TimesheetReportRow {
   /** The person's distinct jobs — the total row counts them once over everyone. */
   jobIds: Set<string>;
+  /**
+   * Unrounded money: the total row rounds the sum, not a sum of rounded
+   * cents — Workiz's all-time Gross Cost is $34,978.58, the sum of its
+   * rounded rows $34,978.59.
+   */
+  exactCost: number;
+  exactGrossCost: number;
+}
+
+/** What the server keeps for itself and does not send. */
+export function publicRow({ jobIds: _j, exactCost: _c, exactGrossCost: _g, ...row }: PersonLine): TimesheetReportRow {
+  return row;
 }
 
 export function toLine(
@@ -117,6 +129,8 @@ export function toLine(
     jobs: t.jobs.size,
     entries: t.entries,
     jobIds: t.jobs,
+    exactCost: t.cost,
+    exactGrossCost: t.grossCost,
   };
 }
 
@@ -131,8 +145,8 @@ export function totalOf(lines: PersonLine[], money: boolean): TimesheetReportTot
   for (const l of lines) {
     minutes += l.minutes;
     grossMinutes += l.grossMinutes;
-    cost += l.cost ?? 0;
-    grossCost += l.grossCost ?? 0;
+    cost += l.exactCost;
+    grossCost += l.exactGrossCost;
     entries += l.entries;
     for (const j of l.jobIds) jobs.add(j);
   }

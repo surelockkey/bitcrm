@@ -84,6 +84,7 @@ describe('TimesheetReportService', () => {
     expect(page.total).toEqual({ minutes: 660, grossMinutes: 660, cost: 320, grossCost: 320, jobs: 1, entries: 4 });
     expect(page.money).toBe(true);
     expect(page.rows[0]).not.toHaveProperty('jobIds');
+    expect(page.rows[0]).not.toHaveProperty('exactCost');
   });
 
   it('leaves the money out without financials.view', async () => {

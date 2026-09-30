@@ -15,6 +15,7 @@ import {
   paginate,
   personName,
   personTotals,
+  publicRow,
   sortLines,
   toEntryRow,
   toLine,
@@ -72,8 +73,7 @@ export class TimesheetReportService {
     const total = totalOf(lines, money);
     const { rows, pagination } = paginate(sortLines(lines, query.sort, query.dir), query.page, query.pageSize);
     return {
-      // `jobIds` is the server's working set for the total row, not part of the answer.
-      rows: rows.map(({ jobIds: _jobIds, ...row }) => row),
+      rows: rows.map(publicRow),
       total,
       pagination,
       window: { from: query.from, to: query.to },

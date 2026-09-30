@@ -7,6 +7,7 @@ import {
   passesJobFilter,
   personName,
   personTotals,
+  publicRow,
   sortLines,
   toEntryRow,
   toLine,
@@ -119,6 +120,24 @@ describe('Timesheets report arithmetic', () => {
       const hidden = line('u1', 'A', entries, false);
       expect('cost' in hidden).toBe(false);
       expect('grossCost' in hidden).toBe(false);
+    });
+
+    // Workiz, all time: Gross Cost $34,978.58, while its rows rounded one by one add up to .59.
+    it('rounds the total from the exact sums, not from rounded rows', () => {
+      const tenMin = (id: string) =>
+        line(id, id, [e('2026-09-01T10:00:00.000Z', '2026-09-01T10:10:00.000Z', { laborCostPerHour: 40 })]);
+      const a = tenMin('u1'); // $6.6666… → 6.67
+      const b = tenMin('u2');
+      const c = tenMin('u3');
+      expect((a.cost ?? 0) + (b.cost ?? 0) + (c.cost ?? 0)).toBeCloseTo(20.01, 9);
+      expect(totalOf([a, b, c], true).cost).toBe(20);
+    });
+
+    it('sends neither the job set nor the exact money', () => {
+      const row = publicRow(line('u1', 'A', [e('2026-09-01T10:00:00.000Z', '2026-09-01T11:00:00.000Z', { dealId: 'd1' })]));
+      expect(Object.keys(row).sort()).toEqual(
+        ['clockedIn', 'cost', 'entries', 'grossCost', 'grossMinutes', 'jobs', 'minutes', 'name', 'userId'].sort(),
+      );
     });
 
     // Workiz 2025: the rows' Jobs add up to 1 302, the total row says 1 299 —

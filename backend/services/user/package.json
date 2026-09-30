@@ -19,6 +19,7 @@
     "db:backfill-tech-profiles": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-technician-profiles.ts",
     "db:backfill-commission": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-commission.ts",
     "db:backfill-timeclock-index": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/backfill-timeclock-index.ts",
+    "verify:timesheets-report": "ts-node src/scripts/verify-timesheets-report.ts",
     "migrate:technician-skills": "NODE_OPTIONS='--experimental-vm-modules' ts-node src/scripts/migrate-technician-skills.ts",
     "setup:aws": "ts-node src/scripts/setup-aws.ts",
     "setup": "npm run db:setup && npm run setup:aws",
