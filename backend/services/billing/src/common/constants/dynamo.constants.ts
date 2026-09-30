@@ -125,6 +125,34 @@ export const WEBHOOK_EVENT_TTL_DAYS = 30;
 /** `SETTINGS` / PAYMENTS — the account-wide PaymentSettings singleton. */
 export const PAYMENT_SETTINGS_SK = 'PAYMENTS';
 
+// ---- payments report (a derived projection of the ledger) ----------------------
+/**
+ * The Payments report (Workiz Reports → Payments) reads its own rows, never
+ * the ledger's list index — so it is keyed by the PAYMENT date (not
+ * `createdAt`), lists refunds as lines of their own, and totals any range
+ * from pre-summed buckets instead of reading every payment in it:
+ *
+ *   PAYMENT#<paymentId> / REPORT          which lines the payment has, and what each
+ *                                          one added to its bucket — the delta base
+ *   PAYLINE#<YYYY-MM>   / <at>#<lineId>   one line (payment, refund, reversal); the
+ *                                          month and `at` are the business-day clock's
+ *   PAYAGG#<YYYY>       / D#<day>#<type>#<tech|->#<area|->    day bucket  } ADDed counters:
+ *   PAYAGG#<YYYY>       / M#<YYYY-MM>#<type>#<tech|->#<area|-> month bucket} n, amountCents,
+ *                                                                           tipsCents, feesCents
+ *   PAYREPORT           / INDEX           {firstMonth, lastMonth} — "All time"'s bounds
+ *
+ * Rebuilt from the ledger by `npm run rebuild:payment-report` (reconciles:
+ * rows the ledger no longer explains are removed). No GSI keys on any of them.
+ */
+export const PAYMENT_REPORT_POINTER_SK = 'REPORT';
+export const paylinePk = (month: string) => `PAYLINE#${month}`;
+export const paylineSk = (at: string, lineId: string) => `${at}#${lineId}`;
+export const payaggPk = (year: string) => `PAYAGG#${year}`;
+export const payaggDaySk = (day: string, bucket: string) => `D#${day}#${bucket}`;
+export const payaggMonthSk = (month: string, bucket: string) => `M#${month}#${bucket}`;
+export const PAYREPORT_INDEX_PK = 'PAYREPORT';
+export const PAYREPORT_INDEX_SK = 'INDEX';
+
 // ---- index keys --------------------------------------------------------------
 export const listSk = (createdAt: string, id: string) => `${createdAt}#${id}`;
 export const contactGsi2Pk = (contactId: string) => `CONTACT#${contactId}`;
