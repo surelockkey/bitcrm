@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   permsLoading: false,
   list: { isLoading: false, isPlaceholderData: false, noData: false },
   locationsLoading: false,
+  prefetched: [] as (string | null)[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -53,6 +54,9 @@ vi.mock("../hooks", () => ({
   useContainersCount: (filter: ContainerFilter) => {
     mocks.countFilters.push(filter);
     return { data: { total: 93, atLeast: false } };
+  },
+  usePrefetchVanStock: (id: string | null) => {
+    mocks.prefetched.push(id);
   },
   useContainerStockView: () => ({
     summary: { skuCount: 0, totalUnits: 0, totalValue: 0, lowCount: 0 },
@@ -137,6 +141,7 @@ beforeEach(() => {
   mocks.replace.mockReset();
   mocks.scope = DataScope.ALL;
   mocks.permsLoading = false;
+  mocks.prefetched = [];
   mocks.list = { isLoading: false, isPlaceholderData: false, noData: false };
   mocks.locationsLoading = false;
   mocks.listFilters = [];
@@ -327,6 +332,21 @@ describe("ContainersPage — a stable first frame", () => {
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Users");
     expect(screen.getByTestId("list-pagination")).toBeInTheDocument();
+  });
+
+  // By link the van's stock was asked for only after the permissions and the
+  // page: three requests in a row before the popup had anything to show.
+  it("asks for a linked van's stock popup while the permissions load", () => {
+    mocks.permsLoading = true;
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    expect(mocks.prefetched).toContain("c9");
+  });
+
+  it("prefetches nothing without a linked popup", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ContainersPage />);
+    expect(mocks.prefetched.filter(Boolean)).toEqual([]);
   });
 
   it("draws the real table while the first page loads, with the pager's space held", () => {

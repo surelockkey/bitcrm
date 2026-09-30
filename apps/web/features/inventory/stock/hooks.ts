@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { LocationSummaryType, Transfer } from "@bitcrm/types";
 import { summarizeStock } from "@/features/inventory/warehouses/lib";
@@ -84,18 +84,22 @@ export function useAllLocations(enabled = true) {
   };
 }
 
+/** The read behind `useLocationStock` — shared with a popup link's prefetch, so both fill one cache entry. */
+export function locationStockQuery(type: LocationSummaryType, id: string) {
+  return queryOptions({
+    queryKey: queryKeys.inventory.locationStock(type, id),
+    queryFn: () => api.getLocationStock(type, id),
+    staleTime: 30 * 1000,
+  });
+}
+
 /**
  * One warehouse's or van's stock, in one request: named, priced and in name
  * order from the server. `name` and `status` come with it, so a popup needs
  * nothing else to title itself.
  */
 export function useLocationStock(type: LocationSummaryType, id: string, enabled = true) {
-  const query = useQuery({
-    queryKey: queryKeys.inventory.locationStock(type, id),
-    queryFn: () => api.getLocationStock(type, id),
-    enabled: enabled && !!id,
-    staleTime: 30 * 1000,
-  });
+  const query = useQuery({ ...locationStockQuery(type, id), enabled: enabled && !!id });
   const rows = useMemo(() => stockRowsOf(query.data?.rows ?? []), [query.data]);
   const summary = useMemo(() => summarizeStock(rows), [rows]);
 

@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DataScope, InventoryStatus } from "@bitcrm/types";
+import { useSearchParams } from "next/navigation";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
@@ -26,7 +27,7 @@ import {
   unnamedUserIds,
   usersOfContainer,
 } from "@/features/inventory/user-containers/lib";
-import { useContainersList, useContainersCount } from "../hooks";
+import { useContainersList, useContainersCount, usePrefetchVanStock } from "../hooks";
 import type { ContainerFilter } from "../api";
 import { ContainersTable } from "./containers-table";
 import { ContainerCreateDialog } from "./container-create-dialog";
@@ -50,6 +51,11 @@ const EXTRAS = ["container"] as const;
 
 export function ContainersPage() {
   const { can, scopeOf, isLoading } = usePermissions();
+  // A van's stock popup opened by link needs no permission to be asked for
+  // (the server guards it): its reads start now, beside the permissions',
+  // instead of after them and the page.
+  const linked = useSearchParams().get("stock");
+  usePrefetchVanStock(isLoading ? linked : null);
 
   // Which screen this is — the fleet or a technician's own van — is the
   // permissions' to say. Until they do: the fleet's frame, asking for

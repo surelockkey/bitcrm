@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { InventoryStatus } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
@@ -27,6 +27,19 @@ export function useContainerTemplate(id: string | undefined, enabled = true) {
   });
 }
 
+/**
+ * The comparison's read — shared by `useTemplateDiff` and a van popup link's
+ * prefetch, so the popup finds the prefetched answer under its own key.
+ */
+export function templateDiffQuery(id: string, containerId: string, warehouseId?: string) {
+  return queryOptions({
+    queryKey: queryKeys.inventory.containerTemplates.diff(id, containerId, warehouseId),
+    queryFn: () => api.getTemplateDiff(id, containerId, warehouseId),
+    // 403 and 404 are answers about this van or warehouse, not blips.
+    retry: false,
+  });
+}
+
 /** How a van compares with the template — and, with a warehouse, what a fill would move. */
 export function useTemplateDiff(
   id: string | undefined,
@@ -35,11 +48,8 @@ export function useTemplateDiff(
   enabled = true,
 ) {
   return useQuery({
-    queryKey: queryKeys.inventory.containerTemplates.diff(id ?? "", containerId ?? "", warehouseId),
-    queryFn: () => api.getTemplateDiff(id as string, containerId as string, warehouseId),
+    ...templateDiffQuery(id ?? "", containerId ?? "", warehouseId),
     enabled: enabled && !!id && !!containerId,
-    // 403 and 404 are answers about this van or warehouse, not blips.
-    retry: false,
     // Another van or warehouse picked: the last comparison stays (dimmed)
     // until the next one lands — not table → skeleton → table.
     placeholderData: keepPreviousData,

@@ -7,7 +7,13 @@ import { InventoryStatus } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import type { ContainerFilter } from "./api";
 import { queryKeys } from "@/lib/query-keys";
-import { useContainerStockView, useContainersCount, useContainersList, useUpdateContainer } from "./hooks";
+import {
+  useContainerStockView,
+  useContainersCount,
+  useContainersList,
+  usePrefetchVanStock,
+  useUpdateContainer,
+} from "./hooks";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -137,5 +143,63 @@ describe("van edits refresh the rows, not the stock", () => {
 
     expect(rows.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(rows.map(() => true));
     expect(stock.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(stock.map(() => false));
+  });
+});
+
+/**
+ * A van's stock popup opened by link (`?stock=<id>`) waited for the
+ * permissions, then for the page, before it asked for the van's stock: three
+ * requests in a row. What the popup shows needs no permission to ask for —
+ * the server guards it — so it is asked for straight away.
+ */
+describe("usePrefetchVanStock", () => {
+  function captureVan(templateId?: string) {
+    const hits: string[] = [];
+    server.use(
+      http.get("*/inventory/stock/locations/container/:id", ({ params }) => {
+        hits.push(`stock ${params.id}`);
+        return HttpResponse.json({ success: true, data: { name: "Van 9", status: "active", rows: [] } });
+      }),
+      http.get("*/inventory/containers/:id", ({ params }) => {
+        hits.push(`van ${params.id}`);
+        return HttpResponse.json({
+          success: true,
+          data: { id: params.id, name: "Van 9", status: "active", createdAt: "", updatedAt: "", templateId },
+        });
+      }),
+      http.get("*/inventory/container-templates/:id/diff", ({ params, request }) => {
+        hits.push(`diff ${params.id} ${new URL(request.url).searchParams.get("containerId")}`);
+        return HttpResponse.json({ success: true, data: { lines: [], shortLineCount: 0, missingUnits: 0 } });
+      }),
+    );
+    return hits;
+  }
+
+  it("reads the van's stock, the van and its template comparison, under the keys the popup reads", async () => {
+    const hits = captureVan("tp1");
+    const client = new QueryClient();
+    renderHook(() => usePrefetchVanStock("c9"), { wrapper: wrapper(client) });
+
+    await waitFor(() => expect(hits).toContain("diff tp1 c9"));
+    expect(hits).toEqual(expect.arrayContaining(["stock c9", "van c9"]));
+    expect(client.getQueryData(queryKeys.inventory.locationStock("container", "c9"))).toMatchObject({ name: "Van 9" });
+    expect(client.getQueryData(queryKeys.inventory.containers.detail("c9"))).toMatchObject({ templateId: "tp1" });
+    expect(client.getQueryData(queryKeys.inventory.containerTemplates.diff("tp1", "c9", undefined))).toBeDefined();
+  });
+
+  it("compares nothing for a van without a template", async () => {
+    const hits = captureVan(undefined);
+    const client = new QueryClient();
+    renderHook(() => usePrefetchVanStock("c9"), { wrapper: wrapper(client) });
+    await waitFor(() => expect(client.getQueryData(queryKeys.inventory.containers.detail("c9"))).toBeDefined());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(hits.some((h) => h.startsWith("diff"))).toBe(false);
+  });
+
+  it("asks for nothing without a van", async () => {
+    const hits = captureVan("tp1");
+    renderHook(() => usePrefetchVanStock(null), { wrapper: wrapper(new QueryClient()) });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(hits).toEqual([]);
   });
 });
