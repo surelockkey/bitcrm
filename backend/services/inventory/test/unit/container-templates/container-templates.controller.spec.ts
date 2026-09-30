@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryStatus } from '@bitcrm/types';
 import { ContainerTemplatesController } from 'src/container-templates/container-templates.controller';
 import { ContainerTemplatesService } from 'src/container-templates/container-templates.service';
-import { createMockContainerTemplate, createMockJwtUser } from '../mocks';
+import { createMockContainerTemplate, createMockJwtUser, createMockResolvedPermissions } from '../mocks';
 
 describe('ContainerTemplatesController', () => {
   let controller: ContainerTemplatesController;
@@ -49,20 +49,26 @@ describe('ContainerTemplatesController', () => {
     expect((await controller.archive('tpl-1')).data.status).toBe(InventoryStatus.ARCHIVED);
   });
 
-  it('diffs a container, optionally against a warehouse', async () => {
+  it('diffs a container, optionally against a warehouse, within the caller’s scope', async () => {
+    const user = createMockJwtUser();
+    const permissions = createMockResolvedPermissions();
     service.diff.mockResolvedValue({ lines: [] });
 
-    await controller.diff('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' });
+    await controller.diff('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' }, user, { resolvedPermissions: permissions });
 
-    expect(service.diff).toHaveBeenCalledWith('tpl-1', 'c-1', 'wh-1');
+    expect(service.diff).toHaveBeenCalledWith('tpl-1', 'c-1', 'wh-1', { user, permissions });
   });
 
-  it('fills as the calling user', async () => {
+  it('fills as the calling user, within their scope', async () => {
     const user = createMockJwtUser();
+    const permissions = createMockResolvedPermissions();
     const dto = { containerId: 'c-1', warehouseId: 'wh-1' };
     service.fill.mockResolvedValue({ moved: [], short: [] });
 
-    expect(await controller.fill('tpl-1', dto, user)).toEqual({ success: true, data: { moved: [], short: [] } });
-    expect(service.fill).toHaveBeenCalledWith('tpl-1', dto, user);
+    expect(await controller.fill('tpl-1', dto as any, user, { resolvedPermissions: permissions })).toEqual({
+      success: true,
+      data: { moved: [], short: [] },
+    });
+    expect(service.fill).toHaveBeenCalledWith('tpl-1', dto, user, permissions);
   });
 });

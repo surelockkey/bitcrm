@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -16,12 +17,15 @@ import {
   type ContainerTemplateItem,
   type JwtUser,
   type LocationSummary,
+  type ResolvedPermissions,
 } from '@bitcrm/types';
 import { ContainerTemplatesRepository } from './container-templates.repository';
 import { ProductsService } from '../products/products.service';
 import { LocationsRepository } from '../stock/locations.repository';
 import { StockRepository } from '../stock/stock.repository';
 import { TransfersService } from '../transfers/transfers.service';
+import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
+import { visibleLocations, type StockViewer } from '../stock/stock-visibility';
 import { type CreateTransferDto } from '../transfers/dto/create-transfer.dto';
 import { type CreateContainerTemplateDto } from './dto/create-container-template.dto';
 import { type UpdateContainerTemplateDto } from './dto/update-container-template.dto';
@@ -44,6 +48,7 @@ export class ContainerTemplatesService {
     private readonly locationsRepository: LocationsRepository,
     private readonly stockRepository: StockRepository,
     private readonly transfersService: TransfersService,
+    private readonly assignments: ContainerAssignmentResolver,
   ) {}
 
   /** In name order; active ones unless another status is asked for. */
@@ -119,9 +124,38 @@ export class ContainerTemplatesService {
    * the van carries that the template does not list are not lines: the diff
    * answers "what is missing", not "what is in the van".
    */
-  async diff(id: string, containerId: string, warehouseId?: string): Promise<ContainerTemplateDiff> {
+  async diff(
+    id: string,
+    containerId: string,
+    warehouseId?: string,
+    viewer?: StockViewer,
+  ): Promise<ContainerTemplateDiff> {
+    return this.compare(id, containerId, warehouseId, viewer, { checkWarehouse: true });
+  }
+
+  /**
+   * The diff, under the caller's scope: the container must be one the
+   * containers data scope lets them see (their own van under `assigned_only`,
+   * every van with "All locations", their department's under `department`) and
+   * a warehouse needs `warehouses.view` — 403 otherwise, before any stock is
+   * read. The fill checks the container only.
+   */
+  private async compare(
+    id: string,
+    containerId: string,
+    warehouseId: string | undefined,
+    viewer: StockViewer | undefined,
+    { checkWarehouse }: { checkWarehouse: boolean },
+  ): Promise<ContainerTemplateDiff> {
     const template = await this.findById(id);
     const container = await this.requireLocation(LocationType.CONTAINER, containerId);
+    const visible = await visibleLocations(viewer, (userId) => this.assignments.assignmentFor(userId));
+    if (!visible.containers(container)) {
+      throw new ForbiddenException('This container is outside your data scope');
+    }
+    if (warehouseId && checkWarehouse && !visible.warehouses) {
+      throw new ForbiddenException('Comparing against a warehouse needs warehouses.view');
+    }
     const warehouse = warehouseId
       ? await this.requireLocation(LocationType.WAREHOUSE, warehouseId)
       : undefined;
@@ -176,8 +210,11 @@ export class ContainerTemplatesService {
     id: string,
     dto: FillContainerTemplateDto,
     user: JwtUser,
+    permissions?: ResolvedPermissions,
   ): Promise<ContainerTemplateFillResult> {
-    const diff = await this.diff(id, dto.containerId, dto.warehouseId);
+    const diff = await this.compare(id, dto.containerId, dto.warehouseId, { user, permissions }, {
+      checkWarehouse: false,
+    });
     const movable = diff.lines.filter((line) => (line.willMove ?? 0) > 0);
     if (movable.length === 0) {
       return { moved: [], short: diff.lines.filter((line) => line.missing > 0) };

@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { InventoryStatus, LocationType, ProductType } from '@bitcrm/types';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { DataScope, InventoryStatus, LocationType, ProductType } from '@bitcrm/types';
 import { ContainerTemplatesService } from 'src/container-templates/container-templates.service';
 import {
   createMockContainerTemplate,
@@ -12,6 +12,8 @@ import {
   createMockStockRepository,
   createMockTransfer,
   createMockTransfersService,
+  createMockContainerAssignmentResolver,
+  createMockResolvedPermissions,
 } from '../mocks';
 
 /**
@@ -25,6 +27,7 @@ describe('ContainerTemplatesService', () => {
   let locations: ReturnType<typeof createMockLocationsRepository>;
   let stock: ReturnType<typeof createMockStockRepository>;
   let transfers: ReturnType<typeof createMockTransfersService>;
+  let assignments: ReturnType<typeof createMockContainerAssignmentResolver>;
   let service: ContainerTemplatesService;
 
   const user = createMockJwtUser();
@@ -50,12 +53,14 @@ describe('ContainerTemplatesService', () => {
     );
     stock = createMockStockRepository();
     transfers = createMockTransfersService();
+    assignments = createMockContainerAssignmentResolver();
     service = new ContainerTemplatesService(
       repository as any,
       products as any,
       locations as any,
       stock as any,
       transfers as any,
+      assignments as any,
     );
   });
 
@@ -282,6 +287,66 @@ describe('ContainerTemplatesService', () => {
 
       await expect(service.diff('tpl-1', 'c-1', 'nope')).rejects.toThrow(NotFoundException);
       expect(stock.getQuantities).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Порівняння й заповнення підкоряються тим самим правилам обсягу, що й сток
+   * фургона: технік — лише свій фургон (або всі з "All locations"), склад —
+   * лише з warehouses.view.
+   */
+  describe('data scope', () => {
+    const technician = createMockResolvedPermissions({
+      permissions: { containers: { view: true }, warehouses: { view: false }, transfers: { create: true } },
+      dataScope: { containers: DataScope.ASSIGNED_ONLY },
+    });
+    const viewer = { user: createMockJwtUser({ id: 'tech-1' }), permissions: technician };
+
+    beforeEach(() => {
+      repository.findById.mockResolvedValue(createMockContainerTemplate());
+    });
+
+    it('lets a technician compare their own van', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-1');
+
+      await expect(service.diff('tpl-1', 'c-1', undefined, viewer)).resolves.toBeDefined();
+    });
+
+    it('403s a technician comparing another van, before reading stock', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-other');
+
+      await expect(service.diff('tpl-1', 'c-1', undefined, viewer)).rejects.toThrow(ForbiddenException);
+      expect(stock.getQuantities).not.toHaveBeenCalled();
+    });
+
+    it('403s a comparison against a warehouse without warehouses.view', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-1');
+
+      await expect(service.diff('tpl-1', 'c-1', 'wh-1', viewer)).rejects.toThrow(ForbiddenException);
+      expect(stock.getQuantities).not.toHaveBeenCalled();
+    });
+
+    it('lets "All locations" compare any van', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+
+      await expect(service.diff('tpl-1', 'c-1', undefined, viewer)).resolves.toBeDefined();
+    });
+
+    it('403s filling a van outside the scope, moving nothing', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-other');
+
+      await expect(
+        service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' } as any, user, technician),
+      ).rejects.toThrow(ForbiddenException);
+      expect(transfers.createTransfer).not.toHaveBeenCalled();
+    });
+
+    it('fills the caller’s own van from a warehouse (the container check only)', async () => {
+      assignments.containerIdForUser.mockResolvedValue('c-1');
+
+      await expect(
+        service.fill('tpl-1', { containerId: 'c-1', warehouseId: 'wh-1' } as any, user, technician),
+      ).resolves.toBeDefined();
     });
   });
 

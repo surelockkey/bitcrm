@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, RequirePermission } from '@bitcrm/shared';
 import { type JwtUser } from '@bitcrm/types';
@@ -92,10 +92,21 @@ export class ContainerTemplatesController {
       'unknown), `warehouseId` optional (404 when unknown). One line per template line, in ' +
       'template order: `target`, `onHand` (the container), `missing` = max(0, target − onHand); ' +
       'with a warehouse also `available` (what it holds) and `willMove` = min(missing, available). ' +
-      '`shortLineCount` counts the lines with `missing > 0`, `missingUnits` sums `missing`.',
+      '`shortLineCount` counts the lines with `missing > 0`, `missingUnits` sums `missing`. ' +
+      'The container must be in the caller\'s containers data scope (their own van under ' +
+      '`assigned_only`, every van with "All locations") and a `warehouseId` needs ' +
+      '`warehouses.view` — 403 otherwise.',
   })
-  async diff(@Param('id') id: string, @Query() query: ContainerTemplateDiffQueryDto) {
-    const data = await this.service.diff(id, query.containerId, query.warehouseId);
+  async diff(
+    @Param('id') id: string,
+    @Query() query: ContainerTemplateDiffQueryDto,
+    @CurrentUser() user: JwtUser,
+    @Req() req: any,
+  ) {
+    const data = await this.service.diff(id, query.containerId, query.warehouseId, {
+      user,
+      permissions: req.resolvedPermissions,
+    });
     return { success: true, data };
   }
 
@@ -109,14 +120,16 @@ export class ContainerTemplatesController {
       '`stock_moved` per item; `notes` default "Template: <name>"). Answers ' +
       '`{ transfer?, moved, short }` — no transfer and `moved: []` when nothing can move (not an ' +
       'error); `short` lists the lines still short. Insufficient stock racing the fill is the ' +
-      "transfer's 400; an archived container is a 400.",
+      "transfer's 400; an archived container is a 400; a container outside the caller's " +
+      'containers data scope is a 403.',
   })
   async fill(
     @Param('id') id: string,
     @Body() dto: FillContainerTemplateDto,
     @CurrentUser() user: JwtUser,
+    @Req() req: any,
   ) {
-    const data = await this.service.fill(id, dto, user);
+    const data = await this.service.fill(id, dto, user, req.resolvedPermissions);
     return { success: true, data };
   }
 }
