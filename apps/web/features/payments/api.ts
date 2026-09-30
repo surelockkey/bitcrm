@@ -4,11 +4,15 @@ import type {
   OnlinePaymentMethod,
   Payment,
   PaymentRefund,
+  PaymentReportPage,
+  PaymentReportQuery,
+  PaymentReportTotals,
   PaymentSettings,
   PaymentSummary,
 } from "@bitcrm/types";
 import { http } from "@/lib/api/http";
 import { buildPaymentListQuery, type OfflinePaymentMethod, type PaymentListParams } from "./lib";
+import { buildPaymentReportQuery } from "./report";
 import type { PaymentSettingsBody } from "./schemas";
 
 const BASE = "/billing";
@@ -76,6 +80,28 @@ export const resendReceipt = (paymentId: string): Promise<{ sent: boolean; sentT
 
 export const listPayments = (params: PaymentListParams = {}): Promise<PaymentPage> =>
   http.get<PaymentPage>(`${BASE}/payments${buildPaymentListQuery(params)}`);
+
+/**
+ * Workiz Reports → Payments: one page of lines (payments on their payment
+ * date, refunds as negative lines of their own); the first page also carries
+ * the whole range's totals.
+ */
+export const getPaymentReport = (q: PaymentReportQuery): Promise<PaymentReportPage> =>
+  http.get<PaymentReportPage>(`${BASE}/payments/report${buildPaymentReportQuery(q)}`);
+
+export const getPaymentReportTotals = (q: PaymentReportQuery): Promise<PaymentReportTotals> =>
+  http.get<PaymentReportTotals>(`${BASE}/payments/report/totals${buildPaymentReportQuery(q)}`);
+
+/** Workiz's CSV (its own columns), answered inside the envelope like Workiz's `csvData`. */
+export interface PaymentReportExport {
+  filename: string;
+  csv: string;
+  count: number;
+  truncated: boolean;
+}
+
+export const exportPaymentReport = (q: PaymentReportQuery): Promise<PaymentReportExport> =>
+  http.get<PaymentReportExport>(`${BASE}/payments/report/export${buildPaymentReportQuery(q)}`);
 
 export const getPaymentSettings = (): Promise<PaymentSettingsView> =>
   http.get<PaymentSettingsView>(`${BASE}/payment-settings`);

@@ -1,8 +1,8 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { OnlinePaymentMethod } from "@bitcrm/types";
+import type { OnlinePaymentMethod, PaymentReportQuery } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { formatMoney } from "@/features/billing/lib";
@@ -39,6 +39,22 @@ export function usePaymentList(params: Omit<PaymentListParams, "cursor">, enable
   });
 }
 
+/**
+ * Workiz Reports → Payments, paged by cursor (Workiz's ‹ › arrows). The
+ * first page carries the totals of the WHOLE range — the two cards and the
+ * "of N".
+ */
+export function usePaymentReport(params: Omit<PaymentReportQuery, "cursor">, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.payments.report(params),
+    queryFn: ({ pageParam }) => api.getPaymentReport({ ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor || undefined,
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
 /** The account's payment settings. Readable by anyone signed in. */
 export function usePaymentSettings(enabled = true) {
   return useQuery({
@@ -61,6 +77,7 @@ export function useInvalidateLedger(invoiceId: string, dealId?: string) {
   return () => {
     qc.invalidateQueries({ queryKey: queryKeys.payments.byInvoice(invoiceId) });
     qc.invalidateQueries({ queryKey: queryKeys.payments.list() });
+    qc.invalidateQueries({ queryKey: ["payments", "report"] });
     qc.invalidateQueries({ queryKey: queryKeys.invoices.all() });
     if (dealId) {
       qc.invalidateQueries({ queryKey: queryKeys.payments.byDeal(dealId) });

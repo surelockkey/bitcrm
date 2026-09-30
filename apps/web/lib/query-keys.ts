@@ -330,6 +330,8 @@ export const queryKeys = {
   payments: {
     all: () => ["payments"] as const,
     list: (params?: unknown) => ["payments", "list", params] as const,
+    /** Workiz Reports → Payments: `["payments", "report"]` is the prefix to invalidate. */
+    report: (params?: unknown) => ["payments", "report", params] as const,
     byInvoice: (invoiceId: string) => ["payments", "by-invoice", invoiceId] as const,
     /** The job's ledger (Payments tab) — with or without an invoice. */
     byDeal: (dealId: string) => ["payments", "by-deal", dealId] as const,
