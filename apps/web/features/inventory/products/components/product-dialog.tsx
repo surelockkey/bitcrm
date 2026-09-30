@@ -90,14 +90,18 @@ export function ProductDialog({
  * Each catalog behind its own permission; without it the form falls back.
  * `pending` while a permitted catalog (or the permissions) is still loading:
  * the form then holds Category and Brand in place instead of reshaping.
+ * Both are asked for beside the permissions, not after them: the server
+ * guards them, and what the form shows still follows the permissions.
  */
 function useCatalogs() {
   const { can, isLoading } = usePermissions();
-  const categories = useItemCategories(can("product_categories", "view"));
-  const brands = useBrands(can("brands", "view"));
+  const canCategories = !!isLoading || can("product_categories", "view");
+  const canBrands = !!isLoading || can("brands", "view");
+  const categories = useItemCategories(canCategories);
+  const brands = useBrands(canBrands);
   return {
-    categories: categories.data ?? [],
-    brands: brands.data ?? [],
+    categories: canCategories ? (categories.data ?? []) : [],
+    brands: canBrands ? (brands.data ?? []) : [],
     pending: !!isLoading || !!categories.isLoading || !!brands.isLoading,
   };
 }

@@ -81,9 +81,11 @@ export function ProductsPage() {
   );
 
   // Every category the catalog knows (archived too — items still carry them),
-  // not the handful on the page being shown.
+  // not the handful on the page being shown. Asked for beside the permissions,
+  // not after them — the server guards the catalog; the select below still
+  // shows only to those who may see it.
   const canCategories = can("product_categories", "view");
-  const catalog = useItemCategories(canCategories);
+  const catalog = useItemCategories(permsLoading || canCategories);
   const categories = useMemo(
     () => [...new Set((catalog.data ?? []).map((c) => c.name))].sort((a, b) => a.localeCompare(b)),
     [catalog.data],

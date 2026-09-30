@@ -345,6 +345,16 @@ describe("ProductsPage — a stable first frame", () => {
     expect(screen.getByRole("button", { name: /New item/ })).toBeDisabled();
   });
 
+  // The categories waited for /users/me: two requests in a row before the
+  // toolbar was whole. The server guards the catalog, so it is asked for at
+  // once; the Category select still shows only with product_categories.view.
+  it("asks for the items and the categories while the permissions load", () => {
+    mocks.permsLoading = true;
+    renderWithClient(<ProductsPage />);
+    expect(mocks.filters.length).toBeGreaterThan(0);
+    expect(mocks.categoriesEnabled[0]).toBe(true);
+  });
+
   // Appearing with the catalog, the Category select pushed Status and the
   // buttons sideways (and on a phone wrapped the toolbar onto a new line).
   it("has the Category select from the first frame, disabled until the categories arrive", () => {

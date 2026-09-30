@@ -286,6 +286,15 @@ describe("ProductDialog — create", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
   });
 
+  // By link the brands and categories waited for /users/me; the server
+  // guards them, so they are asked for with it.
+  it("asks for the catalogs while the permissions load", () => {
+    mocks.permsLoading = true;
+    open(null);
+    expect(mocks.catalogsEnabled).toContainEqual(["categories", true]);
+    expect(mocks.catalogsEnabled).toContainEqual(["brands", true]);
+  });
+
   it("refuses without products.create", () => {
     mocks.denied = new Set(["products.create"]);
     open(null);
