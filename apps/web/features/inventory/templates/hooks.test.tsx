@@ -160,6 +160,30 @@ describe("useFillFromWarehouse", () => {
     expect(toast.warning).toHaveBeenCalledWith("Nothing moved — still short: Deadbolt (3)");
   });
 
+  // A repeat the server recognises answers 200 with the first fill's result
+  // and `replayed`: nothing moved this time, so nothing is announced as moved.
+  it("reports a replayed fill as already made, not as units moved", async () => {
+    server.use(
+      http.post("*/inventory/container-templates/t1/fill", () =>
+        HttpResponse.json({
+          success: true,
+          data: { moved: [line({ willMove: 3 })], short: [], replayed: true },
+        }),
+      ),
+    );
+    const client = new QueryClient();
+    const diff = queryKeys.inventory.containerTemplates.diff("t1", "c1", "w1");
+    client.setQueryData(diff, {});
+    const { result } = renderHook(() => useFillFromWarehouse(), { wrapper: wrapper(client) });
+    act(() =>
+      result.current.mutate({ id: "t1", body: { containerId: "c1", warehouseId: "w1", requestId: "r-1" }, containerName: "Van 1" }),
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalledWith("That fill was already made — showing the van as it is now.");
+    expect(client.getQueryState(diff)?.isInvalidated).toBe(true);
+  });
+
   // The same request id twice: the server did the fill once and says so.
   it("treats 409 as already done — says so and refreshes the comparison", async () => {
     server.use(

@@ -96,6 +96,8 @@ export function useRestoreTemplate() {
   });
 }
 
+const ALREADY_MADE = "That fill was already made — showing the van as it is now.";
+
 /** The item queries a transfer changes: `onHand` on the list and the popup, and the per-location split. */
 const movedByStock = ({ queryKey: [root, second, third] }: Query) =>
   root === "products" && (second === "list" || second === "detail" || third === "stock");
@@ -103,7 +105,8 @@ const movedByStock = ({ queryKey: [root, second, third] }: Query) =>
 /**
  * "Fill from warehouse". It is a transfer: both locations, the items'
  * `onHand`, the journal and every comparison with a template move with it.
- * A 409 is the same request id arriving twice — the fill was made once.
+ * The same request id twice is one fill: the repeat comes back `replayed`
+ * (or 409 while the first is still running), and moves nothing.
  */
 export function useFillFromWarehouse() {
   const qc = useQueryClient();
@@ -117,6 +120,12 @@ export function useFillFromWarehouse() {
       qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.transfers.all() });
       refreshDiffs();
+      // The same request id again: the server hands back the first fill's
+      // answer and moves nothing this time.
+      if (result.replayed) {
+        toast.info(ALREADY_MADE);
+        return;
+      }
       const { success, warning } = fillMessages(result, containerName);
       if (success) toast.success(success);
       if (warning) toast.warning(warning);
@@ -124,7 +133,7 @@ export function useFillFromWarehouse() {
     onError: (e) => {
       if (e instanceof ApiError && e.status === 409) {
         refreshDiffs();
-        toast.info("That fill was already made — showing the van as it is now.");
+        toast.info(ALREADY_MADE);
         return;
       }
       toast.error(getApiErrorMessage(e));
