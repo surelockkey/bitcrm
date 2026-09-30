@@ -1,64 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import {
-  DataScope,
-  LocationType,
-  type JwtUser,
-  type LocationSummary,
-  type ProductStock,
-  type ResolvedPermissions,
-} from '@bitcrm/types';
+import { LocationType, type LocationSummary, type ProductStock } from '@bitcrm/types';
 import { ProductsRepository } from '../products/products.repository';
 import { LocationsRepository } from './locations.repository';
 import { StockRepository } from './stock.repository';
 import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
+import { visibleLocations, type StockViewer } from './stock-visibility';
 
 const PK_PREFIX: Record<LocationSummary['type'], string> = {
   warehouse: 'WAREHOUSE#',
   container: 'CONTAINER#',
 };
-
-/** Who is asking: the request user and the permissions the guard resolved for them. */
-export interface StockViewer {
-  user: JwtUser;
-  permissions?: ResolvedPermissions;
-}
-
-/**
- * The locations the caller's own list routes would show them, so the popup
- * and `GET /warehouses` / `GET /containers` agree: a warehouse needs
- * `warehouses.view`, a container `containers.view` plus the containers data
- * scope (`assigned_only` — the van they are assigned to, `ownContainerId`;
- * `department` — their department's). No resolved permissions means the guard
- * did not run (unit tests) and the Super Admin bypasses the matrix the way
- * the guard lets them.
- */
-async function visibleLocations(
-  viewer: StockViewer | undefined,
-  ownContainerId: (userId: string) => Promise<string | undefined>,
-): Promise<{
-  warehouses: boolean;
-  containers: (location: LocationSummary) => boolean;
-}> {
-  const resolved = viewer?.permissions;
-  if (!viewer || !resolved || (resolved.isSystemRole && resolved.roleName === 'Super Admin')) {
-    return { warehouses: true, containers: () => true };
-  }
-
-  const warehouses = resolved.permissions.warehouses?.view === true;
-  if (resolved.permissions.containers?.view !== true) {
-    return { warehouses, containers: () => false };
-  }
-  switch (resolved.dataScope.containers) {
-    case DataScope.ASSIGNED_ONLY: {
-      const own = await ownContainerId(viewer.user.id);
-      return { warehouses, containers: (l) => own !== undefined && l.id === own };
-    }
-    case DataScope.DEPARTMENT:
-      return { warehouses, containers: (l) => l.department === viewer.user.department };
-    default:
-      return { warehouses, containers: () => true };
-  }
-}
 
 /**
  * The "Stock" popup on an inventory item: every warehouse and van the caller

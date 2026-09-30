@@ -27,3 +27,28 @@ export interface ProductStock {
   onHand: number;
   locations: ProductLocationStock[];
 }
+
+/** One product a location holds, with the catalog fields the stock popup shows. */
+export interface LocationStockRow {
+  productId: string;
+  /** The catalog's name; the stock row's own snapshot when the product row is gone. */
+  productName: string;
+  /** Product ID ("number"), SKU, category and prices — absent when the product row is gone. */
+  number?: number;
+  sku?: string;
+  category?: string;
+  quantity: number;
+  priceClient?: number;
+  costCompany?: number;
+}
+
+/** Everything one warehouse or container holds (quantity > 0), sorted by product name. */
+export interface LocationStock {
+  locationType: LocationSummaryType;
+  locationId: string;
+  name: string;
+  description?: string;
+  status: InventoryStatus;
+  placeholder?: boolean;
+  rows: LocationStockRow[];
+}

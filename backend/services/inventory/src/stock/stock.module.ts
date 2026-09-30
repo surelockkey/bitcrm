@@ -4,6 +4,7 @@ import { StockRepository } from './stock.repository';
 import { StockService } from './stock.service';
 import { LocationsRepository } from './locations.repository';
 import { ProductStockService } from './product-stock.service';
+import { LocationStockService } from './location-stock.service';
 import { StockController } from './stock.controller';
 
 @Global()
@@ -12,7 +13,13 @@ import { StockController } from './stock.controller';
   // imports this module back (global modules are not imported explicitly).
   imports: [ProductsModule],
   controllers: [StockController],
-  providers: [StockRepository, StockService, LocationsRepository, ProductStockService],
+  providers: [
+    StockRepository,
+    StockService,
+    LocationsRepository,
+    ProductStockService,
+    LocationStockService,
+  ],
   exports: [StockRepository, StockService, LocationsRepository],
 })
 export class StockModule {}

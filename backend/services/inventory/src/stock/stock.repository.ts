@@ -3,10 +3,8 @@ import {
   Injectable,
   Logger,
   Optional,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
-  BatchGetCommand,
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
@@ -17,20 +15,12 @@ import { DynamoDbService, RedisService } from '@bitcrm/shared';
 import { type StockItem } from '@bitcrm/types';
 import { INVENTORY_TABLE } from '../common/constants/dynamo.constants';
 import { productCacheKey } from '../products/products-cache.service';
+import { batchGetAll } from '../common/utils/batch-get';
 
 /** One `Update` of a TransactWrite — the same shape an UpdateCommand takes. */
 type UpdateSpec = NonNullable<
   NonNullable<TransactWriteCommandInput['TransactItems']>[number]['Update']
 >;
-
-/**
- * BatchGet hands keys back unprocessed when the table is throttled, and the
- * SDK does not retry them (the call succeeded). A few attempts with a doubling
- * pause, then the request fails instead of hammering the table until the
- * load balancer times it out.
- */
-const BATCH_GET_ATTEMPTS = 5;
-const BATCH_GET_BACKOFF_MS = 50;
 
 /** The per-item reasons DynamoDB attaches to a cancelled TransactWrite, or null for any other error. */
 function cancellationReasons(error: unknown): string[] | null {
@@ -75,19 +65,30 @@ export class StockRepository {
     return this.toStockItem(result.Item);
   }
 
+  /**
+   * Every stock row of one location, read to the end of the partition: a
+   * warehouse with thousands of products is more than the 1 MB one Query page
+   * holds, and a single read silently dropped the rest.
+   */
   async getStockLevels(entityPK: string): Promise<StockItem[]> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: INVENTORY_TABLE,
-        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-        ExpressionAttributeValues: {
-          ':pk': entityPK,
-          ':prefix': 'STOCK#',
-        },
-      }),
-    );
-
-    return (result.Items || []).map((item) => this.toStockItem(item));
+    const items: StockItem[] = [];
+    let key: Record<string, unknown> | undefined;
+    do {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+          ExpressionAttributeValues: {
+            ':pk': entityPK,
+            ':prefix': 'STOCK#',
+          },
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      for (const item of result.Items || []) items.push(this.toStockItem(item));
+      key = result.LastEvaluatedKey;
+    } while (key);
+    return items;
   }
 
   /**
@@ -133,30 +134,11 @@ export class StockRepository {
     return quantities;
   }
 
-  /**
-   * Stock rows by key. BatchGet takes 100 keys a call; keys it leaves
-   * unprocessed under load are asked again with a backoff, a bounded number
-   * of times, then the request fails with a 503.
-   */
-  private async batchGetStockRows(
+  /** Stock rows by key — the shared BatchGet loop (100 keys a call, bounded retries, 503). */
+  private batchGetStockRows(
     allKeys: Array<{ PK: string; SK: string }>,
   ): Promise<Record<string, unknown>[]> {
-    const rows: Record<string, unknown>[] = [];
-    for (let i = 0; i < allKeys.length; i += 100) {
-      let keys = allKeys.slice(i, i + 100);
-      for (let attempt = 0; keys.length; attempt++) {
-        if (attempt >= BATCH_GET_ATTEMPTS) {
-          throw new ServiceUnavailableException('Stock read throttled; try again');
-        }
-        if (attempt > 0) await this.pause(BATCH_GET_BACKOFF_MS * 2 ** (attempt - 1));
-        const res = await this.dynamoDb.client.send(
-          new BatchGetCommand({ RequestItems: { [INVENTORY_TABLE]: { Keys: keys } } }),
-        );
-        rows.push(...(res.Responses?.[INVENTORY_TABLE] ?? []));
-        keys = (res.UnprocessedKeys?.[INVENTORY_TABLE]?.Keys ?? []) as typeof keys;
-      }
-    }
-    return rows;
+    return batchGetAll(this.dynamoDb.client, allKeys);
   }
 
   async incrementStock(
@@ -315,10 +297,6 @@ export class StockRepository {
       }
       throw error;
     }
-  }
-
-  private pause(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private toStockItem(item: Record<string, any>): StockItem {

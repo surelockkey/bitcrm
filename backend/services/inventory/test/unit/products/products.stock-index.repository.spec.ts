@@ -213,3 +213,40 @@ describe('ProductsRepository — stock-managed index', () => {
     });
   });
 });
+
+/** Попап стоку локації бере поля товарів одним BatchGet на 100 ключів, а не 32 запитами. */
+describe('ProductsRepository.findByIds', () => {
+  let dynamoDb: ReturnType<typeof createMockDynamoDbService>;
+  let repository: ProductsRepository;
+
+  beforeEach(() => {
+    dynamoDb = createMockDynamoDbService();
+    repository = new ProductsRepository(dynamoDb as any);
+  });
+
+  it('reads each product once by key and answers the ones that exist', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Responses: {
+        BitCRM_Inventory: [{ ...createMockProduct({ id: 'p-1' }), PK: 'PRODUCT#p-1', SK: 'METADATA', GSI3PK: 'x' }],
+      },
+    });
+
+    const products = await repository.findByIds(['p-1', 'p-2', 'p-1']);
+
+    const sent = dynamoDb.client.send.mock.calls[0][0];
+    expect(sent.constructor.name).toBe('BatchGetCommand');
+    expect(Object.values(sent.input.RequestItems)[0]).toEqual({
+      Keys: [
+        { PK: 'PRODUCT#p-1', SK: 'METADATA' },
+        { PK: 'PRODUCT#p-2', SK: 'METADATA' },
+      ],
+    });
+    expect(products.map((p: { id: string }) => p.id)).toEqual(['p-1']);
+    expect(products[0]).not.toHaveProperty('PK');
+  });
+
+  it('reads nothing for no ids', async () => {
+    expect(await repository.findByIds([])).toEqual([]);
+    expect(dynamoDb.client.send).not.toHaveBeenCalled();
+  });
+});

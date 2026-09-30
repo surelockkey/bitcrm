@@ -13,6 +13,7 @@ import { BrandsModule } from 'src/brands/brands.module';
 import { ContainersService } from 'src/containers/containers.service';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { ProductStockService } from 'src/stock/product-stock.service';
+import { LocationStockService } from 'src/stock/location-stock.service';
 import { UserContainersService } from 'src/user-containers/user-containers.service';
 import { ContainerTemplatesService } from 'src/container-templates/container-templates.service';
 
@@ -55,6 +56,7 @@ describe('inventory module graph', () => {
       ContainersService,
       TransfersService,
       ProductStockService,
+      LocationStockService,
       UserContainersService,
       ContainerTemplatesService,
     ]) {

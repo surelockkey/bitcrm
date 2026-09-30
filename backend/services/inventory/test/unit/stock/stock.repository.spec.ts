@@ -93,6 +93,26 @@ describe('StockRepository', () => {
 
       expect(result).toEqual([]);
     });
+
+    // Склад із тисячами рядків STOCK# перевищує 1 МБ однієї сторінки Query:
+    // без дочитування решта товарів мовчки зникала.
+    it('reads the partition to the end, page by page', async () => {
+      const lastKey = { PK: 'WAREHOUSE#wh-1', SK: 'STOCK#p-1' };
+      dynamoDb.client.send
+        .mockResolvedValueOnce({
+          Items: [{ ...createMockStockItem({ productId: 'p-1' }), PK: 'WAREHOUSE#wh-1', SK: 'STOCK#p-1' }],
+          LastEvaluatedKey: lastKey,
+        })
+        .mockResolvedValueOnce({
+          Items: [{ ...createMockStockItem({ productId: 'p-2' }), PK: 'WAREHOUSE#wh-1', SK: 'STOCK#p-2' }],
+        });
+
+      const result = await repository.getStockLevels('WAREHOUSE#wh-1');
+
+      expect(result.map((r) => r.productId)).toEqual(['p-1', 'p-2']);
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(2);
+      expect(sent(1).input.ExclusiveStartKey).toEqual(lastKey);
+    });
   });
 
   /**
