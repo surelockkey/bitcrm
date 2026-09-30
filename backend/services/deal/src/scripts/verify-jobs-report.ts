@@ -24,14 +24,25 @@
  * USAGE
  * -----
  *   npm run verify:jobs-report -w backend/services/deal -- \
- *     --package <dir with part-*.jsonl> [--from 2026-09-01 --to 2026-09-27] [--workiz <capture.json>]
+ *     --package <dir with part-*.jsonl> [--from 2026-09-01 --to 2026-09-27] [--workiz <capture.json>] [--service]
+ *
+ * `--service` runs the same period once more through the endpoint's own
+ * path — `JobsReportService.page()` over a real `DealsRepository` whose
+ * DynamoDB is the three report indexes in memory (`jobs-report-in-memory.ts`,
+ * GSI7 stamped as `backfill:end-index` would) — paging 1 000 rows at a time,
+ * and says whether it lists exactly the same jobs.
  */
 import { createReadStream, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createInterface } from 'readline';
-import type { JobsReportBy } from '@bitcrm/types';
-import { dayOfReport, toReportDeal, type ReportDeal } from '../deals/report/jobs-report.logic';
+import { JOBS_REPORT_DEFAULT_SETTINGS, type JobsReportBy, type ResolvedPermissions } from '@bitcrm/types';
+import { DealsRepository } from '../deals/deals.repository';
+import { REPORT_PROJECTION, dayOfReport, toReportDeal, type ReportDeal } from '../deals/report/jobs-report.logic';
+import { JobsReportService } from '../deals/report/jobs-report.service';
+import type { JobsReportQueryDto } from '../deals/report/jobs-report.query';
 import { summarizeJobsReport } from '../deals/report/jobs-report.summary';
+import { shiftDay } from '../deals/report/report-dates';
+import { InMemoryReportIndexes } from './jobs-report-in-memory';
 
 const WORKIZ_KEY: Record<JobsReportBy, string> = { created: 'created', scheduled: 'job_date', end: 'job_end_date' };
 const WORKIZ_STATUS: Record<string, string> = {
@@ -58,8 +69,23 @@ function arg(name: string): string | undefined {
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
-async function readPackage(dir: string): Promise<{ deals: ReportDeal[]; workizIdOf: Map<string, string>; deleted: number }> {
+/** A row's dates touch `from`..`to` (months, padded) — what the in-memory indexes need to hold. */
+function near(item: Record<string, unknown>, from: string, to: string): boolean {
+  const lo = shiftDay(from, -45);
+  const hi = shiftDay(to, 45);
+  return ['createdAt', 'scheduledDate', 'scheduledEndDate', 'jobDateUtc', 'jobEndDateUtc'].some((k) => {
+    const v = typeof item[k] === 'string' ? (item[k] as string).slice(0, 10) : '';
+    return v >= lo && v <= hi;
+  });
+}
+
+async function readPackage(
+  dir: string,
+  keep?: { from: string; to: string },
+): Promise<{ deals: ReportDeal[]; workizIdOf: Map<string, string>; deleted: number; rows: Record<string, unknown>[] }> {
   const deals: ReportDeal[] = [];
+  const rows: Record<string, unknown>[] = [];
+  const projected = [...REPORT_PROJECTION, 'workizId'];
   const workizIdOf = new Map<string, string>();
   let deleted = 0;
   const parts = readdirSync(dir).filter((f) => /^part-.*\.jsonl$/.test(f)).sort();
@@ -78,9 +104,69 @@ async function readPackage(dir: string): Promise<{ deals: ReportDeal[]; workizId
       const d = toReportDeal(item);
       deals.push(d);
       if (item.workizId !== undefined) workizIdOf.set(d.id, String(item.workizId));
+      if (keep && near(item, keep.from, keep.to)) {
+        rows.push(Object.fromEntries(projected.filter((k) => item[k] !== undefined).map((k) => [k, item[k]])));
+      }
     }
   }
-  return { deals, workizIdOf, deleted };
+  return { deals, workizIdOf, deleted, rows };
+}
+
+/**
+ * The period once more, through `JobsReportService.page()` → `DealsRepository.readReportWindow()`
+ * → the indexes in memory. Every page of 1 000 rows, summed.
+ */
+async function throughTheService(
+  rows: Record<string, unknown>[],
+  from: string,
+  to: string,
+  expected: Record<JobsReportBy, string[]>,
+): Promise<void> {
+  const indexes = new InMemoryReportIndexes(rows);
+  const repository = new DealsRepository(indexes.dynamoDb as never);
+  const catalog = { list: async () => [] };
+  const service = new JobsReportService(
+    repository,
+    { get: async () => JOBS_REPORT_DEFAULT_SETTINGS, put: async () => undefined } as never,
+    { getUserNamesBatch: async () => [], getContactNames: async () => [], getContactsAsCaller: async () => [] } as never,
+    catalog as never,
+    catalog as never,
+    catalog as never,
+    catalog as never,
+    catalog as never,
+    catalog as never,
+  );
+  const perms = { roleId: 'x', roleName: 'Super Admin', isSystemRole: true, permissions: {}, dataScope: {} } as unknown as ResolvedPermissions;
+  const caller = { user: { id: 'verify', cognitoSub: '', email: '', roleId: 'x', department: '' }, perms };
+
+  console.log(`Through the endpoint (JobsReportService.page → DealsRepository.readReportWindow → indexes in memory, ${rows.length} rows held):`);
+  for (const by of ['created', 'scheduled', 'end'] as JobsReportBy[]) {
+    const before = indexes.queries;
+    const ids: string[] = [];
+    let total = 0;
+    let done = 0;
+    let doneTotal = 0;
+    let reported = 0;
+    for (let page = 1; ; page++) {
+      const res = await service.page({ by, from, to, page: String(page), pageSize: '1000' } as JobsReportQueryDto, caller);
+      reported = res.pagination.total;
+      for (const r of res.rows) {
+        ids.push(r.id);
+        total += Math.round((r.total ?? 0) * 100);
+        if (r.superStatus === 'done') {
+          done += 1;
+          doneTotal += Math.round((r.total ?? 0) * 100);
+        }
+      }
+      if (page >= res.pagination.pages) break;
+    }
+    const same = ids.length === expected[by].length && new Set([...ids, ...expected[by]]).size === ids.length;
+    console.log(
+      `  ${by.padEnd(9)} total ${reported}, paged ${ids.length}, Σ ${money(total / 100)}, Done ${done} Σ ${money(doneTotal / 100)}` +
+        ` — ${same ? 'the same jobs as the report logic' : 'DIFFERENT jobs'} (${indexes.queries - before} index queries)`,
+    );
+  }
+  console.log('');
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -91,8 +177,9 @@ async function main(): Promise<void> {
   const from = arg('from') ?? '2026-09-01';
   const to = arg('to') ?? '2026-09-27';
   const workizPath = arg('workiz');
+  const viaService = process.argv.includes('--service');
 
-  const { deals, workizIdOf, deleted } = await readPackage(dir);
+  const { deals, workizIdOf, deleted, rows } = await readPackage(dir, viaService ? { from, to } : undefined);
   console.log(`Package: ${dir}\n  ${deals.length} active jobs (${deleted} not active)\nPeriod: ${from}..${to} (America/New_York, inclusive)\n`);
 
   const workiz = workizPath
@@ -172,6 +259,13 @@ async function main(): Promise<void> {
     console.log(`By ${by}: ${notes.length ? `${notes.length} differences` : 'identical to Workiz, row for row'}`);
     for (const n of notes) console.log(n);
     console.log('');
+  }
+
+  if (viaService) {
+    const expected = Object.fromEntries(
+      (['created', 'scheduled', 'end'] as JobsReportBy[]).map((by) => [by, summarizeJobsReport(deals, by, from, to).ids]),
+    ) as Record<JobsReportBy, string[]>;
+    await throughTheService(rows, from, to, expected);
   }
 
   const widths = header.map((h, i) => Math.max(h.length, ...table.map((r) => r[i].length)));

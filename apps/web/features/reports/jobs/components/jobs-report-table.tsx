@@ -207,8 +207,9 @@ export function JobsReportTable({
   const { widthOf, setWidth, reset } = useColumnWidths("jobs-report-v2", WIDTHS);
 
   return (
-    <div className="overflow-x-auto rounded-md border" aria-busy={busy || undefined}>
-      <Table className="table-fixed" style={{ minWidth: columns.reduce((w, c) => w + widthOf(c), 0) }}>
+    // Square corners and one scroller: the frame scrolls, the table does not (see components/ui/table).
+    <div className="overflow-x-auto border bg-background" aria-busy={busy || undefined}>
+      <Table contained={false} className="table-fixed" style={{ minWidth: columns.reduce((w, c) => w + widthOf(c), 0) }}>
         <colgroup>
           {columns.map((c) => (
             <col key={c} style={{ width: widthOf(c) }} />
