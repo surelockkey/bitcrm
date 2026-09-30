@@ -219,7 +219,14 @@ describe('ProductsRepository', () => {
     it('should build correct SET expression and return updated product', async () => {
       const updated = createMockProduct({ name: 'Updated Product' });
       dynamoDb.client.send.mockResolvedValue({
-        Attributes: { ...updated, PK: 'PRODUCT#prod-1', SK: 'METADATA' },
+        // Already filed on the stock-managed partition under its name: one write.
+        Attributes: {
+          ...updated,
+          PK: 'PRODUCT#prod-1',
+          SK: 'METADATA',
+          GSI3PK: 'PRODUCTS#STOCK',
+          GSI3SK: 'updated product#prod-1',
+        },
       });
 
       const result = await repository.update('prod-1', { name: 'Updated Product' });

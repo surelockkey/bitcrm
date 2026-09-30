@@ -426,16 +426,55 @@ describe('ProductsService', () => {
       );
     });
 
-    it('manageStock and brandId alone go to the scan', async () => {
+    // "Inventory products" без категорії — власна партиція складських товарів,
+    // а не Scan по всій таблиці (перша сторінка приходила порожньою з курсором).
+    it('manageStock=true without a category reads the stock-managed partition, the rest on top', async () => {
+      repository.findStockManaged.mockResolvedValue({ items: [] });
+
+      await service.list({
+        manageStock: true,
+        brandId: 'brand-1',
+        search: 'chain guard',
+        status: 'active',
+        type: 'product',
+        limit: 50,
+        cursor: 'c',
+      } as any);
+
+      expect(repository.findStockManaged).toHaveBeenCalledWith(50, 'c', {
+        type: 'product',
+        status: 'active',
+        search: 'chain guard',
+        brandId: 'brand-1',
+      });
+      expect(repository.findAll).not.toHaveBeenCalled();
+      expect(repository.findByType).not.toHaveBeenCalled();
+    });
+
+    it('manageStock=true with a category stays on the category index', async () => {
+      repository.findByCategory.mockResolvedValue({ items: [] });
+
+      await service.list({ manageStock: true, category: 'Locks', limit: 20 } as any);
+
+      expect(repository.findByCategory).toHaveBeenCalledWith(
+        'Locks',
+        20,
+        undefined,
+        expect.objectContaining({ manageStock: true }),
+      );
+      expect(repository.findStockManaged).not.toHaveBeenCalled();
+    });
+
+    it('brandId alone goes to the scan', async () => {
       repository.findAll.mockResolvedValue({ items: [] });
 
-      await service.list({ manageStock: true, brandId: 'brand-1', limit: 20 } as any);
+      await service.list({ brandId: 'brand-1', limit: 20 } as any);
 
       expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
         status: undefined,
         search: undefined,
         brandId: 'brand-1',
-        manageStock: true,
+        manageStock: undefined,
       });
     });
 
@@ -984,16 +1023,32 @@ describe('ProductsService', () => {
       });
     });
 
-    it('counts the scan under manageStock and brandId', async () => {
+    it('counts the stock-managed partition under manageStock=true, as the list reads it', async () => {
+      repository.countStockManaged.mockResolvedValue({ total: 3102, atLeast: false });
+
+      expect(await service.count({ manageStock: true, brandId: 'b-1', search: 'lock' } as never)).toEqual({
+        total: 3102,
+        atLeast: false,
+      });
+      expect(repository.countStockManaged).toHaveBeenCalledWith({
+        type: undefined,
+        status: undefined,
+        search: 'lock',
+        brandId: 'b-1',
+      });
+      expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts the scan under manageStock=false and brandId', async () => {
       repository.countAll.mockResolvedValue({ total: 2, atLeast: false });
 
-      await service.count({ manageStock: true, brandId: 'b-1' } as never);
+      await service.count({ manageStock: false, brandId: 'b-1' } as never);
 
       expect(repository.countAll).toHaveBeenCalledWith({
         status: undefined,
         search: undefined,
         brandId: 'b-1',
-        manageStock: true,
+        manageStock: false,
       });
     });
 
@@ -1024,13 +1079,15 @@ describe('ProductsService', () => {
 
     it('a different manageStock or brandId is a different question', async () => {
       repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+      repository.countStockManaged.mockResolvedValue({ total: 3102, atLeast: false });
 
       await service.count({ manageStock: true } as never);
       await service.count({ manageStock: false } as never);
       await service.count({ brandId: 'b-1' } as never);
       await service.count({ brandId: 'b-2' } as never);
 
-      expect(repository.countAll).toHaveBeenCalledTimes(4);
+      expect(repository.countStockManaged).toHaveBeenCalledTimes(1);
+      expect(repository.countAll).toHaveBeenCalledTimes(3);
     });
   });
 

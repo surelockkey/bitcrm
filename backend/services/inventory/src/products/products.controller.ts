@@ -42,7 +42,10 @@ export class ProductsController {
     summary: 'List products with filters',
     description:
       '**Guard:** `products.view` permission required. Filters combine: `category` picks the ' +
-      'index, else `type`; `status`, `search`, `brandId` and `manageStock` apply on top.',
+      'index, else `manageStock=true` reads the stock-managed partition (name order), else ' +
+      '`type`; the other filters (`status`, `search`, `brandId`, `type`, `manageStock`) apply on ' +
+      'top. On the stock-managed partition a page is filled across the whole partition, never ' +
+      'an empty page with a cursor.',
   })
   async list(@Query() query: ListProductsQueryDto) {
     const { items, nextCursor } = await this.productsService.list(query);

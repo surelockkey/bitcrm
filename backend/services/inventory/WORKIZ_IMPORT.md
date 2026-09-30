@@ -56,6 +56,13 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
   `npm run backfill:location-index` (warehouses, containers) — both idempotent,
   upsert-only, and **mandatory after every import** that does not write them.
 
+- A **stock-managed** product (`type: "product"`, `manageStock` absent or
+  `true`, any status) also carries the sparse `OwnerIndex` pair
+  `GSI3PK = PRODUCTS#STOCK`, `GSI3SK = <name>.trim().toLowerCase()#<id>` — the
+  partition `GET /products?manageStock=true` (no category) reads in name
+  order. Write both or neither, or leave them to
+  `npm run backfill:product-stock-index -w backend/services/inventory`
+  (idempotent, mandatory after every import that does not write them).
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
   `GSI2PK: "TYPE#service"` (§4.1), never `TYPE#other`.

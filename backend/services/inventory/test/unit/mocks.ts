@@ -145,7 +145,13 @@ export function createMockCreateTransferDto(overrides?: Partial<CreateTransferDt
 
 // Service/Repository mocks
 export function createMockProductsRepository() {
-  return { create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(), findByCategory: jest.fn(), findByType: jest.fn(), update: jest.fn(), countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn(), nextNumber: jest.fn().mockResolvedValue(1), raiseCounterTo: jest.fn() };
+  return {
+    create: jest.fn(), findById: jest.fn(), findBySku: jest.fn(), findByBarcode: jest.fn(), findAll: jest.fn(),
+    findByCategory: jest.fn(), findByType: jest.fn(), findStockManaged: jest.fn(), update: jest.fn(),
+    countAll: jest.fn(), countByCategory: jest.fn(), countByType: jest.fn(), countStockManaged: jest.fn(),
+    findByIds: jest.fn().mockResolvedValue([]),
+    nextNumber: jest.fn().mockResolvedValue(1), raiseCounterTo: jest.fn(),
+  };
 }
 
 export function createMockProductsService() {
