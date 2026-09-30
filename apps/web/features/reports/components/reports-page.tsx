@@ -9,6 +9,7 @@ import {
   Building2,
   Calculator,
   CreditCard,
+  DollarSign,
   Globe,
   Package,
   Paperclip,
@@ -24,11 +25,12 @@ import { useDenied } from "@/features/auth/use-permissions";
 
 /**
  * The Workiz reports this business keeps, in Workiz's on-screen order
- * (Performance Pay, Sales, Tips, Leads, Expenses, Timesheets, Tasks,
+ * (Performance Pay, Tips, Leads, Expenses, Timesheets, Tasks,
  * Equipment and Service Plans are not used here). `href` = built.
  */
 export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] = [
   { name: "Jobs", icon: Briefcase, href: "/reports/jobs" },
+  { name: "Sales", icon: DollarSign, href: "/reports/sales" },
   { name: "Job Statistics", icon: BarChart3, href: "/reports/job-statistics" },
   { name: "Payments", icon: CreditCard },
   { name: "Activity", icon: Activity },
