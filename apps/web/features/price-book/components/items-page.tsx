@@ -21,6 +21,7 @@ import { productsToCsv } from "@/features/inventory/products/lib";
 import { ProductDialog } from "@/features/inventory/products/components/product-dialog";
 import { ImportProductsDialog } from "@/features/inventory/products/components/import-products-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { cn } from "@/lib/utils";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
@@ -253,7 +254,7 @@ function FilterSelect<V extends string>({
 }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as V)}>
-      <SelectTrigger className={`h-9 ${width}`} aria-label={label}>
+      <SelectTrigger className={cn("h-9", width)} aria-label={label}>
         <SelectValue placeholder={label} />
       </SelectTrigger>
       <SelectContent>{children}</SelectContent>
