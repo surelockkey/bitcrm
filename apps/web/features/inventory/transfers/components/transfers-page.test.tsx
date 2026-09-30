@@ -168,6 +168,21 @@ describe("TransfersPage — type chips, filtered on the server", () => {
     expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
   });
 
+  // On a phone the six chips are 371px in a 340px row: clipped, "Return" read
+  // "Ret" and could not be reached. The row scrolls sideways, as the
+  // Inventory tab row does, and no chip is squeezed.
+  it("scrolls the chip row sideways on a narrow screen instead of clipping it", () => {
+    render(<TransfersPage />);
+    const group = screen.getByRole("group", { name: "Transfer type" });
+    expect(group.className).toMatch(/overflow-x-auto/);
+    expect(group.className).not.toMatch(/overflow-hidden/);
+    expect(group.className).toMatch(/max-w-full/);
+    for (const name of ["All", "Receive", "Transfer", "Deduct", "Restore", "Return"]) {
+      expect(chip(name).className).toMatch(/flex-none/);
+      expect(chip(name).className).toMatch(/whitespace-nowrap/);
+    }
+  });
+
   it("starts again from page 1 when the type changes", async () => {
     mocks.more = [
       transfer({ id: "t9", items: [{ productId: "p9", productName: "Smart lock", quantity: 1 }] }),

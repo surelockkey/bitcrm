@@ -68,7 +68,14 @@ export function TransfersPage() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
-        <div role="group" aria-label="Transfer type" className="inline-flex overflow-hidden border text-xs">
+        {/* The row scrolls sideways on its own, as the Inventory tabs do: on a
+            phone the six chips are wider than the screen, and clipped,
+            "Return" read "Ret" and could not be reached. */}
+        <div
+          role="group"
+          aria-label="Transfer type"
+          className="inline-flex max-w-full overflow-x-auto border text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           {TYPE_CHIPS.map((c, i) => (
             <button
               key={c.value}
@@ -76,7 +83,7 @@ export function TransfersPage() {
               aria-pressed={type === c.value}
               onClick={() => setType(c.value)}
               className={cn(
-                "px-3 py-1.5 transition-colors",
+                "flex-none px-3 py-1.5 whitespace-nowrap transition-colors",
                 i > 0 && "border-l",
                 type === c.value
                   ? "bg-muted font-semibold text-foreground"
