@@ -66,6 +66,7 @@ describe("ReportsPage", () => {
 
     expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute("href", "/reports/jobs");
     expect(screen.getByRole("link", { name: "Job Statistics" })).toHaveAttribute("href", "/reports/job-statistics");
+    expect(screen.getByRole("link", { name: "Items and services" })).toHaveAttribute("href", "/reports/items");
 
     fireEvent.click(screen.getByRole("button", { name: "Franchise Report" }));
     expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Franchise Report"));

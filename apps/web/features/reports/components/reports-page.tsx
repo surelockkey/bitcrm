@@ -36,7 +36,7 @@ export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] =
   { name: "Estimates", icon: Paperclip, href: "/estimates" },
   { name: "Invoices", icon: Receipt, href: "/invoices" },
   { name: "Aging invoices", icon: ReceiptText },
-  { name: "Items and services", icon: Barcode },
+  { name: "Items and services", icon: Barcode, href: "/reports/items" },
   { name: "Website requests", icon: Globe },
   { name: "Tax", icon: Percent },
   { name: "Call Tracking", icon: Phone },
