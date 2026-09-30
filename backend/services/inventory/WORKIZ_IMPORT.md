@@ -135,6 +135,13 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 - Catalog rows (`ITEM_CATEGORY#`, `BRAND#`) may carry `externalId`,
   `parentId`, `description`, `workizFileId`, `workizFilePath`; a rename or
   archive from the UI now keeps them.
+- Renaming a category from the UI (`PUT /categories/:id`) moves every item
+  filed under the old name to the new one — a change of case or padding
+  included, so trimming an imported `"Tools & Accessories "` moves its items
+  too — and answers `movedItems`. `Uncategorized` is never renamed, and
+  nothing is renamed into it (400). `DELETE /brands/:id` archives a brand any
+  item still names (`brandId`) instead of deleting it; that check reads the
+  Price Book partition (§0), so it only sees rows the catalog backfill filed.
 
 ## 2. Price, quantity, SKU
 
