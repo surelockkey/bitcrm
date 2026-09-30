@@ -217,6 +217,10 @@ TECH_ELIGIBILITY#<id> / …            read model rebuilt from user-events
 CALL#<sid>         / METADATA        GSI2 CALL#ALL for the global time-ordered log; optional `tagIds` (call tags)
 CALLTAG#ALL        / CALLTAG#<id>    call-tag catalog — one partition, no GSI keys (never in the log); archive, don't delete
 EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for idempotent minting)
+DEAL#<id> / TIMELINE#<ts>#<id>, <owner> / ACT#<ts>#<id>   job events / job-less imported Workiz events; sparse GSI8
+                                     ActivityDayIndex ACTDAY#<New York day> and GSI9 ActorIndex ACTOR#<actorId>, both
+                                     SK <ts>#<id>, + `activitySearch` — Reports → Activity (`GET /deals/activity`).
+                                     ACTCOUNT#<day> / COUNT { count } — events per day, the report's "of N"
 INVLOG#<YYYY-MM>   / <createdAt>#<id> inventory audit log (item edits + stock moves), one partition per UTC month —
                                      never one constant key (the CALL#ALL lesson); walked newest-first, filters on top
                                      … GSI4 INVLOG#PRODUCT#<productId> / <createdAt>#<id> — one item's history on TransferEntityIndex
@@ -499,6 +503,17 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
 - **`@bitcrm/types` must be built** before backend builds that import it; it
   lives outside the backend turbo graph.
 - **Events are fire-and-forget.** Never let a publish failure fail a write.
+- **Reports → Activity reads two sparse indexes on the timeline rows, and the
+  rows written before them are invisible to it.** The timeline writer stamps
+  GSI8/GSI9 (+ `activitySearch`, `activitySource`) and ticks `ACTCOUNT#<day>`
+  on every event; after the Terraform apply that creates ActivityDayIndex and
+  ActorIndex — and again after every Workiz timeline import — run in
+  `backend/services/deal`: `backfill:activity-index -- --apply` (idempotent,
+  conditional, never overwrites a live write) and then `recount:activity --
+  --apply` (sets each day's counter from the index). Only Workiz's own
+  activity log is an Activity event (`workiz:activity:*`), not its job
+  comments. Call Tracking (`GET /telephony/calls/stats/tracking`) needs no
+  backfill: it walks the month partitions of the call log.
 - **The search index is derived.** Never treat it as a source of truth; fix data
   in the owning service and let the indexer or backfill catch up.
 - **Inventory reads its lists off derived attributes, and a deploy is not done
