@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import {
   keepPreviousData,
   queryOptions,
@@ -12,8 +11,7 @@ import {
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { locationStockQuery, useLocationStock } from "@/features/inventory/stock/hooks";
-import { templateDiffQuery } from "@/features/inventory/templates/hooks";
+import { useLocationStock } from "@/features/inventory/stock/hooks";
 import { refreshLocationRows } from "@/features/inventory/stock/refresh";
 import type { Container } from "@bitcrm/types";
 import { rowFromLists } from "@/features/inventory/seed-from-lists";
@@ -46,7 +44,7 @@ export function useContainersList(filter: api.ContainerFilter, limit = 100) {
   });
 }
 
-/** One van's read — shared with the popup link's prefetch (see `usePrefetchVanStock`). */
+/** One van's read. */
 function vanQuery(id: string) {
   return queryOptions({
     queryKey: queryKeys.inventory.containers.detail(id),
@@ -62,26 +60,6 @@ export function useContainer(id: string, enabled = true) {
     enabled,
     placeholderData: () => rowFromLists<Container>(qc, "containers", id),
   });
-}
-
-/**
- * What a van's stock popup shows — its stock, the van, and how it compares
- * with its template — asked for at once, for a popup opened by link
- * (`/inventory/containers/<id>`) while the page still waits for the permissions. None of it
- * needs them to be asked for: the server guards each read. Asked after them,
- * the popup's stock was the third request in a row.
- */
-export function usePrefetchVanStock(id: string | null) {
-  const qc = useQueryClient();
-  useEffect(() => {
-    if (!id) return;
-    void qc.prefetchQuery(locationStockQuery("container", id));
-    void qc
-      .fetchQuery(vanQuery(id))
-      .then((van) => (van.templateId ? qc.prefetchQuery(templateDiffQuery(van.templateId, id)) : undefined))
-      // A van this caller may not open: the popup says so when it mounts.
-      .catch(() => undefined);
-  }, [id, qc]);
 }
 
 export function useCreateContainer() {

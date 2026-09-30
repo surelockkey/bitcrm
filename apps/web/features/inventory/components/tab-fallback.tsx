@@ -36,8 +36,7 @@ const TABLES: Record<InventoryTab, { key: string; columns: InventoryColumn[]; ro
 
 /**
  * An Inventory tab before its page has rendered — the Suspense fallback of
- * each tab's route (and of a link's page, `/inventory/items/<id>`): the
- * toolbar's place, the tab's own table over a page of placeholder rows, and
+ * each tab's route: the toolbar's place, the tab's own table over a page of placeholder rows, and
  * the pager's place; the page then draws over it at the same size.
  */
 export function TabFallback({ tab }: { tab: InventoryTab }) {

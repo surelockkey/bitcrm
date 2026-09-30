@@ -20,31 +20,22 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useContainerTemplates } from "../hooks";
 import { TEMPLATES_TABLE_KEY, TemplatesTable } from "./templates-table";
 import { TemplateDialog } from "./template-dialog";
 import { ApplyTemplateDialog } from "./apply-template-dialog";
 
-const PATH = "/inventory/templates";
 /**
  * The popup over the list — one at a time: a template (`id: null` a new one),
  * or a template applied to a van.
  */
-export type TemplatesPopup =
+type TemplatesPopup =
   | { kind: "template"; id: string | null }
   | { kind: "apply"; templateId: string; containerId: string | null };
 
-/** Old links carried the popup in the query (`?template=<id|new>`, `?apply=<id>&container=<id>`). */
-const LEGACY: LegacyPopupQuery<TemplatesPopup> = {
-  params: ["template", "apply", "container"],
-  parse: (q) => {
-    const template = q.get("template");
-    if (template) return { kind: "template", id: template === "new" ? null : template };
-    const apply = q.get("apply");
-    return apply ? { kind: "apply", templateId: apply, containerId: q.get("container") } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["template", "apply", "container"] as const;
 
 /**
  * Container templates: a van's ideal loadout, made once and applied to any
@@ -93,7 +84,7 @@ function Templates() {
     return counts;
   }, [locations.data]);
 
-  const { popup, open, close } = usePopup(useLinkedPopup(null, LEGACY), PATH);
+  const { popup, open, close } = usePopup<TemplatesPopup>(STALE_PARAMS);
 
   return (
     <div className="flex flex-1 flex-col">

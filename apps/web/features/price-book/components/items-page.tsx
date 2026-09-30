@@ -15,7 +15,7 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { InventoryStatus, ProductType } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useBrands, useItemCategories } from "@/features/inventory/products/hooks";
 import { productsToCsv } from "@/features/inventory/products/lib";
 import { ProductDialog } from "@/features/inventory/products/components/product-dialog";
@@ -37,20 +37,11 @@ import {
 import { useSkeletonRows } from "../use-skeleton-rows";
 import { ITEMS_TABLE_KEY, ItemsTable } from "./items-table";
 
-const ITEMS_PATH = "/price-book/items";
-
 /** The popup over the list — one at a time: an item's Edit, or a new item. */
 type ItemPopup = { kind: "edit"; id: string } | { kind: "new" };
 
-/** Old links carried the popup in the query (`?edit=<id>`, `?new=1`). */
-const LEGACY: LegacyPopupQuery<ItemPopup> = {
-  params: ["edit", "new"],
-  parse: (q) => {
-    const edit = q.get("edit");
-    if (edit) return { kind: "edit", id: edit };
-    return q.get("new") === "1" ? { kind: "new" } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["edit", "new"] as const;
 
 const byName = (a: string, b: string) => a.localeCompare(b);
 
@@ -108,7 +99,7 @@ export function ItemsPage() {
   const brandNames = useMemo(() => brandNameMap(brandCatalog.data), [brandCatalog.data]);
 
   // Popups are state: a row opens one and the address stays.
-  const { popup, open, close } = usePopup(useLinkedPopup(null, LEGACY), ITEMS_PATH);
+  const { popup, open, close } = usePopup<ItemPopup>(STALE_PARAMS);
   const editId = popup?.kind === "edit" ? popup.id : null;
   const creating = popup?.kind === "new";
 

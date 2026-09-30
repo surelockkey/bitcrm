@@ -1,28 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "./use-popup";
+import { usePopup } from "./use-popup";
 
 type Popup = { kind: "edit"; id: string } | { kind: "new" };
 
-const LEGACY: LegacyPopupQuery<Popup> = {
-  params: ["edit", "new"],
-  parse: (q) => {
-    const edit = q.get("edit");
-    if (edit) return { kind: "edit", id: edit };
-    return q.get("new") === "1" ? { kind: "new" } : null;
-  },
-};
-
 const PATH = "/inventory/items";
+const STALE = ["edit", "new"] as const;
 
-function at(url: string) {
-  window.history.replaceState(null, "", url);
-}
+const at = (url: string) => window.history.replaceState(null, "", url);
 const address = () => `${window.location.pathname}${window.location.search}`;
-
-function renderPopup(initial?: Popup | null, legacy?: LegacyPopupQuery<Popup>) {
-  return renderHook(() => usePopup(useLinkedPopup(initial, legacy), PATH));
-}
+const renderPopup = () => renderHook(() => usePopup<Popup>(STALE));
 
 beforeEach(() => at(PATH));
 
@@ -49,67 +36,27 @@ describe("usePopup — state, not the URL", () => {
     act(() => result.current.open({ kind: "new" }));
     expect(result.current.popup).toEqual({ kind: "new" });
   });
-
-  it("keeps whatever else the address holds", () => {
-    at(`${PATH}?view=grid`);
-    const { result } = renderPopup();
-    act(() => result.current.open({ kind: "edit", id: "p1" }));
-    act(() => result.current.close());
-    expect(address()).toBe(`${PATH}?view=grid`);
-  });
 });
 
-/** `/inventory/items/<id>`: the list, its popup open from the first frame. */
-describe("usePopup — a link's own page", () => {
-  it("opens the link's popup from the first frame", () => {
-    at(`${PATH}/p9`);
-    const { result } = renderPopup({ kind: "edit", id: "p9" });
-    expect(result.current.popup).toEqual({ kind: "edit", id: "p9" });
-    expect(address()).toBe(`${PATH}/p9`);
-  });
-
-  it("leaves the list's own address once that popup closes — a reload shows the list", () => {
-    at(`${PATH}/p9`);
-    const { result } = renderPopup({ kind: "edit", id: "p9" });
-    act(() => result.current.close());
-    expect(address()).toBe(PATH);
-  });
-
-  it("leaves it too when another popup takes that one's place", () => {
-    at(`${PATH}/p9`);
-    const { result } = renderPopup({ kind: "edit", id: "p9" });
-    act(() => result.current.open({ kind: "edit", id: "p2" }));
-    expect(address()).toBe(PATH);
-    expect(result.current.popup).toEqual({ kind: "edit", id: "p2" });
-  });
-});
-
-/** Before this, the popups lived in the query; links like that still open them. */
-describe("useLinkedPopup — old ?edit= links", () => {
-  it("opens the popup an old link names, then takes it out of the address", () => {
+/** No deep links: an old link with a popup in its query lands on the plain list. */
+describe("usePopup — old ?edit= links", () => {
+  it("opens nothing from an old ?edit= link, and takes the param out of the address", () => {
     at(`${PATH}?edit=p7`);
-    const { result } = renderPopup(null, LEGACY);
-    expect(result.current.popup).toEqual({ kind: "edit", id: "p7" });
+    const { result } = renderPopup();
+    expect(result.current.popup).toBeNull();
     expect(address()).toBe(PATH);
   });
 
-  it("takes out only the popup's params", () => {
+  it("takes out only the old popup params", () => {
     at(`${PATH}?new=1&view=grid`);
-    const { result } = renderPopup(null, LEGACY);
-    expect(result.current.popup).toEqual({ kind: "new" });
+    const { result } = renderPopup();
+    expect(result.current.popup).toBeNull();
     expect(address()).toBe(`${PATH}?view=grid`);
   });
 
-  it("prefers the page's own link to anything in the query", () => {
-    at(`${PATH}/p9?edit=p7`);
-    const { result } = renderPopup({ kind: "edit", id: "p9" }, LEGACY);
-    expect(result.current.popup).toEqual({ kind: "edit", id: "p9" });
-  });
-
-  it("opens nothing without a popup param", () => {
+  it("leaves an address without them alone", () => {
     at(`${PATH}?view=grid`);
-    const { result } = renderPopup(null, LEGACY);
-    expect(result.current.popup).toBeNull();
+    renderPopup();
     expect(address()).toBe(`${PATH}?view=grid`);
   });
 });

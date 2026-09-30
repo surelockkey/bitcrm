@@ -340,15 +340,17 @@ describe("ItemsPage — popups are state, not the URL", () => {
     expect(yellow.map((b) => b.textContent)).toEqual(["New item"]);
   });
 
-  it("still opens an old ?edit= / ?new=1 link's popup, then takes it out of the address", () => {
+  // No deep links: an old link with the popup in its query lands on the plain list.
+  it("opens nothing from an old ?edit= / ?new=1 link, and takes it out of the address", () => {
     window.history.replaceState(null, "", "/price-book/items?edit=p9");
     const { unmount } = renderWithClient(<ItemsPage />);
-    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p9");
+    expect(screen.queryByTestId("product-dialog")).toBeNull();
     expect(address()).toBe("/price-book/items");
     unmount();
     window.history.replaceState(null, "", "/price-book/items?new=1");
     renderWithClient(<ItemsPage />);
-    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new");
+    expect(screen.queryByTestId("product-dialog")).toBeNull();
+    expect(address()).toBe("/price-book/items");
   });
 
   it("moves a just-created item into its Edit popup", async () => {

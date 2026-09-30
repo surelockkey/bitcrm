@@ -19,14 +19,14 @@ import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
 import { ApplyTemplateDialog } from "@/features/inventory/templates/components/apply-template-dialog";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { useDropStaleParams, usePopup } from "@/features/inventory/use-popup";
 import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
 import {
   containerUserNames,
   unnamedUserIds,
   usersOfContainer,
 } from "@/features/inventory/user-containers/lib";
-import { useContainersList, useContainersCount, usePrefetchVanStock } from "../hooks";
+import { useContainersList, useContainersCount } from "../hooks";
 import type { ContainerFilter } from "../api";
 import { ContainersTable } from "./containers-table";
 import { ContainerCreateDialog } from "./container-create-dialog";
@@ -40,8 +40,6 @@ import { usePager } from "@/lib/paging/use-pager";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ListBody } from "@/features/inventory/components/list-body";
 
-const CONTAINERS_PATH = "/inventory/containers";
-
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-vans";
 
@@ -49,35 +47,18 @@ const TABLE_KEY = "inventory-vans";
  * The popup over the fleet — one at a time: a van's stock, its settings, or a
  * template applied to it.
  */
-export type ContainersPopup =
+type ContainersPopup =
   | { kind: "stock"; id: string }
   | { kind: "edit"; id: string }
   | { kind: "apply"; templateId: string; containerId: string | null };
 
-/** Old links carried the popup in the query (`?stock=<id>`, `?edit=<id>`, `?apply=<id>&container=<id>`). */
-const LEGACY: LegacyPopupQuery<ContainersPopup> = {
-  params: ["stock", "edit", "apply", "container"],
-  parse: (q) => {
-    const stock = q.get("stock");
-    if (stock) return { kind: "stock", id: stock };
-    const edit = q.get("edit");
-    if (edit) return { kind: "edit", id: edit };
-    const apply = q.get("apply");
-    return apply ? { kind: "apply", templateId: apply, containerId: q.get("container") } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["stock", "edit", "apply", "container"] as const;
 
-/**
- * Inventory's Containers tab. `initialPopup` is a link's:
- * `/inventory/containers/<id>` renders the fleet with that van's stock open.
- */
-export function ContainersPage({ initialPopup }: { initialPopup?: ContainersPopup } = {}) {
+export function ContainersPage() {
   const { can, scopeOf, isLoading } = usePermissions();
-  const linked = useLinkedPopup(initialPopup, LEGACY);
-  // A van's stock popup opened by link needs no permission to be asked for
-  // (the server guards it): its reads start now, beside the permissions',
-  // instead of after them and the page.
-  usePrefetchVanStock(isLoading && linked?.kind === "stock" ? linked.id : null);
+  // An old ?stock= / ?edit= link lands on the plain page — whichever it turns out to be.
+  useDropStaleParams(STALE_PARAMS);
 
   // Which screen this is — the fleet or a technician's own van — is the
   // permissions' to say. Until they do: the fleet's frame, asking for
@@ -93,10 +74,10 @@ export function ContainersPage({ initialPopup }: { initialPopup?: ContainersPopu
   if (scopeOf("containers") === DataScope.ASSIGNED_ONLY) {
     return <MyContainerView />;
   }
-  return <Fleet linked={linked} />;
+  return <Fleet />;
 }
 
-function Fleet({ linked }: { linked: ContainersPopup | null }) {
+function Fleet() {
   const { can } = usePermissions();
   const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const [search, setSearch] = useState("");
@@ -105,8 +86,8 @@ function Fleet({ linked }: { linked: ContainersPopup | null }) {
   const [createOpen, setCreateOpen] = useState(false);
 
   // A van has no page of its own: its stock and its settings open over the
-  // list as state; a link (/inventory/containers/<id>) opens its stock.
-  const { popup, open, close } = usePopup(linked, CONTAINERS_PATH);
+  // list as state; an old /inventory/containers/<id> link lands on the list.
+  const { popup, open, close } = usePopup<ContainersPopup>();
   const stockId = popup?.kind === "stock" ? popup.id : null;
   const editId = popup?.kind === "edit" ? popup.id : null;
 

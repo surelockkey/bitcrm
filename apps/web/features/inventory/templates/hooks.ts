@@ -27,10 +27,7 @@ export function useContainerTemplate(id: string | undefined, enabled = true) {
   });
 }
 
-/**
- * The comparison's read — shared by `useTemplateDiff` and a van popup link's
- * prefetch, so the popup finds the prefetched answer under its own key.
- */
+/** The comparison's read behind `useTemplateDiff`. */
 export function templateDiffQuery(id: string, containerId: string, warehouseId?: string) {
   return queryOptions({
     queryKey: queryKeys.inventory.containerTemplates.diff(id, containerId, warehouseId),

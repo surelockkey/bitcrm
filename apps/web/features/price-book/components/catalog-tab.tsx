@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { usePopup } from "@/features/inventory/use-popup";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { useUpdateCatalogEntry, type CatalogKind } from "../hooks";
 import { useSkeletonRows } from "../use-skeleton-rows";
@@ -65,15 +65,8 @@ const SKELETON_CAP = 25;
 /** The popup over the list: an entry's Edit, or a new entry. */
 type CatalogPopup = { kind: "edit"; id: string } | { kind: "new" };
 
-/** Old links carried the popup in the query (`?edit=<id>`, `?new=1`). */
-const LEGACY: LegacyPopupQuery<CatalogPopup> = {
-  params: ["edit", "new"],
-  parse: (q) => {
-    const edit = q.get("edit");
-    if (edit) return { kind: "edit", id: edit };
-    return q.get("new") === "1" ? { kind: "new" } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["edit", "new"] as const;
 
 /**
  * One small catalog — item categories or brands — as a Price Book tab.
@@ -114,7 +107,7 @@ export function CatalogTab({
     query.data ? Math.min(query.data.length, SKELETON_CAP) : undefined,
   );
 
-  const { popup, open, close } = usePopup(useLinkedPopup(null, LEGACY), config.path);
+  const { popup, open, close } = usePopup<CatalogPopup>(STALE_PARAMS);
   const editId = popup?.kind === "edit" ? popup.id : null;
   const creating = popup?.kind === "new";
   const editing = editId

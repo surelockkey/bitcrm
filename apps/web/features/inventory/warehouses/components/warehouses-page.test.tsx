@@ -132,9 +132,9 @@ describe("WarehousesPage — the server filters, the page shows what it got", ()
 });
 
 /**
- * The owner's rule: a popup is the page's state, never the address. A link to
- * a warehouse is its own page (`/inventory/warehouses/<id>` → `initialPopup`);
- * an old link with the popup in its query still opens it.
+ * The owner's rule: a popup is the page's state, never the address — and no
+ * address opens one: an old link with the popup in its query lands on the
+ * plain list.
  */
 describe("WarehousesPage — popups are state, not the URL", () => {
   const address = () => `${window.location.pathname}${window.location.search}`;
@@ -155,19 +155,11 @@ describe("WarehousesPage — popups are state, not the URL", () => {
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 
-  it("opens a link's popup from the first frame and closes it to the list's address", async () => {
-    window.history.replaceState(null, "", "/inventory/warehouses/w9");
-    renderWithClient(<WarehousesPage initialPopup={{ kind: "edit", id: "w9" }} />);
-    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "w9");
-    await userEvent.click(screen.getByText("close edit"));
-    expect(screen.queryByTestId("edit-popup")).toBeNull();
-    expect(address()).toBe("/inventory/warehouses");
-  });
-
-  it("still opens an old ?stock= link, then takes it out of the address", () => {
-    window.history.replaceState(null, "", "/inventory/warehouses?stock=w9");
+  it("opens nothing from an old ?stock= / ?edit= link, and takes it out of the address", () => {
+    window.history.replaceState(null, "", "/inventory/warehouses?stock=w9&edit=w9");
     renderWithClient(<WarehousesPage />);
-    expect(screen.getByTestId("stock-popup")).toHaveAttribute("data-id", "w9");
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(screen.queryByTestId("edit-popup")).toBeNull();
     expect(address()).toBe("/inventory/warehouses");
   });
 });

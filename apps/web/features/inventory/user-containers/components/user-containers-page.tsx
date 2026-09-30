@@ -23,7 +23,7 @@ import { fetchAllUsers } from "@/features/technicians/api";
 import { useUsers, useUsersCount } from "@/features/users/hooks";
 import type { UserFilter } from "@/features/users/api";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useUserContainers } from "../hooks";
 import { assignmentOf } from "../lib";
 import {
@@ -33,17 +33,10 @@ import {
 } from "./user-containers-table";
 import { AssignContainerDialog } from "./assign-container-dialog";
 
-const PATH = "/inventory/user-containers";
 /** The popup over the list: one user's container assignment. */
 type AssignPopup = { kind: "assign"; userId: string };
-/** Old links carried it in the query (`?assign=<userId>`). */
-const LEGACY: LegacyPopupQuery<AssignPopup> = {
-  params: ["assign"],
-  parse: (q) => {
-    const userId = q.get("assign");
-    return userId ? { kind: "assign", userId } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["assign"] as const;
 /** The list's own key: its page size, column widths and skeleton height are saved under it. */
 const TABLE_KEY = USER_CONTAINERS_TABLE_KEY;
 
@@ -141,7 +134,7 @@ function Assignments() {
     loading || stale ? undefined : rows.length,
   );
 
-  const { popup, open, close } = usePopup(useLinkedPopup(null, LEGACY), PATH);
+  const { popup, open, close } = usePopup<AssignPopup>(STALE_PARAMS);
   const assignId = popup?.userId ?? null;
 
   const failed = searching ? directory.isError : usersQ.isError && !usersQ.data;

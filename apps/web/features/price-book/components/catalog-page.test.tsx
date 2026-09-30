@@ -98,7 +98,7 @@ beforeEach(() => {
   mocks.back.mockReset();
 });
 
-describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, names }) => {
+describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, names }) => {
   beforeEach(() => {
     mocks.rows = [row("r1", names[0]), row("r2", names[1]), row("r3", names[2], false)];
   });
@@ -152,6 +152,7 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
   });
 
   it(`opens New ${noun} from the one yellow button`, async () => {
+    window.history.replaceState(null, "", path);
     renderWithClient(<Page />);
     const button = screen.getByRole("button", { name: `New ${noun}` });
     expect(button).toHaveAttribute("data-variant", "default");
@@ -218,17 +219,17 @@ describe.each(KINDS)("$Noun tab", ({ kind, Page, path, resource, noun, Noun, nam
   });
 
   // Popups are state now; an old link with the popup in its query still opens it.
-  it(`opens an old ?edit= link's popup, then takes it out of the address`, () => {
+  // No deep links: an old link with the popup in its query lands on the plain list.
+  it(`opens nothing from an old ?edit= / ?new=1 link, and takes it out of the address`, () => {
     window.history.replaceState(null, "", `${path}?edit=r1`);
-    renderWithClient(<Page />);
-    expect(screen.getByRole("dialog", { name: `Edit ${noun}` })).toBeInTheDocument();
+    const { unmount } = renderWithClient(<Page />);
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(window.location.pathname + window.location.search).toBe(path);
-  });
-
-  it(`says so when an old ?edit= link names no ${noun}`, () => {
-    window.history.replaceState(null, "", `${path}?edit=nope`);
+    unmount();
+    window.history.replaceState(null, "", `${path}?new=1`);
     renderWithClient(<Page />);
-    expect(screen.getByRole("dialog", { name: `${Noun} not found` })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.pathname + window.location.search).toBe(path);
   });
 
   it("archives from the kebab after a confirm, with active: false", async () => {

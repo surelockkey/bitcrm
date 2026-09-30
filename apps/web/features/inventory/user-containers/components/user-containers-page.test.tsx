@@ -197,19 +197,11 @@ describe("UserContainersPage — the Assign popup", () => {
     expect(mocks.push).not.toHaveBeenCalled();
   });
 
-  it("still opens for the user an old ?assign= link names, then takes it out of the address", () => {
+  it("opens nothing from an old ?assign= link, and takes it out of the address", () => {
     window.history.replaceState(null, "", "/inventory/user-containers?assign=u1");
     renderWithClient(<UserContainersPage />);
-    const popup = screen.getByTestId("assign-popup");
-    expect(popup).toHaveAttribute("data-user", "u1");
-    expect(popup).toHaveAttribute("data-name", "Taras Koval");
+    expect(screen.queryByTestId("assign-popup")).toBeNull();
     expect(address()).toBe("/inventory/user-containers");
-  });
-
-  it("opens for a user who isn't on this page — the popup looks them up", () => {
-    window.history.replaceState(null, "", "/inventory/user-containers?assign=u9");
-    renderWithClient(<UserContainersPage />);
-    expect(screen.getByTestId("assign-popup")).toHaveAttribute("data-name", "");
   });
 });
 

@@ -19,7 +19,7 @@ import { NoAccess } from "@/features/inventory/components/no-access";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useItemCategories, useProducts, useProductsCount } from "../hooks";
 import { productsToCsv, type ProductFilter } from "../lib";
 import { ProductsTable } from "./products-table";
@@ -30,31 +30,16 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 
-const ITEMS_PATH = "/inventory/items";
-
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-items";
 
 /** The popup over the list — one at a time. */
-export type ItemsPopup = { kind: "edit"; id: string } | { kind: "stock"; id: string } | { kind: "new" };
+type ItemsPopup = { kind: "edit"; id: string } | { kind: "stock"; id: string } | { kind: "new" };
 
-/** Old links carried the popup in the query (`?edit=<id>`, `?stock=<id>`, `?new=1`). */
-const LEGACY: LegacyPopupQuery<ItemsPopup> = {
-  params: ["edit", "stock", "new"],
-  parse: (q) => {
-    const edit = q.get("edit");
-    if (edit) return { kind: "edit", id: edit };
-    const stock = q.get("stock");
-    if (stock) return { kind: "stock", id: stock };
-    return q.get("new") === "1" ? { kind: "new" } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["edit", "stock", "new"] as const;
 
-/**
- * Inventory's Items tab. `initialPopup` is a link's: `/inventory/items/<id>`
- * renders this list with that item's Edit popup open.
- */
-export function ProductsPage({ initialPopup }: { initialPopup?: ItemsPopup } = {}) {
+export function ProductsPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const money = can("financials", "view");
@@ -107,9 +92,9 @@ export function ProductsPage({ initialPopup }: { initialPopup?: ItemsPopup } = {
     [catalog.data],
   );
 
-  // Popups are state: a row opens one and the address stays. A link's page
-  // (/inventory/items/<id>) or an old ?edit= link opens it from the first frame.
-  const { popup, open, close } = usePopup(useLinkedPopup(initialPopup, LEGACY), ITEMS_PATH);
+  // Popups are state: a row opens one and the address stays. No address opens
+  // one — an old ?edit= link lands on the plain list.
+  const { popup, open, close } = usePopup<ItemsPopup>(STALE_PARAMS);
   const editId = popup?.kind === "edit" ? popup.id : null;
   const stockId = popup?.kind === "stock" ? popup.id : null;
   const creating = popup?.kind === "new";

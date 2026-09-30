@@ -167,32 +167,21 @@ describe("TemplatesPage", () => {
   });
 });
 
-/** Before popups were state, links carried them in the query; those still open them. */
+/** No deep links: an old link with a popup in its query lands on the plain list. */
 describe("TemplatesPage — old links with a popup in the query", () => {
   const address = () => `${window.location.pathname}${window.location.search}`;
   afterEach(() => window.history.replaceState(null, "", "/inventory/templates"));
 
-  it("opens a new template from ?template=new", () => {
-    window.history.replaceState(null, "", "/inventory/templates?template=new");
-    renderWithClient(<TemplatesPage />);
-    expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "new");
-    expect(address()).toBe("/inventory/templates");
-  });
-
-  it("opens one template from ?template=<id>", () => {
-    window.history.replaceState(null, "", "/inventory/templates?template=t2");
-    renderWithClient(<TemplatesPage />);
-    expect(screen.getByTestId("template-popup")).toHaveAttribute("data-id", "t2");
-  });
-
-  it("opens Apply for a template and a van from ?apply=<id>&container=<van>", () => {
-    window.history.replaceState(null, "", "/inventory/templates?apply=t1&container=c3");
-    renderWithClient(<TemplatesPage />);
-    const popup = screen.getByTestId("apply-popup");
-    expect(popup).toHaveAttribute("data-id", "t1");
-    expect(popup).toHaveAttribute("data-container", "c3");
-    expect(address()).toBe("/inventory/templates");
-  });
+  it.each(["template=new", "template=t2", "apply=t1&container=c3"])(
+    "opens nothing from ?%s, and takes it out of the address",
+    (query) => {
+      window.history.replaceState(null, "", `/inventory/templates?${query}`);
+      renderWithClient(<TemplatesPage />);
+      expect(screen.queryByTestId("template-popup")).toBeNull();
+      expect(screen.queryByTestId("apply-popup")).toBeNull();
+      expect(address()).toBe("/inventory/templates");
+    },
+  );
 });
 
 describe("TemplatesPage — nothing jumps, and it pages", () => {

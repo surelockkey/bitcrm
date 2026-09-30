@@ -22,37 +22,23 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
-import { useLinkedPopup, usePopup, type LegacyPopupQuery } from "@/features/inventory/use-popup";
+import { usePopup } from "@/features/inventory/use-popup";
 import { useWarehousesList, useWarehousesCount } from "../hooks";
 import type { WarehouseFilter } from "../api";
 import { WarehousesTable } from "./warehouses-table";
 import { WarehouseCreateDialog } from "./warehouse-create-dialog";
 import { WarehouseEditDialog } from "./warehouse-edit-dialog";
 
-const WAREHOUSES_PATH = "/inventory/warehouses";
-
 /** The popup over the list — one at a time: a warehouse's stock or its settings. */
-export type WarehousesPopup = { kind: "stock"; id: string } | { kind: "edit"; id: string };
+type WarehousesPopup = { kind: "stock"; id: string } | { kind: "edit"; id: string };
 
-/** Old links carried the popup in the query (`?stock=<id>`, `?edit=<id>`). */
-const LEGACY: LegacyPopupQuery<WarehousesPopup> = {
-  params: ["stock", "edit"],
-  parse: (q) => {
-    const stock = q.get("stock");
-    if (stock) return { kind: "stock", id: stock };
-    const edit = q.get("edit");
-    return edit ? { kind: "edit", id: edit } : null;
-  },
-};
+/** Old links carried the popup in the query; they land on the plain list, the params dropped. */
+const STALE_PARAMS = ["stock", "edit"] as const;
 
 /** The list's own key: its page size and its skeleton's height are saved under it. */
 const TABLE_KEY = "inventory-warehouses";
 
-/**
- * Inventory's Warehouses tab. `initialPopup` is a link's:
- * `/inventory/warehouses/<id>` renders this list with that warehouse's stock open.
- */
-export function WarehousesPage({ initialPopup }: { initialPopup?: WarehousesPopup } = {}) {
+export function WarehousesPage() {
   const { can, isLoading: permsLoading } = usePermissions();
   const denied = useDenied();
   const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
@@ -61,8 +47,8 @@ export function WarehousesPage({ initialPopup }: { initialPopup?: WarehousesPopu
   const [createOpen, setCreateOpen] = useState(false);
 
   // A warehouse has no page of its own: its stock and its settings open over
-  // the list as state; a link (/inventory/warehouses/<id>) opens its stock.
-  const { popup, open, close } = usePopup(useLinkedPopup(initialPopup, LEGACY), WAREHOUSES_PATH);
+  // the list as state; an old /inventory/warehouses/<id> link lands on the list.
+  const { popup, open, close } = usePopup<WarehousesPopup>(STALE_PARAMS);
   const stockId = popup?.kind === "stock" ? popup.id : null;
   const editId = popup?.kind === "edit" ? popup.id : null;
 

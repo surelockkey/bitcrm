@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   permsLoading: false,
   list: { isLoading: false, isPlaceholderData: false, noData: false },
   locationsLoading: false,
-  prefetched: [] as (string | null)[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -52,9 +51,6 @@ vi.mock("../hooks", () => ({
   useContainersCount: (filter: ContainerFilter) => {
     mocks.countFilters.push(filter);
     return { data: { total: 93, atLeast: false } };
-  },
-  usePrefetchVanStock: (id: string | null) => {
-    mocks.prefetched.push(id);
   },
   useContainerStockView: () => ({
     summary: { skuCount: 0, totalUnits: 0, totalValue: 0, lowCount: 0 },
@@ -138,7 +134,6 @@ beforeEach(() => {
   mocks.replace.mockReset();
   mocks.scope = DataScope.ALL;
   mocks.permsLoading = false;
-  mocks.prefetched = [];
   mocks.list = { isLoading: false, isPlaceholderData: false, noData: false };
   mocks.locationsLoading = false;
   mocks.listFilters = [];
@@ -233,9 +228,9 @@ describe("ContainersPage — who works from each van", () => {
 });
 
 /**
- * The owner's rule: a popup is the page's state, never the address. A link to
- * a van is its own page (`/inventory/containers/<id>` → `initialPopup`); an
- * old link with the popup in its query still opens it.
+ * The owner's rule: a popup is the page's state, never the address — and no
+ * address opens one: an old link with the popup in its query lands on the
+ * plain list.
  */
 describe("ContainersPage — popups are state, not the URL", () => {
   const address = () => `${window.location.pathname}${window.location.search}`;
@@ -260,24 +255,30 @@ describe("ContainersPage — popups are state, not the URL", () => {
     expect(address()).toBe("/inventory/containers");
   });
 
-  it("puts the van's template strip over its stock", () => {
-    renderWithClient(<ContainersPage initialPopup={{ kind: "stock", id: "c9" }} />);
-    expect(screen.getByTestId("template-bar")).toHaveAttribute("data-id", "c9");
+  /** The van's stock, opened from its row. */
+  async function openStock() {
+    renderWithClient(<ContainersPage />);
+    await userEvent.click(screen.getByText("Van Alpha"));
+  }
+
+  it("puts the van's template strip over its stock", async () => {
+    await openStock();
+    expect(screen.getByTestId("template-bar")).toHaveAttribute("data-id", "c1");
   });
 
   it("swaps the stock popup for Apply, naming the van", async () => {
-    renderWithClient(<ContainersPage initialPopup={{ kind: "stock", id: "c9" }} />);
+    await openStock();
     await userEvent.click(screen.getByText("apply tp1"));
     const popup = screen.getByTestId("apply-popup");
     expect(popup).toHaveAttribute("data-id", "tp1");
-    expect(popup).toHaveAttribute("data-container", "c9");
+    expect(popup).toHaveAttribute("data-container", "c1");
     expect(screen.queryByTestId("stock-popup")).toBeNull();
   });
 
   it("swaps the stock popup for Edit to set a template", async () => {
-    renderWithClient(<ContainersPage initialPopup={{ kind: "stock", id: "c9" }} />);
+    await openStock();
     await userEvent.click(screen.getByText("set template"));
-    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c9");
+    expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c1");
     expect(screen.queryByTestId("stock-popup")).toBeNull();
   });
 
@@ -287,29 +288,28 @@ describe("ContainersPage — popups are state, not the URL", () => {
     expect(screen.queryByTestId("edit-popup")).toBeNull();
   });
 
-  it("closes a link's popup back to the list's own address", async () => {
-    window.history.replaceState(null, "", "/inventory/containers/c9");
-    renderWithClient(<ContainersPage initialPopup={{ kind: "stock", id: "c9" }} />);
-    expect(screen.getByTestId("stock-popup")).toHaveAttribute("data-id", "c9");
+  it("closes a popup back to the list", async () => {
+    await openStock();
     await userEvent.click(screen.getByText("close stock"));
     expect(screen.queryByTestId("stock-popup")).toBeNull();
     expect(address()).toBe("/inventory/containers");
   });
 
-  it("still opens an old ?stock= / ?edit= / ?apply= link, then takes it out of the address", () => {
-    window.history.replaceState(null, "", "/inventory/containers?apply=tp1&container=c9");
+  it("opens nothing from an old ?stock= / ?edit= / ?apply= link, and takes it out of the address", () => {
+    window.history.replaceState(null, "", "/inventory/containers?stock=c9&apply=tp1&container=c9");
     renderWithClient(<ContainersPage />);
-    const popup = screen.getByTestId("apply-popup");
-    expect(popup).toHaveAttribute("data-id", "tp1");
-    expect(popup).toHaveAttribute("data-container", "c9");
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(screen.queryByTestId("apply-popup")).toBeNull();
     expect(address()).toBe("/inventory/containers");
   });
 
-  it("a technician on their own van still gets the read-only view, whatever the link", () => {
+  it("a technician on their own van gets the read-only view — an old link's params dropped too", () => {
     mocks.scope = DataScope.ASSIGNED_ONLY;
-    renderWithClient(<ContainersPage initialPopup={{ kind: "stock", id: "c9" }} />);
+    window.history.replaceState(null, "", "/inventory/containers?stock=c9");
+    renderWithClient(<ContainersPage />);
     expect(screen.getByTestId("my-van")).toBeInTheDocument();
     expect(screen.queryByTestId("stock-popup")).toBeNull();
+    expect(address()).toBe("/inventory/containers");
   });
 });
 
@@ -337,28 +337,6 @@ describe("ContainersPage — a stable first frame", () => {
     expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("Users");
     expect(screen.getByTestId("list-pagination")).toBeInTheDocument();
-  });
-
-  // By link the van's stock was asked for only after the permissions and the
-  // page: three requests in a row before the popup had anything to show.
-  it("asks for a linked van's stock popup while the permissions load", () => {
-    mocks.permsLoading = true;
-    renderWithClient(<ContainersPage initialPopup={{ kind: "stock", id: "c9" }} />);
-    expect(mocks.prefetched).toContain("c9");
-  });
-
-  it("does the same for an old ?stock= link", () => {
-    mocks.permsLoading = true;
-    window.history.replaceState(null, "", "/inventory/containers?stock=c8");
-    renderWithClient(<ContainersPage />);
-    expect(mocks.prefetched).toContain("c8");
-    window.history.replaceState(null, "", "/inventory/containers");
-  });
-
-  it("prefetches nothing without a linked popup", () => {
-    mocks.permsLoading = true;
-    renderWithClient(<ContainersPage />);
-    expect(mocks.prefetched.filter(Boolean)).toEqual([]);
   });
 
   it("draws the real table while the first page loads, with the pager's space held", () => {

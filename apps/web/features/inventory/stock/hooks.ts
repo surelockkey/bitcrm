@@ -84,7 +84,7 @@ export function useAllLocations(enabled = true) {
   };
 }
 
-/** The read behind `useLocationStock` — shared with a popup link's prefetch, so both fill one cache entry. */
+/** The read behind `useLocationStock` — shared with the template's Copy from location, so both fill one cache entry. */
 export function locationStockQuery(type: LocationSummaryType, id: string) {
   return queryOptions({
     queryKey: queryKeys.inventory.locationStock(type, id),

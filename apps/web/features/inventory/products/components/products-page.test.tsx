@@ -200,9 +200,9 @@ describe("ProductsPage — stock-managed items only, filters on the server", () 
 });
 
 /**
- * The owner's rule: a popup is the page's state, never the address. A link to
- * an item is its own page (`/inventory/items/<id>` → `initialPopup`); an old
- * link with the popup in its query still opens it.
+ * The owner's rule: a popup is the page's state, never the address — and no
+ * address opens one: an old link with the popup in its query lands on the
+ * plain list.
  */
 describe("ProductsPage — popups are state, not the URL", () => {
   const address = () => `${window.location.pathname}${window.location.search}`;
@@ -253,25 +253,16 @@ describe("ProductsPage — popups are state, not the URL", () => {
     expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "new-1");
   });
 
-  it("opens a link's popup from the first frame: /inventory/items/<id>", async () => {
-    window.history.replaceState(null, "", "/inventory/items/p9");
-    renderWithClient(<ProductsPage initialPopup={{ kind: "edit", id: "p9" }} />);
-    expect(screen.getByTestId("product-dialog")).toHaveAttribute("data-product-id", "p9");
-    // Closed, the list's own address — a reload shows the list.
-    await userEvent.click(screen.getByRole("button", { name: "close popup" }));
-    expect(address()).toBe("/inventory/items");
-  });
-
-  it.each([
-    ["edit=p9", "product-dialog", "p9"],
-    ["stock=p9", "manage-stock-dialog", "p9"],
-    ["new=1", "product-dialog", "new"],
-  ])("still opens an old ?%s link's popup, then takes it out of the address", (query, testId, id) => {
-    window.history.replaceState(null, "", `/inventory/items?${query}`);
-    renderWithClient(<ProductsPage />);
-    expect(screen.getByTestId(testId)).toHaveAttribute("data-product-id", id);
-    expect(address()).toBe("/inventory/items");
-  });
+  it.each(["edit=p9", "stock=p9", "new=1"])(
+    "opens nothing from an old ?%s link, and takes it out of the address",
+    (query) => {
+      window.history.replaceState(null, "", `/inventory/items?${query}`);
+      renderWithClient(<ProductsPage />);
+      expect(screen.queryByTestId("product-dialog")).toBeNull();
+      expect(screen.queryByTestId("manage-stock-dialog")).toBeNull();
+      expect(address()).toBe("/inventory/items");
+    },
+  );
 });
 
 describe("ProductsPage — toolbar", () => {
