@@ -30,8 +30,10 @@ export function TransferRecordDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      {/* Header fixed, body scrolls: a template fill of forty lines used to push
+          the popup's top off the screen. */}
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="border-b px-4 py-3 pr-12">
           <DialogTitle className="flex items-center gap-2.5">
             {transfer ? <TransferTypeBadge type={transfer.type} /> : null}
             {transfer ? (
@@ -43,7 +45,7 @@ export function TransferRecordDialog({
         </DialogHeader>
 
         {transfer ? (
-          <div className="space-y-4">
+          <div data-testid="transfer-record-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             <div>
               <Label className="mb-1.5 block text-[11px] tracking-wide uppercase">Route</Label>
               <TransferRoute transfer={transfer} locationMap={locationMap} />
