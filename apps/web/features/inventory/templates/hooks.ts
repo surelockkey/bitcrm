@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { InventoryStatus } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
@@ -40,6 +40,9 @@ export function useTemplateDiff(
     enabled: enabled && !!id && !!containerId,
     // 403 and 404 are answers about this van or warehouse, not blips.
     retry: false,
+    // Another van or warehouse picked: the last comparison stays (dimmed)
+    // until the next one lands — not table → skeleton → table.
+    placeholderData: keepPreviousData,
   });
 }
 

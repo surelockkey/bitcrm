@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
     refetch: () => void;
   },
   diffArgs: [] as [string | undefined, string | undefined, string | undefined][],
+  /** Whether each comparison was allowed to run. */
+  diffEnabled: [] as (boolean | undefined)[],
+  locationsLoading: false,
   fill: vi.fn(),
   /** Whether the fill "succeeds" (calls onSuccess) — off to model one in flight. */
   settle: true,
@@ -33,7 +36,11 @@ vi.mock("@/features/auth/use-permissions", () => ({
   }),
 }));
 vi.mock("@/features/inventory/stock/hooks", () => ({
-  useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
+  useAllLocations: () => ({
+    data: mocks.locationsLoading ? [] : mocks.locations,
+    isLoading: mocks.locationsLoading,
+    isError: false,
+  }),
 }));
 vi.mock("../hooks", () => ({
   useContainerTemplate: () => ({
@@ -41,8 +48,9 @@ vi.mock("../hooks", () => ({
     isLoading: false,
     isError: false,
   }),
-  useTemplateDiff: (id?: string, containerId?: string, warehouseId?: string) => {
+  useTemplateDiff: (id?: string, containerId?: string, warehouseId?: string, enabled?: boolean) => {
     mocks.diffArgs.push([id, containerId, warehouseId]);
+    mocks.diffEnabled.push(enabled);
     return mocks.diff;
   },
   useFillFromWarehouse: () => ({
@@ -88,6 +96,8 @@ beforeEach(() => {
   mocks.fill.mockReset();
   mocks.settle = true;
   mocks.diffArgs = [];
+  mocks.diffEnabled = [];
+  mocks.locationsLoading = false;
   mocks.locations = [
     { type: "warehouse", id: "w1", name: "Overflow", status: active },
     { type: "warehouse", id: "w2", name: "Main", status: active, isPrimary: true },
@@ -279,5 +289,44 @@ describe("ApplyTemplateDialog — what the server refused", () => {
     expect(rows()[0]).toEqual(["Deadbolt", "LOCK-1", "4", "1", "3", "—", "—"]);
     expect(screen.getByText("No warehouse to fill from.")).toBeInTheDocument();
     expect(fill()).toBeDisabled();
+  });
+});
+
+/**
+ * The warehouse is picked from the locations. Asked before they arrived, the
+ * comparison ran once without a warehouse and again with one: skeleton,
+ * table, skeleton, table — in a centred popup, so both edges moved.
+ */
+describe("ApplyTemplateDialog — one comparison, one height", () => {
+  it("waits for the locations before comparing, so it compares once, with the warehouse", () => {
+    mocks.locationsLoading = true;
+    renderWithClient(
+      <ApplyTemplateDialog templateId="t1" containerId="c1" open onOpenChange={vi.fn()} />,
+    );
+    expect(mocks.diffEnabled.length).toBeGreaterThan(0);
+    expect(mocks.diffEnabled.every((enabled) => enabled === false)).toBe(true);
+  });
+
+  it("is the same height comparing and compared", () => {
+    mocks.diff = { ...mocks.diff, data: undefined, isLoading: true };
+    const { unmount } = renderWithClient(
+      <ApplyTemplateDialog templateId="t1" containerId="c1" open onOpenChange={vi.fn()} />,
+    );
+    const loading = screen.getByRole("dialog").className;
+    expect(screen.getByTestId("apply-loading")).toBeInTheDocument();
+    unmount();
+
+    mocks.diff = { ...mocks.diff, data: diffOf([line({})]), isLoading: false };
+    renderWithClient(<ApplyTemplateDialog templateId="t1" containerId="c1" open onOpenChange={vi.fn()} />);
+    expect(screen.getByRole("dialog").className).toBe(loading);
+    expect(loading).toMatch(/(^|\s)h-\[/);
+  });
+
+  it("comparing, draws the table's own header over placeholder rows", () => {
+    mocks.diff = { ...mocks.diff, data: undefined, isLoading: true };
+    renderWithClient(<ApplyTemplateDialog templateId="t1" containerId="c1" open onOpenChange={vi.fn()} />);
+    const panel = screen.getByTestId("apply-loading");
+    expect(within(panel).getAllByRole("columnheader").map((th) => th.textContent)).toContain("Will move");
+    expect(within(panel).getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   });
 });
