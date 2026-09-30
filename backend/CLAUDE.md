@@ -538,6 +538,20 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   job's area tax → none. Jobs, estimates and invoices snapshot name + percent, so
   never "fix" a job by editing its area. Old `TAX_RATE#` rows / `defaultTaxRateId`
   pointers are converted by `npm run backfill:area-taxes -w backend/services/deal`.
+- **The commissions report owns no rows.** `GET /api/deals/reports/commissions`
+  (+ `/export`, CSV) is Workiz's "Commissions (Legacy)": Done jobs of a period,
+  read off EXISTING keys — GSI5 `STATUS#done` by visit start for Closed /
+  Scheduled (Workiz's "Closed" is the END of the visit window,
+  `scheduledEndDate`, so the start range reaches 31 days back and the end day is
+  filtered on), GSI1 `STATUS#done` by `createdAt` for Created (the local day in
+  `jobTimezone`), the tech index for an `assigned_only` caller. It never reads
+  GSI6: `closedAt` is when the job turned Done, not Workiz's "Closed". An
+  imported job shows Workiz's frozen `commissionSnapshot`; a job done here is
+  computed by `calculateWorkizCommission` (`commission-report/`) from billing's
+  `POST /payments/internal/by-deals` and the technician's commission version in
+  force on the job's day (user's `POST /technicians/internal/commissions`) —
+  versions are never rewritten, which is what freezes a job's rate. The old
+  `calculateCommission` in user-service (EPIC-6) is a different formula; leave it.
 - **Companies are billing's.** A job's `businessProfileId` is validated against
   billing's internal list (cached 60s in deal, non-fatal when billing is down) and
   its name snapshotted; documents and the portal render the job's company (fallback:
@@ -572,20 +586,6 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   total; refund / delete / receipt fall back to the job too. The
   `/invoices/:id/payments` routes still 404 without an invoice, and an invoice
   created later starts from the existing ledger (`ledgerAmountPaid(deal.id)`).
-- **The commissions report owns no rows.** `GET /api/deals/reports/commissions`
-  (+ `/export`, CSV) is Workiz's "Commissions (Legacy)": Done jobs of a period,
-  read off EXISTING keys — GSI5 `STATUS#done` by visit start for Closed /
-  Scheduled (Workiz's "Closed" is the END of the visit window,
-  `scheduledEndDate`, so the start range reaches 31 days back and the end day is
-  filtered on), GSI1 `STATUS#done` by `createdAt` for Created (the local day in
-  `jobTimezone`), the tech index for an `assigned_only` caller. It never reads
-  GSI6: `closedAt` is when the job turned Done, not Workiz's "Closed". An
-  imported job shows Workiz's frozen `commissionSnapshot`; a job done here is
-  computed by `calculateWorkizCommission` (`commission-report/`) from billing's
-  `POST /payments/internal/by-deals` and the technician's commission version in
-  force on the job's day (user's `POST /technicians/internal/commissions`) —
-  versions are never rewritten, which is what freezes a job's rate. The old
-  `calculateCommission` in user-service (EPIC-6) is a different formula; leave it.
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a

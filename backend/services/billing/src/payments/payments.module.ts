@@ -26,9 +26,10 @@ import { StripeWebhookController } from './stripe/stripe-webhook.controller';
 @Module({
   imports: [PaymentsLedgerModule, InvoicesModule, PortalModule],
   controllers: [
+    // Static `/payments/internal/...` paths first, ahead of any `/payments/:paymentId/...`.
+    PaymentsInternalController,
     InvoicePaymentsController,
     DealPaymentsController,
-    PaymentsInternalController,
     PaymentsController,
     PaymentSettingsController,
     PublicPaymentsController,
