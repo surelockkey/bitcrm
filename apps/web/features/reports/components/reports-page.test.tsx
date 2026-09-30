@@ -14,8 +14,6 @@ vi.mock("@/features/auth/use-permissions", () => ({
   // nobody is ever refused.
   useDenied: () => (r: string, a = "view") => perms.denied.has(`${r}.${a}`),
 }));
-// next/font is compiled away by Next; under vitest the loader is a plain function.
-vi.mock("next/font/google", () => ({ Poppins: () => ({ className: "font-workiz", style: {} }) }));
 
 import { ReportsPage, REPORT_TILES } from "./reports-page";
 

@@ -1,9 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, vi } from "vitest";
-
-vi.mock("next/font/google", () => ({ Poppins: () => ({ className: "", style: {} }) }));
+import { describe, it, expect } from "vitest";
 
 import Page from "./page";
 import { REPORT_TILES } from "@/features/reports/hub/report-tiles";
