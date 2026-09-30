@@ -48,6 +48,12 @@ export interface Invoice {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+
+  /* ------------------------------------------ carried over from Workiz */
+  /** Workiz `invoice_name` — the Invoice Name column (rarely set). */
+  workizName?: string;
+  /** Workiz's own invoice serial. */
+  workizNumber?: number;
 }
 
 /** An invoice with the job's live lines + tax — what the detail screen/PDF use. */

@@ -22,7 +22,15 @@ export function dealTotalsSnapshot(
     (sum, l) => sum + Math.round((Number(l.quantity) || 0) * cents(l.costCompany)),
     0,
   );
-  return { subtotal: t.subtotal, discount: t.discount, tax: t.tax, total: t.total, cost: costCents / 100 };
+  return {
+    subtotal: t.subtotal,
+    discount: t.discount,
+    tax: t.tax,
+    total: t.total,
+    cost: costCents / 100,
+    // What the tax was taken of — the Tax report's Taxable Amount.
+    taxableBase: t.taxableBase,
+  };
 }
 
 const TOTAL_KEYS: (keyof DealTotalsSnapshot)[] = ['subtotal', 'discount', 'tax', 'total', 'cost'];
