@@ -11,7 +11,14 @@ import {
   type InventoryLogFilters,
   type InventoryLogWindow,
 } from './inventory-log.repository';
-import { invlogMonth, monthsDescending } from './inventory-log.constants';
+import { invlogMonth } from './inventory-log.constants';
+import {
+  encodeCursor,
+  monthsDescending,
+  monthsSpanned,
+  parseCursor,
+  walkMonths,
+} from '../common/utils/month-walk';
 
 export interface InventoryLogQuery {
   /** ISO 8601; inclusive. Defaults to the first day of the UTC month of `to`. */
@@ -161,46 +168,17 @@ export class InventoryLogService {
     }
 
     const months = monthsDescending(invlogMonth(window.from), invlogMonth(window.to));
-    let index = cursor?.month ? months.indexOf(cursor.month) : 0;
-    if (index < 0) throw new BadRequestException('Invalid cursor');
-
-    const items: InventoryLogEntry[] = [];
-    let key = cursor?.lastKey;
-    let reads = 0;
-
-    for (; index < months.length; index++) {
-      const month = months[index];
-
-      while (items.length < limit) {
-        if (reads >= MAX_READS) {
-          return { items, nextCursor: this.encodeCursor({ month, lastKey: key, ...window }) };
-        }
-        const page = await this.repository.queryMonth(
-          month,
-          window,
-          filters,
-          limit - items.length,
-          key,
-          MAX_READS - reads,
-        );
-        // An empty partition is one cheap read the window cap already bounds;
-        // charging it would hand back empty pages with a cursor across a wide
-        // window until every empty month had been stepped over.
-        if (page.items.length > 0 || page.lastKey) reads += page.reads ?? 1;
-        items.push(...page.items);
-        key = page.lastKey;
-        if (!key) break;
-      }
-
-      if (items.length >= limit) {
-        if (key) return { items, nextCursor: this.encodeCursor({ month, lastKey: key, ...window }) };
-        // The month ended on the page boundary: the next page starts the next month.
-        const next = months[index + 1];
-        return { items, nextCursor: next ? this.encodeCursor({ month: next, ...window }) : undefined };
-      }
-    }
-
-    return { items, nextCursor: undefined };
+    const { items, next } = await walkMonths(
+      months,
+      (month, pageLimit, startKey, maxReads) =>
+        this.repository.queryMonth(month, window, filters, pageLimit, startKey, maxReads),
+      {
+        limit,
+        maxReads: MAX_READS,
+        ...(cursor?.month && { start: { month: cursor.month, lastKey: cursor.lastKey } }),
+      },
+    );
+    return { items, nextCursor: next ? this.encodeCursor({ ...next, ...window }) : undefined };
   }
 
   /**
@@ -261,9 +239,7 @@ export class InventoryLogService {
 
   /** How many month partitions the window touches — arithmetic, so a year like 0001 cannot loop. */
   private monthsApart(window: InventoryLogWindow): number {
-    const [fromYear, fromMonth] = [Number(window.from.slice(0, 4)), Number(window.from.slice(5, 7))];
-    const [toYear, toMonth] = [Number(window.to.slice(0, 4)), Number(window.to.slice(5, 7))];
-    return (toYear - fromYear) * 12 + (toMonth - fromMonth) + 1;
+    return monthsSpanned(invlogMonth(window.from), invlogMonth(window.to));
   }
 
   private toIso(value: string, name: 'from' | 'to'): string {
@@ -285,7 +261,7 @@ export class InventoryLogService {
   }
 
   private encodeCursor(cursor: Cursor): string {
-    return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+    return encodeCursor(cursor);
   }
 
   /**
@@ -297,15 +273,7 @@ export class InventoryLogService {
   private decodeCursor(raw: string | undefined, mode: 'months' | 'product'): Cursor | undefined {
     if (!raw) return undefined;
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf-8'));
-    } catch {
-      throw new BadRequestException('Invalid cursor');
-    }
-    if (typeof parsed !== 'object' || parsed === null) throw new BadRequestException('Invalid cursor');
-
-    const cursor = parsed as Partial<Cursor>;
+    const cursor = parseCursor(raw) as Partial<Cursor>;
     const lastKey = cursor.lastKey;
     const validKey =
       lastKey === undefined || (typeof lastKey === 'object' && lastKey !== null && !Array.isArray(lastKey));

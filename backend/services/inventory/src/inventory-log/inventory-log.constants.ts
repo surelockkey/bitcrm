@@ -34,17 +34,5 @@ export function invlogSearchText(name: string | undefined, sku?: string): string
   return [name, sku].filter(Boolean).join(' ').toLowerCase();
 }
 
-export function previousMonth(month: string): string {
-  const [year, mon] = month.split('-').map(Number);
-  const date = new Date(Date.UTC(year, mon - 2, 1));
-  return date.toISOString().slice(0, 7);
-}
-
-/** Every month from `to` back to `from`, both included; empty when `from` is later. */
-export function monthsDescending(from: string, to: string): string[] {
-  const months: string[] = [];
-  for (let month = to; month >= from; month = previousMonth(month)) {
-    months.push(month);
-  }
-  return months;
-}
+// The month helpers live with the walk that uses them; re-exported for the log's callers.
+export { previousMonth, monthsDescending } from '../common/utils/month-walk';
