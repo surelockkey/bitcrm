@@ -152,9 +152,17 @@ export class ContainerTemplatesService {
     viewer: StockViewer | undefined,
     { checkWarehouse }: { checkWarehouse: boolean },
   ): Promise<ContainerTemplateDiff> {
-    const template = await this.findById(id);
-    const container = await this.requireLocation(LocationType.CONTAINER, containerId);
-    const visible = await visibleLocations(viewer, (userId) => this.assignments.assignmentFor(userId));
+    // Independent reads, all at once; the answers are then checked in the
+    // order the errors always had (template, van, scope, warehouse).
+    const [foundTemplate, foundContainer, visible, foundWarehouse] = await Promise.all([
+      this.repository.findById(id),
+      this.locationsRepository.findLocation(LocationType.CONTAINER, containerId),
+      visibleLocations(viewer, (userId) => this.assignments.assignmentFor(userId)),
+      warehouseId ? this.locationsRepository.findLocation(LocationType.WAREHOUSE, warehouseId) : undefined,
+    ]);
+    if (!foundTemplate) throw new NotFoundException(`Container template "${id}" not found`);
+    const template = foundTemplate;
+    const container = this.located(LocationType.CONTAINER, containerId, foundContainer);
     if (!visible.containers(container)) {
       throw new ForbiddenException('This container is outside your data scope');
     }
@@ -162,7 +170,7 @@ export class ContainerTemplatesService {
       throw new ForbiddenException('Comparing against a warehouse needs warehouses.view');
     }
     const warehouse = warehouseId
-      ? await this.requireLocation(LocationType.WAREHOUSE, warehouseId)
+      ? this.located(LocationType.WAREHOUSE, warehouseId, foundWarehouse ?? null)
       : undefined;
 
     const containerPK = `CONTAINER#${containerId}`;
@@ -300,8 +308,8 @@ export class ContainerTemplatesService {
     };
   }
 
-  private async requireLocation(type: LocationType, id: string): Promise<LocationSummary> {
-    const location = await this.locationsRepository.findLocation(type, id);
+  /** The location read, or its 404. */
+  private located(type: LocationType, id: string, location: LocationSummary | null): LocationSummary {
     if (!location) {
       const label = type === LocationType.WAREHOUSE ? 'Warehouse' : 'Container';
       throw new NotFoundException(`${label} "${id}" not found`);
