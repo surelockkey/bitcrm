@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DataScope, InventoryStatus } from "@bitcrm/types";
-import type { Container } from "@bitcrm/types";
+import { DataScope, InventoryStatus, UserContainerAccess } from "@bitcrm/types";
+import type { Container, UserContainer } from "@bitcrm/types";
 import type { StockLocation } from "@/features/inventory/stock/lib";
 import type { ContainerFilter } from "../api";
 import { renderWithClient } from "@/test/render-with-client";
@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   scope: "all" as string,
+  assignments: [] as UserContainer[],
+  namesAskedFor: [] as string[][],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -51,6 +53,13 @@ vi.mock("../hooks", () => ({
 }));
 vi.mock("@/features/inventory/stock/hooks", () => ({
   useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
+}));
+vi.mock("@/features/inventory/user-containers/hooks", () => ({
+  useUserContainers: () => ({ data: mocks.assignments, isLoading: false, isError: false }),
+  useUserNames: (ids: string[]) => {
+    mocks.namesAskedFor.push(ids);
+    return { names: new Map([["u2", "Pavlo Bondar"]]), isLoading: false };
+  },
 }));
 vi.mock("./container-create-dialog", () => ({ ContainerCreateDialog: () => null }));
 vi.mock("./my-container-view", () => ({ MyContainerView: () => <div data-testid="my-van" /> }));
@@ -93,6 +102,8 @@ function container(over: Partial<Container>): Container {
 const active = InventoryStatus.ACTIVE;
 
 beforeEach(() => {
+  mocks.assignments = [];
+  mocks.namesAskedFor = [];
   mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
@@ -152,6 +163,39 @@ describe("ContainersPage — the server filters, the page shows what it got", ()
     renderWithClient(<ContainersPage />);
     expect(screen.queryByText(/^\d+ containers?$/)).toBeNull();
     expect(screen.getByText(/of 93/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * A van may be shared: the Users column names everyone whose assignment row
+ * points at it — and falls back to the old single technician only when none does.
+ */
+describe("ContainersPage — who works from each van", () => {
+  const assignment = (userId: string, userName: string, containerId: string): UserContainer => ({
+    userId,
+    userName,
+    access: UserContainerAccess.CONTAINER,
+    containerId,
+    limited: false,
+    updatedAt: "",
+  });
+
+  it("names the users the assignments put on each van", () => {
+    mocks.assignments = [
+      assignment("u1", "Taras Koval", "c1"),
+      // The backfill's secondary users carry their id as the name.
+      assignment("u2", "u2", "c1"),
+    ];
+    renderWithClient(<ContainersPage />);
+    const row = screen.getByText("Van Alpha").closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("Pavlo Bondar, Taras Koval");
+    expect(mocks.namesAskedFor.at(-1)).toEqual(["u2"]);
+  });
+
+  it("falls back to the van's technician when no assignment points at it", () => {
+    mocks.rows = [container({ id: "c2", name: "Van Zeta", technicianId: "t9", technicianName: "Oleh Petrenko" })];
+    renderWithClient(<ContainersPage />);
+    expect(screen.getByText("Van Zeta").closest("tr")).toHaveTextContent("Oleh Petrenko");
   });
 });
 

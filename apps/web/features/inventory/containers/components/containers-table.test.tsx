@@ -5,6 +5,7 @@ import { InventoryStatus } from "@bitcrm/types";
 import type { Container } from "@bitcrm/types";
 import type { StockSummary } from "@/features/inventory/warehouses/lib";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import type { ContainerUser } from "@/features/inventory/user-containers/lib";
 import { ContainersTable } from "./containers-table";
 
 const summaries: Record<string, StockSummary> = {};
@@ -37,15 +38,19 @@ function container(over: Partial<Container>): Container {
   };
 }
 
+/** Who works from each van, as the page works it out from the assignments. */
+let users: Map<string, ContainerUser[]>;
+
 function renderTable(containers: Container[] = [container({})]) {
   return render(
     <TooltipProvider>
-      <ContainersTable containers={containers} onEdit={onEdit} onStock={onStock} />
+      <ContainersTable containers={containers} users={users} onEdit={onEdit} onStock={onStock} />
     </TooltipProvider>,
   );
 }
 
 beforeEach(() => {
+  users = new Map([["c1", [{ userId: "t1", name: "TYLER BOUCHER" }]]]);
   onEdit.mockClear();
   onStock.mockClear();
   stockAskedFor.length = 0;
@@ -58,14 +63,14 @@ describe("ContainersTable", () => {
     expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
       "Name",
       "Description",
-      "Technician",
+      "Users",
       "Department",
       "Items",
       "Actions",
     ]);
   });
 
-  it("renders name, description, assigned technician, department and total units", () => {
+  it("renders name, description, its users, department and total units", () => {
     summaries.c1 = { skuCount: 40, totalUnits: 1244, totalValue: 5000, lowCount: 0 };
     renderTable();
     expect(screen.getByText("Van 1")).toBeInTheDocument();
@@ -82,9 +87,27 @@ describe("ContainersTable", () => {
     }
   });
 
-  it("shows Unassigned for a container without a technician, and — without a description", () => {
+  // A van may be shared: the cell names the first two and counts the rest.
+  it("names the first two users of a shared van and counts the rest", () => {
+    users = new Map([
+      [
+        "c1",
+        [
+          { userId: "u1", name: "Anna Lys" },
+          { userId: "u2", name: "Bohdan Hai" },
+          { userId: "u3", name: "Iryna Sad" },
+          { userId: "u4" },
+        ],
+      ],
+    ]);
+    renderTable();
+    expect(document.querySelectorAll("tbody td")[2]).toHaveTextContent("Anna Lys, Bohdan Hai +2");
+  });
+
+  it("shows — for a van nobody works from, and — without a description", () => {
+    users = new Map();
     renderTable([container({ technicianId: undefined, technicianName: undefined, description: undefined })]);
-    expect(screen.getByText("Unassigned")).toBeInTheDocument();
+    expect(document.querySelectorAll("tbody td")[2]).toHaveTextContent(/^—$/);
     expect(document.querySelectorAll("tbody td")[1]).toHaveTextContent("—");
   });
 
@@ -170,7 +193,7 @@ describe("ContainersTable — a stable first frame", () => {
 
   it("offers a drag handle on every header", () => {
     table();
-    for (const id of ["name", "description", "technician", "department", "items", "actions"]) {
+    for (const id of ["name", "description", "users", "department", "items", "actions"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
   });

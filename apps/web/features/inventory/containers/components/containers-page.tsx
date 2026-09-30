@@ -19,6 +19,12 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
+import {
+  containerUserNames,
+  unnamedUserIds,
+  usersOfContainer,
+} from "@/features/inventory/user-containers/lib";
 import { useContainersList, useContainersCount } from "../hooks";
 import type { ContainerFilter } from "../api";
 import { ContainersTable } from "./containers-table";
@@ -98,6 +104,18 @@ function Fleet() {
   );
 
   const filtered = !!filter.search || !!filter.department || !!filter.status;
+
+  // Who works from each van: every assignment in one request, named from the
+  // directory where the backfill left only an id.
+  const assignments = useUserContainers();
+  const unnamed = useMemo(() => unnamedUserIds(assignments.data ?? []), [assignments.data]);
+  const { names } = useUserNames(unnamed);
+  const users = useMemo(() => {
+    const rows = assignments.data ?? [];
+    const byVan = containerUserNames(rows, names);
+    const byUser = new Map(rows.map((r) => [r.userId, r] as const));
+    return new Map(containers.map((c) => [c.id, usersOfContainer(c, byVan, byUser)] as const));
+  }, [assignments.data, names, containers]);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -181,6 +199,7 @@ function Fleet() {
           <>
             <ContainersTable
               containers={containers}
+              users={users}
               onEdit={(c) => popups.open("edit", c.id)}
               onStock={(c) => popups.open("stock", c.id)}
             />

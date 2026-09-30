@@ -28,6 +28,7 @@ import {
   assignmentOf,
   containerUserNames,
   namesSummary,
+  unnamedUserIds,
   usersOfContainer,
   type Assignment,
   type ContainerUser,
@@ -144,7 +145,7 @@ function AssignForm({
   const current: Assignment = useMemo(() => assignmentOf(userId, rowsByUser, vans), [userId, rowsByUser, vans]);
 
   // Rows the backfill wrote carry the user id as the name: look those up.
-  const unnamed = useMemo(() => rows.filter((r) => !r.userName?.trim() || r.userName === r.userId).map((r) => r.userId), [rows]);
+  const unnamed = useMemo(() => unnamedUserIds(rows), [rows]);
   const { names } = useUserNames(unnamed);
   const byVan = useMemo(() => containerUserNames(rows, names), [rows, names]);
   const usersOf = (van: StockLocation): ContainerUser[] => usersOfContainer(van, byVan, rowsByUser);

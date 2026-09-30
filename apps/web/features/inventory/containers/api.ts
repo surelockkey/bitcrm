@@ -50,20 +50,20 @@ export function getContainer(id: string): Promise<Container> {
   return http.get<Container>(`/inventory/containers/${id}`);
 }
 
+/** Who works from the van is set on User containers, not here. */
 export interface CreateContainerBody {
   name: string;
   description?: string;
   department?: string;
-  technicianId?: string;
-  technicianName?: string;
+  /** The van's ideal loadout. */
+  templateId?: string;
 }
 
-/** `technicianId: null` unassigns the technician. */
+/** `templateId: null` clears the template. */
 export type UpdateContainerBody = Partial<
   Pick<Container, "name" | "description" | "department" | "status">
 > & {
-  technicianId?: string | null;
-  technicianName?: string | null;
+  templateId?: string | null;
 };
 
 export function createContainer(body: CreateContainerBody): Promise<Container> {

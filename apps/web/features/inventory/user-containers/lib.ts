@@ -27,6 +27,11 @@ export function nameOf(
   return directory.get(row.userId);
 }
 
+/** The rows that carry only an id for a name — the import backfill's — to look up. */
+export function unnamedUserIds(rows: Pick<UserContainer, "userId" | "userName">[]): string[] {
+  return rows.filter((r) => !r.userName?.trim() || r.userName === r.userId).map((r) => r.userId);
+}
+
 /** What a user works from, as the User containers tab shows it. */
 export interface Assignment {
   /** `null` — never assigned. */
@@ -108,7 +113,7 @@ export function containerUserNames(
  * them somewhere else.
  */
 export function usersOfContainer(
-  van: StockLocation,
+  van: Pick<StockLocation, "id" | "technicianId" | "technicianName">,
   byVan: Map<string, ContainerUser[]>,
   rowsByUser: Map<string, UserContainer>,
 ): ContainerUser[] {
