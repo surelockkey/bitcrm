@@ -2,7 +2,7 @@ import type {
   AgingReport,
   Estimate,
   EstimateReportSummary,
-  Invoice,
+  InvoiceReportRow,
   InvoiceReportSummary,
   ListCount,
   ReportCsvExport,
@@ -37,7 +37,8 @@ const invoiceQuery = (p: InvoiceReportParams) =>
     cursor: p.cursor,
   });
 
-export const listInvoiceReport = (p: InvoiceReportParams): Promise<{ items: Invoice[]; nextCursor?: string }> =>
+/** Each row carries `report` — Workiz's figures (Subtotal without the card fee, Amount with the tip, the cent rule). */
+export const listInvoiceReport = (p: InvoiceReportParams): Promise<{ items: InvoiceReportRow[]; nextCursor?: string }> =>
   http.get(`/billing/invoices/report${invoiceQuery(p)}`);
 
 export const countInvoiceReport = (p: InvoiceReportParams): Promise<ListCount> =>

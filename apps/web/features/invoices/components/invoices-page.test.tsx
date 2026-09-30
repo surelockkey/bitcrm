@@ -216,3 +216,30 @@ describe("InvoicesPage — partial payments", () => {
     expect(within(row).getByText("Due")).toBeInTheDocument();
   });
 });
+
+describe("InvoicesPage — Workiz's figures", () => {
+  it("shows Subtotal without the card fee, Amount with the tip, and a cent owed as Paid / $0.00", async () => {
+    server.use(
+      http.get("*/billing/invoices/report", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            items: [
+              {
+                ...inv({ totals: { ...totals, subtotal: 82.55, tax: 5.08, total: 87.63, amountPaid: 87.62, balanceDue: 0.01 } }),
+                report: { subtotal: 80, tax: 5.08, amount: 100, balance: 0, status: "paid", tip: 12.37, serviceFee: 2.55 },
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    renderWithClient(<InvoicesPage />);
+    const row = (await screen.findByText("#1042")).closest("tr")!;
+    expect(within(row).getByText("$80.00")).toBeInTheDocument();
+    expect(within(row).getByText("$100.00")).toBeInTheDocument();
+    expect(within(row).getByText("$0.00")).toBeInTheDocument();
+    expect(within(row).getByText("Paid")).toBeInTheDocument();
+    expect(within(row).queryByText("Partially paid")).toBeNull();
+  });
+});

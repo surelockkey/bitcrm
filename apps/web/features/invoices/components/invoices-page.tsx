@@ -10,7 +10,8 @@ import {
   INVOICE_DAYS_DUE,
   INVOICE_DAYS_DUE_LABELS,
   invoiceDiscountPercent,
-  type Invoice,
+  invoiceReportFigures,
+  type InvoiceReportRow,
 } from "@bitcrm/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -302,13 +303,13 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
   const [pageSize, setPageSize] = usePageSize("invoices");
   const q = useInvoiceReport({ ...params, limit: pageSize }, enabled);
   const count = useInvoiceReportCount(params, enabled);
-  const pager = usePager(pagedSource(q, (page: { items: Invoice[] }) => page.items), {
+  const pager = usePager(pagedSource(q, (page: { items: InvoiceReportRow[] }) => page.items), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
     resetKey: JSON.stringify({ params, pageSize }),
   });
-  const rows: Invoice[] = pager.items;
+  const rows: InvoiceReportRow[] = pager.items;
   const { map: contacts } = useContactsByIds(rows.map((r) => r.contactId));
   // The reader's own widths for this list; the declarations only set the start.
   const { widthOf, setWidth, reset } = useColumnWidths("invoices", INVOICE_WIDTHS);
@@ -331,7 +332,7 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
     );
   }
 
-  const open = (inv: Invoice) => router.push(`/deals/${inv.dealId}?tab=invoice`);
+  const open = (inv: InvoiceReportRow) => router.push(`/deals/${inv.dealId}?tab=invoice`);
 
   return (
     <div className="space-y-3">
@@ -360,6 +361,9 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
           <TableBody>
             {rows.map((inv) => {
               const c = contacts.get(inv.contactId);
+              // Workiz's figures: Subtotal without the card fee, Amount with the tip,
+              // a cent or less owed shown as Paid / $0.00. The stored totals are untouched.
+              const f = inv.report ?? invoiceReportFigures(inv);
               // Workiz shows the email under the name, else the phone (masked unless the reader may see numbers).
               const under = c?.emails?.[0] ?? c?.phones?.[0];
               return (
@@ -383,15 +387,17 @@ function InvoicesTable({ params, enabled }: { params: Omit<InvoiceReportParams, 
                   <TableCell className="truncate text-muted-foreground tabular-nums" title={formatYmd(inv.invoiceDate || inv.createdAt)}>
                     {workizDateTime(inv.createdAt)}
                   </TableCell>
-                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(inv.totals?.subtotal ?? 0)}</TableCell>
-                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(inv.totals?.tax ?? 0)}</TableCell>
+                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(f.subtotal)}</TableCell>
+                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(f.tax)}</TableCell>
                   <TableCell className="truncate text-right tabular-nums">{invoiceDiscountPercent(inv.totals).toFixed(2)}%</TableCell>
-                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(inv.totals?.total ?? 0)}</TableCell>
-                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(inv.totals?.balanceDue ?? 0)}</TableCell>
+                  <TableCell className="truncate text-right font-mono tabular-nums" title={f.tip ? `Includes a ${formatMoney(f.tip)} tip` : undefined}>
+                    {formatMoney(f.amount)}
+                  </TableCell>
+                  <TableCell className="truncate text-right font-mono tabular-nums">{formatMoney(f.balance)}</TableCell>
                   <TableCell className="overflow-hidden">
                     <div className="flex flex-wrap items-center gap-1">
-                      <InvoiceStatusBadge status={inv.status} />
-                      {isPartiallyPaid(inv.totals?.amountPaid ?? 0, inv.totals?.balanceDue ?? 0) ? <PartiallyPaidBadge /> : null}
+                      <InvoiceStatusBadge status={f.status} />
+                      {f.status !== "paid" && isPartiallyPaid(inv.totals?.amountPaid ?? 0, f.balance) ? <PartiallyPaidBadge /> : null}
                     </div>
                     <span className="block truncate text-xs text-muted-foreground">
                       {inv.sentAt ? `sent on ${workizDate(inv.sentAt)}` : "Not sent"}
