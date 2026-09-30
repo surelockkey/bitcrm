@@ -201,7 +201,7 @@ display names per table.
 | `BitCRM_Calls` (also job dial-in codes) | `CALLS_TABLE` | AgentIndex | AllCallsIndex | PartyIndex | |
 | `BitCRM_CallGroups`, `BitCRM_CallFlows` | `CALL_GROUPS_TABLE`, `CALL_FLOWS_TABLE` | — | | | |
 | `BitCRM_Messaging` (conversations, messages, pointers, opt-outs, templates, settings, counters) | `MESSAGING_TABLE` | InboxIndex | UnreadIndex | CategoryIndex | JobIndex (+ GSI5 FlagIndex, GSI6 AccountCategoryIndex; TTL on `expiresAt`) |
-| `BitCRM_Billing` (invoices, estimates + lines, **payments + refunds + Stripe pointers**, templates, companies (business profiles), assets, portal tokens, per-job counters; TTL on `expiresAt` for webhook dedupe rows) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | |
+| `BitCRM_Billing` (invoices, estimates + lines, **payments + refunds + Stripe pointers**, templates, companies (business profiles), assets, portal tokens, per-job counters; TTL on `expiresAt` for webhook dedupe rows) | `BILLING_TABLE` | ListIndex | ContactIndex | DealIndex | UnpaidIndex (sparse) |
 
 Item shapes are prefix-encoded, e.g.
 
@@ -255,7 +255,11 @@ IDEMPOTENCY#TEMPLATE_FILL#<requestId> / METADATA   one "Fill from warehouse" req
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
-INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed)
+INVOICE#<dealId>   / METADATA        one per job; GSI1 INVOICES, GSI2 CONTACT#<contactId> (status filtered, not keyed);
+                                     sparse GSI4 UNPAID / <invoiceId> while status is due|overdue — set and cleared by
+                                     the repository on every write that carries `status`, never by a caller
+UNPAIDINDEX        / STATE           { readyAt, count } — stamped by backfill:unpaid-index; until it exists the readers
+                                     of UnpaidIndex answer from the full INVOICES list (slow, never wrong)
 ESTIMATE#<id>      / METADATA | ITEM#<lineId>   GSI1 ESTIMATES, GSI2 CONTACT#…, GSI3 DEAL#<dealId>; DEAL#<id>/COUNTERS estimateSeq
 PORTAL#<sha256>    / METADATA        portal token → contactId; CONTACT#<id>/PORTAL_LINK holds the link metadata
 BUSINESS_PROFILE#<id> / METADATA     a company; GSI1 BUSINESS_PROFILES. The legacy SETTINGS/BUSINESS_PROFILE
@@ -598,6 +602,23 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   deletes what the ledger no longer explains; `--dry-run` compares, `--jsonl
   <billing dir>` computes the report from an import package with no AWS). Run
   it after the deploy that ships the report and after every Workiz import.
+- **The billing reports (Workiz Aging invoices, Invoices, Estimates, Tax) read
+  indexes, never the whole ledger.** Everything about money still owed —
+  Aging's five cards and table, the Invoices cards, "Days due", an
+  unpaid-only Status filter, the overdue sweep — reads UnpaidIndex (~600 of
+  ~78k invoices); a filter that may select a paid invoice walks GSI1 on its
+  created window (New York days as UTC instants) with one FilterExpression
+  the page and its count share. Estimates' cards read the created window
+  projected to status + amounts (Redis 30 s). The Tax report is
+  deal-service's (`GET /deals/report/tax`, `reports.view` + `financials.view`):
+  Accrual reads the Jobs report's `readReportWindow` (the EndIndex for "Job
+  end date"), Paid asks billing `GET /reports/internal/paid-by-job` — the
+  Payments report's `PAYLINE#` lines, so it is only as complete as
+  `rebuild:payment-report` made them. A deploy is not done until
+  `npm run backfill:unpaid-index -w billing-service` has run (Terraform first:
+  the UnpaidIndex GSI); run it again after every Workiz import. Offline
+  checks against an import package: `verify:billing-reports` (billing) and
+  `verify:tax-report` (deal).
 - **Stripe webhook handlers ASSERT a state, they never apply a delta.** Stripe
   gives no ordering guarantee and re-delivers freely, so every status move goes
   through `canTransition` (`payments/payment-rules.ts`) and `reversed` is a
