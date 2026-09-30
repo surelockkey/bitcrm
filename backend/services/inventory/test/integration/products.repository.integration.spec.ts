@@ -125,12 +125,12 @@ describe('ProductsRepository (integration)', () => {
     });
   });
 
-  describe('findByType (GSI2)', () => {
+  describe('findCatalog with a type filter (GSI4)', () => {
     it('should return products matching type', async () => {
       await repository.create(makeProduct({ id: 'p1', sku: 'SKU-1', type: ProductType.PRODUCT }));
       await repository.create(makeProduct({ id: 'p2', sku: 'SKU-2', type: ProductType.SERVICE }));
 
-      const result = await repository.findByType(ProductType.PRODUCT, 10);
+      const result = await repository.findCatalog(10, undefined, { type: ProductType.PRODUCT });
 
       expect(result.items).toHaveLength(1);
       expect(result.items[0].type).toBe(ProductType.PRODUCT);
@@ -200,15 +200,15 @@ describe('ProductsRepository (integration)', () => {
       expect(newCategory.items[0].id).toBe('prod-1');
     });
 
-    it('should rebuild GSI2 keys on type change', async () => {
+    it('should list the product under its new type after a type change', async () => {
       await repository.create(makeProduct({ type: ProductType.PRODUCT }));
 
       await repository.update('prod-1', { type: ProductType.SERVICE });
 
-      const oldType = await repository.findByType(ProductType.PRODUCT, 10);
+      const oldType = await repository.findCatalog(10, undefined, { type: ProductType.PRODUCT });
       expect(oldType.items).toHaveLength(0);
 
-      const newType = await repository.findByType(ProductType.SERVICE, 10);
+      const newType = await repository.findCatalog(10, undefined, { type: ProductType.SERVICE });
       expect(newType.items).toHaveLength(1);
       expect(newType.items[0].id).toBe('prod-1');
     });
@@ -220,25 +220,25 @@ describe('ProductsRepository (integration)', () => {
     });
   });
 
-  describe('findAll with status filter', () => {
+  describe('findCatalog with status filter', () => {
     it('should filter by status', async () => {
       await repository.create(makeProduct({ id: 'p1', sku: 'SKU-1', status: InventoryStatus.ACTIVE }));
       await repository.create(makeProduct({ id: 'p2', sku: 'SKU-2', status: InventoryStatus.ARCHIVED }));
 
-      const active = await repository.findAll(1000, undefined, { status: InventoryStatus.ACTIVE });
-      const inactive = await repository.findAll(1000, undefined, { status: InventoryStatus.ARCHIVED });
+      const active = await repository.findCatalog(100, undefined, { status: InventoryStatus.ACTIVE });
+      const inactive = await repository.findCatalog(100, undefined, { status: InventoryStatus.ARCHIVED });
 
       expect(active.items.every((p) => p.status === InventoryStatus.ACTIVE)).toBe(true);
       expect(inactive.items.every((p) => p.status === InventoryStatus.ARCHIVED)).toBe(true);
     });
   });
 
-  describe('findAll with search filter', () => {
+  describe('findCatalog with search filter', () => {
     it('should filter by name search', async () => {
       await repository.create(makeProduct({ id: 'p1', sku: 'SKU-1', name: 'HVAC Filter' }));
       await repository.create(makeProduct({ id: 'p2', sku: 'SKU-2', name: 'Plumbing Pipe' }));
 
-      const result = await repository.findAll(1000, undefined, { search: 'HVAC' });
+      const result = await repository.findCatalog(100, undefined, { search: 'HVAC' });
 
       expect(result.items).toHaveLength(1);
       expect(result.items[0].name).toBe('HVAC Filter');
@@ -248,7 +248,7 @@ describe('ProductsRepository (integration)', () => {
       await repository.create(makeProduct({ id: 'p1', sku: 'HVAC-001', name: 'Filter' }));
       await repository.create(makeProduct({ id: 'p2', sku: 'PLB-001', name: 'Pipe' }));
 
-      const result = await repository.findAll(1000, undefined, { search: 'HVAC' });
+      const result = await repository.findCatalog(100, undefined, { search: 'HVAC' });
 
       expect(result.items).toHaveLength(1);
       expect(result.items[0].sku).toBe('HVAC-001');

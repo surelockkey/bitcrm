@@ -180,6 +180,16 @@ describe('ProductsRepository — stock-managed index', () => {
       expect(dynamoDb.client.send.mock.calls.length).toBeGreaterThan(1);
     });
 
+    // Той самий бюджет, що й у Price Book і категорії: при limit=10 читання по
+    // 100 рядків робило ~31 запит на розділ у 3 100 рядків.
+    it('asks every filtered read for 1 000 rows, whatever the page size', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findStockManaged(10, undefined, { status: 'active' });
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Limit).toBe(1000);
+    });
+
     it('hands back a cursor with the index keys and resumes from it', async () => {
       dynamoDb.client.send.mockResolvedValueOnce({
         Items: [row(1), row(2), row(3)],

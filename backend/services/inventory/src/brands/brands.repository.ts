@@ -9,10 +9,8 @@ import { DynamoDbService } from '@bitcrm/shared';
 import { type Brand } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI1_NAME, GSI4_NAME } from '../common/constants/dynamo.constants';
 import { BRAND_PK_PREFIX, BRAND_SK, BRAND_GSI1PK } from './brands.constants';
-import {
-  PRODUCT_CATALOG_INDEX_PK,
-  CATALOG_INDEX_MAX_READS,
-} from '../products/product-catalog-index';
+import { PRODUCT_CATALOG_INDEX_PK } from '../products/product-catalog-index';
+import { PRODUCT_INDEX_MAX_READS } from '../products/products.constants';
 
 /** Key attributes that must never leak into an entity or be re-put verbatim. */
 const KEY_ATTRIBUTES = new Set([
@@ -114,7 +112,7 @@ export class BrandsRepository {
    */
   async isReferencedByProduct(brandId: string): Promise<boolean> {
     let key: Record<string, unknown> | undefined;
-    for (let reads = 0; reads < CATALOG_INDEX_MAX_READS; reads += 1) {
+    for (let reads = 0; reads < PRODUCT_INDEX_MAX_READS; reads += 1) {
       const result = await this.dynamoDb.client.send(
         new QueryCommand({
           TableName: INVENTORY_TABLE,

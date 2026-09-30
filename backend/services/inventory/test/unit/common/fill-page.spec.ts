@@ -1,11 +1,11 @@
 import { fillPage } from 'src/common/utils/fill-page';
 
 /**
- * `scanPage` (shared) читає по 10 × limit рядків за раз і обрізає сторінку,
- * лише коли таблиця ще не скінчилась. Коли ж той самий запит, що переповнив
- * сторінку, дочитав розділ до кінця, сторінка поверталась цілою і без
- * курсора: `GET /containers?limit=50` віддавав усі 88 фургонів, і в UI
- * "Rows per page 50" показувало "1–88 of 88" з вимкненою кнопкою "Далі".
+ * Коли запит, що переповнив сторінку, дочитував розділ до кінця, сторінка
+ * поверталась цілою і без курсора: `GET /containers?limit=50` віддавав усі
+ * 88 фургонів, і в UI "Rows per page 50" показувало "1–88 of 88" з вимкненою
+ * кнопкою "Далі". Тепер це обрізає сам `scanPage` (shared); `fillPage` лише
+ * вимагає `keyOf` і вміє читати великими порціями (`readRows`).
  */
 describe('fillPage', () => {
   type Row = { PK: string; SK: string };
@@ -47,6 +47,20 @@ describe('fillPage', () => {
     expect(read.mock.calls[0][0].ExclusiveStartKey).toEqual({ PK: 'CONTAINER#v3', SK: 'METADATA' });
     expect(page.items).toEqual([row(4), row(5)]);
     expect(page.lastKey).toEqual(keyOf(row(5)));
+  });
+
+  // Партиції товарів (Price Book ~16 тис., категорія "Uncategorized" ~13 тис.)
+  // читаються по 1 МБ: 10 × limit рядків за читання — це 100 рядків при
+  // limit=10, і рідкісний пошук вичерпував бюджет, не дочитавши розділ.
+  it('asks every read for at least `readRows` rows, whatever the page size', async () => {
+    const read = jest.fn().mockResolvedValue({ Items: [] });
+
+    await fillPage(read, 10, { keyOf, readRows: 1000 });
+    await fillPage(read, 500, { keyOf, readRows: 1000 });
+
+    expect(read.mock.calls[0][0].Limit).toBe(1000);
+    // A page whose own read is larger keeps it.
+    expect(read.mock.calls[1][0].Limit).toBe(5000);
   });
 
   it('passes the read budget through', async () => {

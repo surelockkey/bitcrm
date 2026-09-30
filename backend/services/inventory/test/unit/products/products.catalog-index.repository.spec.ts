@@ -217,6 +217,26 @@ describe('ProductsRepository — catalog index (Price Book)', () => {
       },
     );
 
+    // Лімітом 10 × limit пошук із limit=10 коштував би ~160 запитів на 16 тис. рядків.
+    it('asks every filtered read for as many rows as a 1 MB page holds, whatever the page size', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findCatalog(10, undefined, { status: 'active' });
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Limit).toBe(1000);
+    });
+
+    it('stops after its 40-read budget and hands back where it stopped', async () => {
+      const stoppedAt = { PK: 'PRODUCT#p-1', SK: 'METADATA', GSI4PK: 'PRODUCTS#ALL', GSI4SK: 'item 1#p-1' };
+      dynamoDb.client.send.mockResolvedValue({ Items: [], LastEvaluatedKey: stoppedAt });
+
+      const page = await repository.findCatalog(50, undefined, { search: 'nothing' });
+
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(40);
+      expect(page.items).toEqual([]);
+      expect(JSON.parse(Buffer.from(page.nextCursor!, 'base64url').toString())).toEqual(stoppedAt);
+    });
+
     it('hands back a cursor with the index keys and resumes from it', async () => {
       dynamoDb.client.send.mockResolvedValueOnce({
         Items: [row(1), row(2), row(3)],

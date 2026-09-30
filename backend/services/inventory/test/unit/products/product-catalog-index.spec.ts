@@ -1,14 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   PRODUCT_CATALOG_INDEX_PK,
-  CATALOG_INDEX_READ_ROWS,
-  CATALOG_INDEX_MAX_READS,
   expectedCatalogIndexKeys,
   catalogIndexWriteCondition,
   catalogIndexWrite,
   planCatalogIndexBackfill,
   decodeCatalogCursor,
-  fillCatalogPage,
 } from 'src/products/product-catalog-index';
 
 const encode = (key: unknown) => Buffer.from(JSON.stringify(key)).toString('base64url');
@@ -158,49 +155,5 @@ describe('decodeCatalogCursor', () => {
     expect(() =>
       decodeCatalogCursor(encode({ ...key, GSI4PK: 'INVLOG#PRODUCT#p-1', GSI4SK: '2026-09-01T00:00:00.000Z#x' })),
     ).toThrow(BadRequestException);
-  });
-});
-
-describe('fillCatalogPage', () => {
-  const row = (i: number) => ({ PK: `PRODUCT#p-${i}`, SK: 'METADATA', GSI4PK: 'PRODUCTS#ALL', GSI4SK: `item ${i}#p-${i}` });
-  const keyOf = (r: ReturnType<typeof row>) => ({ PK: r.PK, SK: r.SK, GSI4PK: r.GSI4PK, GSI4SK: r.GSI4SK });
-
-  // limit × 10 рядків за читання — це ~160 запитів на пошук з limit=10 по 16 тис. рядків.
-  it('asks every read for as many rows as a 1 MB page holds, whatever the page size', async () => {
-    const read = jest.fn().mockResolvedValue({ Items: [] });
-
-    await fillCatalogPage(read, 10, { keyOf });
-
-    expect(CATALOG_INDEX_READ_ROWS).toBe(1000);
-    expect(read.mock.calls[0][0].Limit).toBe(1000);
-  });
-
-  // Пошук "mortise" знаходить 110: коли останнє читання, що дійшло до кінця
-  // розділу, переповнювало сторінку, вона приходила довшою за `limit`.
-  it('never answers more than the limit, even when the read that overshot also ended the partition', async () => {
-    const read = jest.fn().mockResolvedValue({ Items: [row(1), row(2), row(3)] });
-
-    const page = await fillCatalogPage(read, 2, { keyOf });
-
-    expect(page.items).toEqual([row(1), row(2)]);
-    expect(page.lastKey).toEqual(keyOf(row(2)));
-  });
-
-  it('resumes from the start key and returns the rest with no cursor at the end', async () => {
-    const read = jest.fn().mockResolvedValue({ Items: [row(3)] });
-
-    const page = await fillCatalogPage(read, 2, { startKey: keyOf(row(2)), keyOf });
-
-    expect(read.mock.calls[0][0].ExclusiveStartKey).toEqual(keyOf(row(2)));
-    expect(page).toEqual({ items: [row(3)], lastKey: undefined });
-  });
-
-  it('stops after its read budget and hands back where it stopped', async () => {
-    const read = jest.fn().mockResolvedValue({ Items: [], LastEvaluatedKey: keyOf(row(1)) });
-
-    const page = await fillCatalogPage(read, 50, { keyOf });
-
-    expect(read).toHaveBeenCalledTimes(CATALOG_INDEX_MAX_READS);
-    expect(page).toEqual({ items: [], lastKey: keyOf(row(1)) });
   });
 });

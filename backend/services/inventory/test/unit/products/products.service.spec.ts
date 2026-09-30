@@ -366,7 +366,6 @@ describe('ProductsService', () => {
         brandId: undefined,
         manageStock: undefined,
       });
-      expect(repository.findByType).not.toHaveBeenCalled();
     });
 
     // Без фільтрів — весь каталог (16 142 позиції) в порядку назви, не Scan
@@ -418,7 +417,6 @@ describe('ProductsService', () => {
         undefined,
         expect.objectContaining({ type: 'service' }),
       );
-      expect(repository.findByType).not.toHaveBeenCalled();
     });
 
     it('type + search: the Price Book partition, both on top', async () => {
@@ -455,7 +453,6 @@ describe('ProductsService', () => {
         brandId: 'brand-1',
       });
       expect(repository.findAll).not.toHaveBeenCalled();
-      expect(repository.findByType).not.toHaveBeenCalled();
       expect(repository.findCatalog).not.toHaveBeenCalled();
     });
 
@@ -1013,7 +1010,6 @@ describe('ProductsService', () => {
         brandId: undefined,
         manageStock: undefined,
       });
-      expect(repository.countAll).not.toHaveBeenCalled();
     });
 
     it('counts on the category index when a category is given, as the list does', async () => {
@@ -1032,7 +1028,6 @@ describe('ProductsService', () => {
 
       expect(await service.count({ type: 'service' } as never)).toEqual({ total: 4, atLeast: false });
       expect(repository.countCatalog).toHaveBeenCalledWith(expect.objectContaining({ type: 'service' }));
-      expect(repository.countByType).not.toHaveBeenCalled();
     });
 
     it('counts on the category index under the other filters, as the list does', async () => {

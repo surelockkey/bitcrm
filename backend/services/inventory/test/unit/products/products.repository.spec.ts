@@ -200,21 +200,6 @@ describe('ProductsRepository', () => {
     });
   });
 
-  describe('findByType', () => {
-    it('should query GSI2 with type', async () => {
-      const product = createMockProduct();
-      dynamoDb.client.send.mockResolvedValue({
-        Items: [{ ...product, PK: 'PRODUCT#prod-1', SK: 'METADATA' }],
-        LastEvaluatedKey: undefined,
-      });
-
-      const result = await repository.findByType('product', 20);
-
-      expect(result.items).toHaveLength(1);
-      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
-    });
-  });
-
   /**
    * Курсор, що не є base64url-JSON (зіпсований, з чужого списку), падав у
    * JSON.parse і виходив 500; `decodeIndexCursor` уже робив це правильно.
@@ -222,19 +207,17 @@ describe('ProductsRepository', () => {
   describe('cursors that are not its own', () => {
     const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
 
-    it('refuses garbage with a 400 before any read — category, type and the whole list alike', async () => {
+    it('refuses garbage with a 400 before any read — category and the whole list alike', async () => {
       await expect(repository.findByCategory('Locks', 20, '%%%')).rejects.toThrow(BadRequestException);
-      await expect(repository.findByType('product', 20, '%%%')).rejects.toThrow(BadRequestException);
       await expect(repository.findAll(20, '%%%')).rejects.toThrow(BadRequestException);
       expect(dynamoDb.client.send).not.toHaveBeenCalled();
     });
 
-    // Курсор списку за категорією на запит за типом: DynamoDB відповів би
-    // ValidationException (500) — ключів TypeIndex у ньому нема.
+    // Курсор без ключів CategoryIndex: DynamoDB відповів би ValidationException (500).
     it('refuses a cursor without the keys of the index it resumes', async () => {
-      const categoryCursor = encode({ PK: 'PRODUCT#p-1', SK: 'METADATA', GSI1PK: 'CATEGORY#Locks', GSI1SK: 'PRODUCT#p-1' });
+      const stockCursor = encode({ PK: 'PRODUCT#p-1', SK: 'METADATA', GSI3PK: 'PRODUCTS#STOCK', GSI3SK: 'x#p-1' });
 
-      await expect(repository.findByType('product', 20, categoryCursor)).rejects.toThrow(BadRequestException);
+      await expect(repository.findByCategory('Locks', 20, stockCursor)).rejects.toThrow(BadRequestException);
       await expect(repository.findByCategory('Locks', 20, encode({ PK: 'PRODUCT#p-1' }))).rejects.toThrow(
         BadRequestException,
       );
@@ -506,83 +489,6 @@ describe('ProductsRepository', () => {
   });
 
   /**
-   * Скільки всього товарів — число для «Page 2 of 7».
-   *
-   * Той самий фільтр, що й у списку, але `Select: 'COUNT'`: тіла рядків не
-   * їдуть по дроту. Прохід обмежений, бо таблиця інвентарю тримає не лише
-   * товари, і розріджений Scan міг би читати її всю.
-   */
-  describe('countAll', () => {
-    it('counts without pulling item bodies back', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Count: 42, LastEvaluatedKey: undefined });
-
-      const result = await repository.countAll();
-
-      expect(result).toEqual({ total: 42, atLeast: false });
-      const sent = dynamoDb.client.send.mock.calls[0][0];
-      expect(sent.input.Select).toBe('COUNT');
-    });
-
-    it('counts under the same filter the list uses', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Count: 3 });
-
-      await repository.countAll({ status: 'active', search: ' Lock ' });
-
-      const sent = dynamoDb.client.send.mock.calls[0][0];
-      expect(sent.input.FilterExpression).toContain('#status = :status');
-      expect(sent.input.FilterExpression).toContain('contains(searchName, :search)');
-      expect(sent.input.ExpressionAttributeValues[':status']).toBe('active');
-      expect(sent.input.ExpressionAttributeValues[':search']).toBe('lock');
-    });
-
-    it('sums across the walk', async () => {
-      dynamoDb.client.send
-        .mockResolvedValueOnce({ Count: 20, LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' } })
-        .mockResolvedValueOnce({ Count: 20, LastEvaluatedKey: { PK: 'X#2', SK: 'METADATA' } })
-        .mockResolvedValueOnce({ Count: 7 });
-
-      expect(await repository.countAll()).toEqual({ total: 47, atLeast: false });
-    });
-
-    // Розріджена таблиця не має права коштувати сторінці повного проходу.
-    it('gives up on an exact answer rather than walk the whole table', async () => {
-      dynamoDb.client.send.mockResolvedValue({
-        Count: 1,
-        LastEvaluatedKey: { PK: 'X#1', SK: 'METADATA' },
-      });
-
-      const result = await repository.countAll();
-
-      expect(result.atLeast).toBe(true);
-      expect(dynamoDb.client.send.mock.calls.length).toBeLessThanOrEqual(20);
-    });
-  });
-
-  /**
-   * Категорія і тип — це Query по індексу з постійним ключем, тому їхній
-   * лічильник дешевий: жодного Scan, самі ключі.
-   */
-  describe('countByCategory / countByType', () => {
-    it('counts a category on the category index', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Count: 9 });
-
-      expect(await repository.countByCategory('locks')).toEqual({ total: 9, atLeast: false });
-      const sent = dynamoDb.client.send.mock.calls[0][0];
-      expect(sent.input.Select).toBe('COUNT');
-      expect(sent.input.ExpressionAttributeValues[':pk']).toBe('CATEGORY#locks');
-    });
-
-    it('counts a type on the type index', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Count: 4 });
-
-      expect(await repository.countByType('part')).toEqual({ total: 4, atLeast: false });
-      const sent = dynamoDb.client.send.mock.calls[0][0];
-      expect(sent.input.Select).toBe('COUNT');
-      expect(sent.input.ExpressionAttributeValues[':pk']).toBe('TYPE#part');
-    });
-  });
-
-  /**
    * Короткий послідовний номер товару — "Product ID" у Workiz. Лічильник
    * живе в рядку COUNTER#PRODUCT / METADATA і росте атомарним ADD, тож два
    * паралельні create ніколи не отримають один номер.
@@ -728,15 +634,13 @@ describe('ProductsRepository', () => {
     // Термін і збережені назва/SKU — у нижньому регістрі з обох боків, як у
     // складів, контейнерів і журналу: одне поле пошуку поводиться однаково на
     // кожній вкладці.
-    it('type + search: Query on TypeIndex with the case-insensitive name/sku filter', async () => {
+    it('search: the case-insensitive name/sku filter on top of the index', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
-      await repository.findByType('product', 20, undefined, { search: ' Lock' });
+      await repository.findByCategory('Locks', 20, undefined, { search: ' Lock' });
 
       const input = sentInput();
-      expect(input.IndexName).toBe('TypeIndex');
-      expect(input.KeyConditionExpression).toBe('GSI2PK = :pk');
-      expect(input.ExpressionAttributeValues[':pk']).toBe('TYPE#product');
+      expect(input.IndexName).toBe('CategoryIndex');
       expect(input.FilterExpression).toBe('(contains(searchName, :search) OR contains(searchSku, :search))');
       expect(input.ExpressionAttributeNames).toBeUndefined();
       expect(input.ExpressionAttributeValues[':search']).toBe('lock');
@@ -745,32 +649,9 @@ describe('ProductsRepository', () => {
     it('a blank search term is no filter at all', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
-      await repository.findByType('product', 20, undefined, { search: '   ' });
+      await repository.findByCategory('Locks', 20, undefined, { search: '   ' });
 
       expect(sentInput().FilterExpression).toBeUndefined();
-    });
-
-    it('a type Query cursor carries the TypeIndex keys', async () => {
-      const rows = ['p1', 'p2'].map((id) => ({
-        ...row,
-        id,
-        PK: `PRODUCT#${id}`,
-        GSI1SK: `PRODUCT#${id}`,
-        GSI2SK: `PRODUCT#${id}`,
-      }));
-      dynamoDb.client.send.mockResolvedValueOnce({
-        Items: rows,
-        LastEvaluatedKey: { PK: 'X#9', SK: 'METADATA' },
-      });
-
-      const result = await repository.findByType('product', 1, undefined, { search: 'lock' });
-
-      expect(JSON.parse(Buffer.from(result.nextCursor!, 'base64url').toString())).toEqual({
-        PK: 'PRODUCT#p1',
-        SK: 'METADATA',
-        GSI2PK: 'TYPE#product',
-        GSI2SK: 'PRODUCT#p1',
-      });
     });
 
     // Workiz inv_product = товар, що керується запасом; послуги — ніколи.
@@ -778,32 +659,23 @@ describe('ProductsRepository', () => {
     it('manageStock=true: product-type rows whose flag is absent or true', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
-      await repository.findAll(20, undefined, { manageStock: true });
+      await repository.findByCategory('Locks', 20, undefined, { manageStock: true });
 
       const input = sentInput();
-      expect(input.IndexName).toBeUndefined();
       expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND ' +
-          '#type = :productType AND (attribute_not_exists(manageStock) OR manageStock = :true)',
+        '#type = :productType AND (attribute_not_exists(manageStock) OR manageStock = :true)',
       );
       expect(input.ExpressionAttributeNames).toEqual({ '#type': 'type' });
-      expect(input.ExpressionAttributeValues).toMatchObject({
-        ':pk': 'PRODUCT#',
-        ':sk': 'METADATA',
-        ':productType': 'product',
-        ':true': true,
-      });
+      expect(input.ExpressionAttributeValues).toMatchObject({ ':productType': 'product', ':true': true });
     });
 
     it('manageStock=false: rows whose flag is exactly false', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
-      await repository.findAll(20, undefined, { manageStock: false });
+      await repository.findByCategory('Locks', 20, undefined, { manageStock: false });
 
       const input = sentInput();
-      expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND manageStock = :false',
-      );
+      expect(input.FilterExpression).toBe('manageStock = :false');
       expect(input.ExpressionAttributeValues[':false']).toBe(false);
       expect(input.ExpressionAttributeNames).toBeUndefined();
     });
@@ -824,25 +696,33 @@ describe('ProductsRepository', () => {
     it('brandId filters on the brand', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
-      await repository.findAll(20, undefined, { brandId: 'brand-1' });
+      await repository.findByCategory('Locks', 20, undefined, { brandId: 'brand-1' });
 
       const input = sentInput();
-      expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND brandId = :brandId',
-      );
+      expect(input.FilterExpression).toBe('brandId = :brandId');
       expect(input.ExpressionAttributeValues[':brandId']).toBe('brand-1');
     });
 
-    it('a plain category or type Query stays unfiltered and asks for exactly one page', async () => {
+    it('a plain category Query stays unfiltered and asks for exactly one page', async () => {
       dynamoDb.client.send.mockResolvedValue({ Items: [row] });
 
       await repository.findByCategory('Locks', 20);
-      await repository.findByType('product', 20);
 
-      for (const call of dynamoDb.client.send.mock.calls) {
-        expect(call[0].input.FilterExpression).toBeUndefined();
-        expect(call[0].input.Limit).toBe(20);
-      }
+      expect(sentInput().FilterExpression).toBeUndefined();
+      expect(sentInput().Limit).toBe(20);
+    });
+
+    // Внутрішній обхід (`internal/all`, індексатор пошуку) і лікування типу на
+    // старті: усі рядки товарів без фільтрів.
+    it('findAll walks every product row with no other filter', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [row] });
+
+      await repository.findAll(20);
+
+      const input = sentInput();
+      expect(input.IndexName).toBeUndefined();
+      expect(input.FilterExpression).toBe('begins_with(PK, :pk) AND SK = :sk');
+      expect(input.ExpressionAttributeValues).toEqual({ ':pk': 'PRODUCT#', ':sk': 'METADATA' });
     });
 
     it('an empty filter object is the same as none', async () => {
@@ -883,6 +763,73 @@ describe('ProductsRepository', () => {
     });
   });
 
+  /**
+   * "Uncategorized" — ~13 тис. позицій в одному розділі CategoryIndex. Рідкісний
+   * пошук у ньому читав по 10 × limit рядків не більше 20 разів (10 тис. рядків
+   * при limit=50, 2 тис. при limit=10) і віддавав коротку сторінку з курсором.
+   * Категорія читається з тим самим великим бюджетом, що й розділи товарів.
+   */
+  describe('category path — the large read budget of the product partitions', () => {
+    const categoryRow = (i: number) => ({
+      ...createMockProduct({ id: `p-${i}`, name: `Item ${i}` }),
+      PK: `PRODUCT#p-${i}`,
+      SK: 'METADATA',
+      GSI1PK: 'CATEGORY#Uncategorized',
+      GSI1SK: `PRODUCT#p-${i}`,
+    });
+
+    it.each([50, 20, 10])(
+      'finds a match at the far end of a 13 000-row category at limit %i, in 40 reads or fewer',
+      async (limit) => {
+        const partition = Array.from({ length: 13_000 }, (_, i) => categoryRow(i));
+        const ROWS_PER_MB = 700;
+        dynamoDb.client.send.mockImplementation(async (command: any) => {
+          const { Limit, ExclusiveStartKey } = command.input;
+          const start = ExclusiveStartKey ? partition.findIndex((r) => r.PK === ExclusiveStartKey.PK) + 1 : 0;
+          const read = partition.slice(start, start + Math.min(Limit, ROWS_PER_MB));
+          const end = start + read.length;
+          return {
+            Items: read.filter((r) => ['p-12998', 'p-12999'].includes(r.id)),
+            LastEvaluatedKey: end < partition.length ? { PK: read[read.length - 1].PK } : undefined,
+          };
+        });
+
+        const page = await repository.findByCategory('Uncategorized', limit, undefined, { search: 'item 1299' });
+
+        expect(page.items.map((p) => p.id)).toEqual(['p-12998', 'p-12999']);
+        expect(page.nextCursor).toBeUndefined();
+        expect(dynamoDb.client.send.mock.calls.length).toBeLessThanOrEqual(40);
+      },
+    );
+
+    it('asks every filtered read for 1 000 rows, and an unfiltered one for exactly the page', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      await repository.findByCategory('Uncategorized', 10, undefined, { status: 'active' });
+      await repository.findByCategory('Uncategorized', 10);
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.Limit).toBe(1000);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.Limit).toBe(10);
+    });
+
+    it('counts a category past twenty 1 MB reads to an exact answer', async () => {
+      const ROWS_PER_MB = 700;
+      const ROWS = 20_000;
+      let reads = 0;
+      dynamoDb.client.send.mockImplementation(async () => {
+        const start = reads * ROWS_PER_MB;
+        reads += 1;
+        const count = Math.min(ROWS_PER_MB, ROWS - start);
+        return { Count: count, LastEvaluatedKey: start + count < ROWS ? { PK: `PRODUCT#p-${start + count}` } : undefined };
+      });
+
+      expect(await repository.countByCategory('Uncategorized', { status: 'active' })).toEqual({
+        total: 20_000,
+        atLeast: false,
+      });
+    });
+  });
+
   // Лічильник мусить дивитись на ту саму вибірку, що й список.
   describe('counts take the same filters as the list', () => {
     const sentInput = () => dynamoDb.client.send.mock.calls[0][0].input;
@@ -899,28 +846,6 @@ describe('ProductsRepository', () => {
       expect(input.IndexName).toBe('CategoryIndex');
       expect(input.FilterExpression).toBe('#status = :status');
       expect(input.ExpressionAttributeValues[':status']).toBe('active');
-    });
-
-    it('countByType with manageStock=false', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Count: 2 });
-
-      await repository.countByType('product', { manageStock: false });
-
-      const input = sentInput();
-      expect(input.IndexName).toBe('TypeIndex');
-      expect(input.FilterExpression).toBe('manageStock = :false');
-    });
-
-    it('countAll with brandId + search', async () => {
-      dynamoDb.client.send.mockResolvedValue({ Count: 1 });
-
-      await repository.countAll({ search: 'lock', brandId: 'brand-1' });
-
-      const input = sentInput();
-      expect(input.FilterExpression).toBe(
-        'begins_with(PK, :pk) AND SK = :sk AND ' +
-          '(contains(searchName, :search) OR contains(searchSku, :search)) AND brandId = :brandId',
-      );
     });
 
     it('an unfiltered countByCategory stays a bare key count', async () => {

@@ -1,10 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import {
-  scanPage,
-  type ScanPageResult,
-  type ScanReadInput,
-  type ScanReadOutput,
-} from '@bitcrm/shared';
 import { productSearchName } from './products.constants';
 import { decodeIndexCursor } from '../common/utils/index-cursor';
 
@@ -14,7 +8,7 @@ import { decodeIndexCursor } from '../common/utils/index-cursor';
  * order. `GET /products` without a category and without `manageStock=true`
  * Queries it instead of Scanning the shared table (~46k rows), whose read
  * budget answered short or empty pages with a cursor. ~16k rows / ~16 MB on
- * dev, so a filtered page reads it with 1 MB reads (`fillCatalogPage`).
+ * dev, so a filtered page reads it with 1 MB reads (`PRODUCT_INDEX_READ_ROWS`).
  * Transfers use `ENTITY#…` and the inventory log `INVLOG#PRODUCT#…` on the same
  * index; the prefixes never meet, and no product row carried GSI4 keys before.
  */
@@ -22,23 +16,6 @@ export const PRODUCT_CATALOG_INDEX_PK = 'PRODUCTS#ALL';
 
 /** A cursor of the catalog Query names the table keys and the GSI4 keys. */
 export const CATALOG_CURSOR_KEYS = ['PK', 'SK', 'GSI4PK', 'GSI4SK'] as const;
-
-/**
- * Rows asked of one read on a filtered catalog page, whatever the page size.
- * `scanPage` asks for `limit × 10`, which is 100 rows at a page of ten — a
- * search matching only the end of the partition would cost ~160 round trips.
- * At a thousand rows DynamoDB's 1 MB page stops the read first (~1 KB rows),
- * so every read is as large as a read can be.
- */
-export const CATALOG_INDEX_READ_ROWS = 1000;
-
-/**
- * Reads one filtered catalog page — or one count — may spend. Each is at most
- * 1 MB, so 40 cover a 40 MB / 40k-row partition: the ~16 MB one 2.5 times
- * over, and a search that matches only its last rows still answers on the
- * first page. Past it the page is handed back with a cursor, never lost.
- */
-export const CATALOG_INDEX_MAX_READS = 40;
 
 /**
  * How much of the name orders the row. An index key holds at most 1 024 bytes
@@ -182,25 +159,4 @@ export function decodeCatalogCursor(cursor: string | undefined): Record<string, 
   const key = decodeIndexCursor(cursor, CATALOG_CURSOR_KEYS);
   if (key && key.GSI4PK !== PRODUCT_CATALOG_INDEX_PK) throw new BadRequestException('Invalid cursor');
   return key;
-}
-
-/**
- * One filtered page of the catalog partition: `scanPage` with 1 MB reads and
- * the catalog read budget, and a page never longer than `limit` — `scanPage`
- * hands an overshooting last read back whole when that read also ended the
- * partition, so it is cut here too, the cursor on the last row kept.
- */
-export async function fillCatalogPage<T>(
-  read: (input: ScanReadInput) => Promise<ScanReadOutput<T>>,
-  limit: number,
-  options: { startKey?: Record<string, unknown>; keyOf: (item: T) => Record<string, unknown> },
-): Promise<ScanPageResult<T>> {
-  const page = await scanPage<T>(
-    (input) => read({ ...input, Limit: Math.max(input.Limit, CATALOG_INDEX_READ_ROWS) }),
-    limit,
-    { startKey: options.startKey, keyOf: options.keyOf, maxReads: CATALOG_INDEX_MAX_READS },
-  );
-  if (page.items.length <= limit) return page;
-  const kept = page.items.slice(0, limit);
-  return { items: kept, lastKey: options.keyOf(kept[kept.length - 1]) };
 }

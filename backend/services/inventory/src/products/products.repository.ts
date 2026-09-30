@@ -15,18 +15,20 @@ import { type Product, ProductType } from '@bitcrm/types';
 import {
   INVENTORY_TABLE,
   GSI1_NAME,
-  GSI2_NAME,
   GSI3_NAME,
   GSI4_NAME,
 } from '../common/constants/dynamo.constants';
-import { productSearchName, productSearchSku } from './products.constants';
+import {
+  PRODUCT_INDEX_MAX_READS,
+  PRODUCT_INDEX_READ_ROWS,
+  productSearchName,
+  productSearchSku,
+} from './products.constants';
 import {
   PRODUCT_CATALOG_INDEX_PK,
-  CATALOG_INDEX_MAX_READS,
   expectedCatalogIndexKeys,
   catalogIndexWrite,
   decodeCatalogCursor,
-  fillCatalogPage,
   type CatalogIndexRow,
 } from './product-catalog-index';
 import {
@@ -50,7 +52,7 @@ export interface PaginatedResult {
  * is applied on top as a FilterExpression.
  */
 export interface ProductListFilters {
-  /** A filter on every path; only `findByType` (not on the public list) keys on it instead. */
+  /** A filter on every path — no list keys on the type. */
   type?: string;
   status?: string;
   /** Matched against the lowercased `name` and `sku` (`searchName` / `searchSku`), case-insensitive. */
@@ -75,12 +77,19 @@ const KNOWN_TYPES = new Set<string>(Object.values(ProductType));
 /** A cursor of the stock-managed Query names the table keys and the GSI3 keys. */
 const STOCK_CURSOR_KEYS = ['PK', 'SK', 'GSI3PK', 'GSI3SK'] as const;
 
-/**
- * Rows a filtered read of the stock-managed partition may walk in one request.
- * The partition is ~3 100 products; the budget covers it at any page size, so
- * a search that matches only its last rows still answers on the first page.
- */
-const STOCK_INDEX_READ_BUDGET_ROWS = 6000;
+/** A cursor of a category Query names the table keys and the GSI1 keys. */
+const CATEGORY_CURSOR_KEYS = ['PK', 'SK', 'GSI1PK', 'GSI1SK'] as const;
+
+/** One index partition the product lists read. */
+interface ProductPartition {
+  indexName: string;
+  pkAttr: 'GSI1PK' | 'GSI3PK' | 'GSI4PK';
+  skAttr: 'GSI1SK' | 'GSI3SK' | 'GSI4SK';
+}
+
+const CATEGORY_PARTITION: ProductPartition = { indexName: GSI1_NAME, pkAttr: 'GSI1PK', skAttr: 'GSI1SK' };
+const STOCK_PARTITION: ProductPartition = { indexName: GSI3_NAME, pkAttr: 'GSI3PK', skAttr: 'GSI3SK' };
+const CATALOG_PARTITION: ProductPartition = { indexName: GSI4_NAME, pkAttr: 'GSI4PK', skAttr: 'GSI4SK' };
 
 /** The filters the stock-managed partition takes — manageStock is the partition itself. */
 export type StockManagedFilters = Omit<ProductListFilters, 'manageStock'>;
@@ -325,38 +334,47 @@ export class ProductsRepository {
   }
 
   /**
-   * The Query on one index partition, with the other filters on top. Without
-   * a filter it is a single read of exactly one page; with one, `Limit` counts
-   * rows read rather than kept, so the page is filled across reads and the
-   * cursor carries the index keys along with the table keys.
+   * The Query on one product partition — a category, the stock-managed one or
+   * the Price Book one — with the list filters on top, shared by each list and
+   * its count so the two can never answer about different populations.
    */
-  private async queryIndex(
-    indexName: string,
-    keyAttr: 'GSI1PK' | 'GSI2PK',
-    pk: string,
-    limit: number,
-    cursor: string | undefined,
-    filters: ProductListFilters | undefined,
-  ): Promise<PaginatedResult> {
+  private partitionQuery(partition: ProductPartition, pk: string, filters?: ProductListFilters) {
     const f = this.filterParts(filters);
-    const skAttr = keyAttr === 'GSI1PK' ? 'GSI1SK' : 'GSI2SK';
-    // Decoded before any read: garbage, or a cursor of another index, is a 400, not a 500.
-    const startKey = decodeIndexCursor(cursor, ['PK', 'SK', keyAttr, skAttr]);
-    const query = {
+    return {
       TableName: INVENTORY_TABLE,
-      IndexName: indexName,
-      KeyConditionExpression: `${keyAttr} = :pk`,
+      IndexName: partition.indexName,
+      KeyConditionExpression: `${partition.pkAttr} = :pk`,
       ExpressionAttributeValues: { ':pk': pk, ...f.values },
       ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
       ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
+      hasFilter: f.parts.length > 0,
     };
+  }
 
-    if (f.parts.length === 0) {
+  /**
+   * One page of a product partition. Unfiltered it is a single Query of
+   * exactly `limit` rows. Filtered, `Limit` counts rows read rather than kept,
+   * so the page is filled with 1 MB reads within the budget that covers the
+   * largest partition — a rare search term never answers a short or empty
+   * page with a cursor — and cut at `limit`, the cursor carrying the table
+   * keys and the index keys of the last row kept.
+   */
+  private async listPartition(
+    partition: ProductPartition,
+    pk: string,
+    limit: number,
+    startKey: Record<string, unknown> | undefined,
+    filters?: ProductListFilters,
+  ): Promise<PaginatedResult> {
+    const { hasFilter, ...query } = this.partitionQuery(partition, pk, filters);
+
+    if (!hasFilter) {
       const result = await this.dynamoDb.client.send(
         new QueryCommand({
           ...query,
+          ScanIndexForward: true,
           Limit: limit,
-          ExclusiveStartKey: startKey,
+          ...(startKey ? { ExclusiveStartKey: startKey } : {}),
         }),
       );
       return {
@@ -365,12 +383,16 @@ export class ProductsRepository {
       };
     }
 
+    const { pkAttr, skAttr } = partition;
     const page = await fillPage<Record<string, unknown>>(
-      (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, ...input })),
+      (input) =>
+        this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
       limit,
       {
         startKey,
-        keyOf: (i) => ({ PK: i.PK, SK: i.SK, [keyAttr]: i[keyAttr], [skAttr]: i[skAttr] }),
+        readRows: PRODUCT_INDEX_READ_ROWS,
+        maxReads: PRODUCT_INDEX_MAX_READS,
+        keyOf: (i) => ({ PK: i.PK, SK: i.SK, [pkAttr]: i[pkAttr], [skAttr]: i[skAttr] }),
       },
     );
     return {
@@ -379,62 +401,60 @@ export class ProductsRepository {
     };
   }
 
-  findByCategory(
+  /**
+   * How many rows of a product partition the filters select, without bodies.
+   * The largest partition is ~16 MB, past `countRows`' default twenty 1 MB
+   * reads, so every product count gets the partition budget and answers
+   * exactly. Unfiltered, the key already selects the rows.
+   */
+  private countPartition(
+    partition: ProductPartition,
+    pk: string,
+    filters?: ProductListFilters,
+  ): Promise<CountRowsResult> {
+    const { hasFilter: _hasFilter, ...query } = this.partitionQuery(partition, pk, filters);
+    return countRows(
+      (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
+      { maxReads: PRODUCT_INDEX_MAX_READS },
+    );
+  }
+
+  /** One category (CategoryIndex), every other filter on top. */
+  async findByCategory(
     category: string,
     limit: number,
     cursor?: string,
     filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
-    return this.queryIndex(GSI1_NAME, 'GSI1PK', `CATEGORY#${category}`, limit, cursor, filters);
+    // Decoded before any read: garbage, or a cursor of another index, is a 400, not a 500.
+    const startKey = decodeIndexCursor(cursor, CATEGORY_CURSOR_KEYS);
+    return this.listPartition(CATEGORY_PARTITION, `CATEGORY#${category}`, limit, startKey, filters);
   }
 
-  findByType(
-    type: string,
-    limit: number,
-    cursor?: string,
-    filters?: ProductListFilters,
-  ): Promise<PaginatedResult> {
-    return this.queryIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`, limit, cursor, filters);
+  countByCategory(category: string, filters?: ProductListFilters): Promise<CountRowsResult> {
+    return this.countPartition(CATEGORY_PARTITION, `CATEGORY#${category}`, filters);
   }
 
   /**
-   * The Scan that selects products, shared by the list and its count so the
-   * two can never answer about different populations.
+   * Every product row, in table order, one filled page at a time — the
+   * internal walk (`GET /products/internal/all`, the search indexer) and the
+   * boot-time type heal. No filters: the public list reads the partitions.
    */
-  private listFilter(filters?: ProductListFilters) {
-    const f = this.filterParts(filters);
-    return {
-      expression: ['begins_with(PK, :pk) AND SK = :sk', ...f.parts].join(' AND '),
-      values: { ':pk': 'PRODUCT#', ':sk': 'METADATA', ...f.values },
-      names: f.names,
-    };
-  }
-
-  async findAll(
-    limit: number,
-    cursor?: string,
-    filters?: ProductListFilters,
-  ): Promise<PaginatedResult> {
-    const f = this.listFilter(filters);
+  async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {
     // Decoded before any read: a garbage cursor is a 400, not a 500.
     const startKey = decodeIndexCursor(cursor, ['PK', 'SK']);
 
     // The table holds far more than products — every SKU#, STOCK#, CONTAINER#
     // and WAREHOUSE# row shares it — so a filtered Scan reads mostly rows it
-    // throws away, and `Limit` counts what was read, not what survived. Asking
-    // for fifty returned four products (two with a status filter), so the
-    // inventory page opened nearly empty. `fillPage` keeps reading until the
-    // page is full.
+    // throws away, and `Limit` counts what was read, not what survived.
+    // `fillPage` keeps reading until the page is full.
     const page = await fillPage<Record<string, unknown>>(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({
             TableName: INVENTORY_TABLE,
-            FilterExpression: f.expression,
-            ExpressionAttributeValues: f.values,
-            ...(Object.keys(f.names).length > 0 && {
-              ExpressionAttributeNames: f.names,
-            }),
+            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+            ExpressionAttributeValues: { ':pk': 'PRODUCT#', ':sk': 'METADATA' },
             ...input,
           }),
         ),
@@ -449,215 +469,42 @@ export class ProductsRepository {
   }
 
   /**
-   * The Query on the stock-managed partition, shared by the list and its count
-   * so the two can never answer about different populations.
-   */
-  private stockManagedQuery(filters?: StockManagedFilters) {
-    const f = this.filterParts(filters);
-    return {
-      TableName: INVENTORY_TABLE,
-      IndexName: GSI3_NAME,
-      KeyConditionExpression: 'GSI3PK = :pk',
-      ExpressionAttributeValues: { ':pk': PRODUCT_STOCK_INDEX_PK, ...f.values },
-      ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
-      ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
-      hasFilter: f.parts.length > 0,
-    };
-  }
-
-  /**
-   * Workiz's "inventory products": the stock-managed partition in name order,
-   * the other filters on top. Unfiltered it is one Query per page; filtered,
-   * the page is filled across reads within a budget that covers the whole
-   * partition, so a rare search term never answers an empty page with a
-   * cursor — which the Scan over the shared table did.
+   * Workiz's "inventory products": the stock-managed partition, the other
+   * filters on top — read the way every product partition is (`listPartition`).
    */
   async findStockManaged(
     limit: number,
     cursor?: string,
     filters?: StockManagedFilters,
   ): Promise<PaginatedResult> {
-    const { hasFilter, ...query } = this.stockManagedQuery(filters);
     // Decoded before any read: a Scan-era or foreign cursor is a 400, not a 500.
     const startKey = decodeIndexCursor(cursor, STOCK_CURSOR_KEYS);
-
-    if (!hasFilter) {
-      const result = await this.dynamoDb.client.send(
-        new QueryCommand({
-          ...query,
-          ScanIndexForward: true,
-          Limit: limit,
-          ...(startKey ? { ExclusiveStartKey: startKey } : {}),
-        }),
-      );
-      return {
-        items: (result.Items || []).map(this.toProduct),
-        nextCursor: encodeIndexCursor(result.LastEvaluatedKey),
-      };
-    }
-
-    const page = await fillPage<Record<string, unknown>>(
-      (input) =>
-        this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
-      limit,
-      {
-        startKey,
-        maxReads: Math.max(20, Math.ceil(STOCK_INDEX_READ_BUDGET_ROWS / (limit * 10))),
-        keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI3PK: i.GSI3PK, GSI3SK: i.GSI3SK }),
-      },
-    );
-    return {
-      items: page.items.map(this.toProduct),
-      nextCursor: encodeIndexCursor(page.lastKey),
-    };
+    return this.listPartition(STOCK_PARTITION, PRODUCT_STOCK_INDEX_PK, limit, startKey, filters);
   }
 
   /** How many stock-managed products the filters select — the count of `findStockManaged`. */
   countStockManaged(filters?: StockManagedFilters): Promise<CountRowsResult> {
-    const { hasFilter: _hasFilter, ...query } = this.stockManagedQuery(filters);
-    return countRows((input) =>
-      this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
-    );
+    return this.countPartition(STOCK_PARTITION, PRODUCT_STOCK_INDEX_PK, filters);
   }
 
   /**
-   * The Query on the Price Book partition, shared by the list and its count
-   * so the two can never answer about different populations.
-   */
-  private catalogQuery(filters?: ProductListFilters) {
-    const f = this.filterParts(filters);
-    return {
-      TableName: INVENTORY_TABLE,
-      IndexName: GSI4_NAME,
-      KeyConditionExpression: 'GSI4PK = :pk',
-      ExpressionAttributeValues: { ':pk': PRODUCT_CATALOG_INDEX_PK, ...f.values },
-      ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
-      ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
-      hasFilter: f.parts.length > 0,
-    };
-  }
-
-  /**
-   * The Price Book: every item — products, services, active and archived — in
-   * name order off the GSI4 `PRODUCTS#ALL` partition, the other filters (type,
-   * status, search, brand, `manageStock=false`) on top. Unfiltered it is one
-   * Query per page; filtered, the page is filled with 1 MB reads within a
-   * budget that covers the whole ~16k-row partition, so a rare search term
-   * never answers an empty page with a cursor — which the Scan over the shared
-   * table did.
+   * The Price Book: every item — products, services, active and archived —
+   * off the GSI4 `PRODUCTS#ALL` partition, the other filters (type, status,
+   * search, brand, `manageStock=false`) on top.
    */
   async findCatalog(
     limit: number,
     cursor?: string,
     filters?: ProductListFilters,
   ): Promise<PaginatedResult> {
-    const { hasFilter, ...query } = this.catalogQuery(filters);
     // Decoded before any read: a Scan-era, stock-partition or foreign cursor is a 400, not a 500.
     const startKey = decodeCatalogCursor(cursor);
-
-    if (!hasFilter) {
-      const result = await this.dynamoDb.client.send(
-        new QueryCommand({
-          ...query,
-          ScanIndexForward: true,
-          Limit: limit,
-          ...(startKey ? { ExclusiveStartKey: startKey } : {}),
-        }),
-      );
-      return {
-        items: (result.Items || []).map(this.toProduct),
-        nextCursor: encodeIndexCursor(result.LastEvaluatedKey),
-      };
-    }
-
-    const page = await fillCatalogPage<Record<string, unknown>>(
-      (input) =>
-        this.dynamoDb.client.send(new QueryCommand({ ...query, ScanIndexForward: true, ...input })),
-      limit,
-      {
-        startKey,
-        keyOf: (i) => ({ PK: i.PK, SK: i.SK, GSI4PK: i.GSI4PK, GSI4SK: i.GSI4SK }),
-      },
-    );
-    return {
-      items: page.items.map(this.toProduct),
-      nextCursor: encodeIndexCursor(page.lastKey),
-    };
+    return this.listPartition(CATALOG_PARTITION, PRODUCT_CATALOG_INDEX_PK, limit, startKey, filters);
   }
 
-  /**
-   * How many items the Price Book filters select — the count of `findCatalog`.
-   * The whole partition is ~16 MB, past `countRows`' default twenty 1 MB
-   * reads, so it is given the catalog budget and answers exactly.
-   */
+  /** How many items the Price Book filters select — the count of `findCatalog`. */
   countCatalog(filters?: ProductListFilters): Promise<CountRowsResult> {
-    const { hasFilter: _hasFilter, ...query } = this.catalogQuery(filters);
-    return countRows(
-      (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
-      { maxReads: CATALOG_INDEX_MAX_READS },
-    );
-  }
-
-  /**
-   * A count over one index partition, under the same filters the list applies
-   * on top of it. Unfiltered, the key already selects the rows and this is the
-   * cheap end of counting.
-   */
-  private countOnIndex(
-    indexName: string,
-    keyAttr: string,
-    pk: string,
-    filters?: ProductListFilters,
-  ): Promise<CountRowsResult> {
-    const f = this.filterParts(filters);
-    return countRows((input) =>
-      this.dynamoDb.client.send(
-        new QueryCommand({
-          TableName: INVENTORY_TABLE,
-          IndexName: indexName,
-          KeyConditionExpression: `${keyAttr} = :pk`,
-          ExpressionAttributeValues: { ':pk': pk, ...f.values },
-          ...(f.parts.length > 0 && { FilterExpression: f.parts.join(' AND ') }),
-          ...(Object.keys(f.names).length > 0 && { ExpressionAttributeNames: f.names }),
-          Select: 'COUNT',
-          ...input,
-        }),
-      ),
-    );
-  }
-
-  countByCategory(category: string, filters?: ProductListFilters): Promise<CountRowsResult> {
-    return this.countOnIndex(GSI1_NAME, 'GSI1PK', `CATEGORY#${category}`, filters);
-  }
-
-  countByType(type: string, filters?: ProductListFilters): Promise<CountRowsResult> {
-    return this.countOnIndex(GSI2_NAME, 'GSI2PK', `TYPE#${type}`, filters);
-  }
-
-  /**
-   * How many products the list holds — the number behind "Page 2 of 7".
-   *
-   * `Select: 'COUNT'` keeps the bodies off the wire, and `countRows` bounds
-   * the walk: this is a Scan over a table where most rows are not products, so
-   * an unbounded count would read all of it on every filter change.
-   */
-  async countAll(filters?: ProductListFilters): Promise<CountRowsResult> {
-    const f = this.listFilter(filters);
-
-    return countRows((input) =>
-      this.dynamoDb.client.send(
-        new ScanCommand({
-          TableName: INVENTORY_TABLE,
-          FilterExpression: f.expression,
-          ExpressionAttributeValues: f.values,
-          ...(Object.keys(f.names).length > 0 && {
-            ExpressionAttributeNames: f.names,
-          }),
-          Select: 'COUNT',
-          ...input,
-        }),
-      ),
-    );
+    return this.countPartition(CATALOG_PARTITION, PRODUCT_CATALOG_INDEX_PK, filters);
   }
 
   /**
