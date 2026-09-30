@@ -4,6 +4,7 @@ import {
   type LocationSummary,
   type ResolvedPermissions,
 } from '@bitcrm/types';
+import { type ContainerAssignment } from '../user-containers/container-assignment.resolver';
 
 /** Who is asking: the request user and the permissions the guard resolved for them. */
 export interface StockViewer {
@@ -15,14 +16,15 @@ export interface StockViewer {
  * The locations the caller's own list routes would show them, so the popup
  * and `GET /warehouses` / `GET /containers` agree: a warehouse needs
  * `warehouses.view`, a container `containers.view` plus the containers data
- * scope (`assigned_only` — the van they are assigned to, `ownContainerId`;
- * `department` — their department's). No resolved permissions means the guard
+ * scope (`assigned_only` — the van they are assigned to, or every van for a
+ * user with "All locations"; `department` — their department's). No resolved
+ * permissions means the guard
  * did not run (unit tests) and the Super Admin bypasses the matrix the way
  * the guard lets them.
  */
 export async function visibleLocations(
   viewer: StockViewer | undefined,
-  ownContainerId: (userId: string) => Promise<string | undefined>,
+  assignmentOf: (userId: string) => Promise<ContainerAssignment>,
 ): Promise<{
   warehouses: boolean;
   containers: (location: LocationSummary) => boolean;
@@ -38,7 +40,9 @@ export async function visibleLocations(
   }
   switch (resolved.dataScope.containers) {
     case DataScope.ASSIGNED_ONLY: {
-      const own = await ownContainerId(viewer.user.id);
+      const assignment = await assignmentOf(viewer.user.id);
+      if (assignment.allLocations) return { warehouses, containers: () => true };
+      const own = assignment.containerId;
       return { warehouses, containers: (l) => own !== undefined && l.id === own };
     }
     case DataScope.DEPARTMENT:

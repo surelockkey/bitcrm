@@ -348,6 +348,26 @@ describe('ContainersService', () => {
       expect(repository.findAll).not.toHaveBeenCalled();
     });
 
+    // "All locations": assigned_only не звужує список до одного фургона.
+    it('lists every container under assigned_only for a user with "All locations"', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+      const page = { items: [createMockContainer()], nextCursor: 'n' };
+      repository.findAll.mockResolvedValue(page);
+
+      const result = await service.list(
+        { limit: 20, search: 'van', status: InventoryStatus.ACTIVE } as any,
+        createMockJwtUser({ id: 'tech-1' }),
+        'assigned_only',
+      );
+
+      expect(result).toEqual(page);
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+        department: undefined,
+        search: 'van',
+        status: InventoryStatus.ACTIVE,
+      });
+    });
+
     it('should return empty array for assigned_only when no container exists', async () => {
       const user = createMockJwtUser();
       assignments.containerIdForUser.mockResolvedValue(undefined);
@@ -454,6 +474,16 @@ describe('ContainersService', () => {
 
       expect(result).toEqual({ total: 1, atLeast: false });
       expect(repository.countAll).not.toHaveBeenCalled();
+    });
+
+    it('counts every container under assigned_only for a user with "All locations"', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+      repository.countAll.mockResolvedValue({ total: 88, atLeast: false });
+
+      expect(await service.count({} as never, { id: 'u1' } as never, 'assigned_only')).toEqual({
+        total: 88,
+        atLeast: false,
+      });
     });
 
     it('counts zero when that technician has no container', async () => {

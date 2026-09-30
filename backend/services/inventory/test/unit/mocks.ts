@@ -99,9 +99,21 @@ export function createMockUserContainersRepository() {
   };
 }
 
-/** Default: nobody has a container, as for a user with no row and no legacy van. */
+/**
+ * Default: nobody has a container, as for a user with no row and no legacy van.
+ * `assignmentFor` follows whatever `containerIdForUser` is mocked to, with
+ * "All locations" off, so a spec only overrides it to test that.
+ */
 export function createMockContainerAssignmentResolver() {
-  return { containerIdForUser: jest.fn().mockResolvedValue(undefined) };
+  const resolver = {
+    containerIdForUser: jest.fn().mockResolvedValue(undefined),
+    assignmentFor: jest.fn(),
+  };
+  resolver.assignmentFor.mockImplementation(async (userId: string) => ({
+    allLocations: false,
+    containerId: await resolver.containerIdForUser(userId),
+  }));
+  return resolver;
 }
 
 export function createMockStockItem(overrides?: Partial<StockItem>): StockItem {

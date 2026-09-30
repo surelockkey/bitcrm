@@ -140,9 +140,18 @@ export class ContainersService {
     return this.repository.findAll(limit, cursor);
   }
 
+  /**
+   * Under `assigned_only` a user sees the one van they work from — or, with
+   * "All locations", every van, as if unscoped.
+   */
+  private async scopedToOwn(user: JwtUser | undefined, dataScope?: string): Promise<boolean> {
+    if (dataScope !== 'assigned_only' || !user) return false;
+    return !(await this.assignments.assignmentFor(user.id)).allLocations;
+  }
+
   async list(query: ListContainersQueryDto, user?: JwtUser, dataScope?: string) {
     // Apply data scope filtering
-    if (dataScope === 'assigned_only' && user) {
+    if (user && (await this.scopedToOwn(user, dataScope))) {
       const container = await this.ownContainer(user);
       return {
         items: container && containerMatchesFilters(container, query) ? [container] : [],
@@ -172,7 +181,7 @@ export class ContainersService {
     dataScope?: string,
   ): Promise<ListCount> {
     // Scoped to their own container: one row at most, and no count to take.
-    if (dataScope === 'assigned_only' && user) {
+    if (user && (await this.scopedToOwn(user, dataScope))) {
       const container = await this.ownContainer(user);
       return {
         total: container && containerMatchesFilters(container, query) ? 1 : 0,

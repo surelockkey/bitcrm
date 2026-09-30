@@ -58,4 +58,31 @@ describe('ContainerAssignmentResolver', () => {
   it('answers undefined when neither says anything', async () => {
     expect(await resolver.containerIdForUser('stranger')).toBeUndefined();
   });
+
+  /** Workiz "All locations": жодного одного фургона, але видно всі. */
+  describe('assignmentFor', () => {
+    it('says "all locations" for access all, with no container', async () => {
+      assignments.findByUser.mockResolvedValue(
+        createMockUserContainer({ access: UserContainerAccess.ALL, containerId: undefined }),
+      );
+
+      expect(await resolver.assignmentFor('tech-1')).toEqual({ allLocations: true });
+    });
+
+    it('names the one container for access container, and nothing for none', async () => {
+      assignments.findByUser.mockResolvedValueOnce(createMockUserContainer({ containerId: 'c-7' }));
+      expect(await resolver.assignmentFor('tech-1')).toEqual({ allLocations: false, containerId: 'c-7' });
+
+      assignments.findByUser.mockResolvedValueOnce(
+        createMockUserContainer({ access: UserContainerAccess.NONE, containerId: undefined }),
+      );
+      expect(await resolver.assignmentFor('tech-1')).toEqual({ allLocations: false });
+    });
+
+    it('falls back to the legacy technician link without a row', async () => {
+      containers.findByTechnicianId.mockResolvedValue(createMockContainer({ id: 'c-legacy' }));
+
+      expect(await resolver.assignmentFor('tech-1')).toEqual({ allLocations: false, containerId: 'c-legacy' });
+    });
+  });
 });

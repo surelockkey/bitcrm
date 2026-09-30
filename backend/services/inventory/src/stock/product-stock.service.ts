@@ -35,7 +35,7 @@ export class ProductStockService {
     }
 
     const visible = await visibleLocations(viewer, (userId) =>
-      this.assignments.containerIdForUser(userId),
+      this.assignments.assignmentFor(userId),
     );
     // Warehouses first, then containers; each list arrives in name order, the
     // Workiz placeholders of a kind after its real locations.

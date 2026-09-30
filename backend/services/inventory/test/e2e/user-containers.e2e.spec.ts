@@ -149,6 +149,20 @@ describe('User containers E2E', () => {
     expect(users.body.data).toEqual([]);
   });
 
+  // Workiz "All locations": the technician's assigned_only scope shows every van.
+  it('shows every van to a technician with "All locations"', async () => {
+    const a = await createVan('Van A');
+    const b = await createVan('Van B');
+    await assign(techUser.id, { userName: 'Mike', access: 'all' }).expect(200);
+
+    const res = await request(app.getHttpServer()).get(CONTAINERS).set('x-test-user', as(techUser)).expect(200);
+    expect(res.body.data.map((c: { id: string }) => c.id).sort()).toEqual([a.id, b.id].sort());
+
+    await assign(techUser.id, { userName: 'Mike', access: 'none' }).expect(200);
+    const none = await request(app.getHttpServer()).get(CONTAINERS).set('x-test-user', as(techUser)).expect(200);
+    expect(none.body.data).toEqual([]);
+  });
+
   it('validates the body and the container', async () => {
     await assign(techUser.id, { userName: 'Mike', access: 'container' }).expect(400);
     await assign(techUser.id, { userName: 'Mike', access: 'everything' }).expect(400);

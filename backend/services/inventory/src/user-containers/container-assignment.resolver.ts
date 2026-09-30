@@ -14,6 +14,13 @@ import { ContainersRepository } from '../containers/containers.repository';
  * all falls back to that legacy link, which is what dev holds until
  * `backfill:user-containers` has run.
  */
+/** Which containers a user works from: one, or every one ("All locations"), or none. */
+export interface ContainerAssignment {
+  allLocations: boolean;
+  /** The one container, when there is one. */
+  containerId?: string;
+}
+
 @Injectable()
 export class ContainerAssignmentResolver {
   constructor(
@@ -22,11 +29,23 @@ export class ContainerAssignmentResolver {
   ) {}
 
   async containerIdForUser(userId: string): Promise<string | undefined> {
+    return (await this.assignmentFor(userId)).containerId;
+  }
+
+  /**
+   * The whole answer, for the data scopes: `allLocations` is Workiz "All
+   * locations" — no one van, but every van visible even under
+   * `assigned_only`. "No access" is neither a van nor all of them.
+   */
+  async assignmentFor(userId: string): Promise<ContainerAssignment> {
     const row = await this.assignments.findByUser(userId);
     if (row) {
-      return row.access === UserContainerAccess.CONTAINER ? row.containerId : undefined;
+      if (row.access === UserContainerAccess.ALL) return { allLocations: true };
+      return row.access === UserContainerAccess.CONTAINER && row.containerId
+        ? { allLocations: false, containerId: row.containerId }
+        : { allLocations: false };
     }
     const legacy = await this.containers.findByTechnicianId(userId);
-    return legacy?.id;
+    return legacy ? { allLocations: false, containerId: legacy.id } : { allLocations: false };
   }
 }

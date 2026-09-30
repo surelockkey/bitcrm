@@ -87,7 +87,7 @@ export class LocationStockService {
   /** A location outside the caller's scope is a 403, before any stock is read. */
   private async assertVisible(location: LocationSummary, viewer?: StockViewer): Promise<void> {
     const visible = await visibleLocations(viewer, (userId) =>
-      this.assignments.containerIdForUser(userId),
+      this.assignments.assignmentFor(userId),
     );
     const allowed = location.type === 'warehouse' ? visible.warehouses : visible.containers(location);
     if (!allowed) {

@@ -214,6 +214,18 @@ describe('ProductStockService', () => {
       expect(result.onHand).toBe(3);
     });
 
+    // "All locations" в Workiz: технік бачить усі фургони навіть під assigned_only.
+    it('shows every van to a technician with "All locations"', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+
+      const result = await service.forProduct('prod-1', {
+        user: createMockJwtUser({ id: 'tech-1' }),
+        permissions: technicianScope(),
+      });
+
+      expect(result.locations.map((l) => l.locationId)).toEqual(['c-mine', 'c-other', 'c-else']);
+    });
+
     it('shows no van to a technician with no container', async () => {
       const user = createMockJwtUser({ id: 'tech-1' });
       assignments.containerIdForUser.mockResolvedValue(undefined);

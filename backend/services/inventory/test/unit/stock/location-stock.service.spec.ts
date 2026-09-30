@@ -130,6 +130,14 @@ describe('LocationStockService', () => {
       expect(assignments.containerIdForUser).toHaveBeenCalledWith('tech-1');
     });
 
+    it('lets a technician with "All locations" read any van', async () => {
+      assignments.assignmentFor.mockResolvedValue({ allLocations: true });
+
+      await expect(
+        service.forLocation(LocationType.CONTAINER, 'c-1', { user: createMockJwtUser({ id: 'tech-1' }), permissions: technician }),
+      ).resolves.toBeDefined();
+    });
+
     it('refuses a technician another van with a 403, before reading stock', async () => {
       assignments.containerIdForUser.mockResolvedValue('c-other');
 
