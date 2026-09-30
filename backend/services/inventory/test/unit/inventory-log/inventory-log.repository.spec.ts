@@ -315,4 +315,45 @@ describe('InventoryLogRepository', () => {
       expect(result).toEqual({ total: 3, atLeast: false });
     });
   });
+
+  /**
+   * Повернення на роботу має йти туди, звідки одиниці списали: останній запис
+   * stock_used цього товару для цієї роботи — з історії товару на GSI4, від
+   * найновішого, з обмеженою кількістю читань.
+   */
+  describe('findLatestStockUse', () => {
+    it('reads the item history newest first, filtered to stock_used of that job', async () => {
+      const used = { ...row('log-9'), action: InventoryLogAction.STOCK_USED, dealId: 'deal-1', fromId: 'c-A' };
+      dynamoDb.client.send.mockResolvedValue({ Items: [used] });
+
+      const entry = await repository.findLatestStockUse('prod-1', 'deal-1');
+
+      const input = dynamoDb.client.send.mock.calls[0][0].input;
+      expect(input).toMatchObject({
+        IndexName: 'TransferEntityIndex',
+        KeyConditionExpression: 'GSI4PK = :pk',
+        FilterExpression: '#action = :action AND dealId = :dealId',
+        ExpressionAttributeNames: { '#action': 'action' },
+        ExpressionAttributeValues: { ':pk': 'INVLOG#PRODUCT#prod-1', ':action': 'stock_used', ':dealId': 'deal-1' },
+        ScanIndexForward: false,
+      });
+      expect(entry?.fromId).toBe('c-A');
+      expect(entry).not.toHaveProperty('GSI4PK');
+    });
+
+    it('reads on past pages with no match, and gives up after a bounded number of reads', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [], LastEvaluatedKey: { PK: 'x' } });
+
+      expect(await repository.findLatestStockUse('prod-1', 'deal-1')).toBeNull();
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(5);
+      expect(dynamoDb.client.send.mock.calls[1][0].input.ExclusiveStartKey).toEqual({ PK: 'x' });
+    });
+
+    it('answers null when the history ends without a match', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+
+      expect(await repository.findLatestStockUse('prod-1', 'deal-1')).toBeNull();
+      expect(dynamoDb.client.send).toHaveBeenCalledTimes(1);
+    });
+  });
 });

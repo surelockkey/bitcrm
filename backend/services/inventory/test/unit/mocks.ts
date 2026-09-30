@@ -251,6 +251,7 @@ export function createMockInventoryLogRepository() {
     queryProduct: jest.fn().mockResolvedValue({ items: [], lastKey: undefined, reads: 1 }),
     countMonth: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
     countProduct: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
+    findLatestStockUse: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -258,6 +259,8 @@ export function createMockInventoryLogRepository() {
 export function createMockInventoryLogService() {
   return {
     record: jest.fn().mockResolvedValue(undefined),
+    // Default: no stock_used entry for the job — the restore falls back to the resolver.
+    lastStockUse: jest.fn().mockResolvedValue(null),
     list: jest.fn().mockResolvedValue({ items: [], nextCursor: undefined }),
     count: jest.fn().mockResolvedValue({ total: 0, atLeast: false }),
   };

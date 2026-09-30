@@ -54,6 +54,16 @@ describe('InventoryLogService', () => {
   });
 
   /** Собівартість у журналі — гроші: лише з financials.view. Ціна для клієнта лишається. */
+  describe('lastStockUse', () => {
+    it('asks the repository for the newest stock_used entry of the item for the job', async () => {
+      const used = createMockInventoryLogEntry({ action: InventoryLogAction.STOCK_USED, fromId: 'c-A' });
+      repository.findLatestStockUse.mockResolvedValue(used);
+
+      expect(await service.lastStockUse('prod-1', 'deal-1')).toEqual(used);
+      expect(repository.findLatestStockUse).toHaveBeenCalledWith('prod-1', 'deal-1');
+    });
+  });
+
   describe('list — costs', () => {
     const used = createMockInventoryLogEntry({
       id: 'log-used',

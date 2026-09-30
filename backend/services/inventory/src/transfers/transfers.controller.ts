@@ -162,7 +162,13 @@ export class TransfersController {
 
   @Post('internal/stock/deduct')
   @Internal()
-  @ApiOperation({ summary: 'Internal: deduct stock from container (for deal service)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  @ApiOperation({
+    summary: 'Internal: deduct stock from container (for deal service)',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. ' +
+      '`containerId` may be a technician id (resolved to the container they work from); an id ' +
+      'that is no existing container is a 404 — no stock row is touched.',
+  })
   async deductStock(@Body() dto: DeductStockDto) {
     await this.transfersService.deductStock(dto);
     return { success: true };
@@ -170,7 +176,14 @@ export class TransfersController {
 
   @Post('internal/stock/restore')
   @Internal()
-  @ApiOperation({ summary: 'Internal: restore stock to container (for deal service)', description: '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only.' })
+  @ApiOperation({
+    summary: 'Internal: restore stock to container (for deal service)',
+    description:
+      '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. Each line ' +
+      'goes back to the container its newest `stock_used` entry for this job names (one RESTORE ' +
+      'per container); only a line with no such entry falls back to the technician\'s current ' +
+      'container. A target that is no existing container is a 404, checked before any stock moves.',
+  })
   async restoreStock(@Body() dto: RestoreStockDto) {
     await this.transfersService.restoreStock(dto);
     return { success: true };

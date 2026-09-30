@@ -6,7 +6,7 @@ import {
   countRows,
   type CountRowsResult,
 } from '@bitcrm/shared';
-import { type InventoryLogAction, type InventoryLogEntry } from '@bitcrm/types';
+import { InventoryLogAction, type InventoryLogEntry } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI4_NAME } from '../common/constants/dynamo.constants';
 import {
   invlogMonth,
@@ -34,6 +34,10 @@ export interface InventoryLogPage {
   /** DynamoDB reads this page cost — what the service's budget is charged. */
   reads: number;
 }
+
+/** Rows read per page, and pages at most, when looking up where a job's units came from. */
+const LATEST_USE_PAGE = 100;
+const LATEST_USE_MAX_READS = 5;
 
 /** Key attributes that must never leak into an entry. */
 const KEY_ATTRIBUTES = new Set(['PK', 'SK', 'GSI4PK', 'GSI4SK', 'searchText']);
@@ -122,6 +126,40 @@ export class InventoryLogRepository {
       startKey,
       (item) => ({ PK: item.PK, SK: item.SK, GSI4PK: item.GSI4PK, GSI4SK: item.GSI4SK }),
     );
+  }
+
+  /**
+   * The newest `stock_used` entry of one item for one job — where a job line's
+   * units were taken from, so a restore puts them back there. Walks the item's
+   * GSI4 history newest first, a bounded number of reads; null when none of
+   * them holds one (a deduct older than the log, or a very busy item).
+   */
+  async findLatestStockUse(productId: string, dealId: string): Promise<InventoryLogEntry | null> {
+    let key: Record<string, unknown> | undefined;
+    for (let read = 0; read < LATEST_USE_MAX_READS; read++) {
+      const page = await this.dynamoDb.client.send(
+        new QueryCommand({
+          TableName: INVENTORY_TABLE,
+          IndexName: GSI4_NAME,
+          KeyConditionExpression: 'GSI4PK = :pk',
+          FilterExpression: '#action = :action AND dealId = :dealId',
+          ExpressionAttributeNames: { '#action': 'action' },
+          ExpressionAttributeValues: {
+            ':pk': invlogProductPartition(productId),
+            ':action': InventoryLogAction.STOCK_USED,
+            ':dealId': dealId,
+          },
+          ScanIndexForward: false,
+          Limit: LATEST_USE_PAGE,
+          ...(key ? { ExclusiveStartKey: key } : {}),
+        }),
+      );
+      const match = page.Items?.[0];
+      if (match) return this.toEntry(match);
+      key = page.LastEvaluatedKey;
+      if (!key) return null;
+    }
+    return null;
   }
 
   /** How many rows one month holds under the window and filters, without bodies. */

@@ -303,6 +303,8 @@ export class TransfersService {
     if (items.length === 0) return;
 
     const containerId = await this.resolveContainerId(dto.containerId);
+    // Never a phantom row: an id that is no container is a 404, not a deduct.
+    const container = await this.requireLocation(LocationType.CONTAINER, containerId);
     await this.stockService.deduct(`CONTAINER#${containerId}`, items);
     this.businessMetrics?.stockDeductions.inc();
 
@@ -327,7 +329,7 @@ export class TransfersService {
       {
         fromType: LocationType.CONTAINER,
         fromId: containerId,
-        fromName: await this.locationName(LocationType.CONTAINER, containerId),
+        fromName: container.name,
         dealId: dto.dealId,
         userId: dto.performedBy,
         userName: dto.performedByName,
@@ -336,6 +338,15 @@ export class TransfersService {
     );
   }
 
+  /**
+   * Units go back where the job took them from. deal-service names the
+   * technician again, and by now they may work from another van — or have
+   * "All locations" — so each line is restored into the container of its
+   * newest `stock_used` entry for this job; only a line the log has no entry
+   * for falls back to the technician's current container. Lines used from
+   * different vans become one RESTORE per van. Every target must be an
+   * existing container (404 otherwise), checked before any stock moves.
+   */
   async restoreStock(dto: RestoreStockDto) {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     // Symmetrical with deductStock: what was never deducted is never restored.
@@ -344,7 +355,33 @@ export class TransfersService {
     );
     if (items.length === 0) return;
 
-    const containerId = await this.resolveContainerId(dto.containerId);
+    let current: string | undefined;
+    const byContainer = new Map<string, typeof items>();
+    for (const item of items) {
+      const usedFrom = (await this.inventoryLog?.lastStockUse(item.productId, dto.dealId))?.fromId;
+      const containerId = usedFrom ?? (current ??= await this.resolveContainerId(dto.containerId));
+      byContainer.set(containerId, [...(byContainer.get(containerId) ?? []), item]);
+    }
+
+    const targets: Array<{ container: LocationSummary; items: typeof items }> = [];
+    for (const [containerId, group] of byContainer) {
+      targets.push({
+        container: await this.requireLocation(LocationType.CONTAINER, containerId),
+        items: group,
+      });
+    }
+
+    for (const target of targets) {
+      await this.restoreInto(target.container, target.items, dto);
+    }
+  }
+
+  private async restoreInto(
+    container: LocationSummary,
+    items: TransferItem[],
+    dto: RestoreStockDto,
+  ): Promise<void> {
+    const containerId = container.id;
     await this.stockService.receive(`CONTAINER#${containerId}`, items);
     this.businessMetrics?.stockTransfers.inc({ type: 'restore' });
 
@@ -368,7 +405,7 @@ export class TransfersService {
       {
         toType: LocationType.CONTAINER,
         toId: containerId,
-        toName: await this.locationName(LocationType.CONTAINER, containerId),
+        toName: container.name,
         dealId: dto.dealId,
         userId: dto.performedBy,
         userName: dto.performedByName,
@@ -389,7 +426,8 @@ export class TransfersService {
   /**
    * A location stock may move INTO: it exists and is not archived. Moving or
    * returning stock OUT of an archived location stays allowed — that is how a
-   * retired van is emptied. (The deal-service deduct/restore paths never ask.)
+   * retired van is emptied. (The deal-service deduct/restore paths only ask
+   * that the container exists: units go back to a van even if it was archived.)
    */
   private async requireDestination(type: LocationType, id: string): Promise<LocationSummary> {
     const location = await this.requireLocation(type, id);
@@ -398,20 +436,6 @@ export class TransfersService {
       throw new BadRequestException(`${label} "${location.name}" is archived`);
     }
     return location;
-  }
-
-  /**
-   * The name the log shows for a location on the internal deduct/restore
-   * paths — its id when it has no row to name it (deal-service may name a
-   * container this service never persisted).
-   */
-  private async locationName(type: LocationType, id: string): Promise<string> {
-    try {
-      const location = await this.locationsRepository.findLocation(type, id);
-      return location?.name || id;
-    } catch {
-      return id;
-    }
   }
 
   /**

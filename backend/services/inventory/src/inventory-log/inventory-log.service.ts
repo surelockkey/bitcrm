@@ -116,6 +116,14 @@ export class InventoryLogService {
   }
 
   /**
+   * The newest `stock_used` entry of an item for a job — where its units came
+   * from, so a restore puts them back there. Null when the log has none.
+   */
+  lastStockUse(productId: string, dealId: string): Promise<InventoryLogEntry | null> {
+    return this.repository.findLatestStockUse(productId, dealId);
+  }
+
+  /**
    * Newest first. One product reads its own GSI4 partition; otherwise the
    * months of the window are walked from the month of `to` down to the month
    * of `from`, each read until it ends or the page is full, so a page spans

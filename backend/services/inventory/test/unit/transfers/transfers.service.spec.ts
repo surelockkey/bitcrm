@@ -397,6 +397,22 @@ describe('TransfersService', () => {
       expect(repository.create).not.toHaveBeenCalled();
     });
 
+    it('404s a deduct from a container that does not exist instead of touching a phantom row', async () => {
+      locationsRepository.findLocation.mockResolvedValue(null);
+
+      await expect(
+        service.deductStock({
+          containerId: 'tech-user-1',
+          items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 1 }],
+          dealId: 'deal-1',
+          performedBy: 'tech-user-1',
+          performedByName: 'tech@test.com',
+        } as any),
+      ).rejects.toThrow(NotFoundException);
+      expect(stockService.deduct).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
     it('should resolve a technician id to the container they are assigned to before deducting', async () => {
       // The deal service passes the technician's user id; stock lives under the
       // container's own id — whichever van the user containers assign them.
@@ -506,6 +522,70 @@ describe('TransfersService', () => {
           unitCost: 10,
         }),
       );
+    });
+
+    /**
+     * deal-service шле на повернення знову id техніка. Якщо між списанням і
+     * поверненням його перепризначили (фургон B) чи дали "All locations",
+     * одиниці мають повернутись туди, звідки їх списали (фургон A), а не в
+     * B чи у фантомний CONTAINER#<techId>.
+     */
+    it('restores into the van the units were used from, whatever the technician holds now', async () => {
+      inventoryLog.lastStockUse.mockResolvedValue({ fromId: 'van-A' });
+      assignments.containerIdForUser.mockResolvedValue('van-B');
+
+      await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 2 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(inventoryLog.lastStockUse).toHaveBeenCalledWith('prod-1', 'deal-1');
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#van-A', expect.any(Array));
+      expect(repository.create).toHaveBeenCalledWith(expect.objectContaining({ toId: 'van-A' }));
+    });
+
+    it('splits a restore whose lines were used from two vans, one RESTORE per van', async () => {
+      inventoryLog.lastStockUse.mockImplementation(async (productId: string) =>
+        productId === 'prod-1' ? { fromId: 'van-A' } : { fromId: 'van-B' },
+      );
+
+      await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [
+          { productId: 'prod-1', productName: 'Lock', quantity: 1 },
+          { productId: 'prod-2', productName: 'Hinge', quantity: 2 },
+        ],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(stockService.receive.mock.calls).toEqual([
+        ['CONTAINER#van-A', [expect.objectContaining({ productId: 'prod-1' })]],
+        ['CONTAINER#van-B', [expect.objectContaining({ productId: 'prod-2' })]],
+      ]);
+      expect(repository.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('404s a restore into a container that does not exist, before writing any stock', async () => {
+      // "All locations": the resolver names no van, so the technician id would be taken as a container id.
+      locationsRepository.findLocation.mockResolvedValue(null);
+
+      await expect(
+        service.restoreStock({
+          containerId: 'tech-user-1',
+          items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 1 }],
+          dealId: 'deal-1',
+          performedBy: 'tech-user-1',
+          performedByName: 'tech@test.com',
+        } as any),
+      ).rejects.toThrow(NotFoundException);
+      expect(locationsRepository.findLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'tech-user-1');
+      expect(stockService.receive).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
     });
 
     it('restores into the container the technician is assigned to', async () => {
