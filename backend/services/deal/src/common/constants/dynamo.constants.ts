@@ -16,6 +16,16 @@ export const DEALS_GSI5_NAME = 'StatusScheduleIndex';
  * only, one partition a month: the report's "By: Job closed" window.
  */
 export const DEALS_GSI6_NAME = 'ClosedIndex';
+/**
+ * GSI7PK = END#<YYYY-MM>, GSI7SK = <jobEndAt>#DEAL#<id> — the visit's END on
+ * the account's clock (`YYYY-MM-DDTHH:MM`, or a bare day), one partition a
+ * month: the Jobs report's "By: Job end date" (Workiz `report_by=3`), which
+ * is neither the start nor the closing moment. A multi-day job ends months
+ * after it starts, so no window on the start index can find it. Written by
+ * `endIndexKeys()` on create and on every scheduling update; rows written
+ * before the index existed get it from `backfill:end-index`.
+ */
+export const DEALS_GSI7_NAME = 'EndIndex';
 
 // Job attachments (photos/files): PK=DEAL#<id>, SK=ATTACH#<attachmentId>.
 export const DEAL_ATTACHMENT_SK_PREFIX = 'ATTACH#';
