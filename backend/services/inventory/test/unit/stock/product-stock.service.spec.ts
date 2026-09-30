@@ -359,30 +359,28 @@ describe('ProductStockService', () => {
       locations: type === LocationType.WAREHOUSE ? [] : containers,
       placeholders: [],
     }));
-    dynamoDb.client.send
-      // First chunk: one row answered, one key deferred.
-      .mockResolvedValueOnce({
-        Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-000', 1)] },
-        UnprocessedKeys: {
-          [INVENTORY_TABLE]: { Keys: [{ PK: 'CONTAINER#c-099', SK: 'STOCK#prod-1' }] },
-        },
-      })
-      // The retry of the deferred key.
-      .mockResolvedValueOnce({
-        Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-099', 2)] },
-        UnprocessedKeys: {},
-      })
-      // Second chunk.
-      .mockResolvedValueOnce({
-        Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-119', 3)] },
-      });
+    let deferred = false;
+    dynamoDb.client.send.mockImplementation(async (command: any) => {
+      const asked = command.input.RequestItems[INVENTORY_TABLE].Keys as Array<{ PK: string }>;
+      const has = (pk: string) => asked.some((k) => k.PK === pk);
+      // The first chunk answers c-000 and defers c-099 once.
+      if (asked.length === 100 && !deferred) {
+        deferred = true;
+        return {
+          Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-000', 1)] },
+          UnprocessedKeys: { [INVENTORY_TABLE]: { Keys: [{ PK: 'CONTAINER#c-099', SK: 'STOCK#prod-1' }] } },
+        };
+      }
+      if (has('CONTAINER#c-099')) return { Responses: { [INVENTORY_TABLE]: [stockRow('CONTAINER#c-099', 2)] } };
+      return { Responses: { [INVENTORY_TABLE]: has('CONTAINER#c-119') ? [stockRow('CONTAINER#c-119', 3)] : [] } };
+    });
 
     const result = await service.forProduct('prod-1');
 
     const calls = dynamoDb.client.send.mock.calls.map((c) => c[0].input.RequestItems[INVENTORY_TABLE].Keys);
-    expect(calls.map((k) => k.length)).toEqual([100, 1, 20]);
-    expect(calls[1]).toEqual([{ PK: 'CONTAINER#c-099', SK: 'STOCK#prod-1' }]);
-    expect(calls[2][0]).toEqual({ PK: 'CONTAINER#c-100', SK: 'STOCK#prod-1' });
+    expect(calls.map((k) => k.length).sort((a, b) => a - b)).toEqual([1, 20, 100]);
+    expect(calls).toContainEqual([{ PK: 'CONTAINER#c-099', SK: 'STOCK#prod-1' }]);
+    expect(calls.find((k) => k.length === 20)![0]).toEqual({ PK: 'CONTAINER#c-100', SK: 'STOCK#prod-1' });
     expect(result.onHand).toBe(6);
     expect(result.locations).toHaveLength(120);
     expect(result.locations.find((l) => l.locationId === 'c-099')!.quantity).toBe(2);

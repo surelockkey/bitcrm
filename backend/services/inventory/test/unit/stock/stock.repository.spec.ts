@@ -187,20 +187,24 @@ describe('StockRepository', () => {
 
     it('chunks at 100 keys and retries what DynamoDB left unprocessed', async () => {
       const products = Array.from({ length: 60 }, (_, i) => `p-${i}`);
-      dynamoDb.client.send
-        .mockResolvedValueOnce({
-          Responses: { [INVENTORY_TABLE]: [] },
-          UnprocessedKeys: { [INVENTORY_TABLE]: { Keys: [{ PK: 'CONTAINER#c-1', SK: 'STOCK#p-0' }] } },
-        })
-        .mockResolvedValueOnce({
-          Responses: { [INVENTORY_TABLE]: [{ PK: 'CONTAINER#c-1', SK: 'STOCK#p-0', quantity: 1 }] },
-        })
-        .mockResolvedValueOnce({ Responses: { [INVENTORY_TABLE]: [] } });
+      let deferred = false;
+      dynamoDb.client.send.mockImplementation(async (command: any) => {
+        const asked = command.input.RequestItems[INVENTORY_TABLE].Keys as Array<{ PK: string; SK: string }>;
+        const first = asked.find((k) => k.PK === 'CONTAINER#c-1' && k.SK === 'STOCK#p-0');
+        // The first chunk leaves CONTAINER#c-1 / p-0 behind once.
+        if (first && asked.length === 100 && !deferred) {
+          deferred = true;
+          return { Responses: { [INVENTORY_TABLE]: [] }, UnprocessedKeys: { [INVENTORY_TABLE]: { Keys: [first] } } };
+        }
+        return {
+          Responses: { [INVENTORY_TABLE]: first ? [{ PK: 'CONTAINER#c-1', SK: 'STOCK#p-0', quantity: 1 }] : [] },
+        };
+      });
 
       const quantities = await repository.getQuantities(['CONTAINER#c-1', 'WAREHOUSE#wh-1'], products);
 
       const sizes = dynamoDb.client.send.mock.calls.map((c) => c[0].input.RequestItems[INVENTORY_TABLE].Keys.length);
-      expect(sizes).toEqual([100, 1, 20]);
+      expect(sizes.sort((a: number, b: number) => a - b)).toEqual([1, 20, 100]);
       expect(quantities.get('CONTAINER#c-1')?.get('p-0')).toBe(1);
     });
 

@@ -55,7 +55,10 @@ describe('LocationStockService', () => {
 
     expect(locations.findLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'c-1');
     expect(stock.getStockLevels).toHaveBeenCalledWith('CONTAINER#c-1');
-    expect(products.findByIds).toHaveBeenCalledWith(['p-z', 'p-a']);
+    // Only what the popup shows — never the 1–2 KB product row.
+    expect(products.findByIds).toHaveBeenCalledWith(['p-z', 'p-a'], {
+      attributes: ['id', 'name', 'number', 'sku', 'category', 'priceClient', 'costCompany', 'minimumStockLevel'],
+    });
     expect(result).toEqual({
       locationType: 'container',
       locationId: 'c-1',
@@ -63,8 +66,8 @@ describe('LocationStockService', () => {
       description: 'North',
       status: InventoryStatus.ACTIVE,
       rows: [
-        { productId: 'p-a', productName: 'Alpha lock', number: 12, sku: 'A-1', category: 'Locks', quantity: 5, priceClient: 30, costCompany: 11 },
-        { productId: 'p-z', productName: 'Zeta hinge', number: 13, sku: 'Z-1', category: 'Hinges', quantity: 2, priceClient: 8, costCompany: 3 },
+        { productId: 'p-a', productName: 'Alpha lock', number: 12, sku: 'A-1', category: 'Locks', quantity: 5, priceClient: 30, costCompany: 11, minimumStockLevel: 5 },
+        { productId: 'p-z', productName: 'Zeta hinge', number: 13, sku: 'Z-1', category: 'Hinges', quantity: 2, priceClient: 8, costCompany: 3, minimumStockLevel: 5 },
       ],
     });
   });
@@ -80,6 +83,26 @@ describe('LocationStockService', () => {
 
     expect(result.rows[0]).not.toHaveProperty('costCompany');
     expect(result.rows[0].priceClient).toBe(30);
+  });
+
+  // Бейдж "Low stock" у вебі порівнює quantity з мінімумом товару, а бекенд
+  // мінімуму не надсилав — бейдж не зʼявлявся ніколи.
+  it('sends each product\'s minimum stock level, and none where the product has none', async () => {
+    stock.getStockLevels.mockResolvedValue([
+      createMockStockItem({ productId: 'p-a', quantity: 2 }),
+      createMockStockItem({ productId: 'p-b', quantity: 9 }),
+    ]);
+    const noMinimum = createMockProduct({ id: 'p-b', name: 'Bolt' }) as unknown as Record<string, unknown>;
+    delete noMinimum.minimumStockLevel;
+    products.findByIds.mockResolvedValue([
+      createMockProduct({ id: 'p-a', name: 'Alpha lock', minimumStockLevel: 3 }),
+      noMinimum,
+    ]);
+
+    const result = await service.forLocation(LocationType.CONTAINER, 'c-1');
+
+    expect(result.rows.find((r) => r.productId === 'p-a')!.minimumStockLevel).toBe(3);
+    expect(result.rows.find((r) => r.productId === 'p-b')).not.toHaveProperty('minimumStockLevel');
   });
 
   it('keeps a stock row whose product row is gone, under the name the stock row stored', async () => {

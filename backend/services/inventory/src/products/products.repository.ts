@@ -26,7 +26,7 @@ import {
   type StockIndexRow,
 } from './product-stock-index';
 import { decodeIndexCursor, encodeIndexCursor } from '../common/utils/index-cursor';
-import { batchGetAll } from '../common/utils/batch-get';
+import { batchGetAll, type BatchGetOptions } from '../common/utils/batch-get';
 import { fillPage } from '../common/utils/fill-page';
 
 export interface PaginatedResult {
@@ -213,13 +213,14 @@ export class ProductsRepository {
   }
 
   /**
-   * The products these ids name, each read once, 100 keys a BatchGet (with
-   * the shared bounded retry of unprocessed keys). An id with no row is
-   * simply absent; order is not kept.
+   * The products these ids name, each read once, 100 keys a BatchGet (a few
+   * in flight, with the shared bounded retry of unprocessed keys). An id with
+   * no row is simply absent; order is not kept. `attributes` reads only those
+   * fields — the answer then carries nothing else, so ask for `id`.
    */
-  async findByIds(ids: string[]): Promise<Product[]> {
+  async findByIds(ids: string[], options: BatchGetOptions = {}): Promise<Product[]> {
     const keys = [...new Set(ids)].map((id) => ({ PK: `PRODUCT#${id}`, SK: 'METADATA' }));
-    const rows = await batchGetAll(this.dynamoDb.client, keys);
+    const rows = await batchGetAll(this.dynamoDb.client, keys, options);
     return rows.map((row) => this.toProduct(row));
   }
 

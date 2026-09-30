@@ -262,6 +262,18 @@ describe('ProductsRepository.findByIds', () => {
     expect(products[0]).not.toHaveProperty('PK');
   });
 
+  it('reads only the attributes asked for', async () => {
+    dynamoDb.client.send.mockResolvedValue({
+      Responses: { BitCRM_Inventory: [{ id: 'p-1', name: 'Alpha', number: 12 }] },
+    });
+
+    const [product] = await repository.findByIds(['p-1'], { attributes: ['id', 'name', 'number'] });
+
+    const asked = Object.values(dynamoDb.client.send.mock.calls[0][0].input.RequestItems)[0] as Record<string, unknown>;
+    expect(asked.ProjectionExpression).toBe('#a0, #a1, #a2');
+    expect(product).toMatchObject({ id: 'p-1', name: 'Alpha', number: 12 });
+  });
+
   it('reads nothing for no ids', async () => {
     expect(await repository.findByIds([])).toEqual([]);
     expect(dynamoDb.client.send).not.toHaveBeenCalled();
