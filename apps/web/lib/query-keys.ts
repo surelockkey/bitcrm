@@ -161,8 +161,6 @@ export const queryKeys = {
       stock: (id: string) => ["products", id, "stock"] as const,
       /** The whole catalog as a list, for the job and estimate item pickers. */
       map: () => ["products", "all-map"] as const,
-      /** Stock-managed items by id, for the stock join. Not `map`: that one holds an array. */
-      stockMap: () => ["products", "stock-map"] as const,
     },
     warehouses: {
       all: () => ["warehouses"] as const,
@@ -192,6 +190,28 @@ export const queryKeys = {
       all: () => ["brands"] as const,
       list: () => ["brands", "list"] as const,
     },
+    /** Workiz "User containers": which van each user works from. */
+    userContainers: {
+      all: () => ["user-containers"] as const,
+      list: () => ["user-containers", "list"] as const,
+      /** The caller's own row. */
+      mine: () => ["user-containers", "me"] as const,
+    },
+    /** A van's ideal loadout, and how a van compares with it. */
+    containerTemplates: {
+      all: () => ["container-templates"] as const,
+      list: (status?: string) => ["container-templates", "list", status] as const,
+      detail: (id: string) => ["container-templates", "detail", id] as const,
+      diff: (id: string, containerId: string, warehouseId?: string) =>
+        ["container-templates", id, "diff", containerId, warehouseId] as const,
+    },
+    /**
+     * One location's stock (`GET /stock/locations/:type/:id`), under the
+     * location's own root — a movement, which refreshes both locations,
+     * refreshes it too.
+     */
+    locationStock: (type: "warehouse" | "container", id: string) =>
+      [type === "container" ? "containers" : "warehouses", id, "location-stock"] as const,
     transfers: {
       all: () => ["transfers"] as const,
       list: (filters?: unknown) => ["transfers", "list", filters] as const,

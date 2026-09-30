@@ -1,5 +1,7 @@
 import type {
   Container,
+  LocationStock,
+  LocationStockRow,
   LocationSummaryType,
   LocationType,
   ReturnReason,
@@ -51,6 +53,25 @@ export function returnStock(body: ReturnStockBody): Promise<Transfer> {
 /** Between any two locations, warehouse→warehouse included. */
 export function moveStock(body: MoveStockBody): Promise<Transfer> {
   return http.post<Transfer>("/inventory/transfers", body);
+}
+
+/* --- One location's stock --- */
+
+export type { LocationStock, LocationStockRow };
+
+/**
+ * A row as the views read it. `minimumStockLevel` is not part of the
+ * endpoint's answer (yet): a row is marked low only when it carries one.
+ */
+export type LocationStockRowIn = LocationStockRow & { minimumStockLevel?: number };
+
+/**
+ * Everything one warehouse or van holds, in one request. The rows come
+ * joined to the catalog server-side — the browser used to page the whole
+ * stock-managed catalog (3 102 items, 32 sequential requests) to name them.
+ */
+export function getLocationStock(type: LocationSummaryType, id: string): Promise<LocationStock> {
+  return http.get<LocationStock>(`/inventory/stock/locations/${type}/${encodeURIComponent(id)}`);
 }
 
 /* --- Every location, for pickers --- */

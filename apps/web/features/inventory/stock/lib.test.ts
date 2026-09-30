@@ -10,6 +10,7 @@ import {
   moveTargets,
   movementMessages,
   pageSlice,
+  stockRowsOf,
   stockSummary,
   toLocations,
   type StockLocation,
@@ -81,6 +82,17 @@ describe("toLocations", () => {
     { id: "c2", name: "", technicianName: "Pavlo", status: InventoryStatus.ACTIVE, createdAt: "", updatedAt: "" },
   ];
 
+  // "Used by" on Templates counts the vans naming one; Apply defaults to the
+  // primary warehouse when the server marks one.
+  it("keeps a van's template and a warehouse's primary mark", () => {
+    const [shop, van] = toLocations(
+      [{ ...warehouses[0], isPrimary: true } as Warehouse],
+      [{ ...containers[0], templateId: "tp1" }],
+    );
+    expect(shop).toMatchObject({ type: "warehouse", isPrimary: true });
+    expect(van).toMatchObject({ type: "container", templateId: "tp1" });
+  });
+
   it("lists warehouses first, then containers, keeping what a picker shows", () => {
     expect(toLocations(warehouses, containers)).toEqual([
       { type: "warehouse", id: "w1", name: "Main", description: "Dallas yard", status: "active" },
@@ -138,7 +150,7 @@ describe("locationCards — the three cards of a warehouse's or van's popup", ()
     expect(locationCards(summary, true)).toEqual({ skus: "12", units: "1244", value: "$16605.00" });
   });
 
-  it("has no value to show while the catalog join is missing — not a $0.00", () => {
+  it("has no value to show while a row has no price — not a $0.00", () => {
     expect(locationCards(summary, false)).toEqual({ skus: "12", units: "1244", value: "—" });
   });
 
@@ -271,5 +283,51 @@ describe("locationHint", () => {
     expect(
       locationHint({ type: "container", id: "c2", name: "Pavlo", status: InventoryStatus.ACTIVE, technicianName: "Pavlo" }),
     ).toBe("");
+  });
+});
+
+/** F2's rows arrive named and priced; the views read them as stock rows. */
+describe("stockRowsOf", () => {
+  it("takes the name, SKU, category and price the server sent, and values the row", () => {
+    expect(
+      stockRowsOf([
+        { productId: "p1", productName: "Deadbolt", sku: "LOCK-001", category: "Locks", quantity: 6, priceClient: 45 },
+      ]),
+    ).toEqual([
+      {
+        productId: "p1",
+        name: "Deadbolt",
+        sku: "LOCK-001",
+        category: "Locks",
+        quantity: 6,
+        unitPrice: 45,
+        value: 270,
+        minLevel: undefined,
+        isLow: false,
+      },
+    ]);
+  });
+
+  it("leaves value unknown without a price", () => {
+    const [row] = stockRowsOf([{ productId: "p1", productName: "Deadbolt", quantity: 2 }]);
+    expect(row.unitPrice).toBeUndefined();
+    expect(row.value).toBeUndefined();
+  });
+
+  it("keeps the server's order — it already sorts by name", () => {
+    const rows = stockRowsOf([
+      { productId: "p2", productName: "Strike plate", quantity: 1 },
+      { productId: "p1", productName: "Deadbolt", quantity: 1 },
+    ]);
+    expect(rows.map((r) => r.productId)).toEqual(["p2", "p1"]);
+  });
+
+  it("marks a row low only against a minimum the row carries", () => {
+    const [low, fine, none] = stockRowsOf([
+      { productId: "p1", productName: "A", quantity: 2, minimumStockLevel: 5 },
+      { productId: "p2", productName: "B", quantity: 9, minimumStockLevel: 5 },
+      { productId: "p3", productName: "C", quantity: 1 },
+    ]);
+    expect([low.isLow, fine.isLow, none.isLow]).toEqual([true, false, false]);
   });
 });

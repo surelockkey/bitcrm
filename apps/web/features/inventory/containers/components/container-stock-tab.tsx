@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/features/inventory/warehouses/lib";
 import { useContainerStockView } from "../hooks";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 
 /**
  * The columns, with the width each one starts at — read by both the
@@ -57,16 +58,22 @@ export function ContainerStockTab({ containerId }: { containerId: string }) {
     return <Empty title="Empty van" body="No stock on this truck. Restock it with a transfer from a warehouse." />;
   }
 
+  // Low is measured against the item's minimum; with none on any row there is
+  // nothing to count, and "0" would be a claim nobody checked.
+  const levels = rows.some((r) => r.minLevel != null);
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className={levels ? "grid gap-3 sm:grid-cols-4" : "grid gap-3 sm:grid-cols-3"}>
         <Stat label="SKUs" value={summary.skuCount.toLocaleString()} />
         <Stat label="On hand" value={summary.totalUnits.toLocaleString()} />
         <Stat label="Value" value={formatMoney(summary.totalValue)} accent />
-        <Stat label="Low stock" value={String(summary.lowCount)} warn={summary.lowCount > 0} />
+        {levels ? (
+          <Stat label="Low stock" value={String(summary.lowCount)} warn={summary.lowCount > 0} />
+        ) : null}
       </div>
 
-      <div className="overflow-hidden border">
+      <TableFrame>
         {/* `table-fixed`: the column decides its width, not the longest
             product name on the truck — and the reader can drag the edge. */}
         <Table className="table-fixed">
@@ -127,7 +134,7 @@ export function ContainerStockTab({ containerId }: { containerId: string }) {
             </TableRow>
           </TableFooter>
         </Table>
-      </div>
+      </TableFrame>
     </div>
   );
 }

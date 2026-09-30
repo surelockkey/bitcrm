@@ -21,12 +21,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { usePermissions } from "@/features/auth/use-permissions";
-import { useContainer, useContainerStockView } from "@/features/inventory/containers/hooks";
-import { containerTitle } from "@/features/inventory/containers/lib";
-import { useWarehouse, useWarehouseStockView } from "@/features/inventory/warehouses/hooks";
 import type { EnrichedStockRow, StockSummary } from "@/features/inventory/warehouses/lib";
+import { ApiError } from "@/lib/api/errors";
+import { useLocationStock } from "../hooks";
 import { filterItemRows, locationCards, pageSlice } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 import {
   PAGE_SIZES,
   PanelError,
@@ -48,11 +48,14 @@ export function LocationStockDialog({
   locationId,
   open,
   onOpenChange,
+  aside,
 }: {
   type: LocationSummaryType;
   locationId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Shown above the stock — the Containers tab puts the van's template strip here. */
+  aside?: ReactNode;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -61,47 +64,37 @@ export function LocationStockDialog({
         // popup fits a phone as well as a desktop.
         className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
       >
-        <LocationStock type={type} id={locationId} open={open} onDone={() => onOpenChange(false)} />
+        <LocationStock
+          type={type}
+          id={locationId}
+          open={open}
+          aside={aside}
+          onDone={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   );
-}
-
-/**
- * Both kinds are asked for, each only when it is the one open — hooks can't
- * be called conditionally, a disabled query costs nothing.
- */
-function useLocationStock(type: LocationSummaryType, id: string, open: boolean) {
-  const isVan = type === "container";
-  const van = useContainer(id, open && isVan);
-  const shop = useWarehouse(id, open && !isVan);
-  const vanStock = useContainerStockView(id, open && isVan);
-  const shopStock = useWarehouseStockView(id, open && !isVan);
-
-  const name = isVan ? (van.data ? containerTitle(van.data) : undefined) : shop.data?.name;
-  return {
-    name,
-    // A stale `?stock=<id>`: the location itself is gone.
-    missing: isVan ? van.isError : shop.isError,
-    // The rows' action labels name the location; wait for it with the stock.
-    loading: isVan ? van.isLoading : shop.isLoading,
-    stock: isVan ? vanStock : shopStock,
-  };
 }
 
 function LocationStock({
   type,
   id,
   open,
+  aside,
   onDone,
 }: {
   type: LocationSummaryType;
   id: string;
   open: boolean;
+  aside?: ReactNode;
   onDone: () => void;
 }) {
   const { can } = usePermissions();
-  const { name, missing, loading, stock } = useLocationStock(type, id, open);
+  // One request: the location's name and its rows, named and priced.
+  const stock = useLocationStock(type, id, open);
+  const { name } = stock;
+  // A stale `?stock=<id>`: the location itself is gone.
+  const missing = stock.error instanceof ApiError && stock.error.status === 404;
   const kind = type === "container" ? "Container" : "Warehouse";
 
   let body: ReactNode;
@@ -109,7 +102,7 @@ function LocationStock({
     body = <p className="py-10 text-center text-sm text-muted-foreground">It may have been deleted.</p>;
   } else if (stock.isError) {
     body = <PanelError onRetry={() => stock.refetch()} />;
-  } else if (loading || stock.isLoading) {
+  } else if (stock.isLoading) {
     body = <PanelLoading testId="location-stock-loading" cards={3} />;
   } else {
     body = (
@@ -117,7 +110,9 @@ function LocationStock({
         location={{ type, id, name: name ?? "" }}
         rows={stock.rows}
         summary={stock.summary}
-        priced={stock.joinReady}
+        // The server prices every row whose item still exists; with none
+        // priced there is no value to show — "—", not a $0.00.
+        priced={stock.rows.length === 0 || stock.rows.some((r) => r.unitPrice != null)}
         actions={can("transfers", "create")}
       />
     );
@@ -134,7 +129,10 @@ function LocationStock({
           Every item this {type === "container" ? "van" : "warehouse"} holds.
         </DialogDescription>
       </DialogHeader>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">{body}</div>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {missing ? null : aside}
+        {body}
+      </div>
       <DialogFooter className="m-0 flex-none">
         <Button className="px-5" onClick={onDone}>
           Done
@@ -162,9 +160,8 @@ function StockBody({
   const [page, setPage] = useState(1);
 
   const cards = locationCards(summary, priced);
-  // The endpoint answers in key order; a person looks an item up by name.
-  const sorted = useMemo(() => [...rows].sort((a, b) => a.name.localeCompare(b.name)), [rows]);
-  const matching = useMemo(() => filterItemRows(sorted, search), [sorted, search]);
+  // Already in name order — the server sorts.
+  const matching = useMemo(() => filterItemRows(rows, search), [rows, search]);
   const view = pageSlice(matching, page, size);
   const columns = actions ? 4 : 3;
 
@@ -191,7 +188,7 @@ function StockBody({
           }}
         />
 
-        <div className="overflow-hidden border bg-background">
+        <TableFrame className="bg-background">
           {/* Fixed layout: a long item name clips instead of pushing the
               columns about; on a phone the table scrolls sideways. */}
           <Table className="min-w-[32rem] table-fixed">
@@ -223,7 +220,7 @@ function StockBody({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableFrame>
 
         <PanelPager view={view} onPage={setPage} />
       </div>

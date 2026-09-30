@@ -10,18 +10,19 @@ import * as api from "./api";
  * Скільки всього рядків під тими самими фільтрами — з цього панель робить
  * «Page 2 of 7». Сервер тримає число тридцять секунд, тож і тут стільки ж.
  */
-export function useTransfersCount() {
+export function useTransfersCount(filter: api.TransferFilter = {}) {
   return useQuery({
-    queryKey: queryKeys.inventory.transfers.count(),
-    queryFn: () => api.countTransfers(),
+    queryKey: queryKeys.inventory.transfers.count(filter),
+    queryFn: () => api.countTransfers(filter),
     staleTime: 30_000,
   });
 }
 
-export function useTransfers(limit = 50) {
+/** One type or all of them, filtered on the server — the key carries the filter. */
+export function useTransfers(filter: api.TransferFilter = {}, limit = 50) {
   return useInfiniteQuery({
-    queryKey: [...queryKeys.inventory.transfers.list(), limit],
-    queryFn: ({ pageParam }) => api.listTransfers(pageParam, limit),
+    queryKey: queryKeys.inventory.transfers.list({ ...filter, limit }),
+    queryFn: ({ pageParam }) => api.listTransfers(filter, pageParam, limit),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.pagination.nextCursor,
   });

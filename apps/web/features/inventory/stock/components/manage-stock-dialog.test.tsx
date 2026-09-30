@@ -150,6 +150,14 @@ describe("ManageStockDialog — the Workiz popup", () => {
     expect(rows.map((r) => r[2])).toEqual(["300", "0", "69"]);
   });
 
+  it("scrolls the table sideways instead of clipping it", () => {
+    open();
+    const frame = document.querySelector('[role="dialog"] [data-slot=table-frame]') as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.className).toMatch(/overflow-x-auto/);
+    expect(frame.className).not.toMatch(/overflow-hidden/);
+  });
+
   it("left-aligns the table — numbers included", () => {
     open();
     const cells = document.querySelectorAll('[role="dialog"] th, [role="dialog"] td');
@@ -269,6 +277,32 @@ describe("ManageStockDialog — actions per location", () => {
     expect(screen.getByRole("button", { name: "Add Deadbolt to Old yard" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Move Deadbolt from Old yard" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Return Deadbolt from Old yard" })).toBeEnabled();
+  });
+
+  // A location deleted in Workiz is listed only while it still holds the item:
+  // no units go missing from the total, and they can be moved or returned.
+  it("greys out a location deleted in Workiz, says so, and lets its units leave", () => {
+    mocks.stock = query({
+      productId: "p1",
+      onHand: 4,
+      locations: [
+        row({
+          locationId: "cz",
+          name: "Van 9 (видалено у Workiz)",
+          status: InventoryStatus.ARCHIVED,
+          placeholder: true,
+          quantity: 4,
+        }),
+      ],
+    });
+    open();
+    const tr = screen.getByText("Van 9 (видалено у Workiz)").closest("tr") as HTMLElement;
+    expect(within(tr).getByText("Deleted in Workiz")).toBeInTheDocument();
+    expect(within(tr).queryByText("Archived")).toBeNull();
+    expect(tr.className).toMatch(/opacity-/);
+    expect(screen.getByRole("button", { name: "Add Deadbolt to Van 9 (видалено у Workiz)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Move Deadbolt from Van 9 (видалено у Workiz)" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Return Deadbolt from Van 9 (видалено у Workiz)" })).toBeEnabled();
   });
 
   it("has no add when opened with allowAdd={false}", () => {

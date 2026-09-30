@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeftRight, Plus, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,10 +13,13 @@ import {
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
+import { cn } from "@/lib/utils";
 import { formatDate } from "@/features/users/lib";
 import { usePermissions } from "@/features/auth/use-permissions";
 import { useTransfers, useLocationMap, useTransfersCount } from "../hooks";
+import type { TransferFilter } from "../api";
 import { TransferTypeBadge } from "./transfer-type-badge";
 import { TransferRoute } from "./transfer-route";
 import { TransferRecordDialog } from "./transfer-record-dialog";
@@ -25,6 +28,17 @@ import { ListPagination } from "@/components/ui/list-pagination";
 import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
+import { TableFrame } from "@/features/inventory/components/table-frame";
+
+/** Workiz's type chips. The server filters by them, the count included. */
+const TYPE_CHIPS: { value: TransferType | "all"; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: TransferType.RECEIVE, label: "Receive" },
+  { value: TransferType.TRANSFER, label: "Transfer" },
+  { value: TransferType.DEDUCT, label: "Deduct" },
+  { value: TransferType.RESTORE, label: "Restore" },
+  { value: TransferType.RETURN, label: "Return" },
+];
 
 /**
  * The columns, with the width each one starts at — read by both the
@@ -52,21 +66,23 @@ export function TransfersPage() {
   const { can } = usePermissions();
   const [pageSize, setPageSize] = usePageSize(TABLE_KEY);
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
-  const query = useTransfers(pageSize);
+  const [type, setType] = useState<TransferType | "all">("all");
+  // The type goes to the server with the page and the count: filtering the
+  // one page on screen showed a different handful on every page under a page
+  // count that didn't match. There is still no search — the server has none.
+  const filter: TransferFilter = useMemo(() => (type === "all" ? {} : { type }), [type]);
+  const query = useTransfers(filter, pageSize);
   const { map } = useLocationMap();
   const [record, setRecord] = useState<Transfer | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 
-  const count = useTransfersCount();
+  const count = useTransfersCount(filter);
   const pager = usePager(pagedSource(query), {
     total: count.data?.total,
     totalIsFloor: count.data?.atLeast,
     pageSize,
-    resetKey: String(pageSize),
+    resetKey: JSON.stringify({ filter, pageSize }),
   });
-  // No type chips or search here: GET /inventory/transfers filters on
-  // neither, and filtering the one page on screen shows a different handful
-  // on every page under a page count that doesn't match.
   const transfers = pager.items;
 
   if (!can("transfers", "view")) {
@@ -81,6 +97,25 @@ export function TransfersPage() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
+        <div role="group" aria-label="Transfer type" className="inline-flex overflow-hidden border text-xs">
+          {TYPE_CHIPS.map((c, i) => (
+            <button
+              key={c.value}
+              type="button"
+              aria-pressed={type === c.value}
+              onClick={() => setType(c.value)}
+              className={cn(
+                "px-3 py-1.5 transition-colors",
+                i > 0 && "border-l",
+                type === c.value
+                  ? "bg-muted font-semibold text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
         {/* Скільки всього — під таблицею; тут було б число однієї сторінки. */}
         <span className="ml-auto" />
         {can("transfers", "create") ? (
@@ -116,15 +151,19 @@ export function TransfersPage() {
               <ArrowLeftRight className="size-6" />
             </div>
             <div>
-              <div className="font-medium">No transfers yet</div>
+              <div className="font-medium">
+                {type === "all" ? "No transfers yet" : "No transfers of this type"}
+              </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                Receiving, transferring, or using stock on a job will show up here.
+                {type === "all"
+                  ? "Receiving, transferring, or using stock on a job will show up here."
+                  : "Pick another type, or All."}
               </p>
             </div>
           </div>
         ) : (
           <>
-            <div className="overflow-hidden border">
+            <TableFrame>
               {/* `table-fixed`: the column decides its width, not the
                   longest item list on the page — and the reader can drag
                   the edge. */}
@@ -169,7 +208,7 @@ export function TransfersPage() {
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </TableFrame>
             <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} />
           </>
         )}

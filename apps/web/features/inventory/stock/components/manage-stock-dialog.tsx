@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -26,6 +27,7 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useProduct, useProductStock } from "@/features/inventory/products/hooks";
 import { filterStockRows, pageSlice, stockSummary } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 import {
   PAGE_SIZES,
   PanelError,
@@ -180,7 +182,7 @@ function StockBody({
           }}
         />
 
-        <div className="overflow-hidden border bg-background">
+        <TableFrame className="bg-background">
           {/* Fixed layout: a long van name clips instead of pushing the
               columns about; on a phone the table scrolls sideways. */}
           <Table className="min-w-[36rem] table-fixed">
@@ -220,7 +222,7 @@ function StockBody({
               )}
             </TableBody>
           </Table>
-        </div>
+        </TableFrame>
 
         <PanelPager view={view} onPage={setPage} />
       </div>
@@ -240,17 +242,20 @@ function LocationRow({
   actions: boolean;
   allowAdd: boolean;
 }) {
-  const archived = l.status === InventoryStatus.ARCHIVED;
+  // A location deleted in Workiz is listed only while it still holds the item,
+  // so its units stay counted and can still be moved or returned.
+  const deleted = l.placeholder === true;
+  const archived = deleted || l.status === InventoryStatus.ARCHIVED;
   const Icon = l.locationType === "warehouse" ? Warehouse : Truck;
   return (
-    <TableRow>
+    <TableRow className={cn(deleted && "opacity-55")}>
       <TableCell className="overflow-hidden">
         <div className="flex items-center gap-2">
           <Icon aria-hidden className="size-4 flex-none text-muted-foreground" />
           <span className="truncate font-medium">{l.name}</span>
           {archived ? (
             <Badge variant="outline" className="flex-none font-normal text-muted-foreground">
-              Archived
+              {deleted ? "Deleted in Workiz" : "Archived"}
             </Badge>
           ) : null}
         </div>

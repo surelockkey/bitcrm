@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -12,7 +11,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import type { WarehouseValues } from "./schemas";
-import { enrichStock, summarizeStock } from "./lib";
+import { useLocationStock } from "@/features/inventory/stock/hooks";
 
 export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
   return useInfiniteQuery({
@@ -43,6 +42,7 @@ export function useWarehouse(id: string, enabled = true) {
   });
 }
 
+/** The bare stock rows — what the archive check counts. */
 export function useWarehouseStock(id: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.inventory.warehouses.stock(id),
@@ -52,43 +52,9 @@ export function useWarehouseStock(id: string, enabled = true) {
   });
 }
 
-/** Stock-managed items as an id→Product map, for the stock join. Cached hard. */
-export function useProductMap(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.inventory.products.stockMap(),
-    queryFn: async () => {
-      const products = await api.fetchStockManagedProducts();
-      return new Map(products.map((p) => [p.id, p] as const));
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
-/** Warehouse stock joined with the catalog: enriched rows + a summary. */
+/** What one warehouse holds — one request, named and priced by the server. */
 export function useWarehouseStockView(id: string, enabled = true) {
-  const stockQ = useWarehouseStock(id, enabled);
-  const mapQ = useProductMap(enabled);
-
-  const inStock = useMemo(
-    () => (stockQ.data ?? []).filter((s) => s.quantity > 0),
-    [stockQ.data],
-  );
-  const rows = useMemo(
-    () => enrichStock(inStock, mapQ.data ?? new Map()),
-    [inStock, mapQ.data],
-  );
-  const summary = useMemo(() => summarizeStock(rows), [rows]);
-
-  return {
-    rows,
-    summary,
-    isLoading: stockQ.isLoading || mapQ.isLoading,
-    isError: stockQ.isError,
-    // The join is best-effort; a failed catalog fetch just drops enrichment.
-    joinReady: mapQ.isSuccess,
-    refetch: stockQ.refetch,
-  };
+  return useLocationStock("warehouse", id, enabled);
 }
 
 export function useCreateWarehouse() {

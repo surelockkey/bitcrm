@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -10,8 +9,7 @@ import {
 import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
-import { useProductMap } from "@/features/inventory/warehouses/hooks";
-import { enrichStock, summarizeStock } from "@/features/inventory/warehouses/lib";
+import { useLocationStock } from "@/features/inventory/stock/hooks";
 import * as api from "./api";
 
 /**
@@ -68,43 +66,17 @@ export function useUpdateContainer() {
   });
 }
 
-export function useContainerStock(id: string, enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.inventory.containers.stock(id),
-    queryFn: () => api.getContainerStock(id),
-    enabled,
-    staleTime: 30 * 1000,
-  });
-}
-
+/** The caller's own van — `null` when they have none (see `fetchMyContainer`). */
 export function useMyContainer() {
   return useQuery({
     queryKey: queryKeys.inventory.containers.mine(),
-    queryFn: () => api.getMyContainer(),
+    queryFn: api.fetchMyContainer,
+    // A 404 is an answer, not a blip.
+    retry: false,
   });
 }
 
-/** Container stock joined with the catalog — reuses the Warehouses join. */
+/** What one van holds — one request, named and priced by the server. */
 export function useContainerStockView(id: string, enabled = true) {
-  const stockQ = useContainerStock(id, enabled);
-  const mapQ = useProductMap(enabled);
-
-  const inStock = useMemo(
-    () => (stockQ.data ?? []).filter((s) => s.quantity > 0),
-    [stockQ.data],
-  );
-  const rows = useMemo(
-    () => enrichStock(inStock, mapQ.data ?? new Map()),
-    [inStock, mapQ.data],
-  );
-  const summary = useMemo(() => summarizeStock(rows), [rows]);
-
-  return {
-    rows,
-    summary,
-    isLoading: stockQ.isLoading || mapQ.isLoading,
-    isError: stockQ.isError,
-    joinReady: mapQ.isSuccess,
-    refetch: stockQ.refetch,
-  };
+  return useLocationStock("container", id, enabled);
 }

@@ -110,3 +110,52 @@ describe("useUrlPopups — history", () => {
     expect(nav.current()).toBe(`${PATH}?tab=x`);
   });
 });
+
+/**
+ * A popup may need more than one value — Apply names a template and a van
+ * (`?apply=<templateId>&container=<id>`). Its extra params come and go with it.
+ */
+describe("useUrlPopups — a popup with extra params", () => {
+  function renderWithExtras() {
+    const hook = renderHook(() => useUrlPopups(PATH, ["apply", "template"] as const, ["container"] as const));
+    const run = (fn: (p: typeof hook.result.current) => void) =>
+      act(() => {
+        fn(hook.result.current);
+        hook.rerender();
+      });
+    return { ...hook, run };
+  }
+
+  it("opens with its extras and reads them back", () => {
+    const { result, run } = renderWithExtras();
+    run((p) => p.open("apply", "t1", { container: "c1" }));
+    expect(nav.current()).toBe(`${PATH}?apply=t1&container=c1`);
+    expect(result.current.param("apply")).toBe("t1");
+    expect(result.current.param("container")).toBe("c1");
+  });
+
+  it("drops the extras when another popup replaces it, and on close", () => {
+    const { run } = renderWithExtras();
+    run((p) => p.open("apply", "t1", { container: "c1" }));
+    run((p) => p.replace("template", "t1"));
+    expect(nav.current()).toBe(`${PATH}?template=t1`);
+    run((p) => p.close());
+    expect(nav.current()).toBe(PATH);
+
+    nav.reset("/dashboard", `${PATH}?tab=x&apply=t1&container=c1`);
+    const arrived = renderWithExtras();
+    arrived.run((p) => p.close());
+    expect(nav.current()).toBe(`${PATH}?tab=x`);
+  });
+
+  it("changes an extra in place without a new history entry", () => {
+    const { run } = renderWithExtras();
+    run((p) => p.open("apply", "t1", { container: "c1" }));
+    const depth = nav.state.at;
+    run((p) => p.replace("apply", "t1", { container: "c2" }));
+    expect(nav.current()).toBe(`${PATH}?apply=t1&container=c2`);
+    expect(nav.state.at).toBe(depth);
+    run((p) => p.close());
+    expect(nav.state.entries.slice(0, nav.state.at + 1)).toEqual(["/dashboard", PATH]);
+  });
+});

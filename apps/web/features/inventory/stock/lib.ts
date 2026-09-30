@@ -1,7 +1,12 @@
 import { InventoryStatus } from "@bitcrm/types";
 import type { Container, LocationSummaryType, Transfer, Warehouse } from "@bitcrm/types";
-import { transferUnits, type StockSummary } from "@/features/inventory/warehouses/lib";
+import {
+  transferUnits,
+  type EnrichedStockRow,
+  type StockSummary,
+} from "@/features/inventory/warehouses/lib";
 import { containerTitle } from "@/features/inventory/containers/lib";
+import type { LocationStockRowIn } from "./api";
 
 /* ------------------------------------------------------------------ *
  * Locations — every warehouse and van, as a picker lists them.
@@ -17,6 +22,10 @@ export interface StockLocation {
   technicianId?: string;
   technicianName?: string;
   department?: string;
+  /** Containers only: the van's template. */
+  templateId?: string;
+  /** Warehouses only, when the server marks one as the main one. */
+  isPrimary?: boolean;
 }
 
 /** Warehouses first, then containers — the order the stock popup uses too. */
@@ -28,6 +37,8 @@ export function toLocations(warehouses: Warehouse[], containers: Container[]): S
       name: w.name,
       description: w.description,
       status: w.status,
+      // Not part of the Warehouse type (yet); read when the server sends it.
+      ...((w as Warehouse & { isPrimary?: boolean }).isPrimary ? { isPrimary: true } : {}),
     })),
     ...containers.map((c) => ({
       type: "container" as const,
@@ -38,8 +49,36 @@ export function toLocations(warehouses: Warehouse[], containers: Container[]): S
       technicianId: c.technicianId,
       technicianName: c.technicianName,
       department: c.department,
+      ...(c.templateId ? { templateId: c.templateId } : {}),
     })),
   ];
+}
+
+/* ------------------------------------------------------------------ *
+ * A location's stock, as the views read it.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The server's rows, as the tables and cards read them — in the order they
+ * came, which is already by name. Value is price × quantity; a row is low
+ * only against a minimum it carries.
+ */
+export function stockRowsOf(rows: LocationStockRowIn[]): EnrichedStockRow[] {
+  return rows.map((r) => {
+    const unitPrice = r.priceClient;
+    const minLevel = r.minimumStockLevel;
+    return {
+      productId: r.productId,
+      name: r.productName,
+      sku: r.sku,
+      category: r.category,
+      quantity: r.quantity,
+      unitPrice,
+      value: unitPrice != null ? unitPrice * r.quantity : undefined,
+      minLevel,
+      isLow: minLevel != null && minLevel > 0 && r.quantity <= minLevel,
+    };
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -131,8 +170,8 @@ export function checkQuantity(
 
 /**
  * A warehouse's or van's popup: how many different items, how many units,
- * and what they sell for. The value comes from the catalog join — without it
- * every row would count as $0, so it shows "—" instead.
+ * and what they sell for. The value needs a price on every row — without one
+ * a row would count as $0, so it shows "—" instead.
  */
 export function locationCards(
   summary: StockSummary,

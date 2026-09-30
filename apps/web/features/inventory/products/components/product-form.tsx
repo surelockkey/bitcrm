@@ -21,11 +21,15 @@ import {
   createProductSchema,
   updateProductSchemaFor,
   type CreateProductValues,
+  type PatchProductValues,
   type UpdateProductValues,
 } from "../schemas";
 import { formatMargin } from "../lib";
 
 export type ProductFormValues = CreateProductValues & { sku?: string };
+
+/** What an edit changed. An emptied optional field is `null`, which clears it on the server. */
+export type ProductFormChanges = PatchProductValues & { sku?: string };
 
 const EMPTY: ProductFormValues = {
   name: "",
@@ -78,7 +82,7 @@ export function ProductForm({
    * somewhere else in the form still saves (the API validates only the fields
    * present in the body). `values` is the whole form, as before.
    */
-  onSubmit: (values: ProductFormValues, changed: Partial<ProductFormValues>) => void;
+  onSubmit: (values: ProductFormValues, changed: ProductFormChanges) => void;
 }) {
   // In edit mode the caps are waived for values the user leaves untouched —
   // imported items break them and must stay editable (see updateProductSchemaFor).
@@ -99,7 +103,7 @@ export function ProductForm({
   >;
 
   const submit = (values: ProductFormValues) => {
-    const changed: Partial<ProductFormValues> = {};
+    const changed: ProductFormChanges = {};
     for (const key of Object.keys(values) as (keyof ProductFormValues)[]) {
       if (dirtyFields[key]) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

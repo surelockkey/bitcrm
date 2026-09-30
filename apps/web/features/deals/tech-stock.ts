@@ -1,25 +1,47 @@
 import { useQuery } from "@tanstack/react-query";
-import { getContainerStock } from "@/features/inventory/containers/api";
-import { fetchAllContainers } from "@/features/inventory/stock/api";
+import { UserContainerAccess } from "@bitcrm/types";
+import { ApiError } from "@/lib/api/errors";
+import { getUserContainer } from "@/features/inventory/user-containers/api";
+import { fetchAllContainers, getLocationStock, type LocationStockRow } from "@/features/inventory/stock/api";
 
 /**
- * A technician's carried container stock as `productId → quantity`. Resolves the
- * tech's container by `technicianId` client-side (there's no tech-keyed
- * inventory endpoint) — over every page of containers, not the first — then
- * reads its stock levels.
+ * The van a technician works from. Their user-container row decides — a tech
+ * may have taken another's van, and "All locations" / "No access" mean no van
+ * of their own. Only without a row does the legacy link count: the van whose
+ * `technicianId` is theirs, over every page of containers, not the first.
  */
-export async function fetchTechStock(techId: string): Promise<Map<string, number>> {
+async function techContainerId(techId: string): Promise<string | undefined> {
+  try {
+    const row = await getUserContainer(techId);
+    return row.access === UserContainerAccess.CONTAINER ? row.containerId : undefined;
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 404)) throw e;
+  }
   const containers = await fetchAllContainers();
-  const container = containers.find((c) => c.technicianId === techId);
-  if (!container) return new Map();
-  const stock = await getContainerStock(container.id);
-  return new Map(stock.map((s) => [s.productId, s.quantity]));
+  return containers.find((c) => c.technicianId === techId)?.id;
 }
 
+/**
+ * What a technician carries, named and in name order — one location-stock
+ * read, no catalog behind it. Empty for a technician without a van.
+ */
+export async function fetchTechStockRows(techId: string): Promise<LocationStockRow[]> {
+  const containerId = await techContainerId(techId);
+  if (!containerId) return [];
+  return (await getLocationStock("container", containerId)).rows;
+}
+
+/** The same stock as `productId → quantity`, for sourcing a job line. */
+export async function fetchTechStock(techId: string): Promise<Map<string, number>> {
+  const rows = await fetchTechStockRows(techId);
+  return new Map(rows.map((r) => [r.productId, r.quantity]));
+}
+
+/** The technician's carried items, named — for the assign dialog's list. */
 export function useTechStock(techId: string | undefined, enabled: boolean) {
   return useQuery({
-    queryKey: ["deal-tech-stock", techId],
-    queryFn: () => fetchTechStock(techId!),
+    queryKey: ["deal-tech-stock-rows", techId],
+    queryFn: () => fetchTechStockRows(techId!),
     enabled: enabled && !!techId,
     retry: false,
   });

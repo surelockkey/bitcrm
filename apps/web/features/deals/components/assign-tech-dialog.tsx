@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, Loader2, MapPin, Package, Search } from "lucide-react";
 import {
   Dialog,
@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { initials } from "@/features/clients/lib";
 import { useAssignTechs, useQualifiedTechs } from "../hooks";
 import { useTechStock } from "../tech-stock";
-import { useProductMap } from "@/features/inventory/warehouses/hooks";
 import type { IneligibilityReason, QualifiedTech } from "../api";
 
 const REASON_LABEL: Record<IneligibilityReason, string> = {
@@ -52,12 +51,15 @@ export function AssignTechDialog({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string[]>(assignedTechIds);
 
-  // Re-seed whenever the dialog reopens against a changed roster.
-  useEffect(() => {
+  // Re-seed whenever the dialog reopens against a changed roster — during
+  // render, not in an effect, so the first open frame already shows it.
+  const [seed, setSeed] = useState({ open, ids: assignedTechIds });
+  if (seed.open !== open || seed.ids !== assignedTechIds) {
+    setSeed({ open, ids: assignedTechIds });
     if (open) setSelected(assignedTechIds);
-  }, [open, assignedTechIds]);
+  }
 
-  const techs = qualified.data ?? [];
+  const techs = useMemo(() => qualified.data ?? [], [qualified.data]);
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return techs;
@@ -246,8 +248,8 @@ function TechRow({
 /** What this technician currently carries, from their inventory container. */
 function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
   const stock = useTechStock(techId, enabled);
-  const { data: productMap } = useProductMap(enabled);
-  const rows = useMemo(() => [...(stock.data?.entries() ?? [])].filter(([, q]) => q > 0), [stock.data]);
+  // Only what the van holds, named by the server.
+  const rows = stock.data ?? [];
 
   if (stock.isLoading) {
     return (
@@ -265,12 +267,10 @@ function TechItems({ techId, enabled }: { techId: string; enabled: boolean }) {
 
   return (
     <ul className="max-h-32 space-y-0.5 overflow-y-auto border-t px-3 py-2 text-xs">
-      {rows.map(([productId, qty]) => (
-        <li key={productId} className="flex justify-between gap-2">
-          <span className="truncate text-muted-foreground">
-            {productMap?.get(productId)?.name ?? productId}
-          </span>
-          <span className="font-mono">{qty}</span>
+      {rows.map((r) => (
+        <li key={r.productId} className="flex justify-between gap-2">
+          <span className="truncate text-muted-foreground">{r.productName}</span>
+          <span className="font-mono">{r.quantity}</span>
         </li>
       ))}
     </ul>

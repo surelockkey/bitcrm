@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DataScope, InventoryStatus } from "@bitcrm/types";
-import type { Container } from "@bitcrm/types";
+import { DataScope, InventoryStatus, UserContainerAccess } from "@bitcrm/types";
+import type { Container, UserContainer } from "@bitcrm/types";
 import type { StockLocation } from "@/features/inventory/stock/lib";
 import type { ContainerFilter } from "../api";
 import { renderWithClient } from "@/test/render-with-client";
@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   scope: "all" as string,
+  assignments: [] as UserContainer[],
+  namesAskedFor: [] as string[][],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -52,6 +54,13 @@ vi.mock("../hooks", () => ({
 vi.mock("@/features/inventory/stock/hooks", () => ({
   useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
 }));
+vi.mock("@/features/inventory/user-containers/hooks", () => ({
+  useUserContainers: () => ({ data: mocks.assignments, isLoading: false, isError: false }),
+  useUserNames: (ids: string[]) => {
+    mocks.namesAskedFor.push(ids);
+    return { names: new Map([["u2", "Pavlo Bondar"]]), isLoading: false };
+  },
+}));
 vi.mock("./container-create-dialog", () => ({ ContainerCreateDialog: () => null }));
 vi.mock("./my-container-view", () => ({ MyContainerView: () => <div data-testid="my-van" /> }));
 // The popups have suites of their own; here only which one the URL opens matters.
@@ -69,11 +78,27 @@ vi.mock("@/features/inventory/stock/components/location-stock-dialog", () => ({
     locationId: string;
     open: boolean;
     onOpenChange: (o: boolean) => void;
+    aside?: React.ReactNode;
   }) =>
     props.open ? (
       <div data-testid="stock-popup" data-type={props.type} data-id={props.locationId}>
+        {props.aside}
         <button onClick={() => props.onOpenChange(false)}>close stock</button>
       </div>
+    ) : null,
+}));
+vi.mock("@/features/inventory/templates/components/container-template-bar", () => ({
+  ContainerTemplateBar: (props: { containerId: string; onApply: (id: string) => void; onSetTemplate: () => void }) => (
+    <div data-testid="template-bar" data-id={props.containerId}>
+      <button onClick={() => props.onApply("tp1")}>apply tp1</button>
+      <button onClick={() => props.onSetTemplate()}>set template</button>
+    </div>
+  ),
+}));
+vi.mock("@/features/inventory/templates/components/apply-template-dialog", () => ({
+  ApplyTemplateDialog: (props: { templateId: string; containerId: string | null; open: boolean }) =>
+    props.open ? (
+      <div data-testid="apply-popup" data-id={props.templateId} data-container={props.containerId ?? ""} />
     ) : null,
 }));
 
@@ -93,6 +118,8 @@ function container(over: Partial<Container>): Container {
 const active = InventoryStatus.ACTIVE;
 
 beforeEach(() => {
+  mocks.assignments = [];
+  mocks.namesAskedFor = [];
   mocks.params = new URLSearchParams();
   mocks.push.mockReset();
   mocks.replace.mockReset();
@@ -155,6 +182,39 @@ describe("ContainersPage — the server filters, the page shows what it got", ()
   });
 });
 
+/**
+ * A van may be shared: the Users column names everyone whose assignment row
+ * points at it — and falls back to the old single technician only when none does.
+ */
+describe("ContainersPage — who works from each van", () => {
+  const assignment = (userId: string, userName: string, containerId: string): UserContainer => ({
+    userId,
+    userName,
+    access: UserContainerAccess.CONTAINER,
+    containerId,
+    limited: false,
+    updatedAt: "",
+  });
+
+  it("names the users the assignments put on each van", () => {
+    mocks.assignments = [
+      assignment("u1", "Taras Koval", "c1"),
+      // The backfill's secondary users carry their id as the name.
+      assignment("u2", "u2", "c1"),
+    ];
+    renderWithClient(<ContainersPage />);
+    const row = screen.getByText("Van Alpha").closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("Pavlo Bondar, Taras Koval");
+    expect(mocks.namesAskedFor.at(-1)).toEqual(["u2"]);
+  });
+
+  it("falls back to the van's technician when no assignment points at it", () => {
+    mocks.rows = [container({ id: "c2", name: "Van Zeta", technicianId: "t9", technicianName: "Oleh Petrenko" })];
+    renderWithClient(<ContainersPage />);
+    expect(screen.getByText("Van Zeta").closest("tr")).toHaveTextContent("Oleh Petrenko");
+  });
+});
+
 const noScroll = { scroll: false };
 
 describe("ContainersPage — popups are driven by the URL", () => {
@@ -171,6 +231,35 @@ describe("ContainersPage — popups are driven by the URL", () => {
     mocks.params = new URLSearchParams("edit=c9");
     renderWithClient(<ContainersPage />);
     expect(screen.getByTestId("edit-popup")).toHaveAttribute("data-id", "c9");
+    expect(screen.queryByTestId("stock-popup")).toBeNull();
+  });
+
+  it("puts the van's template strip over its stock", () => {
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    expect(screen.getByTestId("template-bar")).toHaveAttribute("data-id", "c9");
+  });
+
+  it("swaps the stock popup for Apply, naming the van", async () => {
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    await userEvent.click(screen.getByText("apply tp1"));
+    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers?apply=tp1&container=c9", noScroll);
+  });
+
+  it("swaps the stock popup for Edit to set a template", async () => {
+    mocks.params = new URLSearchParams("stock=c9");
+    renderWithClient(<ContainersPage />);
+    await userEvent.click(screen.getByText("set template"));
+    expect(mocks.replace).toHaveBeenCalledWith("/inventory/containers?edit=c9", noScroll);
+  });
+
+  it("opens Apply from ?apply=<template>&container=<van>", () => {
+    mocks.params = new URLSearchParams("apply=tp1&container=c9");
+    renderWithClient(<ContainersPage />);
+    const popup = screen.getByTestId("apply-popup");
+    expect(popup).toHaveAttribute("data-id", "tp1");
+    expect(popup).toHaveAttribute("data-container", "c9");
     expect(screen.queryByTestId("stock-popup")).toBeNull();
   });
 

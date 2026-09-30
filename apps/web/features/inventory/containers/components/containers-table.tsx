@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { RowIconAction } from "@/features/inventory/components/row-icon-action";
 import { useContainerStockView } from "../hooks";
 import { containerTitle } from "../lib";
+import { namesSummary, type ContainerUser } from "@/features/inventory/user-containers/lib";
+import { TableFrame } from "@/features/inventory/components/table-frame";
 
 /**
  * The columns, with the width each one starts at — read by both the
@@ -27,7 +29,7 @@ import { containerTitle } from "../lib";
 const COLUMNS: { id: string; label: string; width: number }[] = [
   { id: "name", label: "Name", width: 240 },
   { id: "description", label: "Description", width: 240 },
-  { id: "technician", label: "Technician", width: 200 },
+  { id: "users", label: "Users", width: 220 },
   { id: "department", label: "Department", width: 160 },
   { id: "items", label: "Items", width: 110 },
   { id: "actions", label: "Actions", width: 100 },
@@ -40,17 +42,20 @@ const TABLE_KEY = "inventory-vans";
 
 export function ContainersTable({
   containers,
+  users,
   onEdit,
   onStock,
 }: {
   containers: Container[];
+  /** Who works from each van — a van may be shared. */
+  users: Map<string, ContainerUser[]>;
   onEdit: (container: Container) => void;
   onStock: (container: Container) => void;
 }) {
   const { widthOf, setWidth, reset } = useColumnWidths(TABLE_KEY, DEFAULT_WIDTHS);
 
   return (
-    <div className="overflow-hidden border">
+    <TableFrame>
       {/* `table-fixed`: the column decides its width, not the longest van
           name in the list — and the reader can drag the edge. */}
       <Table className="table-fixed">
@@ -75,20 +80,22 @@ export function ContainersTable({
         </TableHeader>
         <TableBody>
           {containers.map((c) => (
-            <ContainerRow key={c.id} container={c} onEdit={onEdit} onStock={onStock} />
+            <ContainerRow key={c.id} container={c} users={users.get(c.id) ?? []} onEdit={onEdit} onStock={onStock} />
           ))}
         </TableBody>
       </Table>
-    </div>
+    </TableFrame>
   );
 }
 
 function ContainerRow({
   container: c,
+  users,
   onEdit,
   onStock,
 }: {
   container: Container;
+  users: ContainerUser[];
   onEdit: (container: Container) => void;
   onStock: (container: Container) => void;
 }) {
@@ -116,9 +123,7 @@ function ContainerRow({
       <TableCell className="truncate text-sm text-muted-foreground" title={c.description || undefined}>
         {c.description || "—"}
       </TableCell>
-      <TableCell className="truncate text-sm">
-        {c.technicianName ? c.technicianName : <span className="text-muted-foreground">Unassigned</span>}
-      </TableCell>
+      <UsersCell users={users} />
       <TableCell className="truncate text-sm text-muted-foreground">{c.department || "—"}</TableCell>
       <TableCell className="truncate tabular-nums">
         {isLoading ? <Skeleton className="h-4 w-12" /> : summary.totalUnits.toLocaleString()}
@@ -135,5 +140,21 @@ function ContainerRow({
         </div>
       </TableCell>
     </TableRow>
+  );
+}
+
+/** The first two names and "+N" for the rest — someone not named yet counts in the N. */
+function UsersCell({ users }: { users: ContainerUser[] }) {
+  if (users.length === 0) {
+    return <TableCell className="truncate text-sm text-muted-foreground">—</TableCell>;
+  }
+  const named = users.map((u) => u.name).filter((n): n is string => !!n);
+  const { text, more } = namesSummary(named);
+  const rest = more + (users.length - named.length);
+  return (
+    <TableCell className="truncate text-sm" title={named.join(", ") || undefined}>
+      {text}
+      {rest > 0 ? <span className="text-muted-foreground">{text ? " " : ""}+{rest}</span> : null}
+    </TableCell>
   );
 }

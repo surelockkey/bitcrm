@@ -128,6 +128,23 @@ describe("ProductDialog — edit", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  // "None" and 0 are different reorder points; a blank field is the honest
+  // way to show an item that has none.
+  it("opens an item without a reorder level with the field blank, not 0", () => {
+    open("p1");
+    expect(field("reorderLevel").value).toBe("");
+  });
+
+  it("clears the supplier with null", async () => {
+    mocks.product = { isLoading: false, isError: false, data: product({ supplier: "Acme" }) };
+    open("p1");
+    await userEvent.clear(field("supplier"));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    expect(mocks.update).toHaveBeenCalledWith({ id: "p1", body: { supplier: null } });
+  });
+
   it("closes without a request when nothing changed", async () => {
     const { onOpenChange } = open("p1");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));

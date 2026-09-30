@@ -5,7 +5,10 @@ import type {
   PaginatedResponse,
   ListCount,
 } from "@bitcrm/types";
+import { UserContainerAccess } from "@bitcrm/types";
 import { http, apiFetchPaginated } from "@/lib/api/http";
+import { ApiError } from "@/lib/api/errors";
+import { getMyUserContainer } from "@/features/inventory/user-containers/api";
 
 /**
  * What the fleet list is narrowed by — on the server, before the page is cut,
@@ -47,20 +50,20 @@ export function getContainer(id: string): Promise<Container> {
   return http.get<Container>(`/inventory/containers/${id}`);
 }
 
+/** Who works from the van is set on User containers, not here. */
 export interface CreateContainerBody {
   name: string;
   description?: string;
   department?: string;
-  technicianId?: string;
-  technicianName?: string;
+  /** The van's ideal loadout. */
+  templateId?: string;
 }
 
-/** `technicianId: null` unassigns the technician. */
+/** `templateId: null` clears the template. */
 export type UpdateContainerBody = Partial<
   Pick<Container, "name" | "description" | "department" | "status">
 > & {
-  technicianId?: string | null;
-  technicianName?: string | null;
+  templateId?: string | null;
 };
 
 export function createContainer(body: CreateContainerBody): Promise<Container> {
@@ -78,7 +81,33 @@ export function getContainerStock(id: string): Promise<StockItem[]> {
   return http.get<StockItem[]>(`/inventory/containers/${id}/stock`);
 }
 
-/** The current technician's own van (lazy-created server-side). */
+/** The caller's van as the server resolves it — assignment row first, then the legacy link. 404 when none. */
 export function getMyContainer(): Promise<Container> {
   return http.get<Container>("/inventory/containers/my");
+}
+
+const notFound = (e: unknown) => e instanceof ApiError && e.status === 404;
+
+/**
+ * The caller's own van. Their user-container row decides: the van it names,
+ * or none at all for "All locations" and "No access" — even when an old van
+ * still names them as its technician. Without a row, `/containers/my` finds
+ * that legacy van. `null` — no van of their own.
+ */
+export async function fetchMyContainer(): Promise<Container | null> {
+  let row;
+  try {
+    row = await getMyUserContainer();
+  } catch (e) {
+    if (!notFound(e)) throw e;
+  }
+  if (!row) return getMyContainer();
+  if (row.access !== UserContainerAccess.CONTAINER || !row.containerId) return null;
+  try {
+    return await getContainer(row.containerId);
+  } catch {
+    // Opening a van by id may be off-limits to a technician; `/containers/my`
+    // resolves the same row on the server and needs no permission.
+    return getMyContainer();
+  }
 }

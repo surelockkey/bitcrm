@@ -12,12 +12,16 @@ vi.mock("../hooks", () => ({
   useCreateContainer: () => ({ mutate, isPending: false }),
 }));
 
-vi.mock("./technician-select", () => ({
-  TechnicianSelect: ({
-    onChange,
-  }: {
-    onChange: (v: { id: string; name: string } | null) => void;
-  }) => <button onClick={() => onChange({ id: "t9", name: "Ann Lee" })}>pick-ann</button>,
+vi.mock("@/features/inventory/templates/hooks", () => ({
+  useContainerTemplates: () => ({
+    data: [
+      { id: "tp1", name: "Standard van", items: [], status: "active", createdAt: "", updatedAt: "" },
+    ],
+    isLoading: false,
+    isSuccess: true,
+    isError: false,
+  }),
+  useContainerTemplate: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
 describe("ContainerCreateDialog", () => {
@@ -44,21 +48,32 @@ describe("ContainerCreateDialog", () => {
     );
   });
 
-  it("can assign a technician right away", async () => {
+  // Who works from the van is set on User containers, not here.
+  it("asks for no technician", () => {
+    render(<ContainerCreateDialog open onOpenChange={() => {}} />);
+    expect(screen.queryByText(/technician/i)).toBeNull();
+  });
+
+  it("can start the van on a template", async () => {
     render(<ContainerCreateDialog open onOpenChange={() => {}} />);
 
     await userEvent.type(screen.getByLabelText("Name"), "Van 6");
-    await userEvent.click(screen.getByText("pick-ann"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Template" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Standard van" }));
     await userEvent.click(screen.getByRole("button", { name: /create/i }));
 
     expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "Van 6",
-        technicianId: "t9",
-        technicianName: "Ann Lee",
-      }),
+      expect.objectContaining({ name: "Van 6", templateId: "tp1" }),
       expect.anything(),
     );
+  });
+
+  it("sends no template when none is picked", async () => {
+    render(<ContainerCreateDialog open onOpenChange={() => {}} />);
+    await userEvent.type(screen.getByLabelText("Name"), "Van 7");
+    await userEvent.click(screen.getByRole("button", { name: /create/i }));
+    expect(mutate.mock.calls[0][0]).not.toHaveProperty("templateId");
+    expect(mutate.mock.calls[0][0]).not.toHaveProperty("technicianId");
   });
 
   it("closes once created and stays on the list — there is no container page to go to", async () => {

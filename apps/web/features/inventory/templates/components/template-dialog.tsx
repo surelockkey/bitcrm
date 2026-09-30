@@ -1,0 +1,390 @@
+"use client";
+
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Info, Loader2, PackageSearch, Search, X } from "lucide-react";
+import { InventoryStatus } from "@bitcrm/types";
+import type { ContainerTemplate } from "@bitcrm/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { usePermissions } from "@/features/auth/use-permissions";
+import { listProducts } from "@/features/inventory/products/api";
+import type { UpdateTemplateBody } from "../api";
+import { useContainerTemplate, useCreateTemplate, useUpdateTemplate } from "../hooks";
+import { addLine, checkLineQuantity, type DraftLine } from "../lib";
+
+/**
+ * A template — a van's ideal loadout — in a popup: its name, a description,
+ * and the products with the quantity of each a van should carry. `null` is a
+ * new one (`?template=new`); otherwise `?template=<id>`.
+ */
+export function TemplateDialog({
+  templateId,
+  open,
+  onOpenChange,
+}: {
+  templateId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { can } = usePermissions();
+  const query = useContainerTemplate(templateId ?? undefined, open && !!templateId);
+  const close = () => onOpenChange(false);
+
+  let content: ReactNode;
+  if (!templateId) {
+    content = can("containers", "create") ? (
+      <TemplateForm readOnly={false} onClose={close} />
+    ) : (
+      <>
+        <Header title="New template" description="You don't have permission to create templates." />
+        <Footer>
+          <Button variant="outline" onClick={close}>
+            Close
+          </Button>
+        </Footer>
+      </>
+    );
+  } else if (query.isLoading) {
+    content = (
+      <>
+        <Header title="Template" />
+        <div data-testid="template-loading" className="space-y-3 p-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
+      </>
+    );
+  } else if (query.isError || !query.data) {
+    content = (
+      <>
+        <Header title="Template not found" description="It may have been deleted." />
+        <Footer>
+          <Button variant="outline" onClick={close}>
+            Close
+          </Button>
+        </Footer>
+      </>
+    );
+  } else {
+    // Keyed by the save time: a fresh copy starts a fresh form.
+    content = (
+      <TemplateForm
+        key={query.data.updatedAt}
+        template={query.data}
+        readOnly={!can("containers", "edit")}
+        onClose={close}
+      />
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        {content}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TemplateForm({
+  template,
+  readOnly,
+  onClose,
+}: {
+  template?: ContainerTemplate;
+  readOnly: boolean;
+  onClose: () => void;
+}) {
+  const create = useCreateTemplate();
+  const update = useUpdateTemplate();
+  const pending = create.isPending || update.isPending;
+  const ids = useId();
+
+  const [name, setName] = useState(template?.name ?? "");
+  const [description, setDescription] = useState(template?.description ?? "");
+  const [lines, setLines] = useState<DraftLine[]>(
+    () =>
+      template?.items.map((i) => ({
+        productId: i.productId,
+        productName: i.productName,
+        sku: i.sku,
+        quantity: String(i.quantity),
+      })) ?? [],
+  );
+
+  // Adding a product focuses its quantity — a new line's, or the one already there.
+  const inputs = useRef(new Map<string, HTMLInputElement>());
+  const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
+  useEffect(() => {
+    if (!focus) return;
+    const input = inputs.current.get(focus.id);
+    input?.focus();
+    input?.select();
+  }, [focus]);
+
+  const checks = lines.map((l) => checkLineQuantity(l.quantity));
+  const valid = name.trim().length > 0 && lines.length > 0 && checks.every((c) => c.quantity !== null);
+  const items = lines.map((l, i) => ({ productId: l.productId, quantity: checks[i].quantity ?? 0 }));
+
+  const save = () => {
+    if (!valid || readOnly) return;
+    const text = description.trim();
+    if (!template) {
+      create.mutate(
+        { name: name.trim(), ...(text ? { description: text } : {}), items },
+        { onSuccess: onClose },
+      );
+      return;
+    }
+    const unchanged =
+      name.trim() === template.name &&
+      text === (template.description ?? "").trim() &&
+      items.length === template.items.length &&
+      items.every((it, i) => it.productId === template.items[i].productId && it.quantity === template.items[i].quantity);
+    if (unchanged) return onClose();
+    const body: UpdateTemplateBody = { name: name.trim(), items };
+    if (text) body.description = text;
+    else if (template.description) body.description = null;
+    update.mutate({ id: template.id, body }, { onSuccess: onClose });
+  };
+
+  const archived = template?.status === InventoryStatus.ARCHIVED;
+  const title = !template ? "New template" : readOnly ? "Template" : "Edit template";
+
+  return (
+    <form
+      className="flex min-h-0 flex-1 flex-col"
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <Header title={title} description={archived ? "Archived — restore it from the list to use it again." : undefined} />
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {readOnly ? (
+          <div className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+            <Info className="size-4" />
+            You have view-only access to templates.
+          </div>
+        ) : null}
+
+        <div className="space-y-1.5">
+          <Label htmlFor={`${ids}-name`}>Name</Label>
+          <Input
+            id={`${ids}-name`}
+            className="h-10"
+            disabled={readOnly}
+            value={name}
+            placeholder="Standard van"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`${ids}-desc`}>Description</Label>
+          <Textarea
+            id={`${ids}-desc`}
+            rows={2}
+            disabled={readOnly}
+            value={description}
+            placeholder="Optional"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2 rounded-lg bg-muted/60 p-3">
+          <div className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+            Products · target quantity
+          </div>
+          {!readOnly ? (
+            <ProductSearch
+              onPick={(p) => {
+                const next = addLine(lines, p);
+                setLines(next.lines);
+                setFocus((f) => ({ id: next.focus, n: (f?.n ?? 0) + 1 }));
+              }}
+            />
+          ) : null}
+
+          {lines.length === 0 ? (
+            <p className="rounded-md border border-dashed bg-background px-3 py-6 text-center text-sm text-muted-foreground">
+              No products yet — search to add the first one.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-md border bg-background">
+              {lines.map((l, i) => (
+                <li key={l.productId} data-line={l.productId} className="flex items-center gap-3 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{l.productName}</div>
+                    {l.sku ? <div className="truncate font-mono text-xs text-muted-foreground">{l.sku}</div> : null}
+                  </div>
+                  <div className="flex flex-none flex-col items-start gap-0.5">
+                    <Input
+                      ref={(el) => {
+                        if (el) inputs.current.set(l.productId, el);
+                        else inputs.current.delete(l.productId);
+                      }}
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      step={1}
+                      aria-label={`Quantity of ${l.productName}`}
+                      aria-invalid={checks[i].error ? true : undefined}
+                      disabled={readOnly}
+                      value={l.quantity}
+                      onChange={(e) =>
+                        setLines((all) =>
+                          all.map((x) => (x.productId === l.productId ? { ...x, quantity: e.target.value } : x)),
+                        )
+                      }
+                      className="h-9 w-24 tabular-nums"
+                    />
+                    {checks[i].error && l.quantity.trim() !== "" ? (
+                      <span className="text-xs text-destructive">{checks[i].error}</span>
+                    ) : null}
+                  </div>
+                  {!readOnly ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 flex-none"
+                      aria-label={`Remove ${l.productName}`}
+                      onClick={() => setLines((all) => all.filter((x) => x.productId !== l.productId))}
+                    >
+                      <X />
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <Footer>
+        {readOnly ? (
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!valid || pending} className="gap-1.5">
+              {pending ? <Loader2 className="size-4 animate-spin" /> : null}
+              Save
+            </Button>
+          </>
+        )}
+      </Footer>
+    </form>
+  );
+}
+
+/**
+ * Finds a stock-managed item on the server, as typed — the catalog is
+ * thousands of items, too many to page into the browser.
+ */
+function ProductSearch({ onPick }: { onPick: (p: { id: string; name: string; sku?: string }) => void }) {
+  const [text, setText] = useState("");
+  const term = useDebouncedValue(text.trim(), 300);
+  const listId = useId();
+  const results = useQuery({
+    queryKey: ["template-product-search", term],
+    queryFn: () =>
+      listProducts({ manageStock: true, status: InventoryStatus.ACTIVE, search: term }, undefined, 10),
+    enabled: term.length > 0,
+    staleTime: 30_000,
+  });
+  const found = results.data?.data ?? [];
+  const showing = text.trim().length > 0 && term.length > 0;
+
+  return (
+    <div className="relative">
+      <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        type="search"
+        aria-label="Add a product"
+        aria-controls={listId}
+        placeholder="Search items by name or SKU to add"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="h-9 bg-background pl-8"
+      />
+      {showing ? (
+        <div
+          id={listId}
+          role="listbox"
+          aria-label="Products"
+          className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border bg-popover shadow-md"
+        >
+          {results.isLoading ? (
+            <div className="px-3 py-4 text-sm text-muted-foreground">Searching…</div>
+          ) : found.length === 0 ? (
+            <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
+              <PackageSearch className="size-4" />
+              No stock-managed item matches.
+            </div>
+          ) : (
+            found.map((p) => (
+              <div
+                key={p.id}
+                role="option"
+                aria-selected={false}
+                tabIndex={0}
+                onClick={() => {
+                  onPick({ id: p.id, name: p.name, sku: p.sku });
+                  setText("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onPick({ id: p.id, name: p.name, sku: p.sku });
+                    setText("");
+                  }
+                }}
+                className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm outline-none hover:bg-accent focus-visible:bg-accent"
+              >
+                <span className="w-14 flex-none tabular-nums text-muted-foreground">{p.number ?? "—"}</span>
+                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                <span className="flex-none font-mono text-xs text-muted-foreground">{p.sku}</span>
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Header({ title, description }: { title: string; description?: string }) {
+  return (
+    // Right padding keeps the title clear of the close button.
+    <DialogHeader className="border-b px-4 py-3 pr-12">
+      <DialogTitle className="text-base">{title}</DialogTitle>
+      <DialogDescription className={description ? undefined : "sr-only"}>
+        {description ?? "A van's ideal loadout: products and how many of each."}
+      </DialogDescription>
+    </DialogHeader>
+  );
+}
+
+function Footer({ children }: { children: ReactNode }) {
+  return <DialogFooter className="m-0 flex-none">{children}</DialogFooter>;
+}

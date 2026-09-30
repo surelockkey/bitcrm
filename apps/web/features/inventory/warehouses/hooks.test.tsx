@@ -5,33 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { InventoryStatus } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
-import { queryKeys } from "@/lib/query-keys";
 import type { WarehouseFilter } from "./api";
-import { useProductMap, useWarehousesCount, useWarehousesList } from "./hooks";
+import { useWarehouseStockView, useWarehousesCount, useWarehousesList } from "./hooks";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return createElement(QueryClientProvider, { client }, children);
   };
 }
-
-describe("useProductMap", () => {
-  it("keeps its own cache — the job's item picker stores the whole catalog as a list", async () => {
-    server.use(
-      http.get("*/inventory/products", () =>
-        HttpResponse.json({ success: true, data: [{ id: "p1", name: "Deadbolt" }], pagination: {} }),
-      ),
-    );
-    const client = new QueryClient();
-    // What the Add item dialog leaves behind: an array, services included.
-    client.setQueryData(queryKeys.inventory.products.map(), [{ id: "s1", name: "Call-out" }]);
-
-    const { result } = renderHook(() => useProductMap(), { wrapper: wrapper(client) });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toBeInstanceOf(Map);
-    expect(result.current.data?.get("p1")?.name).toBe("Deadbolt");
-  });
-});
 
 // Warehouses are filtered on the server before the page is cut — a filter
 // that never reaches it, or a cache key without it, shows the wrong page.
@@ -75,5 +56,40 @@ describe("warehouses list + count hooks", () => {
     });
     expect(lists[1]).toEqual({ search: "dal", status: "archived", limit: "25" });
     expect(counts[1]).toEqual({ search: "dal", status: "archived" });
+  });
+});
+
+/**
+ * The warehouse's stock is one request now, named and priced on the server —
+ * never the whole stock-managed catalog (3 102 items, 32 sequential requests).
+ */
+describe("useWarehouseStockView", () => {
+  it("reads GET /stock/locations/warehouse/:id and nothing else", async () => {
+    const urls: string[] = [];
+    server.events.on("request:start", ({ request }) => {
+      urls.push(new URL(request.url).pathname.replace(/^.*\/inventory/, "/inventory"));
+    });
+    server.use(
+      http.get("*/inventory/stock/locations/warehouse/w1", () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            locationType: "warehouse",
+            locationId: "w1",
+            name: "Main",
+            status: InventoryStatus.ACTIVE,
+            rows: [{ productId: "p1", productName: "Deadbolt", quantity: 6, priceClient: 45 }],
+          },
+        }),
+      ),
+    );
+    const client = new QueryClient();
+    const { result } = renderHook(() => useWarehouseStockView("w1"), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    server.events.removeAllListeners();
+
+    expect(urls).toEqual(["/inventory/stock/locations/warehouse/w1"]);
+    expect(result.current.rows.map((r) => [r.name, r.quantity])).toEqual([["Deadbolt", 6]]);
+    expect(result.current.summary).toMatchObject({ skuCount: 1, totalUnits: 6, totalValue: 270 });
   });
 });

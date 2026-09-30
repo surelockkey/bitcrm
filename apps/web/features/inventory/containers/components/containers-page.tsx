@@ -18,7 +18,15 @@ import { usePermissions } from "@/features/auth/use-permissions";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { LocationStockDialog } from "@/features/inventory/stock/components/location-stock-dialog";
+import { ContainerTemplateBar } from "@/features/inventory/templates/components/container-template-bar";
+import { ApplyTemplateDialog } from "@/features/inventory/templates/components/apply-template-dialog";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
+import { useUserContainers, useUserNames } from "@/features/inventory/user-containers/hooks";
+import {
+  containerUserNames,
+  unnamedUserIds,
+  usersOfContainer,
+} from "@/features/inventory/user-containers/lib";
 import { useContainersList, useContainersCount } from "../hooks";
 import type { ContainerFilter } from "../api";
 import { ContainersTable } from "./containers-table";
@@ -32,8 +40,9 @@ import { usePager } from "@/lib/paging/use-pager";
 
 const CONTAINERS_PATH = "/inventory/containers";
 
-/** The URL params that open a popup — one at a time. */
-const POPUPS = ["stock", "edit"] as const;
+/** The URL params that open a popup — one at a time; Apply also names the van. */
+const POPUPS = ["stock", "edit", "apply"] as const;
+const EXTRAS = ["container"] as const;
 
 export function ContainersPage() {
   const { can, scopeOf } = usePermissions();
@@ -59,9 +68,10 @@ function Fleet() {
 
   // A van has no page of its own: its stock and its settings open over the
   // list, from the URL, so an old /inventory/containers/<id> link lands here.
-  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS);
+  const popups = useUrlPopups(CONTAINERS_PATH, POPUPS, EXTRAS);
   const stockId = popups.param("stock");
   const editId = stockId ? null : popups.param("edit");
+  const applyId = stockId || editId ? null : popups.param("apply");
 
   // The server filters before it cuts the page — filtering a page in the
   // browser is what made every page show a different number of vans.
@@ -98,6 +108,18 @@ function Fleet() {
   );
 
   const filtered = !!filter.search || !!filter.department || !!filter.status;
+
+  // Who works from each van: every assignment in one request, named from the
+  // directory where the backfill left only an id.
+  const assignments = useUserContainers();
+  const unnamed = useMemo(() => unnamedUserIds(assignments.data ?? []), [assignments.data]);
+  const { names } = useUserNames(unnamed);
+  const users = useMemo(() => {
+    const rows = assignments.data ?? [];
+    const byVan = containerUserNames(rows, names);
+    const byUser = new Map(rows.map((r) => [r.userId, r] as const));
+    return new Map(containers.map((c) => [c.id, usersOfContainer(c, byVan, byUser)] as const));
+  }, [assignments.data, names, containers]);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -181,6 +203,7 @@ function Fleet() {
           <>
             <ContainersTable
               containers={containers}
+              users={users}
               onEdit={(c) => popups.open("edit", c.id)}
               onStock={(c) => popups.open("stock", c.id)}
             />
@@ -197,6 +220,23 @@ function Fleet() {
           locationId={stockId}
           open
           onOpenChange={(open) => (open ? undefined : popups.close())}
+          aside={
+            <ContainerTemplateBar
+              containerId={stockId}
+              // Swapped, not stacked: closing Apply goes back to the list.
+              onApply={(templateId) => popups.replace("apply", templateId, { container: stockId })}
+              onSetTemplate={() => popups.replace("edit", stockId)}
+            />
+          }
+        />
+      ) : null}
+      {applyId ? (
+        <ApplyTemplateDialog
+          templateId={applyId}
+          containerId={popups.param("container")}
+          open
+          onOpenChange={(open) => (open ? undefined : popups.close())}
+          onContainerChange={(id) => popups.replace("apply", applyId, { container: id })}
         />
       ) : null}
       {editId ? (
