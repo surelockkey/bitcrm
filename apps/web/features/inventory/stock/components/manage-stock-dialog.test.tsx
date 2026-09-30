@@ -237,11 +237,38 @@ describe("ManageStockDialog — actions per location", () => {
     expect(screen.getByRole("button", { name: "Return Deadbolt from Main" })).toBeEnabled();
   });
 
-  it("can't move or return from a location that holds none", () => {
+  it("can't move or return from a location that holds none, and can still add to it", () => {
+    mocks.stock = query({
+      productId: "p1",
+      onHand: 0,
+      locations: [row({ locationId: "c2", name: "Pavlo's van", quantity: 0 })],
+    });
     open();
-    expect(screen.getByRole("button", { name: "Move Deadbolt from Old yard" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Return Deadbolt from Old yard" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Add Deadbolt to Old yard" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Move Deadbolt from Pavlo's van" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Return Deadbolt from Pavlo's van" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add Deadbolt to Pavlo's van" })).toBeEnabled();
+  });
+
+  // An archived location is no transfer target (the Move picker leaves it
+  // out), so no new stock goes in — but what it still holds can get out.
+  it("takes no new stock into an archived location, and lets what's there leave", () => {
+    mocks.stock = query({
+      productId: "p1",
+      onHand: 7,
+      locations: [
+        row({
+          locationType: "warehouse",
+          locationId: "w2",
+          name: "Old yard",
+          status: InventoryStatus.ARCHIVED,
+          quantity: 7,
+        }),
+      ],
+    });
+    open();
+    expect(screen.getByRole("button", { name: "Add Deadbolt to Old yard" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Move Deadbolt from Old yard" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Return Deadbolt from Old yard" })).toBeEnabled();
   });
 
   it("has no add when opened with allowAdd={false}", () => {

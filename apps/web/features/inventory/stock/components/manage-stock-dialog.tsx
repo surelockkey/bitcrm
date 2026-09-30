@@ -268,6 +268,7 @@ function LocationRow({
               available: l.quantity,
             }}
             allowAdd={allowAdd}
+            archived={archived}
           />
         </TableCell>
       ) : null}

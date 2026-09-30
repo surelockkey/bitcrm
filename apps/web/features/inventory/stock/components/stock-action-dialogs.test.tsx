@@ -156,6 +156,21 @@ describe("MoveStockDialog", () => {
     expect(screen.getByRole("dialog", { name: "Move Deadbolt from Taras's van" })).toBeInTheDocument();
   });
 
+  // Every row of a stock popup mounts its Move dialog closed; each one paging
+  // through every warehouse and van would be a request storm.
+  it("loads the locations only while open", () => {
+    const { rerender } = renderWithClient(
+      <MoveStockDialog target={target} open={false} onOpenChange={() => {}} />,
+    );
+    expect(mocks.locationsEnabled.length).toBeGreaterThan(0);
+    expect(new Set(mocks.locationsEnabled)).toEqual(new Set([false]));
+
+    mocks.locationsEnabled = [];
+    rerender(<MoveStockDialog target={target} open onOpenChange={() => {}} />);
+    expect(mocks.locationsEnabled.length).toBeGreaterThan(0);
+    expect(new Set(mocks.locationsEnabled)).toEqual(new Set([true]));
+  });
+
   it("offers every other active location, grouped, with the van's technician and department", async () => {
     open();
     await userEvent.click(picker());

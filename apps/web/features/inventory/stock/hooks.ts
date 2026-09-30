@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Transfer } from "@bitcrm/types";
 import { queryKeys } from "@/lib/query-keys";
@@ -10,15 +10,21 @@ import * as api from "./api";
 import { movementMessages, toLocations, type Movement } from "./lib";
 
 /**
- * A movement changes the item (its `onHand` and per-location stock), both
- * locations, and the journal. `products` covers list, count, detail and stock.
+ * The item queries a movement changes: the list and the popup show `onHand`,
+ * and `stock` is the per-location split. Not the rest of `products` — the
+ * catalog maps hold nothing a movement touches, and re-reading the
+ * stock-managed one is up to 200 sequential requests.
  */
+const movedByStock = ({ queryKey: [root, second, third] }: Query) =>
+  root === "products" && (second === "list" || second === "detail" || third === "stock");
+
+/** A movement changes the item, both locations, and the journal. */
 function useStockMovement<B>(kind: Movement, send: (body: B) => Promise<Transfer>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: send,
     onSuccess: (t) => {
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.products.all() });
+      qc.invalidateQueries({ predicate: movedByStock });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
       qc.invalidateQueries({ queryKey: queryKeys.inventory.transfers.all() });

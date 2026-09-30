@@ -3,9 +3,17 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
+import { InventoryStatus, ProductType } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import { queryKeys } from "@/lib/query-keys";
-import { useBrands, useItemCategories, useProductStock } from "./hooks";
+import {
+  useBrands,
+  useItemCategories,
+  useProductStock,
+  useProducts,
+  useProductsCount,
+} from "./hooks";
+import type { ProductFilter } from "./lib";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -95,5 +103,64 @@ describe("catalog hooks", () => {
       wrapper: wrapper(client),
     });
     expect(result.current.map((q) => q.fetchStatus)).toEqual(["idle", "idle"]);
+  });
+});
+
+// Items are filtered on the server before the page is cut — a filter that
+// never reaches it, or a cache key without it, shows the wrong page.
+describe("items list + count hooks", () => {
+  it("send every filter to the server, and a new filter is a new request", async () => {
+    const lists: Record<string, string>[] = [];
+    const counts: Record<string, string>[] = [];
+    const params = (url: string) => Object.fromEntries(new URL(url).searchParams);
+    server.use(
+      http.get("*/inventory/products", ({ request }) => {
+        lists.push(params(request.url));
+        return HttpResponse.json({ success: true, data: [], pagination: {} });
+      }),
+      http.get("*/inventory/products/count", ({ request }) => {
+        counts.push(params(request.url));
+        return HttpResponse.json({ success: true, data: { total: 0, atLeast: false } });
+      }),
+    );
+    const filter: ProductFilter = {
+      manageStock: true,
+      category: "Locks",
+      type: ProductType.PRODUCT,
+      status: InventoryStatus.ACTIVE,
+      search: "dead",
+      brandId: "b1",
+    };
+    const expected = {
+      manageStock: "true",
+      category: "Locks",
+      type: "product",
+      status: "active",
+      search: "dead",
+      brandId: "b1",
+    };
+
+    const client = new QueryClient();
+    const { result, rerender } = renderHook(
+      ({ filter }: { filter: ProductFilter }) => ({
+        list: useProducts(filter, 25),
+        count: useProductsCount(filter),
+      }),
+      { wrapper: wrapper(client), initialProps: { filter } },
+    );
+    await waitFor(() => {
+      expect(result.current.list.isSuccess).toBe(true);
+      expect(result.current.count.isSuccess).toBe(true);
+    });
+    expect(lists).toEqual([{ ...expected, limit: "25" }]);
+    expect(counts).toEqual([expected]);
+
+    rerender({ filter: { ...filter, search: "knob" } });
+    await waitFor(() => {
+      expect(lists).toHaveLength(2);
+      expect(counts).toHaveLength(2);
+    });
+    expect(lists[1]).toEqual({ ...expected, search: "knob", limit: "25" });
+    expect(counts[1]).toEqual({ ...expected, search: "knob" });
   });
 });

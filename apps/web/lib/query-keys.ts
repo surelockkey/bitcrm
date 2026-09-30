@@ -157,7 +157,7 @@ export const queryKeys = {
       detail: (id: string) => ["products", "detail", id] as const,
       bySku: (sku: string) => ["products", "by-sku", sku] as const,
       photo: (id: string) => ["products", id, "photo"] as const,
-      /** Under `products`, so every stock write that refreshes items refreshes this too. */
+      /** Under `products`: a stock movement refreshes it with the list and the detail. */
       stock: (id: string) => ["products", id, "stock"] as const,
       /** The whole catalog as a list, for the job and estimate item pickers. */
       map: () => ["products", "all-map"] as const,

@@ -13,15 +13,19 @@ type Action = "add" | "move" | "return";
  * Workiz's per-row stock icons: ＋ add, box move, ↺ return. The same row
  * works in an item's popup (one row per location) and in a location's popup
  * (one row per item, `allowAdd={false}` — stock only arrives from Items).
+ * An archived location takes no new stock — it isn't a transfer target
+ * either — but what it still holds can be moved or returned.
  *
  * The caller decides who sees it at all (`transfers.create`).
  */
 export function StockRowActions({
   target,
   allowAdd = true,
+  archived = false,
 }: {
   target: StockTarget;
   allowAdd?: boolean;
+  archived?: boolean;
 }) {
   const [action, setAction] = useState<Action | null>(null);
   const empty = target.available <= 0;
@@ -32,7 +36,12 @@ export function StockRowActions({
   return (
     <div className="flex items-center gap-0.5">
       {allowAdd ? (
-        <IconAction label={`Add ${item} to ${here}`} tip="Add stock" onClick={() => setAction("add")}>
+        <IconAction
+          label={`Add ${item} to ${here}`}
+          tip="Add stock"
+          disabled={archived}
+          onClick={() => setAction("add")}
+        >
           <Plus />
         </IconAction>
       ) : null}

@@ -7,10 +7,17 @@ import { server } from "@/test/msw/server";
 import { renderWithClient } from "@/test/render-with-client";
 import type { StockLocation } from "@/features/inventory/stock/lib";
 
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), locations: [] as StockLocation[] }));
+const mocks = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  locations: [] as StockLocation[],
+  locationsEnabled: [] as boolean[],
+}));
 
 vi.mock("@/features/inventory/stock/hooks", () => ({
-  useAllLocations: () => ({ data: mocks.locations, isLoading: false, isError: false }),
+  useAllLocations: (enabled = true) => {
+    mocks.locationsEnabled.push(enabled);
+    return { data: mocks.locations, isLoading: false, isError: false };
+  },
   useMoveStock: () => ({ mutate: mocks.mutate, isPending: false }),
 }));
 
@@ -20,6 +27,7 @@ const active = InventoryStatus.ACTIVE;
 
 beforeEach(() => {
   mocks.mutate.mockReset();
+  mocks.locationsEnabled = [];
   mocks.locations = [
     { type: "warehouse", id: "w1", name: "Main", status: active },
     { type: "warehouse", id: "w2", name: "Overflow", status: active },
@@ -34,6 +42,19 @@ async function pick(combobox: number, option: string | RegExp) {
 }
 
 describe("NewTransferDialog", () => {
+  // The Transfers tab mounts it closed; it shouldn't page through every
+  // warehouse and van until someone opens it.
+  it("loads the locations only while open", () => {
+    const { rerender } = renderWithClient(<NewTransferDialog open={false} onOpenChange={() => {}} />);
+    expect(mocks.locationsEnabled.length).toBeGreaterThan(0);
+    expect(new Set(mocks.locationsEnabled)).toEqual(new Set([false]));
+
+    mocks.locationsEnabled = [];
+    rerender(<NewTransferDialog open onOpenChange={() => {}} />);
+    expect(mocks.locationsEnabled.length).toBeGreaterThan(0);
+    expect(new Set(mocks.locationsEnabled)).toEqual(new Set([true]));
+  });
+
   it("offers every location as a source", async () => {
     renderWithClient(<NewTransferDialog open onOpenChange={() => {}} />);
     await userEvent.click(screen.getAllByRole("combobox")[0]);

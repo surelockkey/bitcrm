@@ -48,20 +48,31 @@ describe("fetchStockManagedProducts", () => {
     expect(seen[0].get("limit")).toBe("100");
   });
 
-  it("pages up to 20000 items, not the old 5000", async () => {
-    let calls = 0;
+  it("pages up to 20000 items, not the old 5000, following each cursor", async () => {
+    // Served by offset, like the real list: a request without the cursor gets
+    // page one again, so a dropped cursor shows up as repeated ids.
+    const asked: [string | null, string | null][] = [];
     server.use(
-      http.get("*/inventory/products", () => {
-        calls += 1;
+      http.get("*/inventory/products", ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        asked.push([params.get("limit"), params.get("cursor")]);
+        const start = Number(params.get("cursor") ?? 0);
+        const end = start + 100;
         return HttpResponse.json({
           success: true,
-          data: Array.from({ length: 100 }, (_, i) => ({ id: `p${calls}-${i}` })),
-          pagination: { nextCursor: `n${calls}` },
+          data: Array.from({ length: 100 }, (_, i) => ({ id: `p${start + i}` })),
+          pagination: { nextCursor: String(end) },
         });
       }),
     );
     const all = await fetchStockManagedProducts();
     expect(all).toHaveLength(20000);
-    expect(calls).toBe(200);
+    expect(new Set(all.map((p) => p.id)).size).toBe(20000);
+    expect(asked).toHaveLength(200);
+    expect(asked.slice(0, 3)).toEqual([
+      ["100", null],
+      ["100", "100"],
+      ["100", "200"],
+    ]);
   });
 });

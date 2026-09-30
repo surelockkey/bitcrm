@@ -9,13 +9,22 @@ const money = z.coerce
 /** An empty number input is "not set", not 0 — z.coerce would read it as 0. */
 const blankAsUnset = (v: unknown) => (v === "" || v === null ? undefined : v);
 
-const reorderLevel = z.preprocess(
-  blankAsUnset,
-  z.coerce
-    .number({ message: "Enter a number" })
-    .int("Whole number")
-    .min(0, "Must be 0 or more")
-    .optional(),
+const wholeCount = z.coerce
+  .number({ message: "Enter a number" })
+  .int("Whole number")
+  .min(0, "Must be 0 or more");
+
+const reorderLevel = z.preprocess(blankAsUnset, wholeCount.optional());
+
+/**
+ * Editing, a cleared field is 0. The API has no way to unset the field (a
+ * missing key leaves it as it was), and 0 is what the form shows for an item
+ * without one — so a blank that parsed to "not set" would be silently dropped
+ * behind an "Item saved".
+ */
+const editedReorderLevel = z.preprocess(
+  (v) => (v === "" || v === null ? 0 : v),
+  wholeCount.optional(),
 );
 
 const baseFields = {
@@ -93,9 +102,11 @@ const looseFields = {
   // Without these the resolver strips them and a change to them is never sent.
   taxable: z.boolean().default(true),
   manageStock: z.boolean().default(true),
+  // "" is "No brand" and is sent as is: the API has no other way to clear it
+  // (a missing key keeps the old brand, and null is stored as null).
   brandId: z.string().trim().optional(),
   minimumStockLevel: z.coerce.number({ message: "Enter a number" }).int("Whole number"),
-  reorderLevel,
+  reorderLevel: editedReorderLevel,
 };
 
 /**

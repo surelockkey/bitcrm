@@ -258,6 +258,21 @@ describe("ProductForm — Reorder level", () => {
     expect(onSubmit.mock.calls[0][1]).toEqual({ reorderLevel: 4 });
   });
 
+  // The API can't unset it: a blank would reach the server as a missing key,
+  // change nothing, and still say "Item saved". 0 is what the form shows for
+  // an item without one, so a cleared field saves 0.
+  it("saves a cleared field as 0 instead of dropping it", async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const { field, save } = renderForm(item, onSubmit);
+
+    await user.clear(field("reorderLevel"));
+    await user.click(save());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][1]).toStrictEqual({ reorderLevel: 0 });
+  });
+
   it("rejects a negative one", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();

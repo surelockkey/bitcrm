@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { LocationType, ReturnReason, TransferType } from "@bitcrm/types";
 import type { Transfer } from "@bitcrm/types";
 
@@ -70,7 +69,7 @@ describe("TransfersPage", () => {
     }
   });
 
-  it("filters to returns with a Return chip", async () => {
+  it("shows every movement of the page the server sent, returns included", () => {
     mocks.transfers = [
       transfer(),
       transfer({
@@ -83,9 +82,19 @@ describe("TransfersPage", () => {
       }),
     ];
     render(<TransfersPage />);
-    await userEvent.click(screen.getByRole("button", { name: "Return" }));
+    expect(screen.getByText(/Deadbolt/)).toBeInTheDocument();
     expect(screen.getByText(/Smart lock/)).toBeInTheDocument();
-    expect(screen.queryByText(/Deadbolt/)).toBeNull();
+  });
+
+  // The server can't filter the journal by type or text yet, and filtering the
+  // one page on screen gives a different handful on every page — so no chips
+  // and no search until it can.
+  it("has no type chips or search box that would filter only the page on screen", () => {
+    render(<TransfersPage />);
+    for (const name of ["All", "Receive", "Transfer", "Deduct", "Restore", "Return"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });
 

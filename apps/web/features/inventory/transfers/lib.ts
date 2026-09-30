@@ -89,33 +89,3 @@ export function transferEndpoints(
   };
   return { from: side(t.fromType, t.fromId), to: side(t.toType, t.toId) };
 }
-
-/* ---- Filtering ---- */
-
-export function filterByType(
-  transfers: Transfer[],
-  type: TransferType | "all",
-): Transfer[] {
-  if (type === "all") return transfers;
-  return transfers.filter((t) => t.type === type);
-}
-
-/** Client-side search over items, performer, and resolved location names. */
-export function matchesSearch(
-  t: Transfer,
-  q: string,
-  locationMap: Map<string, string>,
-): boolean {
-  if (!q) return true;
-  const { from, to } = transferEndpoints(t, locationMap);
-  const hay = [
-    t.performedByName,
-    from.name,
-    to.name,
-    t.notes ?? "",
-    ...t.items.map((i) => i.productName),
-  ]
-    .join(" ")
-    .toLowerCase();
-  return hay.includes(q.toLowerCase());
-}

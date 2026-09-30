@@ -52,6 +52,13 @@ describe("StockRowActions", () => {
     expect(screen.getByRole("button", { name: /^Add/ })).toBeEnabled();
   });
 
+  it("won't add to an archived location, but what's there can still leave", () => {
+    renderWithClient(<StockRowActions target={target(4)} archived />);
+    expect(screen.getByRole("button", { name: /^Add/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Move/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Return/ })).toBeEnabled();
+  });
+
   it.each([
     ["Add", "add"],
     ["Move", "move"],

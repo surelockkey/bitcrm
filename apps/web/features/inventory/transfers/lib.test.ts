@@ -7,8 +7,6 @@ import {
   resolveEndpoint,
   transferEndpoints,
   returnReasonLabel,
-  filterByType,
-  matchesSearch,
 } from "./lib";
 
 const map = new Map<string, string>([
@@ -54,20 +52,6 @@ describe("resolveEndpoint", () => {
   });
   it("falls back to a generic name when the id is unknown", () => {
     expect(resolveEndpoint(LocationType.WAREHOUSE, "w9", undefined, map).name).toBe("Warehouse");
-  });
-});
-
-describe("filterByType", () => {
-  const rows = [
-    { type: TransferType.RECEIVE },
-    { type: TransferType.TRANSFER },
-    { type: TransferType.DEDUCT },
-  ] as Transfer[];
-  it("returns all for 'all'", () => {
-    expect(filterByType(rows, "all")).toHaveLength(3);
-  });
-  it("filters by a single type", () => {
-    expect(filterByType(rows, TransferType.TRANSFER)).toHaveLength(1);
   });
 });
 
@@ -126,12 +110,5 @@ describe("transferEndpoints", () => {
     );
     expect(from).toMatchObject({ kind: "container", name: "Riley Santos" });
     expect(to).toMatchObject({ kind: "return", name: "Damaged" });
-  });
-});
-
-describe("matchesSearch", () => {
-  it("finds a return by its reason", () => {
-    const t = transfer({ type: TransferType.RETURN, toType: null, toId: null, reason: ReturnReason.LOST });
-    expect(matchesSearch(t, "lost", map)).toBe(true);
   });
 });
