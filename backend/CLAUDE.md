@@ -208,7 +208,12 @@ Item shapes are prefix-encoded, e.g.
 ```
 USER#<id>          / METADATA        GSI1 ROLE_USER#<roleId>, GSI2 DEPT#<dept>
 PHONE#<e164>       / USER            phone → user index item (not a GSI)
-DEAL#<id>          / METADATA
+DEAL#<id>          / METADATA        GSI1 STATUS#<s> / <createdAt>#…, GSI5 STATUS#<s> / <visit day>#<slot>#…, sparse GSI6
+                                     CLOSED#<YYYY-MM> / <closedAt>#…, GSI7 END#<YYYY-MM> / <visit end, Eastern clock>#… —
+                                     the Jobs report's three "By:" dates. GSI7 (EndIndex) is written on create and on
+                                     every scheduling update; rows older than it (every Workiz import) need
+                                     `npm run backfill:end-index -w backend/services/deal -- --apply`, or "By: Job end
+                                     date" does not list them
 DEAL#<id>          / ASSIGN#<techId> assignment adjacency, on TechIndex — what findByTech reads
 DEAL#<id>          / PRODUCT#<id>    line item; fulfillment: sourced | to_order | service
 DEAL#<id>          / ATTACH#<id>
