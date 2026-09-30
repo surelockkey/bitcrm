@@ -39,7 +39,7 @@ type ColumnId =
  * Together they fit the ~1250px a 1600px screen leaves beside the sidebar —
  * at 1430 the Actions column was cut to "Actio" and Manage stock went missing.
  */
-const COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
+export const PRODUCT_COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
   { id: "productId", label: "Product ID", width: 100 },
   { id: "name", label: "Name", width: 260 },
   { id: "description", label: "Description", width: 220 },
@@ -52,10 +52,10 @@ const COLUMNS: (InventoryColumn & { id: ColumnId })[] = [
   { id: "actions", label: "Actions", width: 120 },
 ];
 
-const WITHOUT_COST = COLUMNS.filter((c) => c.id !== "cost");
+const WITHOUT_COST = PRODUCT_COLUMNS.filter((c) => c.id !== "cost");
 
 /** The list's own key: the same name its page-size preference is saved under. */
-const TABLE_KEY = "inventory-items";
+export const PRODUCTS_TABLE_KEY = "inventory-items";
 
 export function ProductsTable({
   products,
@@ -81,7 +81,7 @@ export function ProductsTable({
   /** The previous filter's rows, held while the new ones load. */
   stale?: boolean;
 }) {
-  const columns = showCost ? COLUMNS : WITHOUT_COST;
+  const columns = showCost ? PRODUCT_COLUMNS : WITHOUT_COST;
   const actions = useProductRowActions();
 
   return (
@@ -92,7 +92,7 @@ export function ProductsTable({
         not the name — and the reader can drag the edge if they want more.
       */}
       <InventoryTable
-        tableKey={TABLE_KEY}
+        tableKey={PRODUCTS_TABLE_KEY}
         columns={columns}
         loading={loading}
         skeletonRows={skeletonRows}

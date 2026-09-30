@@ -18,7 +18,7 @@ import { formatTotal, type LocationTotals } from "@/features/inventory/stock/lib
  * `<colgroup>` and the headers, so there is one number to change. All
  * left-aligned, counts included, as Workiz lays its grids out.
  */
-const COLUMNS: InventoryColumn[] = [
+export const WAREHOUSE_COLUMNS: InventoryColumn[] = [
   { id: "name", label: "Name", width: 260 },
   { id: "description", label: "Description", width: 340 },
   { id: "items", label: "Items", width: 120 },
@@ -27,7 +27,7 @@ const COLUMNS: InventoryColumn[] = [
 ];
 
 /** Its own key: warehouses keep their widths apart from vans and items. */
-const TABLE_KEY = "inventory-warehouses";
+export const WAREHOUSES_TABLE_KEY = "inventory-warehouses";
 
 export function WarehousesTable({
   warehouses,
@@ -48,8 +48,8 @@ export function WarehousesTable({
 }) {
   return (
     <InventoryTable
-      tableKey={TABLE_KEY}
-      columns={COLUMNS}
+      tableKey={WAREHOUSES_TABLE_KEY}
+      columns={WAREHOUSE_COLUMNS}
       loading={loading}
       skeletonRows={skeletonRows}
       stale={stale}

@@ -20,7 +20,7 @@ import { namesSummary, type ContainerUser } from "@/features/inventory/user-cont
  * `<colgroup>` and the headers, so there is one number to change. All
  * left-aligned, counts included, as Workiz lays its grids out.
  */
-const COLUMNS: InventoryColumn[] = [
+export const CONTAINER_COLUMNS: InventoryColumn[] = [
   { id: "name", label: "Name", width: 240 },
   { id: "description", label: "Description", width: 240 },
   { id: "users", label: "Users", width: 220 },
@@ -31,7 +31,7 @@ const COLUMNS: InventoryColumn[] = [
 ];
 
 /** The list's own key: the same name its page-size preference is saved under. */
-const TABLE_KEY = "inventory-vans";
+export const CONTAINERS_TABLE_KEY = "inventory-vans";
 
 export function ContainersTable({
   containers,
@@ -55,8 +55,8 @@ export function ContainersTable({
 }) {
   return (
     <InventoryTable
-      tableKey={TABLE_KEY}
-      columns={COLUMNS}
+      tableKey={CONTAINERS_TABLE_KEY}
+      columns={CONTAINER_COLUMNS}
       loading={loading}
       skeletonRows={skeletonRows}
       stale={stale}

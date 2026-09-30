@@ -15,7 +15,7 @@ import { TransferRoute } from "./transfer-route";
  * The columns, with the width each one starts at — read by both the
  * `<colgroup>` and the headers, so there is one number to change.
  */
-const COLUMNS: InventoryColumn[] = [
+export const TRANSFER_COLUMNS: InventoryColumn[] = [
   { id: "type", label: "Type", width: 120 },
   { id: "route", label: "Route", width: 280 },
   { id: "items", label: "Items", width: 240 },
@@ -53,7 +53,7 @@ export function TransfersTable({
   return (
     <InventoryTable
       tableKey={TRANSFERS_TABLE_KEY}
-      columns={COLUMNS}
+      columns={TRANSFER_COLUMNS}
       loading={loading}
       skeletonRows={skeletonRows}
       stale={stale}

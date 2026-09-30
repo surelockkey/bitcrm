@@ -20,7 +20,7 @@ import { TemplateRowActions } from "./template-row-actions";
  * The columns, with the width each one starts at — read by both the
  * `<colgroup>` and the headers. All left-aligned, counts included.
  */
-const COLUMNS: InventoryColumn[] = [
+export const TEMPLATE_COLUMNS: InventoryColumn[] = [
   { id: "name", label: "Name", width: 260 },
   { id: "description", label: "Description", width: 320 },
   { id: "items", label: "Items", width: 100 },
@@ -52,7 +52,7 @@ export function TemplatesTable({
   skeletonRows?: number;
 }) {
   return (
-    <InventoryTable tableKey={TEMPLATES_TABLE_KEY} columns={COLUMNS} loading={loading} skeletonRows={skeletonRows}>
+    <InventoryTable tableKey={TEMPLATES_TABLE_KEY} columns={TEMPLATE_COLUMNS} loading={loading} skeletonRows={skeletonRows}>
       {templates.map((t) => {
         const archived = t.status === InventoryStatus.ARCHIVED;
         return (

@@ -29,7 +29,7 @@ const USER_ROW = "h-[3.25rem]";
  * The columns, with the width each one starts at — read by both the
  * `<colgroup>` and the headers. All left-aligned, as Workiz lays its grids out.
  */
-const COLUMNS: InventoryColumn[] = [
+export const USER_CONTAINER_COLUMNS: InventoryColumn[] = [
   { id: "user", label: "User", width: 260 },
   { id: "container", label: "Container", width: 240 },
   { id: "access", label: "Access", width: 150 },
@@ -58,7 +58,7 @@ export function UserContainersTable({
   return (
     <InventoryTable
       tableKey={USER_CONTAINERS_TABLE_KEY}
-      columns={COLUMNS}
+      columns={USER_CONTAINER_COLUMNS}
       loading={loading}
       skeletonRows={skeletonRows}
       stale={stale}
