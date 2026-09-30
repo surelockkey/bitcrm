@@ -13,7 +13,9 @@ const mocks = vi.hoisted(() => ({
   locationsEnabled: [] as boolean[],
 }));
 
-vi.mock("@/features/inventory/stock/hooks", () => ({
+vi.mock("@/features/inventory/stock/hooks", async (importOriginal) => ({
+  // The source's stock is read for real, through MSW.
+  useLocationStock: (await importOriginal<typeof import("@/features/inventory/stock/hooks")>()).useLocationStock,
   useAllLocations: (enabled = true) => {
     mocks.locationsEnabled.push(enabled);
     return { data: mocks.locations, isLoading: false, isError: false };
@@ -64,7 +66,12 @@ describe("NewTransferDialog", () => {
 
   it("allows warehouse → warehouse, never a location to itself", async () => {
     server.use(
-      http.get("*/inventory/warehouses/w1/stock", () => HttpResponse.json({ success: true, data: [] })),
+      http.get("*/inventory/stock/locations/warehouse/w1", () =>
+        HttpResponse.json({
+          success: true,
+          data: { locationType: "warehouse", locationId: "w1", name: "Main", status: active, rows: [] },
+        }),
+      ),
     );
     renderWithClient(<NewTransferDialog open onOpenChange={() => {}} />);
     await pick(0, "Main");
@@ -73,14 +80,24 @@ describe("NewTransferDialog", () => {
     expect(names).toEqual(["Overflow", "Taras's van · North", "Pavlo's van"]);
   });
 
+  // The source's stock is the location view every movement refreshes: a
+  // copy under a key of its own showed the old on-hand for 30s after a move.
   it("moves the chosen stock through the move endpoint", async () => {
+    const asked: string[] = [];
     server.use(
-      http.get("*/inventory/containers/c1/stock", () =>
-        HttpResponse.json({
+      http.get("*/inventory/stock/locations/container/c1", ({ request }) => {
+        asked.push(new URL(request.url).pathname);
+        return HttpResponse.json({
           success: true,
-          data: [{ productId: "p1", productName: "Deadbolt", quantity: 5, updatedAt: "" }],
-        }),
-      ),
+          data: {
+            locationType: "container",
+            locationId: "c1",
+            name: "Taras's van",
+            status: active,
+            rows: [{ productId: "p1", productName: "Deadbolt", quantity: 5 }],
+          },
+        });
+      }),
     );
     renderWithClient(<NewTransferDialog open onOpenChange={() => {}} />);
     await pick(0, /Taras/);
@@ -100,5 +117,6 @@ describe("NewTransferDialog", () => {
       },
       expect.anything(),
     );
+    expect(asked).toHaveLength(1);
   });
 });

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Loader2, Plus, Search, X } from "lucide-react";
 import {
   Dialog,
@@ -21,9 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAllLocations, useMoveStock } from "@/features/inventory/stock/hooks";
-import { getWarehouseStock } from "@/features/inventory/warehouses/api";
-import { getContainerStock } from "@/features/inventory/containers/api";
+import { useAllLocations, useLocationStock, useMoveStock } from "@/features/inventory/stock/hooks";
 
 type Loc = { id: string; label: string; kind: "warehouse" | "container" };
 interface Row { productId: string; productName: string; onHand: number; quantity: number }
@@ -59,14 +56,12 @@ export function NewTransferDialog({
   // Any other location, warehouse→warehouse included; never the source itself.
   const toOptions = from ? locations.filter((l) => l.id !== fromId) : [];
 
-  // Products come from the source's own stock.
-  const stockQ = useQuery({
-    queryKey: ["transfer-source-stock", from?.kind, fromId],
-    queryFn: () =>
-      from!.kind === "warehouse" ? getWarehouseStock(fromId) : getContainerStock(fromId),
-    enabled: open && !!from,
-  });
-  const sourceStock = (stockQ.data ?? []).filter((s) => s.quantity > 0);
+  // Products come from the source's own stock — the location view every
+  // movement refreshes, not a copy of it that went stale after a move.
+  const stockQ = useLocationStock(from?.kind ?? "warehouse", fromId, open && !!from);
+  const sourceStock = stockQ.rows
+    .filter((r) => r.quantity > 0)
+    .map((r) => ({ productId: r.productId, productName: r.name, quantity: r.quantity }));
   const chosen = new Set(rows.map((r) => r.productId));
   const matches = search
     ? sourceStock
