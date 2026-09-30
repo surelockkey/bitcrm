@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { InventoryLogAction, ReturnReason, TransferType, LocationType } from '@bitcrm/types';
+import { InventoryLogAction, InventoryStatus, ReturnReason, TransferType, LocationType } from '@bitcrm/types';
 import { SnsPublisherService, RedisService } from '@bitcrm/shared';
 import { TransfersService } from 'src/transfers/transfers.service';
 import { TransfersRepository } from 'src/transfers/transfers.repository';
@@ -223,6 +223,38 @@ describe('TransfersService', () => {
       await expect(service.createTransfer(dto, createMockJwtUser())).rejects.toThrow(NotFoundException);
       expect(stockService.transfer).not.toHaveBeenCalled();
       expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    // В архівну локацію нічого не переміщуємо; з архівної — можна (розвантажити
+    // списаний фургон).
+    it('refuses to move stock into an archived location, before touching stock', async () => {
+      const dto = createMockCreateTransferDto({ toId: 'old-van' });
+      locationsRepository.findLocation.mockImplementation(async (_type: LocationType, id: string) =>
+        createMockLocationSummary({
+          id,
+          name: id === 'old-van' ? '(9) OLD VAN' : id,
+          status: id === 'old-van' ? InventoryStatus.ARCHIVED : InventoryStatus.ACTIVE,
+        }),
+      );
+
+      await expect(service.createTransfer(dto, createMockJwtUser())).rejects.toThrow(
+        new BadRequestException('Container "(9) OLD VAN" is archived'),
+      );
+      expect(stockService.transfer).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
+    it('still moves stock out of an archived location', async () => {
+      const dto = createMockCreateTransferDto({ fromId: 'old-store' });
+      locationsRepository.findLocation.mockImplementation(async (_type: LocationType, id: string) =>
+        createMockLocationSummary({
+          id,
+          status: id === 'old-store' ? InventoryStatus.ARCHIVED : InventoryStatus.ACTIVE,
+        }),
+      );
+
+      await expect(service.createTransfer(dto, createMockJwtUser())).resolves.toBeDefined();
+      expect(stockService.transfer).toHaveBeenCalled();
     });
 
     it('rejects a move from a location to itself', async () => {
@@ -620,6 +652,18 @@ describe('TransfersService', () => {
       expect(repository.create).not.toHaveBeenCalled();
     });
 
+    it('refuses to receive into an archived location and touches nothing', async () => {
+      locationsRepository.findLocation.mockResolvedValue(
+        createMockLocationSummary({ type: 'warehouse', id: 'wh-1', name: '(2) OLD STORE', status: InventoryStatus.ARCHIVED }),
+      );
+
+      await expect(
+        service.receiveStock({ toType: LocationType.WAREHOUSE, toId: 'wh-1', items }, user),
+      ).rejects.toThrow(new BadRequestException('Warehouse "(2) OLD STORE" is archived'));
+      expect(stockService.receive).not.toHaveBeenCalled();
+      expect(repository.create).not.toHaveBeenCalled();
+    });
+
     it('receives into a warehouse and journals a RECEIVE from the supplier', async () => {
       const result = await service.receiveStock(
         { toType: LocationType.WAREHOUSE, toId: 'wh-1', items, notes: 'PO 12' },
@@ -743,6 +787,20 @@ describe('TransfersService', () => {
 
     beforeEach(() => {
       locationsRepository.findLocation.mockResolvedValue(createMockLocationSummary({ name: "Taras's van" }));
+    });
+
+    it('still returns stock out of an archived location', async () => {
+      locationsRepository.findLocation.mockResolvedValue(
+        createMockLocationSummary({ status: InventoryStatus.ARCHIVED }),
+      );
+
+      await expect(
+        service.returnStock(
+          { fromType: LocationType.CONTAINER, fromId: 'container-1', items, reason: ReturnReason.DAMAGED },
+          user,
+        ),
+      ).resolves.toBeDefined();
+      expect(stockService.deduct).toHaveBeenCalled();
     });
 
     it('404s on a location that does not exist', async () => {

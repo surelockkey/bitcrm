@@ -32,7 +32,9 @@ export class TransfersController {
     summary: 'Create a transfer between locations',
     description:
       '**Guard:** `transfers.create` permission required. Both locations must exist (404 ' +
-      'otherwise) and differ (400); services are rejected and non-stock-managed items dropped ' +
+      'otherwise) and differ (400), and the destination must not be archived (400 "… is ' +
+      'archived"; moving OUT of an archived location is allowed); services are rejected and ' +
+      'non-stock-managed items dropped ' +
       'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
       'Answers the TRANSFER transfer.',
   })
@@ -47,7 +49,8 @@ export class TransfersController {
     summary: 'Receive stock from the supplier into a warehouse or container',
     description:
       '**Guard:** `transfers.create` permission required. Workiz "Add to stock": the location ' +
-      'must exist (404 otherwise); services are rejected and non-stock-managed items dropped ' +
+      'must exist (404 otherwise) and not be archived (400 "… is archived"); services are ' +
+      'rejected and non-stock-managed items dropped ' +
       'into `skippedItems`, a list with none left is a 400. Item names are the catalog\'s. ' +
       'Answers the RECEIVE transfer.',
   })

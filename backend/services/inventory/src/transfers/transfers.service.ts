@@ -22,6 +22,7 @@ import {
   type Transfer,
   type TransferItem,
   InventoryLogAction,
+  InventoryStatus,
   TransferType,
   LocationType,
 } from '@bitcrm/types';
@@ -111,7 +112,7 @@ export class TransfersService {
     }
 
     const from = await this.requireLocation(dto.fromType, dto.fromId);
-    const to = await this.requireLocation(dto.toType, dto.toId);
+    const to = await this.requireDestination(dto.toType, dto.toId);
     const { items, skipped } = await this.stockableItems(dto.items, 'stock transfer');
 
     await this.stockService.transfer(
@@ -158,7 +159,7 @@ export class TransfersService {
    * stock. The one receive path — POST /warehouses/:id/receive lands here too.
    */
   async receiveStock(dto: ReceiveStockDto, user: JwtUser): Promise<Transfer> {
-    const location = await this.requireLocation(dto.toType, dto.toId);
+    const location = await this.requireDestination(dto.toType, dto.toId);
     const { items, skipped } = await this.stockableItems(dto.items, 'stock receive');
 
     await this.stockService.receive(locationPK(dto.toType, dto.toId), items);
@@ -381,6 +382,20 @@ export class TransfersService {
     if (!location) {
       const label = type === LocationType.WAREHOUSE ? 'Warehouse' : 'Container';
       throw new NotFoundException(`${label} "${id}" not found`);
+    }
+    return location;
+  }
+
+  /**
+   * A location stock may move INTO: it exists and is not archived. Moving or
+   * returning stock OUT of an archived location stays allowed — that is how a
+   * retired van is emptied. (The deal-service deduct/restore paths never ask.)
+   */
+  private async requireDestination(type: LocationType, id: string): Promise<LocationSummary> {
+    const location = await this.requireLocation(type, id);
+    if (location.status === InventoryStatus.ARCHIVED) {
+      const label = type === LocationType.WAREHOUSE ? 'Warehouse' : 'Container';
+      throw new BadRequestException(`${label} "${location.name}" is archived`);
     }
     return location;
   }

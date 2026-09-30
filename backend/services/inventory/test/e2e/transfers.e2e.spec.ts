@@ -799,4 +799,99 @@ describe('Transfers E2E', () => {
 
     expect(res.body.success).toBe(true);
   });
+
+  // ---- TYPE FILTER (server side, list and count) ----
+
+  it('GET /transfers?type= - filters the list and the count on the server', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+    const container = await ensureContainer(app, 'tech-type', 'Type Tech', 'Atlanta');
+    await receiveStock(app, adminUser, warehouse.id, [
+      { productId: product.id, productName: product.name, quantity: 5 },
+    ]);
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'container',
+        toId: container.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 2 }],
+      })
+      .expect(201);
+
+    const receives = await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}?type=receive&limit=1`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(200);
+    expect(receives.body.data.map((t: { type: string }) => t.type)).toEqual(['receive']);
+
+    const moves = await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}/count?type=transfer`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(200);
+    expect(moves.body.data).toEqual({ total: 1, atLeast: false });
+
+    await request(app.getHttpServer())
+      .get(`${TRANSFERS_BASE}?type=teleport`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .expect(400);
+  });
+
+  // ---- ARCHIVED LOCATIONS ----
+
+  it('refuses stock INTO an archived location but still moves it OUT', async () => {
+    const product = await createProduct(app, adminUser);
+    const warehouse = await createWarehouse(app, adminUser);
+    const container = await ensureContainer(app, 'tech-arch', 'Arch Tech', 'Atlanta');
+    await receiveStock(app, adminUser, warehouse.id, [
+      { productId: product.id, productName: product.name, quantity: 5 },
+    ]);
+    // Archiving a warehouse asks warehouses.delete, which only the super admin has here.
+    const superAdmin: JwtUser = {
+      id: 'sa-1', cognitoSub: 'sub-sa', email: 'sa@test.com',
+      roleId: 'role-super-admin', department: 'HQ',
+    };
+    await request(app.getHttpServer())
+      .delete(`${WAREHOUSES_BASE}/${warehouse.id}`)
+      .set('x-test-user', createTestUserHeader(superAdmin))
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`${TRANSFERS_BASE}/receive`)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        toType: 'warehouse',
+        toId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 1 }],
+      })
+      .expect(400);
+
+    // Out of the archived store into an active van: allowed.
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'warehouse',
+        fromId: warehouse.id,
+        toType: 'container',
+        toId: container.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 2 }],
+      })
+      .expect(201);
+
+    // Back into the archived store: refused.
+    await request(app.getHttpServer())
+      .post(TRANSFERS_BASE)
+      .set('x-test-user', createTestUserHeader(adminUser))
+      .send({
+        fromType: 'container',
+        fromId: container.id,
+        toType: 'warehouse',
+        toId: warehouse.id,
+        items: [{ productId: product.id, productName: product.name, quantity: 1 }],
+      })
+      .expect(400);
+  });
 });
