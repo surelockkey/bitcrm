@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing';
 import { DynamoDbModule, DynamoDbService, RedisModule, RedisService, StorageModule, S3Service, KmsService } from '@bitcrm/shared';
 import { InventoryLogModule } from 'src/inventory-log/inventory-log.module';
+import { InventoryUsageModule } from 'src/inventory-usage/inventory-usage.module';
+import { InventoryUsageService } from 'src/inventory-usage/inventory-usage.service';
 import { StockModule } from 'src/stock/stock.module';
 import { ProductsModule } from 'src/products/products.module';
 import { WarehousesModule } from 'src/warehouses/warehouses.module';
@@ -33,6 +35,7 @@ describe('inventory module graph', () => {
         RedisModule,
         StorageModule,
         InventoryLogModule,
+        InventoryUsageModule,
         StockModule,
         ProductsModule,
         WarehousesModule,
@@ -64,9 +67,13 @@ describe('inventory module graph', () => {
       // A category rename moves its products: the mover must resolve inside ItemCategoriesModule.
       ItemCategoriesService,
       BrandsService,
+      InventoryUsageService,
     ]) {
       expect(moduleRef.get(provider, { strict: false })).toBeInstanceOf(provider);
     }
+    // The stock moves keep the usage projection: the global module must reach them.
+    const transfers = moduleRef.get(TransfersService, { strict: false }) as unknown as { usage?: unknown };
+    expect(transfers.usage).toBeInstanceOf(InventoryUsageService);
     await moduleRef.close();
   });
 });

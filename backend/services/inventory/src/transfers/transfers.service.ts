@@ -17,6 +17,7 @@ import { publishInventoryEvent } from '../common/events/publish-inventory-event'
 import {
   type InventoryLogEntry,
   type JwtUser,
+  type ProductWithExtras,
   type ListCount,
   type LocationSummary,
   type Transfer,
@@ -33,6 +34,8 @@ import { ContainerAssignmentResolver } from '../user-containers/container-assign
 import { ProductsService } from '../products/products.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
 import { itemSnapshot } from '../inventory-log/inventory-log.types';
+import { InventoryUsageService } from '../inventory-usage/inventory-usage.service';
+import { type UsageUseItem } from '../inventory-usage/inventory-usage.types';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { ReturnStockDto } from './dto/return-stock.dto';
@@ -79,6 +82,7 @@ export class TransfersService {
     @Optional() private readonly businessMetrics?: BusinessMetricsService,
     @Optional() private readonly snsPublisher?: SnsPublisherService,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly usage?: InventoryUsageService,
   ) {}
 
   /**
@@ -324,6 +328,7 @@ export class TransfersService {
       notes: `Deal: ${dto.dealId}`,
       createdAt: new Date().toISOString(),
     });
+    const catalog = await this.catalogOf(items);
     await this.recordMovement(
       InventoryLogAction.STOCK_USED,
       items,
@@ -336,6 +341,15 @@ export class TransfersService {
         userName: dto.performedByName,
       },
       true,
+      catalog,
+    );
+    await this.recordUsage(() =>
+      this.usage!.recordUse({
+        dealId: dto.dealId,
+        containerId,
+        job: dto.job,
+        items: items.map((item): UsageUseItem => ({ ...item, product: catalog.get(item.productId) ?? null })),
+      }),
     );
   }
 
@@ -388,6 +402,13 @@ export class TransfersService {
 
     for (const target of targets.values()) {
       await this.restoreInto(target.container, target.items, dto);
+    }
+    // Only what came back: a skipped line's units are still used on the job.
+    const restored = [...targets.values()].flatMap((target) => target.items);
+    if (restored.length > 0) {
+      await this.recordUsage(() =>
+        this.usage!.recordRestore({ dealId: dto.dealId, job: dto.job, items: restored }),
+      );
     }
 
     if (skippedItems.length > 0) {
@@ -480,12 +501,13 @@ export class TransfersService {
     items: TransferItem[],
     fields: MovementFields,
     withUnitValues = false,
+    catalog?: Map<string, ProductWithExtras | null>,
   ): Promise<void> {
     if (!this.inventoryLog) return;
     for (const item of items) {
-      const product = await this.productsService
-        .loadForStock(item.productId)
-        .catch(() => null);
+      const product = catalog
+        ? catalog.get(item.productId) ?? null
+        : await this.productsService.loadForStock(item.productId).catch(() => null);
       await this.inventoryLog.record({
         action,
         productId: item.productId,
@@ -498,6 +520,30 @@ export class TransfersService {
           : {}),
         ...itemSnapshot(product),
       });
+    }
+  }
+
+  /** The catalog products behind some items, each read once — the stock guards cached them. */
+  private async catalogOf(items: TransferItem[]): Promise<Map<string, ProductWithExtras | null>> {
+    const catalog = new Map<string, ProductWithExtras | null>();
+    for (const item of items) {
+      if (catalog.has(item.productId)) continue;
+      catalog.set(item.productId, await this.productsService.loadForStock(item.productId).catch(() => null));
+    }
+    return catalog;
+  }
+
+  /**
+   * The inventory-usage projection follows a job's stock moves in the same
+   * request. The projection swallows its own failures; this guard is for the
+   * unexpected, because a report row must never cost a technician the move.
+   */
+  private async recordUsage(write: () => Promise<void>): Promise<void> {
+    if (!this.usage) return;
+    try {
+      await write();
+    } catch (err) {
+      this.logger.warn(`Inventory-usage projection skipped: ${(err as Error).message}`);
     }
   }
 

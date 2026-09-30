@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DynamoDbModule, RedisModule, AuthModule, EventsModule, LoggerModule, MetricsModule, HealthModule, ConnectivityModule, StorageModule } from '@bitcrm/shared';
 import { AppController } from './app.controller';
 import { InventoryLogModule } from './inventory-log/inventory-log.module';
+import { InventoryUsageModule } from './inventory-usage/inventory-usage.module';
 import { StockModule } from './stock/stock.module';
 import { ProductsModule } from './products/products.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
@@ -42,8 +43,9 @@ import { ContainerTemplatesModule } from './container-templates/container-templa
       // longer listens to user events for auto-provisioning.
     }),
     StorageModule,
-    // Global, ahead of the domain modules that write to it.
+    // Global, ahead of the domain modules that write to them.
     InventoryLogModule,
+    InventoryUsageModule,
     StockModule,
     ProductsModule,
     WarehousesModule,

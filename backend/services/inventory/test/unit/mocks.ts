@@ -330,3 +330,53 @@ export function createMockItemCategoriesService() {
     }),
   };
 }
+
+/** One inventory-usage projection row with its key (USAGE#2026-09 / 2026-09-10#deal-1#prod-1). */
+export function createMockStoredUsageRow(
+  overrides: Partial<import('src/inventory-usage/inventory-usage.types').StoredUsageRow> = {},
+): import('src/inventory-usage/inventory-usage.types').StoredUsageRow {
+  return {
+    PK: 'USAGE#2026-09',
+    SK: '2026-09-10#deal-1#prod-1',
+    dealId: 'deal-1',
+    productId: 'prod-1',
+    jobDate: '2026-09-10',
+    dealNumber: 'K4T9ZW',
+    clientName: 'Kristie Spegal',
+    contactId: 'contact-1',
+    techIds: ['tech-1'],
+    techNames: ['Dave Tech'],
+    productName: 'Steel Ball Bearing',
+    sku: 'SB-1',
+    category: 'Locks',
+    qty: 2,
+    unitPrice: 25,
+    unitCost: 10,
+    containerIds: ['c-1'],
+    firstUsedAt: '2026-09-08T10:00:00.000Z',
+    lastUsedAt: '2026-09-08T10:00:00.000Z',
+    source: 'bitcrm',
+    ...overrides,
+  };
+}
+
+export function createMockInventoryUsageRepository() {
+  return {
+    getPointer: jest.fn().mockResolvedValue(null),
+    listPointers: jest.fn().mockResolvedValue([]),
+    getRow: jest.fn().mockResolvedValue(null),
+    create: jest.fn().mockResolvedValue(undefined),
+    addUse: jest.fn().mockResolvedValue(undefined),
+    addRestore: jest.fn().mockResolvedValue(undefined),
+    replace: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+/** The projection never throws at the stock moves, so the default is a silent success. */
+export function createMockInventoryUsageService() {
+  return {
+    recordUse: jest.fn().mockResolvedValue(undefined),
+    recordRestore: jest.fn().mockResolvedValue(undefined),
+    rekeyDeal: jest.fn().mockResolvedValue({ rows: 0, moved: 0, updated: 0 }),
+  };
+}

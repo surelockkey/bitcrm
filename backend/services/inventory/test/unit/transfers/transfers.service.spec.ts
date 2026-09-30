@@ -9,6 +9,7 @@ import { LocationsRepository } from 'src/stock/locations.repository';
 import { ContainerAssignmentResolver } from 'src/user-containers/container-assignment.resolver';
 import { ProductsService } from 'src/products/products.service';
 import { InventoryLogService } from 'src/inventory-log/inventory-log.service';
+import { InventoryUsageService } from 'src/inventory-usage/inventory-usage.service';
 import {
   createMockTransfer,
   createMockCreateTransferDto,
@@ -21,6 +22,7 @@ import {
   createMockLocationsRepository,
   createMockInventoryLogService,
   createMockContainerAssignmentResolver,
+  createMockInventoryUsageService,
 } from '../mocks';
 
 describe('TransfersService', () => {
@@ -31,6 +33,7 @@ describe('TransfersService', () => {
   let productsService: ReturnType<typeof createMockProductsService>;
   let locationsRepository: ReturnType<typeof createMockLocationsRepository>;
   let inventoryLog: ReturnType<typeof createMockInventoryLogService>;
+  let usage: ReturnType<typeof createMockInventoryUsageService>;
 
   let publisher: { publish: jest.Mock };
 
@@ -41,6 +44,7 @@ describe('TransfersService', () => {
     productsService = createMockProductsService();
     locationsRepository = createMockLocationsRepository();
     inventoryLog = createMockInventoryLogService();
+    usage = createMockInventoryUsageService();
     // Default: the id is not a user with a container, so it's treated as a container id.
     assignments = createMockContainerAssignmentResolver();
     // Default: every location named in a request exists.
@@ -71,6 +75,7 @@ describe('TransfersService', () => {
         { provide: ProductsService, useValue: productsService },
         { provide: LocationsRepository, useValue: locationsRepository },
         { provide: InventoryLogService, useValue: inventoryLog },
+        { provide: InventoryUsageService, useValue: usage },
         { provide: SnsPublisherService, useValue: publisher },
         { provide: RedisService, useValue: redis },
       ],
@@ -503,6 +508,128 @@ describe('TransfersService', () => {
       expect(entry.action).toBe(InventoryLogAction.STOCK_USED);
       expect(entry).not.toHaveProperty('unitPrice');
       expect(entry).not.toHaveProperty('unitCost');
+    });
+  });
+
+  /**
+   * Проєкція звіту "Inventory Usage" оновлюється в тому ж запиті, що й
+   * списання: рядок (робота, товар) отримує одиниці, знімок товару, ціну
+   * рядка роботи і знімок роботи, який надіслав deal-service.
+   */
+  describe('deductStock — inventory-usage projection', () => {
+    const job = { dealNumber: 'K4T9ZW', scheduledDate: '2026-09-10', techIds: ['tech-1'] };
+
+    it('adds the use with the resolved container, the item snapshot, the line values and the job', async () => {
+      const product = createMockProduct({ id: 'prod-1', name: 'Deadbolt', number: 17, brandId: 'brand-1' });
+      productsService.loadForStock.mockResolvedValue(product);
+      assignments.containerIdForUser.mockResolvedValue('container-9');
+
+      await service.deductStock({
+        containerId: 'tech-1',
+        items: [{ productId: 'prod-1', productName: 'Deadbolt (body)', quantity: 2, unitPrice: 30, unitCost: 11 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-1',
+        performedByName: 'tech@test.com',
+        job,
+      } as any);
+
+      expect(usage.recordUse).toHaveBeenCalledWith({
+        dealId: 'deal-1',
+        containerId: 'container-9',
+        job,
+        items: [
+          {
+            productId: 'prod-1',
+            productName: 'Deadbolt',
+            quantity: 2,
+            unitPrice: 30,
+            unitCost: 11,
+            product,
+          },
+        ],
+      });
+    });
+
+    it('records nothing when nothing was deducted', async () => {
+      productsService.partitionStockManaged.mockImplementation(async (items: { productId: string }[]) => ({
+        managed: [],
+        unmanaged: items,
+      }));
+
+      await service.deductStock({
+        containerId: 'container-1',
+        items: [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 1 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(usage.recordUse).not.toHaveBeenCalled();
+    });
+
+    it('never fails the deduction on a projection error', async () => {
+      usage.recordUse.mockRejectedValue(new Error('projection down'));
+
+      await expect(
+        service.deductStock({
+          containerId: 'container-1',
+          items: [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 1 }],
+          dealId: 'deal-1',
+          performedBy: 'tech-1',
+          performedByName: 'tech@test.com',
+        } as any),
+      ).resolves.toBeUndefined();
+      expect(stockService.deduct).toHaveBeenCalled();
+    });
+  });
+
+  describe('restoreStock — inventory-usage projection', () => {
+    const job = { dealNumber: 'K4T9ZW', scheduledDate: '2026-09-10' };
+
+    it('takes the restored units off the projection, with the job', async () => {
+      await service.restoreStock({
+        containerId: 'container-1',
+        items: [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 2 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-1',
+        performedByName: 'tech@test.com',
+        job,
+      } as any);
+
+      expect(usage.recordRestore).toHaveBeenCalledWith({
+        dealId: 'deal-1',
+        job,
+        items: [expect.objectContaining({ productId: 'prod-1', quantity: 2 })],
+      });
+    });
+
+    // Пропущений рядок не повернувся на склад — його одиниці досі "використані".
+    it('leaves a skipped line in the projection', async () => {
+      locationsRepository.findLocation.mockResolvedValue(null);
+
+      await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 1 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(usage.recordRestore).not.toHaveBeenCalled();
+    });
+
+    it('never fails the restore on a projection error', async () => {
+      usage.recordRestore.mockRejectedValue(new Error('projection down'));
+
+      await expect(
+        service.restoreStock({
+          containerId: 'container-1',
+          items: [{ productId: 'prod-1', productName: 'Deadbolt', quantity: 2 }],
+          dealId: 'deal-1',
+          performedBy: 'tech-1',
+          performedByName: 'tech@test.com',
+        } as any),
+      ).resolves.toEqual({ skippedItems: [] });
     });
   });
 

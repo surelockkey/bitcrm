@@ -171,7 +171,10 @@ export class TransfersController {
     description:
       '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. ' +
       '`containerId` may be a technician id (resolved to the container they work from); an id ' +
-      'that is no existing container is a 404 — no stock row is touched.',
+      'that is no existing container is a 404 — no stock row is touched. Optional `job` ' +
+      '(`{ dealNumber, scheduledDate?, clientName?, contactId?, techIds?, techNames? }`) and per-item ' +
+      '`unitPrice` / `unitCost` (the job line\'s) feed the inventory-usage projection, which is ' +
+      'updated in the same request and never fails the deduction.',
   })
   async deductStock(@Body() dto: DeductStockDto) {
     await this.transfersService.deductStock(dto);
@@ -188,7 +191,8 @@ export class TransfersController {
       'per container); only a line with no such entry falls back to the technician\'s current ' +
       'container. A line for which no existing container can be found is skipped — never a ' +
       '404, so removing a job line is never blocked — logged as `stock_restore_skipped` and ' +
-      'answered in `data.skippedItems`.',
+      'answered in `data.skippedItems`. The restored units come off the inventory-usage row of ' +
+      'the job (optional `job` as on deduct); skipped ones stay used.',
   })
   async restoreStock(@Body() dto: RestoreStockDto) {
     const data = await this.transfersService.restoreStock(dto);
