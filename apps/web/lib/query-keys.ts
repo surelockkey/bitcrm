@@ -48,6 +48,8 @@ export const queryKeys = {
       ["calls", "party", kind, id] as const,
     live: () => ["calls", "live"] as const,
     active: () => ["calls", "active"] as const,
+    /** Reports → Call Tracking (`GET /telephony/calls/stats/tracking`). */
+    tracking: (params?: unknown) => ["calls", "tracking", params] as const,
   },
 
   search: {
@@ -302,6 +304,13 @@ export const queryKeys = {
     runsCount: (filters?: unknown) => ["automations", "runs", "count", filters] as const,
     /** Every rule's firings in one stream (`GET /automations/runs`). */
     runsFeed: (params?: unknown) => ["automations", "runs-feed", params] as const,
+  },
+
+  /** Reports → Activity (`GET /deals/activity`): the account's journal of actions. */
+  activity: {
+    all: () => ["activity"] as const,
+    list: (params?: unknown) => ["activity", "list", params] as const,
+    count: (params?: unknown) => ["activity", "count", params] as const,
   },
 
   taxRates: {
