@@ -18,7 +18,8 @@ and then override the typed fields), so importer data survives edits from the UI
 
 Every index on `BitCRM_Inventory` is **HASH + RANGE**
 (`src/scripts/setup-dynamodb.ts`: `CategoryIndex` = GSI1PK/GSI1SK,
-`TypeIndex` = GSI2PK/GSI2SK, `OwnerIndex` = GSI3PK/GSI3SK), so a row that
+`TypeIndex` = GSI2PK/GSI2SK, `OwnerIndex` = GSI3PK/GSI3SK,
+`TransferEntityIndex` = GSI4PK/GSI4SK), so a row that
 writes the partition key but **not** the matching sort key is not in that index
 at all — it silently disappears from the query. A product written without
 `GSI1SK` is invisible to `GET /products?category=` and to
@@ -63,6 +64,16 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
   order. Write both or neither, or leave them to
   `npm run backfill:product-stock-index -w backend/services/inventory`
   (idempotent, mandatory after every import that does not write them).
+- **Every** product row (any `type`, any `status`, any `manageStock`) also
+  carries the `TransferEntityIndex` pair `GSI4PK = PRODUCTS#ALL`,
+  `GSI4SK = <name>.trim().toLowerCase() (first 200 characters)#<id>` — the
+  Price Book partition `GET /products` reads in name order whenever neither
+  `category` nor `manageStock=true` picks another index. Write both or
+  neither, or leave them to
+  `npm run backfill:product-catalog-index -w backend/services/inventory`
+  (idempotent, upsert-only, **mandatory after every import** that does not
+  write them). Until it has run on an environment, the Price Book list and
+  its count are **empty** there.
 - `<type>` is the stored `type`, i.e. always `product` or `service` — the 10
   Workiz `other`/`hours` items are written `type: "service"` and therefore
   `GSI2PK: "TYPE#service"` (§4.1), never `TYPE#other`.
