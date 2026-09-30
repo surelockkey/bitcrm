@@ -11,6 +11,7 @@ type Mutate = (vars: unknown, opts?: { onSuccess?: () => void }) => void;
 
 const mocks = vi.hoisted(() => ({
   denied: new Set<string>(),
+  permsLoading: false,
   template: undefined as { isLoading: boolean; isError: boolean; data?: unknown } | undefined,
   create: vi.fn(),
   update: vi.fn(),
@@ -19,8 +20,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
+  // Like the real hook: nothing is allowed until the permissions are in.
   usePermissions: () => ({
-    can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
+    can: (resource: string, action = "view") => !mocks.permsLoading && !mocks.denied.has(`${resource}.${action}`),
+    isLoading: mocks.permsLoading,
   }),
 }));
 
@@ -74,6 +77,7 @@ const TEMPLATE: ContainerTemplate = {
 
 beforeEach(() => {
   mocks.denied = new Set();
+  mocks.permsLoading = false;
   mocks.template = { isLoading: false, isError: false, data: TEMPLATE };
   mocks.create.mockReset();
   mocks.update.mockReset();
@@ -94,8 +98,8 @@ beforeEach(() => {
 
 function open(templateId: string | null = null) {
   const onOpenChange = vi.fn();
-  renderWithClient(<TemplateDialog templateId={templateId} open onOpenChange={onOpenChange} />);
-  return { onOpenChange };
+  const { unmount } = renderWithClient(<TemplateDialog templateId={templateId} open onOpenChange={onOpenChange} />);
+  return { onOpenChange, unmount };
 }
 
 const search = () => screen.getByRole("searchbox", { name: "Add a product" });
@@ -304,5 +308,44 @@ describe("TemplateDialog — loading", () => {
     open("t1");
     expect(screen.getByTestId("template-loading")).toBeInTheDocument();
     expect(screen.getByTestId("dialog-footer-placeholder")).toBeInTheDocument();
+  });
+
+  // 494px loading, 968px loaded — and, centred, its top moved from 253px to 16px.
+  it("is the same height loading and loaded", () => {
+    mocks.template = { isLoading: true, isError: false };
+    const first = open("t1");
+    const loading = screen.getByRole("dialog").className;
+    first.unmount();
+
+    mocks.template = { isLoading: false, isError: false, data: TEMPLATE };
+    open("t1");
+    expect(screen.getByRole("dialog").className).toBe(loading);
+    expect(loading).toMatch(/(^|\s)h-\[/);
+  });
+
+  // By direct link the popup was a 140px "no permission" stub until the
+  // permissions came, then grew into the form.
+  it("draws the whole New template form, disabled, while the permissions load", () => {
+    mocks.permsLoading = true;
+    open();
+    expect(screen.getByRole("dialog", { name: "New template" })).toBeInTheDocument();
+    expect(screen.queryByText(/permission to create templates/)).toBeNull();
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(screen.getByLabelText("Description")).toBeDisabled();
+    expect(search()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
+  });
+
+  it("holds an existing template as the editable form, disabled, until the permissions say", () => {
+    mocks.permsLoading = true;
+    open("t1");
+    expect(screen.getByRole("dialog", { name: "Edit template" })).toBeInTheDocument();
+    // No "view-only" banner that the permissions would then take away.
+    expect(screen.queryByText(/view-only access/)).toBeNull();
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(search()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove Key blank" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

@@ -9,6 +9,7 @@ type Mutate = (vars: unknown, opts?: { onSuccess?: (data: unknown) => void }) =>
 
 const mocks = vi.hoisted(() => ({
   denied: new Set<string>(),
+  permsLoading: false,
   product: { isLoading: false, isError: false, data: undefined as Product | undefined },
   categories: [] as ProductCategory[],
   brands: [] as Brand[],
@@ -21,8 +22,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/features/auth/use-permissions", () => ({
   useDenied: () => () => false,
+  // Like the real hook: nothing is allowed until the permissions are in.
   usePermissions: () => ({
-    can: (resource: string, action = "view") => !mocks.denied.has(`${resource}.${action}`),
+    can: (resource: string, action = "view") => !mocks.permsLoading && !mocks.denied.has(`${resource}.${action}`),
+    isLoading: mocks.permsLoading,
   }),
 }));
 
@@ -90,6 +93,7 @@ function open(productId: string | null, over: { onCreated?: (p: Product) => void
 
 beforeEach(() => {
   mocks.denied = new Set();
+  mocks.permsLoading = false;
   mocks.product = { isLoading: false, isError: false, data: product() };
   mocks.categories = [];
   mocks.brands = [];
@@ -266,6 +270,20 @@ describe("ProductDialog — create", () => {
       manageStock: true,
     });
     expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: "new-1" }));
+  });
+
+  // By direct link (?new=1) the popup was a 131px "no permission" stub until
+  // the permissions came, then grew into a 968px form.
+  it("draws the whole form, disabled, while the permissions load — not a refusal", () => {
+    mocks.permsLoading = true;
+    open(null);
+    expect(screen.getByRole("dialog", { name: "New item" })).toBeInTheDocument();
+    expect(screen.queryByText(/permission to create items/)).toBeNull();
+    expect(field("name")).toBeDisabled();
+    expect(field("sku")).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Track stock" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create item" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
   });
 
   it("refuses without products.create", () => {
