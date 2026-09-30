@@ -8,6 +8,7 @@ import {
   type CommissionReportRow,
   type CommissionReportTechSummary,
   type CommissionReportTotals,
+  type WorkizCommissionSnapshot,
 } from '@bitcrm/types';
 import type { CommissionDealItem, CommissionReportSortKey } from './commission-report.types';
 import {
@@ -128,6 +129,20 @@ function baseRow(item: CommissionDealItem, ctx: RowContext): Omit<
   };
 }
 
+/**
+ * The technician's share of an imported row before Workiz rounded it. The
+ * snapshot holds the rounded share only, but Workiz derives the balance from
+ * the exact one, and on a negative balance a half cent rounds the other way
+ * (48.625 − 100 → −51.38, 48.63 − 100 → −51.37). A half-cent share is
+ * visible in the row itself: both shares round up, so they add up to one
+ * cent more than what was split (8ZG2NQ: 946.99 + 946.99 of 1 893.97).
+ */
+export function snapshotShareExact(s: WorkizCommissionSnapshot): number {
+  const split = num(s.total) - num(s.tax) - num(s.parts) - num(s.companyParts) - num(s.externalCompanyProfit);
+  const excess = round2(num(s.techProfit) + num(s.companyProfit) - split);
+  return excess === 0.01 ? num(s.techProfit) - 0.005 : num(s.techProfit);
+}
+
 /** One report row: Workiz's own when the import brought it, the Workiz formula otherwise. */
 export function buildRow(item: CommissionDealItem, ctx: RowContext): CommissionReportRow {
   const base = baseRow(item, ctx);
@@ -157,7 +172,7 @@ export function buildRow(item: CommissionDealItem, ctx: RowContext): CommissionR
       creditByExternal: 0,
       billingByExternal: 0,
       checkByExternal: 0,
-      balance: workizBalance(row),
+      balance: workizBalance({ ...row, techProfit: snapshotShareExact(snap) }),
       source: 'workiz',
     };
   }
@@ -214,7 +229,7 @@ export function buildRow(item: CommissionDealItem, ctx: RowContext): CommissionR
     creditByExternal: 0,
     billingByExternal: 0,
     checkByExternal: 0,
-    balance: workizBalance(row),
+    balance: workizBalance({ ...row, techProfit: result.techProfitExact }),
     source: 'computed',
   };
 }
@@ -256,7 +271,12 @@ export function matchesSearch(row: CommissionReportRow, q: string | undefined): 
 
 /* ----------------------------------------------------------------- totals */
 
-/** Sum of every column and how many rows hold a non-zero amount in it ("(N Jobs)"). */
+/**
+ * Sum of every column and how many rows hold a POSITIVE amount in it —
+ * Workiz's "(N Jobs)": over 2026-09-01..27 it counts 855 tech profits and
+ * 1 023 company profits, where 856 and 1 032 rows are non-zero (one tech
+ * profit and nine company profits are negative).
+ */
 export function totalsOf(rows: CommissionReportRow[]): CommissionReportTotals {
   const out = {} as CommissionReportTotals;
   for (const key of COMMISSION_REPORT_TOTAL_KEYS) {
@@ -265,7 +285,7 @@ export function totalsOf(rows: CommissionReportRow[]): CommissionReportTotals {
     for (const r of rows) {
       const v = r[key];
       amount += v;
-      if (v) jobs += 1;
+      if (v > 0) jobs += 1;
     }
     out[key] = { amount: round2(amount), jobs };
   }

@@ -55,14 +55,25 @@ export interface WorkizCommissionInput {
 export interface WorkizCommissionResult {
   fees: number;
   techProfit: number;
+  /**
+   * The technician's share before rounding. Workiz derives the company's
+   * profit (and the balance) from it, so a half cent lands on the company
+   * side: E65G2K is 1 396.20 there, not 1 396.19.
+   */
+  techProfitExact: number;
   companyProfit: number;
   billing: number;
 }
 
-/** Half away from zero, to the cent — the way Workiz prints its figures. */
+/**
+ * Half away from zero, to the cent, the way Workiz (PHP `round`) prints its
+ * figures: the cents are first cut to 15 significant digits, so a share that
+ * is 946.985 on paper but 946.98499999999… in binary still rounds UP to
+ * 946.99 — as it does on 8ZG2NQ in Workiz.
+ */
 export function round2(n: number): number {
-  const sign = n < 0 ? -1 : 1;
-  return (sign * Math.round((Math.abs(n) + Number.EPSILON) * 100)) / 100;
+  const cents = Number((Math.abs(n) * 100).toPrecision(15));
+  return (n < 0 ? -1 : 1) * (Math.round(cents) / 100);
 }
 
 export function calculateWorkizCommission(input: WorkizCommissionInput): WorkizCommissionResult {
@@ -70,19 +81,22 @@ export function calculateWorkizCommission(input: WorkizCommissionInput): WorkizC
     (input.paid.credit * input.fees.creditPct) / 100 +
     (input.paid.cash * input.fees.cashPct) / 100 +
     (input.paid.check * input.fees.checkPct) / 100;
-  const techProfit = round2(
+  const techProfitExact =
     input.rateUnit === '$'
       ? input.rate + input.tip
-      : ((input.total - input.tax - input.tip - input.parts - input.companyParts - fees) * input.rate) / 100 + input.tip,
-  );
+      : ((input.total - input.tax - input.tip - input.parts - input.companyParts - fees) * input.rate) / 100 + input.tip;
   const companyProfit = round2(
-    input.total - input.tax - techProfit - input.parts - input.companyParts - (input.externalCompanyProfit ?? 0),
+    input.total - input.tax - techProfitExact - input.parts - input.companyParts - (input.externalCompanyProfit ?? 0),
   );
   const billing = round2(input.total - input.paid.cash - input.paid.credit - input.paid.check);
-  return { fees: round2(fees), techProfit, companyProfit, billing };
+  return { fees: round2(fees), techProfit: round2(techProfitExact), techProfitExact, companyProfit, billing };
 }
 
-/** What the company owes the technician on a job; below zero the technician holds company cash. */
+/**
+ * What the company owes the technician on a job; below zero the technician
+ * holds company cash. `techProfit` may be the unrounded share (a computed
+ * row) — Workiz rounds the balance, not its parts.
+ */
 export function workizBalance(row: { techProfit: number; parts: number; cash: number; cashByExternal: number }): number {
   return round2(row.techProfit + row.parts - (row.cash - row.cashByExternal));
 }

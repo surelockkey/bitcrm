@@ -133,6 +133,20 @@ describe('calculateWorkizCommission — the rows of the live Workiz report', () 
     expect(r.techProfit).toBe(193.5);
   });
 
+  it('8ZG2NQ / E65G2K: a half-cent share rounds up on BOTH sides — the company’s comes off the unrounded share', () => {
+    const a = calculateWorkizCommission(
+      input({ total: 2386.97, companyParts: 493, paid: { cash: 0, credit: 2386.97, check: 0 }, rate: 50 }),
+    );
+    expect(a.techProfitExact).toBeCloseTo(946.985, 9);
+    expect(a.techProfit).toBe(946.99);
+    expect(a.companyProfit).toBe(946.99);
+    const b = calculateWorkizCommission(
+      input({ total: 4682.52, tax: 342.76, companyParts: 1547.37, paid: { cash: 0, credit: 4682.52, check: 0 }, rate: 50 }),
+    );
+    expect(b.techProfit).toBe(1396.2);
+    expect(b.companyProfit).toBe(1396.2);
+  });
+
   it('billing is the unpaid remainder and an external profit comes off the company', () => {
     const r = calculateWorkizCommission(
       input({ total: 500, paid: { cash: 100, credit: 150, check: 50 }, rate: 0, externalCompanyProfit: 40 }),
@@ -252,5 +266,12 @@ describe('round2', () => {
     expect(round2(48.625)).toBe(48.63);
     expect(round2(-2.005)).toBe(-2.01);
     expect(round2(0.1 + 0.2)).toBe(0.3);
+    expect(round2(0)).toBe(0);
+  });
+
+  it('rounds a half cent that binary floating point stores just below it up, as Workiz does (8ZG2NQ)', () => {
+    const share = ((2386.97 - 493) * 50) / 100;
+    expect(share).toBeLessThan(946.985);
+    expect(round2(share)).toBe(946.99);
   });
 });

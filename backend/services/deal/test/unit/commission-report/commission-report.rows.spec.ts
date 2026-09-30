@@ -9,6 +9,7 @@ import {
   matchesSearch,
   primaryTechOf,
   reportDayOf,
+  snapshotShareExact,
   sortRows,
   techSummaries,
   totalsOf,
@@ -142,6 +143,16 @@ describe('buildRow — an imported job keeps Workiz’s frozen numbers', () => {
 
   it('owes the technician their profit plus the parts they bought', () => {
     expect(row.balance).toBe(131.37);
+  });
+
+  it('a half-cent share (both shares rounded up) is balanced from the exact half, as Workiz does', () => {
+    const halfCent = { ...TGQ6NS_SNAPSHOT, total: 2386.97, tax: 0, parts: 0, companyParts: 493, techProfit: 946.99, companyProfit: 946.99 };
+    expect(snapshotShareExact(halfCent)).toBeCloseTo(946.985, 9);
+    expect(snapshotShareExact(TGQ6NS_SNAPSHOT)).toBe(48.63);
+    // The technician kept the cash: −1 439.985 rounds away from zero.
+    const r = buildRow(item({ commissionSnapshot: { ...halfCent, paid: { cash: 2386.97, credit: 0, check: 0 } } }), ctx());
+    expect(r.balance).toBe(-1439.99);
+    expect(r.techProfit).toBe(946.99);
   });
 
   it('never recomputes — even when today’s rate differs', () => {
@@ -280,12 +291,13 @@ describe('filters, totals and slices', () => {
     expect(matchesSearch(b, '  ')).toBe(true);
   });
 
-  it('sums every column and counts only the rows that hold an amount', () => {
+  it('sums every column and counts the rows with a positive amount (Workiz’s “(N Jobs)”)', () => {
     const t = totalsOf([a, b, c]);
     expect(t.total).toEqual({ amount: 300, jobs: 2 });
     expect(t.cash).toEqual({ amount: 100, jobs: 1 });
     expect(t.billing).toEqual({ amount: 50, jobs: 1 });
-    expect(t.balance).toEqual({ amount: 10, jobs: 2 });
+    // −50 and +60: only the positive one is counted.
+    expect(t.balance).toEqual({ amount: 10, jobs: 1 });
     expect(t.externalCompanyProfit).toEqual({ amount: 5, jobs: 1 });
   });
 
