@@ -13,6 +13,7 @@ import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import type { WarehouseValues } from "./schemas";
 import { useLocationStock } from "@/features/inventory/stock/hooks";
+import { refreshLocationRows } from "@/features/inventory/stock/refresh";
 
 export function useWarehousesList(filter: api.WarehouseFilter, limit = 100) {
   return useInfiniteQuery({
@@ -69,7 +70,7 @@ export function useCreateWarehouse() {
   return useMutation({
     mutationFn: (body: WarehouseValues) => api.createWarehouse(body),
     onSuccess: (w) => {
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
+      refreshLocationRows(qc, "warehouses");
       toast.success(`Warehouse “${w.name}” created`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
@@ -81,8 +82,8 @@ export function useUpdateWarehouse() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: WarehouseValues }) =>
       api.updateWarehouse(id, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
+    onSuccess: (_w, { id }) => {
+      refreshLocationRows(qc, "warehouses", id);
       toast.success("Warehouse saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
@@ -93,8 +94,8 @@ export function useArchiveWarehouse() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.archiveWarehouse(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
+    onSuccess: (_w, id) => {
+      refreshLocationRows(qc, "warehouses", id);
       toast.success("Warehouse archived");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),

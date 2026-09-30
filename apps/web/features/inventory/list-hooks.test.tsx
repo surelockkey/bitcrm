@@ -19,7 +19,7 @@ import { useTransfers, useTransfersCount } from "./transfers/hooks";
 type Filter = { search?: string };
 type Hooks = (filter: Filter, limit: number) => {
   list: { data?: { pages: { data: { id: string }[] }[] }; isPlaceholderData: boolean; isSuccess: boolean };
-  count: { data?: { total: number }; isPlaceholderData: boolean; isSuccess: boolean };
+  count: { data?: { total: number | null }; isPlaceholderData: boolean; isSuccess: boolean };
 };
 
 const CASES: { name: string; path: string; useHooks: Hooks }[] = [

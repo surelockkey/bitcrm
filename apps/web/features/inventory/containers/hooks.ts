@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import { useLocationStock } from "@/features/inventory/stock/hooks";
+import { refreshLocationRows } from "@/features/inventory/stock/refresh";
 import * as api from "./api";
 
 /**
@@ -53,7 +54,7 @@ export function useCreateContainer() {
   return useMutation({
     mutationFn: (body: api.CreateContainerBody) => api.createContainer(body),
     onSuccess: (c) => {
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
+      refreshLocationRows(qc, "containers");
       toast.success(`Container “${c.name}” created`);
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
@@ -65,8 +66,8 @@ export function useUpdateContainer() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: api.UpdateContainerBody }) =>
       api.updateContainer(id, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
+    onSuccess: (_c, { id }) => {
+      refreshLocationRows(qc, "containers", id);
       toast.success("Container saved");
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { LocationSummaryType, Transfer } from "@bitcrm/types";
 import { summarizeStock } from "@/features/inventory/warehouses/lib";
@@ -9,26 +9,30 @@ import { queryKeys } from "@/lib/query-keys";
 import { getApiErrorMessage } from "@/lib/api/errors";
 import * as api from "./api";
 import { movementMessages, stockRowsOf, toLocations, type Movement } from "./lib";
+import { refreshAfterMovement } from "./refresh";
+
+/** A request body names its ends only where it has them: a receive has no source, a return no target. */
+type Ends = { fromType?: string; fromId?: string; toType?: string; toId?: string; items?: { productId: string }[] };
 
 /**
- * The item queries a movement changes: the list and the popup show `onHand`,
- * and `stock` is the per-location split. Not the rest of `products` — the
- * whole-catalog map the job pickers hold has nothing a movement touches, and
- * re-reading it is dozens of sequential requests.
+ * A movement changes two locations, the items it carried and the journal —
+ * and `refreshAfterMovement` refreshes exactly that. The ends come from the
+ * server's answer, else from the request.
  */
-const movedByStock = ({ queryKey: [root, second, third] }: Query) =>
-  root === "products" && (second === "list" || second === "detail" || third === "stock");
-
-/** A movement changes the item, both locations, and the journal. */
 function useStockMovement<B>(kind: Movement, send: (body: B) => Promise<Transfer>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: send,
-    onSuccess: (t) => {
-      qc.invalidateQueries({ predicate: movedByStock });
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.containers.all() });
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.warehouses.all() });
-      qc.invalidateQueries({ queryKey: queryKeys.inventory.transfers.all() });
+    onSuccess: (t, body) => {
+      const asked = body as Ends;
+      refreshAfterMovement(
+        qc,
+        [
+          { type: t.fromType ?? asked.fromType, id: t.fromId ?? asked.fromId },
+          { type: t.toType ?? asked.toType, id: t.toId ?? asked.toId },
+        ],
+        [...(t.items ?? []), ...(asked.items ?? [])].map((i) => i.productId),
+      );
       const { success, warning } = movementMessages(kind, t);
       toast.success(success);
       if (warning) toast.warning(warning);

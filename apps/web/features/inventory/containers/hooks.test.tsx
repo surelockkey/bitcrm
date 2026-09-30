@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { InventoryStatus } from "@bitcrm/types";
 import { server } from "@/test/msw/server";
 import type { ContainerFilter } from "./api";
-import { useContainerStockView, useContainersCount, useContainersList } from "./hooks";
+import { queryKeys } from "@/lib/query-keys";
+import { useContainerStockView, useContainersCount, useContainersList, useUpdateContainer } from "./hooks";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -100,5 +101,41 @@ describe("useContainerStockView", () => {
     expect(urls).toEqual(["/inventory/stock/locations/container/c1"]);
     expect(result.current.rows.map((r) => [r.name, r.quantity])).toEqual([["Deadbolt", 6]]);
     expect(result.current.summary).toMatchObject({ skuCount: 1, totalUnits: 6, totalValue: 270 });
+  });
+});
+
+/**
+ * Saving a van changes its row — the lists, the pickers, the counts, its
+ * detail, "my container" — and none of the stock under the `containers` root.
+ */
+describe("van edits refresh the rows, not the stock", () => {
+  it("on save", async () => {
+    server.use(
+      http.put("*/inventory/containers/c1", () =>
+        HttpResponse.json({ success: true, data: { id: "c1", name: "Van 1" } }),
+      ),
+    );
+    const rows = [
+      queryKeys.inventory.containers.list({ limit: 50 }),
+      queryKeys.inventory.containers.count({}),
+      queryKeys.inventory.containers.everything(),
+      queryKeys.inventory.containers.detail("c1"),
+      queryKeys.inventory.containers.mine(),
+    ];
+    const stock = [
+      queryKeys.inventory.locationStock("container", "c1"),
+      queryKeys.inventory.locationStock("container", "c2"),
+      queryKeys.inventory.containers.stock("c1"),
+      queryKeys.inventory.containers.detail("c2"),
+    ];
+    const client = new QueryClient();
+    for (const key of [...rows, ...stock]) client.setQueryData(key, {});
+    const { result } = renderHook(() => useUpdateContainer(), { wrapper: wrapper(client) });
+
+    act(() => result.current.mutate({ id: "c1", body: { name: "Van 1" } }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(rows.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(rows.map(() => true));
+    expect(stock.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(stock.map(() => false));
   });
 });

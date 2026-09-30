@@ -131,7 +131,12 @@ describe("useFillFromWarehouse", () => {
       queryKeys.inventory.transfers.list({}),
       queryKeys.inventory.containerTemplates.diff("t1", "c1", "w1"),
     ];
-    for (const key of keys) client.setQueryData(key, {});
+    const untouched = [
+      queryKeys.inventory.locationStock("container", "c2"),
+      queryKeys.inventory.containers.everything(),
+      queryKeys.inventory.containers.count({}),
+    ];
+    for (const key of [...keys, ...untouched]) client.setQueryData(key, {});
     const { result } = renderHook(() => useFillFromWarehouse(), { wrapper: wrapper(client) });
 
     act(() =>
@@ -140,6 +145,8 @@ describe("useFillFromWarehouse", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(keys.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(keys.map(() => true));
+    // …and not the rest of the fleet: another van's stock, the pickers, the counts.
+    expect(untouched.map((k) => client.getQueryState(k)?.isInvalidated)).toEqual(untouched.map(() => false));
     expect(toast.success).toHaveBeenCalledWith("Moved 3 units to Van 1");
     expect(toast.warning).toHaveBeenCalledWith("Still short: Key blank (15)");
   });
