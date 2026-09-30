@@ -98,8 +98,11 @@ export interface CommissionReportRow {
   /** Parts the technician bought ("Tech Parts cost"). */
   parts: number;
   companyParts: number;
-  /** Card / cash / check fees taken off before the split. */
-  fees: number;
+  /**
+   * Card / cash / check fees taken off before the split — on computed rows;
+   * Workiz's report does not print them, so an imported row has none.
+   */
+  fees?: number;
   techProfit: number;
   externalCompanyProfit: number;
   companyProfit: number;
@@ -128,7 +131,6 @@ export const COMMISSION_REPORT_TOTAL_KEYS = [
   'tip',
   'parts',
   'companyParts',
-  'fees',
   'techProfit',
   'externalCompanyProfit',
   'companyProfit',
@@ -182,4 +184,8 @@ export interface CommissionReport {
   externalCompanies: CommissionReportExternalSummary[];
   /** Rows computed here (jobs done in BitCRM) rather than taken from Workiz's own report. */
   computedRows: number;
+  /** The period was larger than one read allows: the figures are a floor. */
+  truncated: boolean;
+  /** What could not be looked up (payments, rates) — the affected rows say 0, so the page must say why. */
+  warnings: string[];
 }
