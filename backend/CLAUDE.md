@@ -220,6 +220,11 @@ EXT#<code> / EXTOF#<dealId>          job dial-in codes (both directions, for ide
 INVLOG#<YYYY-MM>   / <createdAt>#<id> inventory audit log (item edits + stock moves), one partition per UTC month —
                                      never one constant key (the CALL#ALL lesson); walked newest-first, filters on top
                                      … GSI4 INVLOG#PRODUCT#<productId> / <createdAt>#<id> — one item's history on TransferEntityIndex
+                                     (sparse: `container_assigned` names no item and lives in the month walk only)
+USER_CONTAINER#<userId> / METADATA   a user's container assignment (Workiz "User containers": one container, `all` or
+                                     `none`); GSI1 CATALOG#USER_CONTAINER / <name>#<userId>, sparse GSI3
+                                     CONTAINER_USERS#<containerId> / USER#<userId> for `access: container` only — who works
+                                     from a van (OwnerIndex, beside the legacy OWNER#<technicianId> container rows)
 CONV#<id>          / METADATA        GSI1 INBOX#<open|archived>#<YYYY> — inbox split by year AND filter, never a
                                      constant key + FilterExpression (the CALL#ALL lesson); sparse GSI2 UNREAD#<YYYY>,
                                      GSI3 CAT#<kind>#<YYYY>, GSI5 FLAG#conversation, GSI6 ACCTCAT#<cat>#<YYYY>
@@ -482,10 +487,13 @@ tests, and — if it emits events — the types in `@bitcrm/types` plus a row in
   exists. In the same release, before traffic — and again after every Workiz
   import — run in `backend/services/inventory`: `backfill:location-index`,
   `backfill:product-search`, `backfill:product-onhand`, `backfill:product-numbers`
-  (the last one raises `COUNTER#PRODUCT` past the imported numbers even when
+  (it raises `COUNTER#PRODUCT` past the imported numbers even when
   every row is numbered; skip it and the next `POST /products` gets "Product
-  ID 1"). All four are idempotent and upsert-only; `WORKIZ_IMPORT.md` §0 has
-  the row shapes.
+  ID 1"), `backfill:user-containers` (turns the containers' `technicianId` and
+  imported `accessUserIds` into `USER_CONTAINER#` rows; until it has run, a
+  user with no row falls back to the container that names them as
+  `technicianId`, and the secondary users have no van at all). All five are
+  idempotent and upsert-only; `WORKIZ_IMPORT.md` §0 has the row shapes.
 - **Redis DB 0 is dev, DB 15 is tests.** Don't flush the wrong one.
 - **Taxes live on service areas.** There is no tax-rate catalog: `ServiceArea.tax`
   (`{name, ratePercent}`) is the rate, exposed read-only as a `TaxRate` whose id is

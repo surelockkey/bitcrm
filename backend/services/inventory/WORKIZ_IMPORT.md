@@ -37,6 +37,15 @@ Write these exactly as `ProductsRepository.create` / the catalog repositories do
 | Warehouse (`warehouses.repository.ts`) | `WAREHOUSE#<id>` | `METADATA` | `LOCATION#WAREHOUSE` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
 | Container (`containers.repository.ts`) | `CONTAINER#<id>` | `METADATA` | `LOCATION#CONTAINER` | `<name>.trim().toLowerCase()#<id>` | — | — | `searchName = <name>.trim().toLowerCase()` |
 | Stock | `WAREHOUSE#<id>` \| `CONTAINER#<id>` | `STOCK#<productId>` | — | — | — | — | — |
+| User container (`user-containers.repository.ts`) | `USER_CONTAINER#<userId>` | `METADATA` | `CATALOG#USER_CONTAINER` | `<userName>.trim().toLowerCase()#<userId>` | — | — | — |
+
+- A user container with `access: "container"` also carries the sparse
+  `OwnerIndex` pair `GSI3PK = CONTAINER_USERS#<containerId>`,
+  `GSI3SK = USER#<userId>` (who works from a van); `all` / `none` rows carry
+  neither. The importer may leave these rows to
+  `npm run backfill:user-containers -w backend/services/inventory`, which
+  derives them from the containers' `technicianId` and `accessUserIds` (§5.2);
+  the row shape is `userContainerItem` in `user-containers.constants.ts`.
 
 - The `search` filters run `contains` against the search attributes, never
   against `name`/`sku` (case-sensitive bytes) nor against the location sort key
@@ -356,10 +365,16 @@ repository's own `PK`/`SK`/`GSI3` always win over anything in the payload.
 - `technicianId` is the BitCRM `User.id` and drives the sparse GSI3
   (`GSI3PK = OWNER#<technicianId>`, `GSI3SK = CONTAINER#<id>`) — write both
   keys whenever the container has a technician, and neither when it does not.
-- **One technician, one container.** The API enforces it
-  (`assertTechnicianFree`) and `findByTechnicianId` takes `Limit: 1`; a direct
-  import bypasses the check, so the importer must not give two containers the
-  same `technicianId`. The 8 secondary users in 7 containers (all inactive)
-  go in `accessUserIds`, never in `technicianId`.
+- **Who works from a van is the user containers now** (`USER_CONTAINER#<userId>`,
+  §0): one container per user, many users per container, reassigned with
+  `PUT /user-containers/:userId` and logged as `container_assigned`.
+  `technicianId` stays as the legacy link — the API no longer keeps it
+  exclusive, and it is read only for a user who has no assignment row. The
+  importer still writes the owner in `technicianId` and the 8 secondary users
+  of 7 containers (all inactive) in `accessUserIds`; `backfill:user-containers`
+  turns both into assignment rows (owners first; a user on two containers
+  keeps the first and is printed as a conflict), with `limited` taken from the
+  container's `userLimited`. `findByTechnicianId` still takes `Limit: 1`, so
+  give a user at most one container as `technicianId`.
 - Stock rows are `PK = WAREHOUSE#<id> | CONTAINER#<id>`, `SK = STOCK#<productId>`
   — write only the 13 298 non-zero rows, not all 275 722.
