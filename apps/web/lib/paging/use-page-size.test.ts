@@ -57,4 +57,21 @@ describe("usePageSize", () => {
     expect(result.current[0]).toBe(25);
     vi.restoreAllMocks();
   });
+
+  // Workiz's stock popups page ten at a time and offer 10 / 25 / 50: the same
+  // memory, their own sizes.
+  it("takes a list's own sizes and default, and remembers a choice among them", () => {
+    const opts = { sizes: [10, 25, 50], fallback: 10 };
+    const { result } = renderHook(() => usePageSize("stock-popup", opts));
+    expect(result.current[0]).toBe(10);
+
+    act(() => result.current[1](25));
+    expect(renderHook(() => usePageSize("stock-popup", opts)).result.current[0]).toBe(25);
+  });
+
+  it("ignores a stored value that is not one of the list's own sizes", () => {
+    localStorage.setItem("bitcrm.page-size.stock-popup", "100");
+    const { result } = renderHook(() => usePageSize("stock-popup", { sizes: [10, 25, 50], fallback: 10 }));
+    expect(result.current[0]).toBe(10);
+  });
 });

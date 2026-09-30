@@ -11,6 +11,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableHead, TableHeader, TableRow, TableBody } from "@/components/ui/table";
+import { usePageSize } from "@/lib/paging/use-page-size";
+import { TableFrame } from "@/features/inventory/components/table-frame";
+import { SkeletonRows } from "@/features/inventory/components/inventory-table";
 import type { pageSlice } from "../lib";
 
 /**
@@ -18,7 +22,25 @@ import type { pageSlice } from "../lib";
  * locations) and a location's (rows are items) — so the two read as one.
  */
 
+/** Workiz pages its stock popups ten at a time, offering 10 / 25 / 50. */
 export const PAGE_SIZES = [10, 25, 50] as const;
+
+/** Rows per page in the stock popups — remembered between visits, like every list's. */
+export function usePopupPageSize(): [number, (size: number) => void] {
+  return usePageSize("stock-popup", { sizes: PAGE_SIZES, fallback: PAGE_SIZES[0] });
+}
+
+/**
+ * The stock popups' frame: a fixed height, not a maximum. A centred popup
+ * that grows moves both its edges — on load, on every search keystroke, on a
+ * short last page. At a fixed height only the body scrolls.
+ */
+export const STOCK_POPUP = "flex h-[min(56rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0";
+
+/** A popup table's height for `rows` rows: the 40px header and 49px rows. */
+export function tableHeight(rows: number): string {
+  return `${40 + Math.max(1, rows) * 49}px`;
+}
 
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
@@ -38,12 +60,15 @@ export function PanelToolbar({
   searchLabel,
   size,
   onSize,
+  disabled = false,
 }: {
   search: string;
   onSearch: (term: string) => void;
   searchLabel: string;
   size: number;
   onSize: (size: number) => void;
+  /** Loading: the controls are in place, nothing to search yet. */
+  disabled?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -54,6 +79,7 @@ export function PanelToolbar({
           aria-label={searchLabel}
           placeholder="Search"
           value={search}
+          disabled={disabled}
           onChange={(e) => onSearch(e.target.value)}
           className="h-9 bg-background pl-8"
         />
@@ -83,8 +109,8 @@ export function PanelPager({
   onPage: (page: number) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-      <span>
+    <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span className="tabular-nums">
         Showing {view.from} to {view.to} of {view.total} results
       </span>
       <div className="flex items-center gap-1">
@@ -114,18 +140,53 @@ export function PanelPager({
   );
 }
 
-export function PanelLoading({ testId, cards }: { testId: string; cards: number }) {
+/**
+ * The popup as it will look, before the stock is in: the cards, the toolbar,
+ * a page of placeholder rows under the real headers, and the pager's line —
+ * so nothing moves when the rows land.
+ */
+export function PanelLoading({
+  testId,
+  cards,
+  searchLabel,
+  headers,
+  size,
+  onSize,
+}: {
+  testId: string;
+  cards: number;
+  searchLabel: string;
+  headers: string[];
+  size: number;
+  onSize: (size: number) => void;
+}) {
   return (
-    <div data-testid={testId} className="space-y-4">
+    <div data-testid={testId} aria-busy="true" className="space-y-4">
       <div className={cards === 3 ? "grid gap-3 sm:grid-cols-3" : "grid gap-3 sm:grid-cols-2"}>
         {Array.from({ length: cards }).map((_, i) => (
           <Skeleton key={i} className="h-[4.5rem] w-full" />
         ))}
       </div>
-      <div className="space-y-2 rounded-lg bg-muted/60 p-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-8 w-full" />
-        ))}
+      <div className="space-y-3 rounded-lg bg-muted/60 p-3">
+        <PanelToolbar search="" onSearch={() => {}} searchLabel={searchLabel} size={size} onSize={onSize} disabled />
+        <TableFrame className="bg-background" style={{ minHeight: tableHeight(size) }}>
+          <Table contained={false} className="table-fixed">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                {headers.map((h) => (
+                  <TableHead key={h}>{h}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <SkeletonRows columns={headers.length} rows={size} />
+            </TableBody>
+          </Table>
+        </TableFrame>
+        <div data-testid="panel-pager-placeholder" className="flex min-h-8 items-center justify-between gap-2">
+          <Skeleton className="h-3 w-40" />
+          <Skeleton className="h-3 w-24" />
+        </div>
       </div>
     </div>
   );

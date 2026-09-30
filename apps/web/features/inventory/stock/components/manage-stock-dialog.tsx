@@ -29,13 +29,16 @@ import { filterStockRows, pageSlice, stockSummary } from "../lib";
 import { StockRowActions } from "./stock-row-actions";
 import { TableFrame } from "@/features/inventory/components/table-frame";
 import {
-  PAGE_SIZES,
   PanelError,
   PanelLoading,
   PanelPager,
   PanelToolbar,
+  STOCK_POPUP,
   StatCard,
+  tableHeight,
+  usePopupPageSize,
 } from "./stock-popup-parts";
+import { INVENTORY_ROW } from "@/features/inventory/components/inventory-table";
 
 /**
  * Workiz's "Manage stock" popup for one item: what it holds in total, what
@@ -59,8 +62,8 @@ export function ManageStockDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         // Header and footer stay put; the body scrolls between them, so the
-        // popup fits a phone as well as a desktop.
-        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl"
+        // popup fits a phone as well as a desktop — at one height throughout.
+        className={cn(STOCK_POPUP, "sm:max-w-6xl")}
       >
         <ManageStock
           productId={productId}
@@ -90,6 +93,9 @@ function ManageStock({
 
   const item = product.data;
   const title = item ? `Manage stock - ${item.name} (${item.sku})` : "Manage stock";
+  const money = can("financials", "view");
+  const actions = can("transfers", "create");
+  const [size, setSize] = usePopupPageSize();
 
   let body: ReactNode;
   if (product.isError || stock.isError) {
@@ -102,16 +108,29 @@ function ManageStock({
       />
     );
   } else if (product.isLoading || stock.isLoading || !item || !stock.data) {
-    body = <PanelLoading testId="manage-stock-loading" cards={can("financials", "view") ? 3 : 2} />;
+    body = (
+      <PanelLoading
+        testId="manage-stock-loading"
+        cards={money ? 3 : 2}
+        searchLabel="Search locations"
+        headers={
+          actions ? ["Location", "Description", "Quantity", "Actions"] : ["Location", "Description", "Quantity"]
+        }
+        size={size}
+        onSize={setSize}
+      />
+    );
   } else {
     body = (
       <StockBody
         product={item}
         onHand={stock.data.onHand}
         locations={stock.data.locations}
-        money={can("financials", "view")}
-        actions={can("transfers", "create")}
+        money={money}
+        actions={actions}
         allowAdd={allowAdd}
+        size={size}
+        onSize={setSize}
       />
     );
   }
@@ -142,6 +161,8 @@ function StockBody({
   money,
   actions,
   allowAdd,
+  size,
+  onSize,
 }: {
   product: Product;
   onHand: number;
@@ -149,9 +170,10 @@ function StockBody({
   money: boolean;
   actions: boolean;
   allowAdd: boolean;
+  size: number;
+  onSize: (size: number) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [size, setSize] = useState<number>(PAGE_SIZES[0]);
   const [page, setPage] = useState(1);
 
   const summary = stockSummary(onHand, product);
@@ -177,12 +199,13 @@ function StockBody({
           searchLabel="Search locations"
           size={size}
           onSize={(n) => {
-            setSize(n);
+            onSize(n);
             setPage(1);
           }}
         />
 
-        <TableFrame className="bg-background">
+        {/* A page tall even on a short last page: the pager under it stays put. */}
+        <TableFrame className="bg-background" style={{ minHeight: tableHeight(Math.min(size, matching.length)) }}>
           {/* Fixed layout: a long van name clips instead of pushing the
               columns about; on a phone the table scrolls sideways. */}
           <Table className="min-w-[36rem] table-fixed">
@@ -248,7 +271,7 @@ function LocationRow({
   const archived = deleted || l.status === InventoryStatus.ARCHIVED;
   const Icon = l.locationType === "warehouse" ? Warehouse : Truck;
   return (
-    <TableRow className={cn(deleted && "opacity-55")}>
+    <TableRow className={cn(INVENTORY_ROW, deleted && "opacity-55")}>
       <TableCell className="overflow-hidden">
         <div className="flex items-center gap-2">
           <Icon aria-hidden className="size-4 flex-none text-muted-foreground" />
