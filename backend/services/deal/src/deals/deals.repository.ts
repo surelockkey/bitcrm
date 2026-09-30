@@ -1516,7 +1516,6 @@ export class DealsRepository {
       // to every read path, so nothing can show when a job was closed.
       closedAt: item.closedAt as string | undefined,
       statusChangedAt: item.statusChangedAt as string | undefined,
-      closedAt: item.closedAt as string | undefined,
       // Carried over from Workiz — see `Deal`. Money attributes the importer
       // stores are deliberately not read until invoices are built.
       externalId: item.externalId as string | undefined,
