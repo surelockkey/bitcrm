@@ -33,6 +33,9 @@ import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.sched
 import { JobsReportController } from './report/jobs-report.controller';
 import { JobsReportService } from './report/jobs-report.service';
 import { JobsReportSettingsRepository } from './report/jobs-report-settings.repository';
+import { ItemsReportController } from './report/items-report.controller';
+import { ItemsReportService } from './report/items-report.service';
+import { ItemsReportRepository } from './report/items-report.repository';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
@@ -40,13 +43,14 @@ import { JobsReportSettingsRepository } from './report/jobs-report-settings.repo
   // `internal/:id/...` routes are matched ahead of DealsController's; the
   // live stream too, or `GET /:id` would take `/stream`; the dashboard's
   // `stats/*` too, ahead of the `:id/…` routes; the Jobs report's `report/*`
-  // likewise.
+  // and the Items and services report's `report/items/*` likewise.
   controllers: [
     DealEventsController,
     DealAttachmentsController,
     DealBillingController,
     DealDashboardController,
     JobsReportController,
+    ItemsReportController,
     DealsController,
   ],
   providers: [
@@ -67,6 +71,8 @@ import { JobsReportSettingsRepository } from './report/jobs-report-settings.repo
     DashboardSnapshotScheduler,
     JobsReportService,
     JobsReportSettingsRepository,
+    ItemsReportService,
+    ItemsReportRepository,
   ],
   exports: [DealsService, DealsEventHandler],
 })
