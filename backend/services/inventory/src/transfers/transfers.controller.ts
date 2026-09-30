@@ -182,10 +182,12 @@ export class TransfersController {
       '**Guard:** Internal (X-Internal-Secret header required). Service-to-service only. Each line ' +
       'goes back to the container its newest `stock_used` entry for this job names (one RESTORE ' +
       'per container); only a line with no such entry falls back to the technician\'s current ' +
-      'container. A target that is no existing container is a 404, checked before any stock moves.',
+      'container. A line for which no existing container can be found is skipped — never a ' +
+      '404, so removing a job line is never blocked — logged as `stock_restore_skipped` and ' +
+      'answered in `data.skippedItems`.',
   })
   async restoreStock(@Body() dto: RestoreStockDto) {
-    await this.transfersService.restoreStock(dto);
-    return { success: true };
+    const data = await this.transfersService.restoreStock(dto);
+    return { success: true, data };
   }
 }

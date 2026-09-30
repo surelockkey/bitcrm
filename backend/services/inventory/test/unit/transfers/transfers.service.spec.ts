@@ -570,22 +570,82 @@ describe('TransfersService', () => {
       expect(repository.create).toHaveBeenCalledTimes(2);
     });
 
-    it('404s a restore into a container that does not exist, before writing any stock', async () => {
+    /**
+     * deal-service чекає на повернення й пропускає помилку далі: 404 блокував би
+     * диспетчеру видалення рядка роботи. Рядок, для якого наявного фургона не
+     * знайти (списано до журналу, технік тепер на "All locations"), пропускається
+     * й лягає в журнал як stock_restore_skipped; решта повертається як зазвичай.
+     */
+    it('skips a line with no existing container to go to, logs it, and answers it — no 404, no phantom row', async () => {
       // "All locations": the resolver names no van, so the technician id would be taken as a container id.
       locationsRepository.findLocation.mockResolvedValue(null);
+      const line = { productId: 'prod-1', productName: 'Test Product', quantity: 1 };
 
-      await expect(
-        service.restoreStock({
-          containerId: 'tech-user-1',
-          items: [{ productId: 'prod-1', productName: 'Test Product', quantity: 1 }],
-          dealId: 'deal-1',
-          performedBy: 'tech-user-1',
-          performedByName: 'tech@test.com',
-        } as any),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [line],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(result).toEqual({ skippedItems: [line] });
       expect(locationsRepository.findLocation).toHaveBeenCalledWith(LocationType.CONTAINER, 'tech-user-1');
       expect(stockService.receive).not.toHaveBeenCalled();
       expect(repository.create).not.toHaveBeenCalled();
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: InventoryLogAction.STOCK_RESTORE_SKIPPED,
+          productId: 'prod-1',
+          quantity: 1,
+          dealId: 'deal-1',
+          userId: 'tech-user-1',
+          userName: 'tech@test.com',
+        }),
+      );
+      expect(inventoryLog.record.mock.calls[0][0]).not.toHaveProperty('toId');
+    });
+
+    it('restores the lines it can place and skips only the rest', async () => {
+      inventoryLog.lastStockUse.mockImplementation(async (productId: string) =>
+        productId === 'prod-1' ? { fromId: 'van-A' } : null,
+      );
+      locationsRepository.findLocation.mockImplementation(async (_type: LocationType, id: string) =>
+        id === 'van-A' ? createMockLocationSummary({ id, name: 'Van A' }) : null,
+      );
+
+      const result = await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [
+          { productId: 'prod-1', productName: 'Lock', quantity: 1 },
+          { productId: 'prod-2', productName: 'Hinge', quantity: 2 },
+        ],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#van-A', [expect.objectContaining({ productId: 'prod-1' })]);
+      expect(result.skippedItems.map((i) => i.productId)).toEqual(['prod-2']);
+    });
+
+    it('falls back to the technician’s van when the van the log names no longer exists', async () => {
+      inventoryLog.lastStockUse.mockResolvedValue({ fromId: 'van-gone' });
+      assignments.containerIdForUser.mockResolvedValue('van-B');
+      locationsRepository.findLocation.mockImplementation(async (_type: LocationType, id: string) =>
+        id === 'van-B' ? createMockLocationSummary({ id }) : null,
+      );
+
+      const result = await service.restoreStock({
+        containerId: 'tech-user-1',
+        items: [{ productId: 'prod-1', productName: 'Lock', quantity: 1 }],
+        dealId: 'deal-1',
+        performedBy: 'tech-user-1',
+        performedByName: 'tech@test.com',
+      } as any);
+
+      expect(stockService.receive).toHaveBeenCalledWith('CONTAINER#van-B', expect.any(Array));
+      expect(result.skippedItems).toEqual([]);
     });
 
     it('restores into the container the technician is assigned to', async () => {

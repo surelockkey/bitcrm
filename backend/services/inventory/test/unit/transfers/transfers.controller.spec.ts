@@ -120,11 +120,12 @@ describe('TransfersController', () => {
         performedBy: 'tech-1',
         performedByName: 'tech@test.com',
       };
-      service.restoreStock.mockResolvedValue(undefined);
+      const skipped = [{ productId: 'prod-9', productName: 'Old', quantity: 1 }];
+      service.restoreStock.mockResolvedValue({ skippedItems: skipped });
 
       const result = await controller.restoreStock(dto as any);
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual({ success: true, data: { skippedItems: skipped } });
       expect(service.restoreStock).toHaveBeenCalledWith(dto);
     });
   });

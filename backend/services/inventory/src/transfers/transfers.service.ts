@@ -342,38 +342,66 @@ export class TransfersService {
    * Units go back where the job took them from. deal-service names the
    * technician again, and by now they may work from another van — or have
    * "All locations" — so each line is restored into the container of its
-   * newest `stock_used` entry for this job; only a line the log has no entry
-   * for falls back to the technician's current container. Lines used from
-   * different vans become one RESTORE per van. Every target must be an
-   * existing container (404 otherwise), checked before any stock moves.
+   * newest `stock_used` entry for this job; a line the log has no entry for
+   * (or whose van no longer exists) falls back to the technician's current
+   * container. Lines used from different vans become one RESTORE per van.
+   *
+   * Never a 404: deal-service awaits this when a dispatcher removes a job
+   * line, and a failure would block the removal. A line no existing container
+   * can be found for is skipped — no stock row is written, a warning is
+   * logged, a `stock_restore_skipped` entry records it — and answered in
+   * `skippedItems`.
    */
-  async restoreStock(dto: RestoreStockDto) {
+  async restoreStock(dto: RestoreStockDto): Promise<{ skippedItems: TransferItem[] }> {
     await this.productsService.assertStockable(dto.items.map((i) => i.productId));
     // Symmetrical with deductStock: what was never deducted is never restored.
     const items = await this.withCatalogNames(
       await this.onlyStockManaged(dto.items, 'stock restore'),
     );
-    if (items.length === 0) return;
+    if (items.length === 0) return { skippedItems: [] };
 
+    const found = new Map<string, LocationSummary | null>();
+    const existing = async (id: string) => {
+      if (!found.has(id)) found.set(id, await this.locationsRepository.findLocation(LocationType.CONTAINER, id));
+      return found.get(id) ?? null;
+    };
     let current: string | undefined;
-    const byContainer = new Map<string, typeof items>();
+
+    const targets = new Map<string, { container: LocationSummary; items: TransferItem[] }>();
+    const skippedItems: TransferItem[] = [];
     for (const item of items) {
       const usedFrom = (await this.inventoryLog?.lastStockUse(item.productId, dto.dealId))?.fromId;
-      const containerId = usedFrom ?? (current ??= await this.resolveContainerId(dto.containerId));
-      byContainer.set(containerId, [...(byContainer.get(containerId) ?? []), item]);
+      let container = usedFrom ? await existing(usedFrom) : null;
+      if (!container) {
+        current ??= await this.resolveContainerId(dto.containerId);
+        container = await existing(current);
+      }
+      if (!container) {
+        skippedItems.push(item);
+        continue;
+      }
+      const target = targets.get(container.id) ?? { container, items: [] };
+      target.items.push(item);
+      targets.set(container.id, target);
     }
 
-    const targets: Array<{ container: LocationSummary; items: typeof items }> = [];
-    for (const [containerId, group] of byContainer) {
-      targets.push({
-        container: await this.requireLocation(LocationType.CONTAINER, containerId),
-        items: group,
-      });
-    }
-
-    for (const target of targets) {
+    for (const target of targets.values()) {
       await this.restoreInto(target.container, target.items, dto);
     }
+
+    if (skippedItems.length > 0) {
+      this.logger.warn(
+        `Restore for deal ${dto.dealId}: no existing container for ` +
+          skippedItems.map((i) => `${i.quantity} × ${i.productId}`).join(', ') +
+          ` (technician ${dto.containerId}); skipped, nothing written`,
+      );
+      await this.recordMovement(InventoryLogAction.STOCK_RESTORE_SKIPPED, skippedItems, {
+        dealId: dto.dealId,
+        userId: dto.performedBy,
+        userName: dto.performedByName,
+      });
+    }
+    return { skippedItems };
   }
 
   private async restoreInto(
