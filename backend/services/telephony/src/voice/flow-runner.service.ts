@@ -144,7 +144,7 @@ export class FlowRunnerService {
     const state: FlowState = { flow, nodeId: entry.id, hops: 0, from, to };
     await this.save(callSid, state);
     void this.calls
-      .applyLifecycle({ callSid, flowName: flow.name })
+      .applyLifecycle({ callSid, flowName: flow.name, flowId: flow.id })
       .catch(() => undefined);
     return this.execute(callSid, state, entry);
   }

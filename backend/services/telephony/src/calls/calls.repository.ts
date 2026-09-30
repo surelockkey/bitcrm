@@ -125,6 +125,12 @@ export interface CallRecord {
    * a call that never reached anybody still says where it went instead.
    */
   flowName?: string;
+  /**
+   * The call flow that answered — the catalog id beside the name, so a report
+   * can group by the flow even after it is renamed (Workiz's Call Tracking
+   * groups by flow). Imported calls carry it when their flow was imported.
+   */
+  flowId?: string;
   flowPath?: CallFlowStepRecord[];
   recordingSid?: string;
   recordingDurationSeconds?: number;
@@ -287,6 +293,7 @@ export class CallsRepository {
       ['conferenceName', rec.conferenceName],
       ['conferenceSid', rec.conferenceSid],
       ['flowName', rec.flowName],
+      ['flowId', rec.flowId],
       ['recordingSid', rec.recordingSid],
       ['recordingKey', rec.recordingKey],
       ['recordingDurationSeconds', rec.recordingDurationSeconds],
