@@ -84,6 +84,20 @@ export function monthsOf(window: DayWindow): string[] {
   return out;
 }
 
+/** `from`..`to` cut at month ends — consecutive, non-overlapping spans of whole days. */
+export function monthSlices(from: string, to: string): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  let start = from;
+  while (start <= to && out.length < 240) {
+    const [y, m] = start.split('-').map(Number);
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    const end = monthEnd < to ? monthEnd : to;
+    out.push({ from: start, to: end });
+    start = shiftDay(end, 1);
+  }
+  return out;
+}
+
 /** The sort key of an undated deal — 'U' sorts after every digit, so they come last ascending. */
 const UNSCHEDULED = 'UNSCHED';
 
@@ -554,17 +568,26 @@ export class DealsRepository {
     const statuses = SUPER_STATUS_ORDER.map((s) => `STATUS#${s}`);
     const range = '#pk = :pk AND #sk BETWEEN :from AND :to';
     const read = new WindowRead(this.dynamoDb, this.tableName, projection);
+    // A status partition is read one month at a time, all months at once: a
+    // year of Canceled is ~30 000 rows, and one sequential walk of it would
+    // be a hundred-odd pages end to end.
     if (by === 'created') {
-      await read.partitions(DEALS_GSI1_NAME, 'GSI1PK', 'GSI1SK', statuses, range, {
-        ':from': dayStartUtc(from),
-        ':to': dayStartUtc(shiftDay(to, 1)),
-      });
+      await Promise.all(
+        monthSlices(from, to).map((m) =>
+          read.partitions(DEALS_GSI1_NAME, 'GSI1PK', 'GSI1SK', statuses, range, {
+            ':from': dayStartUtc(m.from),
+            ':to': dayStartUtc(shiftDay(m.to, 1)),
+          }),
+        ),
+      );
     } else if (by === 'scheduled') {
       await Promise.all([
-        read.partitions(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', statuses, range, {
-          ':from': `${shiftDay(from, -1)}#`,
-          ':to': `${shiftDay(to, 1)}#~~`,
-        }),
+        ...monthSlices(shiftDay(from, -1), shiftDay(to, 1)).map((m) =>
+          read.partitions(DEALS_GSI5_NAME, 'GSI5PK', 'GSI5SK', statuses, range, {
+            ':from': `${m.from}#`,
+            ':to': `${m.to}#~~`,
+          }),
+        ),
         read.partitions(
           DEALS_GSI5_NAME,
           'GSI5PK',

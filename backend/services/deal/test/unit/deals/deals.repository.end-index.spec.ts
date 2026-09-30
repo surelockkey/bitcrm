@@ -10,6 +10,7 @@ import { JobSuperStatus } from '@bitcrm/types';
 import {
   DealsRepository,
   endIndexKeys,
+  monthSlices,
   ReportWindowTooLargeError,
 } from '../../../src/deals/deals.repository';
 import { REPORT_PROJECTION } from '../../../src/deals/report/jobs-report.logic';
@@ -113,18 +114,35 @@ describe('DealsRepository.readReportWindow', () => {
     expect(q[0].ProjectionExpression.split(', ')).toHaveLength(REPORT_PROJECTION.length);
   });
 
-  it('by scheduled: a day either side of the local visit days, plus undated jobs by creation', async () => {
+  it('by scheduled: a day either side of the local visit days, month by month, plus undated jobs by creation', async () => {
     dynamoDb.client.send.mockResolvedValue({ Items: [] });
     await repository.readReportWindow('scheduled', '2026-09-01', '2026-09-27', REPORT_PROJECTION);
     const q = inputs();
-    expect(q).toHaveLength(12);
-    const dated = q.find((i: any) => i.ExpressionAttributeValues[':from']);
-    expect(dated.IndexName).toBe('StatusScheduleIndex');
-    expect(dated.ExpressionAttributeValues[':from']).toBe('2026-08-31#');
-    expect(dated.ExpressionAttributeValues[':to']).toBe('2026-09-28#~~');
+    // Aug 31 and Sep 1–28, six statuses each, plus the six undated reads.
+    expect(q).toHaveLength(18);
+    const ranges = q
+      .filter((i: any) => i.ExpressionAttributeValues[':from'] && i.ExpressionAttributeValues[':pk'] === 'STATUS#done')
+      .map((i: any) => [i.ExpressionAttributeValues[':from'], i.ExpressionAttributeValues[':to']]);
+    expect(ranges).toEqual([
+      ['2026-08-31#', '2026-08-31#~~'],
+      ['2026-09-01#', '2026-09-28#~~'],
+    ]);
+    expect(q.find((i: any) => i.ExpressionAttributeValues[':from']).IndexName).toBe('StatusScheduleIndex');
     const undated = q.find((i: any) => i.ExpressionAttributeValues[':unsched']);
     expect(undated.KeyConditionExpression).toBe('#pk = :pk AND begins_with(#sk, :unsched)');
     expect(undated.FilterExpression).toBe('#status = :active AND #createdAt BETWEEN :createdFrom AND :createdTo');
+  });
+
+  it('by created over months: every status read a month at a time, all at once', async () => {
+    dynamoDb.client.send.mockResolvedValue({ Items: [] });
+    await repository.readReportWindow('created', '2026-01-01', '2026-03-10', REPORT_PROJECTION);
+    const q = inputs().filter((i: any) => i.ExpressionAttributeValues[':pk'] === 'STATUS#canceled');
+    expect(q.map((i: any) => [i.ExpressionAttributeValues[':from'], i.ExpressionAttributeValues[':to']])).toEqual([
+      ['2026-01-01T05:00:00.000Z', '2026-02-01T05:00:00.000Z'],
+      ['2026-02-01T05:00:00.000Z', '2026-03-01T05:00:00.000Z'],
+      // The clock changes on Mar 8: Mar 11 begins at 04:00 UTC.
+      ['2026-03-01T05:00:00.000Z', '2026-03-11T04:00:00.000Z'],
+    ]);
   });
 
   it('by end: one query per month on the EndIndex, walked to the end of each', async () => {
@@ -146,5 +164,18 @@ describe('DealsRepository.readReportWindow', () => {
     await expect(repository.readReportWindow('created', '2026-01-01', '2026-12-31', REPORT_PROJECTION)).rejects.toBeInstanceOf(
       ReportWindowTooLargeError,
     );
+  });
+});
+
+describe('monthSlices', () => {
+  it('cuts a span at month ends, no gap and no overlap', () => {
+    expect(monthSlices('2026-01-15', '2026-03-02')).toEqual([
+      { from: '2026-01-15', to: '2026-01-31' },
+      { from: '2026-02-01', to: '2026-02-28' },
+      { from: '2026-03-01', to: '2026-03-02' },
+    ]);
+    expect(monthSlices('2024-02-10', '2024-02-29')).toEqual([{ from: '2024-02-10', to: '2024-02-29' }]);
+    expect(monthSlices('2025-01-01', '2025-12-31')).toHaveLength(12);
+    expect(monthSlices('2026-09-05', '2026-09-05')).toEqual([{ from: '2026-09-05', to: '2026-09-05' }]);
   });
 });
