@@ -4,7 +4,10 @@ import { Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMyContainer } from "../hooks";
-import { ContainerStockTab } from "./container-stock-tab";
+import { ContainerStockSkeleton, ContainerStockTab } from "./container-stock-tab";
+
+/** One header for both states: loading, it holds the loaded header's height. */
+const HEADER = "flex items-center gap-3 border-b px-6 py-4";
 
 export function MyContainerView() {
   const { data: container, isLoading, isError } = useMyContainer();
@@ -12,11 +15,16 @@ export function MyContainerView() {
   if (isLoading) {
     return (
       <div className="flex flex-1 flex-col">
-        <div className="border-b px-6 py-4">
-          <Skeleton className="h-6 w-40" />
+        <div data-testid="my-container-header" aria-busy="true" className={HEADER}>
+          <Skeleton className="size-9 flex-none rounded-lg" />
+          {/* The title's 28px line and the subtitle's 20px: 48px, as loaded. */}
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-4 w-56" />
+          </div>
         </div>
-        <div className="p-6">
-          <Skeleton className="h-64 w-full" />
+        <div className="mx-auto w-full max-w-4xl flex-1 overflow-y-auto px-6 py-6">
+          <ContainerStockSkeleton />
         </div>
       </div>
     );
@@ -35,7 +43,7 @@ export function MyContainerView() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b px-6 py-4">
+      <div data-testid="my-container-header" className={HEADER}>
         <span className="flex size-9 flex-none items-center justify-center rounded-lg bg-brand/10 text-brand">
           <Truck className="size-4.5" />
         </span>

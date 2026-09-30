@@ -4,6 +4,7 @@ import type { EnrichedStockRow } from "@/features/inventory/warehouses/lib";
 import { ContainerStockTab } from "./container-stock-tab";
 
 let rows: EnrichedStockRow[];
+let loading = false;
 const ROWS: EnrichedStockRow[] = [
   { productId: "p1", name: "Deadbolt", sku: "LOCK-1", category: "Locks", quantity: 6, unitPrice: 45, value: 270, minLevel: 10, isLow: true },
   { productId: "p2", name: "Key blank", sku: "KEY-1", category: "Keys", quantity: 120, unitPrice: 3, value: 360, minLevel: 0, isLow: false },
@@ -13,13 +14,14 @@ vi.mock("../hooks", () => ({
   useContainerStockView: () => ({
     rows,
     summary: { skuCount: 2, totalUnits: 126, totalValue: 630, lowCount: rows.filter((r) => r.isLow).length },
-    isLoading: false,
+    isLoading: loading,
     isError: false,
   }),
 }));
 
 beforeEach(() => {
   rows = ROWS;
+  loading = false;
 });
 
 /** The technician's own van: what is on it, read-only. */
@@ -107,5 +109,28 @@ describe("ContainerStockTab — a stable first frame", () => {
     for (const id of ["product", "category", "onHand", "unit", "value"]) {
       expect(screen.getByTestId(`resize-${id}`)).toBeInTheDocument();
     }
+  });
+});
+
+describe("ContainerStockTab — a long shelf, and its first frame", () => {
+  it("pages a long shelf instead of drawing it whole", () => {
+    rows = Array.from({ length: 60 }, (_, i) => ({
+      productId: `p${i}`,
+      name: `Part ${i}`,
+      quantity: 1,
+    })) as EnrichedStockRow[];
+    render(<ContainerStockTab containerId="c1" />);
+    expect(document.querySelectorAll("tbody tr")).toHaveLength(50);
+    expect(screen.getByText("Showing 1–50 of 60")).toBeInTheDocument();
+  });
+
+  // The endpoint sends no minimums, so the loaded view has three cards: a
+  // skeleton of four shrank into it.
+  it("loading, draws three cards and the table itself over a page of placeholder rows", () => {
+    loading = true;
+    render(<ContainerStockTab containerId="c1" />);
+    expect(screen.getAllByTestId("stat-skeleton")).toHaveLength(3);
+    expect([...document.querySelectorAll("thead th")].map((th) => th.textContent)).toContain("On hand");
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
   });
 });

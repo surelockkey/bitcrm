@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHeader, TableRow } from "@/components/ui/table";
 import { ResizableHead } from "@/components/ui/resizable-head";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useColumnWidths } from "@/lib/table/use-column-widths";
@@ -41,6 +41,7 @@ export function InventoryTable({
   skeletonRows = 0,
   stale = false,
   rowClassName = INVENTORY_ROW,
+  footer,
   children,
 }: {
   /** Where the reader's column widths are saved. */
@@ -52,6 +53,8 @@ export function InventoryTable({
   stale?: boolean;
   /** The height the table's own rows have, when taller than `INVENTORY_ROW`. */
   rowClassName?: string;
+  /** A totals row under the body, once there are rows to total. */
+  footer?: ReactNode;
   children?: ReactNode;
 }) {
   const defaults = useMemo(() => Object.fromEntries(columns.map((c) => [c.id, c.width])), [columns]);
@@ -85,6 +88,7 @@ export function InventoryTable({
         <TableBody className={cn(stale && "opacity-60 transition-opacity")}>
           {loading ? <SkeletonRows columns={columns.length} rows={skeletonRows} className={rowClassName} /> : children}
         </TableBody>
+        {footer && !loading ? <TableFooter>{footer}</TableFooter> : null}
       </Table>
     </TableFrame>
   );

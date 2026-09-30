@@ -54,4 +54,23 @@ describe("MyContainerView", () => {
     render(<MyContainerView />);
     expect(screen.getByText("No container assigned")).toBeInTheDocument();
   });
+
+  // Found in one frame and filled in the next, the page's header grew and a
+  // grey block turned into cards and a table.
+  it("while the van is found, draws its own header and the shelf's frame", () => {
+    mocks.mine = { isLoading: true, isError: false, data: undefined };
+    render(<MyContainerView />);
+    expect(screen.getByTestId("my-container-header")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getAllByTestId("stat-skeleton")).toHaveLength(3);
+    expect(screen.getAllByTestId("skeleton-row").length).toBeGreaterThan(0);
+  });
+
+  it("has the same header, loading and loaded", () => {
+    const loaded = render(<MyContainerView />);
+    const shape = screen.getByTestId("my-container-header").className;
+    loaded.unmount();
+    mocks.mine = { isLoading: true, isError: false, data: undefined };
+    render(<MyContainerView />);
+    expect(screen.getByTestId("my-container-header").className).toBe(shape);
+  });
 });
