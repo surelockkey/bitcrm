@@ -136,6 +136,15 @@ beforeEach(() => {
 const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
 
 describe("UserContainersPage — the users and their vans", () => {
+  // A new search holds the area the rows are drawn in, so the pager under it
+  // does not jump up into view (see ListBody).
+  it("draws its rows in the list's held area, with the pager under it", () => {
+    renderWithClient(<UserContainersPage />);
+    const area = document.querySelector("[data-slot=list-area]");
+    expect(area).toContainElement(screen.getByRole("table"));
+    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+  });
+
   it("lists the active users, a server page at a time", () => {
     renderWithClient(<UserContainersPage />);
     expect(mocks.userFilters.at(-1)).toEqual({ status: UserStatus.ACTIVE });

@@ -323,6 +323,15 @@ describe("ContainersPage — popups are driven by the URL", () => {
  * users — and then the whole page swapped for the fleet.
  */
 describe("ContainersPage — a stable first frame", () => {
+  // A new search holds the area the rows are drawn in, so the pager under it
+  // does not jump up into view (see ListBody).
+  it("draws its rows in the list's held area, with the pager under it", () => {
+    renderWithClient(<ContainersPage />);
+    const area = document.querySelector("[data-slot=list-area]");
+    expect(area).toContainElement(screen.getByRole("table"));
+    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+  });
+
   it("while permissions load, draws the fleet's frame and asks for nothing", () => {
     mocks.permsLoading = true;
     renderWithClient(<ContainersPage />);

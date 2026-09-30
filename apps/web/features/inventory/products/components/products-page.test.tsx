@@ -297,6 +297,15 @@ describe("ProductsPage — toolbar", () => {
  * and the categories answer.
  */
 describe("ProductsPage — a stable first frame", () => {
+  // A new search holds the area the rows are drawn in, so the pager under it
+  // does not jump up into view (see ListBody).
+  it("draws its rows in the list's held area, with the pager under it", () => {
+    renderWithClient(<ProductsPage />);
+    const area = document.querySelector("[data-slot=list-area]");
+    expect(area).toContainElement(screen.getByRole("table"));
+    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+  });
+
   const headers = () => [...document.querySelectorAll("thead th")].map((th) => th.getAttribute("aria-label"));
 
   it("draws the real table while the first page loads, with the pager's space held", () => {

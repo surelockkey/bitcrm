@@ -17,6 +17,7 @@ import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
 import { NoAccess } from "@/features/inventory/components/no-access";
+import { ListBody } from "@/features/inventory/components/list-body";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { useAllLocations } from "@/features/inventory/stock/hooks";
 import { useUrlPopups } from "@/features/inventory/use-url-popups";
@@ -58,6 +59,8 @@ function Templates() {
     resetKey: JSON.stringify({ status, pageSize }),
   });
   const templates = pager.items;
+  const failed = query.isError && !query.data;
+  const empty = !failed && !loading && templates.length === 0;
   const skeletonRows = useSkeletonRows(
     TEMPLATES_TABLE_KEY,
     pageSize,
@@ -105,46 +108,55 @@ function Templates() {
       </div>
 
       <div className="flex-1 px-6 pb-6">
-        {query.isError && !query.data ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-              <TriangleAlert className="size-6" />
-            </div>
-            <div className="font-medium">Couldn&apos;t load templates</div>
-            <Button variant="outline" onClick={() => query.refetch()}>
-              Retry
-            </Button>
-          </div>
-        ) : !loading && templates.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <ClipboardList className="size-6" />
-            </div>
-            <div>
-              <div className="font-medium">
-                {status === InventoryStatus.ACTIVE ? "No templates yet" : "No archived templates"}
+        <ListBody
+          holdKey={status}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {failed ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                <TriangleAlert className="size-6" />
               </div>
-              {status === InventoryStatus.ACTIVE ? (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  A template is a van&apos;s ideal loadout — make one, then apply it to any van.
-                </p>
-              ) : null}
+              <div className="font-medium">Couldn&apos;t load templates</div>
+              <Button variant="outline" onClick={() => query.refetch()}>
+                Retry
+              </Button>
             </div>
-          </div>
-        ) : (
-          <>
-            <TemplatesTable
-              templates={templates}
-              usedBy={usedBy}
-              usedByPending={locations.isLoading}
-              loading={loading}
-              skeletonRows={skeletonRows}
-              onEdit={(t) => popups.open("template", t.id)}
-              onApply={(t) => popups.open("apply", t.id)}
-            />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          ) : empty ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <ClipboardList className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">
+                  {status === InventoryStatus.ACTIVE ? "No templates yet" : "No archived templates"}
+                </div>
+                {status === InventoryStatus.ACTIVE ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    A template is a van&apos;s ideal loadout — make one, then apply it to any van.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <>
+              <TemplatesTable
+                templates={templates}
+                usedBy={usedBy}
+                usedByPending={locations.isLoading}
+                loading={loading}
+                skeletonRows={skeletonRows}
+                onEdit={(t) => popups.open("template", t.id)}
+                onApply={(t) => popups.open("apply", t.id)}
+              />
+            </>
+          )}
+        </ListBody>
       </div>
 
       {/* Mounted only while their param is set, so each opening reads fresh. */}

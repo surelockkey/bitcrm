@@ -39,6 +39,7 @@ import { pagedSource } from "@/lib/paging/paged-source";
 import { usePageSize } from "@/lib/paging/use-page-size";
 import { usePager } from "@/lib/paging/use-pager";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
+import { ListBody } from "@/features/inventory/components/list-body";
 
 const CONTAINERS_PATH = "/inventory/containers";
 
@@ -112,6 +113,7 @@ function Fleet() {
   const containers = pager.items;
   // Nothing on screen yet: the table draws itself, a page of skeleton rows tall.
   const loading = query.isLoading && !query.data;
+  const empty = !loading && containers.length === 0;
   const skeletonRows = useSkeletonRows(
     TABLE_KEY,
     pageSize,
@@ -161,36 +163,45 @@ function Fleet() {
       />
 
       <div className="flex-1 px-6 pb-6">
-        {!loading && containers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-              <Truck className="size-6" />
+        <ListBody
+          holdKey={JSON.stringify(filter)}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {empty ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-16 text-center">
+              <div className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+                <Truck className="size-6" />
+              </div>
+              <div>
+                <div className="font-medium">{filtered ? "No containers match" : "No containers"}</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {filtered
+                    ? "Try clearing your search or filter."
+                    : "A van appears here when a technician is activated."}
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="font-medium">{filtered ? "No containers match" : "No containers"}</div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {filtered
-                  ? "Try clearing your search or filter."
-                  : "A van appears here when a technician is activated."}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Loading, loaded or holding the last filter's rows — one table,
-                so nothing under it moves when the rows land. */}
-            <ContainersTable
-              containers={containers}
-              users={users}
-              loading={loading}
-              skeletonRows={skeletonRows}
-              stale={pager.isStale}
-              onEdit={(c) => popups.open("edit", c.id)}
-              onStock={(c) => popups.open("stock", c.id)}
-            />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          ) : (
+            <>
+              {/* Loading, loaded or holding the last filter's rows — one table,
+                  so nothing under it moves when the rows land. */}
+              <ContainersTable
+                containers={containers}
+                users={users}
+                loading={loading}
+                skeletonRows={skeletonRows}
+                stale={pager.isStale}
+                onEdit={(c) => popups.open("edit", c.id)}
+                onStock={(c) => popups.open("stock", c.id)}
+              />
+            </>
+          )}
+        </ListBody>
       </div>
 
       <ContainerCreateDialog open={createOpen} onOpenChange={setCreateOpen} />

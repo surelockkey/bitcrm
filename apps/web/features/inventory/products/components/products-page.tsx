@@ -14,6 +14,7 @@ import {
 import { InventoryStatus } from "@bitcrm/types";
 import type { Product } from "@bitcrm/types";
 import { useDenied, usePermissions } from "@/features/auth/use-permissions";
+import { ListBody } from "@/features/inventory/components/list-body";
 import { NoAccess } from "@/features/inventory/components/no-access";
 import { useSkeletonRows } from "@/features/inventory/components/use-skeleton-rows";
 import { ManageStockDialog } from "@/features/inventory/stock/components/manage-stock-dialog";
@@ -104,6 +105,8 @@ export function ProductsPage() {
   }
   // In place from the first frame, off until the permissions answer.
   const canCreate = permsLoading || can("products", "create");
+  const failed = query.isError && !query.data;
+  const empty = !failed && !loading && products.length === 0;
 
   const exportCsv = () =>
     downloadCsv(productsToCsv(products, { withCost: money }), "items.csv");
@@ -190,18 +193,26 @@ export function ProductsPage() {
 
       {/* Body */}
       <div className="flex-1 px-6 pb-6">
-        {query.isError && !query.data ? (
-          <ErrorState onRetry={() => query.refetch()} />
-        ) : !loading && products.length === 0 ? (
-          <EmptyState
-            filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
-            canCreate={can("products", "create")}
-            onCreate={() => popups.open("new")}
-          />
-        ) : (
-          <>
-            {/* Loading, loaded or holding the last filter's rows — one table,
-                so nothing under it moves when the rows land. */}
+        <ListBody
+          holdKey={JSON.stringify(filter)}
+          scrollKey={`${pager.page}:${pageSize}`}
+          pager={
+            failed || empty ? null : (
+              <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
+            )
+          }
+        >
+          {failed ? (
+            <ErrorState onRetry={() => query.refetch()} />
+          ) : empty ? (
+            <EmptyState
+              filtered={!!filter.search || !!filter.category || status !== InventoryStatus.ACTIVE}
+              canCreate={can("products", "create")}
+              onCreate={() => popups.open("new")}
+            />
+          ) : (
+            // Loading, loaded or holding the last filter's rows — one table,
+            // so nothing under it moves when the rows land.
             <ProductsTable
               products={products}
               showCost={permsLoading ? "pending" : money}
@@ -211,9 +222,8 @@ export function ProductsPage() {
               onEdit={(p: Product) => popups.open("edit", p.id)}
               onStock={(p: Product) => popups.open("stock", p.id)}
             />
-            <ListPagination pager={pager} size={pageSize} onSizeChange={setPageSize} reserveSpace />
-          </>
-        )}
+          )}
+        </ListBody>
       </div>
 
       <ImportProductsDialog open={importOpen} onOpenChange={setImportOpen} />

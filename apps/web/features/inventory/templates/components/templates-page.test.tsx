@@ -108,6 +108,15 @@ beforeEach(() => {
 const noScroll = { scroll: false };
 
 describe("TemplatesPage", () => {
+  // A new search holds the area the rows are drawn in, so the pager under it
+  // does not jump up into view (see ListBody).
+  it("draws its rows in the list's held area, with the pager under it", () => {
+    renderWithClient(<TemplatesPage />);
+    const area = document.querySelector("[data-slot=list-area]");
+    expect(area).toContainElement(screen.getByRole("table"));
+    expect(area).not.toContainElement(screen.getByTestId("list-pagination"));
+  });
+
   it("lists the active templates with how many vans use each", () => {
     renderWithClient(<TemplatesPage />);
     expect(mocks.statuses.at(-1)).toBe(InventoryStatus.ACTIVE);
