@@ -36,10 +36,10 @@ export const REPORT_TILES: { name: string; icon: LucideIcon; href?: string }[] =
   // Workiz opens these two on the pages of the same name.
   { name: "Estimates", icon: Paperclip, href: "/estimates" },
   { name: "Invoices", icon: Receipt, href: "/invoices" },
-  { name: "Aging invoices", icon: ReceiptText },
+  { name: "Aging invoices", icon: ReceiptText, href: "/reports/aging-invoices" },
   { name: "Items and services", icon: Barcode },
   { name: "Website requests", icon: Globe },
-  { name: "Tax", icon: Percent },
+  { name: "Tax", icon: Percent, href: "/reports/tax" },
   { name: "Call Tracking", icon: Phone },
   { name: "Inventory Usage", icon: Package },
   { name: "Franchise Report", icon: Building2 },
