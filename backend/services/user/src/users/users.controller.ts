@@ -74,7 +74,10 @@ export class UsersController {
   @RequirePermission("users", "view")
   @ApiOperation({
     summary: "List users with filters",
-    description: "**Guard:** `users.view` permission required.",
+    description:
+      "**Guard:** `users.view` permission required. Filters: `roleId` (the whole role, unpaged), " +
+      "`department`, `status`, and `search` — case-insensitive \"contains\" over first name, last " +
+      "name, full name and email, combinable with the others. A page never holds more than `limit` rows.",
   })
   async list(@Query() query: ListUsersQueryDto) {
     return this.usersService.list(query);
@@ -213,7 +216,7 @@ export class UsersController {
     summary: "How many users the list holds",
     description:
       "**Guard:** `users.view` permission required. Takes the same filters as the list " +
-      "(`roleId`, `department`, `status`; `cursor` and `limit` are ignored) and answers " +
+      "(`roleId`, `department`, `status`, `search`; `cursor` and `limit` are ignored) and answers " +
       "`{ total, atLeast }` — the row count behind \"Page 2 of 7\". `atLeast` means the walk " +
       "stopped on a ceiling, which the panel renders as `7+`. Cached for thirty seconds.",
   })

@@ -322,6 +322,110 @@ describe('UsersRepository', () => {
     });
   });
 
+  /**
+   * `search` — «містить» без регістру по імені/прізвищу/email. DynamoDB не
+   * вміє порівнювати без регістру, а список і так читає всю таблицю Scan-ом
+   * (індексу за іменем нема), тож фільтр іде поверх прочитаних рядків — ті
+   * самі читання, ні нового атрибута, ні backfill.
+   */
+  describe('search', () => {
+    const row = (id: string, firstName: string, lastName: string, email: string) => ({
+      PK: `USER#${id}`,
+      SK: 'METADATA',
+      id,
+      firstName,
+      lastName,
+      email,
+      status: 'active',
+    });
+    const rows = [
+      row('u-1', 'John', 'Smith', 'john@example.com'),
+      row('u-2', 'Anna', 'Blacksmith', 'anna@example.com'),
+      row('u-3', 'Bob', 'Brown', 'Bob.SMITH@example.com'),
+      row('u-4', 'Zed', 'Zulu', 'zed@example.com'),
+    ];
+
+    it('findByStatus keeps only the users whose name or email contains the term, any case', async () => {
+      dbClient.send.mockResolvedValue({ Items: rows });
+
+      const page = await repository.findByStatus(UserStatus.ACTIVE, 50, undefined, 'SMITH');
+
+      expect(page.items.map((u) => u.id)).toEqual(['u-1', 'u-2', 'u-3']);
+      // The status still rides on DynamoDB's own filter.
+      expect(dbClient.send.mock.calls[0][0].input.ExpressionAttributeValues[':status']).toBe('active');
+    });
+
+    it('findAll fills the page across reads with matches only, and cuts it at the limit', async () => {
+      dbClient.send
+        .mockResolvedValueOnce({ Items: [rows[0], rows[3]], LastEvaluatedKey: { PK: 'X#1' } })
+        .mockResolvedValueOnce({ Items: [rows[1], rows[2]] });
+
+      const page = await repository.findAll(2, undefined, 'smith');
+
+      expect(page.items.map((u) => u.id)).toEqual(['u-1', 'u-2']);
+      expect(JSON.parse(Buffer.from(page.nextCursor!, 'base64url').toString())).toEqual({
+        PK: 'USER#u-2',
+        SK: 'METADATA',
+      });
+    });
+
+    it('findByDepartment fills a searched page on the department index', async () => {
+      dbClient.send
+        .mockResolvedValueOnce({ Items: [rows[3]], LastEvaluatedKey: { PK: 'X#1' } })
+        .mockResolvedValueOnce({ Items: [rows[0]] });
+
+      const page = await repository.findByDepartment('HQ', 20, undefined, 'john');
+
+      expect(page.items.map((u) => u.id)).toEqual(['u-1']);
+      expect(page.nextCursor).toBeUndefined();
+      const input = dbClient.send.mock.calls[0][0].input;
+      expect(input.IndexName).toBe('DepartmentIndex');
+      expect(input.ExpressionAttributeValues[':pk']).toBe('DEPT#HQ');
+    });
+
+    it('a blank term is no search at all', async () => {
+      dbClient.send.mockResolvedValue({ Items: rows });
+
+      const page = await repository.findByStatus(UserStatus.ACTIVE, 50, undefined, '   ');
+
+      expect(page.items).toHaveLength(4);
+    });
+
+    it('counts the matches under the same filters, reading only the fields the match needs', async () => {
+      dbClient.send
+        .mockResolvedValueOnce({ Items: [rows[0], rows[3]], LastEvaluatedKey: { PK: 'X#1' } })
+        .mockResolvedValueOnce({ Items: [rows[1], rows[2]] });
+
+      expect(await repository.countByStatus(UserStatus.ACTIVE, 'smith')).toEqual({ total: 3, atLeast: false });
+      const input = dbClient.send.mock.calls[0][0].input;
+      expect(input.Select).toBeUndefined();
+      expect(input.ProjectionExpression).toBe('#firstName, #lastName, #email');
+      expect(input.FilterExpression).toContain('#status = :status');
+      expect(input.ExpressionAttributeNames).toMatchObject({
+        '#status': 'status',
+        '#firstName': 'firstName',
+        '#lastName': 'lastName',
+        '#email': 'email',
+      });
+    });
+
+    it('countAll and countByDepartment take the search too', async () => {
+      dbClient.send.mockResolvedValue({ Items: rows });
+
+      expect(await repository.countAll('zulu')).toEqual({ total: 1, atLeast: false });
+      expect(await repository.countByDepartment('HQ', 'example.com')).toEqual({ total: 4, atLeast: false });
+      expect(dbClient.send.mock.calls[1][0].input.IndexName).toBe('DepartmentIndex');
+    });
+
+    it('an unsearched count stays a bodiless COUNT', async () => {
+      dbClient.send.mockResolvedValue({ Count: 12 });
+
+      await repository.countByStatus(UserStatus.ACTIVE, '  ');
+
+      expect(dbClient.send.mock.calls[0][0].input.Select).toBe('COUNT');
+    });
+  });
+
   describe('update', () => {
     it('should build dynamic UpdateExpression and always include updatedAt', async () => {
       const updated = createMockUser({ firstName: 'Updated' });

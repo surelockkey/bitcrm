@@ -276,7 +276,32 @@ describe('UsersService', () => {
 
       await service.list({} as never);
 
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined);
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, undefined);
+    });
+
+    it('hands the search term to whichever list path the filters pick', async () => {
+      repository.findAll.mockResolvedValue(paginatedResult);
+      repository.findByStatus.mockResolvedValue(paginatedResult);
+      repository.findByDepartment.mockResolvedValue(paginatedResult);
+
+      await service.list({ search: 'smith' } as never);
+      await service.list({ status: UserStatus.ACTIVE, limit: 50, cursor: 'c-1', search: 'smith' } as never);
+      await service.list({ department: 'HQ', search: 'smith' } as never);
+
+      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, 'smith');
+      expect(repository.findByStatus).toHaveBeenCalledWith(UserStatus.ACTIVE, 50, 'c-1', 'smith');
+      expect(repository.findByDepartment).toHaveBeenCalledWith('HQ', 20, undefined, 'smith');
+    });
+
+    it('searches a role in memory — the role already comes back whole', async () => {
+      (repository as any).findByRoleId = jest.fn().mockResolvedValue([
+        createMockUser({ id: 'u-1', firstName: 'John', lastName: 'Smith' }),
+        createMockUser({ id: 'u-2', firstName: 'Zed', lastName: 'Zulu', email: 'zed@example.com' }),
+      ]);
+
+      const result = await service.list({ roleId: 'role-technician', search: 'SMI' } as never);
+
+      expect(result.data.map((u) => u.id)).toEqual(['u-1']);
     });
   });
 

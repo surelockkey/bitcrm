@@ -42,6 +42,7 @@ import { buildDefaultCommission } from '../technicians/commission/commission.def
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
+import { normalizeUserSearch, userMatchesSearch } from './user-search';
 import { RolesService } from '../roles/roles.service';
 import { RolesCacheService } from '../roles/roles-cache.service';
 import { PermissionResolverService } from '../roles/permission-resolver.service';
@@ -425,14 +426,15 @@ export class UsersService implements OnModuleInit {
   async count(query: ListUsersQueryDto): Promise<ListCount> {
     // `CountRowsResult`, not `ListCount`: the directory always has a number,
     // and `cachedCount` will not take the nullable form that billing needs.
+    const search = normalizeUserSearch(query.search);
     const take = async (): Promise<CountRowsResult> => {
       if (query.roleId) {
-        const items = await this.repository.findByRoleId(query.roleId);
+        const items = await this.findRole(query.roleId, search);
         return { total: items.length, atLeast: false };
       }
-      if (query.department) return this.repository.countByDepartment(query.department);
-      if (query.status) return this.repository.countByStatus(query.status);
-      return this.repository.countAll();
+      if (query.department) return this.repository.countByDepartment(query.department, search);
+      if (query.status) return this.repository.countByStatus(query.status, search);
+      return this.repository.countAll(search);
     };
 
     if (!this.redis) return take();
@@ -442,33 +444,51 @@ export class UsersService implements OnModuleInit {
         roleId: query.roleId,
         department: query.department,
         status: query.status,
+        search,
       }),
       COUNT_TTL_SECONDS,
       take,
     );
   }
 
+  /**
+   * A whole role (it is read whole, so it pages nowhere), narrowed to the
+   * search term in memory.
+   */
+  private async findRole(roleId: string, search: string | undefined): Promise<User[]> {
+    const items = await this.repository.findByRoleId(roleId);
+    return search ? items.filter((user) => userMatchesSearch(user, search)) : items;
+  }
+
+  /**
+   * `search` (case-insensitive, name or email) narrows whichever path the
+   * other filters pick; see `user-search.ts` for why it is matched here and
+   * not in DynamoDB.
+   */
   async list(query: ListUsersQueryDto) {
     const limit = query.limit ?? 20;
+    const search = normalizeUserSearch(query.search);
 
     let result: { items: User[]; nextCursor?: string };
 
     if (query.roleId) {
-      result = await this.repository.findByRoleId(query.roleId).then((items) => ({ items, nextCursor: undefined }));
+      result = { items: await this.findRole(query.roleId, search), nextCursor: undefined };
     } else if (query.department) {
       result = await this.repository.findByDepartment(
         query.department,
         limit,
         query.cursor,
+        search,
       );
     } else if (query.status) {
       result = await this.repository.findByStatus(
         query.status,
         limit,
         query.cursor,
+        search,
       );
     } else {
-      result = await this.repository.findAll(limit, query.cursor);
+      result = await this.repository.findAll(limit, query.cursor, search);
     }
 
     return {

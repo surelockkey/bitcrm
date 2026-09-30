@@ -11,10 +11,32 @@ import {
   DynamoDbService,
   scanPage,
   countRows,
+  type CountReadInput,
   type CountRowsResult,
+  type ScanReadInput,
+  type ScanReadOutput,
 } from '@bitcrm/shared';
 import { type User, UserStatus } from '@bitcrm/types';
 import { USERS_TABLE, GSI1_NAME, GSI2_NAME } from './constants/dynamo.constants';
+import { USER_SEARCH_ATTRIBUTES, normalizeUserSearch, userMatchesSearch } from './user-search';
+
+type Row = Record<string, unknown>;
+type RowRead = (input: ScanReadInput) => Promise<ScanReadOutput<Row>>;
+
+/** A read whose rows are cut down to the users the search term matches. */
+function searched(read: RowRead, term: string | undefined): RowRead {
+  if (!term) return read;
+  return async (input) => {
+    const out = await read(input);
+    return { ...out, Items: (out.Items ?? []).filter((row) => userMatchesSearch(row, term)) };
+  };
+}
+
+/** Projection of a searched count: the fields the match reads, nothing else. */
+const SEARCH_PROJECTION = {
+  ProjectionExpression: USER_SEARCH_ATTRIBUTES.map((a) => `#${a}`).join(', '),
+  names: Object.fromEntries(USER_SEARCH_ATTRIBUTES.map((a) => [`#${a}`, a])),
+};
 
 interface PaginatedResult {
   items: User[];
@@ -77,26 +99,102 @@ export class UsersRepository {
     };
   }
 
+  /**
+   * One department on the department index. Unsearched, one Query is exactly
+   * one page; searched, the match drops rows after the read, so the page is
+   * filled across reads like a filtered Scan, its cursor carrying the index keys.
+   */
   async findByDepartment(
     department: string,
     limit: number,
     cursor?: string,
+    search?: string,
   ): Promise<PaginatedResult> {
-    const result = await this.dynamoDb.client.send(
-      new QueryCommand({
-        TableName: USERS_TABLE,
-        IndexName: GSI2_NAME,
-        KeyConditionExpression: 'GSI2PK = :pk',
-        ExpressionAttributeValues: { ':pk': `DEPT#${department}` },
-        Limit: limit,
-        ExclusiveStartKey: this.decodeCursor(cursor),
-      }),
-    );
-
-    return {
-      items: (result.Items || []).map(this.toUser),
-      nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+    const query = {
+      TableName: USERS_TABLE,
+      IndexName: GSI2_NAME,
+      KeyConditionExpression: 'GSI2PK = :pk',
+      ExpressionAttributeValues: { ':pk': `DEPT#${department}` },
     };
+    const term = normalizeUserSearch(search);
+
+    if (!term) {
+      const result = await this.dynamoDb.client.send(
+        new QueryCommand({ ...query, Limit: limit, ExclusiveStartKey: this.decodeCursor(cursor) }),
+      );
+      return {
+        items: (result.Items || []).map(this.toUser),
+        nextCursor: this.encodeCursor(result.LastEvaluatedKey),
+      };
+    }
+
+    return this.fill(
+      (input) => this.dynamoDb.client.send(new QueryCommand({ ...query, ...input })),
+      limit,
+      cursor,
+      term,
+      (i) => ({ PK: i.PK, SK: i.SK, GSI2PK: i.GSI2PK, GSI2SK: i.GSI2SK }),
+    );
+  }
+
+  /**
+   * One page of user records, filled across reads — the filter (DynamoDB's,
+   * and the search on top) drops most of what a read returns — never longer
+   * than `limit`, with a cursor on the last row kept.
+   */
+  private async fill(
+    read: RowRead,
+    limit: number,
+    cursor: string | undefined,
+    term: string | undefined,
+    keyOf: (item: Row) => Row = (i) => ({ PK: i.PK, SK: i.SK }),
+  ): Promise<PaginatedResult> {
+    const page = await scanPage<Row>(searched(read, term), limit, {
+      startKey: this.decodeCursor(cursor),
+      keyOf,
+    });
+    return {
+      items: page.items.map(this.toUser),
+      nextCursor: this.encodeCursor(page.lastKey),
+    };
+  }
+
+  /**
+   * The Scan that selects user records — under a status when one is given —
+   * shared by the lists and their counts so they answer about the same rows.
+   */
+  private userScan(status?: UserStatus) {
+    return {
+      TableName: USERS_TABLE,
+      FilterExpression: status
+        ? 'begins_with(PK, :pk) AND SK = :sk AND #status = :status'
+        : 'begins_with(PK, :pk) AND SK = :sk',
+      ExpressionAttributeValues: {
+        ':pk': 'USER#',
+        ':sk': 'METADATA',
+        ...(status && { ':status': status }),
+      },
+      names: (status ? { '#status': 'status' } : {}) as Record<string, string>,
+    };
+  }
+
+  /**
+   * A count under the search term. `Select: 'COUNT'` cannot apply a match
+   * DynamoDB cannot express, so each read brings back the three fields the
+   * match needs and the matches are tallied here — the same reads, bounded
+   * the same way, as the bodiless count.
+   */
+  private countSearched(
+    send: (input: CountReadInput & { ProjectionExpression: string }) => Promise<ScanReadOutput<Row>>,
+    term: string,
+  ): Promise<CountRowsResult> {
+    return countRows(async (input) => {
+      const out = await send({ ...input, ProjectionExpression: SEARCH_PROJECTION.ProjectionExpression });
+      return {
+        Count: (out.Items ?? []).filter((row) => userMatchesSearch(row, term)).length,
+        LastEvaluatedKey: out.LastEvaluatedKey,
+      };
+    });
   }
 
   /* ---------------------------------------------------------- phone index */
@@ -143,27 +241,41 @@ export class UsersRepository {
    * mostly rows it will throw away. `scanPage` keeps reading until the page is
    * full; asking DynamoDB for `limit` once returned nine users out of a
    * hundred rows read, and every screen resolving a name through the directory
-   * fell back to "Unknown".
+   * fell back to "Unknown". `search` narrows the page further (see `user-search`).
    */
-  async findAll(limit: number, cursor?: string): Promise<PaginatedResult> {
-    const page = await scanPage<Record<string, unknown>>(
+  async findAll(limit: number, cursor?: string, search?: string): Promise<PaginatedResult> {
+    return this.findScanned(undefined, limit, cursor, search);
+  }
+
+  async findByStatus(
+    status: UserStatus,
+    limit: number,
+    cursor?: string,
+    search?: string,
+  ): Promise<PaginatedResult> {
+    return this.findScanned(status, limit, cursor, search);
+  }
+
+  private findScanned(
+    status: UserStatus | undefined,
+    limit: number,
+    cursor: string | undefined,
+    search: string | undefined,
+  ): Promise<PaginatedResult> {
+    const { names, ...scan } = this.userScan(status);
+    return this.fill(
       (input) =>
         this.dynamoDb.client.send(
           new ScanCommand({
-            TableName: USERS_TABLE,
-            FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-            ExpressionAttributeValues: { ':pk': 'USER#', ':sk': 'METADATA' },
+            ...scan,
+            ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
             ...input,
           }),
         ),
       limit,
-      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
+      cursor,
+      normalizeUserSearch(search),
     );
-
-    return {
-      items: page.items.map(this.toUser),
-      nextCursor: this.encodeCursor(page.lastKey),
-    };
   }
 
   /**
@@ -174,33 +286,32 @@ export class UsersRepository {
    * commission rows and profile all sit beside the user records, so counting
    * without a ceiling would read the lot on every page load.
    */
-  async countAll(): Promise<CountRowsResult> {
-    return countRows((input) =>
-      this.dynamoDb.client.send(
-        new ScanCommand({
-          TableName: USERS_TABLE,
-          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk',
-          ExpressionAttributeValues: { ':pk': 'USER#', ':sk': 'METADATA' },
-          Select: 'COUNT',
-          ...input,
-        }),
-      ),
-    );
+  async countAll(search?: string): Promise<CountRowsResult> {
+    return this.countScanned(undefined, search);
   }
 
   /** The same count under the list's status filter. */
-  async countByStatus(status: UserStatus): Promise<CountRowsResult> {
+  async countByStatus(status: UserStatus, search?: string): Promise<CountRowsResult> {
+    return this.countScanned(status, search);
+  }
+
+  private countScanned(status: UserStatus | undefined, search: string | undefined): Promise<CountRowsResult> {
+    const { names, ...scan } = this.userScan(status);
+    const term = normalizeUserSearch(search);
+    if (term) {
+      return this.countSearched(
+        (input) =>
+          this.dynamoDb.client.send(
+            new ScanCommand({ ...scan, ExpressionAttributeNames: { ...names, ...SEARCH_PROJECTION.names }, ...input }),
+          ),
+        term,
+      );
+    }
     return countRows((input) =>
       this.dynamoDb.client.send(
         new ScanCommand({
-          TableName: USERS_TABLE,
-          FilterExpression: 'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-          ExpressionAttributeNames: { '#status': 'status' },
-          ExpressionAttributeValues: {
-            ':pk': 'USER#',
-            ':sk': 'METADATA',
-            ':status': status,
-          },
+          ...scan,
+          ...(Object.keys(names).length > 0 && { ExpressionAttributeNames: names }),
           Select: 'COUNT',
           ...input,
         }),
@@ -209,50 +320,26 @@ export class UsersRepository {
   }
 
   /** One department, on the department index — a Query, so the cheap end. */
-  async countByDepartment(department: string): Promise<CountRowsResult> {
-    return countRows((input) =>
-      this.dynamoDb.client.send(
-        new QueryCommand({
-          TableName: USERS_TABLE,
-          IndexName: GSI2_NAME,
-          KeyConditionExpression: 'GSI2PK = :pk',
-          ExpressionAttributeValues: { ':pk': `DEPT#${department}` },
-          Select: 'COUNT',
-          ...input,
-        }),
-      ),
-    );
-  }
-
-  async findByStatus(
-    status: UserStatus,
-    limit: number,
-    cursor?: string,
-  ): Promise<PaginatedResult> {
-    const page = await scanPage<Record<string, unknown>>(
-      (input) =>
-        this.dynamoDb.client.send(
-          new ScanCommand({
-            TableName: USERS_TABLE,
-            FilterExpression:
-              'begins_with(PK, :pk) AND SK = :sk AND #status = :status',
-            ExpressionAttributeNames: { '#status': 'status' },
-            ExpressionAttributeValues: {
-              ':pk': 'USER#',
-              ':sk': 'METADATA',
-              ':status': status,
-            },
-            ...input,
-          }),
-        ),
-      limit,
-      { startKey: this.decodeCursor(cursor), keyOf: (i) => ({ PK: i.PK, SK: i.SK }) },
-    );
-
-    return {
-      items: page.items.map(this.toUser),
-      nextCursor: this.encodeCursor(page.lastKey),
+  async countByDepartment(department: string, search?: string): Promise<CountRowsResult> {
+    const query = {
+      TableName: USERS_TABLE,
+      IndexName: GSI2_NAME,
+      KeyConditionExpression: 'GSI2PK = :pk',
+      ExpressionAttributeValues: { ':pk': `DEPT#${department}` },
     };
+    const term = normalizeUserSearch(search);
+    if (term) {
+      return this.countSearched(
+        (input) =>
+          this.dynamoDb.client.send(
+            new QueryCommand({ ...query, ExpressionAttributeNames: SEARCH_PROJECTION.names, ...input }),
+          ),
+        term,
+      );
+    }
+    return countRows((input) =>
+      this.dynamoDb.client.send(new QueryCommand({ ...query, Select: 'COUNT', ...input })),
+    );
   }
 
   async update(id: string, attrs: Partial<User>): Promise<User> {

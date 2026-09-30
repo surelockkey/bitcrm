@@ -101,6 +101,47 @@ describe('UsersService.count', () => {
     expect(repository.countAll).toHaveBeenCalledTimes(1);
   });
 
+  it('counts under the search term on every path', async () => {
+    const { service, repository } = makeService();
+    repository.countAll.mockResolvedValue({ total: 3, atLeast: false });
+    repository.countByStatus.mockResolvedValue({ total: 2, atLeast: false });
+    repository.countByDepartment.mockResolvedValue({ total: 1, atLeast: false });
+
+    await service.count({ search: 'smith' } as never);
+    await service.count({ status: 'active', search: 'smith' } as never);
+    await service.count({ department: 'HQ', search: 'smith' } as never);
+
+    expect(repository.countAll).toHaveBeenCalledWith('smith');
+    expect(repository.countByStatus).toHaveBeenCalledWith('active', 'smith');
+    expect(repository.countByDepartment).toHaveBeenCalledWith('HQ', 'smith');
+  });
+
+  it('counts a searched role from the matching rows it already has', async () => {
+    const { service, repository } = makeService();
+    repository.findByRoleId.mockResolvedValue([
+      { id: 'u-1', firstName: 'John', lastName: 'Smith', email: 'j@example.com' },
+      { id: 'u-2', firstName: 'Zed', lastName: 'Zulu', email: 'z@example.com' },
+    ]);
+
+    await expect(service.count({ roleId: 'role-tech', search: 'zulu' } as never)).resolves.toEqual({
+      total: 1,
+      atLeast: false,
+    });
+  });
+
+  it('never answers a searched count from the unsearched one', async () => {
+    const { service, repository } = makeService();
+    repository.countByStatus
+      .mockResolvedValueOnce({ total: 585, atLeast: false })
+      .mockResolvedValueOnce({ total: 3, atLeast: false });
+
+    await service.count({ status: 'active' } as never);
+    await expect(service.count({ status: 'active', search: 'smith' } as never)).resolves.toEqual({
+      total: 3,
+      atLeast: false,
+    });
+  });
+
   it('counts again when the filters change', async () => {
     const { service, repository } = makeService();
     repository.countAll.mockResolvedValue({ total: 585, atLeast: false });
