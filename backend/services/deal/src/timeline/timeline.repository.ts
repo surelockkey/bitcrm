@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import {
   DeleteCommand,
   GetCommand,
@@ -7,31 +7,55 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { DynamoDbService } from '@bitcrm/shared';
-import { type TimelineEntry } from '@bitcrm/types';
+import { AccountClock, type TimelineEntry } from '@bitcrm/types';
 import { DEALS_TABLE } from '../common/constants/dynamo.constants';
+import { activityIndexFields } from '../activity/activity-index';
+import { currentActivitySource } from '../activity/activity-source';
+import { ActivityCountsRepository } from '../activity/activity-counts.repository';
 
 export interface PaginatedTimelineResult {
   items: TimelineEntry[];
   nextCursor?: string;
 }
 
+/** The account's calendar: an event's Activity day is its New York day. */
+const clock = new AccountClock();
+
+/**
+ * A job's events: `DEAL#<dealId>` / `TIMELINE#<timestamp>#<id>`.
+ *
+ * Every event is also an Activity report row: the write adds the sparse keys
+ * of the report's two indexes (GSI8 ActivityDayIndex by account day, GSI9
+ * ActorIndex by who did it — `activity/activity.constants.ts`), the search
+ * text and where it was done (web / mobile, from the request), and ticks the
+ * day's counter. Rows written before that get the keys from
+ * `backfill:activity-index`.
+ */
 @Injectable()
 export class TimelineRepository {
   private tableName = DEALS_TABLE;
 
-  constructor(private readonly dynamoDb: DynamoDbService) {}
+  constructor(
+    private readonly dynamoDb: DynamoDbService,
+    @Optional() private readonly activityCounts?: ActivityCountsRepository,
+  ) {}
 
   async addEntry(entry: TimelineEntry): Promise<void> {
+    const item: Record<string, unknown> = {
+      PK: `DEAL#${entry.dealId}`,
+      SK: `TIMELINE#${entry.timestamp}#${entry.id}`,
+      ...entry,
+    };
+    const activity = activityIndexFields(item, clock, currentActivitySource());
     await this.dynamoDb.client.send(
       new PutCommand({
         TableName: this.tableName,
-        Item: {
-          PK: `DEAL#${entry.dealId}`,
-          SK: `TIMELINE#${entry.timestamp}#${entry.id}`,
-          ...entry,
-        },
+        Item: { ...item, ...activity },
       }),
     );
+    if (activity && this.activityCounts) {
+      await this.activityCounts.add(activity.GSI8PK.slice('ACTDAY#'.length), 1);
+    }
   }
 
   /** Entries are keyed by timestamp + id, so point reads need both. */
@@ -68,9 +92,18 @@ export class TimelineRepository {
   }
 
   async deleteEntry(dealId: string, timestamp: string, id: string): Promise<void> {
-    await this.dynamoDb.client.send(
-      new DeleteCommand({ TableName: this.tableName, Key: this.key(dealId, timestamp, id) }),
+    const res = await this.dynamoDb.client.send(
+      new DeleteCommand({
+        TableName: this.tableName,
+        Key: this.key(dealId, timestamp, id),
+        ReturnValues: 'ALL_OLD',
+      }),
     );
+    // Only an event that was counted is uncounted.
+    const day = res?.Attributes?.GSI8PK;
+    if (typeof day === 'string' && this.activityCounts) {
+      await this.activityCounts.add(day.slice('ACTDAY#'.length), -1);
+    }
   }
 
   async findByDeal(
