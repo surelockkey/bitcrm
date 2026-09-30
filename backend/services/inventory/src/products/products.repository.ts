@@ -44,11 +44,12 @@ export interface PaginatedResult {
 }
 
 /**
- * The filters a list and its count share. Whichever of category / type picks
- * the index, every one of these is applied on top as a FilterExpression.
+ * The filters a list and its count share. Whichever partition picks the rows
+ * (a category, the stock-managed one, the Price Book one), every one of these
+ * is applied on top as a FilterExpression.
  */
 export interface ProductListFilters {
-  /** Only when category took the index; otherwise type IS the index. */
+  /** A filter on every path; only `findByType` (not on the public list) keys on it instead. */
   type?: string;
   status?: string;
   /** Matched against the lowercased `name` and `sku` (`searchName` / `searchSku`), case-insensitive. */

@@ -322,26 +322,23 @@ export class ProductsService {
   /**
    * Category picks the CategoryIndex; else `manageStock=true` picks the
    * stock-managed partition (Workiz's "inventory products", name order);
-   * else type picks the TypeIndex; else the list is a Scan. Every other given
-   * filter is applied on top, so Workiz's combinable filters ("this category,
-   * active, stock-managed") hold. `type` rides along as a filter only when
-   * category or the stock partition took the index.
+   * else the Price Book partition — every item, name order — is read. Every
+   * other given filter (type included) is applied on top, so Workiz's
+   * combinable filters ("this category, active, stock-managed") hold. The
+   * public list never Scans the shared table any more; `findAll` is left to
+   * the search indexer's internal walk.
    */
   async list(query: ListProductsQueryDto) {
     const { category, type, search, status, brandId, manageStock, limit = 20, cursor } = query;
-    const filters: ProductListFilters = { status, search, brandId, manageStock };
+    const filters: ProductListFilters = { type, status, search, brandId, manageStock };
 
     if (category) {
-      return this.repository.findByCategory(category, limit, cursor, { type, ...filters });
+      return this.repository.findByCategory(category, limit, cursor, filters);
     }
     if (manageStock === true) {
       return this.repository.findStockManaged(limit, cursor, { type, status, search, brandId });
     }
-    if (type) {
-      return this.repository.findByType(type, limit, cursor, filters);
-    }
-
-    return this.repository.findAll(limit, cursor, filters);
+    return this.repository.findCatalog(limit, cursor, filters);
   }
 
   /**
@@ -355,15 +352,14 @@ export class ProductsService {
    */
   async count(query: ListProductsQueryDto): Promise<ListCount> {
     const { category, type, search, status, brandId, manageStock } = query;
-    const filters: ProductListFilters = { status, search, brandId, manageStock };
+    const filters: ProductListFilters = { type, status, search, brandId, manageStock };
 
     const take = () => {
-      if (category) return this.repository.countByCategory(category, { type, ...filters });
+      if (category) return this.repository.countByCategory(category, filters);
       if (manageStock === true) {
         return this.repository.countStockManaged({ type, status, search, brandId });
       }
-      if (type) return this.repository.countByType(type, filters);
-      return this.repository.countAll(filters);
+      return this.repository.countCatalog(filters);
     };
 
     if (!this.redis) return take();

@@ -57,10 +57,12 @@ export class ProductsController {
     summary: 'List products with filters',
     description:
       '**Guard:** `products.view` permission required. Filters combine: `category` picks the ' +
-      'index, else `manageStock=true` reads the stock-managed partition (name order), else ' +
-      '`type`; the other filters (`status`, `search`, `brandId`, `type`, `manageStock`) apply on ' +
-      'top. On the stock-managed partition a page is filled across the whole partition, never ' +
-      'an empty page with a cursor.' + MONEY_NOTE,
+      'CategoryIndex, else `manageStock=true` reads the stock-managed partition (name order), ' +
+      'else the Price Book partition — every item, products and services, active and archived, ' +
+      'in name order; the other filters (`type`, `status`, `search`, `brandId`, `manageStock`) ' +
+      'apply on top. On both name-ordered partitions a filtered page is filled across the whole ' +
+      'partition, never an empty page with a cursor. A cursor is only good for the partition that ' +
+      'handed it out; any other is a 400.' + MONEY_NOTE,
   })
   async list(@Query() query: ListProductsQueryDto, @Req() req: any) {
     const { items, nextCursor } = await this.productsService.list(query);
@@ -80,7 +82,8 @@ export class ProductsController {
       '**Guard:** `products.view` permission required. Takes the same filters as the list ' +
       '(`category`, `type`, `status`, `search`, `brandId`, `manageStock`; `cursor` and `limit` ' +
       'are ignored) and answers ' +
-      '`{ total, atLeast }` — the row count behind "Page 2 of 7". `atLeast` means the walk ' +
+      '`{ total, atLeast }` — the row count behind "Page 2 of 7", read off the same partition ' +
+      'the list reads. `atLeast` means the walk ' +
       'stopped on a ceiling and the real number is higher, which the panel renders as `7+`. ' +
       'Cached for thirty seconds.',
   })

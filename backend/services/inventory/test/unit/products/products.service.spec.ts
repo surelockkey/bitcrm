@@ -350,40 +350,48 @@ describe('ProductsService', () => {
       });
     });
 
-    it('should delegate to findByType when type is provided', async () => {
+    // Price Book: тип — фільтр на розділі всіх позицій у порядку назви, а не
+    // TypeIndex (там порядок за id).
+    it('reads the Price Book partition with the type on top when only a type is given', async () => {
       const paginated = { items: [createMockProduct()], nextCursor: undefined };
-      repository.findByType.mockResolvedValue(paginated);
+      repository.findCatalog.mockResolvedValue(paginated);
 
       const result = await service.list({ type: 'product', limit: 20 } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findByType).toHaveBeenCalledWith('product', 20, undefined, {
+      expect(repository.findCatalog).toHaveBeenCalledWith(20, undefined, {
+        type: 'product',
         status: undefined,
         search: undefined,
         brandId: undefined,
         manageStock: undefined,
       });
+      expect(repository.findByType).not.toHaveBeenCalled();
     });
 
-    it('should delegate to findAll when no category or type', async () => {
-      const paginated = { items: [createMockProduct()], nextCursor: undefined };
-      repository.findAll.mockResolvedValue(paginated);
+    // Без фільтрів — весь каталог (16 142 позиції) в порядку назви, не Scan
+    // по спільній таблиці з 46 тис. рядків.
+    it('reads the Price Book partition when no category or type is given — never the Scan', async () => {
+      const paginated = { items: [createMockProduct()], nextCursor: 'c-2' };
+      repository.findCatalog.mockResolvedValue(paginated);
 
-      const result = await service.list({ limit: 20 } as any);
+      const result = await service.list({ limit: 20, cursor: 'c-1' } as any);
 
       expect(result).toEqual(paginated);
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+      expect(repository.findCatalog).toHaveBeenCalledWith(20, 'c-1', {
+        type: undefined,
         status: undefined,
         search: undefined,
         brandId: undefined,
         manageStock: undefined,
       });
+      expect(repository.findAll).not.toHaveBeenCalled();
     });
 
     /**
      * Фільтри Workiz складаються: категорія обирає індекс, а статус, пошук,
-     * бренд і "керується запасом" ідуть поверх нього. Без категорії індекс
-     * обирає тип; без обох — Scan.
+     * бренд і "керується запасом" ідуть поверх нього. Без категорії
+     * manageStock=true читає складський розділ, а все інше — розділ Price Book.
      */
     it('category + status: the category index, status on top', async () => {
       repository.findByCategory.mockResolvedValue({ items: [] });
@@ -413,16 +421,15 @@ describe('ProductsService', () => {
       expect(repository.findByType).not.toHaveBeenCalled();
     });
 
-    it('type + search: the type index, search on top', async () => {
-      repository.findByType.mockResolvedValue({ items: [] });
+    it('type + search: the Price Book partition, both on top', async () => {
+      repository.findCatalog.mockResolvedValue({ items: [] });
 
       await service.list({ type: 'product', search: 'lock', limit: 20 } as any);
 
-      expect(repository.findByType).toHaveBeenCalledWith(
-        'product',
+      expect(repository.findCatalog).toHaveBeenCalledWith(
         20,
         undefined,
-        expect.objectContaining({ search: 'lock' }),
+        expect.objectContaining({ type: 'product', search: 'lock' }),
       );
     });
 
@@ -449,6 +456,7 @@ describe('ProductsService', () => {
       });
       expect(repository.findAll).not.toHaveBeenCalled();
       expect(repository.findByType).not.toHaveBeenCalled();
+      expect(repository.findCatalog).not.toHaveBeenCalled();
     });
 
     it('manageStock=true with a category stays on the category index', async () => {
@@ -465,12 +473,13 @@ describe('ProductsService', () => {
       expect(repository.findStockManaged).not.toHaveBeenCalled();
     });
 
-    it('brandId alone goes to the scan', async () => {
-      repository.findAll.mockResolvedValue({ items: [] });
+    it('brandId alone goes to the Price Book partition', async () => {
+      repository.findCatalog.mockResolvedValue({ items: [] });
 
       await service.list({ brandId: 'brand-1', limit: 20 } as any);
 
-      expect(repository.findAll).toHaveBeenCalledWith(20, undefined, {
+      expect(repository.findCatalog).toHaveBeenCalledWith(20, undefined, {
+        type: undefined,
         status: undefined,
         search: undefined,
         brandId: 'brand-1',
@@ -478,17 +487,26 @@ describe('ProductsService', () => {
       });
     });
 
-    it('manageStock=false rides along on the type index', async () => {
-      repository.findByType.mockResolvedValue({ items: [] });
+    it('manageStock=false rides along on the Price Book partition, with every other filter', async () => {
+      repository.findCatalog.mockResolvedValue({ items: [] });
 
-      await service.list({ type: 'product', manageStock: false, limit: 20 } as any);
+      await service.list({
+        type: 'service',
+        manageStock: false,
+        status: 'archived',
+        search: 'rekey',
+        brandId: 'b-1',
+        limit: 50,
+      } as any);
 
-      expect(repository.findByType).toHaveBeenCalledWith(
-        'product',
-        20,
-        undefined,
-        expect.objectContaining({ manageStock: false }),
-      );
+      expect(repository.findCatalog).toHaveBeenCalledWith(50, undefined, {
+        type: 'service',
+        status: 'archived',
+        search: 'rekey',
+        brandId: 'b-1',
+        manageStock: false,
+      });
+      expect(repository.findStockManaged).not.toHaveBeenCalled();
     });
   });
 
@@ -981,14 +999,21 @@ describe('ProductsService', () => {
    * сторінки іншого набору.
    */
   describe('count', () => {
-    it('counts the scanned list when neither category nor type is set', async () => {
-      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+    it('counts the Price Book partition when neither category nor manageStock=true is set', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
 
       expect(await service.count({ status: 'active', search: 'lock' } as never)).toEqual({
         total: 47,
         atLeast: false,
       });
-      expect(repository.countAll).toHaveBeenCalledWith({ status: 'active', search: 'lock' });
+      expect(repository.countCatalog).toHaveBeenCalledWith({
+        type: undefined,
+        status: 'active',
+        search: 'lock',
+        brandId: undefined,
+        manageStock: undefined,
+      });
+      expect(repository.countAll).not.toHaveBeenCalled();
     });
 
     it('counts on the category index when a category is given, as the list does', async () => {
@@ -999,14 +1024,15 @@ describe('ProductsService', () => {
         'locks',
         expect.objectContaining({ status: undefined, search: undefined }),
       );
-      expect(repository.countAll).not.toHaveBeenCalled();
+      expect(repository.countCatalog).not.toHaveBeenCalled();
     });
 
-    it('counts on the type index when a type is given', async () => {
-      repository.countByType.mockResolvedValue({ total: 4, atLeast: false });
+    it('counts a type on the Price Book partition, as the list reads it', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 4, atLeast: false });
 
-      expect(await service.count({ type: 'part' } as never)).toEqual({ total: 4, atLeast: false });
-      expect(repository.countByType).toHaveBeenCalledWith('part', expect.any(Object));
+      expect(await service.count({ type: 'service' } as never)).toEqual({ total: 4, atLeast: false });
+      expect(repository.countCatalog).toHaveBeenCalledWith(expect.objectContaining({ type: 'service' }));
+      expect(repository.countByType).not.toHaveBeenCalled();
     });
 
     it('counts on the category index under the other filters, as the list does', async () => {
@@ -1036,15 +1062,16 @@ describe('ProductsService', () => {
         search: 'lock',
         brandId: 'b-1',
       });
-      expect(repository.countAll).not.toHaveBeenCalled();
+      expect(repository.countCatalog).not.toHaveBeenCalled();
     });
 
-    it('counts the scan under manageStock=false and brandId', async () => {
-      repository.countAll.mockResolvedValue({ total: 2, atLeast: false });
+    it('counts the Price Book partition under manageStock=false and brandId', async () => {
+      repository.countCatalog.mockResolvedValue({ total: 2, atLeast: false });
 
       await service.count({ manageStock: false, brandId: 'b-1' } as never);
 
-      expect(repository.countAll).toHaveBeenCalledWith({
+      expect(repository.countCatalog).toHaveBeenCalledWith({
+        type: undefined,
         status: undefined,
         search: undefined,
         brandId: 'b-1',
@@ -1053,32 +1080,32 @@ describe('ProductsService', () => {
     });
 
     it('carries the floor flag through', async () => {
-      repository.countAll.mockResolvedValue({ total: 10_000, atLeast: true });
+      repository.countCatalog.mockResolvedValue({ total: 10_000, atLeast: true });
 
       expect(await service.count({} as never)).toEqual({ total: 10_000, atLeast: true });
     });
 
     // Той самий екран з тими самими фільтрами не має перечитувати індекс.
     it('answers a repeat of the same question from the cache', async () => {
-      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
 
       await service.count({ status: 'active' } as never);
       await service.count({ status: 'active' } as never);
 
-      expect(repository.countAll).toHaveBeenCalledTimes(1);
+      expect(repository.countCatalog).toHaveBeenCalledTimes(1);
     });
 
     it('counts again when the filters change', async () => {
-      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
 
       await service.count({ status: 'active' } as never);
       await service.count({ status: 'archived' } as never);
 
-      expect(repository.countAll).toHaveBeenCalledTimes(2);
+      expect(repository.countCatalog).toHaveBeenCalledTimes(2);
     });
 
     it('a different manageStock or brandId is a different question', async () => {
-      repository.countAll.mockResolvedValue({ total: 47, atLeast: false });
+      repository.countCatalog.mockResolvedValue({ total: 47, atLeast: false });
       repository.countStockManaged.mockResolvedValue({ total: 3102, atLeast: false });
 
       await service.count({ manageStock: true } as never);
@@ -1087,7 +1114,7 @@ describe('ProductsService', () => {
       await service.count({ brandId: 'b-2' } as never);
 
       expect(repository.countStockManaged).toHaveBeenCalledTimes(1);
-      expect(repository.countAll).toHaveBeenCalledTimes(3);
+      expect(repository.countCatalog).toHaveBeenCalledTimes(3);
     });
   });
 
