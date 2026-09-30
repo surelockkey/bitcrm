@@ -30,6 +30,7 @@ import {
 import { publishInventoryEvent } from '../common/events/publish-inventory-event';
 import { ItemCategoriesService } from '../item-categories/item-categories.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
+import { itemSnapshot } from '../inventory-log/inventory-log.types';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
@@ -134,6 +135,7 @@ export class ProductsService {
       productId: product.id,
       productName: product.name,
       sku: product.sku,
+      ...itemSnapshot(product),
       ...who,
       ...extra,
     });

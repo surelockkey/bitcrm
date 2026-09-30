@@ -372,6 +372,25 @@ describe('InventoryLogService', () => {
       );
     });
 
+    it('passes the report filters — location, category, brand, several users — to the repository', async () => {
+      await service.list({
+        ...window,
+        userId: ['user-1', 'user-2'],
+        locationId: ['c-1'],
+        category: ['Locks'],
+        brandId: ['b-1', 'b-2'],
+      });
+
+      expect(repository.queryMonth).toHaveBeenCalledWith(
+        '2026-09',
+        window,
+        { userId: ['user-1', 'user-2'], locationId: ['c-1'], category: ['Locks'], brandId: ['b-1', 'b-2'] },
+        20,
+        undefined,
+        expect.any(Number),
+      );
+    });
+
     it('reads one product off the per-item index instead of walking months', async () => {
       repository.queryProduct.mockResolvedValue({
         items: [entry('p-1')],
@@ -540,8 +559,11 @@ describe('InventoryLogService', () => {
         await cached.count(window);
         await cached.count({ ...window, userId: 'user-1' });
         await cached.count({ ...window, action: InventoryLogAction.STOCK_USED });
+        await cached.count({ ...window, locationId: ['c-1'] });
+        await cached.count({ ...window, category: ['Locks'] });
+        await cached.count({ ...window, brandId: ['b-1'] });
 
-        expect(store.size).toBe(3);
+        expect(store.size).toBe(6);
       });
 
       it('shares one key for the default window whatever the millisecond', async () => {

@@ -205,6 +205,7 @@ describe('TransfersService', () => {
         toName: "Taras's van",
         userId: user.id,
         userName: user.email,
+        category: 'Locks',
       });
       expect(inventoryLog.record).toHaveBeenNthCalledWith(
         2,
@@ -475,7 +476,22 @@ describe('TransfersService', () => {
         userName: 'tech@test.com',
         unitPrice: 25,
         unitCost: 10,
+        category: 'Locks',
       });
+    });
+
+    // Вкладки Returns і Action log фільтрують за категорією й брендом —
+    // знімок товару, уже прочитаного для перевірок складу.
+    it('snapshots the category, brand and product number on the entry', async () => {
+      productsService.loadForStock.mockResolvedValue(
+        createMockProduct({ category: 'Keys', brandId: 'brand-9', number: 4242 }),
+      );
+
+      await service.deductStock(dto as any);
+
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'Keys', brandId: 'brand-9', number: 4242 }),
+      );
     });
 
     it('leaves price and cost off when the product is unknown here', async () => {
@@ -859,6 +875,7 @@ describe('TransfersService', () => {
         toName: 'Main Warehouse',
         userId: user.id,
         userName: user.email,
+        category: 'Locks',
       });
     });
 
@@ -998,6 +1015,26 @@ describe('TransfersService', () => {
         userId: user.id,
         userName: user.email,
       });
+    });
+
+    it('snapshots the returned item\'s category and brand for the Returns filters', async () => {
+      productsService.loadForStock.mockResolvedValue(
+        createMockProduct({ name: 'Deadbolt', category: 'Locks', brandId: 'brand-1', number: 17 }),
+      );
+
+      await service.returnStock(
+        { fromType: LocationType.CONTAINER, fromId: 'container-1', items, reason: ReturnReason.RECALL },
+        user,
+      );
+
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: InventoryLogAction.STOCK_RETURNED,
+          category: 'Locks',
+          brandId: 'brand-1',
+          number: 17,
+        }),
+      );
     });
 
     it('propagates insufficient stock and writes no transfer', async () => {

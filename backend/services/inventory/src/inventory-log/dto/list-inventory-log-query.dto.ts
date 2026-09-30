@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsEnum,
   IsInt,
   IsISO8601,
@@ -10,6 +11,7 @@ import {
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { InventoryLogAction } from '@bitcrm/types';
+import { MAX_FILTER_VALUES, QueryList } from '../../common/utils/query-list';
 
 export class ListInventoryLogQueryDto {
   @ApiPropertyOptional({
@@ -36,10 +38,49 @@ export class ListInventoryLogQueryDto {
   @IsString()
   productId?: string;
 
-  @ApiPropertyOptional({ description: 'Entries made by this user.' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Entries made by this user — repeat the parameter for any of several (Workiz "user").',
+  })
   @IsOptional()
-  @IsString()
-  userId?: string;
+  @QueryList()
+  @ArrayMaxSize(MAX_FILTER_VALUES)
+  @IsString({ each: true })
+  userId?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'A warehouse or container id, matched against both sides of the move (`fromId` or ' +
+      '`toId`); repeat for any of several (Workiz "Location").',
+  })
+  @IsOptional()
+  @QueryList()
+  @ArrayMaxSize(MAX_FILTER_VALUES)
+  @IsString({ each: true })
+  locationId?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Item category NAME, as the entry snapshotted it when it was written; repeat for any of ' +
+      'several. Entries written before the snapshot existed carry none and never match.',
+  })
+  @IsOptional()
+  @QueryList()
+  @ArrayMaxSize(MAX_FILTER_VALUES)
+  @IsString({ each: true })
+  category?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Item brand id, as snapshotted on the entry; repeat for any of several.',
+  })
+  @IsOptional()
+  @QueryList()
+  @ArrayMaxSize(MAX_FILTER_VALUES)
+  @IsString({ each: true })
+  brandId?: string[];
 
   @ApiPropertyOptional({ enum: InventoryLogAction })
   @IsOptional()

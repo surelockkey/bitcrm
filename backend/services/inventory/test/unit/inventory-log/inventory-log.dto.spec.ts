@@ -26,6 +26,27 @@ describe('ListInventoryLogQueryDto', () => {
     ).toEqual([]);
   });
 
+  // Мультиселект Workiz: повторений параметр (`?category=A&category=B`) — список,
+  // один параметр — список з одного. Коми не ріжуть: назва категорії може їх мати.
+  it('reads userId, locationId, category and brandId as lists', async () => {
+    const dto = plainToInstance(ListInventoryLogQueryDto, {
+      userId: 'user-1',
+      locationId: ['c-1', 'wh-1'],
+      category: 'Locks, Deadbolts',
+      brandId: ['b-1'],
+    });
+
+    expect(dto.userId).toEqual(['user-1']);
+    expect(dto.locationId).toEqual(['c-1', 'wh-1']);
+    expect(dto.category).toEqual(['Locks, Deadbolts']);
+    expect(dto.brandId).toEqual(['b-1']);
+    expect(await validate(dto)).toEqual([]);
+  });
+
+  it('caps each list at 50 values', async () => {
+    expect(await errorsFor({ locationId: Array.from({ length: 51 }, (_, i) => `c-${i}`) })).toEqual(['locationId']);
+  });
+
   it('rejects bounds that are not ISO 8601', async () => {
     expect(await errorsFor({ from: 'yesterday' })).toEqual(['from']);
     expect(await errorsFor({ to: '29/09/2026' })).toEqual(['to']);

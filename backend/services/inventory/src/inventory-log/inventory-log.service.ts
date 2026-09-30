@@ -12,6 +12,8 @@ import {
   type InventoryLogWindow,
 } from './inventory-log.repository';
 import { invlogMonth } from './inventory-log.constants';
+import { type InventoryLogRecord } from './inventory-log.types';
+import { asList } from '../common/utils/filter-expression';
 import {
   encodeCursor,
   monthsDescending,
@@ -26,7 +28,14 @@ export interface InventoryLogQuery {
   /** ISO 8601; inclusive — a date alone means the whole of that UTC day. Defaults to now. */
   to?: string;
   productId?: string;
-  userId?: string;
+  /** One user, or any of several. */
+  userId?: string | string[];
+  /** A location on either side of the move (`fromId` or `toId`); one or any of several. */
+  locationId?: string | string[];
+  /** Item category name snapshotted on the entry; one or any of several. */
+  category?: string | string[];
+  /** Item brand id snapshotted on the entry; one or any of several. */
+  brandId?: string | string[];
   action?: InventoryLogAction;
   search?: string;
   limit?: number;
@@ -106,8 +115,8 @@ export class InventoryLogService {
    * Best effort by design: an entry describes a write that already happened,
    * so a failed entry is a warning, never a failed product edit or stock move.
    */
-  async record(input: Omit<InventoryLogEntry, 'id' | 'createdAt'>): Promise<void> {
-    const entry: InventoryLogEntry = {
+  async record(input: Omit<InventoryLogRecord, 'id' | 'createdAt'>): Promise<void> {
+    const entry: InventoryLogRecord = {
       ...input,
       id: randomUUID(),
       createdAt: new Date().toISOString(),
@@ -208,10 +217,10 @@ export class InventoryLogService {
     if (!this.redis) return take();
     // Keyed on the query as given, not the resolved window: the default window
     // ends "now", and a key that changes every millisecond caches nothing.
-    const { from, to, productId, userId, action, search } = query;
+    const { from, to, productId, userId, locationId, category, brandId, action, search } = query;
     return cachedCount(
       this.redis.client,
-      countCacheKey('inventory-log', { from, to, productId, userId, action, search }),
+      countCacheKey('inventory-log', { from, to, productId, userId, locationId, category, brandId, action, search }),
       COUNT_TTL_SECONDS,
       take,
     );
@@ -255,6 +264,9 @@ export class InventoryLogService {
   private filtersOf(query: InventoryLogQuery): InventoryLogFilters {
     const filters: InventoryLogFilters = {};
     if (query.userId) filters.userId = query.userId;
+    if (asList(query.locationId).length > 0) filters.locationId = query.locationId;
+    if (asList(query.category).length > 0) filters.category = query.category;
+    if (asList(query.brandId).length > 0) filters.brandId = query.brandId;
     if (query.action) filters.action = query.action;
     if (query.search) filters.search = query.search;
     return filters;

@@ -32,6 +32,7 @@ import { LocationsRepository } from '../stock/locations.repository';
 import { ContainerAssignmentResolver } from '../user-containers/container-assignment.resolver';
 import { ProductsService } from '../products/products.service';
 import { InventoryLogService } from '../inventory-log/inventory-log.service';
+import { itemSnapshot } from '../inventory-log/inventory-log.types';
 import { CreateTransferDto } from './dto/create-transfer.dto';
 import { ReceiveStockDto } from './dto/receive-stock.dto';
 import { ReturnStockDto } from './dto/return-stock.dto';
@@ -468,10 +469,11 @@ export class TransfersService {
 
   /**
    * One audit-log line per item. The product is read again — the stock guards
-   * cached it a moment ago — for its name and SKU and, on a job use or
-   * restore, for the price and cost the "Inventory usage" report values it
-   * at. An id this service never persisted simply has none of those. Never
-   * fails the movement.
+   * cached it a moment ago — for its name and SKU, the category / brand /
+   * number snapshots the report filters read and, on a job use or restore,
+   * for the price and cost the "Inventory usage" report values it at. An id
+   * this service never persisted simply has none of those. Never fails the
+   * movement.
    */
   private async recordMovement(
     action: InventoryLogAction,
@@ -494,6 +496,7 @@ export class TransfersService {
         ...(withUnitValues && product
           ? { unitPrice: product.priceClient, unitCost: product.costCompany }
           : {}),
+        ...itemSnapshot(product),
       });
     }
   }

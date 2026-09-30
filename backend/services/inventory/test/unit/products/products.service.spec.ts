@@ -1133,9 +1133,25 @@ describe('ProductsService', () => {
         productId: result.id,
         productName: 'Test Product',
         sku: 'SKU-001',
+        category: 'Locks',
+        number: 1,
         userId: 'user-7',
         userName: 'tamir@test.com',
       });
+    });
+
+    // Фільтри Action log (категорія, бренд) читають знімок товару на записі.
+    it('snapshots the category, brand and product number on the entry', async () => {
+      cache.get.mockResolvedValue(createMockProduct({ name: 'Old' }));
+      repository.update.mockResolvedValue(
+        createMockProduct({ name: 'New', category: 'Keys', brandId: 'brand-9', number: 4242 }),
+      );
+
+      await service.update('prod-1', { name: 'New' } as any, actor);
+
+      expect(inventoryLog.record).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'Keys', brandId: 'brand-9', number: 4242 }),
+      );
     });
 
     it("falls back to 'system' when no actor is given", async () => {
@@ -1157,6 +1173,7 @@ describe('ProductsService', () => {
         productId: 'prod-1',
         productName: 'New',
         sku: 'SKU-001',
+        category: 'Locks',
         changedFields: ['name', 'priceClient'],
         userId: 'user-7',
         userName: 'tamir@test.com',

@@ -6,6 +6,7 @@ import {
   type CountRowsResult,
 } from '@bitcrm/shared';
 import { fillPage } from '../common/utils/fill-page';
+import { FilterBuilder, type FilterParts } from '../common/utils/filter-expression';
 import { InventoryLogAction, type InventoryLogEntry } from '@bitcrm/types';
 import { INVENTORY_TABLE, GSI4_NAME } from '../common/constants/dynamo.constants';
 import {
@@ -23,7 +24,14 @@ export interface InventoryLogWindow {
 }
 
 export interface InventoryLogFilters {
-  userId?: string;
+  /** One user or any of several. */
+  userId?: string | string[];
+  /** Matched against `fromId` OR `toId`. */
+  locationId?: string | string[];
+  /** The entry's item-category snapshot. */
+  category?: string | string[];
+  /** The entry's brand snapshot. */
+  brandId?: string | string[];
   action?: InventoryLogAction;
   search?: string;
 }
@@ -286,36 +294,18 @@ export class InventoryLogRepository {
     return { ':from': window.from, ':to': `${window.to}#~` };
   }
 
-  private filterParts(filters: InventoryLogFilters): {
-    expression?: string;
-    names?: Record<string, string>;
-    values: Record<string, unknown>;
-  } {
-    const parts: string[] = [];
-    const names: Record<string, string> = {};
-    const values: Record<string, unknown> = {};
-
-    if (filters.userId) {
-      parts.push('userId = :userId');
-      values[':userId'] = filters.userId;
-    }
-    if (filters.action) {
-      // `action` is a DynamoDB reserved word.
-      parts.push('#action = :action');
-      names['#action'] = 'action';
-      values[':action'] = filters.action;
-    }
+  private filterParts(filters: InventoryLogFilters): FilterParts {
+    const builder = new FilterBuilder()
+      .equalsAny('userId', filters.userId)
+      .eitherEqualsAny(['fromId', 'toId'], filters.locationId, 'locationId')
+      .equalsAny('category', filters.category)
+      .equalsAny('brandId', filters.brandId);
+    // `action` is a DynamoDB reserved word.
+    if (filters.action) builder.raw('#action = :action', { ':action': filters.action }, { '#action': 'action' });
     if (filters.search?.trim()) {
-      parts.push('contains(searchText, :search)');
-      values[':search'] = filters.search.trim().toLowerCase();
+      builder.raw('contains(searchText, :search)', { ':search': filters.search.trim().toLowerCase() });
     }
-
-    if (parts.length === 0) return { values };
-    return {
-      expression: parts.join(' AND '),
-      names: Object.keys(names).length > 0 ? names : undefined,
-      values,
-    };
+    return builder.build();
   }
 
   private toEntry(item: Record<string, unknown>): InventoryLogEntry {

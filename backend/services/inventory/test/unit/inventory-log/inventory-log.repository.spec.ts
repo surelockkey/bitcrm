@@ -283,6 +283,68 @@ describe('InventoryLogRepository', () => {
     });
   });
 
+  /**
+   * Фільтри звіту Workiz (TECHS / LOCATIONS / CATEGORY / BRAND — мультиселект):
+   * локація збігається і з fromId, і з toId; категорія й бренд — знімки
+   * товару на записі. Одне значення пишеться як раніше (`=`), кілька — `IN`.
+   */
+  describe('report filters', () => {
+    const inputOf = async (filters: Record<string, unknown>) => {
+      dynamoDb.client.send.mockResolvedValue({ Items: [] });
+      await repository.queryMonth('2026-09', window, filters as never, 10);
+      return dynamoDb.client.send.mock.calls[0][0].input;
+    };
+
+    it('matches a location on either side of the move', async () => {
+      const input = await inputOf({ locationId: 'c-1' });
+
+      expect(input.FilterExpression).toBe('(fromId = :locationId OR toId = :locationId)');
+      expect(input.ExpressionAttributeValues[':locationId']).toBe('c-1');
+    });
+
+    it('matches any of several locations, users, categories and brands', async () => {
+      const input = await inputOf({
+        userId: ['u-1', 'u-2'],
+        locationId: ['c-1', 'wh-1'],
+        category: ['Locks', 'Keys'],
+        brandId: ['b-1'],
+      });
+
+      expect(input.FilterExpression).toBe(
+        'userId IN (:userId0, :userId1) AND ' +
+          '(fromId IN (:locationId0, :locationId1) OR toId IN (:locationId0, :locationId1)) AND ' +
+          'category IN (:category0, :category1) AND brandId = :brandId',
+      );
+      expect(input.ExpressionAttributeValues).toEqual(
+        expect.objectContaining({
+          ':userId0': 'u-1',
+          ':userId1': 'u-2',
+          ':locationId0': 'c-1',
+          ':locationId1': 'wh-1',
+          ':category0': 'Locks',
+          ':category1': 'Keys',
+          ':brandId': 'b-1',
+        }),
+      );
+    });
+
+    it('treats an empty list as no filter', async () => {
+      const input = await inputOf({ category: [], userId: [] });
+
+      expect(input.FilterExpression).toBeUndefined();
+    });
+
+    it('counts under the same filters', async () => {
+      dynamoDb.client.send.mockResolvedValue({ Count: 1 });
+
+      await repository.countMonth('2026-09', window, { category: 'Locks', brandId: 'b-1' } as never);
+
+      expect(dynamoDb.client.send.mock.calls[0][0].input.FilterExpression).toBe(
+        'category = :category AND brandId = :brandId',
+      );
+    });
+  });
+
   describe('countMonth', () => {
     it('counts the month under the same key condition and filter, without bodies', async () => {
       dynamoDb.client.send.mockResolvedValue({ Count: 7 });
