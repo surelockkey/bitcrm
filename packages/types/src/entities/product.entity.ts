@@ -19,6 +19,12 @@ export interface Product {
    */
   number?: number;
   sku: string;
+  /**
+   * The SKU is an internal one: the item was saved without a SKU of its own
+   * (Workiz lets SKU / Model # stay empty), so BitCRM gave it `ITEM-<number>`.
+   * Screens show the field empty. Cleared when a SKU is typed in.
+   */
+  skuGenerated?: boolean;
   barcode?: string;
   name: string;
   description?: string;

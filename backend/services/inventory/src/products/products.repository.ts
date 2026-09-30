@@ -225,10 +225,17 @@ export class ProductsRepository {
    * taken (refused if another product holds it — a 409), the old claim is
    * dropped (only if it is this product's, or already gone), and the row's
    * `sku` / `searchSku` change — on condition the row still has the old SKU.
+   * `generated` marks the new SKU as an internal one (`skuGenerated`); any
+   * other SKU clears the mark.
    * Lines, transfers, templates and the log keep the SKU they were written
    * with, as they keep the name.
    */
-  async changeSku(id: string, from: string, to: string): Promise<void> {
+  async changeSku(
+    id: string,
+    from: string,
+    to: string,
+    { generated = false }: { generated?: boolean } = {},
+  ): Promise<void> {
     const { TransactWriteCommand } = await import('@aws-sdk/lib-dynamodb');
     try {
       await this.dynamoDb.client.send(
@@ -253,7 +260,11 @@ export class ProductsRepository {
               Update: {
                 TableName: INVENTORY_TABLE,
                 Key: { PK: `PRODUCT#${id}`, SK: 'METADATA' },
-                UpdateExpression: 'SET #sku = :to, searchSku = :search, updatedAt = :now',
+                // An internal SKU is marked so screens show the field empty;
+                // one the user typed clears the mark.
+                UpdateExpression: generated
+                  ? 'SET #sku = :to, searchSku = :search, updatedAt = :now, skuGenerated = :generated'
+                  : 'SET #sku = :to, searchSku = :search, updatedAt = :now REMOVE skuGenerated',
                 ConditionExpression: '#sku = :from',
                 ExpressionAttributeNames: { '#sku': 'sku' },
                 ExpressionAttributeValues: {
@@ -261,6 +272,7 @@ export class ProductsRepository {
                   ':from': from,
                   ':search': productSearchSku(to),
                   ':now': new Date().toISOString(),
+                  ...(generated ? { ':generated': true } : {}),
                 },
               },
             },

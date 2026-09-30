@@ -16,9 +16,17 @@ export class CreateProductDto {
   @IsString()
   name!: string;
 
-  @ApiProperty()
+  /**
+   * Optional, as Workiz's SKU / Model # is: left out or blank, the service
+   * gives the item an internal SKU (`ITEM-<number>`) and marks it
+   * `skuGenerated`, so screens show the field empty.
+   */
+  @ApiPropertyOptional({
+    description: 'Unique. Left out or blank ⇒ an internal SKU is generated (`skuGenerated: true`).',
+  })
+  @IsOptional()
   @IsString()
-  sku!: string;
+  sku?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

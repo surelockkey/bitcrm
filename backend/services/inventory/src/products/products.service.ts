@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -144,6 +145,25 @@ export function sameCustomAttributes(
   return entries(a) === entries(b);
 }
 
+/**
+ * An internal SKU for an item that has none of its own (Workiz lets SKU /
+ * Model # stay empty). Built from the item's number; `retry` adds a random
+ * tail for the rare clash with a SKU someone typed.
+ */
+export function internalSku(product: { id: string; number?: number }, retry = false): string {
+  const base = `ITEM-${product.number ?? product.id.slice(0, 8)}`;
+  return retry ? `${base}-${randomUUID().slice(0, 6)}` : base;
+}
+
+/**
+ * The importer's stand-in SKU: `WZ-<workiz id>`, written when the Workiz
+ * serial was empty, duplicated or too long (the serial itself, if any, is kept
+ * in `workizSerial`). Screens show the serial there, as Workiz does.
+ */
+export function isImporterSku(product: ProductWithExtras): boolean {
+  return product.sku.startsWith('WZ-') && product.workizSerial !== product.sku;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -233,10 +253,16 @@ export class ProductsService {
     if (patch) await this.assertKnownCustomAttributes(patch);
     const customAttributes = patch ? mergeCustomAttributes(undefined, patch) : null;
     const now = new Date().toISOString();
-    const product: Product = {
-      id: randomUUID(),
-      number: await this.repository.nextNumber(),
+    const id = randomUUID();
+    const number = await this.repository.nextNumber();
+    // No SKU of its own (left out or blank): an internal one, marked.
+    const generated = !(typeof fields.sku === 'string' && fields.sku.trim());
+    let product: Product = {
+      id,
+      number,
       ...fields,
+      sku: generated ? internalSku({ id, number }) : (fields.sku as string),
+      ...(generated ? { skuGenerated: true } : {}),
       ...(customAttributes ? { customAttributes } : {}),
       category: await this.prepareCategory(dto.category),
       taxable: dto.taxable ?? true,
@@ -246,7 +272,15 @@ export class ProductsService {
       updatedAt: now,
     };
 
-    await this.repository.create(product);
+    try {
+      await this.repository.create(product);
+    } catch (error) {
+      // A typed SKU that clashes is the caller's 409; an internal one that
+      // happens to be taken gets a random tail and one more go.
+      if (!generated || !(error instanceof ConflictException)) throw error;
+      product = { ...product, sku: internalSku({ id, number }, true) };
+      await this.repository.create(product);
+    }
     publishInventoryEvent(this.snsPublisher, this.logger, 'product.created', {
       productId: product.id,
     });
@@ -429,6 +463,34 @@ export class ProductsService {
     );
   }
 
+  /**
+   * The SKU part of an edit; answers whether the SKU itself changed.
+   * - the same SKU: nothing;
+   * - another SKU: the claim moves (a taken one is a 409) and an internal
+   *   mark is cleared;
+   * - blank: the item keeps an internal SKU it already has (the importer's
+   *   `WZ-…` included), only marked; one the user had typed is replaced by a
+   *   new internal SKU.
+   */
+  private async applySku(existing: Product, next: string): Promise<boolean> {
+    if (next === existing.sku) return false;
+    if (next) {
+      await this.repository.changeSku(existing.id, existing.sku, next);
+      return true;
+    }
+    if (existing.skuGenerated || isImporterSku(existing as ProductWithExtras)) {
+      if (!existing.skuGenerated) await this.repository.update(existing.id, { skuGenerated: true });
+      return false;
+    }
+    try {
+      await this.repository.changeSku(existing.id, existing.sku, internalSku(existing), { generated: true });
+    } catch (error) {
+      if (!(error instanceof ConflictException)) throw error;
+      await this.repository.changeSku(existing.id, existing.sku, internalSku(existing, true), { generated: true });
+    }
+    return true;
+  }
+
   async update(id: string, dto: UpdateProductDto, actor?: JwtUser): Promise<Product> {
     const { product, changedFields } = await this.applyUpdate(id, dto);
     // An edit that changed nothing is not a line in the log.
@@ -454,13 +516,9 @@ export class ProductsService {
     const attrs: Partial<Product> = { ...fields };
     // A new SKU moves the product's SKU claim first, so a SKU another item
     // holds is refused (409) before anything else is written. The same SKU
-    // sent back is no change.
-    const newSku = typeof sku === 'string' ? sku.trim() : undefined;
-    const skuChanged = newSku !== undefined && newSku !== existing.sku;
-    if (skuChanged) {
-      if (!newSku) throw new BadRequestException("SKU can't be empty");
-      await this.repository.changeSku(id, existing.sku, newSku);
-    }
+    // sent back is no change. A blank one means "no SKU of its own", as an
+    // emptied Workiz SKU / Model # does: an internal SKU, marked.
+    const skuChanged = typeof sku === 'string' ? await this.applySku(existing, sku.trim()) : false;
     if (patch !== undefined) {
       // A patch, merged over what the item holds: the values it does not name
       // are kept. Written only when something actually changes; nothing left

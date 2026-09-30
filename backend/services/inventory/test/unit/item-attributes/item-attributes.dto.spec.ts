@@ -53,6 +53,12 @@ describe('customAttributes on the product DTOs', () => {
     minimumStockLevel: 0,
   };
 
+  it('create takes no SKU at all (the service makes an internal one), or a text one', async () => {
+    const { sku: _sku, ...withoutSku } = product;
+    expect(await errorsFor(CreateProductDto, withoutSku)).toEqual([]);
+    expect(await errorsFor(CreateProductDto, { ...product, sku: 5 })).toEqual(['sku']);
+  });
+
   it('create accepts a name → text map', async () => {
     expect(
       await errorsFor(CreateProductDto, { ...product, customAttributes: { Link_UHS: 'https://x' } }),
