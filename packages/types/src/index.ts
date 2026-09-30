@@ -538,3 +538,25 @@ export {
   dashboardWindow,
   msUntilDailyAt,
 } from './dashboard/time';
+
+// Reports — the Workiz Jobs report (`GET /deals/report`)
+export {
+  JOBS_REPORT_BY,
+  JOBS_REPORT_BY_LABEL,
+  JOBS_REPORT_COLUMNS,
+  JOBS_REPORT_COLUMN_IDS,
+  JOBS_REPORT_DEFAULT_COLUMNS,
+  JOBS_REPORT_DEFAULT_SETTINGS,
+  JOBS_REPORT_MAX_DAYS,
+  JOBS_REPORT_MAX_PAGE_SIZE,
+} from './reports/jobs-report';
+export type {
+  JobsReportBy,
+  JobsReportColumnId,
+  JobsReportFilters,
+  JobsReportOrigin,
+  JobsReportPage,
+  JobsReportPagination,
+  JobsReportRow,
+  JobsReportSettings,
+} from './reports/jobs-report';

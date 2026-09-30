@@ -30,14 +30,25 @@ import { DealTaxResolver } from './billing/deal-tax.resolver';
 import { DealDashboardController } from './dashboard/deal-dashboard.controller';
 import { DealDashboardService } from './dashboard/deal-dashboard.service';
 import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.scheduler';
+import { JobsReportController } from './report/jobs-report.controller';
+import { JobsReportService } from './report/jobs-report.service';
+import { JobsReportSettingsRepository } from './report/jobs-report-settings.repository';
 
 @Module({
   imports: [ServiceAreasModule, JobTypesModule, JobSourcesModule, ExternalCompaniesModule, JobTagsModule, JobStatusesModule, JobFieldSettingsModule, CustomFieldsModule, TechnicianEligibilityModule, TaxRatesModule, BusinessProfilesClientModule],
   // Attachments and billing controllers before Deals so their `/:id/...` and
   // `internal/:id/...` routes are matched ahead of DealsController's; the
   // live stream too, or `GET /:id` would take `/stream`; the dashboard's
-  // `stats/*` too, ahead of the `:id/…` routes.
-  controllers: [DealEventsController, DealAttachmentsController, DealBillingController, DealDashboardController, DealsController],
+  // `stats/*` too, ahead of the `:id/…` routes; the Jobs report's `report/*`
+  // likewise.
+  controllers: [
+    DealEventsController,
+    DealAttachmentsController,
+    DealBillingController,
+    DealDashboardController,
+    JobsReportController,
+    DealsController,
+  ],
   providers: [
     DealsService,
     DealsRepository,
@@ -54,6 +65,8 @@ import { DashboardSnapshotScheduler } from './dashboard/dashboard-snapshot.sched
     DealBillingService,
     DealDashboardService,
     DashboardSnapshotScheduler,
+    JobsReportService,
+    JobsReportSettingsRepository,
   ],
   exports: [DealsService, DealsEventHandler],
 })

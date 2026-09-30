@@ -32,6 +32,11 @@ locals {
       # ClosedIndex is sparse — closed deals only, one partition a month
       # (CLOSED#<YYYY-MM> / <closedAt>#DEAL#<id>) — for the report's "By: Job closed".
       { name = "ClosedIndex", n = 6 },
+      # EndIndex keys the visit's END on the account's clock, one partition a
+      # month (END#<YYYY-MM> / <YYYY-MM-DDTHH:MM>#DEAL#<id>) — the Jobs report's
+      # "By: Job end date" (Workiz report_by=3). Rows written before it existed
+      # need `npm run backfill:end-index -w backend/services/deal -- --apply`.
+      { name = "EndIndex", n = 7 },
     ] }
     # One item per call (PK=CALL#<sid>, SK=METADATA). AgentIndex is an agent's
     # own history; AllCallsIndex is the global time-ordered log the calls page
