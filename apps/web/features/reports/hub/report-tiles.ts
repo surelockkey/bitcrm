@@ -54,7 +54,7 @@ export const REPORT_TILES: readonly ReportTile[] = [
   { name: "Jobs", icon: Wrench, href: "/reports/jobs" },
   { name: "Performance Pay", icon: Calculator },
   { name: "Sales", icon: Wallet, href: "/reports/sales" },
-  { name: "Tips", icon: Wallet },
+  { name: "Tips", icon: Wallet, href: "/reports/tips" },
   { name: "Job Statistics", icon: ChartColumnIncreasing, href: "/reports/job-statistics" },
   { name: "Leads Report", icon: Banknote },
   // Workiz's `/root/payments` — the sidebar's Payments page is the report.
@@ -65,7 +65,7 @@ export const REPORT_TILES: readonly ReportTile[] = [
   { name: "Estimates", icon: Paperclip, href: "/estimates", requires: [["estimates", "view"]] },
   { name: "Invoices", icon: Receipt, href: "/invoices", requires: [["invoices", "view"]] },
   { name: "Aging invoices", icon: Receipt, href: "/reports/aging-invoices", requires: [["invoices", "view"]] },
-  { name: "Timesheets", icon: Clock3 },
+  { name: "Timesheets", icon: Clock3, href: "/reports/timesheets" },
   { name: "Items and services", icon: Barcode, href: "/reports/items" },
   { name: "Website requests", icon: Globe },
   { name: "Tax", icon: Percent, href: "/reports/tax", requires: [["financials", "view"]] },

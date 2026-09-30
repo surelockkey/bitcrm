@@ -48,11 +48,13 @@ const ROUTES: Record<string, string> = {
   "Call Tracking": "/reports/call-tracking", // #88
   "Inventory Usage": "/reports/inventory-usage", // web/inventory-report
   "Commissions (Legacy)": "/reports/commission", // #85
+  Timesheets: "/reports/timesheets", // #94
+  Tips: "/reports/tips", // in progress
 };
 
 /** Reports BitCRM has no page for and nobody is building. */
 const NOT_IN_BITCRM = [
-  "Performance Pay", "Tips", "Leads Report", "Expenses", "Timesheets",
+  "Performance Pay", "Leads Report", "Expenses",
   "Website requests", "Franchise Report", "Tasks", "Equipment", "Service Plans",
 ];
 
