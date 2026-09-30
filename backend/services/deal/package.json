@@ -12,6 +12,7 @@
     "test:integration": "NODE_OPTIONS='--experimental-vm-modules' jest --config test/integration/jest-integration.json",
     "test:e2e": "NODE_OPTIONS='--experimental-vm-modules' jest --config test/e2e/jest-e2e.json --forceExit",
     "setup:db": "ts-node src/scripts/setup-dynamodb.ts",
+    "verify:tips-report": "ts-node src/scripts/verify-tips-report.ts",
     "backfill:geo": "ts-node src/scripts/backfill-geo.ts",
     "backfill:service-areas": "ts-node src/scripts/backfill-service-areas.ts",
     "backfill:deal-product-fulfillment": "ts-node src/scripts/backfill-deal-product-fulfillment.ts",
